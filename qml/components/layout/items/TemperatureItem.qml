@@ -10,9 +10,9 @@ Item {
 
     readonly property double effectiveTargetTemp: Settings.hasTemperatureOverride
         ? Settings.temperatureOverride
-        : MainController.profileTargetTemperature
+        : ProfileManager.profileTargetTemperature
     readonly property bool isRealOverride: Settings.hasTemperatureOverride &&
-        Math.abs(Settings.temperatureOverride - MainController.profileTargetTemperature) > 0.1
+        Math.abs(Settings.temperatureOverride - ProfileManager.profileTargetTemperature) > 0.1
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

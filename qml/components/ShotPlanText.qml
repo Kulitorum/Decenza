@@ -12,8 +12,8 @@ Text {
     font: Theme.bodyFont
     color: mouseArea.pressed ? Theme.accentColor : Theme.textSecondaryColor
 
-    property string profileName: MainController.currentProfileName
-    property double profileTemp: MainController.profileTargetTemperature
+    property string profileName: ProfileManager.currentProfileName
+    property double profileTemp: ProfileManager.profileTargetTemperature
     property double overrideTemp: Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemp
     property string beanName: {
         // Always use the live DYE fields (brand + type) — same source as BrewDialog.
@@ -24,7 +24,7 @@ Text {
     }
     property string grindSize: Settings.dyeGrinderSetting
     property double dose: Settings.dyeBeanWeight
-    property double targetWeight: MainController.targetWeight
+    property double targetWeight: ProfileManager.targetWeight
 
     text: {
         var parts = []

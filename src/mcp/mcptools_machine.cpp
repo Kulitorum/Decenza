@@ -4,22 +4,24 @@
 #include "../machine/machinestate.h"
 #include "../models/shotdatamodel.h"
 #include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
 
 void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
-                          MachineState* machineState, MainController* mainController)
+                          MachineState* machineState, MainController* mainController,
+                          ProfileManager* profileManager)
 {
     // machine_get_state
     registry->registerTool(
         "machine_get_state",
         "Get current machine state: phase, connection status, readiness, heating, water level, firmware version",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [device, machineState, mainController](const QJsonObject&) -> QJsonObject {
+        [device, machineState, profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (mainController) {
-                result["activeProfile"] = mainController->currentProfileName();
+            if (profileManager) {
+                result["activeProfile"] = profileManager->currentProfileName();
             }
             if (machineState) {
                 result["phase"] = machineState->phaseString();

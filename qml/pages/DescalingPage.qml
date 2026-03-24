@@ -15,7 +15,7 @@ Page {
     // Restore normal operation when leaving descale page
     Component.onDestruction: {
         Settings.steamDisabled = false
-        MainController.uploadCurrentProfile()
+        ProfileManager.uploadCurrentProfile()
     }
 
     property bool isDescaling: MachineState.phase === MachineStateType.Phase.Descaling

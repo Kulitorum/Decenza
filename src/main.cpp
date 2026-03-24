@@ -578,7 +578,7 @@ int main(int argc, char *argv[])
 
                          // Build frame exit weights and preinfuse count from current profile
                          QVector<double> frameExitWeights;
-                         const Profile& profile = mainController.currentProfile();
+                         const Profile& profile = mainController.profileManager()->currentProfile();
                          int preinfuseFrameCount = profile.preinfuseFrameCount();
                          {
                              const auto& steps = profile.steps();
@@ -835,7 +835,7 @@ int main(int argc, char *argv[])
         qWarning() << "DatabaseBackupManager: Backup failed:" << error;
     });
     QObject::connect(&backupManager, &DatabaseBackupManager::profilesRestored,
-                     &mainController, &MainController::refreshProfiles);
+                     mainController.profileManager(), &ProfileManager::refreshProfiles);
     QObject::connect(&backupManager, &DatabaseBackupManager::mediaRestored,
                      &screensaverManager, &ScreensaverVideoManager::reloadPersonalMedia);
     backupManager.start();
@@ -1252,6 +1252,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("MachineState", &machineState);
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("MainController", &mainController);
+    context->setContextProperty("ProfileManager", mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("BatteryManager", &batteryManager);
     context->setContextProperty("MemoryMonitor", &memoryMonitor);
@@ -1351,12 +1352,13 @@ int main(int argc, char *argv[])
         // Set simulator on DE1Device so commands are relayed to it
         de1Device.setSimulator(&de1Simulator);
 
-        // Give it the current profile from MainController
-        QObject::connect(&mainController, &MainController::currentProfileChanged, [&de1Simulator, &mainController]() {
-            de1Simulator.setProfile(mainController.currentProfileObject());
+        // Give it the current profile from ProfileManager
+        auto* pm = mainController.profileManager();
+        QObject::connect(pm, &ProfileManager::currentProfileChanged, [&de1Simulator, pm]() {
+            de1Simulator.setProfile(pm->currentProfileObject());
         });
         // Set initial profile
-        de1Simulator.setProfile(mainController.currentProfileObject());
+        de1Simulator.setProfile(pm->currentProfileObject());
 
         // Connect dose from settings (affects puck resistance simulation)
         QObject::connect(&settings, &Settings::dyeBeanWeightChanged, [&de1Simulator, &settings]() {

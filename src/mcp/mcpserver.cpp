@@ -6,6 +6,7 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/blemanager.h"
 
@@ -18,7 +19,8 @@
 
 // Tool registration functions (implemented in mcptools_*.cpp)
 void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
-                          MachineState* machineState, MainController* mainController);
+                          MachineState* machineState, MainController* mainController,
+                          ProfileManager* profileManager);
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
 class ProfileManager;
 void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
@@ -47,7 +49,7 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
 class MemoryMonitor;
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor);
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
-                          MachineState* machineState, MainController* mainController,
+                          MachineState* machineState, ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor);
 
 McpServer::McpServer(QObject* parent)
@@ -73,7 +75,7 @@ McpServer::McpServer(QObject* parent)
 
 void McpServer::registerAllTools()
 {
-    registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController);
+    registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController, m_profileManager);
     registerShotTools(m_toolRegistry, m_shotHistory);
     registerProfileTools(m_toolRegistry, m_profileManager);
     registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
@@ -91,7 +93,7 @@ void McpServer::registerAllTools()
 
 void McpServer::registerAllResources()
 {
-    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_mainController, m_shotHistory, m_memoryMonitor);
+    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_profileManager, m_shotHistory, m_memoryMonitor);
     qDebug() << "McpServer: Registered" << m_resourceRegistry->listResources().size() << "resources";
 }
 
@@ -105,8 +107,8 @@ void McpServer::connectSseNotifications()
     }
 
     // Profile changed → decenza://profiles/active
-    if (m_mainController) {
-        connect(m_mainController, &MainController::currentProfileChanged, this, [this]() {
+    if (m_profileManager) {
+        connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
             broadcastSseNotification("decenza://profiles/active");
         });
     }

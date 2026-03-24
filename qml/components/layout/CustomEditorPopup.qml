@@ -172,7 +172,7 @@ Dialog {
         // Handle parameterized actions like command:loadProfile:<name>
         if (actionId.indexOf("command:loadProfile:") === 0) {
             var profileName = actionId.substring("command:loadProfile:".length)
-            var profiles = MainController.availableProfiles
+            var profiles = ProfileManager.availableProfiles
             for (var j = 0; j < profiles.length; j++) {
                 if (profiles[j].name === profileName)
                     return TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + ": " + profiles[j].title
@@ -1321,7 +1321,7 @@ Dialog {
         }
 
         onAboutToShow: {
-            var profiles = MainController.availableProfiles
+            var profiles = ProfileManager.availableProfiles
             var items = []
             for (var i = 0; i < profiles.length; i++)
                 items.push({ title: profiles[i].title, fileName: profiles[i].name })

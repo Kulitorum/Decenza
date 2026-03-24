@@ -17,8 +17,8 @@ Dialog {
     // Note: Don't set Accessible properties on Dialog - it doesn't derive from Item
 
     // Temperature override
-    property double temperatureValue: MainController.profileTargetTemperature
-    property double profileTemperature: MainController.profileTargetTemperature
+    property double temperatureValue: ProfileManager.profileTargetTemperature
+    property double profileTemperature: ProfileManager.profileTargetTemperature
 
     // Dose value (editable, default 18g)
     property double doseValue: 18.0
@@ -26,7 +26,7 @@ Dialog {
 
     // Target (yield) value and tracking
     property double targetValue: doseValue * ratio
-    property double profileTargetWeight: MainController.profileTargetWeight
+    property double profileTargetWeight: ProfileManager.profileTargetWeight
     property bool targetManuallySet: false
 
     // Grinder fields
@@ -56,7 +56,7 @@ Dialog {
     }
 
     function getProfileSuggestions() {
-        var profiles = MainController.availableProfiles
+        var profiles = ProfileManager.availableProfiles
         var titles = []
         for (var i = 0; i < profiles.length; i++)
             titles.push(profiles[i].title)
@@ -64,12 +64,12 @@ Dialog {
     }
 
     function loadProfileByTitle(title) {
-        var filename = MainController.findProfileByTitle(title)
+        var filename = ProfileManager.findProfileByTitle(title)
         if (filename.length > 0) {
-            MainController.loadProfile(filename)
-            root.profileTemperature = MainController.profileTargetTemperature
+            ProfileManager.loadProfile(filename)
+            root.profileTemperature = ProfileManager.profileTargetTemperature
             root.temperatureValue = root.profileTemperature
-            root.profileTargetWeight = MainController.profileTargetWeight
+            root.profileTargetWeight = ProfileManager.profileTargetWeight
             if (!root.targetManuallySet)
                 root.targetValue = root.profileTargetWeight
         }
@@ -152,14 +152,14 @@ Dialog {
     onRejected: {
         // Restore the original profile if the user changed it via the profile picker
         if (originalProfileFilename.length > 0 && Settings.currentProfile !== originalProfileFilename) {
-            MainController.loadProfile(originalProfileFilename)
+            ProfileManager.loadProfile(originalProfileFilename)
         }
     }
 
     onAboutToShow: {
         // Announce dialog for accessibility
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            var announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + MainController.currentProfileName
+            var announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + ProfileManager.currentProfileName
             if (Settings.dyeBeanBrand.length > 0)
                 announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + Settings.dyeBeanBrand
             if (Settings.dyeBeanType.length > 0)
@@ -168,8 +168,8 @@ Dialog {
         }
 
         // Update profile temperature, use override if active
-        profileTemperature = MainController.profileTargetTemperature
-        profileTargetWeight = MainController.profileTargetWeight
+        profileTemperature = ProfileManager.profileTargetTemperature
+        profileTargetWeight = ProfileManager.profileTargetWeight
         temperatureValue = Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemperature
 
         // Use DYE fields for dose and grind (source of truth)
@@ -180,7 +180,7 @@ Dialog {
         grindSetting = Settings.dyeGrinderSetting
         beanBrand = Settings.dyeBeanBrand
         beanType = Settings.dyeBeanType
-        selectedProfileTitle = MainController.currentProfileName
+        selectedProfileTitle = ProfileManager.currentProfileName
         originalProfileFilename = Settings.currentProfile
         showScaleWarning = false
 
@@ -429,18 +429,18 @@ Dialog {
                         primary: true
                         enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
                         onClicked: {
-                            var profile = MainController.getCurrentProfile()
+                            var profile = ProfileManager.getCurrentProfile()
                             if (profile && profile.steps.length > 0) {
                                 var delta = root.temperatureValue - profile.steps[0].temperature
                                 for (var i = 0; i < profile.steps.length; i++) {
                                     profile.steps[i].temperature += delta
                                 }
                                 profile.espresso_temperature = root.temperatureValue
-                                MainController.uploadProfile(profile)
+                                ProfileManager.uploadProfile(profile)
                             }
                             root.profileTemperature = root.temperatureValue
-                            if (MainController.baseProfileName.length > 0) {
-                                MainController.saveProfile(MainController.baseProfileName)
+                            if (ProfileManager.baseProfileName.length > 0) {
+                                ProfileManager.saveProfile(ProfileManager.baseProfileName)
                             }
                         }
                     }
@@ -517,8 +517,8 @@ Dialog {
 
             // Profile recommended dose indicator
             Text {
-                visible: MainController.profileHasRecommendedDose && Math.abs(root.doseValue - MainController.profileRecommendedDose) > 0.05
-                text: TranslationManager.translate("brewDialog.profileDoseIndicator", "Profile: %1g").arg(MainController.profileRecommendedDose.toFixed(1))
+                visible: ProfileManager.profileHasRecommendedDose && Math.abs(root.doseValue - ProfileManager.profileRecommendedDose) > 0.05
+                text: TranslationManager.translate("brewDialog.profileDoseIndicator", "Profile: %1g").arg(ProfileManager.profileRecommendedDose.toFixed(1))
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.scaled(11)
                 font.italic: true
@@ -526,7 +526,7 @@ Dialog {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(MainController.profileRecommendedDose.toFixed(1))
+                Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(ProfileManager.profileRecommendedDose.toFixed(1))
             }
 
             // Ratio input
@@ -609,14 +609,14 @@ Dialog {
                         primary: true
                         enabled: root.targetValue !== root.profileTargetWeight
                         onClicked: {
-                            var profile = MainController.getCurrentProfile()
+                            var profile = ProfileManager.getCurrentProfile()
                             if (profile) {
                                 profile.target_weight = root.targetValue
-                                MainController.uploadProfile(profile)
+                                ProfileManager.uploadProfile(profile)
                             }
                             root.profileTargetWeight = root.targetValue
-                            if (MainController.baseProfileName.length > 0) {
-                                MainController.saveProfile(MainController.baseProfileName)
+                            if (ProfileManager.baseProfileName.length > 0) {
+                                ProfileManager.saveProfile(ProfileManager.baseProfileName)
                             }
                         }
                     }
@@ -749,22 +749,22 @@ Dialog {
                 accessibleName: TranslationManager.translate("brewDialog.clearAllOverrides", "Clear all overrides")
                 onClicked: {
                     // Reset to current profile and bean preset values (not cached values from dialog open)
-                    root.profileTemperature = MainController.profileTargetTemperature
+                    root.profileTemperature = ProfileManager.profileTargetTemperature
                     root.temperatureValue = root.profileTemperature
-                    root.profileTargetWeight = MainController.profileTargetWeight
+                    root.profileTargetWeight = ProfileManager.profileTargetWeight
 
                     // Use bean preset dose if available, otherwise default 18g
                     root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
                     root.beanBrand = Settings.dyeBeanBrand
                     root.beanType = Settings.dyeBeanType
-                    root.selectedProfileTitle = MainController.currentProfileName
+                    root.selectedProfileTitle = ProfileManager.currentProfileName
                     root.grinderBrand = Settings.dyeGrinderBrand
                     root.grinderModel = Settings.dyeGrinderModel
                     root.grinderBurrs = Settings.dyeGrinderBurrs
                     root.grindSetting = Settings.dyeGrinderSetting
 
                     // Calculate ratio from profile target weight / dose
-                    var profileTarget = MainController.profileTargetWeight
+                    var profileTarget = ProfileManager.profileTargetWeight
                     root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.lastUsedRatio
                     root.targetManuallySet = false
                     root.targetValue = root.doseValue * root.ratio
@@ -821,7 +821,7 @@ Dialog {
                     Settings.dyeGrinderBurrs = root.grinderBurrs
                     Settings.dyeGrinderSetting = root.grindSetting
                     // Use the new activateBrewWithOverrides method
-                    MainController.activateBrewWithOverrides(
+                    ProfileManager.activateBrewWithOverrides(
                         root.doseValue,
                         root.targetValue,
                         root.temperatureValue,

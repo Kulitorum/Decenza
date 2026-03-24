@@ -2301,7 +2301,7 @@ ApplicationWindow {
     function goToProfileEditor() {
         if (!startNavigation()) return
         // Route to appropriate editor based on editor type
-        var editorType = MainController.currentEditorType
+        var editorType = ProfileManager.currentEditorType
         if (editorType === "pressure") {
             pageStack.push(pressureEditorPage)
         } else if (editorType === "flow") {

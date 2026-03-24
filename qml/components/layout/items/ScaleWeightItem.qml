@@ -51,7 +51,7 @@ Item {
     // Shared color logic
     function scaleColor(pressed) {
         if (pressed) return Theme.accentColor
-        if (MainController.brewByRatioActive) return Theme.weightColor
+        if (ProfileManager.brewByRatioActive) return Theme.weightColor
         if (root.isFlowScale) return Theme.textSecondaryColor
         return Theme.weightColor
     }
@@ -59,8 +59,8 @@ Item {
     function weightText() {
         var weight = MachineState.scaleWeight.toFixed(1)
         var suffix = root.isFlowScale ? "g~" : "g"
-        if (MainController.brewByRatioActive) {
-            return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
+        if (ProfileManager.brewByRatioActive) {
+            return weight + suffix + " 1:" + ProfileManager.brewByRatio.toFixed(1)
         }
         return weight + suffix
     }

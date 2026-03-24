@@ -23,7 +23,7 @@ Page {
 
     function loadProfile() {
         if (profileFilename) {
-            profileData = MainController.getProfileByFilename(profileFilename)
+            profileData = ProfileManager.getProfileByFilename(profileFilename)
             if (profileData && profileData.steps) {
                 profileGraph.frames = profileData.steps
             } else {

@@ -162,13 +162,13 @@ Page {
                     model: {
                         var filter = searchFilter  // Create binding dependency
                         switch (viewFilter.currentIndex) {
-                            case 0: return MainController.selectedProfiles      // "Selected"
-                            case 1: return MainController.cleaningProfiles      // "Cleaning/Descale"
-                            case 2: return MainController.allBuiltInProfiles    // "Decent Built-in"
-                            case 3: return MainController.downloadedProfiles    // "Downloaded"
-                            case 4: return MainController.userCreatedProfiles   // "User Created"
+                            case 0: return ProfileManager.selectedProfiles      // "Selected"
+                            case 1: return ProfileManager.cleaningProfiles      // "Cleaning/Descale"
+                            case 2: return ProfileManager.allBuiltInProfiles    // "Decent Built-in"
+                            case 3: return ProfileManager.downloadedProfiles    // "Downloaded"
+                            case 4: return ProfileManager.userCreatedProfiles   // "User Created"
                             case 5: {
-                                var all = MainController.allProfilesList
+                                var all = ProfileManager.allProfilesList
                                 if (filter === "") return all
                                 var result = []
                                 for (var i = 0; i < all.length; i++) {
@@ -178,7 +178,7 @@ Page {
                                 }
                                 return result
                             }
-                            default: return MainController.selectedProfiles
+                            default: return ProfileManager.selectedProfiles
                         }
                     }
                     spacing: Theme.scaled(4)
@@ -277,7 +277,7 @@ Page {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
-                                    text: (isCurrentProfile && MainController.profileModified ? "*" : "") + modelData.title
+                                    text: (isCurrentProfile && ProfileManager.profileModified ? "*" : "") + modelData.title
                                     color: Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
@@ -411,7 +411,7 @@ Page {
 
                             MenuItem {
                                 onTriggered: {
-                                    MainController.loadProfile(modelData.name)
+                                    ProfileManager.loadProfile(modelData.name)
                                     root.goToProfileEditor()
                                 }
 
@@ -549,7 +549,7 @@ Page {
                                     root.goToDescaling()
                                     return
                                 }
-                                MainController.loadProfile(modelData.name)
+                                ProfileManager.loadProfile(modelData.name)
                             }
                         }
 
@@ -558,7 +558,7 @@ Page {
                             var source = profileDelegate.isBuiltIn ? TranslationManager.translate("profileselector.accessible.source_decent", "Decent") :
                                          profileDelegate.isDownloaded ? TranslationManager.translate("profileselector.accessible.source_downloaded", "Downloaded") : TranslationManager.translate("profileselector.accessible.source_custom", "Custom")
                             var fav = profileDelegate.isFavorite ? ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite") : ""
-                            var modified = (profileDelegate.isCurrentProfile && MainController.profileModified) ? ", " + TranslationManager.translate("profileselector.accessible.unsaved_changes", "unsaved changes") : ""
+                            var modified = (profileDelegate.isCurrentProfile && ProfileManager.profileModified) ? ", " + TranslationManager.translate("profileselector.accessible.unsaved_changes", "unsaved changes") : ""
                             var current = profileDelegate.isCurrentProfile ? ", " + TranslationManager.translate("profileselector.accessible.currently_selected", "currently selected") : ""
                             return source + " " + TranslationManager.translate("profileselector.accessible.profile_label", "profile:") + " " + modelData.title + fav + modified + current
                         }
@@ -632,7 +632,7 @@ Page {
                     border.width: 2
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: (MainController.currentProfileName || "Loaded Profile") + ", " + TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
+                    Accessible.name: (ProfileManager.currentProfileName || "Loaded Profile") + ", " + TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
                     Accessible.focusable: true
                     Accessible.onPressAction: nonFavPillMouseArea.clicked(null)
 
@@ -644,7 +644,7 @@ Page {
                         // Profile name
                         Text {
                             Layout.fillWidth: true
-                            text: MainController.currentProfileName || "Loaded Profile"
+                            text: ProfileManager.currentProfileName || "Loaded Profile"
                             color: "white"
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.bodyFont.pixelSize
@@ -760,7 +760,7 @@ Page {
                                 // Profile name
                                 Text {
                                     Layout.fillWidth: true
-                                    text: (index === Settings.selectedFavoriteProfile && MainController.profileModified ? "*" : "") + modelData.name
+                                    text: (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified ? "*" : "") + modelData.name
                                     color: index === Settings.selectedFavoriteProfile ?
                                            "white" : Theme.textColor
                                     font: Theme.bodyFont
@@ -782,7 +782,7 @@ Page {
                                     onClicked: {
                                         if (!modelData) return
                                         Settings.selectedFavoriteProfile = index
-                                        MainController.loadProfile(modelData.filename)
+                                        ProfileManager.loadProfile(modelData.filename)
                                         root.goToProfileEditor()
                                     }
                                 }
@@ -813,7 +813,7 @@ Page {
                                 z: -1
                                 accessibleName: {
                                     if (!modelData) return ""
-                                    var modified = (index === Settings.selectedFavoriteProfile && MainController.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+                                    var modified = (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
                                     var status = index === Settings.selectedFavoriteProfile ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite") : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite")
                                     return root.cleanForSpeech(modelData.name) + modified + status
                                 }
@@ -821,7 +821,7 @@ Page {
                                 onAccessibleClicked: {
                                     if (!modelData) return
                                     // Always load the profile when clicking
-                                    MainController.loadProfile(modelData.filename)
+                                    ProfileManager.loadProfile(modelData.filename)
                                     if (index === Settings.selectedFavoriteProfile) {
                                         // Already selected - open editor
                                         root.goToProfileEditor()
@@ -910,7 +910,7 @@ Page {
                     accessibleName: TranslationManager.translate("profileSelector.permanentlyDeleteProfile", "Permanently delete this profile")
                     destructive: true
                     onClicked: {
-                        MainController.deleteProfile(deleteDialog.profileName)
+                        ProfileManager.deleteProfile(deleteDialog.profileName)
                         deleteDialog.close()
                     }
                 }
@@ -996,19 +996,19 @@ Page {
                             newProfileDialog.close()
                             var profileType = modelData.type
                             if (profileType === "pressure") {
-                                MainController.createNewPressureProfile("New Pressure Profile")
+                                ProfileManager.createNewPressureProfile("New Pressure Profile")
                                 root.goToProfileEditor()
                             } else if (profileType === "flow") {
-                                MainController.createNewFlowProfile("New Flow Profile")
+                                ProfileManager.createNewFlowProfile("New Flow Profile")
                                 root.goToProfileEditor()
                             } else if (profileType === "dflow") {
-                                MainController.createNewRecipe("D-Flow / New Recipe")
+                                ProfileManager.createNewRecipe("D-Flow / New Recipe")
                                 root.goToProfileEditor()
                             } else if (profileType === "aflow") {
-                                MainController.createNewAFlowRecipe("A-Flow / New Recipe")
+                                ProfileManager.createNewAFlowRecipe("A-Flow / New Recipe")
                                 root.goToProfileEditor()
                             } else {
-                                MainController.createNewProfile("New Profile")
+                                ProfileManager.createNewProfile("New Profile")
                                 root.goToProfileEditor()
                             }
                         }
@@ -1029,7 +1029,7 @@ Page {
     // Bottom bar
     BottomBar {
         title: TranslationManager.translate("profileselector.title", "Profiles")
-        rightText: TranslationManager.translate("profileselector.current_prefix", "Current:") + " " + MainController.currentProfileName
+        rightText: TranslationManager.translate("profileselector.current_prefix", "Current:") + " " + ProfileManager.currentProfileName
         onBackClicked: root.goBack()
     }
 }

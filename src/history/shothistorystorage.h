@@ -384,8 +384,10 @@ private:
     bool m_loadingFiltered = false;
     int m_filterSerial = 0;
 
-    // Shared flag for destructor safety in background thread lambdas
-    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
+    // Shared flag for destructor safety in background thread lambdas.
+    // Atomic because the flag is written on the main thread (destructor) and
+    // read on background threads (before QMetaObject::invokeMethod).
+    std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
 
     static const QString DB_CONNECTION_NAME;
 };

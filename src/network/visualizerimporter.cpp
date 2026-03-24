@@ -517,7 +517,7 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
             emit importingChanged();
             emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
             if (m_controller) {
-                m_controller->refreshProfiles();
+                m_controller->profileManager()->refreshProfiles();
             }
         }
         return;
@@ -602,7 +602,7 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
         emit importingChanged();
         emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
     }
 }

@@ -29,10 +29,10 @@ Page {
     Component.onCompleted: {
         // Only set title if this page is actually in the StackView (not during preload)
         if (StackView.status === StackView.Active)
-            root.currentPageTitle = MainController.currentProfileName
+            root.currentPageTitle = ProfileManager.currentProfileName
     }
     StackView.onActivated: {
-        root.currentPageTitle = MainController.currentProfileName
+        root.currentPageTitle = ProfileManager.currentProfileName
         espressoPage.forceActiveFocus()  // Ensure keyboard focus
     }
 
@@ -52,7 +52,7 @@ Page {
                 return "Temperature: " + DE1Device.temperature.toFixed(1) + " degrees"
             case 5: // Weight and/or Volume
                 var parts = []
-                if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MainController.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
+                if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + ProfileManager.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
                 if (MachineState.targetVolume > 0) parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
                 return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
             default:
@@ -376,7 +376,7 @@ Page {
         id: cupFillComponent
         CupFillView {
             currentWeight: espressoPage.currentWeight
-            targetWeight: MainController.targetWeight
+            targetWeight: ProfileManager.targetWeight
             currentFlow: DE1Device.flow
             currentPressure: DE1Device.pressure
             goalPressure: MainController.filteredGoalPressure
@@ -884,7 +884,7 @@ Page {
                 // Show volume display when only volume target is set (no weight target)
                 readonly property bool isVolumeMode: MachineState.targetVolume > 0 && MachineState.targetWeight <= 0
                 readonly property double currentValue: isVolumeMode ? MachineState.pourVolume : espressoPage.currentWeight
-                readonly property double targetValue: isVolumeMode ? MachineState.targetVolume : MainController.targetWeight
+                readonly property double targetValue: isVolumeMode ? MachineState.targetVolume : ProfileManager.targetWeight
                 readonly property string unit: isVolumeMode ? "ml" : "g"
                 readonly property color displayColor: isVolumeMode ? Theme.flowColor : Theme.weightColor
 
@@ -892,7 +892,7 @@ Page {
                 Accessible.name: {
                     var parts = []
                     if (MachineState.targetWeight > 0)
-                        parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MainController.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
+                        parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + ProfileManager.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
                     if (MachineState.targetVolume > 0)
                         parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
                     return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
@@ -911,8 +911,8 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: MainController.brewByRatioActive && !weightVolumeColumn.isVolumeMode
-                            ? "1:" + MainController.brewByRatio.toFixed(1) + " (" + MainController.targetWeight.toFixed(0) + "g)"
+                        text: ProfileManager.brewByRatioActive && !weightVolumeColumn.isVolumeMode
+                            ? "1:" + ProfileManager.brewByRatio.toFixed(1) + " (" + ProfileManager.targetWeight.toFixed(0) + "g)"
                             : "/ " + weightVolumeColumn.targetValue.toFixed(0) + " " + weightVolumeColumn.unit
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(18)

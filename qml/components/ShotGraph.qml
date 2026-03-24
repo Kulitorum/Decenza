@@ -125,7 +125,7 @@ ChartView {
     ValueAxis {
         id: weightAxis
         min: 0
-        max: Math.max(10, (MainController.targetWeight || 36) * 1.1)
+        max: Math.max(10, (ProfileManager.targetWeight || 36) * 1.1)
         tickCount: 5
         visible: false
     }

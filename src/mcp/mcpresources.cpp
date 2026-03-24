@@ -3,7 +3,7 @@
 #include "mcptoolregistry.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
-#include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../history/shothistorystorage.h"
 #include "../core/memorymonitor.h"
 #include "../network/webdebuglogger.h"
@@ -20,7 +20,7 @@
 #include "../core/dbutils.h"
 
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
-                          MachineState* machineState, MainController* mainController,
+                          MachineState* machineState, ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor)
 {
     // decenza://machine/state
@@ -75,12 +75,12 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
         "Active Profile",
         "Currently loaded profile name and settings",
         "application/json",
-        [mainController]() -> QJsonObject {
+        [profileManager]() -> QJsonObject {
             QJsonObject result;
-            if (mainController) {
-                result["filename"] = mainController->currentProfileName();
-                result["targetWeightG"] = mainController->profileTargetWeight();
-                result["targetTemperatureC"] = mainController->profileTargetTemperature();
+            if (profileManager) {
+                result["filename"] = profileManager->currentProfileName();
+                result["targetWeightG"] = profileManager->profileTargetWeight();
+                result["targetTemperatureC"] = profileManager->profileTargetTemperature();
             }
             return result;
         });
@@ -143,12 +143,12 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
         "All Profiles",
         "List of all available profiles",
         "application/json",
-        [mainController]() -> QJsonObject {
+        [profileManager]() -> QJsonObject {
             QJsonObject result;
-            if (!mainController) return result;
+            if (!profileManager) return result;
 
             QJsonArray profiles;
-            for (const QVariant& v : mainController->availableProfiles()) {
+            for (const QVariant& v : profileManager->availableProfiles()) {
                 QVariantMap pm = v.toMap();
                 QJsonObject p;
                 p["filename"] = pm["name"].toString();

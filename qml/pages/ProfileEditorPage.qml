@@ -11,7 +11,7 @@ Page {
 
     property var profile: null
     property int selectedStepIndex: -1
-    property bool profileModified: MainController.profileModified
+    property bool profileModified: ProfileManager.profileModified
     property string originalProfileName: ""
     property int stepVersion: 0  // Increment to force step editor refresh
 
@@ -117,7 +117,7 @@ Page {
     // Update profile state and refresh UI (BLE upload deferred to editor exit, see #557)
     function uploadProfile() {
         if (profile) {
-            MainController.uploadProfile(profile)
+            ProfileManager.uploadProfile(profile)
             // Force step editor bindings to re-evaluate
             stepVersion++
             // Force graph to update by creating a new array reference
@@ -132,13 +132,13 @@ Page {
             saveAsDialog.open()
             return false
         }
-        return MainController.saveProfile(originalProfileName)
+        return ProfileManager.saveProfile(originalProfileName)
     }
 
     // Save profile with new name. Returns true on success.
     function saveProfileAs(filename, title) {
         if (!profile) return false
-        if (MainController.saveProfileAs(filename, title)) {
+        if (ProfileManager.saveProfileAs(filename, title)) {
             originalProfileName = filename
             return true
         }
@@ -888,8 +888,8 @@ Page {
 
         function doSave() {
             if (saveAsTitleField.text.length > 0) {
-                var filename = MainController.titleToFilename(saveAsTitleField.text)
-                if (MainController.profileExists(filename) && filename !== originalProfileName) {
+                var filename = ProfileManager.titleToFilename(saveAsTitleField.text)
+                if (ProfileManager.profileExists(filename) && filename !== originalProfileName) {
                     saveAsDialog.pendingFilename = filename
                     saveAsDialog.close()
                     overwriteDialog.open()
@@ -1050,12 +1050,12 @@ Page {
         showTry: true
         onDiscardClicked: {
             if (originalProfileName) {
-                MainController.loadProfile(originalProfileName)
+                ProfileManager.loadProfile(originalProfileName)
             }
             root.goBack()
         }
         onTryClicked: {
-            MainController.uploadCurrentProfile()
+            ProfileManager.uploadCurrentProfile()
             root.goBack()
         }
         onSaveAsClicked: saveAsDialog.open()
@@ -1584,15 +1584,15 @@ Page {
 
     function loadCurrentProfile() {
         // Load profile data from MainController
-        var loadedProfile = MainController.getCurrentProfile()
+        var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
             profile = loadedProfile
         } else {
             // Fallback to empty profile
             profile = {
-                title: MainController.currentProfileName || "New Profile",
+                title: ProfileManager.currentProfileName || "New Profile",
                 steps: [],
-                target_weight: MainController.targetWeight || 36,
+                target_weight: ProfileManager.targetWeight || 36,
                 target_volume: 0,
                 espresso_temperature: 93,
                 mode: "frame_based",
@@ -1603,7 +1603,7 @@ Page {
             }
         }
         // Track the original profile filename for saving (not the title!)
-        originalProfileName = MainController.baseProfileName || ""
+        originalProfileName = ProfileManager.baseProfileName || ""
         selectedStepIndex = -1
         updatePageTitle()
         // Force graph to update with new profile data

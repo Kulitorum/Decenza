@@ -196,7 +196,7 @@ ProfileSaveHelper::SaveResult ProfileSaveHelper::saveProfile(const Profile& prof
     if (profile.saveToFile(fullPath)) {
         qDebug() << "ProfileSaveHelper: Saved" << profile.title() << "to" << fullPath;
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
         return SaveResult::Saved;
     }
@@ -228,7 +228,7 @@ void ProfileSaveHelper::saveOverwrite()
     if (m_pending->profile.saveToFile(fullPath)) {
         emit importSuccess(m_pending->profile.title());
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
     } else {
         qWarning() << "ProfileSaveHelper::saveOverwrite: saveToFile() failed for" << fullPath;
@@ -330,7 +330,7 @@ void ProfileSaveHelper::saveAsNew()
     if (m_pending->profile.saveToFile(fullPath)) {
         emit importSuccess(newTitle);
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
     } else {
         qWarning() << "ProfileSaveHelper::saveAsNew: saveToFile() failed for" << fullPath;
@@ -388,7 +388,7 @@ void ProfileSaveHelper::saveWithNewName(const QString& newName)
     if (m_pending->profile.saveToFile(fullPath)) {
         emit importSuccess(m_pending->profile.title());
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
     } else {
         qWarning() << "ProfileSaveHelper::saveWithNewName: Failed to save"
@@ -429,7 +429,7 @@ QString ProfileSaveHelper::downloadedProfilesPath()
 QString ProfileSaveHelper::titleToFilename(const QString& title) const
 {
     if (m_controller) {
-        return m_controller->titleToFilename(title);
+        return m_controller->profileManager()->titleToFilename(title);
     }
     qWarning() << "ProfileSaveHelper::titleToFilename: m_controller is null, falling back to simple sanitization for" << title;
     // Fallback: simple sanitization (shouldn't happen in practice)

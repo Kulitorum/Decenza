@@ -827,6 +827,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         int sampleCount = data.sampleCount;
         qsizetype compressedSize = data.compressedSamples.size();
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, destroyed,
                                          profileName, duration, sampleCount, compressedSize]() {
             if (*destroyed) {
@@ -998,6 +999,7 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
         if (!opened)
             qWarning() << "ShotHistoryStorage: requestUpdateVisualizerInfo failed - could not open DB for shot" << shotId;
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) return;
             if (success)
@@ -1030,6 +1032,7 @@ void ShotHistoryStorage::requestMostRecentShotId()
         if (!opened)
             qWarning() << "ShotHistoryStorage: requestMostRecentShotId failed - could not open DB";
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, destroyed]() {
             if (*destroyed) return;
             emit mostRecentShotIdReady(shotId);
@@ -1075,6 +1078,7 @@ void ShotHistoryStorage::requestDistinctCache()
             }
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, results = std::move(results), opened, destroyed]() {
             if (*destroyed) return;
             m_distinctCacheRefreshing = false;
@@ -1132,6 +1136,7 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
             }
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, cacheKey, values = std::move(values), needsGrinderSort, opened, destroyed]() mutable {
             if (*destroyed) return;
             // If a full cache refresh cleared m_pendingDistinctKeys while we were in flight,
@@ -1475,6 +1480,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         });
 
         // Convert to QVariantMap on main thread (touches QML-visible data)
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: requestShot callback dropped (object destroyed)";
@@ -1533,6 +1539,7 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
             }
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, kbId, results = std::move(results), destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: recentShotsByKbId callback dropped (object destroyed)";
@@ -1763,6 +1770,7 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
             }
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotIds, success, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: deleteShots callback dropped (object destroyed)";
@@ -1807,6 +1815,7 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
             }
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: deleteShot callback dropped (object destroyed)";
@@ -1904,6 +1913,7 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
             success = updateShotMetadataStatic(db, shotId, metadata);
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: updateMetadata callback dropped (object destroyed)";
@@ -2080,12 +2090,14 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                 qWarning() << "ShotHistoryStorage: Async getAutoFavorites query failed:" << query.lastError().text();
             }
         })) {
+            if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, destroyed]() {
                 if (*destroyed) return;
                 emit errorOccurred("Failed to open database for auto-favorites");
             }, Qt::QueuedConnection);
         }
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, results, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: autoFavorites callback dropped (object destroyed)";
@@ -2195,12 +2207,14 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
             }
             result["notes"] = notes;
         })) {
+            if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, destroyed]() {
                 if (*destroyed) return;
                 emit errorOccurred("Failed to open database for auto-favorite details");
             }, Qt::QueuedConnection);
         }
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, result, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: autoFavoriteGroupDetails callback dropped (object destroyed)";
@@ -2221,6 +2235,7 @@ void ShotHistoryStorage::updateTotalShots()
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, destroyed]() {
         int count = getShotCountStatic(dbPath);
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
             if (*destroyed) return;
             if (count < 0) {
@@ -2306,6 +2321,7 @@ void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
     QThread* thread = QThread::create([this, dbPath, destPath, destroyed]() {
         QString resultPath = createBackupStatic(dbPath, destPath);
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, resultPath, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: backup callback dropped (object destroyed)";
@@ -2411,6 +2427,7 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
     QThread* thread = QThread::create([this, dbPath, cleanPath, merge, destroyed]() {
         bool success = importDatabaseStatic(dbPath, cleanPath, merge);
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, success, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: importDatabase callback dropped (object destroyed)";
@@ -3068,6 +3085,7 @@ void ShotHistoryStorage::refreshTotalShots()
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, destroyed]() {
         int count = getShotCountStatic(dbPath);
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: refreshTotalShots callback dropped (object destroyed)";
@@ -3116,6 +3134,7 @@ void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, con
                 qWarning() << "ShotHistoryStorage: Failed to bulk update grinder fields:" << query.lastError().text();
         });
 
+        if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
             if (*destroyed) return;
             invalidateDistinctCache();

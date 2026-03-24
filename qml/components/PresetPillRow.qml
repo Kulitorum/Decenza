@@ -50,7 +50,7 @@ FocusScope {
     function announceCurrentPill() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && presets.length > 0) {
             var name = presets[focusedIndex].name || ""
-            var modified = (focusedIndex === selectedIndex && MainController.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+            var modified = (focusedIndex === selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
             var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
             AccessibilityManager.announce(name + modified + status)
         }
@@ -108,7 +108,7 @@ FocusScope {
         var pillWidths = []
         var totalWidth = 0
         for (var i = 0; i < presets.length; i++) {
-            var prefix = (i === selectedIndex && MainController.profileModified) ? "*" : ""
+            var prefix = (i === selectedIndex && ProfileManager.profileModified) ? "*" : ""
             var textWidth = measureTextWidth(prefix + (presets[i].name || ""))
             var pillWidth = textWidth + pillPadding
             pillWidths.push(pillWidth)
@@ -235,7 +235,7 @@ FocusScope {
                         Text {
                             id: pillText
                             anchors.centerIn: parent
-                            text: (pill.isSelected && MainController.profileModified ? "*" : "") + (modelData.preset.name || "")
+                            text: (pill.isSelected && ProfileManager.profileModified ? "*" : "") + (modelData.preset.name || "")
                             color: pill.isSelected ? "white" : Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
@@ -251,7 +251,7 @@ FocusScope {
                             accessibleName: {
                                 if (!modelData || !modelData.preset) return ""
                                 var name = modelData.preset.name || ""
-                                var modified = (modelData.index === root.selectedIndex && MainController.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+                                var modified = (modelData.index === root.selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
                                 var status = modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
                                 return name + modified + status
                             }

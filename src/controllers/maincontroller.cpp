@@ -58,14 +58,6 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Create ProfileManager — owns all profile lifecycle operations
     m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage, this);
 
-    // Forward ProfileManager signals to MainController signals for QML compatibility
-    connect(m_profileManager, &ProfileManager::currentProfileChanged, this, &MainController::currentProfileChanged);
-    connect(m_profileManager, &ProfileManager::profileModifiedChanged, this, &MainController::profileModifiedChanged);
-    connect(m_profileManager, &ProfileManager::targetWeightChanged, this, &MainController::targetWeightChanged);
-    connect(m_profileManager, &ProfileManager::profilesChanged, this, &MainController::profilesChanged);
-    connect(m_profileManager, &ProfileManager::allBuiltInProfileListChanged, this, &MainController::allBuiltInProfileListChanged);
-    connect(m_profileManager, &ProfileManager::flowCalibrationAutoUpdated, this, &MainController::flowCalibrationAutoUpdated);
-
     // Connect to shot sample updates
     if (m_device) {
         connect(m_device, &DE1Device::shotSampleReceived,
@@ -225,11 +217,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Handle profile selection via MQTT
     connect(m_mqttClient, &MqttClient::profileSelectRequested, this, [this](const QString& profileName) {
         qDebug() << "MainController: MQTT profile selection requested:" << profileName;
-        loadProfile(profileName);
+        m_profileManager->loadProfile(profileName);
     });
 
     // Update MQTT with current profile when it changes
-    connect(this, &MainController::currentProfileChanged, this, [this]() {
+    connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
         if (m_mqttClient) {
             m_mqttClient->setCurrentProfile(m_profileManager->currentProfile().title());
             // Settings::currentProfile() stores the filename (set in loadProfile)
@@ -331,13 +323,13 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
     }
 
     // Load the profile - prefer installed profile, fall back to stored JSON
-    QString filename = findProfileByTitle(shotRecord.summary.profileName);
+    QString filename = m_profileManager->findProfileByTitle(shotRecord.summary.profileName);
     qDebug() << "applyLoadedShotMetadata: profileTitle=" << shotRecord.summary.profileName
              << "filename=" << filename;
     if (!filename.isEmpty()) {
-        loadProfile(filename);
+        m_profileManager->loadProfile(filename);
     } else if (!shotRecord.profileJson.isEmpty()) {
-        loadProfileFromJson(shotRecord.profileJson);
+        m_profileManager->loadProfileFromJson(shotRecord.profileJson);
     } else {
         qWarning() << "applyLoadedShotMetadata: No profile data available for shot";
     }
@@ -398,7 +390,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // Re-upload profile with history overrides applied
         // loadProfile() already uploaded with profile defaults; now we have the actual overrides
         if (hasOverrides) {
-            uploadCurrentProfile();
+            m_profileManager->uploadCurrentProfile();
         }
     }
 
@@ -485,7 +477,7 @@ void MainController::applyFlushSettings() {
 void MainController::applyAllSettings() {
     // 1. Upload current profile (espresso)
     if (m_profileManager->currentProfile().mode() == Profile::Mode::FrameBased) {
-        uploadCurrentProfile();
+        m_profileManager->uploadCurrentProfile();
     }
 
     // 2. Apply steam/hot water/flush settings (unified)
@@ -1136,7 +1128,7 @@ void MainController::onEspressoCycleStarted() {
 
     // Start timing controller and tare via it
     if (m_timingController) {
-        m_timingController->setTargetWeight(targetWeight());
+        m_timingController->setTargetWeight(m_profileManager->targetWeight());
         m_timingController->setCurrentProfile(m_profileManager->currentProfilePtr());
         m_timingController->startShot();
         m_timingController->tare();

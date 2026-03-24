@@ -987,13 +987,13 @@ KeyboardAwareContainer {
                                 void(_calVersion);
                                 void(Settings.autoFlowCalibration);
                                 void(Settings.flowCalibrationMultiplier);
-                                return Settings.effectiveFlowCalibration(MainController.baseProfileName);
+                                return Settings.effectiveFlowCalibration(ProfileManager.baseProfileName);
                             }
                             property bool isPerProfile: {
                                 void(_calVersion);
                                 void(Settings.autoFlowCalibration);
                                 void(Settings.flowCalibrationMultiplier);
-                                return Settings.hasProfileFlowCalibration(MainController.baseProfileName);
+                                return Settings.hasProfileFlowCalibration(ProfileManager.baseProfileName);
                             }
 
                             Text {
@@ -1014,7 +1014,7 @@ KeyboardAwareContainer {
                                 visible: parent.isPerProfile
                                 accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
                                 text: TranslationManager.translate("settings.preferences.reset", "Reset")
-                                onClicked: Settings.clearProfileFlowCalibration(MainController.baseProfileName)
+                                onClicked: Settings.clearProfileFlowCalibration(ProfileManager.baseProfileName)
                             }
 
                             AccessibleButton {

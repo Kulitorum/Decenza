@@ -21,9 +21,9 @@ Page {
     readonly property bool isFlow: profileType === "flow"
 
     property var profile: null
-    property var recipe: MainController.getOrConvertRecipeParams()
-    property bool recipeModified: MainController.profileModified
-    property string originalProfileName: MainController.baseProfileName
+    property var recipe: ProfileManager.getOrConvertRecipeParams()
+    property bool recipeModified: ProfileManager.profileModified
+    property string originalProfileName: ProfileManager.baseProfileName
 
     property int selectedFrameIndex: -1
     property bool scrollingFromSelection: false
@@ -61,7 +61,7 @@ Page {
     function flushPendingEdits() {
         if (profile && notesField.text !== (profile.profile_notes || "")) {
             profile.profile_notes = notesField.text
-            MainController.uploadProfile(profile)
+            ProfileManager.uploadProfile(profile)
         }
     }
 
@@ -136,13 +136,13 @@ Page {
 
 
     function loadCurrentProfile() {
-        recipe = MainController.getOrConvertRecipeParams()
-        var wasModified = MainController.profileModified
-        MainController.uploadRecipeProfile(recipe)
+        recipe = ProfileManager.getOrConvertRecipeParams()
+        var wasModified = ProfileManager.profileModified
+        ProfileManager.uploadRecipeProfile(recipe)
         if (!wasModified) {
-            MainController.markProfileClean()
+            ProfileManager.markProfileClean()
         }
-        var loadedProfile = MainController.getCurrentProfile()
+        var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
             profile = loadedProfile
             profileGraph.frames = []
@@ -156,8 +156,8 @@ Page {
         var newRecipe = Object.assign({}, recipe)
         newRecipe[key] = value
         recipe = newRecipe
-        MainController.uploadRecipeProfile(recipe)
-        var loadedProfile = MainController.getCurrentProfile()
+        ProfileManager.uploadRecipeProfile(recipe)
+        var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
             profileGraph.frames = profile.steps.slice()
@@ -173,8 +173,8 @@ Page {
         newRecipe.tempHold = newTemp
         newRecipe.tempDecline = newTemp
         recipe = newRecipe
-        MainController.uploadRecipeProfile(recipe)
-        var loadedProfile = MainController.getCurrentProfile()
+        ProfileManager.uploadRecipeProfile(recipe)
+        var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
             profileGraph.frames = profile.steps.slice()
@@ -272,7 +272,7 @@ Page {
                     onEditingFinished: {
                         if (profile) {
                             profile.profile_notes = text
-                            MainController.uploadProfile(profile)
+                            ProfileManager.uploadProfile(profile)
                         }
                     }
                 }
@@ -598,7 +598,7 @@ Page {
     BottomBar {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
-        title: MainController.currentProfileName || (isFlow ? tr("flow", "Flow") : tr("pressure", "Pressure"))
+        title: ProfileManager.currentProfileName || (isFlow ? tr("flow", "Flow") : tr("pressure", "Pressure"))
         onBackClicked: handleBack()
 
         Text {
@@ -611,7 +611,7 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: MainController.frameCount() + " " + tr("frames", "frames")
+            text: ProfileManager.frameCount() + " " + tr("frames", "frames")
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }
@@ -890,17 +890,17 @@ Page {
         showTry: true
         onDiscardClicked: {
             if (originalProfileName) {
-                MainController.loadProfile(originalProfileName)
+                ProfileManager.loadProfile(originalProfileName)
             }
             root.goBack()
         }
         onTryClicked: {
-            MainController.uploadCurrentProfile()
+            ProfileManager.uploadCurrentProfile()
             root.goBack()
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
-            if (MainController.saveProfile(originalProfileName)) {
+            if (ProfileManager.saveProfile(originalProfileName)) {
                 AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.profileSaved", "Profile saved"))
                 root.goBack()
             } else {
@@ -1034,12 +1034,12 @@ Page {
 
         function doSave() {
             if (saveAsTitleField.text.length > 0) {
-                var filename = MainController.titleToFilename(saveAsTitleField.text)
-                if (MainController.profileExists(filename) && filename !== originalProfileName) {
+                var filename = ProfileManager.titleToFilename(saveAsTitleField.text)
+                if (ProfileManager.profileExists(filename) && filename !== originalProfileName) {
                     saveAsDialog.pendingFilename = filename
                     overwriteDialog.open()
                 } else {
-                    if (MainController.saveProfileAs(filename, saveAsTitleField.text)) {
+                    if (ProfileManager.saveProfileAs(filename, saveAsTitleField.text)) {
                         root.goBack()
                     } else {
                         saveErrorDialog.open()
@@ -1050,7 +1050,7 @@ Page {
 
         onOpened: {
             var defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
-            saveAsTitleField.text = MainController.currentProfileName || defaultName
+            saveAsTitleField.text = ProfileManager.currentProfileName || defaultName
             saveAsTitleField.forceActiveFocus()
         }
     }
@@ -1139,7 +1139,7 @@ Page {
                     accessibleName: TranslationManager.translate("common.yes", "Yes")
                     onClicked: {
                         overwriteDialog.close()
-                        if (MainController.saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
+                        if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
                             root.goBack()
                         } else {
                             saveErrorDialog.open()
@@ -1165,26 +1165,26 @@ Page {
 
     StackView.onActivated: {
         // Capture BEFORE conversion (createNew*Profile clears baseProfileName)
-        originalProfileName = MainController.baseProfileName || ""
+        originalProfileName = ProfileManager.baseProfileName || ""
         var freshConversion = false
-        if (!MainController.isCurrentProfileRecipe) {
+        if (!ProfileManager.isCurrentProfileRecipe) {
             freshConversion = true
             console.warn("SimpleProfileEditorPage: Converting non-recipe profile to",
-                         isFlow ? "flow" : "pressure", "- original:", MainController.currentProfileName)
+                         isFlow ? "flow" : "pressure", "- original:", ProfileManager.currentProfileName)
             var defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
             if (isFlow) {
-                MainController.createNewFlowProfile(MainController.currentProfileName || defaultName)
+                ProfileManager.createNewFlowProfile(ProfileManager.currentProfileName || defaultName)
             } else {
-                MainController.createNewPressureProfile(MainController.currentProfileName || defaultName)
+                ProfileManager.createNewPressureProfile(ProfileManager.currentProfileName || defaultName)
             }
         }
         loadCurrentProfile()
         // Fresh conversion is editor initialization, not a user edit — start clean
         if (freshConversion) {
-            MainController.markProfileClean()
+            ProfileManager.markProfileClean()
         }
         var editorTitle = isFlow ? tr("title", "Flow Profile Editor") : tr("title", "Pressure Profile Editor")
-        root.currentPageTitle = MainController.currentProfileName || editorTitle
+        root.currentPageTitle = ProfileManager.currentProfileName || editorTitle
         Qt.callLater(function() {
             if (profile && profile.steps) {
                 profileGraph.frames = profile.steps.slice()

@@ -374,7 +374,7 @@ void ProfileImporter::forceImportProfile(const QString& sourcePath)
         emit isImportingChanged();
         emit importSuccess(profile.title());
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
     } else {
         setStatus("Failed to save: " + profile.title());
@@ -421,7 +421,7 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
         emit isImportingChanged();
         emit importSuccess(newName);
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
     } else {
         setStatus("Failed to save: " + newName);
@@ -565,7 +565,7 @@ void ProfileImporter::onProcessNextImport()
                   .arg(m_batchImported).arg(m_batchSkipped).arg(m_batchFailed));
 
         if (m_controller) {
-            m_controller->refreshProfiles();
+            m_controller->profileManager()->refreshProfiles();
         }
 
         // Re-scan to update statuses, using the same path as the original scan

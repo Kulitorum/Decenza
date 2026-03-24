@@ -314,7 +314,7 @@ Page {
                                 }
                             } else {
                                 if (preset && preset.filename) {
-                                    MainController.loadProfile(preset.filename)
+                                    ProfileManager.loadProfile(preset.filename)
                                 }
                             }
                         }
@@ -324,7 +324,7 @@ Page {
                             if (preset && preset.filename) {
                                 if (index !== Settings.selectedFavoriteProfile) {
                                     Settings.selectedFavoriteProfile = index
-                                    MainController.loadProfile(preset.filename)
+                                    ProfileManager.loadProfile(preset.filename)
                                 }
                                 profilePreviewPopup.profileFilename = preset.filename
                                 profilePreviewPopup.profileName = preset.name || ""
@@ -346,14 +346,14 @@ Page {
                             color: Theme.successColor
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: (MainController.currentProfileName || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
+                            Accessible.name: (ProfileManager.currentProfileName || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
                             Accessible.focusable: true
                             Accessible.onPressAction: idleNonFavMouseArea.clicked(null)
 
                             Text {
                                 id: nonFavoriteProfileText
                                 anchors.centerIn: parent
-                                text: MainController.currentProfileName || ""
+                                text: ProfileManager.currentProfileName || ""
                                 color: "white"
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
@@ -378,12 +378,12 @@ Page {
                         ProfileInfoButton {
                             anchors.verticalCenter: parent.verticalCenter
                             profileFilename: Settings.currentProfile
-                            profileName: MainController.currentProfileName
+                            profileName: ProfileManager.currentProfileName
 
                             onClicked: {
                                 pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
                                     profileFilename: Settings.currentProfile,
-                                    profileName: MainController.currentProfileName
+                                    profileName: ProfileManager.currentProfileName
                                 })
                             }
                         }

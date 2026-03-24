@@ -186,7 +186,7 @@ Item {
                         }
                     } else {
                         if (preset && preset.filename) {
-                            MainController.loadProfile(preset.filename)
+                            ProfileManager.loadProfile(preset.filename)
                         }
                     }
                     presetPopup.close()
@@ -206,14 +206,14 @@ Item {
                     color: Theme.successColor
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: (MainController.currentProfileName || "") + " " + TranslationManager.translate("espressoitem.accessible.startespresso", "Start espresso")
+                    Accessible.name: (ProfileManager.currentProfileName || "") + " " + TranslationManager.translate("espressoitem.accessible.startespresso", "Start espresso")
                     Accessible.focusable: true
                     Accessible.onPressAction: nonFavMouseArea.clicked(null)
 
                     Text {
                         id: nonFavText
                         anchors.centerIn: parent
-                        text: MainController.currentProfileName || ""
+                        text: ProfileManager.currentProfileName || ""
                         color: "white"
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true

@@ -16,9 +16,9 @@ Page {
     background: Rectangle { color: Theme.backgroundColor }
 
     property var profile: null
-    property var recipe: MainController.getOrConvertRecipeParams()
-    property bool recipeModified: MainController.profileModified
-    property string originalProfileName: MainController.baseProfileName
+    property var recipe: ProfileManager.getOrConvertRecipeParams()
+    property bool recipeModified: ProfileManager.profileModified
+    property string originalProfileName: ProfileManager.baseProfileName
 
     function handleBack() {
         flushPendingEdits()
@@ -47,7 +47,7 @@ Page {
     function flushPendingEdits() {
         if (profile && recipeNotesField.text !== (profile.profile_notes || "")) {
             profile.profile_notes = recipeNotesField.text
-            MainController.uploadProfile(profile)
+            ProfileManager.uploadProfile(profile)
         }
     }
 
@@ -146,17 +146,17 @@ Page {
 
     // Load profile data from MainController
     function loadCurrentProfile() {
-        recipe = MainController.getOrConvertRecipeParams()
+        recipe = ProfileManager.getOrConvertRecipeParams()
 
         // Regenerate profile from recipe params to ensure frames match.
         // Preserve modified state — this is just syncing, not a user edit.
-        var wasModified = MainController.profileModified
-        MainController.uploadRecipeProfile(recipe)
+        var wasModified = ProfileManager.profileModified
+        ProfileManager.uploadRecipeProfile(recipe)
         if (!wasModified) {
-            MainController.markProfileClean()
+            ProfileManager.markProfileClean()
         }
 
-        var loadedProfile = MainController.getCurrentProfile()
+        var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
             profile = loadedProfile
             profileGraph.frames = []
@@ -170,10 +170,10 @@ Page {
         newRecipe[key] = value
         recipe = newRecipe
 
-        MainController.uploadRecipeProfile(recipe)
+        ProfileManager.uploadRecipeProfile(recipe)
 
         // Reload profile to get regenerated frames
-        var loadedProfile = MainController.getCurrentProfile()
+        var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
             profileGraph.frames = profile.steps.slice()
@@ -275,7 +275,7 @@ Page {
                     onEditingFinished: {
                         if (profile) {
                             profile.profile_notes = text
-                            MainController.uploadProfile(profile)
+                            ProfileManager.uploadProfile(profile)
                         }
                     }
                 }
@@ -371,8 +371,8 @@ Page {
                                             newRecipe.rampDownEnabled = false
                                         }
                                         recipe = newRecipe
-                                        MainController.uploadRecipeProfile(recipe)
-                                        var loadedProfile = MainController.getCurrentProfile()
+                                        ProfileManager.uploadRecipeProfile(recipe)
+                                        var loadedProfile = ProfileManager.getCurrentProfile()
                                         if (loadedProfile && loadedProfile.steps) {
                                             profile = loadedProfile
                                             profileGraph.frames = profile.steps.slice()
@@ -553,7 +553,7 @@ Page {
     BottomBar {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
-        title: MainController.currentProfileName || TranslationManager.translate("recipeEditor.recipe", "Recipe")
+        title: ProfileManager.currentProfileName || TranslationManager.translate("recipeEditor.recipe", "Recipe")
         onBackClicked: handleBack()
 
         // Modified indicator
@@ -567,7 +567,7 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: MainController.frameCount() + " " + TranslationManager.translate("recipeEditor.frames", "frames")
+            text: ProfileManager.frameCount() + " " + TranslationManager.translate("recipeEditor.frames", "frames")
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }
@@ -683,17 +683,17 @@ Page {
         showTry: true
         onDiscardClicked: {
             if (originalProfileName) {
-                MainController.loadProfile(originalProfileName)
+                ProfileManager.loadProfile(originalProfileName)
             }
             root.goBack()
         }
         onTryClicked: {
-            MainController.uploadCurrentProfile()
+            ProfileManager.uploadCurrentProfile()
             root.goBack()
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
-            if (MainController.saveProfile(originalProfileName)) {
+            if (ProfileManager.saveProfile(originalProfileName)) {
                 AccessibilityManager.announce(TranslationManager.translate("recipeEditor.profileSaved", "Profile saved"))
                 root.goBack()
             } else {
@@ -827,14 +827,14 @@ Page {
         function doSave() {
             if (saveAsTitleField.text.length > 0) {
                 var fullTitle = editorPrefix() + saveAsTitleField.text
-                var filename = MainController.titleToFilename(fullTitle)
-                if (MainController.profileExists(filename) && filename !== originalProfileName) {
+                var filename = ProfileManager.titleToFilename(fullTitle)
+                if (ProfileManager.profileExists(filename) && filename !== originalProfileName) {
                     saveAsDialog.pendingFilename = filename
                     saveAsDialog.close()
                     overwriteDialog.open()
                     return
                 }
-                if (MainController.saveProfileAs(filename, fullTitle)) {
+                if (ProfileManager.saveProfileAs(filename, fullTitle)) {
                     root.goBack()
                 } else {
                     saveErrorDialog.open()
@@ -844,7 +844,7 @@ Page {
         }
 
         onOpened: {
-            var currentName = MainController.currentProfileName || "New Recipe"
+            var currentName = ProfileManager.currentProfileName || "New Recipe"
             saveAsTitleField.text = stripPrefix(currentName)
             saveAsTitleField.forceActiveFocus()
         }
@@ -916,7 +916,7 @@ Page {
                     onClicked: {
                         overwriteDialog.close()
                         var fullTitle = editorPrefix() + saveAsTitleField.text
-                        if (MainController.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
+                        if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
                             root.goBack()
                         } else {
                             saveErrorDialog.open()
@@ -942,20 +942,20 @@ Page {
 
     StackView.onActivated: {
         // Capture the original profile name BEFORE conversion (createNewRecipe clears baseProfileName)
-        originalProfileName = MainController.baseProfileName || ""
+        originalProfileName = ProfileManager.baseProfileName || ""
 
         // If not already in recipe mode, create a new recipe from current profile settings
         var freshConversion = false
-        if (!MainController.isCurrentProfileRecipe) {
+        if (!ProfileManager.isCurrentProfileRecipe) {
             freshConversion = true
-            MainController.createNewRecipe(MainController.currentProfileName || "New Recipe")
+            ProfileManager.createNewRecipe(ProfileManager.currentProfileName || "New Recipe")
         }
         loadCurrentProfile()
         // Fresh conversion is editor initialization, not a user edit — start clean
         if (freshConversion) {
-            MainController.markProfileClean()
+            ProfileManager.markProfileClean()
         }
-        root.currentPageTitle = MainController.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
+        root.currentPageTitle = ProfileManager.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
         // Deferred refresh to ensure chart is ready (per CLAUDE.md: no timer guards)
         Qt.callLater(deferredGraphRefresh)
     }

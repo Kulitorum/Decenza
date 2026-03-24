@@ -242,7 +242,7 @@ KeyboardAwareContainer {
                         font.pixelSize: Theme.scaled(11)
                     }
                     Text {
-                        text: MainController.availableProfiles.length
+                        text: ProfileManager.availableProfiles.length
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -1029,7 +1029,7 @@ KeyboardAwareContainer {
             importCompletePopup.open()
 
             // Refresh profiles list
-            MainController.refreshProfiles()
+            ProfileManager.refreshProfiles()
         }
 
         function onConnectionFailed(error) {
