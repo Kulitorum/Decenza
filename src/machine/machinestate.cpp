@@ -672,8 +672,8 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
 
     // Integrate flow to track volume (ml), split by DE1 substate (matches de1app).
     // de1app routes volume by substate: preinfusion → preinfusion_volume,
-    // pouring → pour_volume. Other substates (heating, stabilising) are ignored.
-    // flowRate is in ml/s, deltaTime is in seconds.
+    // pouring → pour_volume. Other substates (heating, stabilising) never reach
+    // here because isFlowing() excludes them above.
     double volumeDelta = flowRate * deltaTime;
     if (volumeDelta > 0) {
         if (m_phase == Phase::Preinfusion) {
