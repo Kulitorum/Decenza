@@ -159,6 +159,31 @@ Located in `tests/tst_saw.cpp`. Tests `WeightProcessor::processWeight()`.
 | 2 | SAW blocked until frame 2 |
 | 3 | SAW blocked until frame 3 |
 
+## Known Coverage Gaps
+
+Areas where bugs have shipped undetected due to missing test coverage:
+
+### QML binding correctness (highest priority)
+
+No tests verify that QML files resolve property names and method calls to the expected C++ objects. During the ProfileManager extraction (PR #562), three QML bugs shipped past the full test suite:
+- `MainController.previousProfileName()` — method removed from MainController, QML silently returned `undefined`
+- `MainController.currentProfile` — never was a QML property (should be `currentProfileName`), always `undefined`
+- `typeof MainController` guards checking wrong object after data source moved to ProfileManager
+
+A QML binding smoke test that instantiates pages and verifies key property bindings resolve to non-undefined values would catch this class of bug.
+
+### MCP resource responses
+
+`tst_mcptools_profiles` and `tst_mcptools_write` test MCP *tools* but not MCP *resources* (`decenza://profiles/active`, `decenza://profiles/list`, etc.). A bug where the `"filename"` field returned a display title instead of a filename was undetectable.
+
+### ShotHistoryStorage async methods
+
+`tst_dbmigration` exercises schema migration and some query paths, but does not cover all async methods. `requestShotsFiltered()` had a missing destroyed-flag guard (use-after-free risk) that was only found by code review, not tests.
+
+### Flow calibration delegation
+
+`applyFlowCalibration()` existed as duplicate implementations in both MainController and ProfileManager. Since both were identical, no test could detect the divergence risk — but if either were updated independently, behavior would silently differ.
+
 ## Adding New Tests
 
 1. Create `tests/tst_yourtest.cpp` with `QTEST_GUILESS_MAIN(tst_YourTest)` and `#include "tst_yourtest.moc"`
