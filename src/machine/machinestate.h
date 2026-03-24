@@ -170,5 +170,6 @@ private:
 #ifdef DECENZA_TESTING
     friend class tst_SAV;
     friend class tst_MachineState;
+    friend class tst_ProfileManager;
 #endif
 };
