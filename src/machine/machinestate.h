@@ -116,6 +116,7 @@ private:
     void stopShotTimer();
     void checkStopAtWeightHotWater(double weight);
     void checkStopAtVolume();
+    void checkStopAtVolumeHotWater();
     void checkStopAtTime();
 
     DE1Device* m_device = nullptr;

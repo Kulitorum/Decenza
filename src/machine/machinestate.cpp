@@ -629,6 +629,35 @@ void MachineState::checkStopAtVolume() {
     }
 }
 
+void MachineState::checkStopAtVolumeHotWater() {
+    if (m_stopAtVolumeTriggered) return;
+    if (!m_settings) return;
+
+    // Match de1app's hot water SAV logic:
+    // - Scale configured: target = 250 ml (huge safety net, SAW does the real stopping)
+    // - No scale: target = waterVolume setting (app-side volume stop is primary)
+    double target;
+    if (!m_settings->scaleAddress().isEmpty()) {
+        target = 250.0;
+    } else {
+        target = m_settings->waterVolume();
+    }
+    if (target <= 0) return;
+
+    if (m_pourVolume >= target) {
+        m_stopAtVolumeTriggered = true;
+        emit targetVolumeReached();
+
+        qDebug() << "MachineState: Hot water volume stop -" << m_pourVolume
+                 << "ml /" << target << "ml"
+                 << (m_settings->scaleAddress().isEmpty() ? "(no scale)" : "(safety net)");
+
+        if (m_device) {
+            m_device->stopOperation();
+        }
+    }
+}
+
 void MachineState::onFlowSample(double flowRate, double deltaTime) {
     // Only process during active dispensing states
     auto state = m_device->state();
@@ -673,11 +702,11 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
             emit cumulativeVolumeChanged();
         }
 
-        // Check if we should stop at volume (only during espresso)
-        // Like de1app, both weight and volume are checked independently —
-        // whichever target is reached first stops the shot.
+        // Check volume-based stops (matches de1app: SAV runs for both Espresso and HotWater)
         if (state == DE1::State::Espresso) {
             checkStopAtVolume();
+        } else if (state == DE1::State::HotWater) {
+            checkStopAtVolumeHotWater();
         }
     }
 }
