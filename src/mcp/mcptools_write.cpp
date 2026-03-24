@@ -415,6 +415,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                     }
                     mainController->uploadRecipeProfile(currentParams);
                 }
+                mainController->uploadCurrentProfile();  // MCP is one-shot, upload immediately
 
                 // Sync QSettings so settings_get reads back the updated values.
                 // uploadRecipeProfile/uploadProfile update the profile object but

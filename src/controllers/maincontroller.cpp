@@ -1594,8 +1594,8 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
         qWarning() << "Failed to save modified profile to temp file:" << tempPath;
     }
 
-    // Upload to machine
-    uploadCurrentProfile();
+    // NOTE: BLE upload deferred to editor exit (QML calls uploadCurrentProfile() explicitly).
+    // This avoids flooding the DE1 with BLE writes on every slider tick. See #557.
 
     emit currentProfileChanged();
 }
@@ -1729,10 +1729,10 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     emit currentProfileChanged();
     emit targetWeightChanged();
 
-    // Upload to machine
-    uploadCurrentProfile();
+    // NOTE: BLE upload deferred to editor exit (QML calls uploadCurrentProfile() explicitly).
+    // This avoids flooding the DE1 with BLE writes on every slider tick. See #557.
 
-    qDebug() << "Recipe profile uploaded with" << m_currentProfile.steps().size() << "frames";
+    qDebug() << "Recipe profile updated with" << m_currentProfile.steps().size() << "frames (BLE upload deferred)";
 }
 
 void MainController::applyRecipeToScalarFields(const RecipeParams& recipe) {

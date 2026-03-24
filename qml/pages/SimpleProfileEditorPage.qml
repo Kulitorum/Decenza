@@ -895,6 +895,7 @@ Page {
             root.goBack()
         }
         onTryClicked: {
+            MainController.uploadCurrentProfile()
             root.goBack()
         }
         onSaveAsClicked: saveAsDialog.open()

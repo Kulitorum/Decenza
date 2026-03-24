@@ -258,6 +258,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                     profileData[it.key()] = it.value().toVariant();
                 }
                 mainController->uploadProfile(profileData);
+                mainController->uploadCurrentProfile();  // MCP is one-shot, upload immediately
             } else {
                 // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
                 QVariantMap currentParams = mainController->getOrConvertRecipeParams();
@@ -266,6 +267,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                     currentParams[it.key()] = it.value().toVariant();
                 }
                 mainController->uploadRecipeProfile(currentParams);
+                mainController->uploadCurrentProfile();  // MCP is one-shot, upload immediately
             }
 
             result["success"] = true;

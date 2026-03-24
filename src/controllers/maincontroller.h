@@ -215,7 +215,7 @@ public slots:
     void loadProfile(const QString& profileName);
     Q_INVOKABLE bool loadProfileFromJson(const QString& jsonContent);  // Load profile from JSON string (e.g., from shot history)
     void refreshProfiles();
-    void uploadCurrentProfile();
+    Q_INVOKABLE void uploadCurrentProfile();
     Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);

@@ -114,7 +114,7 @@ Page {
         }
     }
 
-    // Auto-upload profile to machine on any change
+    // Update profile state and refresh UI (BLE upload deferred to editor exit, see #557)
     function uploadProfile() {
         if (profile) {
             MainController.uploadProfile(profile)
@@ -1055,6 +1055,7 @@ Page {
             root.goBack()
         }
         onTryClicked: {
+            MainController.uploadCurrentProfile()
             root.goBack()
         }
         onSaveAsClicked: saveAsDialog.open()
