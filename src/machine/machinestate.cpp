@@ -310,7 +310,6 @@ void MachineState::updatePhase() {
                 m_hotWaterTareTimeMs = 0;
                 m_hotWaterMaxEffectiveWeight = 0.0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
-                m_currentFrame = -1;     // Reset frame tracking for volume bucketing
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
                 m_cumulativeVolume = 0.0;
@@ -358,8 +357,7 @@ void MachineState::updatePhase() {
                     m_stopAtWeightTriggered = false;
                     m_stopAtVolumeTriggered = false;
                     m_stopAtTimeTriggered = false;
-                    m_currentFrame = -1;     // Reset frame tracking for volume bucketing
-                    m_preinfusionVolume = 0.0;
+                        m_preinfusionVolume = 0.0;
                     m_pourVolume = 0.0;
                     m_cumulativeVolume = 0.0;
                     m_lastEmittedCumulativeVolumeMl = -1;
