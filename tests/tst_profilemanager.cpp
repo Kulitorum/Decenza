@@ -7,6 +7,9 @@
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QQmlExpression>
+#include <QDir>
+#include <QDirIterator>
+#include <QRegularExpression>
 
 #include "mocks/McpTestFixture.h"
 #include "mcp/mcpresourceregistry.h"
@@ -375,6 +378,70 @@ private slots:
         QVERIFY2(qAbs(groupTemp - 95.0) < 0.5,
                  qPrintable(QString("Group temp with override should be ~95.0, got %1").arg(groupTemp)));
     }
+    // === QML migration guard: no stale MainController.profileMethod references ===
+
+    void noStaleMainControllerProfileRefsInQml() {
+        // Scan all QML files for MainController references to methods/properties
+        // that were moved to ProfileManager. Any match is a missed migration.
+        QDir qmlDir(QCoreApplication::applicationDirPath() + "/../../../../qml");
+        if (!qmlDir.exists())
+            qmlDir.setPath(QString(SRCDIR) + "/../qml");
+        if (!qmlDir.exists())
+            QSKIP("QML directory not found — run from source tree");
+
+        // Profile identifiers that must NOT appear as MainController.X in QML
+        static const QStringList profileIds = {
+            "loadProfile", "saveProfile", "saveProfileAs", "uploadProfile",
+            "uploadCurrentProfile", "uploadRecipeProfile", "deleteProfile",
+            "profileExists", "findProfileByTitle", "getProfileByFilename",
+            "getCurrentProfile", "markProfileClean", "titleToFilename",
+            "getOrConvertRecipeParams", "createNewRecipe", "createNewAFlowRecipe",
+            "createNewPressureProfile", "createNewFlowProfile", "createNewProfile",
+            "convertCurrentProfileToAdvanced", "loadProfileFromJson", "refreshProfiles",
+            "addFrame", "deleteFrame", "moveFrameUp", "moveFrameDown",
+            "duplicateFrame", "setFrameProperty", "getFrameAt", "frameCount",
+            "activateBrewWithOverrides", "clearBrewOverrides", "previousProfileName",
+            "currentProfileName", "baseProfileName", "profileModified",
+            "targetWeight", "brewByRatioActive", "brewByRatioDose", "brewByRatio",
+            "availableProfiles", "selectedProfiles", "allBuiltInProfiles",
+            "cleaningProfiles", "downloadedProfiles", "userCreatedProfiles",
+            "allProfilesList", "isCurrentProfileRecipe", "currentEditorType",
+            "profileTargetTemperature", "profileTargetWeight",
+            "profileHasRecommendedDose", "profileRecommendedDose", "currentProfilePtr"
+        };
+
+        // Build regex: MainController\.(id1|id2|...)
+        QString pattern = "MainController\\.(" + profileIds.join("|") + ")";
+        QRegularExpression re(pattern);
+
+        QStringList violations;
+        QDirIterator it(qmlDir.absolutePath(), {"*.qml"}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            QString filePath = it.next();
+            QFile file(filePath);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+                continue;
+            int lineNum = 0;
+            while (!file.atEnd()) {
+                lineNum++;
+                QString line = QString::fromUtf8(file.readLine());
+                QRegularExpressionMatch m = re.match(line);
+                if (m.hasMatch()) {
+                    QString relPath = qmlDir.relativeFilePath(filePath);
+                    violations << QString("%1:%2: MainController.%3")
+                        .arg(relPath).arg(lineNum).arg(m.captured(1));
+                }
+            }
+        }
+
+        if (!violations.isEmpty()) {
+            QString msg = QString("Found %1 stale MainController profile reference(s) in QML:\n  %2")
+                .arg(violations.size())
+                .arg(violations.join("\n  "));
+            QFAIL(qPrintable(msg));
+        }
+    }
+
     // === MCP resource: decenza://profiles/active ===
 
     void mcpResourceActiveProfileReturnsFilenameAndTitle() {
