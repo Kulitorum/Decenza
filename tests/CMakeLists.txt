@@ -224,14 +224,18 @@ qt6_wrap_cpp(TST_MCP_MOC_SOURCES
     mocks/MockTransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpresourceregistry.h
 )
 
-# --- tst_profilemanager: Direct ProfileManager lifecycle, signals, BLE upload ---
-find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+# --- tst_profilemanager: ProfileManager lifecycle, signals, BLE, MCP resources, QML bindings ---
+find_package(Qt6 REQUIRED COMPONENTS Charts Quick Qml)
 add_decenza_test(tst_profilemanager
     tst_profilemanager.cpp
     ${TST_MCP_MOC_SOURCES}
     ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpresources.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/webdebuglogger.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}
@@ -240,7 +244,7 @@ add_decenza_test(tst_profilemanager
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick)
+target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick Qt6::Qml)
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
