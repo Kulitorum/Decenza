@@ -630,6 +630,7 @@ void MachineState::checkStopAtVolume() {
 void MachineState::checkStopAtVolumeHotWater() {
     if (m_stopAtVolumeTriggered) return;
     if (!m_settings) return;
+    if (!m_tareCompleted) return;  // Don't check until tare has happened
 
     // Match de1app's hot water SAV logic:
     // - Scale configured: target = 250 ml (huge safety net, SAW does the real stopping)
