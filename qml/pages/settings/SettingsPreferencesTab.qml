@@ -1057,7 +1057,7 @@ KeyboardAwareContainer {
 
                             Text {
                                 text: TranslationManager.translate("settings.preferences.ignoreVolumeDesc",
-                                    "When a Bluetooth scale is connected, ignore the profile's volume limit and stop by weight only")
+                                    "When a Bluetooth scale is paired, ignore the profile's volume limit and stop by weight only")
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 color: Theme.textSecondaryColor
