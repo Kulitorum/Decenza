@@ -72,7 +72,8 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
 
     R2_LOG(QString("Connecting to %1 (%2)")
                .arg(device.name())
-               .arg(device.address().toString()));
+               .arg(device.address().isNull() ? device.deviceUuid().toString()
+                                              : device.address().toString()));
 
     m_transport->connectToDevice(device);
 }
