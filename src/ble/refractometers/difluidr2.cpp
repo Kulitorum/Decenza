@@ -36,8 +36,10 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         }
     });
 
-    // BLE stacks may not be ready for writes immediately after characteristic discovery.
-    // Cancellable member timer (not fire-and-forget) so disconnect can stop it.
+    // BLE stack constraint: Qt's BLE layer (Android BluetoothLE + iOS CoreBluetooth)
+    // provides no "ready after characteristic discovery" signal. This 100ms delay is
+    // inherited from de1app and required for reliable CCCD writes. No event-based
+    // alternative exists — this is a platform limitation, not a workaround.
     m_initTimer.setSingleShot(true);
     m_initTimer.setInterval(100);
     connect(&m_initTimer, &QTimer::timeout, this, [this]() {

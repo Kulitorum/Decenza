@@ -8,7 +8,7 @@
 // and device name matching.
 //
 // Protocol: header 0xDF 0xDF, func, cmd, datalen, data, additive checksum.
-// Func 3 = Device Action. Pack 0 = status, Pack 1 = temperature, Pack 2 = TDS.
+// Func 3 = Device Action. Pack 0 = status, Pack 1 = temperature, Pack 2 = TDS, Pack 3 = average TDS.
 
 class tst_DiFluidR2 : public QObject {
     Q_OBJECT
@@ -41,6 +41,16 @@ private:
         uint16_t raw = static_cast<uint16_t>(qRound(tds * 100.0));
         QByteArray data;
         data.append(static_cast<char>(0x02));  // PackNo = 2 (TDS result)
+        data.append(static_cast<char>((raw >> 8) & 0xFF));
+        data.append(static_cast<char>(raw & 0xFF));
+        return buildR2Packet(0x03, 0x00, data);
+    }
+
+    // Build an average TDS packet: Func=3, Cmd=0, PackNo=3, TDS raw = tds * 100
+    static QByteArray buildAverageTdsPacket(double tds) {
+        uint16_t raw = static_cast<uint16_t>(qRound(tds * 100.0));
+        QByteArray data;
+        data.append(static_cast<char>(0x03));  // PackNo = 3 (average TDS result)
         data.append(static_cast<char>((raw >> 8) & 0xFF));
         data.append(static_cast<char>(raw & 0xFF));
         return buildR2Packet(0x03, 0x00, data);
@@ -179,6 +189,21 @@ private slots:
 
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.at(0).at(0).toDouble(), 15.75);
+    }
+
+    // === Average TDS packet parsing (pack 3) ===
+
+    void parseAverageTdsPacket() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+
+        r2.handlePacket(buildAverageTdsPacket(9.25));
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(tdsSpy.at(0).at(0).toDouble(), 9.25);
+        QCOMPARE(r2.tds(), 9.25);
+        QCOMPARE(completeSpy.count(), 1);
     }
 
     // === Temperature packet parsing ===

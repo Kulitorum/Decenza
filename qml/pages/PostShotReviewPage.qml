@@ -598,7 +598,6 @@ Page {
                                 value: editDrinkTds
                                 accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                                 onValueModified: function(newValue) {
-                                    tdsInput.value = newValue
                                     editDrinkTds = newValue
                                     calculateEy()
                                 }
@@ -649,7 +648,6 @@ Page {
                             value: editDrinkEy
                             accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                             onValueModified: function(newValue) {
-                                eyInput.value = newValue
                                 editDrinkEy = newValue
                             }
                             onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
