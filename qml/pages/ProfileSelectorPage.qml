@@ -277,7 +277,14 @@ Page {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
-                                    text: (isCurrentProfile && ProfileManager.profileModified ? "*" : "") + modelData.title
+                                    text: {
+                                        var name = modelData.title
+                                        if (isCurrentProfile && ProfileManager.profileModified) {
+                                            return ProfileManager.isCurrentProfileReadOnly
+                                                ? name + " (modified)" : "*" + name
+                                        }
+                                        return name
+                                    }
                                     color: Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
@@ -760,7 +767,14 @@ Page {
                                 // Profile name
                                 Text {
                                     Layout.fillWidth: true
-                                    text: (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified ? "*" : "") + modelData.name
+                                    text: {
+                                        var name = modelData.name
+                                        if (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) {
+                                            return ProfileManager.isCurrentProfileReadOnly
+                                                ? name + " (modified)" : "*" + name
+                                        }
+                                        return name
+                                    }
                                     color: index === Settings.selectedFavoriteProfile ?
                                            "white" : Theme.textColor
                                     font: Theme.bodyFont
