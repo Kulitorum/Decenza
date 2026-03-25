@@ -16,6 +16,7 @@
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/binarycodec.h"
 #include "profile/recipeparams.h"
+#include "profile/profilesavehelper.h"
 
 using namespace DE1::Characteristic;
 
@@ -1342,6 +1343,126 @@ private slots:
         }
         // Cleanup
         QFile::remove(f.profileManager.userProfilesPath() + "/test_user_copy_xyz.json");
+    }
+
+    // === ProfileSaveHelper::compareProfiles() — unified duplicate detection ===
+
+    void compareProfilesIdentical() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        Profile a = f.profileManager.currentProfile();
+        Profile b = f.profileManager.currentProfile();
+        QVERIFY(ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesDifferentPressure() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        auto steps = b.steps();
+        steps[0].pressure = steps[0].pressure + 1.0;
+        b.setSteps(steps);
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesDifferentFlow() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        auto steps = b.steps();
+        steps[0].flow = steps[0].flow + 0.5;
+        b.setSteps(steps);
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesDifferentTemperature() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        auto steps = b.steps();
+        steps[0].temperature = steps[0].temperature + 2.0;
+        b.setSteps(steps);
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesDifferentStepCount() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        ProfileFrame extra;
+        extra.name = "extra";
+        extra.temperature = 93.0;
+        extra.pump = "flow";
+        extra.flow = 2.0;
+        extra.seconds = 30.0;
+        b.addStep(extra);
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesEmptySteps() {
+        Profile a;
+        a.setTitle("Empty A");
+        Profile b;
+        b.setTitle("Empty B");
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesWithinTolerance() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        auto steps = b.steps();
+        steps[0].pressure += 0.05;  // Within 0.1 tolerance
+        steps[0].flow -= 0.05;
+        b.setSteps(steps);
+        QVERIFY(ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesDifferentExitCondition() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        auto steps = b.steps();
+        steps[0].exitPressureOver += 2.0;
+        b.setSteps(steps);
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesDifferentLimiter() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        auto steps = b.steps();
+        steps[0].maxFlowOrPressure = 5.0;
+        b.setSteps(steps);
+        QVERIFY(!ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesIgnoresTitle() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / A");
+        Profile a = f.profileManager.currentProfile();
+        loadDFlowProfile(f, "D-Flow / B");
+        Profile b = f.profileManager.currentProfile();
+        // Same frames, different titles — compareProfiles only checks frames
+        QVERIFY(ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    void compareProfilesIgnoresReadOnly() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        Profile a = f.profileManager.currentProfile();
+        Profile b = a;
+        a.setReadOnly(1);
+        b.setReadOnly(0);
+        QVERIFY(ProfileSaveHelper::compareProfiles(a, b));
     }
 };
 

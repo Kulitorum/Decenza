@@ -1106,6 +1106,7 @@ private slots:
         QCOMPARE(parsed.maxFlowOrPressureRange, original.maxFlowOrPressureRange);
         QCOMPARE(parsed.popup, original.popup);
     }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Profile)

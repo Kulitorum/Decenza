@@ -149,6 +149,7 @@ set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profilesavehelper.cpp
 )
 
 # History sources (ShotHistoryStorage + transitive deps)
@@ -244,7 +245,7 @@ add_decenza_test(tst_profilemanager
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick Qt6::Qml)
+target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick Qt6::Qml paho-mqtt3a-static)
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
 
@@ -265,7 +266,7 @@ add_decenza_test(tst_mcptools_profiles
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Charts Qt6::Quick)
+target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
@@ -289,5 +290,5 @@ add_decenza_test(tst_mcptools_write
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_write PRIVATE Qt6::Charts Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia)
+target_link_libraries(tst_mcptools_write PRIVATE Qt6::Charts Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
