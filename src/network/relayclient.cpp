@@ -11,7 +11,7 @@ static constexpr int kReconnectBaseMs = 5000;
 static constexpr int kReconnectMaxMs = 60000;
 static constexpr int kPingIntervalMs = 5 * 60 * 1000;  // 5 minutes
 static constexpr int kStatusPushIntervalMs = 5000;      // 5 seconds
-static const QString kRelayUrl = QStringLiteral("wss://ws.decenza.coffee/prod");
+static const QString kRelayUrl = QStringLiteral("wss://ws.decenza.coffee");
 
 RelayClient::RelayClient(DE1Device* device, MachineState* machineState,
                          Settings* settings, QObject* parent)
