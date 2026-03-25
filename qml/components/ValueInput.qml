@@ -544,6 +544,11 @@ Item {
                         Layout.fillHeight: true
                         focus: !popupContent.editMode
 
+                        Accessible.role: Accessible.Slider
+                        Accessible.name: root.accessibleName || (root.displayText || (root.value.toFixed(root.decimals) + root.suffix))
+                        Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
+                        Accessible.focusable: true
+
                         // Keyboard navigation — honors the selected gear
                         Keys.onEscapePressed: scrubberPopup.close()
                         Keys.onUpPressed: popupAdjust(1)
@@ -573,10 +578,9 @@ Item {
                             color: root.valueColor
                             horizontalAlignment: Text.AlignHCenter
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
-                            validator: DoubleValidator { bottom: root.from; top: root.to; decimals: root.decimals }
                             selectByMouse: true
 
-                            onAccepted: {
+                            function commitValue() {
                                 var parsed = parseFloat(text)
                                 if (!isNaN(parsed)) {
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
@@ -584,11 +588,16 @@ Item {
                                     if (parsed !== root.value) {
                                         root.valueModified(parsed)
                                     }
+                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                        AccessibilityManager.announce(root.displayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
+                                    }
                                 }
                                 popupContent.editMode = false
                                 popupValueContainer.forceActiveFocus()
                             }
 
+                            Keys.onReturnPressed: commitValue()
+                            Keys.onEnterPressed: commitValue()
                             Keys.onEscapePressed: {
                                 popupContent.editMode = false
                                 popupValueContainer.forceActiveFocus()
@@ -623,7 +632,11 @@ Item {
 
                             onPressed: function(mouse) {
                                 startX = mouse.x
-                                startY = mouse.y
+                                // Offset startY so the current gear is preserved
+                                // when drag begins. Gear = floor(|dy| / sc(50)),
+                                // so placing startY at -gear*sc(50) from mouse.y
+                                // keeps the gear at its current value.
+                                startY = mouse.y - popupContent.currentGear * sc(50)
                                 isDragging = false
 
                                 // Announce parameter name when bubble appears (accessibility)
@@ -821,7 +834,13 @@ Item {
                         color: popupContent.currentGear === index ? Theme.primaryColor : Theme.textSecondaryColor
                         opacity: popupContent.currentGear === index ? 1.0 : 0.35
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData + " " + TranslationManager.translate("valueinput.gear.label", "step multiplier")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: gearArea.clicked(null)
+
                         MouseArea {
+                            id: gearArea
                             anchors.fill: parent
                             anchors.margins: -sc(4)
                             onClicked: {
