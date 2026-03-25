@@ -828,6 +828,10 @@ public:
     // Device identity (stable UUID for server communication)
     Q_INVOKABLE QString deviceId() const;
 
+    // Pocket app pairing token
+    Q_INVOKABLE QString pocketPairingToken() const;
+    void setPocketPairingToken(const QString& token);
+
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);

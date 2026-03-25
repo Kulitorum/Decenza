@@ -2051,6 +2051,18 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 400, "application/json", R"({"error":"Missing request body"})");
         }
     }
+    else if (path == "/api/pocket/pair" && method == "POST") {
+        qsizetype bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart >= 0) {
+            QByteArray body = request.mid(bodyStart + 4);
+            handlePocketPair(socket, body);
+        } else {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing request body"})");
+        }
+    }
+    else if (path == "/api/pocket/status") {
+        handlePocketStatus(socket);
+    }
     else if (path == "/upload") {
         if (method == "GET") {
             sendHtml(socket, generateUploadPage());
@@ -2929,4 +2941,54 @@ QString ShotServer::getLocalIpAddress() const
     }
 
     return fallbackAddress.isEmpty() ? "127.0.0.1" : fallbackAddress;
+}
+
+void ShotServer::handlePocketPair(QTcpSocket* socket, const QByteArray& body)
+{
+    QJsonDocument doc = QJsonDocument::fromJson(body);
+    QString pairingToken = doc.object()["pairingToken"].toString();
+
+    if (pairingToken.isEmpty()) {
+        sendResponse(socket, 400, "application/json",
+            R"({"error":"Missing pairingToken"})");
+        return;
+    }
+
+    if (m_settings) {
+        m_settings->setPocketPairingToken(pairingToken);
+    }
+
+    // Enable relay client if available
+    if (m_relayClient) {
+        // RelayClient::setEnabled(true) will be called externally or via signal
+    }
+
+    QJsonObject result;
+    result["success"] = true;
+    result["deviceId"] = m_settings ? m_settings->deviceId() : QString();
+    result["deviceName"] = QSysInfo::machineHostName();
+    sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+
+    qDebug() << "ShotServer: Pocket app paired successfully";
+}
+
+void ShotServer::handlePocketStatus(QTcpSocket* socket)
+{
+    QJsonObject result;
+    if (m_device) {
+        result["connected"] = m_device->isConnected();
+        result["state"] = m_device->stateString();
+        result["temperature"] = m_device->temperature();
+        result["waterLevelMl"] = m_device->waterLevelMl();
+        bool isAwake = m_device->isConnected() &&
+                      (m_device->state() != DE1::State::Sleep &&
+                       m_device->state() != DE1::State::GoingToSleep);
+        result["isAwake"] = isAwake;
+    }
+    if (m_machineState) {
+        result["phase"] = m_machineState->phaseString();
+        result["isHeating"] = m_machineState->isHeating();
+        result["isReady"] = m_machineState->isReady();
+    }
+    sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
 }

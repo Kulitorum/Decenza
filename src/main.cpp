@@ -78,6 +78,7 @@
 #include "core/widgetlibrary.h"
 #include "mcp/mcpserver.h"
 #include "network/librarysharing.h"
+#include "network/relayclient.h"
 #include "core/documentformatter.h"
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
@@ -799,6 +800,13 @@ int main(int argc, char *argv[])
     mcpServer.setBatteryManager(&batteryManager);
     mainController.shotServer()->setMcpServer(&mcpServer);
     // Note: registerAllTools() is deferred until after AccessibilityManager is created (below)
+
+    // Relay client for Pocket app remote control via AWS WebSocket
+    RelayClient relayClient(&de1Device, &machineState, &settings);
+    mainController.shotServer()->setRelayClient(&relayClient);
+    if (!settings.pocketPairingToken().isEmpty()) {
+        relayClient.setEnabled(true);
+    }
 
     // Weather forecast manager (hourly updates, region-aware API selection)
     WeatherManager weatherManager(&sharedNetworkManager);

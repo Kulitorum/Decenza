@@ -95,6 +95,9 @@ public:
     // MCP server for AI remote control
     void setMcpServer(McpServer* mcp) { m_mcpServer = mcp; }
 
+    // Relay client for Pocket app remote control
+    void setRelayClient(class RelayClient* client) { m_relayClient = client; }
+
     // System status for web telemetry
     void setBatteryManager(BatteryManager* manager) { m_batteryManager = manager; }
     void setMemoryMonitor(MemoryMonitor* monitor) { m_memoryMonitor = monitor; }
@@ -185,6 +188,10 @@ private:
     QString generateAIConversationsPage() const;
     void handleAIConversationDownload(QTcpSocket* socket, const QString& key, const QString& format);
 
+    // Pocket app pairing
+    void handlePocketPair(QTcpSocket* socket, const QByteArray& body);
+    void handlePocketStatus(QTcpSocket* socket);
+
     // HTTPS / TLS
     bool setupTls();
     bool generateSelfSignedCert(const QString& certPath, const QString& keyPath);
@@ -234,6 +241,7 @@ private:
     BatteryManager* m_batteryManager = nullptr;
     McpServer* m_mcpServer = nullptr;
     MemoryMonitor* m_memoryMonitor = nullptr;
+    class RelayClient* m_relayClient = nullptr;
     int m_nextLibraryRequestId = 0;
     static constexpr int kLibraryTimeoutMs = 60000;
     enum class LibraryRequestType { Browse, Download, Upload, Delete };

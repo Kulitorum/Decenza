@@ -64,6 +64,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     Sql
     Positioning
+    WebSockets
 )
 
 # SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
@@ -291,6 +292,7 @@ set(SOURCES
     src/network/shotreporter.cpp
     src/network/crashreporter.cpp
     src/network/librarysharing.cpp
+    src/network/relayclient.cpp
     src/core/settingsserializer.cpp
     src/core/datamigrationclient.cpp
     src/core/databasebackupmanager.cpp
@@ -407,6 +409,7 @@ set(HEADERS
     src/network/shotreporter.h
     src/network/crashreporter.h
     src/network/librarysharing.h
+    src/network/relayclient.h
     src/mcp/mcpserver.h
     src/mcp/mcpsession.h
     src/mcp/mcptoolregistry.h
@@ -480,6 +483,7 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Network
     Qt6::Sql
     Qt6::Positioning
+    Qt6::WebSockets
 )
 
 # Link SerialPort only on desktop (not available on Android/iOS)

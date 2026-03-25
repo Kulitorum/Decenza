@@ -4494,6 +4494,17 @@ void Settings::setValue(const QString& key, const QVariant& value) {
     emit valueChanged(key);
 }
 
+// Pocket app pairing
+QString Settings::pocketPairingToken() const
+{
+    return m_settings.value("pocket/pairingToken").toString();
+}
+
+void Settings::setPocketPairingToken(const QString& token)
+{
+    m_settings.setValue("pocket/pairingToken", token);
+}
+
 void Settings::factoryReset()
 {
     qWarning() << "Settings::factoryReset() - WIPING ALL DATA";
