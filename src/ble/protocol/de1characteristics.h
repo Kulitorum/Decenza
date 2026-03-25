@@ -288,7 +288,7 @@ namespace VariaAku {
 namespace Refractometer {
 
 namespace DiFluidR2 {
-    const QBluetoothUuid SERVICE(QString("0000FF00-0000-1000-8000-00805F9B34FB"));
+    const QBluetoothUuid SERVICE(QString("000000FF-0000-1000-8000-00805F9B34FB"));
     const QBluetoothUuid CHARACTERISTIC(QString("0000AA01-0000-1000-8000-00805F9B34FB"));
 }
 

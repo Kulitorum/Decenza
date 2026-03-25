@@ -563,9 +563,8 @@ Page {
                         spacing: Theme.scaled(2)
                         RowLayout {
                             spacing: Theme.scaled(4)
-                            Tr {
-                                key: "postshotreview.label.tds"
-                                fallback: "TDS"
+                            Text {
+                                text: "TDS(%)"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
                                 Accessible.ignored: true
@@ -577,32 +576,53 @@ Page {
                                 radius: Theme.scaled(3)
                                 visible: Settings.savedRefractometerAddress !== ""
                                 color: {
-                                    if (typeof Refractometer === "undefined" || !Refractometer) return Theme.textSecondaryColor
-                                    if (Refractometer.connected && Refractometer.tds > 0) return Theme.successColor
-                                    if (Refractometer.connected) return Theme.accentColor
-                                    return Theme.textSecondaryColor
+                                    if (!BLEManager.refractometerConnected) return Theme.textSecondaryColor
+                                    if (typeof Refractometer !== "undefined" && Refractometer && Refractometer.tds > 0) return Theme.successColor
+                                    return Theme.accentColor
                                 }
                                 Accessible.ignored: true
                             }
                         }
-                        ValueInput {
-                            id: tdsInput
+                        RowLayout {
                             Layout.fillWidth: true
-                            height: Theme.scaled(40)
-                            from: 0
-                            to: 20
-                            stepSize: 0.01
-                            decimals: 2
-                            suffix: "%"
-                            valueColor: Theme.dyeTdsColor
-                            value: editDrinkTds
-                            accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
-                            onValueModified: function(newValue) {
-                                tdsInput.value = newValue
-                                editDrinkTds = newValue
-                                calculateEy()
+                            spacing: Theme.scaled(2)
+                            ValueInput {
+                                id: tdsInput
+                                Layout.fillWidth: true
+                                height: Theme.scaled(28)
+                                from: 0
+                                to: 20
+                                stepSize: 0.01
+                                decimals: 2
+                                suffix: ""
+                                valueColor: Theme.dyeTdsColor
+                                value: editDrinkTds
+                                accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                                onValueModified: function(newValue) {
+                                    tdsInput.value = newValue
+                                    editDrinkTds = newValue
+                                    calculateEy()
+                                }
+                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
-                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                            // Read TDS from refractometer (visible when refractometer is configured)
+                            AccessibleButton {
+                                property bool refConnected: BLEManager.refractometerConnected
+                                property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
+                                visible: Settings.savedRefractometerAddress !== ""
+                                text: {
+                                    if (!refConnected) return "R2 Off"
+                                    if (refMeasuring) return "..."
+                                    return "Read"
+                                }
+                                accessibleName: TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                                enabled: refConnected && !refMeasuring
+                                Layout.preferredHeight: Theme.scaled(28)
+                                onClicked: {
+                                    if (typeof Refractometer !== "undefined" && Refractometer)
+                                        Refractometer.requestMeasurement()
+                                }
+                            }
                         }
                     }
 
@@ -610,9 +630,8 @@ Page {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
-                        Tr {
-                            key: "postshotreview.label.ey"
-                            fallback: "EY"
+                        Text {
+                            text: "EXT(%)"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(10)
                             Accessible.ignored: true
@@ -620,12 +639,12 @@ Page {
                         ValueInput {
                             id: eyInput
                             Layout.fillWidth: true
-                            height: Theme.scaled(40)
+                            height: Theme.scaled(28)
                             from: 0
                             to: 30
                             stepSize: 0.1
                             decimals: 1
-                            suffix: "%"
+                            suffix: ""
                             valueColor: Theme.dyeEyColor
                             value: editDrinkEy
                             accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")

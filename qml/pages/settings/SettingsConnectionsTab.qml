@@ -1122,7 +1122,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(80)
                         clip: true
-                        visible: !ScaleDevice || !ScaleDevice.connected
+                        visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale
 
                         // Combine scales and refractometers into a single model
                         property var combinedModel: {
