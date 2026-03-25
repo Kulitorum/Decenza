@@ -1,7 +1,6 @@
 #include "difluidr2.h"
 #include "../protocol/de1characteristics.h"
 #include "../transport/scalebletransport.h"
-#include <QTimer>
 
 // Logging macros — same pattern as scale drivers but emits logMessage() directly
 #define R2_LOG(msg) do { \
@@ -18,12 +17,53 @@
 
 // Protocol constants
 static constexpr uint8_t PACKET_HEADER = 0xDF;
-static constexpr int PACKET_MIN_LENGTH = 5;
+static constexpr int PACKET_MIN_LENGTH = 6;  // header(2) + func(1) + cmd(1) + datalen(1) + checksum(1)
 
 DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
     : QObject(parent)
     , m_transport(transport)
 {
+    // Watchdog: BLE measurement failures may produce no packet at all (device out of
+    // range, disconnected mid-measurement). This timeout recovers from stuck measurements
+    // that produce no error event — event-based detection cannot detect missing events.
+    m_measurementTimer.setSingleShot(true);
+    m_measurementTimer.setInterval(15000);
+    connect(&m_measurementTimer, &QTimer::timeout, this, [this]() {
+        if (m_measuring) {
+            R2_WARN("Measurement timeout");
+            m_measuring = false;
+            emit measuringChanged();
+        }
+    });
+
+    // BLE stacks may not be ready for writes immediately after characteristic discovery.
+    // Cancellable member timer (not fire-and-forget) so disconnect can stop it.
+    m_initTimer.setSingleShot(true);
+    m_initTimer.setInterval(100);
+    connect(&m_initTimer, &QTimer::timeout, this, [this]() {
+        if (!m_transport || !m_characteristicsReady) return;
+        m_transport->enableNotifications(Refractometer::DiFluidR2::SERVICE,
+                                         Refractometer::DiFluidR2::CHARACTERISTIC);
+        m_connected = true;
+        emit connectedChanged();
+        R2_LOG("Connected and ready for measurements");
+
+        // Send "get temperature unit" as init handshake (Func=1, Cmd=0, DataLen=0)
+        // This benign query confirms the BLE link is working and may wake the R2
+        QByteArray initCmd;
+        initCmd.append(static_cast<char>(0xDF));
+        initCmd.append(static_cast<char>(0xDF));
+        initCmd.append(static_cast<char>(0x01));  // Func: Settings
+        initCmd.append(static_cast<char>(0x00));  // Cmd: Temperature Unit
+        initCmd.append(static_cast<char>(0x00));  // DataLen: 0 (query)
+        uint8_t checksum = 0;
+        for (qsizetype i = 0; i < initCmd.size(); ++i)
+            checksum += static_cast<uint8_t>(initCmd[i]);
+        initCmd.append(static_cast<char>(checksum));
+        R2_LOG(QString("Sending init query: %1").arg(QString(initCmd.toHex(' '))));
+        sendCommand(initCmd);
+    });
+
     if (m_transport) {
         m_transport->setParent(this);
 
@@ -79,6 +119,8 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void DiFluidR2::disconnectFromDevice() {
+    m_measurementTimer.stop();
+    m_initTimer.stop();
     if (m_transport) {
         m_transport->disconnectFromDevice();
     }
@@ -116,15 +158,7 @@ void DiFluidR2::requestMeasurement() {
     cmd.append(static_cast<char>(checksum));
 
     sendCommand(cmd);
-
-    // Safety timeout
-    QTimer::singleShot(15000, this, [this]() {
-        if (m_measuring) {
-            R2_WARN("Measurement timeout");
-            m_measuring = false;
-            emit measuringChanged();
-        }
-    });
+    m_measurementTimer.start();
 }
 
 // === Transport callbacks ===
@@ -136,17 +170,27 @@ void DiFluidR2::onTransportConnected() {
 
 void DiFluidR2::onTransportDisconnected() {
     R2_LOG("Transport disconnected");
+    m_measurementTimer.stop();
+    m_initTimer.stop();
     m_connected = false;
     m_characteristicsReady = false;
     m_serviceFound = false;
+    m_measuring = false;
     emit connectedChanged();
+    emit measuringChanged();
 }
 
 void DiFluidR2::onTransportError(const QString& message) {
     R2_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("DiFluid R2 connection error");
+    m_measurementTimer.stop();
+    m_initTimer.stop();
     m_connected = false;
+    m_characteristicsReady = false;
+    m_serviceFound = false;
+    m_measuring = false;
     emit connectedChanged();
+    emit measuringChanged();
 }
 
 void DiFluidR2::onServiceDiscovered(const QBluetoothUuid& uuid) {
@@ -177,34 +221,7 @@ void DiFluidR2::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& service
 
     R2_LOG("Characteristics discovered, enabling notifications");
     m_characteristicsReady = true;
-
-    // Same 100ms delay as DifluidScale (de1app timing)
-    QTimer::singleShot(100, this, [this]() {
-        if (!m_transport || !m_characteristicsReady) return;
-        m_transport->enableNotifications(Refractometer::DiFluidR2::SERVICE,
-                                         Refractometer::DiFluidR2::CHARACTERISTIC);
-        m_connected = true;
-        emit connectedChanged();
-        R2_LOG("Connected and ready for measurements");
-
-        // Send "get temperature unit" as init handshake (Func=1, Cmd=0, DataLen=0)
-        // This benign query confirms the BLE link is working and may wake the R2
-        QTimer::singleShot(200, this, [this]() {
-            if (!m_transport || !m_characteristicsReady) return;
-            QByteArray initCmd;
-            initCmd.append(static_cast<char>(0xDF));
-            initCmd.append(static_cast<char>(0xDF));
-            initCmd.append(static_cast<char>(0x01));  // Func: Settings
-            initCmd.append(static_cast<char>(0x00));  // Cmd: Temperature Unit
-            initCmd.append(static_cast<char>(0x00));  // DataLen: 0 (query)
-            uint8_t checksum = 0;
-            for (qsizetype i = 0; i < initCmd.size(); ++i)
-                checksum += static_cast<uint8_t>(initCmd[i]);
-            initCmd.append(static_cast<char>(checksum));
-            R2_LOG(QString("Sending init query: %1").arg(QString(initCmd.toHex(' '))));
-            sendCommand(initCmd);
-        });
-    });
+    m_initTimer.start();
 }
 
 void DiFluidR2::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
@@ -218,7 +235,7 @@ void DiFluidR2::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid
 void DiFluidR2::handlePacket(const QByteArray& packet) {
     // Official DiFluid protocol: DF DF <Func> <Cmd> <DataLen> <Data0..DataN> <Checksum>
     // Minimum packet: header(2) + func(1) + cmd(1) + datalen(1) + checksum(1) = 6 bytes
-    if (packet.size() < 6) {
+    if (packet.size() < PACKET_MIN_LENGTH) {
         return;
     }
 
@@ -240,14 +257,11 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
     uint8_t dataLen = static_cast<uint8_t>(packet[4]);
 
     // Data starts at byte 5, length = dataLen
-    // Verify packet length: 5 (header+func+cmd+datalen) + dataLen + 1 (checksum)
+    // Verify packet length: 5 (2×header + func + cmd + datalen) + dataLen + 1 (checksum)
     if (packet.size() < 5 + dataLen + 1) {
         R2_WARN(QString("Packet too short for declared data length"));
         return;
     }
-
-    // Only log action results, not every packet
-
 
     // Func 3 = Device Action (test results)
     if (func == 3) {
@@ -259,12 +273,15 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             if (errClass == 2 && errCode == 3) emit errorOccurred("No liquid detected");
             else if (errClass == 2 && errCode == 4) emit errorOccurred("Beyond range");
             else emit errorOccurred(QString("R2 error %1/%2").arg(errClass).arg(errCode));
+            m_measurementTimer.stop();
             m_measuring = false;
             emit measuringChanged();
             return;
         }
         if (cmd == 255) {
             R2_WARN("R2 unknown error");
+            emit errorOccurred("Unknown R2 error");
+            m_measurementTimer.stop();
             m_measuring = false;
             emit measuringChanged();
             return;
@@ -300,7 +317,7 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             break;
         }
         case 2: {
-            // TDS result: Data1-2 = concentration * 100, Data3-6 = refractive index * 100000
+            // TDS result: Data1-2 = concentration * 100 (Data3-6 = refractive index, not parsed)
             if (dataLen < 3) return;
             uint16_t tdsRaw = static_cast<uint16_t>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
@@ -308,6 +325,7 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             R2_LOG(QString("TDS: %1% (raw=%2)").arg(m_tds, 0, 'f', 2).arg(tdsRaw));
             emit tdsChanged(m_tds);
             emit measurementComplete();
+            m_measurementTimer.stop();
             m_measuring = false;
             emit measuringChanged();
             break;
@@ -323,6 +341,7 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             m_tds = avgTds;
             emit tdsChanged(m_tds);
             emit measurementComplete();
+            m_measurementTimer.stop();
             m_measuring = false;
             emit measuringChanged();
             break;
@@ -343,7 +362,7 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
 }
 
 bool DiFluidR2::validateChecksum(const QByteArray& packet) const {
-    if (packet.size() < 7) return false;
+    if (packet.size() < PACKET_MIN_LENGTH) return false;
 
     // Checksum = sum of all bytes from index 0 to N-2, mod 256
     uint8_t calculated = 0;

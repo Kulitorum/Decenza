@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QBluetoothDeviceInfo>
+#include <QTimer>
 
 class ScaleBleTransport;
 
@@ -12,8 +13,8 @@ class ScaleBleTransport;
  * Uses ScaleBleTransport for BLE communication (same abstraction as scale drivers,
  * gives us Qt/CoreBluetooth platform switching for free).
  *
- * Protocol: header 0xDF 0xDF, function byte, data, XOR checksum.
- * Service 0xFF00, characteristic 0xAA01.
+ * Protocol: header 0xDF 0xDF, func, cmd, datalen, data, additive checksum.
+ * Service 0x00FF, characteristic 0xAA01.
  *
  * Emits tdsChanged when a TDS reading arrives. MainController connects this
  * to Settings.setDyeDrinkTds() for auto-populating the post-shot review page.
@@ -23,7 +24,6 @@ class DiFluidR2 : public QObject {
 
     Q_PROPERTY(bool connected READ isConnected NOTIFY connectedChanged)
     Q_PROPERTY(double tds READ tds NOTIFY tdsChanged)
-    Q_PROPERTY(double extractionYield READ extractionYield NOTIFY extractionYieldChanged)
     Q_PROPERTY(double temperature READ temperature NOTIFY temperatureChanged)
     Q_PROPERTY(bool measuring READ isMeasuring NOTIFY measuringChanged)
     Q_PROPERTY(QString name READ name CONSTANT)
@@ -34,7 +34,6 @@ public:
 
     bool isConnected() const { return m_connected; }
     double tds() const { return m_tds; }
-    double extractionYield() const { return m_extractionYield; }
     double temperature() const { return m_temperature; }
     bool isMeasuring() const { return m_measuring; }
     QString name() const { return m_name; }
@@ -50,7 +49,6 @@ public:
 signals:
     void connectedChanged();
     void tdsChanged(double tds);
-    void extractionYieldChanged(double ey);
     void temperatureChanged(double temperature);
     void measuringChanged();
     void measurementComplete();
@@ -81,7 +79,8 @@ private:
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
     double m_tds = 0.0;
-    double m_extractionYield = 0.0;
     double m_temperature = 0.0;
     bool m_measuring = false;
+    QTimer m_measurementTimer;
+    QTimer m_initTimer;
 };

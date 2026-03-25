@@ -147,7 +147,6 @@ Page {
         function onTdsChanged(tds) {
             if (tds > 0 && isEditMode) {
                 editDrinkTds = tds
-                tdsInput.value = tds
                 calculateEy()
             }
         }
@@ -160,7 +159,6 @@ Page {
             var ey = (editDrinkWeight * editDrinkTds) / editDoseWeight
             ey = Math.round(ey * 10) / 10  // Round to 1 decimal
             editDrinkEy = ey
-            eyInput.value = ey
         }
     }
 
@@ -563,8 +561,9 @@ Page {
                         spacing: Theme.scaled(2)
                         RowLayout {
                             spacing: Theme.scaled(4)
-                            Text {
-                                text: "TDS(%)"
+                            Tr {
+                                key: "postshotreview.label.tds"
+                                fallback: "TDS%"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
                                 Accessible.ignored: true
@@ -611,9 +610,9 @@ Page {
                                 property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
                                 visible: Settings.savedRefractometerAddress !== ""
                                 text: {
-                                    if (!refConnected) return "R2 Off"
-                                    if (refMeasuring) return "..."
-                                    return "Read"
+                                    if (!refConnected) return TranslationManager.translate("postshotreview.refractometer.off", "R2 Off")
+                                    if (refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
+                                    return TranslationManager.translate("postshotreview.refractometer.read", "Read")
                                 }
                                 accessibleName: TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
                                 enabled: refConnected && !refMeasuring
@@ -630,8 +629,9 @@ Page {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
-                        Text {
-                            text: "EXT(%)"
+                        Tr {
+                            key: "postshotreview.label.ey"
+                            fallback: "EY%"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(10)
                             Accessible.ignored: true
