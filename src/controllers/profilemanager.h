@@ -186,6 +186,7 @@ private:
     bool m_profileUploadPending = false;
 
 #ifdef DECENZA_TESTING
+    friend class tst_ProfileManager;
     friend class tst_McpToolsProfiles;
     friend class tst_McpToolsWrite;
 #endif

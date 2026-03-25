@@ -80,7 +80,7 @@ FocusScope {
     onPresetsChanged: recalcTimer.restart()
     onEffectiveMaxWidthChanged: recalcTimer.restart()
     Connections {
-        target: MainController
+        target: ProfileManager
         function onProfileModifiedChanged() { recalcTimer.restart() }
     }
 
