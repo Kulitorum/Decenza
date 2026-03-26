@@ -1156,6 +1156,15 @@ int main(int argc, char *argv[])
             return;  // Already connected
         }
 
+        // Clean up old refractometer before replacing — disconnect first (emits
+        // signals while pointers are still valid), then clear raw pointer holders
+        if (refractometer) {
+            refractometer->disconnectFromDevice();
+            mainController.setRefractometer(nullptr);
+            bleManager.setRefractometerDevice(nullptr);
+            engine.rootContext()->setContextProperty("Refractometer", nullptr);
+        }
+
         // Create transport using the same platform selection as scales
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
         auto* transport = new CoreBluetoothScaleBleTransport();
@@ -1188,11 +1197,12 @@ int main(int argc, char *argv[])
 
     // Handle Forget Refractometer — disconnect and clean up
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested,
-                     [&refractometer, &mainController, &engine]() {
+                     [&refractometer, &mainController, &engine, &bleManager]() {
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
             mainController.setRefractometer(nullptr);
+            bleManager.setRefractometerDevice(nullptr);
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
             refractometer.reset();
         }

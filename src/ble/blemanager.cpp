@@ -523,6 +523,9 @@ void BLEManager::clearSavedRefractometer() {
 }
 
 void BLEManager::setRefractometerDevice(DiFluidR2* device) {
+    if (m_refractometerDevice) {
+        disconnect(m_refractometerDevice, nullptr, this, nullptr);
+    }
     m_refractometerDevice = device;
     if (m_refractometerDevice) {
         connect(m_refractometerDevice, &DiFluidR2::connectedChanged,
