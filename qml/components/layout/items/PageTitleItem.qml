@@ -45,7 +45,7 @@ Item {
             }
 
             Text {
-                text: "- " + DE1Device.subStateString
+                text: TranslationManager.translate("pageTitle.subStateSeparator", "- ") + DE1Device.subStateString
                 color: Theme.textSecondaryColor
                 font: Theme.bodyFont
                 visible: MachineState.isFlowing
