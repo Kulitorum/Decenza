@@ -35,7 +35,7 @@ A virtual usability study of common user workflows revealed:
 | 13 | About | Credits, donate | Too small for own tab |
 | 14 | Debug | Resolution, simulation, profile converter | OK (debug only) |
 
-### Proposed Tab Structure (11 tabs)
+### Proposed Tab Structure (9 tabs)
 
 | # | Tab | Contents | Source |
 |---|-----|----------|--------|
@@ -44,14 +44,12 @@ A virtual usability study of common user workflows revealed:
 | 2 | **Display** | Theme mode (follow system, dark/light selectors), Extraction View (Chart/Cup Fill), Per-Screen Scale, Post-Shot Review Close timer, Shot Map, Launcher Mode (Android) | Preferences (display items) |
 | 3 | **Themes** | Color editor, presets (unchanged) | Themes (minus mode selectors) |
 | 4 | **Screensaver** | Unchanged | Screensaver |
-| 5 | **Visualizer** | Unchanged | Visualizer |
+| 5 | **Services** | Four summary cards with status indicators + [Configure...] buttons that open setup dialogs: **Visualizer** (account + upload prefs), **AI Assistant** (provider, API key, model, test connection), **MCP Server** (enable, access level, confirmation, Discuss Shot), **Home Assistant** (MQTT broker, auto-discovery, publish). Each dialog is ~4-6 fields. | AI + Visualizer + MQTT merged |
 | 6 | **History & Data** | Three columns + migration dialog. **Shot History** (history link, DE1 import), **Server & Sharing** (server enable + security + TOTP + REST API docs, Factory Reset at bottom), **Backup** (daily backup, restore). "Import from Another Device" button opens stepped dialog. | History + Data merged, REST API from MQTT |
-| 7 | **AI** | Two columns: **Provider** (picker, API key, provider-specific fields, test connection) and **MCP Server** (enable, access levels, confirmation, Discuss Shot) | AI (internal reorg) |
-| 8 | **Home Assistant** | MQTT config, Home Assistant auto-discovery, Publish Discovery (no REST API section) | MQTT (minus REST API) |
-| 9 | **Accessibility** | Unchanged | Accessibility |
-| 10 | **Language** | Unchanged | Language |
-| 11 | **Layout** | Unchanged | Layout |
-| 12 | **About** | Version + update controls + credits + donate | Update + About merged |
+| 7 | **Accessibility** | Unchanged | Accessibility |
+| 8 | **Language** | Unchanged | Language |
+| 9 | **Layout** | Unchanged | Layout |
+| 10 | **About** | Version + update controls + credits + donate | Update + About merged |
 
 ### What Moves Where (complete mapping)
 
@@ -109,7 +107,7 @@ A virtual usability study of common user workflows revealed:
 
 **Decision 1: Screensaver — own tab.** 6 screensaver types with unique sub-settings. Too much for Display.
 
-**Decision 2: AI and MQTT — separate tabs.** Different audiences, both complex. MQTT is primarily for Home Assistant users. Renamed to "Home Assistant" to match its primary use case.
+**Decision 2: AI, Visualizer, and Home Assistant — merge into Services tab.** All three are "connect to an external service" flows set up once and rarely revisited. Each gets a summary card (status + configure button) on the tab, with full configuration in a focused dialog. AI API setup and MCP Server setup are separate cards/dialogs since they serve different audiences (shot analysis vs Claude Desktop power users). ~4-6 fields per dialog keeps them manageable.
 
 **Decision 3: Shot Map — Display tab.** It has screensaver tie-in (Shot Map screensaver type) and is a display/metadata preference. The Espresso tab was eliminated (too thin).
 
@@ -117,7 +115,7 @@ A virtual usability study of common user workflows revealed:
 
 **Decision 5: Launcher Mode — Display tab.** It's how the app presents on the Android home screen.
 
-**Decision 6: Update + About — merge.** About is too small for its own tab.
+**Decision 6: Update + About — merge into "About" tab.** About content (credits, donation teaser) goes in the left column below the update toggles. PayPal QR code opens in a dialog on tap (too large for inline). Tab renamed to "About" and always visible — auto-update controls are conditionally hidden on iOS, but release notes and donation are always shown.
 
 **Decision 7: History + Data — merge.** Eliminates duplicate server toggle. Four-section layout with migration as dialog.
 
@@ -145,18 +143,19 @@ These user-visible strings reference old tab names and need updating:
 ## Impact
 
 - Affected code:
-  - `qml/pages/SettingsPage.qml` — tab bar restructure (13 → 11 tabs)
+  - `qml/pages/SettingsPage.qml` — tab bar restructure (13 → 9 tabs)
   - `qml/pages/settings/SettingsPreferencesTab.qml` — decomposed into Machine + Display
   - `qml/pages/settings/SettingsShotHistoryTab.qml` — merged with Data
   - `qml/pages/settings/SettingsDataTab.qml` — merged with History, remove duplicate server toggle, migration becomes dialog
-  - `qml/pages/settings/SettingsHomeAutomationTab.qml` — remove REST API section, rename to Home Assistant
   - `qml/pages/settings/SettingsConnectionsTab.qml` — receive Virtual Scale, internal reorg (Active → Known → Find → Log)
-  - `qml/pages/settings/SettingsAITab.qml` — two-column internal reorg
-  - `qml/pages/settings/SettingsUpdateTab.qml` — merge with About
-  - `qml/pages/settings/SettingsAboutTab.qml` — merge into Update/About
+  - `qml/pages/settings/SettingsAITab.qml` — replaced by Services tab card + AI setup dialog
+  - `qml/pages/settings/SettingsVisualizerTab.qml` — replaced by Services tab card + Visualizer setup dialog
+  - `qml/pages/settings/SettingsHomeAutomationTab.qml` — replaced by Services tab card + Home Assistant setup dialog
+  - `qml/pages/settings/SettingsUpdateTab.qml` — merge with About (About content in left column below toggles)
+  - `qml/pages/settings/SettingsAboutTab.qml` — merge into About
   - `qml/pages/SteamPage.qml` — receive `keepSteamHeaterOn` + `steamAutoFlushSeconds`
-  - `qml/pages/AISettingsPage.qml` — remove, replace with deep-link to Settings → AI
-  - New files: `SettingsMachineTab.qml`, `SettingsDisplayTab.qml`, `DeviceMigrationDialog.qml`
-  - Removed files: `SettingsPreferencesTab.qml` (split), `SettingsAboutTab.qml` (merged), `AISettingsPage.qml` (duplicate removed)
+  - `qml/pages/AISettingsPage.qml` — remove, replace with deep-link to Settings → Services
+  - New files: `SettingsMachineTab.qml`, `SettingsDisplayTab.qml`, `SettingsServicesTab.qml`, `DeviceMigrationDialog.qml`, `AISetupDialog.qml`, `MCPSetupDialog.qml`, `VisualizerSetupDialog.qml`, `HomeAssistantSetupDialog.qml`, `DonateDialog.qml`
+  - Removed files: `SettingsPreferencesTab.qml` (split), `SettingsAboutTab.qml` (merged), `SettingsAITab.qml` (moved to Services), `SettingsVisualizerTab.qml` (moved to Services), `SettingsHomeAutomationTab.qml` (moved to Services), `AISettingsPage.qml` (duplicate removed)
   - String updates: 3-4 cross-tab reference strings in QML files
   - `qml/main.qml` — update `goToSettings()` tab indices for deep-links (Data restore, Update notification)

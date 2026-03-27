@@ -79,45 +79,60 @@ Alternative considered: Move to Themes tab. Rejected because the Themes tab is a
 ## Risks / Trade-offs
 
 - **Muscle memory disruption**: Existing users know where settings are. Mitigation: this is a pre-1.0 beta app with ~30 active users; better to fix now than after wider adoption.
-- **Tab count change**: Moving from 13 to 11-12 tabs changes the tab bar scroll behavior. Mitigation: fewer tabs means less scrolling to find the right one.
+- **Tab count change**: Moving from 13 to 9 tabs changes the tab bar scroll behavior. Mitigation: fewer tabs means less scrolling to find the right one.
 - **Large diff**: Many QML files are touched. Mitigation: the changes are purely structural (cut-paste of existing card components between files). No logic changes.
 - **Merge conflicts with in-flight work**: Other proposals may add settings. Mitigation: this is a reorganization of containers, not content — new settings added before this lands just move to the right tab.
 
 ## Migration Plan
 
-1. Create new tab files (Machine, Display, Espresso)
+1. Create new tab files (Machine, Display)
 2. Move card components from Preferences to new tabs (cut-paste, preserve property bindings)
 3. Merge History + Data into one tab, remove duplicate server toggle
 4. Move Virtual Scale to Connections
 5. Move theme mode to Display
 6. Move REST API from MQTT to Sharing/Data
-7. Merge Update + About
-8. Delete emptied Preferences tab, old About tab
-9. Update SettingsPage.qml tab bar
-10. Test all settings still bind correctly
+7. Create Services tab with summary cards + setup dialogs (AI, MCP, Visualizer, Home Assistant)
+8. Merge Update + About (About content in left column of Update, below toggles)
+9. Delete emptied tabs (Preferences, About, AI, Visualizer, Home Automation)
+10. Update SettingsPage.qml tab bar
+11. Test all settings still bind correctly
 
 Each step is independently testable — settings bindings don't change, only which .qml file contains the UI.
 
-## Internal Reorganization of Unchanged Tabs
+## Internal Reorganization
 
-Three tabs that keep their content still benefit from internal restructuring.
+Tabs that keep their content still benefit from internal restructuring.
 
-### AI Tab — Split into two visual sections with clearer separation
+### Services Tab — Four summary cards with setup dialogs
 
-**Current layout:** Single full-width scrolling card with two sections separated only by a heading + thin divider. On a tablet, the MCP section is below the fold — users may not know it exists.
+**Current layout:** AI, Visualizer, and Home Assistant (MQTT) are three separate tabs. All are "connect to an external service" workflows configured once and rarely revisited. AI additionally mixes two unrelated concerns (AI provider for shot analysis vs MCP server for Claude Desktop).
 
-**Proposed layout:** Two-column layout matching the pattern used by most other tabs.
+**Proposed layout:** A single Services tab with four status cards. Each card shows connection status and a [Configure...] button that opens a focused setup dialog.
 
-| Left column: AI Provider | Right column: MCP Server |
-|---|---|
-| Provider picker buttons | Enable MCP toggle + description |
-| API key field + "get key" hint | Setup page link |
-| Provider-specific fields (OpenRouter model, Ollama endpoint/model) | Access Level radio cards |
-| Cost info | Confirmation radio cards |
-| Test Connection + Continue Chat | MCP status line |
-| | Discuss Shot (app picker + custom URL) |
+```
+┌─ Visualizer ──────────────┐  ┌─ AI Assistant ─────────────┐
+│ ● Connected               │  │ ● OpenRouter (GPT-4o)      │
+│ user@visualizer.coffee    │  │                            │
+│ [Configure...]            │  │ [Configure...]             │
+└───────────────────────────┘  └────────────────────────────┘
 
-**Why:** The two sections serve different audiences — Provider is for shot analysis ("discuss my shot"), MCP is for power users connecting Claude Desktop. Splitting into columns makes both visible at once and removes the need to scroll.
+┌─ MCP Server ──────────────┐  ┌─ Home Assistant ───────────┐
+│ ● Enabled (read-only)     │  │ ○ Not configured           │
+│                           │  │                            │
+│ [Configure...]            │  │ [Set Up...]                │
+└───────────────────────────┘  └────────────────────────────┘
+```
+
+**Dialog contents (~4-6 fields each):**
+
+| Dialog | Fields |
+|--------|--------|
+| **Visualizer** | Account login, upload preferences |
+| **AI Assistant** | Provider picker, API key, provider-specific fields (model, endpoint), cost info, Test Connection + Continue Chat |
+| **MCP Server** | Enable toggle, access level, confirmation settings, Discuss Shot (app picker + custom URL), MCP status |
+| **Home Assistant** | MQTT broker config, auto-discovery toggle, Publish Discovery |
+
+**Why:** These services share a common pattern: configure credentials/settings once, then forget about them. Giving each its own tab wastes tab bar space for content users visit maybe twice. Summary cards let users see at a glance which services are connected. Separating AI from MCP into distinct cards/dialogs keeps each dialog focused — AI provider setup is for shot analysis users, MCP is for Claude Desktop power users.
 
 ### Connections Tab — Group by device status, not device type
 
@@ -263,6 +278,52 @@ As described in the four-column layout above. The migration column starts with j
 **Disadvantage:**
 - The column is mostly empty (just a button + description text) 99% of the time, wasting horizontal space in the common case
 - When active, the column dominates attention and the other three columns become irrelevant context
+
+### Merged About Tab — About content in Update's left column
+
+**Current layout:** Update tab has two columns (version + toggles on left, release notes on right), conditionally hidden on iOS. About tab is a separate full-width page with app name, version, credits, donate button, PayPal QR code.
+
+**Proposed layout:** Merge About content into the bottom of Update's left column, separated by a divider. Release notes keep the full right column. Tab renamed to "About" and always visible. Auto-update controls (check now, beta toggle, status) are conditionally shown via `MainController.updateChecker.canCheckForUpdates` — hidden on iOS where Apple handles updates. Release notes are always shown regardless of platform.
+
+Tapping anywhere in the donation area opens a dialog with the full-size PayPal QR code + an "Open PayPal" link, keeping the left column compact.
+
+```
+Left column                    Right column
+┌─────────────────────┐       ┌──────────────────────────────┐
+│ Decenza v1.6.1      │       │ Software Updates (if avail.) │
+│ Build 3194          │       │ ● You're up to date          │
+│                     │       │ [Check Now] [What's New?]    │
+│ Auto-check  [toggle]│       │                              │
+│ Beta        [toggle]│       │ Release Notes — v1.6.1       │
+│ (hidden on iOS)     │       │ ┌────────────────────────────┐│
+│                     │       │ │ ## Changes                 ││
+│   ── divider ──     │       │ │ ...                        ││
+│                     │       │ │ (scrollable)               ││
+│ Built by Michael    │       │ │                            ││
+│ Holm (Kulitorum)... │       │ │                            ││
+│                     │       │ └────────────────────────────┘│
+│ Donations welcome   │       │                              │
+│ but never expected. │       │                              │
+│ (tap to donate)     │       │                              │
+└─────────────────────┘       └──────────────────────────────┘
+
+Donation dialog (on tap):
+┌─────────────────────────────────┐
+│  Donate via PayPal              │
+│                                 │
+│  ┌───────────────────────────┐  │
+│  │                           │  │
+│  │        [QR code]          │  │
+│  │                           │  │
+│  └───────────────────────────┘  │
+│                                 │
+│  paypal@kulitorum.com           │
+│                                 │
+│  [Open PayPal]       [Close]    │
+└─────────────────────────────────┘
+```
+
+**Why:** The About content (credits + donation teaser) fits in the left column's empty space. The QR code — too large for inline display — lives in a tap-to-open dialog where it can be full-size and easily scannable. The dialog provides both scan and link paths. Tab is always visible (not conditional on update checker), so iOS users see version info, release notes, and donation option.
 
 ## Open Questions
 
