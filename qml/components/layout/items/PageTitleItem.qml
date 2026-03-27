@@ -19,8 +19,8 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: root.pageTitle || "Decenza"
-    Accessible.focusable: true
+    Accessible.name: root.pageTitle
+    Accessible.focusable: root.pageTitle.length > 0
 
     // --- COMPACT MODE (status bar rendering) ---
     Item {
@@ -41,6 +41,7 @@ Item {
                 font.pixelSize: Theme.scaled(20)
                 font.bold: true
                 elide: Text.ElideRight
+                Accessible.ignored: true
             }
 
             Text {
@@ -48,6 +49,7 @@ Item {
                 color: Theme.textSecondaryColor
                 font: Theme.bodyFont
                 visible: MachineState.isFlowing
+                Accessible.ignored: true
             }
         }
     }
@@ -72,6 +74,7 @@ Item {
                 color: DE1Device.simulationMode ? Theme.simulationIndicatorColor : Theme.textColor
                 font: Theme.valueFont
                 elide: Text.ElideRight
+                Accessible.ignored: true
             }
 
             Text {
@@ -79,6 +82,7 @@ Item {
                 text: TranslationManager.translate("pageTitle.pageTitle", "Page Title")
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
+                Accessible.ignored: true
             }
         }
     }
