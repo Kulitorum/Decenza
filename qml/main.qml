@@ -2096,6 +2096,13 @@ ApplicationWindow {
             // Reset on disconnect so reconnections are also protected.
             if (phase === MachineStateType.Phase.Disconnected) {
                 root.startupGracePeriod = true
+                // If we're on an operation page, navigate to idle (#575)
+                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage") {
+                    console.log("Disconnected while on operation page (" + currentPage + ") - navigating to idle")
+                    if (!pageStack.busy) {
+                        pageStack.replace(null, idlePage)
+                    }
+                }
             } else if (root.startupGracePeriod &&
                        phase !== MachineStateType.Phase.Sleep) {
                 root.startupGracePeriod = false

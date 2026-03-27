@@ -35,59 +35,18 @@ ChartView {
         frameRepeater.model = savedFrames
     }
 
-    // Estimate display duration for a frame.
-    // De1app plugins use: shotendtime = target / pour_flow + 16
-    // We approximate per-frame to match that holistic estimate.
-    function estimateFrameSeconds(frame, index) {
-        var secs = frame.seconds || 0
-        if (secs <= 0) return 0
-
-        // Machine-side exit conditions — frame exits before its timeout
-        if (frame.exit_if) {
-            // Flow-pump preinfusion (exits on pressure_over): typically 3-8s
-            if (frame.pump === "flow" && secs > 8) {
-                return 8
-            }
-            // Other exit types (pressure ramps, etc.): cap at 15s
-            if (secs > 15) {
-                return 15
-            }
-        }
-
-        // App-side weight exit: frame exits when scale reaches target grams
-        if ((frame.exit_weight || 0) > 0 && secs > 5) {
-            return 5
-        }
-
-        // Long-timeout flow frames: estimate pour duration from target weight/volume
-        if (secs >= 60 && frame.pump === "flow") {
-            var flowRate = frame.flow || 0
-            // flow=0 with smooth = continue at previous rate; fast = actual pause
-            if (flowRate <= 0 && frame.transition === "smooth") {
-                for (var j = index - 1; j >= 0; j--) {
-                    if (frames[j].pump === "flow" && (frames[j].flow || 0) > 0) {
-                        flowRate = frames[j].flow
-                        break
-                    }
-                }
-            }
-            if (flowRate > 0) {
-                var target = targetWeight > 0 ? targetWeight : targetVolume
-                if (target > 0) {
-                    return Math.min(secs, Math.max(target / flowRate, 10))
-                }
-            }
-            return 60  // No target or flow rate — cap at 60s
-        }
-
-        return secs
+    // Frame display duration — uses the raw seconds value, matching de1app's
+    // update_de1_plus_advanced_explanation_chart which uses $theseconds directly
+    // with no adjustment for exit conditions or weight targets.
+    function frameDisplaySeconds(frame, index) {
+        return frame.seconds || 0
     }
 
     // Calculate total duration using estimated frame durations
     property double totalDuration: {
         var total = 0
         for (var i = 0; i < frames.length; i++) {
-            total += estimateFrameSeconds(frames[i], i)
+            total += frameDisplaySeconds(frames[i], i)
         }
         return Math.max(total, 5)  // Minimum 5 seconds
     }
@@ -182,11 +141,11 @@ ChartView {
                 property double frameStart: {
                     var start = 0
                     for (var i = 0; i < index; i++) {
-                        start += estimateFrameSeconds(frames[i], i)
+                        start += frameDisplaySeconds(frames[i], i)
                     }
                     return start
                 }
-                property double frameDuration: frame ? estimateFrameSeconds(frame, index) : 0
+                property double frameDuration: frame ? frameDisplaySeconds(frame, index) : 0
 
                 x: chart.plotArea.x + (frameStart / (totalDuration * 1.1)) * chart.plotArea.width
                 y: chart.plotArea.y
@@ -260,151 +219,97 @@ ChartView {
         }
     }
 
-    // Generate simulation curves from frames.
-    // Shows BOTH pressure and flow as continuous curves across the entire shot.
-    // Handles multiple profile patterns:
-    //   - D-Flow: declining pressure during flow control (explicit flow rate)
-    //   - A-Flow: flat pressure at limiter during flow control (flow=0 + limiter)
-    //   - Simple profiles: pressure/flow preinfusion + extraction
+    // Generate target-value curves from frames.
+    // Matches de1app's update_de1_plus_advanced_explanation_chart algorithm:
+    //   - Pressure curve shown only during pressure-pump frames
+    //   - Flow curve shown only during flow-pump frames
+    //   - Inactive curve drops to 0 (de1app uses -1 sentinel clipped by Y axis min)
+    //   - Raw frame seconds used for durations (no exit condition estimation)
+    //   - Smooth transitions ramp from previous value to target
+    //   - Fast transitions step instantly to target
     function updateCurves() {
         pressureSeries0.clear()
         flowSeries0.clear()
         temperatureGoalSeries.clear()
 
-        if (frames.length === 0) {
-            return
-        }
+        if (frames.length === 0) return
 
         var time = 0
-        var peakPressure = 0   // highest pressure seen (for D-Flow decline simulation)
-        var lastPressure = 0   // last pressure value for curve continuity
-        var lastFlow = 0       // last flow value for curve continuity
-        var hadPreinfusionSim = false  // whether we've shown the absorption curve
+        var previousPressure = 0  // last pressure target from a pressure frame
+        var previousFlow = 0      // last flow target from a flow frame
+        var previousPump = ""     // pump type of last plotted frame
 
-        // Preinfusion simulation data from de1app D-Flow demo_graph
-        // (de1plus/plugins/D_Flow_Espresso_Profile/demo_graph.tcl)
-        // simTimeFracs: normalized time positions within the frame
-        // simPressureFactors: pressure build-up (0→1) as puck saturates
-        // simFlowValues: flow absorption curve (mL/s) — water rushes in then drops as puck resists
-        var simTimeFracs = [0, 0.067, 0.133, 0.2, 0.267, 0.333, 0.4, 0.467, 0.6, 0.7, 1.0]
-        var simPressureFactors = [0, 0, 0, 0, 0.7, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
-        var simFlowValues = [0, 5.6, 7.6, 8.3, 8.2, 6.0, 2.9, 1.3, 0.6, 0.4, 0.3]
+        // Initial point at origin (matches de1app)
+        pressureSeries0.append(0, 0)
+        flowSeries0.append(0, 0)
 
         for (var i = 0; i < frames.length; i++) {
             var frame = frames[i]
-            var duration = estimateFrameSeconds(frame, i)
+            var duration = frame.seconds || 0
             var startTime = time
             var endTime = time + duration
             var isSmooth = frame.transition === "smooth"
+            var pump = frame.pump || "pressure"
 
-            // Skip zero-duration frames (transition markers like "Pressure Decline" in A-Flow).
-            // Don't let them poison tracking variables or add spurious curve points.
+            // Zero-duration frames: track values for smooth transitions but skip plotting
             if (duration <= 0) {
-                if (frame.pump === "flow" && (frame.flow || 0) > 0) {
-                    lastFlow = frame.flow
-                }
+                if (pump === "pressure") previousPressure = frame.pressure || 0
+                else if (pump === "flow") previousFlow = frame.flow || 0
+                previousPump = pump
                 time = endTime
                 continue
             }
 
-            if (frame.pump === "pressure") {
-                var sp = frame.pressure || 0
-                peakPressure = Math.max(peakPressure, sp)
+            if (pump === "pressure") {
+                var pressure = frame.pressure || 0
 
-                if (!hadPreinfusionSim && duration >= 3 && lastPressure <= 0) {
-                    // First pressure frame starting from unpressurized:
-                    // simulate preinfusion with absorption curve (D-Flow pattern)
-                    hadPreinfusionSim = true
-
-                    // Find pour flow target by looking ahead to next flow frame
-                    var pourFlow = 1.0
-                    for (var j = i + 1; j < frames.length; j++) {
-                        if (frames[j].pump === "flow" && (frames[j].flow || 0) > 0) {
-                            pourFlow = frames[j].flow
-                            break
-                        }
-                    }
-
-                    for (var k = 0; k < simTimeFracs.length; k++) {
-                        var t = startTime + simTimeFracs[k] * duration
-                        pressureSeries0.append(t, simPressureFactors[k] * sp)
-                        // Flow: absorption curve, but cap declining portion at pour flow
-                        var fv = k < 3 ? simFlowValues[k] : Math.max(simFlowValues[k], pourFlow)
-                        flowSeries0.append(t, fv)
-                    }
-                    lastPressure = sp
-                    lastFlow = pourFlow
-                } else {
-                    // Already pressurized or short frame: simple ramp/hold
-                    var startP = (isSmooth && lastPressure > 0) ? lastPressure : sp
-                    pressureSeries0.append(startTime, startP)
-                    pressureSeries0.append(endTime, sp)
-                    lastPressure = sp
-
-                    // Flow during pressure frames: residual at pour rate
-                    var residualFlow = 1.0
-                    for (var j2 = i + 1; j2 < frames.length; j2++) {
-                        if (frames[j2].pump === "flow" && (frames[j2].flow || 0) > 0) {
-                            residualFlow = frames[j2].flow
-                            break
-                        }
-                    }
-                    flowSeries0.append(startTime, residualFlow)
-                    flowSeries0.append(endTime, residualFlow)
-                    lastFlow = residualFlow
+                // Handle pump-type boundary: flow → pressure
+                if (previousPump === "flow" && previousPump !== "") {
+                    // Drop flow to 0 at boundary
+                    flowSeries0.append(startTime, 0)
                 }
 
-            } else if (frame.pump === "flow") {
+                // Start point: smooth ramps from previous, fast steps to target
+                var startP = (isSmooth && i > 0) ? previousPressure : pressure
+                pressureSeries0.append(startTime, startP)
+                flowSeries0.append(startTime, 0)
+
+                // End point
+                pressureSeries0.append(endTime, pressure)
+                flowSeries0.append(endTime, 0)
+
+                previousPressure = pressure
+                previousPump = "pressure"
+
+            } else if (pump === "flow") {
                 var targetFlow = frame.flow || 0
 
-                // flow=0 with smooth transition = continue at previous rate (A-Flow pattern)
-                // flow=0 with fast transition = stop flow (bloom pause pattern)
+                // flow=0 with smooth = continue at previous rate (A-Flow pattern)
                 var effectiveFlow = targetFlow
                 if (targetFlow <= 0 && isSmooth) {
-                    for (var jf = i - 1; jf >= 0; jf--) {
-                        if (frames[jf].pump === "flow" && (frames[jf].flow || 0) > 0) {
-                            effectiveFlow = frames[jf].flow
-                            break
-                        }
-                    }
-                    if (effectiveFlow <= 0) effectiveFlow = lastFlow
+                    effectiveFlow = previousFlow > 0 ? previousFlow : 0
                 }
 
-                // Flow curve
-                var startFlow = (isSmooth && lastFlow > 0) ? lastFlow : effectiveFlow
-                flowSeries0.append(startTime, startFlow)
+                // Handle pump-type boundary: pressure → flow
+                if (previousPump === "pressure" && previousPump !== "") {
+                    // Drop pressure to 0 at boundary
+                    pressureSeries0.append(startTime, 0)
+                }
+
+                // Start point: smooth ramps from previous, fast steps to target
+                var startF = (isSmooth && i > 0) ? previousFlow : effectiveFlow
+                flowSeries0.append(startTime, startF)
+                pressureSeries0.append(startTime, 0)
+
+                // End point
                 flowSeries0.append(endTime, effectiveFlow)
-                lastFlow = effectiveFlow
+                pressureSeries0.append(endTime, 0)
 
-                // Pressure during flow frames — depends on profile pattern
-                var limiter = frame.max_flow_or_pressure || 0
-                var exitP = frame.exit_pressure_over || 0
-
-                if (frame.exit_if && exitP > 0 && lastPressure < exitP) {
-                    // Fill pattern: pressure builds toward exit target
-                    pressureSeries0.append(startTime, lastPressure)
-                    pressureSeries0.append(endTime, exitP)
-                    lastPressure = exitP
-                    peakPressure = Math.max(peakPressure, exitP)
-                } else if (targetFlow <= 0 && limiter >= 3) {
-                    // A-Flow limiter pattern: flow=0 means machine drives pressure
-                    // to the limiter value (max_flow_or_pressure on flow frames = pressure cap)
-                    var pStart = isSmooth ? lastPressure : limiter
-                    pressureSeries0.append(startTime, pStart)
-                    pressureSeries0.append(endTime, limiter)
-                    lastPressure = limiter
-                    peakPressure = Math.max(peakPressure, limiter)
-                } else {
-                    // D-Flow pattern: explicit flow rate, pressure declines from peak
-                    var pDecStart = lastPressure > 0 ? lastPressure : (peakPressure > 0 ? peakPressure : 6)
-                    var pDecEnd = (peakPressure > 0 ? peakPressure : 6) * 0.4
-                    pressureSeries0.append(startTime, pDecStart)
-                    pressureSeries0.append(endTime, pDecEnd)
-                    lastPressure = pDecEnd
-                }
+                previousFlow = effectiveFlow
+                previousPump = "flow"
             }
 
-            // Temperature curve (always shown, continuous)
+            // Temperature curve (always continuous across all frames)
             var prevTemp = i > 0 ? (frames[i-1].temperature || frame.temperature || 0) : (frame.temperature || 0)
             if (isSmooth && i > 0) {
                 temperatureGoalSeries.append(startTime, prevTemp)

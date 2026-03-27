@@ -2385,7 +2385,9 @@ void ProfileManager::migrateRecipeFrames() {
 void ProfileManager::migrateReadOnlyProfiles() {
     // One-time migration: rename user profiles that shadow built-in profiles,
     // and detect broken D-Flow/A-Flow profiles with wrong frame counts.
-    if (m_settings && m_settings->value("readonly_profiles_migrated", false).toBool()) {
+    // v2: re-run for 1.6.1 — the v1 migration missed profiles whose format was
+    // changed by migrateProfileFormat() before compareProfiles() ran.
+    if (m_settings && m_settings->value("readonly_profiles_migrated_v2", false).toBool()) {
         return;
     }
 
@@ -2556,7 +2558,7 @@ void ProfileManager::migrateReadOnlyProfiles() {
         qWarning() << "Read-only profile migration incomplete:" << renamed << "renamed,"
                    << broken << "broken," << failed << "failed. Will retry on next launch.";
     } else {
-        if (m_settings) m_settings->setValue("readonly_profiles_migrated", true);
+        if (m_settings) m_settings->setValue("readonly_profiles_migrated_v2", true);
         qDebug() << "Read-only profile migration complete:" << renamed << "renamed,"
                  << broken << "broken profiles detected";
 
