@@ -106,6 +106,8 @@ Page {
             if (shotId !== postShotReviewPage.editShotId) return
             if (success)
                 loadShotForEditing()
+            else
+                console.warn("PostShotReviewPage: Failed to save metadata for shot", shotId)
         }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return

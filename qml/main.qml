@@ -694,6 +694,8 @@ ApplicationWindow {
                     pendingDisconnectNavigation = false
                     console.log("Retrying deferred disconnect navigation to idle")
                     pageStack.replace(null, idlePage)
+                    root.returnToPageName = ""
+                    root.returnToShotId = 0
                 }
             }
         }
