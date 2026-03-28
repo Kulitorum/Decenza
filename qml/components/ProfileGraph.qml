@@ -105,13 +105,12 @@ ChartView {
         axisY: pressureAxis
     }
 
-    // Temperature target curve (dashed) - always continuous
+    // Temperature target curve - always continuous
     LineSeries {
         id: temperatureGoalSeries
         name: "Temperature"
         color: Theme.temperatureGoalColor
         width: Theme.graphLineWidth * 2
-        style: Qt.DashLine
         axisX: timeAxis
         axisYRight: tempAxis
     }
@@ -288,22 +287,33 @@ ChartView {
                     effectiveFlow = previousFlow > 0 ? previousFlow : 0
                 }
 
+                // Pressure during flow frames: show limiter if set, otherwise 0.
+                // max_flow_or_pressure on flow-pump frames = pressure cap — the machine
+                // actively maintains up to this pressure during flow control.
+                var limiter = frame.max_flow_or_pressure || 0
+                var flowFramePressure = limiter > 0 ? limiter : 0
+
                 // Handle pump-type boundary: pressure → flow
                 if (previousPump === "pressure") {
-                    // Drop pressure to 0 at boundary
-                    pressureSeries0.append(startTime, 0)
+                    if (flowFramePressure <= 0) {
+                        pressureSeries0.append(startTime, 0)
+                    }
+                    // If limiter is set, pressure transitions smoothly from previous
                 }
 
                 // Start point: smooth ramps from previous, fast steps to target
                 var startF = (isSmooth && i > 0) ? previousFlow : effectiveFlow
                 flowSeries0.append(startTime, startF)
-                pressureSeries0.append(startTime, 0)
+                var startPressureInFlow = (flowFramePressure > 0 && previousPressure > 0)
+                    ? previousPressure : flowFramePressure
+                pressureSeries0.append(startTime, startPressureInFlow)
 
                 // End point
                 flowSeries0.append(endTime, effectiveFlow)
-                pressureSeries0.append(endTime, 0)
+                pressureSeries0.append(endTime, flowFramePressure)
 
                 previousFlow = effectiveFlow
+                if (flowFramePressure > 0) previousPressure = flowFramePressure
                 previousPump = "flow"
             }
 
