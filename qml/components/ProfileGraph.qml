@@ -35,12 +35,12 @@ ChartView {
         frameRepeater.model = savedFrames
     }
 
-    // === Puck simulation model ===
-    // Simulates espresso extraction physics to produce realistic-looking graphs.
-    // The puck is modeled as a resistance element that increases with total volume:
-    //   resistance = baseR + (maxR - baseR) * sigmoid(volume)
-    //   pressure-pump: flow = targetPressure / resistance (capped by machine max)
-    //   flow-pump: pressure = flow * resistance (capped by limiter)
+    // === Profile graph simulation ===
+    // Produces realistic-looking graphs using normalized shape tables derived from
+    // de1app D-Flow demo_graph empirical data. Preinfusion frames use the absorption
+    // curve shape (flow spike then decay, pressure S-curve buildup). Subsequent
+    // pressure frames use smooth ramps. Flow-pump frames show pressure at the limiter
+    // (or 70% of current pressure if no limiter is set).
 
     // Normalized preinfusion absorption shape — derived from de1app D-Flow demo_graph
     // empirical data. Scaled to fit any pressure-pump preinfusion frame.
@@ -93,13 +93,6 @@ ChartView {
         }
 
         return secs
-    }
-
-    function frameDisplaySeconds(frame) {
-        for (var i = 0; i < frames.length; i++) {
-            if (frames[i] === frame) return frameDurations[i] || 0
-        }
-        return frame.seconds || 0
     }
 
     property double totalDuration: {
@@ -319,7 +312,6 @@ ChartView {
                 hadPreinfusion = true
                 var piFlow = frame.flow || 4.0
                 var piExitP = frame.exit_pressure_over || 4.0
-                var limiterPI = frame.max_flow_or_pressure || 0
 
                 // Find pour flow for residual
                 for (var jp = i + 1; jp < frames.length; jp++) {
@@ -450,6 +442,7 @@ ChartView {
 
                     pressureSeries0.append(rampEnd, flowPressure)
                     flowSeries0.append(rampEnd, effectiveFlow)
+                    temperatureGoalSeries.append(rampEnd, temp)
 
                     pressureSeries0.append(endTime, flowPressure)
                     flowSeries0.append(endTime, effectiveFlow)

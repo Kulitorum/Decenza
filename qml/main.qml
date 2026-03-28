@@ -2112,9 +2112,14 @@ ApplicationWindow {
                         pendingDisconnectNavigation = true
                     }
                 }
-            } else if (root.startupGracePeriod &&
+            } else {
+                // Clear deferred disconnect navigation on reconnect — machine is back,
+                // don't navigate away from whatever page the user is on now.
+                if (pendingDisconnectNavigation) pendingDisconnectNavigation = false
+                if (root.startupGracePeriod &&
                        phase !== MachineStateType.Phase.Sleep) {
-                root.startupGracePeriod = false
+                    root.startupGracePeriod = false
+                }
             }
 
             // Apply settings when entering operations (to handle GHC-initiated starts)
