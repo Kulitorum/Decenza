@@ -28,6 +28,7 @@ ChartView {
 
     // Force refresh the graph (call when frame properties change in place)
     function refresh() {
+        recomputeFrameDurations()
         updateCurves()
         var savedFrames = frames
         frameRepeater.model = []
@@ -47,14 +48,17 @@ ChartView {
     readonly property var simFlowFrac: [0, 0.675, 0.916, 1.000, 0.988, 0.723, 0.349, 0.157, 0.072, 0.048, 0.036]
     readonly property var simPresFrac: [0, 0,     0,     0,     0.700, 0.930, 1.000, 1.000, 1.000, 1.000, 1.000]
 
-    // Estimate how long a frame will actually run (for display purposes).
-    // Exit conditions shorten frames; long pour timeouts are estimated from target weight.
-    property var frameDurations: {
+    // Cached frame durations — recomputed explicitly when frames change.
+    // Using a plain property (not a binding) avoids QML binding-loop issues
+    // with var arrays that can fail to re-evaluate on frames assignment.
+    property var frameDurations: []
+
+    function recomputeFrameDurations() {
         var durations = []
         for (var i = 0; i < frames.length; i++) {
             durations.push(estimateFrameDuration(frames[i], i))
         }
-        return durations
+        frameDurations = durations
     }
 
     function estimateFrameDuration(frame, index) {
@@ -460,8 +464,8 @@ ChartView {
         }
     }
 
-    onFramesChanged: updateCurves()
-    Component.onCompleted: updateCurves()
+    onFramesChanged: { recomputeFrameDurations(); updateCurves() }
+    Component.onCompleted: { recomputeFrameDurations(); updateCurves() }
 
     // Custom legend
     Row {
