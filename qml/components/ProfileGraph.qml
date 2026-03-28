@@ -338,15 +338,37 @@ ChartView {
                     currentPressure = targetP
                     currentFlow = residualFlow
                 } else {
-                    // Subsequent pressure frame: ramp/step pressure, residual flow
+                    // Subsequent pressure frame: ramp/step pressure
+                    // For smooth transitions (e.g., A-Flow Pressure Up/Decline),
+                    // interpolate pressure over the full frame duration with multiple
+                    // points to produce a visible curve (not just start/end).
                     var startP = (isSmooth && currentPressure > 0) ? currentPressure : targetP
-                    pressureSeries0.append(startTime, startP)
-                    pressureSeries0.append(endTime, targetP)
-                    flowSeries0.append(startTime, residualFlow)
-                    flowSeries0.append(endTime, residualFlow)
-                    temperatureGoalSeries.append(startTime, temp)
-                    temperatureGoalSeries.append(endTime, temp)
+
+                    if (isSmooth && Math.abs(startP - targetP) > 0.5 && duration >= 2) {
+                        // Smooth ramp with intermediate points
+                        var steps = Math.min(8, Math.max(3, Math.round(duration / 2)))
+                        for (var s = 0; s <= steps; s++) {
+                            var frac = s / steps
+                            var tPt = startTime + frac * duration
+                            // Ease-in-out: cubic hermite for natural pressure ramp
+                            var ease = frac * frac * (3 - 2 * frac)
+                            var pPt = startP + ease * (targetP - startP)
+                            // Flow responds to changing pressure: higher pressure → more flow through puck
+                            var flowPt = residualFlow + (pPt / Math.max(1, targetP)) * residualFlow * 0.5
+                            pressureSeries0.append(tPt, pPt)
+                            flowSeries0.append(tPt, flowPt)
+                            temperatureGoalSeries.append(tPt, temp)
+                        }
+                    } else {
+                        pressureSeries0.append(startTime, startP)
+                        pressureSeries0.append(endTime, targetP)
+                        flowSeries0.append(startTime, residualFlow)
+                        flowSeries0.append(endTime, residualFlow)
+                        temperatureGoalSeries.append(startTime, temp)
+                        temperatureGoalSeries.append(endTime, temp)
+                    }
                     currentPressure = targetP
+                    currentFlow = residualFlow
                 }
 
             } else if (pump === "flow") {
@@ -362,24 +384,35 @@ ChartView {
                 // Pressure during flow: limiter if set, otherwise residual from peak
                 var flowPressure = limiter > 0 ? limiter : (currentPressure > 0 ? currentPressure * 0.7 : 0)
 
-                // Transition ramp: pressure and flow reach their targets within ~2s
-                // (the machine's PID settles quickly, not across the entire frame)
-                var rampTime = Math.min(2.0, duration * 0.3)
-                var rampEnd = startTime + rampTime
+                // Smooth transitions ramp over the full frame duration (matching machine
+                // behavior with transition=smooth). Fast transitions settle quickly (~2s).
+                if (isSmooth && duration >= 2) {
+                    // Smooth: interpolate over full duration with intermediate points
+                    var steps2 = Math.min(8, Math.max(3, Math.round(duration / 2)))
+                    for (var s2 = 0; s2 <= steps2; s2++) {
+                        var frac2 = s2 / steps2
+                        var tPt2 = startTime + frac2 * duration
+                        var ease2 = frac2 * frac2 * (3 - 2 * frac2)
+                        pressureSeries0.append(tPt2, currentPressure + ease2 * (flowPressure - currentPressure))
+                        flowSeries0.append(tPt2, currentFlow + ease2 * (effectiveFlow - currentFlow))
+                        temperatureGoalSeries.append(tPt2, temp)
+                    }
+                } else {
+                    // Fast: quick ramp then hold
+                    var rampTime = Math.min(2.0, duration * 0.3)
+                    var rampEnd = startTime + rampTime
 
-                // Start point (at previous values)
-                pressureSeries0.append(startTime, currentPressure)
-                flowSeries0.append(startTime, currentFlow)
-                temperatureGoalSeries.append(startTime, temp)
+                    pressureSeries0.append(startTime, currentPressure)
+                    flowSeries0.append(startTime, currentFlow)
+                    temperatureGoalSeries.append(startTime, temp)
 
-                // After ramp: settled at target values
-                pressureSeries0.append(rampEnd, flowPressure)
-                flowSeries0.append(rampEnd, effectiveFlow)
+                    pressureSeries0.append(rampEnd, flowPressure)
+                    flowSeries0.append(rampEnd, effectiveFlow)
 
-                // Hold at target until end
-                pressureSeries0.append(endTime, flowPressure)
-                flowSeries0.append(endTime, effectiveFlow)
-                temperatureGoalSeries.append(endTime, temp)
+                    pressureSeries0.append(endTime, flowPressure)
+                    flowSeries0.append(endTime, effectiveFlow)
+                    temperatureGoalSeries.append(endTime, temp)
+                }
 
                 currentPressure = flowPressure
                 currentFlow = effectiveFlow
