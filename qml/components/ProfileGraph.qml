@@ -42,7 +42,7 @@ ChartView {
         return frame.seconds || 0
     }
 
-    // Calculate total duration using estimated frame durations
+    // Calculate total display duration from raw frame seconds
     property double totalDuration: {
         var total = 0
         for (var i = 0; i < frames.length; i++) {
@@ -87,7 +87,7 @@ ChartView {
         gridLineColor: "transparent"
     }
 
-    // Pressure curve (continuous across entire shot)
+    // Pressure curve (active during pressure-pump frames, drops to 0 otherwise)
     LineSeries {
         id: pressureSeries0
         name: "Pressure"
@@ -97,7 +97,7 @@ ChartView {
         axisY: pressureAxis
     }
 
-    // Flow curve (continuous across entire shot)
+    // Flow curve (active during flow-pump frames, drops to 0 otherwise)
     LineSeries {
         id: flowSeries0
         name: "Flow"
