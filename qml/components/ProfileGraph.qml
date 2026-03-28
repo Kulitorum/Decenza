@@ -62,11 +62,11 @@ ChartView {
         if (secs <= 0) return 0
         var pump = frame.pump || "pressure"
 
-        // First pressure-pump frame is preinfusion — use full absorption simulation
+        // First frame is preinfusion (pressure or flow pump) — use full simulation
         // duration (up to 15s) regardless of exit conditions. De1app's demo_graph
         // always shows 15s for preinfusion; the exit condition affects the real shot
-        // but the chart shows the idealized absorption curve.
-        if (pump === "pressure" && index === 0 && secs > 2) {
+        // but the chart shows the idealized curve.
+        if (index === 0 && secs > 2) {
             return Math.min(secs, 15)
         }
 
@@ -304,6 +304,44 @@ ChartView {
             var temp = frame.temperature || 93
 
             if (duration <= 0) {
+                time = endTime
+                continue
+            }
+
+            // Flow-pump preinfusion: machine targets flow rate, pressure builds
+            // until exit condition triggers. Show flow holding at target with
+            // pressure ramping up (opposite of pressure-pump preinfusion).
+            if (pump === "flow" && !hadPreinfusion && i === 0 && frame.exit_if && duration >= 2) {
+                hadPreinfusion = true
+                var piFlow = frame.flow || 4.0
+                var piExitP = frame.exit_pressure_over || 4.0
+                var limiterPI = frame.max_flow_or_pressure || 0
+
+                // Find pour flow for residual
+                for (var jp = i + 1; jp < frames.length; jp++) {
+                    if ((frames[jp].pump || "pressure") === "flow" && (frames[jp].flow || 0) > 0) {
+                        residualFlow = frames[jp].flow
+                        break
+                    }
+                }
+
+                // Flow ramps from 0 to target, pressure builds gradually
+                var piSteps = Math.min(10, Math.max(4, Math.round(duration)))
+                for (var kp = 0; kp <= piSteps; kp++) {
+                    var fracPI = kp / piSteps
+                    var tPI = startTime + fracPI * duration
+                    // Flow: ramps up quickly then holds
+                    var flowFracPI = Math.min(1.0, fracPI * 3)  // reaches target at 1/3 through
+                    var flowPI = piFlow * flowFracPI
+                    // Pressure: builds with S-curve toward exit pressure
+                    var pEase = fracPI * fracPI * (3 - 2 * fracPI)
+                    var pressPI = pEase * piExitP
+                    pressureSeries0.append(tPI, pressPI)
+                    flowSeries0.append(tPI, flowPI)
+                    temperatureGoalSeries.append(tPI, temp)
+                }
+                currentPressure = piExitP
+                currentFlow = piFlow
                 time = endTime
                 continue
             }
