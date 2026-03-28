@@ -102,6 +102,11 @@ Page {
                 editBeverageType = editShotData.beverageType || "espresso"
             }
         }
+        function onShotMetadataUpdated(shotId, success) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            if (success)
+                loadShotForEditing()
+        }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
             if (success)
@@ -221,9 +226,7 @@ Page {
         Settings.dyeDrinkTds = editDrinkTds
         Settings.dyeDrinkEy = editDrinkEy
         // Note: enjoyment and notes are NOT synced back - they're shot-specific
-
-        // Reload the shot data to mark changes as saved (clears hasUnsavedChanges)
-        loadShotForEditing()
+        // Note: reload deferred to onShotMetadataUpdated to avoid race with async write
     }
 
     // Handle upload status changes
