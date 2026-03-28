@@ -61,7 +61,7 @@ jobs:
           cache-key-prefix: 'qt-macos-v2'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.21
+        uses: hendrikmuhs/ccache-action@v1.2.22
         with:
           key: macos-universal
           max-size: 500M
