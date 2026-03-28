@@ -19,6 +19,8 @@ ChartView {
     // Properties
     property var frames: []
     property int selectedFrameIndex: -1
+    property double targetWeight: 0
+    property double targetVolume: 0
 
     // Signals
     signal frameSelected(int index)
@@ -33,15 +35,46 @@ ChartView {
         frameRepeater.model = savedFrames
     }
 
-    // Frame display duration — uses the raw seconds value, matching de1app's
-    // update_de1_plus_advanced_explanation_chart which uses $theseconds directly
-    // with no adjustment for exit conditions or weight targets.
+    // Detect D-Flow profiles: 3 frames, first two pressure-pump, last flow-pump with limiter.
+    // De1app's D-Flow plugin uses a completely different demo_graph with simulated absorption
+    // curves instead of the standard raw-setpoint chart.
+    property bool isDFlowProfile: {
+        if (frames.length !== 3) return false
+        var f0 = frames[0], f1 = frames[1], f2 = frames[2]
+        return (f0.pump || "pressure") === "pressure"
+            && (f1.pump || "pressure") === "pressure"
+            && (f2.pump || "flow") === "flow"
+            && (f2.max_flow_or_pressure || 0) > 0
+    }
+
+    // Frame display duration — uses the raw seconds value for standard profiles,
+    // or estimated durations for D-Flow profiles (matching de1app's demo_graph).
     function frameDisplaySeconds(frame) {
+        if (isDFlowProfile) {
+            // D-Flow demo_graph uses simulated times: 15s preinfusion, remainder is pour
+            var idx = -1
+            for (var i = 0; i < frames.length; i++) {
+                if (frames[i] === frame) { idx = i; break }
+            }
+            if (idx === 0) return 15           // Filling: simulated 0-15s
+            if (idx === 1) return 1            // Infusing: brief hold (visible as narrow bar)
+            if (idx === 2) return dflowShotEndTime() - 16  // Pouring: 16s to shotEnd
+            return frame.seconds || 0
+        }
         return frame.seconds || 0
+    }
+
+    // D-Flow demo graph estimates total shot time from target weight and pour flow
+    function dflowShotEndTime() {
+        if (frames.length < 3) return 30
+        var pourFlow = frames[2].flow || 1.0
+        var target = targetWeight > 0 ? targetWeight : (targetVolume > 0 ? targetVolume : 36)
+        return target / pourFlow + 16
     }
 
     // Calculate total display duration from raw frame seconds
     property double totalDuration: {
+        if (isDFlowProfile) return Math.max(dflowShotEndTime(), 20)
         var total = 0
         for (var i = 0; i < frames.length; i++) {
             total += frameDisplaySeconds(frames[i])
@@ -216,15 +249,64 @@ ChartView {
         }
     }
 
+    // D-Flow demo graph — matches de1app's D_Flow_Espresso_Profile::demo_graph.
+    // Uses hardcoded preinfusion absorption simulation (0-15s) and estimated pour duration.
+    function updateCurvesDFlow() {
+        pressureSeries0.clear()
+        flowSeries0.clear()
+        temperatureGoalSeries.clear()
+
+        if (frames.length < 3) return
+
+        var fillFrame = frames[0]
+        var infuseFrame = frames[1]
+        var pourFrame = frames[2]
+
+        var soakPressure = fillFrame.pressure || 6.0
+        var pourFlow = pourFrame.flow || 1.8
+        var pourPressure = pourFrame.max_flow_or_pressure || 6.0
+        var fillTemp = fillFrame.temperature || 84
+        var pourTemp = pourFrame.temperature || 94
+        var shotEnd = dflowShotEndTime()
+
+        // Hardcoded simulation data from de1app D-Flow demo_graph
+        var simElapsed = [0, 0.994, 2.03, 3.015, 4.004, 4.994, 6.036, 7.03, 8.017, 8.999, 15]
+        var simFlow =    [0, 5.6,   7.6,  8.3,   8.2,   6.0,   2.9,   1.3,  0.6,   0.4,   0.3]
+        var sp_a = soakPressure * 0.7
+        var sp_b = soakPressure * 0.93
+        var simPressure = [0, 0, 0, 0, sp_a, sp_b, soakPressure, soakPressure, soakPressure, soakPressure, soakPressure]
+
+        // Preinfusion phase (0-15s): absorption curve
+        for (var k = 0; k < simElapsed.length; k++) {
+            pressureSeries0.append(simElapsed[k], simPressure[k])
+            flowSeries0.append(simElapsed[k], simFlow[k])
+            temperatureGoalSeries.append(simElapsed[k], fillTemp)
+        }
+
+        // Pour phase (16s to shotEnd): constant flow at limiter pressure
+        pressureSeries0.append(16, pourPressure)
+        flowSeries0.append(16, pourFlow)
+        temperatureGoalSeries.append(16, pourTemp)
+
+        pressureSeries0.append(shotEnd, pourPressure)
+        flowSeries0.append(shotEnd, pourFlow)
+        temperatureGoalSeries.append(shotEnd, pourTemp)
+    }
+
     // Generate target-value curves from frames.
-    // Matches de1app's update_de1_plus_advanced_explanation_chart algorithm:
-    //   - Pressure curve shown only during pressure-pump frames
-    //   - Flow curve shown only during flow-pump frames
-    //   - Inactive curve drops to 0 (de1app uses -1 sentinel clipped by Y axis min)
+    // For D-Flow profiles, uses the demo_graph simulation (see above).
+    // For all other profiles, matches de1app's update_de1_plus_advanced_explanation_chart:
+    //   - Pressure curve shown during pressure-pump frames, limiter during flow-pump frames
+    //   - Flow curve shown during flow-pump frames, drops to 0 during pressure-pump frames
     //   - Raw frame seconds used for durations (no exit condition estimation)
     //   - Smooth transitions ramp from previous value to target
     //   - Fast transitions step instantly to target
     function updateCurves() {
+        if (isDFlowProfile) {
+            updateCurvesDFlow()
+            return
+        }
+
         pressureSeries0.clear()
         flowSeries0.clear()
         temperatureGoalSeries.clear()
