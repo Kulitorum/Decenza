@@ -62,26 +62,16 @@ ChartView {
         if (secs <= 0) return 0
         var pump = frame.pump || "pressure"
 
-        // Preinfusion pressure-pump frames with exit conditions:
-        // estimate when the exit condition triggers
+        // First pressure-pump frame is preinfusion — use full absorption simulation
+        // duration (up to 15s) regardless of exit conditions. De1app's demo_graph
+        // always shows 15s for preinfusion; the exit condition affects the real shot
+        // but the chart shows the idealized absorption curve.
+        if (pump === "pressure" && index === 0 && secs > 2) {
+            return Math.min(secs, 15)
+        }
+
+        // Exit conditions on other frames: cap at realistic durations
         if (frame.exit_if) {
-            var exitType = frame.exit_type || ""
-            if (pump === "pressure" && exitType === "pressure_over") {
-                // Pressure builds during preinfusion — estimate from shape curve
-                var exitFrac = (frame.exit_pressure_over || 0) / Math.max(0.1, frame.pressure || 9)
-                if (exitFrac < 1.0) {
-                    // Find time fraction in shape where pressure reaches exitFrac
-                    for (var k = 1; k < simPresFrac.length; k++) {
-                        if (simPresFrac[k] >= exitFrac) {
-                            var f = (exitFrac - simPresFrac[k-1]) / Math.max(0.001, simPresFrac[k] - simPresFrac[k-1])
-                            var timeFrac = simTimeFrac[k-1] + f * (simTimeFrac[k] - simTimeFrac[k-1])
-                            return Math.max(2, Math.min(secs, timeFrac * 15))
-                        }
-                    }
-                }
-                return Math.min(secs, 15)
-            }
-            // Other exit types: cap at reasonable durations
             if (pump === "flow" && secs > 8) return 8
             if (secs > 15) return 15
         }
@@ -372,14 +362,21 @@ ChartView {
                 // Pressure during flow: limiter if set, otherwise residual from peak
                 var flowPressure = limiter > 0 ? limiter : (currentPressure > 0 ? currentPressure * 0.7 : 0)
 
-                // Start values
-                var startF = isSmooth ? currentFlow : effectiveFlow
-                var startFP = currentPressure > 0 ? currentPressure : flowPressure
+                // Transition ramp: pressure and flow reach their targets within ~2s
+                // (the machine's PID settles quickly, not across the entire frame)
+                var rampTime = Math.min(2.0, duration * 0.3)
+                var rampEnd = startTime + rampTime
 
-                pressureSeries0.append(startTime, startFP)
-                flowSeries0.append(startTime, startF)
+                // Start point (at previous values)
+                pressureSeries0.append(startTime, currentPressure)
+                flowSeries0.append(startTime, currentFlow)
                 temperatureGoalSeries.append(startTime, temp)
 
+                // After ramp: settled at target values
+                pressureSeries0.append(rampEnd, flowPressure)
+                flowSeries0.append(rampEnd, effectiveFlow)
+
+                // Hold at target until end
                 pressureSeries0.append(endTime, flowPressure)
                 flowSeries0.append(endTime, effectiveFlow)
                 temperatureGoalSeries.append(endTime, temp)
