@@ -104,15 +104,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.targetWeight = profile->targetWeight();
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
-        QString editorStr;
-        if (profile->isRecipeMode()) {
-            // Convert EditorType enum to string for the shared helper
-            switch (profile->recipeParams().editorType) {
-            case EditorType::DFlow: editorStr = "dflow"; break;
-            case EditorType::AFlow: editorStr = "aflow"; break;
-            case EditorType::Pressure: editorStr = "pressure"; break;
-            case EditorType::Flow: editorStr = "flow"; break;
-            }
+        QString editorStr = profile->editorType();
+        if (editorStr != QLatin1String("advanced")) {
             summary.profileType = profileTypeDescription(editorStr);
         } else {
             summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
@@ -299,14 +292,30 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
         if (profileDoc.isObject()) {
             QJsonObject profileObj = profileDoc.object();
-            bool isRecipeMode = profileObj["is_recipe_mode"].toBool(false);
-            if (isRecipeMode && profileObj.contains("recipe")) {
-                QString editorType = profileObj["recipe"].toObject()["editorType"].toString();
+            // Derive editorType from title + profileType (matching Profile::editorType()).
+            // Legacy shots may also have is_recipe_mode + recipe.editorType as a fallback.
+            QString editorType;
+            QString title = profileObj["title"].toString();
+            QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+            if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+                editorType = QStringLiteral("dflow");
+            else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+                editorType = QStringLiteral("aflow");
+            if (editorType.isEmpty()) {
+                // Legacy fallback: is_recipe_mode + recipe.editorType (pre-PR#579 shots)
+                bool isRecipeMode = profileObj["is_recipe_mode"].toBool(false);
+                if (isRecipeMode && profileObj.contains("recipe")) {
+                    editorType = profileObj["recipe"].toObject()["editorType"].toString();
+                }
+            }
+            if (editorType.isEmpty()) {
+                QString profileType = profileObj["legacy_profile_type"].toString();
+                if (profileType.isEmpty()) profileType = profileObj["profile_type"].toString();
+                if (profileType == QLatin1String("settings_2a")) editorType = QStringLiteral("pressure");
+                else if (profileType == QLatin1String("settings_2b")) editorType = QStringLiteral("flow");
+            }
+            if (!editorType.isEmpty() && editorType != QLatin1String("advanced")) {
                 summary.profileType = profileTypeDescription(editorType);
-            } else {
-                QString profileType = profileObj["profile_type"].toString();
-                if (profileType == "settings_2a") summary.profileType = "Pressure profile";
-                else if (profileType == "settings_2b") summary.profileType = "Flow profile";
             }
         }
         summary.profileRecipeDescription = Profile::describeFramesFromJson(profileJson);

@@ -12,7 +12,6 @@
     "target_weight": 1.0,
     "target_volume": 74.0,
     "mode": "frame_based",
-    "is_recipe_mode": false,
     "temperature_presets": [
         98,
         92,

@@ -341,6 +341,21 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
     return frames;
 }
 
+QString Profile::editorType() const {
+    // Derived from title + profileType — matches de1app behavior.
+    // Title check first (D-Flow/A-Flow), then profileType, then advanced fallback.
+    QString t = m_title.startsWith(QLatin1Char('*')) ? m_title.mid(1) : m_title;
+    if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+        return QStringLiteral("dflow");
+    if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+        return QStringLiteral("aflow");
+    if (m_profileType == QLatin1String("settings_2a"))
+        return QStringLiteral("pressure");
+    if (m_profileType == QLatin1String("settings_2b"))
+        return QStringLiteral("flow");
+    return QStringLiteral("advanced");
+}
+
 QJsonDocument Profile::toJson() const {
     QJsonObject obj;
     obj["title"] = m_title;
@@ -393,9 +408,17 @@ QJsonDocument Profile::toJson() const {
     }
     obj["steps"] = stepsArray;
 
-    // Recipe mode data
-    obj["is_recipe_mode"] = m_isRecipeMode;
-    if (m_isRecipeMode) {
+    // Recipe params — only write when explicitly populated (not default).
+    // D-Flow/A-Flow profiles always have recipe data. Simple profiles (settings_2a/2b)
+    // only have recipe data if they were edited through the recipe editor.
+    QString et = editorType();
+    if (et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
+        obj["recipe"] = m_recipeParams.toJson();
+    } else if ((et == QLatin1String("pressure") || et == QLatin1String("flow"))
+               && m_recipeParams.targetWeight > 0
+               && m_recipeParams.editorType != EditorType::DFlow) {
+        // Only write recipe for simple profiles if params were explicitly set
+        // (not default DFlow params from a fresh RecipeParams())
         obj["recipe"] = m_recipeParams.toJson();
     }
 
@@ -523,19 +546,11 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // AI knowledge base ID (Decenza extension)
     profile.m_knowledgeBaseId = obj["knowledge_base_id"].toString();
 
-    // Recipe mode data — auto-fix simple profiles that were incorrectly converted
-    // to recipe mode by an older converter. The scalar fields are still correct;
-    // only the recipe object has wrong values.
-    profile.m_isRecipeMode = obj["is_recipe_mode"].toBool(false);
-    if (profile.m_isRecipeMode &&
-        (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b")) {
-        qDebug() << "Auto-fixing simple profile with stale is_recipe_mode:" << profile.m_title;
-        profile.m_isRecipeMode = false;
-    }
-    if (profile.m_isRecipeMode && obj.contains("recipe")) {
+    // Load recipe params if present
+    if (obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
-        // Infer editorType from profileType/title when not explicitly saved in recipe
-        // (handles profiles created before editorType was introduced)
+        // Infer RecipeParams.editorType from profileType/title when the recipe
+        // block does not include an explicit editorType enum value
         if (!obj["recipe"].toObject().contains("editorType")) {
             if (profile.m_profileType == "settings_2a") {
                 profile.m_recipeParams.editorType = EditorType::Pressure;
@@ -546,7 +561,6 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
                         profile.m_title.mid(1).startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))) {
                 profile.m_recipeParams.editorType = EditorType::AFlow;
             }
-            // else: stays DFlow (correct for D-Flow titled profiles, and reasonable default for others)
         }
     }
 
@@ -1145,7 +1159,7 @@ void Profile::regenerateSimpleFrames() {
 }
 
 void Profile::regenerateFromRecipe() {
-    if (!m_isRecipeMode) {
+    if (editorType() == QLatin1String("advanced")) {
         return;
     }
 

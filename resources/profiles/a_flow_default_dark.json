@@ -33,7 +33,6 @@
         "flowExtractionUp": false
     },
     "mode": "frame_based",
-    "is_recipe_mode": true,
     "temperature_presets": [
         92,
         92,

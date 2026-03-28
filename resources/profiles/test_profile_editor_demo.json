@@ -31,7 +31,6 @@
         "targetWeight": 36
     },
     "mode": "frame_based",
-    "is_recipe_mode": true,
     "temperature_presets": [
         88,
         90,

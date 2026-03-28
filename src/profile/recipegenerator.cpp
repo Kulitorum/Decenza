@@ -90,7 +90,6 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     }
 
     // Store recipe params for re-editing
-    profile.setRecipeMode(true);
     profile.setRecipeParams(recipe);
 
     return profile;

@@ -1,115 +1,114 @@
 {
-  "title": "D-Flow / default",
-  "knowledge_base_id": "d-flow / default",
-  "author": "Damian",
-  "beverage_type": "espresso",
-  "notes": "A simple to use profiling system By Damian Brakel\n        D-Flow's Default profile is provided as an example profile for you to get started in creating your own",
-  "legacy_profile_type": "settings_2c",
-  "version": "2",
-  "number_of_preinfuse_frames": 2,
-  "maximum_pressure": 0.0,
-  "maximum_flow": 0.0,
-  "minimum_pressure": 4.0,
-  "target_weight": 50.0,
-  "target_volume": 0,
-  "recipe": {
-    "dose": 18,
-    "editorType": "dflow",
-    "fillFlow": 8,
-    "fillPressure": 3,
-    "fillTemperature": 88,
-    "fillTimeout": 25,
-    "infuseEnabled": true,
-    "infusePressure": 3,
-    "infuseTime": 60,
-    "infuseVolume": 100,
-    "infuseWeight": 4,
-    "pourFlow": 1.7,
-    "pourPressure": 8.5,
-    "pourTemperature": 88,
-    "rampTime": 5,
-    "targetVolume": 0,
-    "targetWeight": 50
-  },
-  "mode": "frame_based",
-  "is_recipe_mode": true,
-  "temperature_presets": [
-    88,
-    88,
-    88,
-    88
-  ],
-  "steps": [
-    {
-      "name": "Filling",
-      "temperature": 88.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 3.0,
-      "flow": 8.0,
-      "seconds": 25.0,
-      "volume": 100.0,
-      "exit": {
-        "type": "pressure",
-        "condition": "over",
-        "value": 1.5
-      },
-      "weight": 5.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 0.2
-      }
+    "title": "D-Flow / default",
+    "knowledge_base_id": "d-flow / default",
+    "author": "Damian",
+    "beverage_type": "espresso",
+    "notes": "A simple to use profiling system By Damian Brakel\n        D-Flow's Default profile is provided as an example profile for you to get started in creating your own",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 50.0,
+    "target_volume": 0,
+    "recipe": {
+        "dose": 18,
+        "editorType": "dflow",
+        "fillFlow": 8,
+        "fillPressure": 3,
+        "fillTemperature": 88,
+        "fillTimeout": 25,
+        "infuseEnabled": true,
+        "infusePressure": 3,
+        "infuseTime": 60,
+        "infuseVolume": 100,
+        "infuseWeight": 4,
+        "pourFlow": 1.7,
+        "pourPressure": 8.5,
+        "pourTemperature": 88,
+        "rampTime": 5,
+        "targetVolume": 0,
+        "targetWeight": 50
     },
-    {
-      "name": "Infusing",
-      "temperature": 88.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 3.0,
-      "flow": 8.0,
-      "seconds": 60.0,
-      "volume": 100.0,
-      "weight": 4.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 0.2
-      }
-    },
-    {
-      "name": "Pouring",
-      "temperature": 88.0,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 4.8,
-      "flow": 1.7,
-      "seconds": 127.0,
-      "volume": 0.0,
-      "limiter": {
-        "value": 8.5,
-        "range": 0.2
-      }
-    }
-  ],
-  "espresso_temperature": 86.0,
-  "tank_desired_water_temperature": 0.0,
-  "maximum_pressure_range_advanced": 0.2,
-  "maximum_flow_range_advanced": 0.2,
-  "espresso_pressure": 6.0,
-  "espresso_decline_time": 30.0,
-  "espresso_hold_time": 16.0,
-  "preinfusion_time": 20.0,
-  "preinfusion_stop_pressure": 4.0,
-  "preinfusion_flow_rate": 4.0,
-  "pressure_end": 4.0,
-  "flow_profile_preinfusion": 4.0,
-  "flow_profile_preinfusion_time": 5.0,
-  "flow_profile_hold": 2.0,
-  "flow_profile_hold_time": 8.0,
-  "flow_profile_decline": 1.2,
-  "flow_profile_decline_time": 17.0,
-  "flow_profile_minimum_pressure": 4.0,
-  "read_only": 1
+    "mode": "frame_based",
+    "temperature_presets": [
+        88,
+        88,
+        88,
+        88
+    ],
+    "steps": [
+        {
+            "name": "Filling",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 25.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.5
+            },
+            "weight": 5.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Infusing",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 60.0,
+            "volume": 100.0,
+            "weight": 4.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Pouring",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.8,
+            "flow": 1.7,
+            "seconds": 127.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 8.5,
+                "range": 0.2
+            }
+        }
+    ],
+    "espresso_temperature": 86.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.2,
+    "maximum_flow_range_advanced": 0.2,
+    "espresso_pressure": 6.0,
+    "espresso_decline_time": 30.0,
+    "espresso_hold_time": 16.0,
+    "preinfusion_time": 20.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 4.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "read_only": 1
 }

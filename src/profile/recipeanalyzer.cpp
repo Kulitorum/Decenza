@@ -134,7 +134,6 @@ bool RecipeAnalyzer::convertToRecipeMode(Profile& profile) {
     }
 
     RecipeParams params = extractRecipeParams(profile);
-    profile.setRecipeMode(true);
     profile.setRecipeParams(params);
 
     qDebug() << "Converted profile" << profile.title() << "to recipe mode";
@@ -145,7 +144,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
     // Try normal conversion first
     if (canConvertToRecipe(profile)) {
         RecipeParams params = extractRecipeParams(profile);
-        profile.setRecipeMode(true);
         profile.setRecipeParams(params);
         qDebug() << "Profile" << profile.title() << "converted to recipe mode (standard)";
         return;
@@ -164,7 +162,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
 
     if (steps.isEmpty()) {
         // No frames at all, use pure defaults
-        profile.setRecipeMode(true);
         profile.setRecipeParams(params);
         qDebug() << "Profile" << profile.title() << "converted to recipe mode (empty, using defaults)";
         return;
@@ -233,7 +230,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
         }
     }
 
-    profile.setRecipeMode(true);
     profile.setRecipeParams(params);
     qDebug() << "Profile" << profile.title() << "force-converted to recipe mode (simplified from"
              << steps.size() << "frames)";

@@ -1,151 +1,150 @@
 {
-  "title": "TurboTurbo",
-  "author": "Decent",
-  "beverage_type": "espresso",
-  "notes": "Non-blooming turbo shot profile intended primarily for high extraction grinders with ending flow of 3-4.5ml/s. The profile uses maximum fill rate in preinfusion as coarse grinds saturate easily and quickly. Dial with ratio once grind is giving an ending flowrate in the range. Includes a significant temperature drop that reduces harshness (although the actual temperature drop is much less than programmed).  By Joe D.",
-  "legacy_profile_type": "settings_2c",
-  "version": "2",
-  "number_of_preinfuse_frames": 2,
-  "maximum_pressure": 0.0,
-  "maximum_flow": 4.0,
-  "minimum_pressure": 4.0,
-  "target_weight": 35.0,
-  "target_volume": 0,
-  "recipe": {
-    "dose": 18,
-    "fillFlow": 4,
-    "fillPressure": 5.999999999999996,
-    "fillTemperature": 86,
-    "fillTimeout": 2,
-    "flowLimit": 4.5,
-    "infuseEnabled": true,
-    "infusePressure": 6,
-    "infuseTime": 5,
-    "infuseVolume": 100,
-    "infuseWeight": 4,
-    "pourFlow": 2,
-    "pourPressure": 4,
-    "pourStyle": "pressure",
-    "pourTemperature": 77,
-    "pressureLimit": 6,
-    "rampTime": 15,
-    "targetWeight": 35
-  },
-  "mode": "frame_based",
-  "is_recipe_mode": true,
-  "temperature_presets": [
-    86,
-    86,
-    86,
-    86
-  ],
-  "steps": [
-    {
-      "name": "Fill start",
-      "temperature": 86.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 5.999999999999996,
-      "flow": 4.0,
-      "seconds": 2.0,
-      "volume": 0.0
+    "title": "TurboTurbo",
+    "author": "Decent",
+    "beverage_type": "espresso",
+    "notes": "Non-blooming turbo shot profile intended primarily for high extraction grinders with ending flow of 3-4.5ml/s. The profile uses maximum fill rate in preinfusion as coarse grinds saturate easily and quickly. Dial with ratio once grind is giving an ending flowrate in the range. Includes a significant temperature drop that reduces harshness (although the actual temperature drop is much less than programmed).  By Joe D.",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 4.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 35.0,
+    "target_volume": 0,
+    "recipe": {
+        "dose": 18,
+        "fillFlow": 4,
+        "fillPressure": 5.999999999999996,
+        "fillTemperature": 86,
+        "fillTimeout": 2,
+        "flowLimit": 4.5,
+        "infuseEnabled": true,
+        "infusePressure": 6,
+        "infuseTime": 5,
+        "infuseVolume": 100,
+        "infuseWeight": 4,
+        "pourFlow": 2,
+        "pourPressure": 4,
+        "pourStyle": "pressure",
+        "pourTemperature": 77,
+        "pressureLimit": 6,
+        "rampTime": 15,
+        "targetWeight": 35
     },
-    {
-      "name": "Fill",
-      "temperature": 86.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 5.999999999999996,
-      "flow": 4.0,
-      "seconds": 2.0,
-      "volume": 0.0,
-      "exit": {
-        "type": "pressure",
-        "condition": "over",
-        "value": 2.0
-      }
-    },
-    {
-      "name": "PI",
-      "temperature": 82.0,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 6.0,
-      "flow": 5.0,
-      "seconds": 20.0,
-      "volume": 0.0,
-      "exit": {
-        "type": "pressure",
-        "condition": "over",
-        "value": 4.0
-      }
-    },
-    {
-      "name": "rise and hold",
-      "temperature": 77.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 6.0,
-      "flow": 0.0,
-      "seconds": 5.0,
-      "volume": 0.0,
-      "limiter": {
-        "value": 6.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "decline",
-      "temperature": 77.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "smooth",
-      "pressure": 4.0,
-      "flow": 0.0,
-      "seconds": 15.0,
-      "volume": 0.0,
-      "limiter": {
-        "value": 4.5,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "hold",
-      "temperature": 77.0,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "smooth",
-      "pressure": 4.0,
-      "flow": 0.0,
-      "seconds": 60.0,
-      "volume": 0.0,
-      "limiter": {
-        "value": 4.5,
-        "range": 1.0
-      }
-    }
-  ],
-  "espresso_temperature": 86.0,
-  "tank_desired_water_temperature": 0.0,
-  "maximum_pressure_range_advanced": 0.9,
-  "maximum_flow_range_advanced": 1.0,
-  "espresso_pressure": 6.0,
-  "espresso_decline_time": 30.0,
-  "espresso_hold_time": 13.0,
-  "preinfusion_time": 20.0,
-  "preinfusion_stop_pressure": 4.0,
-  "preinfusion_flow_rate": 4.0,
-  "pressure_end": 4.0,
-  "flow_profile_preinfusion": 4.0,
-  "flow_profile_preinfusion_time": 5.0,
-  "flow_profile_hold": 2.0,
-  "flow_profile_hold_time": 8.0,
-  "flow_profile_decline": 1.2,
-  "flow_profile_decline_time": 17.0,
-  "flow_profile_minimum_pressure": 4.0,
-  "read_only": 1
+    "mode": "frame_based",
+    "temperature_presets": [
+        86,
+        86,
+        86,
+        86
+    ],
+    "steps": [
+        {
+            "name": "Fill start",
+            "temperature": 86.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 5.999999999999996,
+            "flow": 4.0,
+            "seconds": 2.0,
+            "volume": 0.0
+        },
+        {
+            "name": "Fill",
+            "temperature": 86.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 5.999999999999996,
+            "flow": 4.0,
+            "seconds": 2.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 2.0
+            }
+        },
+        {
+            "name": "PI",
+            "temperature": 82.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 5.0,
+            "seconds": 20.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            }
+        },
+        {
+            "name": "rise and hold",
+            "temperature": 77.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 5.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 6.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 77.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 4.0,
+            "flow": 0.0,
+            "seconds": 15.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 4.5,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "hold",
+            "temperature": 77.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 4.0,
+            "flow": 0.0,
+            "seconds": 60.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 4.5,
+                "range": 1.0
+            }
+        }
+    ],
+    "espresso_temperature": 86.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.9,
+    "maximum_flow_range_advanced": 1.0,
+    "espresso_pressure": 6.0,
+    "espresso_decline_time": 30.0,
+    "espresso_hold_time": 13.0,
+    "preinfusion_time": 20.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 4.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "read_only": 1
 }

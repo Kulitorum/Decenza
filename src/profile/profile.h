@@ -183,11 +183,12 @@ public:
     Mode mode() const { return m_mode; }
     void setMode(Mode mode) { m_mode = mode; }
 
-    // === Recipe Mode ===
-    // Recipe mode stores high-level parameters that generate frames automatically
-    bool isRecipeMode() const { return m_isRecipeMode; }
-    void setRecipeMode(bool enabled) { m_isRecipeMode = enabled; }
+    // === Editor Type ===
+    // Derived from title + profileType at runtime — never stored in JSON.
+    // Returns: "dflow", "aflow", "pressure", "flow", "advanced"
+    QString editorType() const;
 
+    // === Recipe Parameters ===
     RecipeParams recipeParams() const { return m_recipeParams; }
     void setRecipeParams(const RecipeParams& params) { m_recipeParams = params; }
 
@@ -309,8 +310,7 @@ private:
     // Mode
     Mode m_mode = Mode::FrameBased;
 
-    // Recipe mode
-    bool m_isRecipeMode = false;
+    // Recipe parameters (for D-Flow/A-Flow/Pressure/Flow editors)
     RecipeParams m_recipeParams;
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)

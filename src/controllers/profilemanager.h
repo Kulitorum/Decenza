@@ -24,7 +24,6 @@ struct ProfileInfo {
     QString beverageType;
     QString editorType;   // "dflow", "aflow", "pressure", "flow", "advanced"
     ProfileSource source;
-    bool isRecipeMode = false;
     bool hasKnowledgeBase = false;
     bool readOnly = false;  // From profile JSON read_only field or forced for BuiltIn source
 };

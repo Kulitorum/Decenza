@@ -303,13 +303,13 @@ private slots:
         QCOMPARE(p.preinfuseFrameCount(), 3);  // Explicit value wins over auto-count
     }
 
-    // ===== Bug #517: simple profiles auto-fix isRecipeMode =====
+    // ===== Bug #517: simple profiles derive editorType from profileType, not is_recipe_mode =====
 
     void simpleProfileAutoFixRecipeMode() {
         QJsonObject obj;
         obj["title"] = "Simple Pressure";
         obj["legacy_profile_type"] = "settings_2a";
-        obj["is_recipe_mode"] = true;  // Incorrectly set (bug #517)
+        obj["is_recipe_mode"] = true;  // Legacy flag — should be ignored for settings_2a
         obj["espresso_temperature"] = 93.0;
         obj["preinfusion_time"] = 5.0;
         obj["preinfusion_flow_rate"] = 4.0;
@@ -320,7 +320,7 @@ private slots:
         obj["pressure_end"] = 4.0;
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        QVERIFY(!p.isRecipeMode());  // Must be auto-fixed to false
+        QCOMPARE(p.editorType(), QString("pressure"));
     }
 
     // ===== Editor type inference from title =====
@@ -334,6 +334,7 @@ private slots:
         obj["recipe"] = recipeJson;
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("aflow"));
         QCOMPARE(p.recipeParams().editorType, EditorType::AFlow);
     }
 
@@ -343,20 +344,298 @@ private slots:
         obj["recipe"] = RecipeParams().toJson();
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        QCOMPARE(p.recipeParams().editorType, EditorType::DFlow);  // Default
+        QCOMPARE(p.editorType(), QString("dflow"));
     }
 
     void editorTypeInferencePressure() {
         QJsonObject obj;
         obj["title"] = "My Pressure Profile";
         obj["legacy_profile_type"] = "settings_2a";
-        obj["is_recipe_mode"] = true;  // Will be auto-fixed to false for settings_2a
+        obj["is_recipe_mode"] = true;  // Legacy flag — overridden by profileType
         obj["recipe"] = RecipeParams().toJson();
         obj["steps"] = QJsonArray();  // Empty, will be generated
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        // settings_2a auto-fixes isRecipeMode to false, so editorType inference doesn't apply
-        QVERIFY(!p.isRecipeMode());
+        QCOMPARE(p.editorType(), QString("pressure"));
+    }
+
+    // ===== editorType changes when title changes (fully derived) =====
+
+    void editorTypeChangesWithTitle() {
+        // D-Flow profile renamed → becomes advanced (matches de1app behavior)
+        QJsonObject obj = makeAdvancedProfileJson("My Morning Shot");
+        obj["recipe"] = RecipeParams().toJson();
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("advanced"));  // No D-Flow title → advanced
+    }
+
+    // ===== editorType round-trip serialization =====
+
+    void editorTypeRoundTrip() {
+        // D-Flow title → dflow, round-trip preserves it (title preserved)
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow Test");
+        obj["recipe"] = RecipeParams().toJson();
+
+        Profile p1 = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p1.editorType(), QString("dflow"));
+
+        // Round-trip through toJson/fromJson
+        QJsonDocument doc = p1.toJson();
+        Profile p2 = Profile::fromJson(doc);
+        QCOMPARE(p2.editorType(), QString("dflow"));
+
+        // Verify is_recipe_mode and editor_type are NOT in the output (fully derived)
+        QJsonObject out = doc.object();
+        QVERIFY(!out.contains("is_recipe_mode"));
+        QVERIFY(!out.contains("editor_type"));
+    }
+
+    void editorTypeDeriveFromTitleNoDFlags() {
+        // de1app import: D-Flow title, no is_recipe_mode, no editor_type
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow La Pavoni");
+        // No editor_type, no is_recipe_mode — must derive from title
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("dflow"));
+    }
+
+    void editorTypeDeriveFromTitleAFlow() {
+        QJsonObject obj = makeAdvancedProfileJson("A-Flow Medium Roast");
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("aflow"));
+    }
+
+    void editorTypeDeriveSettings2b() {
+        // Pure settings_2b with no recipe flags
+        QJsonObject obj;
+        obj["title"] = "Flow Profile";
+        obj["legacy_profile_type"] = "settings_2b";
+        obj["steps"] = QJsonArray();
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("flow"));
+    }
+
+    void editorTypeAdvancedDefault() {
+        // settings_2c profile with no flags → should be "advanced"
+        QJsonObject obj = makeAdvancedProfileJson("Some Advanced Profile");
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("advanced"));
+    }
+
+    void editorTypeStarPrefixedAFlow() {
+        // Star-prefixed A-Flow title → derived as "aflow"
+        QJsonObject obj = makeAdvancedProfileJson("*A-Flow My Profile");
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("aflow"));
+    }
+
+    void regenerateFromRecipeGuardAdvanced() {
+        // Advanced profile must NOT regenerate frames
+        QJsonObject obj = makeAdvancedProfileJson("My Advanced");
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        int framesBefore = p.steps().size();
+        p.regenerateFromRecipe();
+        QCOMPARE(p.steps().size(), framesBefore);  // Unchanged
+    }
+
+    void toJsonAdvancedNoRecipeBlock() {
+        // Advanced profile should not emit "recipe" in JSON
+        QJsonObject obj = makeAdvancedProfileJson("Advanced Profile");
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QJsonDocument doc = p.toJson();
+        QJsonObject out = doc.object();
+        QVERIFY(!out.contains("recipe"));
+        QVERIFY(!out.contains("is_recipe_mode"));
+        QVERIFY(!out.contains("editor_type"));
+    }
+
+    void toJsonDFlowIncludesRecipeBlock() {
+        // D-Flow profile should emit "recipe" in JSON
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow Test");
+        obj["recipe"] = RecipeParams().toJson();
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QJsonDocument doc = p.toJson();
+        QJsonObject out = doc.object();
+        QVERIFY(out.contains("recipe"));
+        QVERIFY(!out.contains("editor_type"));  // Never stored
+    }
+
+    void legacyRecipePressureOnSettings2c() {
+        // Legacy: is_recipe_mode=true, settings_2c, recipe.editorType=pressure
+        // With fully-derived editorType, settings_2c + non-matching title → "advanced"
+        // The recipe's editorType should be respected (unusual but valid)
+        QJsonObject obj = makeAdvancedProfileJson("Pressure Recipe");
+        obj["is_recipe_mode"] = true;
+        QJsonObject recipeJson = RecipeParams().toJson();
+        recipeJson["editorType"] = "pressure";
+        obj["recipe"] = recipeJson;
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        // settings_2c + title "Pressure Recipe" → derived as "advanced"
+        // (legacy recipe.editorType is ignored — editorType is fully derived from content)
+        QCOMPARE(p.editorType(), QString("advanced"));
+    }
+
+    // ===== editorType with empty/unusual titles =====
+
+    void editorTypeEmptyTitle() {
+        QJsonObject obj = makeAdvancedProfileJson("");
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        // Empty title + settings_2c → "advanced"
+        QCOMPARE(p.editorType(), QString("advanced"));
+    }
+
+    void editorTypeCaseInsensitive() {
+        QJsonObject obj = makeAdvancedProfileJson("d-flow lowercase test");
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("dflow"));
+    }
+
+    void editorTypeDFlowSubstring() {
+        // Title contains "D-Flow" but not at the start → should NOT match
+        QJsonObject obj = makeAdvancedProfileJson("My D-Flow Profile");
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("advanced"));
+    }
+
+    void editorTypeNoSpuriousRecipeForPressure() {
+        // Pressure profiles (settings_2a) without explicit recipe data
+        // should NOT emit a recipe block with default DFlow params
+        QJsonObject obj;
+        obj["title"] = "My Pressure";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["espresso_temperature"] = 93.0;
+        obj["preinfusion_time"] = 5.0;
+        obj["preinfusion_flow_rate"] = 4.0;
+        obj["preinfusion_stop_pressure"] = 4.0;
+        obj["espresso_pressure"] = 9.0;
+        obj["pressure_end"] = 6.0;
+        obj["steps"] = QJsonArray();
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("pressure"));
+
+        QJsonDocument doc = p.toJson();
+        QJsonObject out = doc.object();
+        // No recipe block (no explicit recipe data was set)
+        QVERIFY(!out.contains("recipe"));
+        QVERIFY(!out.contains("is_recipe_mode"));
+    }
+
+    // ===== Issue #1: toJson output must allow editorType derivation =====
+    // These tests verify that the JSON written by toJson() contains enough
+    // information for a consumer (like summarizeFromHistory) to derive the
+    // editor type without reading is_recipe_mode or editor_type fields.
+
+    void toJsonDFlowDerivableFromOutput() {
+        // A D-Flow profile's toJson() must include "title" starting with "D-Flow"
+        // so consumers can derive editorType without is_recipe_mode
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow / Test");
+        obj["recipe"] = RecipeParams().toJson();
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+
+        QJsonDocument doc = p.toJson();
+        QJsonObject out = doc.object();
+
+        // Derive editorType from output JSON (same logic as Profile::editorType)
+        QString title = out["title"].toString();
+        QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+        QString derived;
+        if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+            derived = "dflow";
+        else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+            derived = "aflow";
+        else {
+            QString pt = out["legacy_profile_type"].toString();
+            if (pt == "settings_2a") derived = "pressure";
+            else if (pt == "settings_2b") derived = "flow";
+            else derived = "advanced";
+        }
+        QCOMPARE(derived, QString("dflow"));
+    }
+
+    void toJsonPressureDerivableFromOutput() {
+        // A settings_2a profile must include legacy_profile_type in toJson output
+        QJsonObject obj;
+        obj["title"] = "My Pressure";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["espresso_temperature"] = 93.0;
+        obj["steps"] = QJsonArray();
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+
+        QJsonDocument doc = p.toJson();
+        QJsonObject out = doc.object();
+
+        // Consumer must be able to derive "pressure" from legacy_profile_type
+        QString pt = out["legacy_profile_type"].toString();
+        QCOMPARE(pt, QString("settings_2a"));
+        // profile_type key should NOT be relied on (writer uses legacy_profile_type)
+        // But legacy_profile_type MUST be present
+        QVERIFY(!pt.isEmpty());
+    }
+
+    // ===== Issue #3: simple profile round-trip recipe params =====
+
+    void simpleProfileRoundTripRecipeEditorType() {
+        // A settings_2a profile that never had recipe data should NOT gain
+        // a recipe block with mismatched editorType after round-trip
+        QJsonObject obj;
+        obj["title"] = "My Pressure";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["espresso_temperature"] = 93.0;
+        obj["steps"] = QJsonArray();
+        // No recipe block — simulates a simple profile
+
+        Profile p1 = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p1.editorType(), QString("pressure"));
+
+        // Round-trip through toJson/fromJson
+        QJsonDocument doc = p1.toJson();
+        Profile p2 = Profile::fromJson(doc);
+
+        // After round-trip, recipeParams.editorType must match editorType()
+        // i.e. it should be Pressure, not DFlow (the default)
+        if (doc.object().contains("recipe")) {
+            // If a recipe block was written, the editorType inside it must be correct
+            QString recipeEt = doc.object()["recipe"].toObject()["editorType"].toString();
+            QVERIFY2(recipeEt != "dflow",
+                "settings_2a profile must not have recipe.editorType=dflow after round-trip");
+        }
+        QCOMPARE(p2.editorType(), QString("pressure"));
+    }
+
+    void regenerateFromRecipeDFlowRegenerates() {
+        // D-Flow profile with recipe params should regenerate frames
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow Test");
+        QJsonObject recipeJson = RecipeParams().toJson();
+        recipeJson["editorType"] = "dflow";
+        obj["recipe"] = recipeJson;
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.editorType(), QString("dflow"));
+
+        // Set valid recipe params so regeneration produces frames
+        RecipeParams recipe;
+        recipe.editorType = EditorType::DFlow;
+        recipe.fillPressure = 6.0;
+        recipe.fillFlow = 4.0;
+        recipe.pourFlow = 2.0;
+        recipe.fillTemperature = 93.0;
+        recipe.pourTemperature = 93.0;
+        recipe.targetWeight = 36.0;
+        p.setRecipeParams(recipe);
+        p.regenerateFromRecipe();
+
+        // Should have regenerated frames (D-Flow produces 3 frames)
+        QVERIFY(p.steps().size() > 0);
     }
 
     // ===== Title strips leading star (de1app modified indicator) =====
@@ -998,7 +1277,7 @@ private slots:
         recipe.editorType = EditorType::Pressure;
         Profile p = RecipeGenerator::createProfile(recipe, "My Pressure");
         QCOMPARE(p.profileType(), QString("settings_2a"));
-        QVERIFY(p.isRecipeMode());
+        QCOMPARE(p.editorType(), QString("pressure"));
     }
 
     void createProfileFlowType() {
@@ -1011,8 +1290,9 @@ private slots:
     void createProfileDFlowType() {
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
-        Profile p = RecipeGenerator::createProfile(recipe, "My D-Flow");
+        Profile p = RecipeGenerator::createProfile(recipe, "D-Flow / My Recipe");
         QCOMPARE(p.profileType(), QString("settings_2c"));
+        QCOMPARE(p.editorType(), QString("dflow"));
     }
 
     void createProfilePreservesRecipeParams() {
@@ -1021,8 +1301,8 @@ private slots:
         recipe.targetWeight = 42.0;
         recipe.pourFlow = 3.0;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "Test");
-        QVERIFY(p.isRecipeMode());
+        Profile p = RecipeGenerator::createProfile(recipe, "D-Flow / Test");
+        QCOMPARE(p.editorType(), QString("dflow"));
         QCOMPARE(p.recipeParams().targetWeight, 42.0);
         QCOMPARE(p.recipeParams().pourFlow, 3.0);
     }

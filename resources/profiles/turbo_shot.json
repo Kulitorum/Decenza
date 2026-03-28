@@ -1,80 +1,79 @@
 {
-  "title": "Turbo Shot",
-  "knowledge_base_id": "turbo shot",
-  "author": "Decenza",
-  "notes": "High-flow turbo extraction - fast, punchy espresso",
-  "beverage_type": "espresso",
-  "target_weight": 39,
-  "target_volume": 0,
-  "espresso_temperature": 90.0,
-  "temperature_presets": [
-    86.0,
-    88.0,
-    90.0,
-    92.0
-  ],
-  "maximum_pressure": 6.0,
-  "maximum_flow": 8.0,
-  "minimum_pressure": 0.0,
-  "mode": "frame_based",
-  "is_recipe_mode": true,
-  "recipe": {
-    "dose": 18,
-    "editorType": "dflow",
-    "fillFlow": 8,
-    "fillPressure": 4.0,
-    "fillTemperature": 90.0,
-    "fillTimeout": 5.0,
-    "infuseEnabled": false,
-    "infusePressure": 0.0,
-    "infuseTime": 0.0,
-    "infuseWeight": 4.0,
-    "pourFlow": 4.5,
-    "pourPressure": 6.0,
-    "pourTemperature": 90.0,
-    "rampTime": 0,
-    "targetWeight": 45.0
-  },
-  "steps": [
-    {
-      "name": "Preinfusion",
-      "temperature": 90.0,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 6.0,
-      "flow": 8.0,
-      "seconds": 5.0,
-      "volume": 0,
-      "exit": {
-        "type": "pressure",
-        "condition": "over",
-        "value": 2.0
-      },
-      "limiter": {
-        "value": 4.0,
-        "range": 0.2
-      }
+    "title": "Turbo Shot",
+    "knowledge_base_id": "turbo shot",
+    "author": "Decenza",
+    "notes": "High-flow turbo extraction - fast, punchy espresso",
+    "beverage_type": "espresso",
+    "target_weight": 39,
+    "target_volume": 0,
+    "espresso_temperature": 90.0,
+    "temperature_presets": [
+        86.0,
+        88.0,
+        90.0,
+        92.0
+    ],
+    "maximum_pressure": 6.0,
+    "maximum_flow": 8.0,
+    "minimum_pressure": 0.0,
+    "mode": "frame_based",
+    "recipe": {
+        "dose": 18,
+        "editorType": "dflow",
+        "fillFlow": 8,
+        "fillPressure": 4.0,
+        "fillTemperature": 90.0,
+        "fillTimeout": 5.0,
+        "infuseEnabled": false,
+        "infusePressure": 0.0,
+        "infuseTime": 0.0,
+        "infuseWeight": 4.0,
+        "pourFlow": 4.5,
+        "pourPressure": 6.0,
+        "pourTemperature": 90.0,
+        "rampTime": 0,
+        "targetWeight": 45.0
     },
-    {
-      "name": "Turbo",
-      "temperature": 90.0,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 6.0,
-      "flow": 4.5,
-      "seconds": 25.0,
-      "volume": 0,
-      "weight": 45.0,
-      "limiter": {
-        "value": 6.0,
-        "range": 0.2
-      }
-    }
-  ],
-  "version": "2",
-  "legacy_profile_type": "settings_2c",
-  "number_of_preinfuse_frames": 1,
-  "read_only": 1
+    "steps": [
+        {
+            "name": "Preinfusion",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 8.0,
+            "seconds": 5.0,
+            "volume": 0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 2.0
+            },
+            "limiter": {
+                "value": 4.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Turbo",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 4.5,
+            "seconds": 25.0,
+            "volume": 0,
+            "weight": 45.0,
+            "limiter": {
+                "value": 6.0,
+                "range": 0.2
+            }
+        }
+    ],
+    "version": "2",
+    "legacy_profile_type": "settings_2c",
+    "number_of_preinfuse_frames": 1,
+    "read_only": 1
 }

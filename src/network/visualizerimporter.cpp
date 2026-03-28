@@ -609,7 +609,7 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
 
 Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
     // Use the unified Profile::fromJson() which handles both de1app v2 and legacy formats,
-    // including string-encoded numbers, nested exit/limiter objects, recipe mode, etc.
+    // including string-encoded numbers, nested exit/limiter objects, recipe params, etc.
     Profile profile = Profile::fromJson(QJsonDocument(json));
 
     // Override default title for imports (fromJson defaults to "Default")
@@ -617,8 +617,8 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
         profile.setTitle(json["title"].toString("Imported Profile"));
     }
 
-    // Safety net: if profile is recipe mode with no steps, generate frames from recipe params
-    if (profile.steps().isEmpty() && profile.isRecipeMode()) {
+    // Safety net: if profile has recipe params with no steps, generate frames
+    if (profile.steps().isEmpty() && profile.editorType() != QLatin1String("advanced")) {
         profile.regenerateFromRecipe();
     }
 

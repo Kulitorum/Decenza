@@ -37,8 +37,6 @@ private:
         json["maximum_pressure"] = 12.0;
         json["maximum_flow"] = 6.0;
         json["minimum_pressure"] = 0.0;
-        json["is_recipe_mode"] = true;
-
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
         recipe.targetWeight = 36.0;

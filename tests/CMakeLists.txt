@@ -1,10 +1,15 @@
 enable_testing()
 find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network)
 
+# Disable AUTOMOC path prefix so MOC includes use plain filenames
+# instead of relative paths that break for out-of-tree builds.
+set(CMAKE_AUTOMOC_PATH_PREFIX OFF)
+
 # Convenience function for adding test executables.
 # Each test compiles only the source files it needs (no full app build).
 function(add_decenza_test name)
     add_executable(${name} ${ARGN})
+    set_target_properties(${name} PROPERTIES AUTOMOC_PATH_PREFIX OFF)
     target_compile_definitions(${name} PRIVATE DECENZA_TESTING)
     target_link_libraries(${name} PRIVATE
         Qt6::Test Qt6::Core Qt6::Bluetooth Qt6::Sql Qt6::Network Qt6::Gui
@@ -74,13 +79,10 @@ add_decenza_test(tst_profileframe
 )
 
 # --- tst_machinestate: Phase transitions, volume reset, signals ---
-qt6_wrap_cpp(TST_MACHINESTATE_MOC_SOURCES
-    mocks/MockScaleDevice.h
-    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
-)
 add_decenza_test(tst_machinestate
     tst_machinestate.cpp
-    ${TST_MACHINESTATE_MOC_SOURCES}
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${MACHINE_SOURCES}
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -116,13 +118,10 @@ add_decenza_test(tst_recipegenerator
 )
 
 # --- tst_shotsettings: ShotSettings BLE wire format ---
-qt6_wrap_cpp(TST_SHOTSETTINGS_MOC_SOURCES
-    mocks/MockTransport.h
-    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
-)
 add_decenza_test(tst_shotsettings
     tst_shotsettings.cpp
-    ${TST_SHOTSETTINGS_MOC_SOURCES}
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}
@@ -162,12 +161,9 @@ set(HISTORY_SOURCES
 
 # --- tst_dbmigration: DB schema creation and migration chain ---
 find_package(Qt6 REQUIRED COMPONENTS Quick)
-qt6_wrap_cpp(TST_DBMIGRATION_MOC_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
-)
 add_decenza_test(tst_dbmigration
     tst_dbmigration.cpp
-    ${TST_DBMIGRATION_MOC_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${HISTORY_SOURCES}
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -180,24 +176,18 @@ target_link_libraries(tst_dbmigration PRIVATE Qt6::Charts Qt6::Quick)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo) ---
-qt6_wrap_cpp(TST_SCALEPROTOCOL_MOC_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
-)
 add_decenza_test(tst_scaleprotocol
     tst_scaleprotocol.cpp
-    ${TST_SCALEPROTOCOL_MOC_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
 )
 
 # --- tst_difluidr2: DiFluid R2 refractometer packet parsing and name matching ---
-qt6_wrap_cpp(TST_DIFLUIDR2_MOC_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
-)
 add_decenza_test(tst_difluidr2
     tst_difluidr2.cpp
-    ${TST_DIFLUIDR2_MOC_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr2.cpp
 )
 
@@ -214,14 +204,10 @@ add_decenza_test(tst_saw
 )
 
 # --- tst_sav: MachineState SAV tests ---
-# MockScaleDevice.h and de1transport.h have Q_OBJECT but no .cpp — need explicit MOC
-qt6_wrap_cpp(TST_SAV_MOC_SOURCES
-    mocks/MockScaleDevice.h
-    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
-)
 add_decenza_test(tst_sav
     tst_sav.cpp
-    ${TST_SAV_MOC_SOURCES}
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${MACHINE_SOURCES}
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -230,8 +216,8 @@ add_decenza_test(tst_sav
     ${SIMULATOR_SOURCES}
 )
 
-# --- Shared MOC for tests using MockTransport (ProfileManager, MCP tool tests) ---
-qt6_wrap_cpp(TST_MCP_MOC_SOURCES
+# --- Shared Q_OBJECT headers for tests using MockTransport (listed as sources for AUTOMOC) ---
+set(MCP_MOC_HEADERS
     mocks/MockTransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
@@ -242,7 +228,7 @@ qt6_wrap_cpp(TST_MCP_MOC_SOURCES
 find_package(Qt6 REQUIRED COMPONENTS Charts Quick Qml)
 add_decenza_test(tst_profilemanager
     tst_profilemanager.cpp
-    ${TST_MCP_MOC_SOURCES}
+    ${MCP_MOC_HEADERS}
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpresources.cpp
     ${CMAKE_SOURCE_DIR}/src/network/webdebuglogger.cpp
@@ -265,7 +251,7 @@ target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR
 find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
 add_decenza_test(tst_mcptools_profiles
     tst_mcptools_profiles.cpp
-    ${TST_MCP_MOC_SOURCES}
+    ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_profiles.cpp
     ${PROFILEMANAGER_SOURCES}
     ${BLE_SOURCES}
@@ -284,7 +270,7 @@ target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia)
 add_decenza_test(tst_mcptools_write
     tst_mcptools_write.cpp
-    ${TST_MCP_MOC_SOURCES}
+    ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_write.cpp
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp

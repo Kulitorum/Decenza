@@ -266,23 +266,27 @@ private slots:
     void createProfileSetsCorrectType_data() {
         QTest::addColumn<int>("editorType");
         QTest::addColumn<QString>("expectedProfileType");
+        QTest::addColumn<QString>("title");
+        QTest::addColumn<QString>("expectedEditorType");
 
         // de1app: settings_2a = pressure, settings_2b = flow, settings_2c = advanced
-        QTest::newRow("Pressure") << int(EditorType::Pressure) << "settings_2a";
-        QTest::newRow("Flow")     << int(EditorType::Flow)     << "settings_2b";
-        QTest::newRow("DFlow")    << int(EditorType::DFlow)    << "settings_2c";
-        QTest::newRow("AFlow")    << int(EditorType::AFlow)    << "settings_2c";
+        QTest::newRow("Pressure") << int(EditorType::Pressure) << "settings_2a" << "Pressure Test" << "pressure";
+        QTest::newRow("Flow")     << int(EditorType::Flow)     << "settings_2b" << "Flow Test" << "flow";
+        QTest::newRow("DFlow")    << int(EditorType::DFlow)    << "settings_2c" << "D-Flow / Test" << "dflow";
+        QTest::newRow("AFlow")    << int(EditorType::AFlow)    << "settings_2c" << "A-Flow / Test" << "aflow";
     }
 
     void createProfileSetsCorrectType() {
         QFETCH(int, editorType);
         QFETCH(QString, expectedProfileType);
+        QFETCH(QString, title);
+        QFETCH(QString, expectedEditorType);
 
         RecipeParams recipe;
         recipe.editorType = static_cast<EditorType>(editorType);
-        Profile p = RecipeGenerator::createProfile(recipe, "Test");
+        Profile p = RecipeGenerator::createProfile(recipe, title);
         QCOMPARE(p.profileType(), expectedProfileType);
-        QVERIFY(p.isRecipeMode());
+        QCOMPARE(p.editorType(), expectedEditorType);
     }
 
     void createProfilePreservesRecipe() {
@@ -292,7 +296,7 @@ private slots:
         recipe.pourFlow = 3.0;
         recipe.infusePressure = 4.0;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "Roundtrip");
+        Profile p = RecipeGenerator::createProfile(recipe, "D-Flow / Roundtrip");
         QCOMPARE(p.recipeParams().targetWeight, 42.0);
         QCOMPARE(p.recipeParams().pourFlow, 3.0);
         QCOMPARE(p.recipeParams().infusePressure, 4.0);

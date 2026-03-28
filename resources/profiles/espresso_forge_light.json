@@ -2,7 +2,6 @@
     "author": "Decent",
     "beverage_type": "{espresso}",
     "espresso_temperature": 96,
-    "is_recipe_mode": false,
     "maximum_flow": 0.0,
     "maximum_pressure": 0.0,
     "minimum_pressure": 0,

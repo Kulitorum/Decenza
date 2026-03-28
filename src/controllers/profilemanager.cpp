@@ -183,39 +183,15 @@ bool ProfileManager::isAFlowTitle(const QString& title) {
 }
 
 bool ProfileManager::isCurrentProfileRecipe() const {
-    // Match de1app behavior: detect D-Flow/A-Flow profiles by title prefix at runtime
-    if (m_currentProfile.isRecipeMode()) {
-        return true;
-    }
-    if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())) {
-        return true;
-    }
-    // Simple profiles (settings_2a/2b) use the Pressure/Flow editor
-    const QString& pt = m_currentProfile.profileType();
-    return (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
+    return m_currentProfile.editorType() != QLatin1String("advanced");
 }
 
 QString ProfileManager::currentEditorType() const {
-    // Title is the authority for D-Flow/A-Flow selection
+    // Title overrides stored editorType for D-Flow/A-Flow (safety net for imports)
     if (isDFlowTitle(m_currentProfile.title())) return QStringLiteral("dflow");
     if (isAFlowTitle(m_currentProfile.title())) return QStringLiteral("aflow");
 
-    // Simple profile types (from profileType field)
-    QString profileType = m_currentProfile.profileType();
-    if (profileType == "settings_2a") return QStringLiteral("pressure");
-    if (profileType == "settings_2b") return QStringLiteral("flow");
-
-    // Recipe-mode profiles: use stored editor type for Pressure/Flow.
-    // D-Flow/A-Flow already handled by title check above, so this won't
-    // re-introduce the #421 bug where non-D-Flow profiles got the D-Flow editor.
-    if (m_currentProfile.isRecipeMode()) {
-        EditorType et = m_currentProfile.recipeParams().editorType;
-        if (et == EditorType::Pressure) return QStringLiteral("pressure");
-        if (et == EditorType::Flow) return QStringLiteral("flow");
-    }
-
-    // Everything else → Advanced (never default to D-Flow for unknown profiles)
-    return QStringLiteral("advanced");
+    return m_currentProfile.editorType();
 }
 
 
@@ -332,7 +308,7 @@ QVariantList ProfileManager::selectedProfiles() const {
             profile["title"] = info.title;
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
-            profile["isRecipeMode"] = info.isRecipeMode;
+
             profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             profile["readOnly"] = info.readOnly;
             result.append(profile);
@@ -358,7 +334,7 @@ QVariantList ProfileManager::allBuiltInProfiles() const {
             profile["title"] = info.title;
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
-            profile["isRecipeMode"] = info.isRecipeMode;
+
             profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             profile["readOnly"] = info.readOnly;
             result.append(profile);
@@ -385,7 +361,7 @@ QVariantList ProfileManager::cleaningProfiles() const {
             profile["title"] = info.title;
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
-            profile["isRecipeMode"] = info.isRecipeMode;
+
             profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             profile["readOnly"] = info.readOnly;
             result.append(profile);
@@ -411,7 +387,7 @@ QVariantList ProfileManager::downloadedProfiles() const {
             profile["title"] = info.title;
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
-            profile["isRecipeMode"] = info.isRecipeMode;
+
             profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             profile["readOnly"] = info.readOnly;
             result.append(profile);
@@ -437,7 +413,7 @@ QVariantList ProfileManager::userCreatedProfiles() const {
             profile["title"] = info.title;
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
-            profile["isRecipeMode"] = info.isRecipeMode;
+
             profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             profile["readOnly"] = info.readOnly;
             result.append(profile);
@@ -462,7 +438,6 @@ QVariantList ProfileManager::allProfilesList() const {
         profile["title"] = info.title;
         profile["beverageType"] = info.beverageType;
         profile["source"] = static_cast<int>(info.source);
-        profile["isRecipeMode"] = info.isRecipeMode;
         profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
         profile["readOnly"] = info.readOnly;
         result.append(profile);
@@ -1002,53 +977,48 @@ void ProfileManager::refreshProfiles() {
     m_profileJsonCache.clear();
 
     // Helper to extract profile metadata from a JSON object
-    // Returns: title, beverageType, isRecipeMode, hasKnowledgeBase, editorType, readOnly
-    auto extractProfileMeta = [](const QJsonObject& obj) -> std::tuple<QString, QString, bool, bool, QString, bool> {
-        QString editorType;
-        bool isRecipeMode = obj["is_recipe_mode"].toBool(false);
-        if (isRecipeMode && obj.contains("recipe")) {
-            editorType = obj["recipe"].toObject()["editorType"].toString();
-        }
-        // Infer editor type from title and legacy_profile_type if not set by recipe mode
+    // Returns: title, beverageType, hasKnowledgeBase, editorType, readOnly
+    auto extractProfileMeta = [](const QJsonObject& obj) -> std::tuple<QString, QString, bool, QString, bool> {
         QString title = obj["title"].toString();
-        if (editorType.isEmpty()) {
-            if (title.contains(QLatin1String("D-Flow"), Qt::CaseInsensitive))
-                editorType = QStringLiteral("dflow");
-            else if (title.contains(QLatin1String("A-Flow"), Qt::CaseInsensitive))
-                editorType = QStringLiteral("aflow");
-            else {
-                QString profileType = obj["legacy_profile_type"].toString();
-                if (profileType.isEmpty()) profileType = obj["profile_type"].toString();
-                if (profileType == QLatin1String("settings_2a"))
-                    editorType = QStringLiteral("pressure");
-                else if (profileType == QLatin1String("settings_2b"))
-                    editorType = QStringLiteral("flow");
-                else
-                    editorType = QStringLiteral("advanced");
-            }
+
+        // Derive editor type from title + profileType (matching Profile::editorType())
+        QString editorType;
+        QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+        if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+            editorType = QStringLiteral("dflow");
+        else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+            editorType = QStringLiteral("aflow");
+        else {
+            QString profileType = obj["legacy_profile_type"].toString();
+            if (profileType.isEmpty()) profileType = obj["profile_type"].toString();
+            if (profileType == QLatin1String("settings_2a"))
+                editorType = QStringLiteral("pressure");
+            else if (profileType == QLatin1String("settings_2b"))
+                editorType = QStringLiteral("flow");
+            else
+                editorType = QStringLiteral("advanced");
         }
+
         bool hasKb = obj.contains("knowledge_base_id");
-        // If no baked-in KB ID, try computing one from title/editorType
         if (!hasKb) {
             hasKb = !ShotSummarizer::computeProfileKbId(title, editorType).isEmpty();
         }
         bool readOnly = (obj["read_only"].toInt(0) == 1);
-        return {title, obj["beverage_type"].toString(),
-                isRecipeMode, hasKb, editorType, readOnly};
+        return {title, obj["beverage_type"].toString(), hasKb, editorType, readOnly};
     };
 
     // Helper to load profile metadata from file path
-    auto loadProfileMeta = [&extractProfileMeta](const QString& path) -> std::tuple<QString, QString, bool, bool, QString, bool> {
+    auto loadProfileMeta = [&extractProfileMeta](const QString& path) -> std::tuple<QString, QString, bool, QString, bool> {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
             return extractProfileMeta(doc.object());
         }
-        return {QString(), QString(), false, false, QStringLiteral("advanced"), false};
+        return {QString(), QString(), false, QStringLiteral("advanced"), false};
     };
 
     // Helper to load profile metadata from JSON string
-    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> std::tuple<QString, QString, bool, bool, QString, bool> {
+    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> std::tuple<QString, QString, bool, QString, bool> {
         QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
         return extractProfileMeta(doc.object());
     };
@@ -1061,7 +1031,7 @@ void ProfileManager::refreshProfiles() {
     QStringList files = builtInDir.entryList(filters, QDir::Files);
     for (const QString& file : files) {
         QString name = file.left(file.length() - 5);  // Remove .json
-        auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(":/profiles/" + file);
+        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(":/profiles/" + file);
 
         ProfileInfo info;
         info.filename = name;
@@ -1069,7 +1039,7 @@ void ProfileManager::refreshProfiles() {
         info.beverageType = beverageType;
         info.editorType = editorType;
         info.source = ProfileSource::BuiltIn;
-        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+
         info.hasKnowledgeBase = hasKnowledgeBase;
         info.readOnly = true;  // Built-in profiles are always read-only
         m_allProfiles.append(info);
@@ -1092,7 +1062,7 @@ void ProfileManager::refreshProfiles() {
             // Cache for loadProfile() to avoid re-reading from storage
             m_profileJsonCache[name] = jsonContent;
 
-            auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType, readOnly] = loadProfileMetaFromJson(jsonContent);
+            auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMetaFromJson(jsonContent);
 
             ProfileInfo info;
             info.filename = name;
@@ -1100,7 +1070,7 @@ void ProfileManager::refreshProfiles() {
             info.beverageType = beverageType;
             info.editorType = editorType;
             info.source = ProfileSource::UserCreated;
-            info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+    
             info.hasKnowledgeBase = hasKnowledgeBase;
             info.readOnly = readOnly;
 
@@ -1129,7 +1099,7 @@ void ProfileManager::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(downloadedDir.filePath(file));
+        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(downloadedDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
@@ -1137,7 +1107,7 @@ void ProfileManager::refreshProfiles() {
         info.beverageType = beverageType;
         info.editorType = editorType;
         info.source = ProfileSource::Downloaded;
-        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+
         info.hasKnowledgeBase = hasKnowledgeBase;
         info.readOnly = readOnly;
         m_allProfiles.append(info);
@@ -1155,7 +1125,7 @@ void ProfileManager::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(userDir.filePath(file));
+        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(userDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
@@ -1163,7 +1133,7 @@ void ProfileManager::refreshProfiles() {
         info.beverageType = beverageType;
         info.editorType = editorType;
         info.source = ProfileSource::UserCreated;
-        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+
         info.hasKnowledgeBase = hasKnowledgeBase;
         info.readOnly = readOnly;
         m_allProfiles.append(info);
@@ -1520,25 +1490,21 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
     recipe.clamp();  // Ensure values are within hardware limits
 
     const QString& pt = m_currentProfile.profileType();
-    bool isSimpleProfile = !m_currentProfile.isRecipeMode()
-        && (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
+    bool isSimpleProfile = (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
 
     if (isSimpleProfile) {
         // Simple profile path: write RecipeParams back to scalar fields and
         // regenerate frames using the de1app-compatible generators.
-        // Do NOT set isRecipeMode -- the scalar fields remain the source of truth.
         applyRecipeToScalarFields(recipe);
         m_currentProfile.regenerateSimpleFrames();
         m_currentProfile.setTargetWeight(recipe.targetWeight);
         m_currentProfile.setTargetVolume(recipe.targetVolume);
     } else {
-        // Recipe/D-Flow/A-Flow path (existing logic)
+        // Recipe/D-Flow/A-Flow path
         RecipeParams oldRecipe = m_currentProfile.recipeParams();
-        bool needFrameRegen = !m_currentProfile.isRecipeMode()
-                           || m_currentProfile.steps().isEmpty()
+        bool needFrameRegen = m_currentProfile.steps().isEmpty()
                            || !oldRecipe.frameAffectingFieldsEqual(recipe);
 
-        m_currentProfile.setRecipeMode(true);
         m_currentProfile.setRecipeParams(recipe);
 
         if (needFrameRegen) {
@@ -1622,8 +1588,12 @@ void ProfileManager::applyRecipeToScalarFields(const RecipeParams& recipe) {
 }
 
 QVariantMap ProfileManager::getOrConvertRecipeParams() {
-    if (m_currentProfile.isRecipeMode()) {
-        // Always ensure editorType matches title (handles profiles saved with wrong type)
+    const QString& et = m_currentProfile.editorType();
+
+    // D-Flow/A-Flow with stored recipe params: return them directly
+    if ((et == QLatin1String("dflow") || et == QLatin1String("aflow"))
+        && m_currentProfile.recipeParams().targetWeight > 0) {
+        // Ensure editorType matches title (handles profiles saved with wrong type)
         RecipeParams params = m_currentProfile.recipeParams();
         if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
             params.editorType = EditorType::AFlow;
@@ -1632,9 +1602,9 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         return m_currentProfile.recipeParams().toVariantMap();
     }
 
-    // D-Flow/A-Flow profiles from de1app: extract params from frames on-the-fly
-    // without modifying the profile. Title is the authority for editor selection.
-    if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())) {
+    // D-Flow/A-Flow profiles from de1app (no stored recipe): extract from frames on-the-fly
+    if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())
+        || et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
         RecipeParams params = RecipeAnalyzer::extractRecipeParams(m_currentProfile);
         if (isAFlowTitle(m_currentProfile.title())) {
             params.editorType = EditorType::AFlow;
@@ -1681,7 +1651,7 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         return params.toVariantMap();
     }
 
-    // Return default params if not in recipe mode
+    // Advanced profile — no recipe params, return defaults
     return RecipeParams().toVariantMap();
 }
 
@@ -1734,9 +1704,31 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
 }
 
 void ProfileManager::convertCurrentProfileToAdvanced() {
-    // Convert from recipe mode to advanced mode
-    // The frames are already generated, just disable recipe mode
-    m_currentProfile.setRecipeMode(false);
+    // Convert to advanced mode: set profileType to settings_2c and strip
+    // D-Flow/A-Flow title prefix so editorType() derives as "advanced".
+    // The frames are already generated and are preserved as-is.
+    m_currentProfile.setProfileType(QStringLiteral("settings_2c"));
+
+    // Strip D-Flow/A-Flow prefix (case-insensitive, matching isDFlowTitle/isAFlowTitle).
+    // setTitle() already strips leading '*', so title() never has one.
+    QString title = m_currentProfile.title();
+    auto stripPrefix = [&](const QString& prefix) {
+        // title starts with prefix (case-insensitive) — strip it
+        QString after = title.mid(prefix.length());
+        if (after.startsWith(QLatin1String(" / ")))
+            after = after.mid(3);
+        else if (after.startsWith(QLatin1Char('/')))
+            after = after.mid(1).trimmed();
+        else
+            after = after.trimmed();
+        return after.isEmpty() ? QStringLiteral("Advanced Profile") : after;
+    };
+
+    if (isDFlowTitle(title)) {
+        m_currentProfile.setTitle(stripPrefix(QStringLiteral("D-Flow")));
+    } else if (isAFlowTitle(title)) {
+        m_currentProfile.setTitle(stripPrefix(QStringLiteral("A-Flow")));
+    }
 
     m_profileModified = true;
 
@@ -1757,7 +1749,7 @@ void ProfileManager::createNewProfile(const QString& title) {
     m_currentProfile.setTargetWeight(36.0);
     m_currentProfile.setTargetVolume(0.0);
     m_currentProfile.setEspressoTemperature(93.0);
-    m_currentProfile.setRecipeMode(false);
+
 
     // Add a single default extraction frame
     ProfileFrame defaultFrame;
@@ -1832,9 +1824,6 @@ void ProfileManager::addFrame(int afterIndex) {
         return;
     }
 
-    // Disable recipe mode - we're now in frame editing mode
-    m_currentProfile.setRecipeMode(false);
-
     if (!m_profileModified) {
         m_profileModified = true;
         emit profileModifiedChanged();
@@ -1861,7 +1850,7 @@ void ProfileManager::deleteFrame(int index) {
         qWarning() << "deleteFrame: removeStep failed for index" << index;
         return;
     }
-    m_currentProfile.setRecipeMode(false);
+
 
     if (!m_profileModified) {
         m_profileModified = true;
@@ -1879,7 +1868,7 @@ void ProfileManager::moveFrameUp(int index) {
     }
 
     m_currentProfile.moveStep(index, index - 1);
-    m_currentProfile.setRecipeMode(false);
+
 
     if (!m_profileModified) {
         m_profileModified = true;
@@ -1897,7 +1886,7 @@ void ProfileManager::moveFrameDown(int index) {
     }
 
     m_currentProfile.moveStep(index, index + 1);
-    m_currentProfile.setRecipeMode(false);
+
 
     if (!m_profileModified) {
         m_profileModified = true;
@@ -1926,7 +1915,7 @@ void ProfileManager::duplicateFrame(int index) {
         qWarning() << "duplicateFrame: insertStep failed at index" << (index + 1);
         return;
     }
-    m_currentProfile.setRecipeMode(false);
+
 
     if (!m_profileModified) {
         m_profileModified = true;
@@ -1975,7 +1964,7 @@ void ProfileManager::setFrameProperty(int index, const QString& property, const 
     }
 
     m_currentProfile.setStepAt(index, frame);
-    m_currentProfile.setRecipeMode(false);
+
 
     if (!m_profileModified) {
         m_profileModified = true;
@@ -2084,12 +2073,8 @@ void ProfileManager::updateProfileKnowledgeBaseId()
     // If already set (persisted in profile JSON from a previous Save As), keep it
     if (!m_currentProfile.knowledgeBaseId().isEmpty()) return;
 
-    QString editorType;
-    if (m_currentProfile.isRecipeMode()) {
-        editorType = editorTypeToString(m_currentProfile.recipeParams().editorType);
-    }
     m_currentProfile.setKnowledgeBaseId(
-        ShotSummarizer::computeProfileKbId(m_currentProfile.title(), editorType));
+        ShotSummarizer::computeProfileKbId(m_currentProfile.title(), m_currentProfile.editorType()));
 }
 
 QString ProfileManager::profilesPath() const {
@@ -2306,7 +2291,8 @@ void ProfileManager::migrateRecipeFrames() {
         if (doc.isNull()) return;
 
         QJsonObject obj = doc.object();
-        if (!obj.value("is_recipe_mode").toBool()) return;  // Not a recipe profile
+        // Identify recipe profiles: check is_recipe_mode (legacy) or recipe block (current)
+        if (!obj.value("is_recipe_mode").toBool() && !obj.contains("recipe")) return;
 
         Profile profile = Profile::fromJson(doc);
         if (profile.title().isEmpty()) return;
@@ -2347,7 +2333,8 @@ void ProfileManager::migrateRecipeFrames() {
             QString jsonContent = m_profileStorage->readProfile(name);
             if (jsonContent.isEmpty()) continue;
             QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
-            if (doc.isNull() || !doc.object().value("is_recipe_mode").toBool()) continue;
+            QJsonObject sObj = doc.object();
+            if (doc.isNull() || (!sObj.value("is_recipe_mode").toBool() && !sObj.contains("recipe"))) continue;
 
             Profile profile = Profile::fromJson(doc);
             if (profile.title().isEmpty()) continue;
@@ -2489,7 +2476,7 @@ void ProfileManager::migrateReadOnlyProfiles() {
                 stripped = stripped.mid(8).trimmed();
             newTitle = stripped + " (broken)";
             profile.setTitle(newTitle);
-            profile.setRecipeMode(false);
+
             newFilename = titleToFilename(newTitle);
             needsSave = true;
 
@@ -2506,7 +2493,7 @@ void ProfileManager::migrateReadOnlyProfiles() {
                 stripped = stripped.mid(8).trimmed();
             newTitle = stripped + " (broken)";
             profile.setTitle(newTitle);
-            profile.setRecipeMode(false);
+
             newFilename = titleToFilename(newTitle);
             needsSave = true;
 
@@ -2597,3 +2584,5 @@ void ProfileManager::migrateReadOnlyProfiles() {
         }
     }
 }
+
+

@@ -145,9 +145,7 @@ void ProfileConverter::onProcessNextFile()
             m_skippedCount++;
             qDebug() << "ProfileConverter: Skipped" << filename << "(already exists)";
         } else {
-            // Preserve the profile's original editor type from de1app —
-            // don't convert to recipe/D-Flow mode.
-            profile.setRecipeMode(false);
+            // editorType is derived from title/profileType in fromJson(), keep as-is.
             qDebug() << "ProfileConverter:" << filename << "→" << profile.profileType();
 
             if (profile.saveToFile(outputPath)) {

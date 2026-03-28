@@ -51,8 +51,6 @@ private:
         json["maximum_pressure"] = 12.0;
         json["maximum_flow"] = 6.0;
         json["minimum_pressure"] = 0.0;
-        json["is_recipe_mode"] = true;
-
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
         recipe.targetWeight = targetWeight;
@@ -881,6 +879,32 @@ private slots:
         QCOMPARE(f.profileManager.frameCount(), 2);
     }
 
+    void convertToAdvancedCaseInsensitiveTitle() {
+        // isDFlowTitle matches case-insensitively — stripping must too
+        McpTestFixture f;
+        loadDFlowProfile(f, "d-flow / lowercase test");
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+
+        f.profileManager.convertCurrentProfileToAdvanced();
+
+        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
+        // Title should be "lowercase test", not still contain "d-flow"
+        QVERIFY(!f.profileManager.currentProfileName().contains("flow", Qt::CaseInsensitive));
+    }
+
+    void convertToAdvancedBareDFlowTitle() {
+        // Edge case: title is exactly "D-Flow" with no suffix
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow");
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+
+        f.profileManager.convertCurrentProfileToAdvanced();
+
+        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
+        // currentProfileName() prepends "*" when modified
+        QCOMPARE(f.profileManager.currentProfileName(), "*Advanced Profile");
+    }
+
     // === Signal precision ===
 
     void setTargetWeightSameValueNoSignal() {
@@ -1463,6 +1487,278 @@ private slots:
         a.setReadOnly(1);
         b.setReadOnly(0);
         QVERIFY(ProfileSaveHelper::compareProfiles(a, b));
+    }
+
+    // =========================================================================
+    // editorType derivation — behavioral coverage for refactored paths
+    // =========================================================================
+
+    // === convertCurrentProfileToAdvanced ===
+
+    void convertToAdvancedDFlowBecomesAdvanced() {
+        // convertCurrentProfileToAdvanced must actually change the profile
+        // so that editorType() returns "advanced" — even for D-Flow profiles.
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+
+        f.profileManager.convertCurrentProfileToAdvanced();
+
+        // After conversion, the profile must be "advanced"
+        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
+        QVERIFY(!f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isProfileModified());
+        // Frames should be preserved
+        QCOMPARE(f.profileManager.frameCount(), 2);
+    }
+
+    void convertToAdvancedAdvancedProfileStaysAdvanced() {
+        // An advanced profile should remain advanced after conversion
+        McpTestFixture f;
+        f.profileManager.createNewProfile("My Custom Profile");
+        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
+
+        f.profileManager.convertCurrentProfileToAdvanced();
+
+        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
+    }
+
+    void convertToAdvancedPressureProfileBecomesAdvanced() {
+        // Pressure profiles must also become "advanced" after conversion
+        McpTestFixture f;
+        f.profileManager.createNewPressureProfile("My Pressure");
+        QCOMPARE(f.profileManager.currentEditorType(), "pressure");
+
+        f.profileManager.convertCurrentProfileToAdvanced();
+
+        // After conversion, profileType must be changed to settings_2c
+        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
+        QVERIFY(!f.profileManager.isCurrentProfileRecipe());
+    }
+
+    // === Frame editing preserves editorType ===
+
+    void addFramePreservesEditorType() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+
+        f.profileManager.addFrame();
+
+        // editorType is derived from title — adding frames doesn't change it
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+        QVERIFY(f.profileManager.isProfileModified());
+    }
+
+    void deleteFramePreservesEditorType() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+        QCOMPARE(f.profileManager.frameCount(), 2);
+
+        f.profileManager.deleteFrame(1);
+
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+        QCOMPARE(f.profileManager.frameCount(), 1);
+    }
+
+    void moveFramePreservesEditorType() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+
+        f.profileManager.moveFrameDown(0);
+
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+    }
+
+    void setFramePropertyPreservesEditorType() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+
+        f.profileManager.setFrameProperty(0, "temperature", 90.0);
+
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+    }
+
+    void duplicateFramePreservesEditorType() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test");
+
+        f.profileManager.duplicateFrame(0);
+
+        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
+    }
+
+    // === getOrConvertRecipeParams for different editor types ===
+
+    void getOrConvertRecipeParamsDFlowReturnsStoredParams() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+
+        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+
+        QCOMPARE(params["editorType"].toString(), "dflow");
+        QCOMPARE(params["targetWeight"].toDouble(), 36.0);
+    }
+
+    void getOrConvertRecipeParamsDFlowNoStoredExtractsFromFrames() {
+        // D-Flow profile without stored recipe params (de1app import)
+        // Should extract params from frames on-the-fly
+        QJsonObject json;
+        json["title"] = "D-Flow / Import";
+        json["author"] = "test";
+        json["notes"] = "";
+        json["beverage_type"] = "espresso";
+        json["version"] = "2";
+        json["legacy_profile_type"] = "settings_2c";
+        json["target_weight"] = 36.0;
+        json["target_volume"] = 0.0;
+        json["espresso_temperature"] = 93.0;
+        json["maximum_pressure"] = 12.0;
+        json["maximum_flow"] = 6.0;
+        json["minimum_pressure"] = 0.0;
+        json["number_of_preinfuse_frames"] = 1;
+        // No "recipe" block — simulates de1app import
+        QJsonArray steps;
+        QJsonObject frame1;
+        frame1["name"] = "fill";
+        frame1["temperature"] = 93.0;
+        frame1["sensor"] = "coffee";
+        frame1["pump"] = "flow";
+        frame1["transition"] = "fast";
+        frame1["pressure"] = 6.0;
+        frame1["flow"] = 4.0;
+        frame1["seconds"] = 25.0;
+        frame1["volume"] = 0.0;
+        frame1["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
+        frame1["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frame1);
+        QJsonObject frame2;
+        frame2["name"] = "pour";
+        frame2["temperature"] = 93.0;
+        frame2["sensor"] = "coffee";
+        frame2["pump"] = "flow";
+        frame2["transition"] = "smooth";
+        frame2["pressure"] = 6.0;
+        frame2["flow"] = 2.0;
+        frame2["seconds"] = 60.0;
+        frame2["volume"] = 0.0;
+        frame2["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 11.0}};
+        frame2["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frame2);
+        json["steps"] = steps;
+
+        McpTestFixture f;
+        f.profileManager.loadProfileFromJson(QJsonDocument(json).toJson(QJsonDocument::Compact));
+
+        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QCOMPARE(params["editorType"].toString(), "dflow");
+        QVERIFY(params["pourFlow"].toDouble() > 0);  // Extracted from frames
+    }
+
+    void getOrConvertRecipeParamsPressureReturnsScalarFields() {
+        McpTestFixture f;
+        f.profileManager.createNewPressureProfile("My Pressure");
+
+        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+
+        QCOMPARE(params["editorType"].toString(), "pressure");
+        // Should come from scalar fields, not stored recipe params
+        QVERIFY(params["targetWeight"].toDouble() > 0);
+        QVERIFY(params["fillTemperature"].toDouble() > 0);
+    }
+
+    void getOrConvertRecipeParamsFlowReturnsScalarFields() {
+        McpTestFixture f;
+        f.profileManager.createNewFlowProfile("My Flow");
+
+        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+
+        QCOMPARE(params["editorType"].toString(), "flow");
+        QVERIFY(params["targetWeight"].toDouble() > 0);
+    }
+
+    void getOrConvertRecipeParamsAdvancedReturnsDefaults() {
+        McpTestFixture f;
+        f.profileManager.createNewProfile("Advanced Profile");
+
+        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+
+        // Advanced profiles return default RecipeParams
+        QVERIFY(!params.isEmpty());
+    }
+
+    // === uploadRecipeProfile frame regeneration ===
+
+    void uploadRecipeProfileRegeneratesFramesOnParamChange() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        int framesBefore = f.profileManager.frameCount();
+
+        QVariantMap recipe;
+        recipe["editorType"] = "dflow";
+        recipe["targetWeight"] = 40.0;
+        recipe["fillTemperature"] = 95.0;
+        recipe["pourTemperature"] = 95.0;
+        recipe["fillPressure"] = 8.0;  // Changed from 6.0
+        recipe["fillFlow"] = 4.0;
+        recipe["pourFlow"] = 2.5;     // Changed from 2.0
+        f.profileManager.uploadRecipeProfile(recipe);
+
+        // Frames should be regenerated (params changed)
+        QVERIFY(f.profileManager.frameCount() > 0);
+        QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
+    }
+
+    void uploadRecipeProfileSimpleProfileUsesScalarPath() {
+        // Pressure profiles (settings_2a) should use the simple path
+        McpTestFixture f;
+        f.profileManager.createNewPressureProfile("My Pressure");
+        QCOMPARE(f.profileManager.currentEditorType(), "pressure");
+
+        QVariantMap recipe;
+        recipe["editorType"] = "pressure";
+        recipe["targetWeight"] = 40.0;
+        recipe["fillTemperature"] = 95.0;
+        recipe["pourTemperature"] = 95.0;
+        recipe["espressoPressure"] = 9.0;
+        recipe["pressureEnd"] = 6.0;
+        recipe["preinfusionTime"] = 5.0;
+        recipe["preinfusionFlowRate"] = 4.0;
+        recipe["preinfusionStopPressure"] = 4.0;
+        recipe["holdTime"] = 10.0;
+        recipe["simpleDeclineTime"] = 15.0;
+        f.profileManager.uploadRecipeProfile(recipe);
+
+        QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
+        // Should still be pressure type (simple path doesn't change profileType)
+        QCOMPARE(f.profileManager.currentEditorType(), "pressure");
+    }
+
+    // === isCurrentProfileRecipe for all editor types ===
+
+    void isCurrentProfileRecipeForAllTypes() {
+        McpTestFixture f;
+
+        // D-Flow → recipe
+        loadDFlowProfile(f, "D-Flow / Test");
+        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+
+        // A-Flow → recipe
+        f.profileManager.createNewAFlowRecipe("A-Flow / Test");
+        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+
+        // Pressure → recipe
+        f.profileManager.createNewPressureProfile("My Pressure");
+        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+
+        // Flow → recipe
+        f.profileManager.createNewFlowProfile("My Flow");
+        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+
+        // Advanced → NOT recipe
+        f.profileManager.createNewProfile("Advanced");
+        QVERIFY(!f.profileManager.isCurrentProfileRecipe());
     }
 };
 

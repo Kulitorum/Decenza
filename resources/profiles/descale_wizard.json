@@ -1,13 +1,13 @@
 {
-  "title": "Cleaning/Descale Wizard",
-  "author": "Decent",
-  "notes": "Opens the descaling wizard which uses the DE1's built-in descale routine. This thoroughly descales the boiler, group head, and steam system.",
-  "beverage_type": "descale",
-  "target_weight": 0,
-  "target_volume": 0,
-  "espresso_temperature": 25.0,
-  "steps": [],
-  "version": "2",
-  "legacy_profile_type": "wizard",
-  "read_only": 1
+    "title": "Cleaning/Descale Wizard",
+    "author": "Decent",
+    "notes": "Opens the descaling wizard which uses the DE1's built-in descale routine. This thoroughly descales the boiler, group head, and steam system.",
+    "beverage_type": "descale",
+    "target_weight": 0,
+    "target_volume": 0,
+    "espresso_temperature": 25.0,
+    "steps": [],
+    "version": "2",
+    "legacy_profile_type": "wizard",
+    "read_only": 1
 }
