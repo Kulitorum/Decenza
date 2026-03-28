@@ -32,7 +32,7 @@ public:
 
     /**
      * Convert a profile to recipe mode if possible.
-     * Sets editorType and populates recipeParams if successful.
+     * Populates recipeParams if successful. editorType() is derived at runtime.
      * @param profile The profile to convert (modified in place)
      * @return true if conversion was successful
      */

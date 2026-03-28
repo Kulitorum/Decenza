@@ -408,8 +408,17 @@ QJsonDocument Profile::toJson() const {
     }
     obj["steps"] = stepsArray;
 
-    // Recipe params (stored when profile has recipe data)
-    if (editorType() != QLatin1String("advanced")) {
+    // Recipe params — only write when explicitly populated (not default).
+    // D-Flow/A-Flow profiles always have recipe data. Simple profiles (settings_2a/2b)
+    // only have recipe data if they were edited through the recipe editor.
+    QString et = editorType();
+    if (et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
+        obj["recipe"] = m_recipeParams.toJson();
+    } else if ((et == QLatin1String("pressure") || et == QLatin1String("flow"))
+               && m_recipeParams.targetWeight > 0
+               && m_recipeParams.editorType != EditorType::DFlow) {
+        // Only write recipe for simple profiles if params were explicitly set
+        // (not default DFlow params from a fresh RecipeParams())
         obj["recipe"] = m_recipeParams.toJson();
     }
 
@@ -540,8 +549,8 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // Load recipe params if present
     if (obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
-        // Infer editorType from profileType/title when not explicitly saved in recipe
-        // (handles profiles created before editorType was introduced)
+        // Infer RecipeParams.editorType from profileType/title when the recipe
+        // block does not include an explicit editorType enum value
         if (!obj["recipe"].toObject().contains("editorType")) {
             if (profile.m_profileType == "settings_2a") {
                 profile.m_recipeParams.editorType = EditorType::Pressure;

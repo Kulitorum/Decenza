@@ -1651,7 +1651,7 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         return params.toVariantMap();
     }
 
-    // Return default params if not in recipe mode
+    // Advanced profile — no recipe params, return defaults
     return RecipeParams().toVariantMap();
 }
 
@@ -1704,9 +1704,35 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
 }
 
 void ProfileManager::convertCurrentProfileToAdvanced() {
-    // Convert from recipe mode to advanced mode
-    // The frames are already generated, just disable recipe mode
+    // Convert to advanced mode: set profileType to settings_2c and strip
+    // D-Flow/A-Flow title prefix so editorType() derives as "advanced".
+    // The frames are already generated and are preserved as-is.
+    m_currentProfile.setProfileType(QStringLiteral("settings_2c"));
 
+    QString title = m_currentProfile.title();
+    if (isDFlowTitle(title)) {
+        QString stripped = title;
+        if (stripped.startsWith(QLatin1Char('*'))) stripped = stripped.mid(1);
+        if (stripped.startsWith(QLatin1String("D-Flow / ")))
+            stripped = stripped.mid(9);
+        else if (stripped.startsWith(QLatin1String("D-Flow /")))
+            stripped = stripped.mid(8).trimmed();
+        else if (stripped.startsWith(QLatin1String("D-Flow")))
+            stripped = stripped.mid(6).trimmed();
+        if (stripped.isEmpty()) stripped = QStringLiteral("Advanced Profile");
+        m_currentProfile.setTitle(stripped);
+    } else if (isAFlowTitle(title)) {
+        QString stripped = title;
+        if (stripped.startsWith(QLatin1Char('*'))) stripped = stripped.mid(1);
+        if (stripped.startsWith(QLatin1String("A-Flow / ")))
+            stripped = stripped.mid(9);
+        else if (stripped.startsWith(QLatin1String("A-Flow /")))
+            stripped = stripped.mid(8).trimmed();
+        else if (stripped.startsWith(QLatin1String("A-Flow")))
+            stripped = stripped.mid(6).trimmed();
+        if (stripped.isEmpty()) stripped = QStringLiteral("Advanced Profile");
+        m_currentProfile.setTitle(stripped);
+    }
 
     m_profileModified = true;
 
@@ -1801,9 +1827,6 @@ void ProfileManager::addFrame(int afterIndex) {
         qWarning() << "Failed to add frame: maximum frame count reached (" << Profile::MAX_FRAMES << ")";
         return;
     }
-
-    // Disable recipe mode - we're now in frame editing mode
-
 
     if (!m_profileModified) {
         m_profileModified = true;
@@ -2272,7 +2295,8 @@ void ProfileManager::migrateRecipeFrames() {
         if (doc.isNull()) return;
 
         QJsonObject obj = doc.object();
-        if (!obj.value("is_recipe_mode").toBool()) return;  // Not a recipe profile
+        // Identify recipe profiles: check is_recipe_mode (legacy) or recipe block (current)
+        if (!obj.value("is_recipe_mode").toBool() && !obj.contains("recipe")) return;
 
         Profile profile = Profile::fromJson(doc);
         if (profile.title().isEmpty()) return;
@@ -2313,7 +2337,8 @@ void ProfileManager::migrateRecipeFrames() {
             QString jsonContent = m_profileStorage->readProfile(name);
             if (jsonContent.isEmpty()) continue;
             QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
-            if (doc.isNull() || !doc.object().value("is_recipe_mode").toBool()) continue;
+            QJsonObject sObj = doc.object();
+            if (doc.isNull() || (!sObj.value("is_recipe_mode").toBool() && !sObj.contains("recipe"))) continue;
 
             Profile profile = Profile::fromJson(doc);
             if (profile.title().isEmpty()) continue;
