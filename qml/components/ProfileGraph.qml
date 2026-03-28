@@ -435,18 +435,21 @@ ChartView {
                         temperatureGoalSeries.append(tPt2, temp)
                     }
                 } else {
-                    // Fast: quick ramp then hold
-                    var rampTime = Math.min(2.0, duration * 0.3)
+                    // Fast: ramp with ease-in-out curve over ~4s (matching machine PID settling)
+                    var rampTime = Math.min(4.0, duration * 0.4)
                     var rampEnd = startTime + rampTime
+                    var rampSteps = Math.max(3, Math.round(rampTime * 2))
 
-                    pressureSeries0.append(startTime, currentPressure)
-                    flowSeries0.append(startTime, currentFlow)
-                    temperatureGoalSeries.append(startTime, temp)
+                    for (var sr = 0; sr <= rampSteps; sr++) {
+                        var fracR = sr / rampSteps
+                        var tR = startTime + fracR * rampTime
+                        var easeR = fracR * fracR * (3 - 2 * fracR)
+                        pressureSeries0.append(tR, currentPressure + easeR * (flowPressure - currentPressure))
+                        flowSeries0.append(tR, currentFlow + easeR * (effectiveFlow - currentFlow))
+                        temperatureGoalSeries.append(tR, temp)
+                    }
 
-                    pressureSeries0.append(rampEnd, flowPressure)
-                    flowSeries0.append(rampEnd, effectiveFlow)
-                    temperatureGoalSeries.append(rampEnd, temp)
-
+                    // Hold at target until end
                     pressureSeries0.append(endTime, flowPressure)
                     flowSeries0.append(endTime, effectiveFlow)
                     temperatureGoalSeries.append(endTime, temp)
