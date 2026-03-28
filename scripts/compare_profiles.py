@@ -105,14 +105,16 @@ def parse_tcl_profile(filepath):
         'flow_profile_minimum_pressure': ('flow_profile_minimum_pressure', 0.0),
     }
     for tcl_key, (norm_key, default) in tcl_settings.items():
+        # Use \b word boundary to avoid substring matches (e.g., 'preinfusion_time'
+        # matching inside 'flow_profile_preinfusion_time')
         if isinstance(default, float):
-            m = re.search(rf'{tcl_key}\s+([0-9.]+)', content)
+            m = re.search(rf'\b{tcl_key}\s+([0-9.]+)', content)
             profile[norm_key] = float(m.group(1)) if m else default
         elif isinstance(default, int):
-            m = re.search(rf'{tcl_key}\s+([0-9]+)', content)
+            m = re.search(rf'\b{tcl_key}\s+([0-9]+)', content)
             profile[norm_key] = int(m.group(1)) if m else default
         else:
-            m = re.search(rf'{tcl_key}\s+(\S+)', content)
+            m = re.search(rf'\b{tcl_key}\s+(\S+)', content)
             profile[norm_key] = m.group(1) if m else default
 
     return profile
@@ -322,10 +324,20 @@ for dk, dv in sorted(decenza.items()):
         continue
     matched.add(mk)
 
-    jframes = dv['data'].get('steps', [])
-    tframes = de1app[mk]['data'].get('frames', [])
+    jd = dv['data']
+    td = de1app[mk]['data']
+    ptype = jd.get('legacy_profile_type', jd.get('profile_type', ''))
+    is_simple = ptype in ('settings_2a', 'settings_2b')
 
-    has_major, has_exit, details = analyze_profile(jframes, tframes)
+    # For simple profiles (settings_2a/2b), de1app IGNORES stored advanced_shot frames
+    # and regenerates from scalar parameters at upload time. So we only compare scalars,
+    # not stored frames. For advanced profiles (settings_2c), compare stored frames.
+    if is_simple:
+        has_major, has_exit, details = False, False, []
+    else:
+        jframes = dv['data'].get('steps', [])
+        tframes = de1app[mk]['data'].get('frames', [])
+        has_major, has_exit, details = analyze_profile(jframes, tframes)
 
     # Compare profile-level settings
     # Map: (Decenza JSON key, de1app normalized key, label)
@@ -340,35 +352,31 @@ for dk, dv in sorted(decenza.items()):
         ('maximum_flow_range_advanced', 'maximum_flow_range', 'max_flow_range'),
         ('beverage_type', 'beverage_type', 'beverage_type'),
     ]
-    # Add simple profile settings based on profile type
-    jd = dv['data']
-    td = de1app[mk]['data']
-    ptype = jd.get('legacy_profile_type', jd.get('profile_type', ''))
     # Warn if simple profile has is_recipe_mode (stale conversion artifact)
-    if ptype in ('settings_2a', 'settings_2b') and jd.get('is_recipe_mode', False):
+    if is_simple and jd.get('is_recipe_mode', False):
         has_major = True
         details = [f"  WARNING: simple profile ({ptype}) has is_recipe_mode=true (stale recipe params will override scalars)"] + details
-    if ptype in ('settings_2a', 'settings_2b'):
+    if is_simple:
+        # All simple profiles use these scalar parameters for frame generation.
+        # De1app's pressure_to_advanced_list and flow_to_advanced_list both use
+        # espresso_hold_time/espresso_decline_time (NOT flow_profile_hold_time).
         PROFILE_SETTINGS += [
             ('preinfusion_time', 'preinfusion_time', 'preinfusion_time'),
             ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', 'preinfusion_stop_pressure'),
             ('preinfusion_flow_rate', 'preinfusion_flow_rate', 'preinfusion_flow_rate'),
+            ('espresso_hold_time', 'espresso_hold_time', 'espresso_hold_time'),
+            ('espresso_decline_time', 'espresso_decline_time', 'espresso_decline_time'),
         ]
     if ptype == 'settings_2a':
         PROFILE_SETTINGS += [
             ('espresso_pressure', 'espresso_pressure', 'espresso_pressure'),
-            ('espresso_decline_time', 'espresso_decline_time', 'espresso_decline_time'),
-            ('espresso_hold_time', 'espresso_hold_time', 'espresso_hold_time'),
             ('pressure_end', 'pressure_end', 'pressure_end'),
         ]
     elif ptype == 'settings_2b':
         PROFILE_SETTINGS += [
             ('flow_profile_preinfusion', 'flow_profile_preinfusion', 'flow_profile_preinfusion'),
-            ('flow_profile_preinfusion_time', 'flow_profile_preinfusion_time', 'flow_preinfusion_time'),
             ('flow_profile_hold', 'flow_profile_hold', 'flow_profile_hold'),
-            ('flow_profile_hold_time', 'flow_profile_hold_time', 'flow_hold_time'),
             ('flow_profile_decline', 'flow_profile_decline', 'flow_profile_decline'),
-            ('flow_profile_decline_time', 'flow_profile_decline_time', 'flow_decline_time'),
             ('flow_profile_minimum_pressure', 'flow_profile_minimum_pressure', 'flow_min_pressure'),
         ]
     settings_diffs = []

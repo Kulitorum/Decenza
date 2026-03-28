@@ -680,6 +680,7 @@ ApplicationWindow {
 
     // Navigation guard to prevent double-taps during page transitions
     property bool navigationInProgress: false
+    property bool pendingDisconnectNavigation: false
     // Clears the guard when animated transitions finish (currently all
     // transitions are empty Transition{}, so this is a no-op today but
     // will activate automatically if animations are added later).
@@ -688,6 +689,12 @@ ApplicationWindow {
         function onBusyChanged() {
             if (!pageStack.busy) {
                 navigationInProgress = false
+                // Retry deferred disconnect navigation (#575)
+                if (pendingDisconnectNavigation) {
+                    pendingDisconnectNavigation = false
+                    console.log("Retrying deferred disconnect navigation to idle")
+                    pageStack.replace(null, idlePage)
+                }
             }
         }
     }
@@ -2096,9 +2103,23 @@ ApplicationWindow {
             // Reset on disconnect so reconnections are also protected.
             if (phase === MachineStateType.Phase.Disconnected) {
                 root.startupGracePeriod = true
-            } else if (root.startupGracePeriod &&
+                // If we're on an operation page, navigate to idle (#575)
+                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage") {
+                    console.log("Disconnected while on operation page (" + currentPage + ") - navigating to idle")
+                    if (!pageStack.busy) {
+                        pageStack.replace(null, idlePage)
+                    } else {
+                        pendingDisconnectNavigation = true
+                    }
+                }
+            } else {
+                // Clear deferred disconnect navigation on reconnect — machine is back,
+                // don't navigate away from whatever page the user is on now.
+                if (pendingDisconnectNavigation) pendingDisconnectNavigation = false
+                if (root.startupGracePeriod &&
                        phase !== MachineStateType.Phase.Sleep) {
-                root.startupGracePeriod = false
+                    root.startupGracePeriod = false
+                }
             }
 
             // Apply settings when entering operations (to handle GHC-initiated starts)

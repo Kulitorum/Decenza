@@ -79,7 +79,9 @@ def parse_tcl_profile(filepath):
         'flow_profile_minimum_pressure',
     ]
     for key in NUMERIC_KEYS:
-        m = re.search(rf'{key}\s+([0-9.]+)', content)
+        # Use \b word boundary to avoid 'preinfusion_time' matching inside
+        # 'flow_profile_preinfusion_time' (substring false positive)
+        m = re.search(rf'\b{key}\s+([0-9.]+)', content)
         if m:
             profile[key] = float(m.group(1))
 
@@ -295,14 +297,18 @@ def sync_profile(jdata, tdata):
         ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', None),
         ('preinfusion_flow_rate', 'preinfusion_flow_rate', None),
         ('pressure_end', 'pressure_end', None),
-        # Simple flow profile (settings_2b)
+        # Simple flow profile (settings_2b) — flow rates and minimum pressure
         ('flow_profile_preinfusion', 'flow_profile_preinfusion', None),
-        ('flow_profile_preinfusion_time', 'flow_profile_preinfusion_time', None),
         ('flow_profile_hold', 'flow_profile_hold', None),
-        ('flow_profile_hold_time', 'flow_profile_hold_time', None),
         ('flow_profile_decline', 'flow_profile_decline', None),
-        ('flow_profile_decline_time', 'flow_profile_decline_time', None),
         ('flow_profile_minimum_pressure', 'flow_profile_minimum_pressure', None),
+        # Note: flow_profile_hold_time and flow_profile_decline_time are GUI-only metadata
+        # in de1app — NOT used by flow_to_advanced_list for frame generation. The authoritative
+        # time fields are espresso_hold_time and espresso_decline_time (synced above for all
+        # simple profiles). We still sync the flow_profile_*_time fields for round-trip fidelity.
+        ('flow_profile_preinfusion_time', 'flow_profile_preinfusion_time', None),
+        ('flow_profile_hold_time', 'flow_profile_hold_time', None),
+        ('flow_profile_decline_time', 'flow_profile_decline_time', None),
     ]
 
     for jkey, tkey, default in SETTINGS_MAP:
@@ -343,16 +349,25 @@ def sync_profile(jdata, tdata):
                 jdata['temperature_presets'] = t_presets
 
     # Sync frames
-    jframes = jdata.get('steps', [])
-    tframes = tdata.get('frames', [])
+    # For simple profiles (settings_2a/2b), de1app IGNORES stored advanced_shot frames
+    # and regenerates from scalar parameters at upload time (binary.tcl:1025).
+    # Clear stored steps so Decenza regenerates them from scalars on load.
+    if ptype in ('settings_2a', 'settings_2b'):
+        jframes = jdata.get('steps', [])
+        if jframes:
+            changes.append(f"  Cleared {len(jframes)} stale stored steps (simple profile — frames regenerated from scalars)")
+            jdata['steps'] = []
+    else:
+        jframes = jdata.get('steps', [])
+        tframes = tdata.get('frames', [])
 
-    if len(jframes) != len(tframes):
-        changes.append(f"  FRAME COUNT MISMATCH: D={len(jframes)}, T={len(tframes)} — skipping frame sync")
-        return changes
+        if len(jframes) != len(tframes):
+            changes.append(f"  FRAME COUNT MISMATCH: D={len(jframes)}, T={len(tframes)} — skipping frame sync")
+            return changes
 
-    for i in range(len(jframes)):
-        if sync_frame(jframes[i], tframes[i]):
-            changes.append(f"  Frame {i} ({jframes[i].get('name', f'frame {i}')}): updated")
+        for i in range(len(jframes)):
+            if sync_frame(jframes[i], tframes[i]):
+                changes.append(f"  Frame {i} ({jframes[i].get('name', f'frame {i}')}): updated")
 
     # Remove stop_at_type if present
     if 'stop_at_type' in jdata:

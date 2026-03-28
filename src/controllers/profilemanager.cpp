@@ -1660,13 +1660,11 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         params.preinfusionTime = m_currentProfile.preinfusionTime();
         params.preinfusionFlowRate = m_currentProfile.preinfusionFlowRate();
         params.preinfusionStopPressure = m_currentProfile.preinfusionStopPressure();
-        if (pt == QLatin1String("settings_2a")) {
-            params.holdTime = m_currentProfile.espressoHoldTime();
-            params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
-        } else {
-            params.holdTime = m_currentProfile.flowProfileHoldTime();
-            params.simpleDeclineTime = m_currentProfile.flowProfileDeclineTime();
-        }
+        // Both settings_2a and settings_2b use espressoHoldTime/espressoDeclineTime
+        // for frame generation. De1app's flow_to_advanced_list uses these same fields,
+        // NOT flow_profile_hold_time/flow_profile_decline_time (which are GUI-only metadata).
+        params.holdTime = m_currentProfile.espressoHoldTime();
+        params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
         if (pt == QLatin1String("settings_2a")) {
             params.editorType = EditorType::Pressure;
             params.espressoPressure = m_currentProfile.espressoPressure();
@@ -2385,7 +2383,9 @@ void ProfileManager::migrateRecipeFrames() {
 void ProfileManager::migrateReadOnlyProfiles() {
     // One-time migration: rename user profiles that shadow built-in profiles,
     // and detect broken D-Flow/A-Flow profiles with wrong frame counts.
-    if (m_settings && m_settings->value("readonly_profiles_migrated", false).toBool()) {
+    // v2: re-run for 1.6.1 — the v1 migration missed profiles whose format was
+    // changed by migrateProfileFormat() before compareProfiles() ran.
+    if (m_settings && m_settings->value("readonly_profiles_migrated_v2", false).toBool()) {
         return;
     }
 
@@ -2444,7 +2444,38 @@ void ProfileManager::migrateReadOnlyProfiles() {
             }
         }
 
-        // 4c: Detect broken D-Flow/A-Flow profiles (wrong frame count)
+        // 4c: Fix simple profiles (settings_2a/2b) with stale stored steps.
+        // De1app regenerates frames from scalar parameters at upload time — stored
+        // steps are irrelevant. Clear them so Decenza regenerates from scalars.
+        // Also fix settings_2b profiles where espressoHoldTime was incorrectly
+        // populated from flowProfileHoldTime (the old getOrConvertRecipeParams bug).
+        QString profileType = profile.profileType();
+        bool isSimple = (profileType == QLatin1String("settings_2a") || profileType == QLatin1String("settings_2b"));
+
+        if (isSimple && !profile.steps().isEmpty()) {
+            // For settings_2b: if espressoHoldTime is 0 but flowProfileHoldTime is not,
+            // the profile was corrupted by the old editor bug. Fix by swapping.
+            if (profileType == QLatin1String("settings_2b")) {
+                if (qFuzzyIsNull(profile.espressoHoldTime()) && profile.flowProfileHoldTime() > 0) {
+                    profile.setEspressoHoldTime(profile.flowProfileHoldTime());
+                    qDebug() << "migrateReadOnlyProfiles: fixed settings_2b hold time for" << filename
+                             << "from flowProfileHoldTime:" << profile.flowProfileHoldTime();
+                }
+                if (qFuzzyIsNull(profile.espressoDeclineTime()) && profile.flowProfileDeclineTime() > 0) {
+                    profile.setEspressoDeclineTime(profile.flowProfileDeclineTime());
+                    qDebug() << "migrateReadOnlyProfiles: fixed settings_2b decline time for" << filename
+                             << "from flowProfileDeclineTime:" << profile.flowProfileDeclineTime();
+                }
+            }
+
+            // Clear stale stored steps — they'll be regenerated from scalars on load
+            profile.setSteps({});
+            profile.regenerateSimpleFrames();
+            needsSave = true;
+            qDebug() << "migrateReadOnlyProfiles: regenerated simple profile frames for" << filename;
+        }
+
+        // 4d: Detect broken D-Flow/A-Flow profiles (wrong frame count)
         qsizetype stepCount = profile.steps().size();
         bool isDFlow = isDFlowTitle(newTitle);
         bool isAFlow = isAFlowTitle(newTitle);
@@ -2556,7 +2587,7 @@ void ProfileManager::migrateReadOnlyProfiles() {
         qWarning() << "Read-only profile migration incomplete:" << renamed << "renamed,"
                    << broken << "broken," << failed << "failed. Will retry on next launch.";
     } else {
-        if (m_settings) m_settings->setValue("readonly_profiles_migrated", true);
+        if (m_settings) m_settings->setValue("readonly_profiles_migrated_v2", true);
         qDebug() << "Read-only profile migration complete:" << renamed << "renamed,"
                  << broken << "broken profiles detected";
 
