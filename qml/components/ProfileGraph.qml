@@ -189,6 +189,7 @@ ChartView {
                 Accessible.name: (frame ? (frame.name || ("Frame " + (index + 1))) : "") +
                                  (index === selectedFrameIndex ? ", selected" : "")
                 Accessible.focusable: true
+                Accessible.onPressAction: bgMouseArea.clicked(null)
                 property double frameStart: {
                     var start = 0
                     for (var i = 0; i < index; i++) {
@@ -238,6 +239,7 @@ ChartView {
                         rotation: -90
                         transformOrigin: Item.Center
                         opacity: 0.9
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
@@ -255,6 +257,7 @@ ChartView {
                 }
 
                 MouseArea {
+                    id: bgMouseArea
                     anchors.fill: parent
                     z: -1
                     Accessible.ignored: true
