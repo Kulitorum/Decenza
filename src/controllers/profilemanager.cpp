@@ -1660,13 +1660,11 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         params.preinfusionTime = m_currentProfile.preinfusionTime();
         params.preinfusionFlowRate = m_currentProfile.preinfusionFlowRate();
         params.preinfusionStopPressure = m_currentProfile.preinfusionStopPressure();
-        if (pt == QLatin1String("settings_2a")) {
-            params.holdTime = m_currentProfile.espressoHoldTime();
-            params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
-        } else {
-            params.holdTime = m_currentProfile.flowProfileHoldTime();
-            params.simpleDeclineTime = m_currentProfile.flowProfileDeclineTime();
-        }
+        // Both settings_2a and settings_2b use espressoHoldTime/espressoDeclineTime
+        // for frame generation. De1app's flow_to_advanced_list uses these same fields,
+        // NOT flow_profile_hold_time/flow_profile_decline_time (which are GUI-only metadata).
+        params.holdTime = m_currentProfile.espressoHoldTime();
+        params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
         if (pt == QLatin1String("settings_2a")) {
             params.editorType = EditorType::Pressure;
             params.espressoPressure = m_currentProfile.espressoPressure();

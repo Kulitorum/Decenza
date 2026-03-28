@@ -1,148 +1,148 @@
 {
-  "title": "Filter3",
-  "author": "Decent",
-  "beverage_type": "filter",
-  "notes": "Set your grinder as coarsely as it can be set (11am setting on a Niche Zero).  Center a 58.5mm filter paper in the bottom of a Filter3 basket. Wet it with Flush water. Add 22 grams of coffee and shake to level the grounds.  Gently lock the portafilter in.  Place a cup, tap the COFFEE icon on the Group Head to start.  Optional: 30 seconds into the extraction, unlock the portafilter, swirl and check for 2cm-4cm of water on the grounds.  Adjust the grind if necessary for next time: finer if you saw not enough water, coarser if there was too much water on the grounds.  If water comes out of the holes at the top of the basket, your grind is too fine.",
-  "legacy_profile_type": "settings_2c",
-  "version": "2",
-  "number_of_preinfuse_frames": 2,
-  "maximum_pressure": 0.0,
-  "maximum_flow": 4.0,
-  "minimum_pressure": 4.0,
-  "target_weight": 0,
-  "target_volume": 0,
-  "mode": "frame_based",
-  "is_recipe_mode": false,
-  "temperature_presets": [
-    94,
-    94,
-    94,
-    94
-  ],
-  "steps": [
-    {
-      "name": "Prewet",
-      "temperature": 94.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 5.0,
-      "seconds": 15.0,
-      "volume": 75.0,
-      "limiter": {
-        "value": 5.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "Bloom",
-      "temperature": 94.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 0.0,
-      "seconds": 30.0,
-      "volume": 75.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "Wet 1a",
-      "temperature": 92.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 1.1,
-      "seconds": 30.0,
-      "volume": 200.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "Wet 1b",
-      "temperature": 92.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 1.1,
-      "seconds": 30.0,
-      "volume": 200.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "Wet 2",
-      "temperature": 90.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 1.1,
-      "seconds": 60.0,
-      "volume": 200.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "Wet 3",
-      "temperature": 88.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 1.1,
-      "seconds": 100.0,
-      "volume": 200.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 1.0
-      }
-    },
-    {
-      "name": "Drawdown",
-      "temperature": 88.0,
-      "sensor": "water",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 9.0,
-      "flow": 0.0,
-      "seconds": 10.0,
-      "volume": 200.0,
-      "limiter": {
-        "value": 0.0,
-        "range": 1.0
-      }
-    }
-  ],
-  "espresso_temperature": 94.0,
-  "tank_desired_water_temperature": 0.0,
-  "maximum_pressure_range_advanced": 0.9,
-  "maximum_flow_range_advanced": 1.0,
-  "espresso_pressure": 8.5,
-  "espresso_decline_time": 40.0,
-  "espresso_hold_time": 10.0,
-  "preinfusion_time": 5.0,
-  "preinfusion_stop_pressure": 4.0,
-  "preinfusion_flow_rate": 4.0,
-  "pressure_end": 2.0,
-  "flow_profile_preinfusion": 4.0,
-  "flow_profile_preinfusion_time": 5.0,
-  "flow_profile_hold": 2.0,
-  "flow_profile_hold_time": 8.0,
-  "flow_profile_decline": 1.2,
-  "flow_profile_decline_time": 17.0,
-  "flow_profile_minimum_pressure": 4.0,
-  "read_only": 1
+    "title": "Filter3",
+    "author": "Decent",
+    "beverage_type": "filter",
+    "notes": "Set your grinder as coarsely as it can be set (11am setting on a Niche Zero).  Center a 58.5mm filter paper in the bottom of a Filter3 basket. Wet it with Flush water. Add 22 grams of coffee and shake to level the grounds.  Gently lock the portafilter in.  Place a cup, tap the COFFEE icon on the Group Head to start.  Optional: 30 seconds into the extraction, unlock the portafilter, swirl and check for 2cm-4cm of water on the grounds.  Adjust the grind if necessary for next time: finer if you saw not enough water, coarser if there was too much water on the grounds.  If water comes out of the holes at the top of the basket, your grind is too fine.",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 4.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 0,
+    "target_volume": 0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
+    "temperature_presets": [
+        94,
+        94,
+        94,
+        94
+    ],
+    "steps": [
+        {
+            "name": "Prewet",
+            "temperature": 94.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 5.0,
+            "seconds": 15.0,
+            "volume": 75.0,
+            "limiter": {
+                "value": 5.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Bloom",
+            "temperature": 94.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 75.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 1a",
+            "temperature": 92.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 30.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 1b",
+            "temperature": 92.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 30.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 2",
+            "temperature": 90.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 60.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 3",
+            "temperature": 88.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 100.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Drawdown",
+            "temperature": 88.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 10.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        }
+    ],
+    "espresso_temperature": 94.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.9,
+    "maximum_flow_range_advanced": 1.0,
+    "espresso_pressure": 8.5,
+    "espresso_decline_time": 40.0,
+    "espresso_hold_time": 10.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 2.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "read_only": 1
 }
