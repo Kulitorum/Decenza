@@ -297,8 +297,6 @@ Page {
                             anchors.fill: parent
                             frames: profile ? profile.steps : []
                             selectedFrameIndex: selectedStepIndex
-                            targetWeight: profile ? (profile.target_weight || 0) : 0
-                            targetVolume: profile ? (profile.target_volume || 0) : 0
 
                             onFrameSelected: function(index) {
                                 selectedStepIndex = index

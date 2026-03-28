@@ -19,8 +19,6 @@ ChartView {
     // Properties
     property var frames: []
     property int selectedFrameIndex: -1
-    property double targetWeight: 0
-    property double targetVolume: 0
 
     // Signals
     signal frameSelected(int index)
@@ -38,7 +36,7 @@ ChartView {
     // Frame display duration — uses the raw seconds value, matching de1app's
     // update_de1_plus_advanced_explanation_chart which uses $theseconds directly
     // with no adjustment for exit conditions or weight targets.
-    function frameDisplaySeconds(frame, index) {
+    function frameDisplaySeconds(frame) {
         return frame.seconds || 0
     }
 
@@ -46,7 +44,7 @@ ChartView {
     property double totalDuration: {
         var total = 0
         for (var i = 0; i < frames.length; i++) {
-            total += frameDisplaySeconds(frames[i], i)
+            total += frameDisplaySeconds(frames[i])
         }
         return Math.max(total, 5)  // Minimum 5 seconds
     }
@@ -141,11 +139,11 @@ ChartView {
                 property double frameStart: {
                     var start = 0
                     for (var i = 0; i < index; i++) {
-                        start += frameDisplaySeconds(frames[i], i)
+                        start += frameDisplaySeconds(frames[i])
                     }
                     return start
                 }
-                property double frameDuration: frame ? frameDisplaySeconds(frame, index) : 0
+                property double frameDuration: frame ? frameDisplaySeconds(frame) : 0
 
                 x: chart.plotArea.x + (frameStart / (totalDuration * 1.1)) * chart.plotArea.width
                 y: chart.plotArea.y
@@ -264,7 +262,7 @@ ChartView {
                 var pressure = frame.pressure || 0
 
                 // Handle pump-type boundary: flow → pressure
-                if (previousPump === "flow" && previousPump !== "") {
+                if (previousPump === "flow") {
                     // Drop flow to 0 at boundary
                     flowSeries0.append(startTime, 0)
                 }
@@ -291,7 +289,7 @@ ChartView {
                 }
 
                 // Handle pump-type boundary: pressure → flow
-                if (previousPump === "pressure" && previousPump !== "") {
+                if (previousPump === "pressure") {
                     // Drop pressure to 0 at boundary
                     pressureSeries0.append(startTime, 0)
                 }

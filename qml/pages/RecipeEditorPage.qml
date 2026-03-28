@@ -254,8 +254,6 @@ Page {
                         anchors.margins: Theme.scaled(10)
                         frames: []  // Loaded via loadCurrentProfile()
                         selectedFrameIndex: recipeEditorPage.selectedFrameIndex
-                        targetWeight: profile ? (profile.target_weight || 0) : 0
-                        targetVolume: profile ? (profile.target_volume || 0) : 0
 
                         onFrameSelected: function(index) {
                             recipeEditorPage.selectedFrameIndex = index
