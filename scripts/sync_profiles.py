@@ -79,7 +79,9 @@ def parse_tcl_profile(filepath):
         'flow_profile_minimum_pressure',
     ]
     for key in NUMERIC_KEYS:
-        m = re.search(rf'{key}\s+([0-9.]+)', content)
+        # Use \b word boundary to avoid 'preinfusion_time' matching inside
+        # 'flow_profile_preinfusion_time' (substring false positive)
+        m = re.search(rf'\b{key}\s+([0-9.]+)', content)
         if m:
             profile[key] = float(m.group(1))
 

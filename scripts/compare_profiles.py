@@ -105,14 +105,16 @@ def parse_tcl_profile(filepath):
         'flow_profile_minimum_pressure': ('flow_profile_minimum_pressure', 0.0),
     }
     for tcl_key, (norm_key, default) in tcl_settings.items():
+        # Use \b word boundary to avoid substring matches (e.g., 'preinfusion_time'
+        # matching inside 'flow_profile_preinfusion_time')
         if isinstance(default, float):
-            m = re.search(rf'{tcl_key}\s+([0-9.]+)', content)
+            m = re.search(rf'\b{tcl_key}\s+([0-9.]+)', content)
             profile[norm_key] = float(m.group(1)) if m else default
         elif isinstance(default, int):
-            m = re.search(rf'{tcl_key}\s+([0-9]+)', content)
+            m = re.search(rf'\b{tcl_key}\s+([0-9]+)', content)
             profile[norm_key] = int(m.group(1)) if m else default
         else:
-            m = re.search(rf'{tcl_key}\s+(\S+)', content)
+            m = re.search(rf'\b{tcl_key}\s+(\S+)', content)
             profile[norm_key] = m.group(1) if m else default
 
     return profile

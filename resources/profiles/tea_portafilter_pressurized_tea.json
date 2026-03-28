@@ -1,153 +1,153 @@
 {
-  "author": "Decent",
-  "beverage_type": "{tea_portafilter}",
-  "espresso_temperature": 100,
-  "is_recipe_mode": false,
-  "maximum_flow": 0.0,
-  "maximum_pressure": 0.0,
-  "minimum_pressure": 0,
-  "mode": "frame_based",
-  "notes": "This profile requires a specially designed tea portafilter that opens its valve at pressures of 3 bar or above.  Put a tea bag or loose leaf tea into the basket.  Makes about 230ml of tea in 3 minutes.  The 2 bar of pressure extract a stronger brew, with different flavors.  You can up the pressure during the infusion steps, if you tighten the screw on your tea portafilter.",
-  "steps": [
-    {
-      "name": "Fill",
-      "temperature": 100,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 1,
-      "flow": 10,
-      "seconds": 20,
-      "volume": 500,
-      "exit": {
-        "type": "pressure",
-        "condition": "over",
-        "value": 2
-      },
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    },
-    {
-      "name": "Infuse",
-      "temperature": 105,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 2,
-      "flow": 4,
-      "seconds": 30,
-      "volume": 500,
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    },
-    {
-      "name": "Flush",
-      "temperature": 105,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 6,
-      "flow": 10,
-      "seconds": 12,
-      "volume": 500,
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    },
-    {
-      "name": "Infuse",
-      "temperature": 105,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 2,
-      "flow": 4,
-      "seconds": 40,
-      "volume": 500,
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    },
-    {
-      "name": "Flush",
-      "temperature": 105,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 0.5,
-      "flow": 10,
-      "seconds": 12,
-      "volume": 500,
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    },
-    {
-      "name": "Infuse",
-      "temperature": 105,
-      "sensor": "coffee",
-      "pump": "pressure",
-      "transition": "fast",
-      "pressure": 2,
-      "flow": 6,
-      "seconds": 40,
-      "volume": 500,
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    },
-    {
-      "name": "Flush",
-      "temperature": 105,
-      "sensor": "coffee",
-      "pump": "flow",
-      "transition": "fast",
-      "pressure": 0.5,
-      "flow": 11,
-      "seconds": 22,
-      "volume": 500,
-      "limiter": {
-        "value": 0,
-        "range": 0.6
-      }
-    }
-  ],
-  "target_volume": 0,
-  "target_weight": 0,
-  "temperature_presets": [
-    90,
-    88,
-    88,
-    88
-  ],
-  "title": "Tea portafilter/Pressurized tea",
-  "version": "2",
-  "legacy_profile_type": "settings_2c",
-  "number_of_preinfuse_frames": 1,
-  "tank_desired_water_temperature": 0.0,
-  "maximum_pressure_range_advanced": 0.6,
-  "maximum_flow_range_advanced": 0.6,
-  "espresso_pressure": 8.6,
-  "espresso_decline_time": 0.0,
-  "espresso_hold_time": 25.0,
-  "preinfusion_time": 5.0,
-  "preinfusion_stop_pressure": 4.0,
-  "preinfusion_flow_rate": 4.0,
-  "pressure_end": 6.0,
-  "flow_profile_preinfusion": 4.0,
-  "flow_profile_preinfusion_time": 5.0,
-  "flow_profile_hold": 2.0,
-  "flow_profile_hold_time": 8.0,
-  "flow_profile_decline": 1.2,
-  "flow_profile_decline_time": 17.0,
-  "flow_profile_minimum_pressure": 4.0,
-  "read_only": 1
+    "author": "Decent",
+    "beverage_type": "{tea_portafilter}",
+    "espresso_temperature": 100,
+    "is_recipe_mode": false,
+    "maximum_flow": 0.0,
+    "maximum_pressure": 0.0,
+    "minimum_pressure": 0,
+    "mode": "frame_based",
+    "notes": "This profile requires a specially designed tea portafilter that opens its valve at pressures of 3 bar or above.  Put a tea bag or loose leaf tea into the basket.  Makes about 230ml of tea in 3 minutes.  The 2 bar of pressure extract a stronger brew, with different flavors.  You can up the pressure during the infusion steps, if you tighten the screw on your tea portafilter.",
+    "steps": [
+        {
+            "name": "Fill",
+            "temperature": 100,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1,
+            "flow": 10,
+            "seconds": 20,
+            "volume": 500,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 2
+            },
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 105,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2,
+            "flow": 4,
+            "seconds": 30,
+            "volume": 500,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush",
+            "temperature": 105,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6,
+            "flow": 10,
+            "seconds": 12,
+            "volume": 500,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 105,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2,
+            "flow": 4,
+            "seconds": 40,
+            "volume": 500,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush",
+            "temperature": 105,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.5,
+            "flow": 10,
+            "seconds": 12,
+            "volume": 500,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 105,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2,
+            "flow": 6,
+            "seconds": 40,
+            "volume": 500,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush",
+            "temperature": 105,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.5,
+            "flow": 11,
+            "seconds": 22,
+            "volume": 500,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        }
+    ],
+    "target_volume": 0,
+    "target_weight": 0,
+    "temperature_presets": [
+        90,
+        88,
+        88,
+        88
+    ],
+    "title": "Tea portafilter/Pressurized tea",
+    "version": "2",
+    "legacy_profile_type": "settings_2c",
+    "number_of_preinfuse_frames": 1,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 8.6,
+    "espresso_decline_time": 0.0,
+    "espresso_hold_time": 25.0,
+    "preinfusion_time": 0.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "read_only": 1
 }

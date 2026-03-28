@@ -27,7 +27,7 @@
     "espresso_pressure": 6.0,
     "espresso_decline_time": 0.0,
     "espresso_hold_time": 35.0,
-    "preinfusion_time": 6.0,
+    "preinfusion_time": 20.0,
     "preinfusion_stop_pressure": 4.0,
     "preinfusion_flow_rate": 8.0,
     "pressure_end": 6.0,
