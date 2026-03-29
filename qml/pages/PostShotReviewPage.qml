@@ -15,6 +15,10 @@ Page {
         if (editShotId > 0) {
             loadShotForEditing()
         }
+        // Scan for refractometer if configured but not connected
+        if (Settings.savedRefractometerAddress !== "" && !BLEManager.refractometerConnected) {
+            BLEManager.tryDirectConnectToRefractometer()
+        }
     }
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
 

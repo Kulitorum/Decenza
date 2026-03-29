@@ -1217,42 +1217,9 @@ int main(int argc, char *argv[])
         qDebug() << "[Refractometer] Created and connecting to" << device.name();
     });
 
-    // Refractometer auto-reconnect (same pattern as scale reconnect)
-    int refractometerReconnectAttempt = 0;
-    QTimer refractometerReconnectTimer;
-    refractometerReconnectTimer.setSingleShot(true);
-
-    QObject::connect(&refractometerReconnectTimer, &QTimer::timeout,
-                     [&bleManager, &settings, &refractometerReconnectAttempt, &refractometerReconnectTimer, &reconnectDelays]() {
-        if (settings.savedRefractometerAddress().isEmpty()) return;
-        qDebug() << "[Refractometer] Reconnect attempt" << (refractometerReconnectAttempt + 1) << "of" << reconnectDelays.size();
-        bleManager.tryDirectConnectToRefractometer();
-        refractometerReconnectAttempt++;
-        if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
-            refractometerReconnectTimer.start(reconnectDelays[refractometerReconnectAttempt]);
-        } else {
-            qDebug() << "[Refractometer] Reconnect retries exhausted";
-        }
-    });
-
-    // When refractometer connects/disconnects, start/stop reconnect timer
-    QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged,
-                     [&bleManager, &refractometerReconnectTimer, &refractometerReconnectAttempt, &reconnectDelays, &settings]() {
-        if (bleManager.isRefractometerConnected()) {
-            refractometerReconnectTimer.stop();
-            refractometerReconnectAttempt = 0;
-        } else if (!settings.savedRefractometerAddress().isEmpty()) {
-            refractometerReconnectAttempt = 0;
-            refractometerReconnectTimer.start(reconnectDelays[0]);
-            qDebug() << "[Refractometer] Disconnected, scheduling reconnect in" << reconnectDelays[0] << "ms";
-        }
-    });
-
     // Handle Forget Refractometer — disconnect and clean up
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested,
-                     [&refractometer, &mainController, &engine, &bleManager, &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
-        refractometerReconnectTimer.stop();
-        refractometerReconnectAttempt = 0;
+                     [&refractometer, &mainController, &engine, &bleManager]() {
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
@@ -1616,7 +1583,7 @@ int main(int argc, char *argv[])
     // Note: DE1 is NOT put to sleep when backgrounded - users may switch apps while
     // the machine is heating up and expect it to continue (e.g., checking Visualizer)
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &refractometerReconnectTimer, &refractometerReconnectAttempt, &reconnectDelays](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         if (state == Qt::ApplicationSuspended) {
@@ -1687,11 +1654,9 @@ int main(int argc, char *argv[])
 
             // Try to reconnect refractometer
             if (!bleManager.isRefractometerConnected()
-                && !settings.savedRefractometerAddress().isEmpty()
-                && !refractometerReconnectTimer.isActive()) {
-                refractometerReconnectAttempt = 0;
-                refractometerReconnectTimer.start(reconnectDelays[0]);
-                qDebug() << "App resumed - starting refractometer reconnect sequence";
+                && !settings.savedRefractometerAddress().isEmpty()) {
+                QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToRefractometer);
+                qDebug() << "App resumed - reconnecting refractometer";
             }
 
             // Resume smart charging check now that app is active again
