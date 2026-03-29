@@ -44,7 +44,6 @@ if(NOT DEFINED BUILD_TESTS)
         set(BUILD_TESTS OFF CACHE BOOL "Build unit tests")
     endif()
 endif()
-option(BUILD_TESTS "Build unit tests" OFF)
 
 # Address Sanitizer — catches use-after-free, heap overflow, etc.
 # Enable in Qt Creator: Projects → Build → CMake → add ENABLE_ASAN=ON

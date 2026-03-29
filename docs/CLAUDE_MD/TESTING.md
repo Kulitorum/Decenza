@@ -13,7 +13,7 @@ Tests are **auto-enabled in Debug builds** (single-config generators like Ninja/
 cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.10.2/macos -DCMAKE_BUILD_TYPE=Debug ..
 
 # Release build — tests off by default, opt-in with:
-cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.10.2/macos ..
+cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.10.2/macos -DCMAKE_BUILD_TYPE=Release ..
 
 # Run all tests
 ctest --output-on-failure

@@ -27,14 +27,15 @@ struct ScopedWarningFilter {
         qt_message_output(type, ctx, msg);
     }
     QRegularExpression m_pattern;
+    QRegularExpression* m_prevFilter;  // support nesting
     QtMessageHandler m_prev;
-    ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
+    ScopedWarningFilter(const QString& pattern) : m_pattern(pattern), m_prevFilter(s_filter) {
         s_filter = &m_pattern;
         m_prev = qInstallMessageHandler(handler);
     }
     ~ScopedWarningFilter() {
         qInstallMessageHandler(m_prev);
-        s_filter = nullptr;
+        s_filter = m_prevFilter;  // restore previous filter, not nullptr
     }
 };
 

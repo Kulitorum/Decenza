@@ -44,8 +44,12 @@ public slots:
 
 #ifdef DECENZA_TESTING
 public:
-    // Test support: override wall-clock source. Must be called before moveToThread().
-    void setWallClock(std::function<qint64()> fn) { m_wallClock = std::move(fn); }
+    // Test support: override wall-clock source. Must be called before moveToThread()
+    // because std::function is not thread-safe for concurrent read/write.
+    void setWallClock(std::function<qint64()> fn) {
+        Q_ASSERT(thread() == QThread::currentThread());
+        m_wallClock = std::move(fn);
+    }
 #endif
 
 signals:
