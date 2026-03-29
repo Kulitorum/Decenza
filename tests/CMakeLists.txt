@@ -293,3 +293,26 @@ add_decenza_test(tst_mcptools_write
 )
 target_link_libraries(tst_mcptools_write PRIVATE Qt6::Charts Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_mcpserver_session: Session management, ping, subscribe/unsubscribe ---
+# Uses real mcpserver.cpp but stubs out tool/resource registration functions
+# to avoid linking mcptools_*.cpp and their heavy transitive deps.
+find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+add_decenza_test(tst_mcpserver_session
+    tst_mcpserver_session.cpp
+    ${MCP_MOC_HEADERS}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
+target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
