@@ -16,30 +16,39 @@
 //   auto result = f.callTool("profiles_list", {});
 
 // RAII guard to suppress qWarning messages matching a pattern.
-// Used for tests that intentionally trigger warnings with variable-length output
-// (e.g., upload-blocked stack traces) where QTest::ignoreMessage cannot match all lines.
+// Nestable: patterns are pushed onto a stack. A warning is suppressed if it
+// matches ANY active filter's pattern. Non-matching messages are forwarded
+// to Qt Test's handler so QTest::ignoreMessage still works.
 struct ScopedWarningFilter {
-    static inline QRegularExpression* s_filter = nullptr;
-    static inline QtMessageHandler s_prev = nullptr;
+    static inline QVector<QRegularExpression*> s_filters;
+    static inline QtMessageHandler s_originalHandler = nullptr;
+    static inline int s_depth = 0;
+
     static void handler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
-        if (type == QtWarningMsg && s_filter && s_filter->match(msg).hasMatch())
-            return;  // Suppress
-        // Forward to previous handler (e.g., Qt Test's) so QTest::ignoreMessage works
-        if (s_prev)
-            s_prev(type, ctx, msg);
+        if (type == QtWarningMsg) {
+            for (auto* f : s_filters) {
+                if (f && f->match(msg).hasMatch())
+                    return;  // Suppress
+            }
+        }
+        // Forward to Qt Test's handler
+        if (s_originalHandler)
+            s_originalHandler(type, ctx, msg);
     }
+
     QRegularExpression m_pattern;
-    QRegularExpression* m_prevFilter;
-    QtMessageHandler m_prevHandler;
-    ScopedWarningFilter(const QString& pattern) : m_pattern(pattern), m_prevFilter(s_filter) {
-        s_filter = &m_pattern;
-        m_prevHandler = qInstallMessageHandler(handler);
-        s_prev = m_prevHandler;
+
+    ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
+        s_filters.append(&m_pattern);
+        if (s_depth++ == 0)
+            s_originalHandler = qInstallMessageHandler(handler);
     }
     ~ScopedWarningFilter() {
-        qInstallMessageHandler(m_prevHandler);
-        s_filter = m_prevFilter;
-        s_prev = m_prevHandler;
+        s_filters.removeOne(&m_pattern);
+        if (--s_depth == 0) {
+            qInstallMessageHandler(s_originalHandler);
+            s_originalHandler = nullptr;
+        }
     }
 };
 
