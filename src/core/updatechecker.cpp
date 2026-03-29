@@ -262,6 +262,22 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     if (m_updateAvailable != wasAvailable) {
         emit updateAvailableChanged();
     }
+
+    // When no update is available and the user is running a different version
+    // than the selected release (e.g., on a beta with beta updates disabled),
+    // find and show the current version's release notes instead.
+    if (!m_updateAvailable && m_latestVersion != currentVersion()) {
+        QString currentTag = "v" + currentVersion();
+        for (const QJsonValue& val : releases) {
+            QJsonObject rel = val.toObject();
+            if (rel["draft"].toBool()) continue;
+            if (rel["tag_name"].toString() == currentTag) {
+                m_releaseNotes = rel["body"].toString();
+                emit releaseNotesChanged();
+                break;
+            }
+        }
+    }
 }
 
 int UpdateChecker::extractBuildNumber(const QString& version) const

@@ -384,7 +384,7 @@ Item {
                         Text {
                             text: MainController.updateChecker.updateAvailable
                                   ? TranslationManager.translate("settings.update.pendingNotes", "What's New in v%1").arg(MainController.updateChecker.latestVersion)
-                                  : TranslationManager.translate("settings.update.currentNotes", "Release Notes — v%1").arg(MainController.updateChecker.latestVersion)
+                                  : TranslationManager.translate("settings.update.currentNotes", "Release Notes — v%1").arg(AppVersion)
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                             font.bold: true
@@ -468,8 +468,13 @@ Item {
                     anchors.rightMargin: Theme.scaled(10)
 
                     Text {
-                        text: TranslationManager.translate("settings.update.whatsnew", "What's New?") +
-                              (MainController.updateChecker.latestVersion ? " - v" + MainController.updateChecker.latestVersion : "")
+                        text: {
+                            var version = MainController.updateChecker.updateAvailable
+                                ? MainController.updateChecker.latestVersion
+                                : AppVersion
+                            return TranslationManager.translate("settings.update.whatsnew", "What's New?") +
+                                  (version ? " - v" + version : "")
+                        }
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                         font.bold: true
