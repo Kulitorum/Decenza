@@ -138,14 +138,30 @@ void McpServer::broadcastSseNotification(const QString& resourceUri)
     event.append(QJsonDocument(notification).toJson(QJsonDocument::Compact));
     event.append("\n\n");
 
+    // Send only to sessions that subscribed to this resource URI.
+    // Sessions without any subscriptions receive all notifications (backward compat).
     QList<QTcpSocket*> dead;
     for (QTcpSocket* client : std::as_const(m_sseClients)) {
         if (client->state() != QAbstractSocket::ConnectedState) {
             dead.append(client);
             continue;
         }
-        client->write(event);
-        client->flush();
+
+        // Check if the SSE client's session has subscribed to this URI
+        bool shouldSend = true;
+        for (auto* session : std::as_const(m_sessions)) {
+            if (session->sseSocket() == client) {
+                // Session has subscriptions — only send if URI is in the set
+                if (!session->subscribedResources().isEmpty())
+                    shouldSend = session->subscribedResources().contains(resourceUri);
+                break;
+            }
+        }
+
+        if (shouldSend) {
+            client->write(event);
+            client->flush();
+        }
     }
     for (QTcpSocket* client : dead)
         m_sseClients.remove(client);
@@ -217,7 +233,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                 // in a prior session, so skip the handshake requirement
                 session->setInitialized(true);
             }
-            if (!session->initialized() && rpcMethod != "notifications/initialized") {
+            if (!session->initialized() && rpcMethod != "notifications/initialized"
+                && rpcMethod != "ping") {
                 sendJsonRpcError(socket, -32600, "Session not initialized",
                                  request["id"].toVariant(), session->id());
                 return;
@@ -267,7 +284,10 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        // Send SSE headers
+        // Associate SSE socket with session if the client sent a session header
+        McpSession* sseSession = findSession(sessionHeader);
+
+        // Send SSE headers (include session ID if known)
         QByteArray response;
         response.append("HTTP/1.1 200 OK\r\n");
         response.append("Content-Type: text/event-stream\r\n");
@@ -275,19 +295,27 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         response.append("Connection: keep-alive\r\n");
         response.append("Access-Control-Allow-Origin: *\r\n");
         response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session\r\n");
+        if (sseSession) {
+            response.append("Mcp-Session-Id: " + sseSession->id().toUtf8() + "\r\n");
+            response.append("Mcp-Session: " + sseSession->id().toUtf8() + "\r\n");
+        }
         response.append("\r\n");
         socket->write(response);
         socket->flush();
 
         m_sseClients.insert(socket);
-
-        // Associate SSE socket with session if the client sent a session header
-        McpSession* sseSession = findSession(sessionHeader);
         if (sseSession)
             sseSession->setSseSocket(socket);
 
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
             m_sseClients.remove(socket);
+            // Clear the session's SSE socket reference
+            for (auto* s : std::as_const(m_sessions)) {
+                if (s->sseSocket() == socket) {
+                    s->setSseSocket(nullptr);
+                    break;
+                }
+            }
             qDebug() << "McpServer: SSE client disconnected, remaining:" << m_sseClients.size();
         });
         qDebug() << "McpServer: SSE client connected, total:" << m_sseClients.size();
@@ -636,8 +664,9 @@ QJsonObject McpServer::handleResourcesUnsubscribe(const QJsonObject& params, Mcp
 
 McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
 {
-    // If the client sent a session ID that we still have, reuse it.
+    // If sessionHeader is non-empty and matches an existing session, reuse it.
     // This prevents session leaks when mcp-remote reconnects and re-initializes.
+    // If sessionHeader is empty (or unknown), a new session is always created.
     if (!sessionHeader.isEmpty()) {
         McpSession* existing = m_sessions.value(sessionHeader, nullptr);
         if (existing) {

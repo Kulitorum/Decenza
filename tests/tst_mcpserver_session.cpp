@@ -54,15 +54,27 @@ private:
                              const QJsonObject& params, const QString& sessionId = QString(),
                              int id = 1)
     {
+        RpcResult result;
+
         // Create a local TCP server + connected socket pair for the response
         QTcpServer tcpServer;
         tcpServer.listen(QHostAddress::LocalHost);
 
         QTcpSocket clientSocket;
         clientSocket.connectToHost(QHostAddress::LocalHost, tcpServer.serverPort());
-        QVERIFY2_HELPER(tcpServer.waitForNewConnection(1000), "TCP server accept");
+        if (!tcpServer.waitForNewConnection(1000)) {
+            qWarning("sendRpc: TCP server accept failed");
+            return result;
+        }
         QTcpSocket* serverSocket = tcpServer.nextPendingConnection();
-        QVERIFY2_HELPER(clientSocket.waitForConnected(1000), "TCP client connect");
+        if (!serverSocket) {
+            qWarning("sendRpc: nextPendingConnection returned null");
+            return result;
+        }
+        if (!clientSocket.waitForConnected(1000)) {
+            qWarning("sendRpc: TCP client connect failed");
+            return result;
+        }
 
         // Build request
         QJsonObject request;
@@ -83,8 +95,6 @@ private:
         clientSocket.waitForReadyRead(1000);
         QByteArray rawResponse = clientSocket.readAll();
 
-        RpcResult result;
-
         // Extract session ID from response headers
         for (const QByteArray& line : rawResponse.split('\n')) {
             QByteArray lower = line.trimmed().toLower();
@@ -95,7 +105,7 @@ private:
         }
 
         // Parse JSON body (after empty line)
-        int bodyStart = rawResponse.indexOf("\r\n\r\n");
+        qsizetype bodyStart = rawResponse.indexOf("\r\n\r\n");
         if (bodyStart >= 0) {
             QByteArray jsonBody = rawResponse.mid(bodyStart + 4);
             result.response = QJsonDocument::fromJson(jsonBody).object();
@@ -106,17 +116,10 @@ private:
         return result;
     }
 
-    // QVERIFY can't be used in non-test-slot helpers — use this macro-less wrapper
-    static bool QVERIFY2_HELPER(bool cond, const char* msg) {
-        if (!cond) qWarning("VERIFY FAILED: %s", msg);
-        return cond;
-    }
-
 private slots:
     void initTestCase()
     {
-        // Suppress expected warnings from McpServer without full wiring
-        // (no tools/resources registered, etc.)
+        // No setup needed — warnings from McpServer without full wiring are expected
     }
 
     // --- findOrCreateSession ---
