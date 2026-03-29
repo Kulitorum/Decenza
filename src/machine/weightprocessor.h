@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QThread>
 #include <QList>
 #include <QVector>
 #include <QSet>
