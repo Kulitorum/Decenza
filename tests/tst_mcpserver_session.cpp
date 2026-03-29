@@ -310,6 +310,57 @@ private slots:
         QVERIFY(result.sessionId != "nonexistent-session-id");
         QCOMPARE(server.activeSessionCount(), 1);
     }
+
+    void testAutoRecoverReusesSoleSession()
+    {
+        McpServer server;
+
+        // Create one session via initialize
+        auto init = sendRpc(server, "initialize", QJsonObject{{"capabilities", QJsonObject{}}});
+        QString sid = init.sessionId;
+        QCOMPARE(server.activeSessionCount(), 1);
+
+        // Send request with stale ID — should reuse the sole existing session
+        auto result = sendRpc(server, "tools/list", QJsonObject{},
+                              "stale-session-id-that-doesnt-exist", 2);
+        QCOMPARE(result.sessionId, sid);  // reused, not a new session
+        QCOMPARE(server.activeSessionCount(), 1);  // no leak
+    }
+
+    void testAutoRecoverStaleIdDoesNotLeak()
+    {
+        McpServer server;
+
+        // Create one session
+        auto init = sendRpc(server, "initialize", QJsonObject{{"capabilities", QJsonObject{}}});
+        QString sid = init.sessionId;
+
+        // Simulate 10 requests with a stale session ID
+        for (int i = 0; i < 10; i++) {
+            auto result = sendRpc(server, "tools/list", QJsonObject{},
+                                  "stale-id-from-expired-session", i + 10);
+            QCOMPARE(result.sessionId, sid);
+        }
+
+        // Should still be exactly 1 session — no leak
+        QCOMPARE(server.activeSessionCount(), 1);
+    }
+
+    // --- ping before initialized ---
+
+    void testPingWorksBeforeInitialized()
+    {
+        McpServer server;
+
+        // Create session via initialize but don't send notifications/initialized
+        auto init = sendRpc(server, "initialize", QJsonObject{{"capabilities", QJsonObject{}}});
+        QVERIFY(!init.sessionId.isEmpty());
+
+        // ping should work even before notifications/initialized
+        auto ping = sendRpc(server, "ping", QJsonObject{}, init.sessionId, 2);
+        QVERIFY(ping.response.contains("result"));
+        QVERIFY(!ping.response.contains("error"));
+    }
 };
 
 QTEST_MAIN(tst_McpServerSession)

@@ -162,6 +162,44 @@ if [ -n "$INVALID_SID" ]; then
     ALL_SESSIONS+=("$INVALID_SID")
 fi
 
+# Test: Auto-recover with stale ID reuses sole session (no leak)
+STALE_RECOVER_RESP=$(curl -s -D /tmp/mcp_stale_recover_headers -X POST "$BASE" -H "Content-Type: application/json" \
+    -H "Mcp-Session-Id: stale-id-that-does-not-exist" \
+    -d '{"jsonrpc":"2.0","id":98,"method":"tools/list","params":{}}')
+STALE_RECOVER_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_stale_recover_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+assert_ok "stale session auto-recovers" "$STALE_RECOVER_RESP" \
+    "isinstance(d.get('result',{}).get('tools'), list)"
+if [ "$STALE_RECOVER_SID" = "$SESSION" ]; then
+    echo -e "  ${GREEN}PASS${NC} stale ID reuses sole session (no leak)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} stale ID should reuse sole session (got: '$STALE_RECOVER_SID', expected: '$SESSION')"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: Repeated stale IDs don't leak sessions
+for i in 1 2 3 4 5; do
+    curl -s -X POST "$BASE" -H "Content-Type: application/json" \
+        -H "Mcp-Session-Id: stale-repeat-$i" \
+        -d "{\"jsonrpc\":\"2.0\",\"id\":$((97-i)),\"method\":\"tools/list\",\"params\":{}}" > /dev/null
+done
+# Verify only 1 session exists by checking initialize still works (not "Too many sessions")
+LEAK_CHECK=$(curl -s -D /tmp/mcp_leak_headers -X POST "$BASE" -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":90,"method":"initialize","params":{"capabilities":{}}}')
+assert_ok "no session leak from repeated stale IDs" "$LEAK_CHECK" \
+    "d.get('result',{}).get('protocolVersion') is not None"
+# Clean up the extra session
+LEAK_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_leak_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+if [ -n "$LEAK_SID" ] && [ "$LEAK_SID" != "$SESSION" ]; then
+    curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $LEAK_SID" > /dev/null 2>&1
+    ALL_SESSIONS+=("$LEAK_SID")
+fi
+
+# Test: ping works (spec keepalive — should not require notifications/initialized)
+PING_EARLY=$(rpc 89 "ping" '{}')
+assert_ok "ping works as keepalive" "$PING_EARLY" \
+    "'result' in d and d['result'] == {}"
+
 # Test: Unknown method
 UNK_RESP=$(rpc 2 "unknown/method" '{}')
 assert_ok "unknown method returns error" "$UNK_RESP" \
