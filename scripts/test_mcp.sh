@@ -152,12 +152,12 @@ INVALID_RESP=$(curl -s -D /tmp/mcp_invalid_headers -X POST "$BASE" -H "Content-T
     -d '{"jsonrpc":"2.0","id":99,"method":"tools/list","params":{}}')
 assert_ok "invalid session handled (auto-recover or limit)" "$INVALID_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list) or d.get('error',{}).get('code') == -32000"
-# Clean up the auto-recovered session if one was created
+# Clean up the auto-recovered session only if it differs from our main session
 INVALID_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_invalid_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 if [ -z "$INVALID_SID" ]; then
     INVALID_SID=$(grep -i 'Mcp-Session:' /tmp/mcp_invalid_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 fi
-if [ -n "$INVALID_SID" ]; then
+if [ -n "$INVALID_SID" ] && [ "$INVALID_SID" != "$SESSION" ]; then
     curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $INVALID_SID" > /dev/null 2>&1
     ALL_SESSIONS+=("$INVALID_SID")
 fi
