@@ -241,7 +241,7 @@ private slots:
         f.transport.clearWrites();
 
         QSignalSpy spy(&f.profileManager, &ProfileManager::profileUploadBlocked);
-
+        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
         f.profileManager.uploadCurrentProfile();
 
         // Should NOT write to BLE
@@ -968,13 +968,13 @@ private slots:
             MachineState::Phase::Cleaning
         };
 
+        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
         for (MachineState::Phase phase : blockedPhases) {
             McpTestFixture f;
             loadDFlowProfile(f);
             f.machineState.m_phase = phase;
             f.transport.clearWrites();
 
-    
             f.profileManager.uploadCurrentProfile();
 
             auto headerWrites = f.writesTo(HEADER_WRITE);
@@ -989,6 +989,7 @@ private slots:
     void pendingUploadRetriesOnIdle() {
         McpTestFixture f;
         loadDFlowProfile(f);
+        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
 
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
@@ -1011,6 +1012,7 @@ private slots:
     void pendingUploadClearedOnDisconnect() {
         McpTestFixture f;
         loadDFlowProfile(f);
+        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
 
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;

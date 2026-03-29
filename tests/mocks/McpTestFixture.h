@@ -15,12 +15,39 @@
 //   registerProfileTools(f.registry, f.profileManager);
 //   auto result = f.callTool("profiles_list", {});
 
+// RAII guard to suppress qWarning messages matching a pattern.
+// Used for tests that intentionally trigger warnings with variable-length output
+// (e.g., upload-blocked stack traces) where QTest::ignoreMessage cannot match all lines.
+struct ScopedWarningFilter {
+    static inline QRegularExpression* s_filter = nullptr;
+    static void handler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
+        if (type == QtWarningMsg && s_filter && s_filter->match(msg).hasMatch())
+            return;  // Suppress
+        // Forward to Qt's default handler
+        qt_message_output(type, ctx, msg);
+    }
+    QRegularExpression m_pattern;
+    QtMessageHandler m_prev;
+    ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
+        s_filter = &m_pattern;
+        m_prev = qInstallMessageHandler(handler);
+    }
+    ~ScopedWarningFilter() {
+        qInstallMessageHandler(m_prev);
+        s_filter = nullptr;
+    }
+};
+
 struct McpTestFixture {
     QTemporaryDir tempDir;   // isolated profile storage
     Settings settings;
     MockTransport transport;
     DE1Device device;
     MachineState machineState;
+    // Suppress expected warnings during ProfileManager construction — test env has
+    // no saved profile (falls back to default) and no ai.qrc (knowledge base missing).
+    // Filter must be declared before profileManager so it is constructed first and destroyed last.
+    ScopedWarningFilter constructionFilter{"Profile not found|Failed to load profile knowledge"};
     ProfileManager profileManager;
     McpToolRegistry registry;
 

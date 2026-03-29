@@ -6,7 +6,7 @@ Qt Test (QTest) — ships with Qt, no external dependencies, integrates with CMa
 
 ## Building and Running
 
-Tests are **auto-enabled in Debug builds** and **in Linux CI releases**. No flag needed for normal development.
+Tests are **auto-enabled in Debug builds** (single-config generators like Ninja/Make) and **in Linux CI releases**. Multi-config generators (Visual Studio, Xcode) require `-DBUILD_TESTS=ON` explicitly since `CMAKE_BUILD_TYPE` is empty at configure time.
 
 ```bash
 # Debug build — tests included automatically
@@ -27,7 +27,7 @@ Override with `-DBUILD_TESTS=OFF` (Debug) or `-DBUILD_TESTS=ON` (Release) as nee
 
 ### CI
 
-The Linux release workflow (`linux-release.yml`) builds and runs all tests before packaging the AppImage. Tests run on every tag push (releases and pre-releases) and manual workflow dispatch.
+The Linux release workflow (`linux-release.yml`) builds and runs all tests before packaging the AppImage. Tests run on every tag push (releases and pre-releases) and manual workflow dispatch. Other platform workflows (Windows, macOS, Android, iOS) do not currently run the test suite.
 
 ## Architecture
 
@@ -74,7 +74,7 @@ Test executables compile with `-DDECENZA_TESTING` (set in `tests/CMakeLists.txt`
 | `ScaleDevice` | `MockScaleDevice` inherits abstract base | Already has virtual methods — clean inheritance |
 | `Settings` | Real `Settings` with public setters | All needed methods have public setters already |
 | `DE1Device` | `friend class` access to private `m_state`/`m_subState` | Not abstract, but tests need to control state |
-| `WeightProcessor` | Tested directly — no mocking needed | Clean public interface (`configure`, `processWeight`) |
+| `WeightProcessor` | Tested directly — injectable `setWallClock()` for fake-clock tests | Clean public interface; fake clock avoids 77s of `QTest::qWait()` |
 
 ### Signal Verification
 

@@ -843,7 +843,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
 
     // 5. Fall back to default
     if (!found) {
-        qDebug() << "ProfileManager::loadProfile: Profile not found:" << profileName << "(resolved:" << resolvedName << ") — loading default";
+        qWarning() << "ProfileManager::loadProfile: Profile not found:" << profileName << "(resolved:" << resolvedName << ") — loading default";
         loadDefaultProfile();
     }
 
@@ -1164,8 +1164,8 @@ void ProfileManager::uploadCurrentProfile() {
                               phase == MachineState::Phase::Cleaning);
 
         if (isActivePhase) {
-            qDebug() << "uploadCurrentProfile() BLOCKED during active phase:"
-                     << m_machineState->phaseString();
+            qWarning() << "uploadCurrentProfile() BLOCKED during active phase:"
+                       << m_machineState->phaseString();
 
             QString stackTrace = "Stack trace:\n";
 #ifndef Q_OS_WIN
@@ -1185,7 +1185,7 @@ void ProfileManager::uploadCurrentProfile() {
                         .arg(reinterpret_cast<quintptr>(stack[i]), 0, 16);
                 }
                 stackTrace += frameLine + "\n";
-                qDebug().noquote() << frameLine;
+                qWarning().noquote() << frameLine;
             }
 #else
             stackTrace += "  (not available on Windows)\n";

@@ -108,7 +108,7 @@ void WeightProcessor::processWeight(double weight)
 
     emit flowRatesReady(weight, flowRate, flowRateShort);
 
-    // SOW and per-frame checks only during active extraction
+    // SAW and per-frame checks only during active extraction
     if (!m_active) return;
 
     // Bookoo (and any scale) tare oscillation guard: large negative swing during

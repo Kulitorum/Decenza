@@ -18,7 +18,7 @@
 //
 // Output (via QueuedConnection back to main thread):
 //   - stopNow(triggerMs): triggers DE1Device::stopOperationUrgent(triggerMs)
-//   - sawTriggered(): carries context for SAW learning
+//   - sawTriggered(weightAtStop, flowRateAtStop, targetWeight): carries context for SAW learning
 //   - skipFrame(): triggers DE1Device::skipToNextFrame()
 //   - flowRatesReady(): feeds ShotTimingController for graph/settling
 
@@ -42,8 +42,11 @@ public slots:
     void stopExtraction();
     void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
 
-    // Test support: override wall-clock source (default: QDateTime::currentMSecsSinceEpoch)
+#ifdef DECENZA_TESTING
+public:
+    // Test support: override wall-clock source. Must be called before moveToThread().
     void setWallClock(std::function<qint64()> fn) { m_wallClock = std::move(fn); }
+#endif
 
 signals:
     // Emitted when SAW triggers. Includes monotonic timestamp (ms) for latency tracing.
