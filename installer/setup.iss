@@ -41,7 +41,7 @@ LZMAUseSeparateProcess=yes
 
 ; Visual settings
 WizardStyle=modern
-; SetupIconFile=..\resources\icons\de1.ico  ; Uncomment if you add a .ico file
+SetupIconFile=..\resources\icons\decenza.ico
 
 ; Privileges
 PrivilegesRequired=lowest

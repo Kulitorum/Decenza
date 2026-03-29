@@ -519,6 +519,12 @@ if(WIN32)
     target_link_libraries(Decenza PRIVATE psapi)
 endif()
 
+# Set Windows executable icon
+if(WIN32)
+    set(app_icon_resource_windows "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/decenza.ico")
+    set_property(TARGET Decenza PROPERTY QT_WIN_RC_ICONS "${app_icon_resource_windows}")
+endif()
+
 # Optionally link Quick3D and add 3D screensaver sources
 if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     target_link_libraries(Decenza PRIVATE Qt6::Quick3D)
