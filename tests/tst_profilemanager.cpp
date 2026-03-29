@@ -1340,6 +1340,7 @@ private slots:
         f.profileManager.m_baseProfileName = "test_protected";
 
         // Attempt to save in place — should fail because read-only
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot save read-only"));
         QVERIFY(!f.profileManager.saveProfile("test_protected"));
     }
 
