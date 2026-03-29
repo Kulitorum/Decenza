@@ -22,6 +22,9 @@
 #include <vector>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
+#ifdef Q_OS_MACOS
+#include <QProcess>
+#endif
 #include "version.h"
 
 #ifdef Q_OS_ANDROID
@@ -375,6 +378,25 @@ int main(int argc, char *argv[])
 #endif
              << "built" << __DATE__ << __TIME__
              << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
+
+#ifdef Q_OS_MACOS
+    // Re-register the app bundle with Launch Services when the version changes
+    // so macOS picks up the new icon instead of serving a stale cached one.
+    {
+        QSettings s;
+        QString lastRegistered = s.value("internal/lastIconRegisteredVersion").toString();
+        if (lastRegistered != VERSION_STRING) {
+            QString bundlePath = QCoreApplication::applicationDirPath() + "/../..";
+            QProcess::startDetached(
+                "/System/Library/Frameworks/CoreServices.framework"
+                "/Versions/A/Frameworks/LaunchServices.framework"
+                "/Versions/A/Support/lsregister",
+                {"-f", QFileInfo(bundlePath).canonicalFilePath()});
+            s.setValue("internal/lastIconRegisteredVersion", VERSION_STRING);
+            qDebug() << "Re-registered app bundle with Launch Services for icon refresh";
+        }
+    }
+#endif
 
     // Startup timing - always on, lightweight. Helps diagnose ANRs on slow devices.
     // Wall clock comes from WebDebugLogger's [LOG HH:mm:ss.zzz] prefix automatically.

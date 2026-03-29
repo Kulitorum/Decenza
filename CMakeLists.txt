@@ -889,6 +889,13 @@ if(APPLE AND NOT IOS)
     set_source_files_properties(${MACOS_ICON} PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources
     )
+    # Force macOS to re-read the app icon from the bundle after build.
+    # Without this, Launch Services caches the old icon indefinitely.
+    add_custom_command(TARGET Decenza POST_BUILD
+        COMMAND touch "$<TARGET_BUNDLE_DIR:Decenza>"
+        COMMAND /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$<TARGET_BUNDLE_DIR:Decenza>"
+        COMMENT "Re-registering app bundle with Launch Services (icon cache refresh)"
+    )
 endif()
 
 # Linux: executable output collides with QML module directory (both named "Decenza")
