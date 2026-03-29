@@ -379,7 +379,7 @@ int main(int argc, char *argv[])
 #endif
              << "built" << __DATE__ << __TIME__
              << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
-    qDebug() << "Platform:" << QSysInfo::prettyProductName()
+    qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
 #ifdef Q_OS_ANDROID

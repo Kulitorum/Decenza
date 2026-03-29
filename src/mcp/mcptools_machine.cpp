@@ -60,7 +60,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             QJsonObject platform;
             platform["appVersion"] = QString(VERSION_STRING);
             platform["qtVersion"] = QString(qVersion());
-            platform["os"] = QSysInfo::prettyProductName();
+            platform["os"] = QSysInfo::prettyProductName().simplified();
             platform["osType"] = QSysInfo::productType();
             platform["osVersion"] = QSysInfo::productVersion();
             platform["kernelType"] = QSysInfo::kernelType();
