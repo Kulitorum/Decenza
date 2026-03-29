@@ -18,6 +18,7 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QPixmapCache>
+#include <QSysInfo>
 #include <memory>
 #include <vector>
 #include <QElapsedTimer>
@@ -378,6 +379,19 @@ int main(int argc, char *argv[])
 #endif
              << "built" << __DATE__ << __TIME__
              << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
+    qDebug() << "Platform:" << QSysInfo::prettyProductName()
+             << "arch:" << QSysInfo::currentCpuArchitecture()
+             << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
+#ifdef Q_OS_ANDROID
+    {
+        jint sdkInt = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
+        QJniObject model = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MODEL");
+        QJniObject mfr = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MANUFACTURER");
+        qDebug() << "Android SDK:" << sdkInt
+                 << "device:" << (mfr.isValid() ? mfr.toString() : QString())
+                 << (model.isValid() ? model.toString() : QString());
+    }
+#endif
 
 #ifdef Q_OS_MACOS
     // Re-register the app bundle with Launch Services when the version changes
