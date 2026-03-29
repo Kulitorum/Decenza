@@ -141,7 +141,15 @@ Tabs that keep their content still benefit from internal restructuring.
 **Proposed layout:** Keep two columns but restructure the right column into clear sections:
 
 **Left column (Machine) — unchanged:**
-- USB/BLE status, scan button, firmware, discovered devices, connection log
+- USB/BLE status, scan button, firmware version (3 lines, matching de1app format — see below), discovered devices, connection log
+
+**Firmware version display:** The firmware field now shows 3 lines matching de1app's format:
+```
+BLE v4.0.0, API v4
+FW v10.5.0, API v250
+pcb=1.3, model=DE1PRO, firmware=v1342
+```
+This is taller than the previous single-line `"FW 250.10.5, BLE 4.0.0"`. The Machine column layout should accommodate multi-line firmware text without clipping. The third line (pcb/model/firmware build) populates asynchronously after BLE MMR reads complete.
 
 **Right column (Scales & Refractometer) — reorganized:**
 
