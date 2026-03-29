@@ -102,7 +102,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         QSqlQuery hQuery(db);
                         hQuery.prepare("SELECT id, timestamp, profile_name, dose_weight, final_weight, "
                                        "duration_seconds, enjoyment, grinder_setting, grinder_model, "
-                                       "espresso_notes, bean_brand, bean_type "
+                                       "espresso_notes, bean_brand, bean_type, yield_override, profile_json "
                                        "FROM shots WHERE profile_kb_id = ? "
                                        "AND id != ? "
                                        "ORDER BY timestamp DESC LIMIT ?");
@@ -125,6 +125,20 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                                 h["notes"] = hQuery.value("espresso_notes").toString();
                                 h["beanBrand"] = hQuery.value("bean_brand").toString();
                                 h["beanType"] = hQuery.value("bean_type").toString();
+                                // Use yield_override (brew-by-ratio target) if set, else profile's target_weight
+                                double yieldOverride = hQuery.value("yield_override").toDouble();
+                                if (yieldOverride > 0) {
+                                    h["targetWeightG"] = yieldOverride;
+                                } else {
+                                    QString profileJson = hQuery.value("profile_json").toString();
+                                    if (!profileJson.isEmpty()) {
+                                        QJsonObject profileObj = QJsonDocument::fromJson(profileJson.toUtf8()).object();
+                                        QJsonValue tw = profileObj["target_weight"];
+                                        double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+                                        if (twVal > 0)
+                                            h["targetWeightG"] = twVal;
+                                    }
+                                }
                                 dbResult.dialInHistory.append(h);
                             }
                         }
@@ -211,6 +225,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     }
 
                     QJsonObject result;
+                    auto now = QDateTime::currentDateTime();
+                    result["currentDateTime"] = now.toOffsetFromUtc(now.offsetFromUtc()).toString(Qt::ISODate);
                     result["shotId"] = resolvedShotId;
 
                     if (!dbResult.dialInHistory.isEmpty())

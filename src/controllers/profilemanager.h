@@ -191,6 +191,7 @@ private:
     QString m_previousProfileName;
     bool m_profileModified = false;
     bool m_profileUploadPending = false;
+    bool m_startupLoadDone = false;
 
 #ifdef DECENZA_TESTING
     friend class tst_ProfileManager;

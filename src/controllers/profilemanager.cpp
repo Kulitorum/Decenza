@@ -118,8 +118,9 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             // Sync selectedFavoriteProfile so UI shows correct pill
             int favoriteIndex = m_settings->findFavoriteIndexByFilename(m_baseProfileName);
             m_settings->setSelectedFavoriteProfile(favoriteIndex);
-            // Sync overrides so shot plan shows correct profile data
-            m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+            // Restore overrides — preserve persisted brew override from previous session
+            if (!m_settings->hasBrewYieldOverride())
+                m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
             m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
         }
         if (m_machineState) {
@@ -135,6 +136,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         loadDefaultProfile();
     }
     m_profileJsonCache.clear();  // Free cached JSON after startup profile load
+    m_startupLoadDone = true;
 
     // Keep MachineState in sync when yield override changes in Settings
     if (m_settings) {
@@ -884,26 +886,29 @@ void ProfileManager::loadProfile(const QString& profileName) {
         m_settings->setSelectedFavoriteProfile(favoriteIndex);
     }
 
-    // Initialize yield and temperature from the new profile
-    // These are "shot plan" settings that always reflect the current plan
+    // Initialize shot plan settings from the new profile.
+    // Temperature always resets to the profile default.
+    // Yield: on startup, preserve persisted brew override (e.g. brew-by-ratio 40g);
+    // on profile switch after startup, reset to profile default.
     if (m_settings) {
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        if (m_startupLoadDone || !m_settings->hasBrewYieldOverride())
+            m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
 
         // Apply recommended dose from profile if set
         // Deferred to next event loop to avoid QML signal cascade during profile load
         if (m_currentProfile.hasRecommendedDose() && m_currentProfile.recommendedDose() > 0) {
             double dose = m_currentProfile.recommendedDose();
-            QTimer::singleShot(0, this, [this, dose]() {
+            QMetaObject::invokeMethod(this, [this, dose]() {
                 if (m_settings) {
                     m_settings->setDyeBeanWeight(dose);
                 }
-            });
+            }, Qt::QueuedConnection);
         }
     }
 
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }
@@ -952,7 +957,7 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     }
 
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }
@@ -2063,7 +2068,8 @@ void ProfileManager::loadDefaultProfile() {
 
     if (m_settings) {
         m_settings->setSelectedFavoriteProfile(-1);  // Default profile, not in favorites
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        if (m_startupLoadDone || !m_settings->hasBrewYieldOverride())
+            m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
 }

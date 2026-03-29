@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -37,6 +38,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 return;
             }
 
+            // Capture current time on the main thread before spawning background work
+            auto now = QDateTime::currentDateTime();
+            QString currentDateTime = now.toOffsetFromUtc(now.offsetFromUtc()).toString(Qt::ISODate);
+
             int limit = qBound(1, args["limit"].toInt(20), 100);
             int offset = qMax(0, args["offset"].toInt(0));
             QString profileFilter = args["profileName"].toString();
@@ -56,7 +61,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
             QThread* thread = QThread::create(
                 [dbPath, limit, offset, profileFilter, beanFilter,
-                 minEnjoyment, afterEpoch, beforeEpoch, respond]() {
+                 minEnjoyment, afterEpoch, beforeEpoch, currentDateTime, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
                 int totalCount = 0;
@@ -64,7 +69,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 if (!withTempDb(dbPath, "mcp_shots_list", [&](QSqlDatabase& db) {
                     QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, grinder_setting, grinder_model, "
-                                  "espresso_notes, bean_brand, bean_type "
+                                  "espresso_notes, bean_brand, bean_type, yield_override, profile_json "
                                   "FROM shots WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
 
@@ -119,6 +124,20 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             shot["notes"] = query.value("espresso_notes").toString();
                             shot["beanBrand"] = query.value("bean_brand").toString();
                             shot["beanType"] = query.value("bean_type").toString();
+                            // Use yield_override (brew-by-ratio target) if set, else profile's target_weight
+                            double yieldOverride = query.value("yield_override").toDouble();
+                            if (yieldOverride > 0) {
+                                shot["targetWeightG"] = yieldOverride;
+                            } else {
+                                QString profileJson = query.value("profile_json").toString();
+                                if (!profileJson.isEmpty()) {
+                                    QJsonObject profileObj = QJsonDocument::fromJson(profileJson.toUtf8()).object();
+                                    QJsonValue tw = profileObj["target_weight"];
+                                    double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+                                    if (twVal > 0)
+                                        shot["targetWeightG"] = twVal;
+                                }
+                            }
                             shots.append(shot);
                         }
                     }
@@ -142,6 +161,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 }
 
                 if (!result.contains("error")) {
+                    result["currentDateTime"] = currentDateTime;
                     result["shots"] = shots;
                     result["count"] = shots.size();
                     result["total"] = totalCount;
