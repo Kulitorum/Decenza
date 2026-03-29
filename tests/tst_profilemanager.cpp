@@ -1354,6 +1354,7 @@ private slots:
         }
         // Attempt Save As with a built-in filename — should fail
         loadDFlowProfile(f, "Some Custom Title");
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot overwrite built-in"));
         QVERIFY(!f.profileManager.saveProfileAs("default", "Some Custom Title"));
     }
 
