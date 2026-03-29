@@ -1557,27 +1557,30 @@ int main(int argc, char *argv[])
     if (activity.isValid()) {
         activity.callMethod<void>("setRequestedOrientation", "(I)V", 6);
 
+        // Read SDK version on the Qt main thread before entering the Android UI lambda
+        const jint sdkVersion = QNativeInterface::QAndroidApplication::sdkVersion();
+
         // Enable immersive mode - must run on UI thread
-        QNativeInterface::QAndroidApplication::runOnAndroidMainThread([activity]() {
+        QNativeInterface::QAndroidApplication::runOnAndroidMainThread([activity, sdkVersion]() {
             QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
             if (window.isValid()) {
                 // FLAG_LAYOUT_NO_LIMITS = 0x200 - extend window into navigation bar area
                 window.callMethod<void>("addFlags", "(I)V", 0x200);
 
-                // API 30+ (Android 11): use WindowInsetsController (modern replacement
-                // for the deprecated setSystemUiVisibility) and tell Android to not
-                // offset the content area for system bars. Fixes a gap at the top of
-                // the screen on some tablets (e.g. Lenovo Tab One #582) where the
-                // deprecated API doesn't fully prevent content insets.
-                if (QNativeInterface::QAndroidApplication::sdkVersion() >= 30) {
-                    // Content extends behind system bars — app handles its own layout
+                QJniObject decorView = window.callObjectMethod("getDecorView", "()Landroid/view/View;");
+
+                if (sdkVersion >= 30) {
+                    // API 30+ (Android 11): use WindowInsetsController (modern replacement
+                    // for the deprecated setSystemUiVisibility) and tell Android to not
+                    // offset the content area for system bars. Fixes a gap at the top of
+                    // the screen on some tablets (e.g. Lenovo Tab One #582) where the
+                    // deprecated API doesn't fully prevent content insets.
                     window.callMethod<void>("setDecorFitsSystemWindows", "(Z)V", false);
 
                     QJniObject insetsController = window.callObjectMethod(
                         "getInsetsController",
                         "()Landroid/view/WindowInsetsController;");
                     if (insetsController.isValid()) {
-                        // Hide status bars and navigation bars
                         jint statusBars = QJniObject::callStaticMethod<jint>(
                             "android/view/WindowInsets$Type", "statusBars", "()I");
                         jint navBars = QJniObject::callStaticMethod<jint>(
@@ -1589,15 +1592,15 @@ int main(int argc, char *argv[])
                         insetsController.callMethod<void>(
                             "setSystemBarsBehavior", "(I)V", 2);
                     }
-                }
-
-                // Legacy API (all versions): setSystemUiVisibility for API 28-29,
-                // and as fallback on devices where WindowInsetsController has quirks.
-                // IMMERSIVE_STICKY | FULLSCREEN | HIDE_NAVIGATION | LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN
-                // 0x1000 | 0x4 | 0x2 | 0x100 | 0x200 | 0x400 = 0x1706
-                QJniObject decorView = window.callObjectMethod("getDecorView", "()Landroid/view/View;");
-                if (decorView.isValid()) {
-                    decorView.callMethod<void>("setSystemUiVisibility", "(I)V", 0x1706);
+                } else {
+                    // API 28-29: use the legacy setSystemUiVisibility.
+                    // Not called on API 30+ — mixing it with WindowInsetsController
+                    // causes unpredictable behavior (one can override the other).
+                    // IMMERSIVE_STICKY | FULLSCREEN | HIDE_NAVIGATION | LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN
+                    // 0x1000 | 0x4 | 0x2 | 0x100 | 0x200 | 0x400 = 0x1706
+                    if (decorView.isValid()) {
+                        decorView.callMethod<void>("setSystemUiVisibility", "(I)V", 0x1706);
+                    }
                 }
 
                 // --- Diagnostic logging for #582 (gap at top on some tablets) ---
@@ -1606,14 +1609,16 @@ int main(int argc, char *argv[])
                 // only valid after Android's Choreographer has run a layout frame.
                 // This is temporary diagnostic code for issue #582.
                 if (decorView.isValid()) {
-                    QTimer::singleShot(500, qApp, [activity, window]() {
-                        QNativeInterface::QAndroidApplication::runOnAndroidMainThread([activity, window]() {
-                            QJniObject dv = window.callObjectMethod("getDecorView", "()Landroid/view/View;");
+                    QTimer::singleShot(500, qApp, [activity, window, sdkVersion]() {
+                        QNativeInterface::QAndroidApplication::runOnAndroidMainThread(
+                            [activity, window, sdkVersion]() {
+                            QJniObject dv = window.callObjectMethod(
+                                "getDecorView", "()Landroid/view/View;");
                             if (!dv.isValid()) return;
 
-                            jint dw = dv.callMethod<jint>("getWidth", "()I");
-                            jint dh = dv.callMethod<jint>("getHeight", "()I");
-                            qDebug() << "[#582 diag] DecorView size:" << dw << "x" << dh;
+                            qDebug() << "[#582 diag] DecorView size:"
+                                     << dv.callMethod<jint>("getWidth", "()I") << "x"
+                                     << dv.callMethod<jint>("getHeight", "()I");
 
                             // Content view position and size within DecorView
                             // android.R.id.content = 0x01020002
@@ -1631,7 +1636,7 @@ int main(int argc, char *argv[])
                             QJniObject insets = dv.callObjectMethod(
                                 "getRootWindowInsets", "()Landroid/view/WindowInsets;");
                             if (insets.isValid()) {
-                                if (QNativeInterface::QAndroidApplication::sdkVersion() >= 30) {
+                                if (sdkVersion >= 30) {
                                     jint barType = QJniObject::callStaticMethod<jint>(
                                         "android/view/WindowInsets$Type", "systemBars", "()I");
                                     QJniObject bi = insets.callObjectMethod(
@@ -1669,7 +1674,7 @@ int main(int argc, char *argv[])
                             }
 
                             // Window metrics (API 30+)
-                            if (QNativeInterface::QAndroidApplication::sdkVersion() >= 30) {
+                            if (sdkVersion >= 30) {
                                 QJniObject wm = activity.callObjectMethod(
                                     "getWindowManager", "()Landroid/view/WindowManager;");
                                 if (wm.isValid()) {
@@ -1696,8 +1701,7 @@ int main(int argc, char *argv[])
                                 // 0=default, 1=shortEdges, 2=never, 3=always
                                 qDebug() << "[#582 diag] layoutInDisplayCutoutMode:" << cutoutMode;
                             }
-                            qDebug() << "[#582 diag] SDK version:"
-                                     << QNativeInterface::QAndroidApplication::sdkVersion();
+                            qDebug() << "[#582 diag] SDK version:" << sdkVersion;
                         });
                     });
                 }
