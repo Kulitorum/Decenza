@@ -952,7 +952,8 @@ print(d.get('pourTemperature', d.get('espresso_temperature', 0)))
     rpc 149 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
     sleep 0.5
 
-    SAVE_RAW=$(rpc 150 "tools/call" '{"name":"profiles_save","arguments":{"confirmed":true}}')
+    # Built-in profiles are read-only — use Save As with a temp name
+    SAVE_RAW=$(rpc 150 "tools/call" '{"name":"profiles_save","arguments":{"filename":"_mcp_test_save","title":"MCP Test Save","confirmed":true}}')
     SAVE=$(echo "$SAVE_RAW" | parse_tool_result)
     assert_ok "profiles_save accepted" "$SAVE" \
         "d.get('success') == True"
@@ -963,6 +964,10 @@ print(d.get('pourTemperature', d.get('espresso_temperature', 0)))
     VERIFY_SAVED=$(echo "$VERIFY_SAVED_RAW" | parse_tool_result)
     assert_ok "profiles_save cleared modified flag" "$VERIFY_SAVED" \
         "d.get('modified') == False"
+
+    # Clean up: delete the test profile and restore the original
+    rpc 152 "tools/call" '{"name":"profiles_delete","arguments":{"filename":"_mcp_test_save","confirmed":true}}' > /dev/null
+    rpc 153 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
 fi
 
 echo
