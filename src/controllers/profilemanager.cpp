@@ -118,8 +118,9 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             // Sync selectedFavoriteProfile so UI shows correct pill
             int favoriteIndex = m_settings->findFavoriteIndexByFilename(m_baseProfileName);
             m_settings->setSelectedFavoriteProfile(favoriteIndex);
-            // Sync overrides so shot plan shows correct profile data
-            m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+            // Restore overrides — preserve persisted brew override from previous session
+            if (!m_settings->hasBrewYieldOverride())
+                m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
             m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
         }
         if (m_machineState) {
@@ -135,6 +136,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         loadDefaultProfile();
     }
     m_profileJsonCache.clear();  // Free cached JSON after startup profile load
+    m_startupLoadDone = true;
 
     // Keep MachineState in sync when yield override changes in Settings
     if (m_settings) {
@@ -887,7 +889,10 @@ void ProfileManager::loadProfile(const QString& profileName) {
     // Initialize yield and temperature from the new profile
     // These are "shot plan" settings that always reflect the current plan
     if (m_settings) {
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        // On startup, preserve persisted brew override from previous session.
+        // On profile switch (after startup), reset to profile default.
+        if (m_startupLoadDone || !m_settings->hasBrewYieldOverride())
+            m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
 
         // Apply recommended dose from profile if set
@@ -903,7 +908,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
     }
 
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }

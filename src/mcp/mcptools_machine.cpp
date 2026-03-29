@@ -8,6 +8,7 @@
 
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QDateTime>
 
 void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                           MachineState* machineState, MainController* mainController,
@@ -20,8 +21,12 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState, profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
+            auto now = QDateTime::currentDateTime();
+            result["currentDateTime"] = now.toOffsetFromUtc(now.offsetFromUtc()).toString(Qt::ISODate);
             if (profileManager) {
                 result["activeProfile"] = profileManager->currentProfileName();
+                // Use profileManager as authoritative source — it checks brew-by-ratio override first
+                result["targetWeightG"] = profileManager->targetWeight();
             }
             if (machineState) {
                 result["phase"] = machineState->phaseString();
@@ -29,7 +34,6 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                 result["isReady"] = machineState->isReady();
                 result["isFlowing"] = machineState->isFlowing();
                 result["shotTimeSec"] = machineState->shotTime();
-                result["targetWeightG"] = machineState->targetWeight();
                 result["targetVolumeMl"] = machineState->targetVolume();
                 result["scaleWeightG"] = machineState->scaleWeight();
             }
