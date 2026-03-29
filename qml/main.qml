@@ -15,7 +15,7 @@ ApplicationWindow {
     width: 960
     height: 600
     title: "Decenza"
-    color: Theme.backgroundColor
+    color: screensaverActive ? "black" : Theme.backgroundColor
 
     // Debug flag to force live view on operation pages (for development)
     property bool debugLiveView: false
