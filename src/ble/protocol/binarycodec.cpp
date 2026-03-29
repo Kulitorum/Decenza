@@ -4,7 +4,7 @@
 
 // U8P4: 8-bit with 4 fractional bits (range 0-15.9375)
 uint8_t BinaryCodec::encodeU8P4(double value) {
-    value = std::clamp(value, 0.0, 16.0);
+    value = std::clamp(value, 0.0, 15.9375);  // 255/16 — max representable in uint8_t
     return static_cast<uint8_t>(std::round(value * 16.0));
 }
 
@@ -14,7 +14,7 @@ double BinaryCodec::decodeU8P4(uint8_t value) {
 
 // U8P1: 8-bit with 1 fractional bit (range 0-127.5)
 uint8_t BinaryCodec::encodeU8P1(double value) {
-    value = std::clamp(value, 0.0, 128.0);
+    value = std::clamp(value, 0.0, 127.5);  // 255/2 — max representable in uint8_t
     return static_cast<uint8_t>(std::round(value * 2.0));
 }
 
@@ -24,7 +24,7 @@ double BinaryCodec::decodeU8P1(uint8_t value) {
 
 // U8P0: 8-bit integer (range 0-255)
 uint8_t BinaryCodec::encodeU8P0(double value) {
-    value = std::clamp(value, 0.0, 256.0);
+    value = std::clamp(value, 0.0, 255.0);  // max representable in uint8_t
     return static_cast<uint8_t>(std::round(value));
 }
 

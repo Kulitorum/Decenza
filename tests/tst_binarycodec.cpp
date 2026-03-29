@@ -43,12 +43,9 @@ private slots:
         QCOMPARE(BinaryCodec::encodeU8P4(-1.0), uint8_t(0));
         QCOMPARE(BinaryCodec::encodeU8P4(-100.0), uint8_t(0));
 
-        // Values above 16.0 clamp to max
-        uint8_t maxEncoded = BinaryCodec::encodeU8P4(16.0);
-        QCOMPARE(maxEncoded, uint8_t(0)); // 16.0 * 16 = 256, wraps to 0 in uint8_t after round+clamp
-        // Actually: clamp(20.0, 0, 16) = 16, round(16*16) = 256, (uint8_t)256 = 0
-        // This is the actual behavior — verify it
-        QCOMPARE(BinaryCodec::encodeU8P4(20.0), BinaryCodec::encodeU8P4(16.0));
+        // Values above 15.9375 clamp to 255
+        QCOMPARE(BinaryCodec::encodeU8P4(16.0), uint8_t(255));
+        QCOMPARE(BinaryCodec::encodeU8P4(20.0), uint8_t(255));
     }
 
     void u8p4Precision() {
@@ -85,10 +82,9 @@ private slots:
 
     void u8p1Clamping() {
         QCOMPARE(BinaryCodec::encodeU8P1(-5.0), uint8_t(0));
-        // 128.0 is at clamp boundary
-        uint8_t at128 = BinaryCodec::encodeU8P1(128.0);
-        QCOMPARE(at128, uint8_t(0)); // 128*2=256, wraps in uint8_t
-        QCOMPARE(BinaryCodec::encodeU8P1(128.0), BinaryCodec::encodeU8P1(200.0));
+        // Values above 127.5 clamp to 255
+        QCOMPARE(BinaryCodec::encodeU8P1(128.0), uint8_t(255));
+        QCOMPARE(BinaryCodec::encodeU8P1(200.0), uint8_t(255));
     }
 
     // ===== U8P0: 8-bit integer, range 0-255 (de1app encode_U8P0) =====
@@ -125,8 +121,9 @@ private slots:
 
     void u8p0Clamping() {
         QCOMPARE(BinaryCodec::encodeU8P0(-1.0), uint8_t(0));
-        // 256 clamps to 256.0 then truncates in uint8_t
-        QCOMPARE(BinaryCodec::encodeU8P0(256.0), BinaryCodec::encodeU8P0(300.0));
+        // Values above 255 clamp to 255
+        QCOMPARE(BinaryCodec::encodeU8P0(256.0), uint8_t(255));
+        QCOMPARE(BinaryCodec::encodeU8P0(300.0), uint8_t(255));
     }
 
     // ===== U16P8: 8 fractional bits, range 0-255.996 (de1app encode_U16P8) =====
