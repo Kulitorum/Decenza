@@ -20,22 +20,26 @@
 // (e.g., upload-blocked stack traces) where QTest::ignoreMessage cannot match all lines.
 struct ScopedWarningFilter {
     static inline QRegularExpression* s_filter = nullptr;
+    static inline QtMessageHandler s_prev = nullptr;
     static void handler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
         if (type == QtWarningMsg && s_filter && s_filter->match(msg).hasMatch())
             return;  // Suppress
-        // Forward to Qt's default handler
-        qt_message_output(type, ctx, msg);
+        // Forward to previous handler (e.g., Qt Test's) so QTest::ignoreMessage works
+        if (s_prev)
+            s_prev(type, ctx, msg);
     }
     QRegularExpression m_pattern;
-    QRegularExpression* m_prevFilter;  // support nesting
-    QtMessageHandler m_prev;
+    QRegularExpression* m_prevFilter;
+    QtMessageHandler m_prevHandler;
     ScopedWarningFilter(const QString& pattern) : m_pattern(pattern), m_prevFilter(s_filter) {
         s_filter = &m_pattern;
-        m_prev = qInstallMessageHandler(handler);
+        m_prevHandler = qInstallMessageHandler(handler);
+        s_prev = m_prevHandler;
     }
     ~ScopedWarningFilter() {
-        qInstallMessageHandler(m_prev);
-        s_filter = m_prevFilter;  // restore previous filter, not nullptr
+        qInstallMessageHandler(m_prevHandler);
+        s_filter = m_prevFilter;
+        s_prev = m_prevHandler;
     }
 };
 
