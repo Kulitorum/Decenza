@@ -132,8 +132,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                                 QString profileJson = query.value("profile_json").toString();
                                 if (!profileJson.isEmpty()) {
                                     QJsonObject profileObj = QJsonDocument::fromJson(profileJson.toUtf8()).object();
-                                    if (profileObj.contains("target_weight"))
-                                        shot["targetWeightG"] = profileObj["target_weight"].toDouble();
+                                    QJsonValue tw = profileObj["target_weight"];
+                                    double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+                                    if (twVal > 0)
+                                        shot["targetWeightG"] = twVal;
                                 }
                             }
                             shots.append(shot);
