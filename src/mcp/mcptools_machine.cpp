@@ -12,7 +12,7 @@
 #include <QSysInfo>
 #include <QScreen>
 #include <QGuiApplication>
-#include "../version.h"
+#include "version.h"
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
