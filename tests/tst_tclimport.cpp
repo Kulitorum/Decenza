@@ -14,7 +14,7 @@
 // These are integration tests against REAL profile files, not hand-crafted strings.
 
 static const QString DE1APP_PROFILES_DIR =
-    QStringLiteral("/Users/jeffreyh/Documents/GitHub/de1app/de1plus/profiles");
+    QStringLiteral(DE1APP_PROFILES_PATH);
 
 class tst_TclImport : public QObject {
     Q_OBJECT
@@ -38,10 +38,14 @@ private slots:
         QTest::addColumn<QString>("fileName");
 
         QDir dir(DE1APP_PROFILES_DIR);
-        QVERIFY2(dir.exists(), qPrintable("de1app profiles dir not found: " + DE1APP_PROFILES_DIR));
+        if (!dir.exists()) {
+            QSKIP("de1app profiles dir not found — skipping TCL import tests");
+        }
 
         QStringList tclFiles = dir.entryList({"*.tcl"}, QDir::Files, QDir::Name);
-        QVERIFY2(!tclFiles.isEmpty(), "No .tcl profiles found in de1app profiles dir");
+        if (tclFiles.isEmpty()) {
+            QSKIP("No .tcl profiles found in de1app profiles dir");
+        }
 
         for (const QString& fileName : tclFiles) {
             QString fullPath = dir.absoluteFilePath(fileName);

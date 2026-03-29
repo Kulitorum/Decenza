@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QRegularExpression>
 
 #include "history/shothistorystorage.h"
 
@@ -130,6 +131,10 @@ private:
     // background thread. We must let that thread complete its callback before
     // the ShotHistoryStorage is destroyed, otherwise SIGSEGV.
     void initAndClose(const QString& path, ShotHistoryStorage& storage) {
+        // ShotHistoryStorage::close() removes its DB connection while a background
+        // thread may still hold a QSqlQuery reference. Qt warns about this but
+        // it's harmless — the connection is cleaned up when the thread finishes.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         QVERIFY(storage.initialize(path));
         storage.close();
         // Give background thread time to finish SQL + deliver callback
@@ -349,6 +354,7 @@ private slots:
         QString path = freshDbPath();
         withRawDb(path, "empty_create", [](QSqlDatabase& db) { createV1Schema(db); });
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 0);
@@ -371,6 +377,7 @@ private slots:
             QSqlQuery(db).exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) VALUES ('test-null', 1000, 'NullTest', 30.0)");
         });
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 1);
@@ -443,6 +450,7 @@ private slots:
             q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, final_weight, bean_brand, grinder_model) VALUES ('p2', 2000, 'D-Flow', 32.0, 40.0, 'SEY', 'DF64')");
         });
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 2);

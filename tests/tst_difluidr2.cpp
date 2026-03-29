@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QRegularExpression>
 
 #include "ble/refractometers/difluidr2.h"
 #include "ble/protocol/de1characteristics.h"
@@ -242,6 +243,7 @@ private slots:
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=2 code=3"));
         r2.handlePacket(buildErrorPacket(2, 3));  // errClass=2, errCode=3 = no liquid
 
         QCOMPARE(errorSpy.count(), 1);
@@ -252,6 +254,7 @@ private slots:
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=2 code=4"));
         r2.handlePacket(buildErrorPacket(2, 4));  // errClass=2, errCode=4 = beyond range
 
         QCOMPARE(errorSpy.count(), 1);
@@ -264,6 +267,7 @@ private slots:
         QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
 
         // Cmd=255 = unknown error
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 unknown error"));
         r2.handlePacket(buildR2Packet(0x03, 0xFF, QByteArray()));
 
         QCOMPARE(errorSpy.count(), 1);
@@ -306,6 +310,7 @@ private slots:
         QByteArray pkt = buildTdsPacket(8.50);
         // Corrupt the checksum
         pkt[pkt.size() - 1] = static_cast<char>(static_cast<uint8_t>(pkt[pkt.size() - 1]) + 1);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Checksum failed"));
         r2.handlePacket(pkt);
 
         QCOMPARE(tdsSpy.count(), 0);

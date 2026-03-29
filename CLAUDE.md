@@ -29,7 +29,7 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 - **Qt version**: 6.10.2
 - **Qt path**: `C:/Qt/6.10.2/msvc2022_64`
 - **C++ standard**: C++17
-- **de1app source**: `C:\code\de1app` (original Tcl/Tk DE1 app for reference)
+- **de1app source**: `C:\code\de1app` (Windows) or `/Users/jeffreyh/Development/GitHub/de1app` (macOS) — original Tcl/Tk DE1 app for reference
 - **IMPORTANT**: Use relative paths (e.g., `src/main.cpp`) instead of absolute paths (e.g., `C:\CODE\de1-qt\src\main.cpp`) to avoid "Error: UNKNOWN: unknown error, open" when editing files
 
 ## Command Line Build (for Claude sessions)

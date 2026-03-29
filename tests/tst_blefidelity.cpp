@@ -33,6 +33,20 @@ private:
         return Profile::fromJson(doc);
     }
 
+    // Populate test rows with profiles that have encodable frames.
+    // Excludes wizard/utility profiles (e.g. descale_wizard) that have no steps.
+    static void addProfileRows() {
+        QTest::addColumn<QString>("filePath");
+        QTest::addColumn<QString>("fileName");
+
+        QDir dir(kProfilesDir);
+        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name)) {
+            Profile p = loadProfile(dir.absoluteFilePath(f));
+            if (p.steps().isEmpty()) continue;
+            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
+        }
+    }
+
 private slots:
 
     // ==========================================
@@ -51,22 +65,13 @@ private slots:
     // Header: 5 bytes, correct structure
     // ==========================================
 
-    void headerFormat_data() {
-        QTest::addColumn<QString>("filePath");
-        QTest::addColumn<QString>("fileName");
-
-        QDir dir(kProfilesDir);
-        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name))
-            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
-    }
+    void headerFormat_data() { addProfileRows(); }
 
     void headerFormat() {
         QFETCH(QString, filePath);
         QFETCH(QString, fileName);
 
         Profile p = loadProfile(filePath);
-        if (p.steps().isEmpty())
-            QSKIP(qPrintable("No steps in " + fileName));
 
         QByteArray header = p.toHeaderBytes();
 
@@ -93,22 +98,13 @@ private slots:
     // Frame bytes: correct count, 8-byte frames
     // ==========================================
 
-    void frameCount_data() {
-        QTest::addColumn<QString>("filePath");
-        QTest::addColumn<QString>("fileName");
-
-        QDir dir(kProfilesDir);
-        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name))
-            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
-    }
+    void frameCount_data() { addProfileRows(); }
 
     void frameCount() {
         QFETCH(QString, filePath);
         QFETCH(QString, fileName);
 
         Profile p = loadProfile(filePath);
-        if (p.steps().isEmpty())
-            QSKIP(qPrintable("No steps in " + fileName));
 
         QList<QByteArray> frames = p.toFrameBytes();
 
@@ -135,22 +131,13 @@ private slots:
     // Regular frame: index, flags, encode→decode
     // ==========================================
 
-    void regularFrameRoundTrip_data() {
-        QTest::addColumn<QString>("filePath");
-        QTest::addColumn<QString>("fileName");
-
-        QDir dir(kProfilesDir);
-        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name))
-            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
-    }
+    void regularFrameRoundTrip_data() { addProfileRows(); }
 
     void regularFrameRoundTrip() {
         QFETCH(QString, filePath);
         QFETCH(QString, fileName);
 
         Profile p = loadProfile(filePath);
-        if (p.steps().isEmpty())
-            QSKIP(qPrintable("No steps in " + fileName));
 
         QList<QByteArray> allFrames = p.toFrameBytes();
 
@@ -209,22 +196,13 @@ private slots:
     // Flag bits: verify individual flag semantics
     // ==========================================
 
-    void flagBitsCorrect_data() {
-        QTest::addColumn<QString>("filePath");
-        QTest::addColumn<QString>("fileName");
-
-        QDir dir(kProfilesDir);
-        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name))
-            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
-    }
+    void flagBitsCorrect_data() { addProfileRows(); }
 
     void flagBitsCorrect() {
         QFETCH(QString, filePath);
         QFETCH(QString, fileName);
 
         Profile p = loadProfile(filePath);
-        if (p.steps().isEmpty())
-            QSKIP(qPrintable("No steps in " + fileName));
 
         QList<QByteArray> allFrames = p.toFrameBytes();
 
@@ -270,22 +248,13 @@ private slots:
     // Extension frames: present when limiter > 0
     // ==========================================
 
-    void extensionFrames_data() {
-        QTest::addColumn<QString>("filePath");
-        QTest::addColumn<QString>("fileName");
-
-        QDir dir(kProfilesDir);
-        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name))
-            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
-    }
+    void extensionFrames_data() { addProfileRows(); }
 
     void extensionFrames() {
         QFETCH(QString, filePath);
         QFETCH(QString, fileName);
 
         Profile p = loadProfile(filePath);
-        if (p.steps().isEmpty())
-            QSKIP(qPrintable("No steps in " + fileName));
 
         QList<QByteArray> allFrames = p.toFrameBytes();
 
@@ -330,22 +299,13 @@ private slots:
     // Tail frame: correct position and format
     // ==========================================
 
-    void tailFrame_data() {
-        QTest::addColumn<QString>("filePath");
-        QTest::addColumn<QString>("fileName");
-
-        QDir dir(kProfilesDir);
-        for (const QString& f : dir.entryList({"*.json"}, QDir::Files, QDir::Name))
-            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
-    }
+    void tailFrame_data() { addProfileRows(); }
 
     void tailFrame() {
         QFETCH(QString, filePath);
         QFETCH(QString, fileName);
 
         Profile p = loadProfile(filePath);
-        if (p.steps().isEmpty())
-            QSKIP(qPrintable("No steps in " + fileName));
 
         QList<QByteArray> allFrames = p.toFrameBytes();
 

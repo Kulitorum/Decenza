@@ -6,12 +6,14 @@ Qt Test (QTest) — ships with Qt, no external dependencies, integrates with CMa
 
 ## Building and Running
 
-```bash
-# Configure with tests enabled
-cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.10.2/macos ..
+Tests are **auto-enabled in Debug builds** and **in Linux CI releases**. No flag needed for normal development.
 
-# Build tests only
-cmake --build . --target tst_sav tst_saw
+```bash
+# Debug build — tests included automatically
+cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.10.2/macos -DCMAKE_BUILD_TYPE=Debug ..
+
+# Release build — tests off by default, opt-in with:
+cmake -DBUILD_TESTS=ON -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.10.2/macos ..
 
 # Run all tests
 ctest --output-on-failure
@@ -21,7 +23,11 @@ ctest --output-on-failure
 ./tests/tst_saw
 ```
 
-Tests are NOT built by default — they require `-DBUILD_TESTS=ON`. This keeps the normal build fast.
+Override with `-DBUILD_TESTS=OFF` (Debug) or `-DBUILD_TESTS=ON` (Release) as needed.
+
+### CI
+
+The Linux release workflow (`linux-release.yml`) builds and runs all tests before packaging the AppImage. Tests run on every tag push (releases and pre-releases) and manual workflow dispatch.
 
 ## Architecture
 

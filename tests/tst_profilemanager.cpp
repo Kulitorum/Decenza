@@ -241,6 +241,7 @@ private slots:
         f.transport.clearWrites();
 
         QSignalSpy spy(&f.profileManager, &ProfileManager::profileUploadBlocked);
+
         f.profileManager.uploadCurrentProfile();
 
         // Should NOT write to BLE
@@ -732,6 +733,7 @@ private slots:
 
         // Unknown property should not crash and should not emit currentProfileChanged
         QSignalSpy spy(&f.profileManager, &ProfileManager::currentProfileChanged);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unknown property"));
         f.profileManager.setFrameProperty(0, "nonexistent_property", 42);
 
         QCOMPARE(spy.count(), 0);
@@ -743,6 +745,7 @@ private slots:
         f.profileManager.deleteFrame(1);  // Remove one, leaving 1
         QCOMPARE(f.profileManager.frameCount(), 1);
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot delete the last frame"));
         f.profileManager.deleteFrame(0);  // Should be blocked
         QCOMPARE(f.profileManager.frameCount(), 1);
     }
@@ -971,6 +974,7 @@ private slots:
             f.machineState.m_phase = phase;
             f.transport.clearWrites();
 
+    
             f.profileManager.uploadCurrentProfile();
 
             auto headerWrites = f.writesTo(HEADER_WRITE);
@@ -989,11 +993,13 @@ private slots:
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
         f.transport.clearWrites();
+
         f.profileManager.uploadCurrentProfile();
         QVERIFY(f.writesTo(HEADER_WRITE).isEmpty());
         QVERIFY(f.profileManager.m_profileUploadPending);
 
         // Transition to Idle — should trigger retry
+
         f.machineState.m_phase = MachineState::Phase::Idle;
         emit f.machineState.phaseChanged();
 
@@ -1009,6 +1015,7 @@ private slots:
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
         f.transport.clearWrites();
+
         f.profileManager.uploadCurrentProfile();
         QVERIFY(f.profileManager.m_profileUploadPending);
 

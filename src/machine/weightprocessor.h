@@ -5,6 +5,7 @@
 #include <QVector>
 #include <QSet>
 #include <QDateTime>
+#include <functional>
 
 // Runs on a dedicated worker thread. Receives weight samples from the scale,
 // computes LSLR flow rates, and makes SAW/per-frame-exit decisions
@@ -40,6 +41,9 @@ public slots:
     void markExtractionStart();  // Called when flow starts (idempotent, espresso-only)
     void stopExtraction();
     void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
+
+    // Test support: override wall-clock source (default: QDateTime::currentMSecsSinceEpoch)
+    void setWallClock(std::function<qint64()> fn) { m_wallClock = std::move(fn); }
 
 signals:
     // Emitted when SAW triggers. Includes monotonic timestamp (ms) for latency tracing.
@@ -97,4 +101,7 @@ private:
 
     // Per-frame exit tracking (avoid duplicate skip commands)
     QSet<int> m_frameWeightSkipSent;
+
+    // Wall-clock source (injectable for testing — avoids 77s of QTest::qWait)
+    std::function<qint64()> m_wallClock = [] { return QDateTime::currentMSecsSinceEpoch(); };
 };

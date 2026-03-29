@@ -2,6 +2,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QRegularExpression>
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
@@ -1001,6 +1002,7 @@ private slots:
         obj["espresso_hold_time"] = 0.0;
         obj["espresso_decline_time"] = 0.0;
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("all time parameters are zero"));
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.steps().size(), 1);
         QCOMPARE(p.steps()[0].name, QString("empty"));

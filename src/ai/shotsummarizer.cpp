@@ -756,7 +756,7 @@ void ShotSummarizer::loadProfileKnowledge()
 
     QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
+        qDebug() << "ShotSummarizer: Profile knowledge resource not available (AI summaries disabled)";
         return;
     }
     s_knowledgeLoaded = true;

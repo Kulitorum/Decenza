@@ -109,6 +109,9 @@ add_decenza_test(tst_tclimport
     ${PROFILE_SOURCES}
     ${CODEC_SOURCES}
 )
+target_compile_definitions(tst_tclimport PRIVATE
+    DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
+)
 
 # --- tst_recipegenerator: Frame generation vs de1app stock profiles ---
 add_decenza_test(tst_recipegenerator
@@ -244,6 +247,7 @@ add_decenza_test(tst_profilemanager
 target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick Qt6::Qml paho-mqtt3a-static)
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
+qt_add_resources(tst_profilemanager ${CMAKE_SOURCE_DIR}/resources/profiles.qrc)
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 

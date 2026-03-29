@@ -18,7 +18,7 @@ WeightProcessor::WeightProcessor(QObject* parent)
 
 void WeightProcessor::processWeight(double weight)
 {
-    qint64 wallClock = QDateTime::currentMSecsSinceEpoch();
+    qint64 wallClock = m_wallClock();
 
     // De-jitter: BLE events arrive on the main thread via QueuedConnection, and when
     // the main thread is busy (QML rendering), multiple events queue up and are
@@ -145,7 +145,7 @@ void WeightProcessor::processWeight(double weight)
     if (!m_tareComplete) {
         // Throttle warning to every 5s to avoid log spam at 5Hz
         if (wallClock - m_lastTareWarnMs >= 5000) {
-            qWarning() << "[SAW-Worker] Active but tare not complete - skipping SAW, weight=" << weight;
+            qDebug() << "[SAW-Worker] Active but tare not complete - skipping SAW, weight=" << weight;
             m_lastTareWarnMs = wallClock;
         }
         return;
@@ -286,7 +286,7 @@ void WeightProcessor::startExtraction()
 void WeightProcessor::markExtractionStart()
 {
     if (!m_active || m_extractionStartTime != 0) return;
-    m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
+    m_extractionStartTime = m_wallClock();
 }
 
 void WeightProcessor::stopExtraction()

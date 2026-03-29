@@ -1,22 +1,31 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QRegularExpression>
 
 #include "machine/weightprocessor.h"
 
 // Test SAW (stop-at-weight) logic in WeightProcessor across profile types.
 // WeightProcessor has a clean public interface — no friend access needed.
+//
+// Uses an injectable fake clock to avoid real-time waits (~38s → <1s).
 
 class tst_SAW : public QObject {
     Q_OBJECT
 
 private:
+    qint64 m_fakeClock = 1000000;  // Arbitrary start (1,000,000 ms)
+
+    void installFakeClock(WeightProcessor& wp) {
+        wp.setWallClock([this]() { return m_fakeClock; });
+    }
+
     // Helper: feed N weight samples at regular intervals to build LSLR history
     void feedSamples(WeightProcessor& wp, double startWeight, double flowRate,
                      int count, int intervalMs = 200) {
         for (int i = 0; i < count; i++) {
             double w = startWeight + flowRate * (i * intervalMs / 1000.0);
             wp.processWeight(w);
-            QTest::qWait(intervalMs);
+            m_fakeClock += intervalMs;
         }
     }
 
@@ -31,10 +40,15 @@ private:
 
 private slots:
 
+    void init() {
+        m_fakeClock = 1000000;  // Reset for each test
+    }
+
     // ===== SAW does NOT trigger in first 5 seconds =====
 
     void sawIgnoresFirst5Seconds() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);  // 0 preinfuse frames
         wp.startExtraction();
         wp.markExtractionStart();
@@ -47,7 +61,7 @@ private slots:
         // At 200ms intervals, 20 samples = 4 seconds
         for (int i = 0; i < 20; i++) {
             wp.processWeight(40.0);  // Way above 36g target
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QCOMPARE(spy.count(), 0);  // Should NOT trigger in first 5s
@@ -57,6 +71,7 @@ private slots:
 
     void sawTriggersAfter5Seconds() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -65,14 +80,14 @@ private slots:
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
 
-        // Wait past the 5-second guard first
-        QTest::qWait(5500);
+        // Advance past the 5-second guard
+        m_fakeClock += 5500;
 
         // Then feed rising weight samples to build LSLR
         for (int i = 0; i < 30; i++) {
             double w = 30.0 + i * 0.5;  // Rising from 30g at 0.5g per sample
             wp.processWeight(w);
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QVERIFY(spy.count() >= 1);  // Should have triggered after weight + flow met threshold
@@ -89,6 +104,7 @@ private slots:
     void sawWaitsForPreinfusion() {
         QFETCH(int, preinfuseFrames);
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, preinfuseFrames);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -97,12 +113,12 @@ private slots:
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
 
-        // Wait past 5s guard, feed rising weight during preinfusion
-        QTest::qWait(5500);
+        // Advance past 5s guard, feed rising weight during preinfusion
+        m_fakeClock += 5500;
         for (int i = 0; i < 15; i++) {
             double w = 30.0 + i * 0.5;
             wp.processWeight(w);
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QCOMPARE(spy.count(), 0);  // Should NOT trigger — still in preinfusion frames
@@ -113,7 +129,7 @@ private slots:
         for (int i = 0; i < 15; i++) {
             double w = 30.0 + i * 0.5;
             wp.processWeight(w);
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QVERIFY(spy.count() >= 1);  // NOW should trigger
@@ -123,6 +139,7 @@ private slots:
 
     void sawDisabledWhenTargetZero() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 0.0, 0);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -131,10 +148,10 @@ private slots:
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
 
-        QTest::qWait(5500);
+        m_fakeClock += 5500;
         for (int i = 0; i < 10; i++) {
             wp.processWeight(50.0);
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QCOMPARE(spy.count(), 0);
@@ -144,6 +161,7 @@ private slots:
 
     void sawRequiresValidFlow() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -152,11 +170,11 @@ private slots:
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
 
-        // Wait past 5s guard, then feed constant weight (0 flow rate)
-        QTest::qWait(5500);
+        // Advance past 5s guard, then feed constant weight (0 flow rate)
+        m_fakeClock += 5500;
         for (int i = 0; i < 10; i++) {
             wp.processWeight(40.0);  // Constant weight = 0 flow
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QCOMPARE(spy.count(), 0);  // Flow too low (LSLR ≈ 0)
@@ -166,6 +184,7 @@ private slots:
 
     void perFrameWeightExit() {
         WeightProcessor wp;
+        installFakeClock(wp);
         QVector<double> frameExits = {0.0, 0.2, 0.0};  // Frame 1 exits at 0.2g
         QVector<double> learningDrips, learningFlows;
         wp.configure(36.0, 2, frameExits, learningDrips, learningFlows, false, 0.38);
@@ -186,6 +205,7 @@ private slots:
 
     void perFrameWeightExitOnlyOnce() {
         WeightProcessor wp;
+        installFakeClock(wp);
         QVector<double> frameExits = {0.0, 0.2, 0.0};
         QVector<double> learningDrips, learningFlows;
         wp.configure(36.0, 2, frameExits, learningDrips, learningFlows, false, 0.38);
@@ -197,6 +217,7 @@ private slots:
         QSignalSpy spy(&wp, &WeightProcessor::skipFrame);
 
         wp.processWeight(0.3);
+        m_fakeClock += 200;
         wp.processWeight(0.5);  // Still in frame 1, already triggered
 
         QCOMPARE(spy.count(), 1);  // Only fires once
@@ -206,6 +227,7 @@ private slots:
 
     void sawZeroPreinfuseFrames() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);  // No preinfusion
         wp.startExtraction();
         wp.markExtractionStart();
@@ -214,12 +236,12 @@ private slots:
 
         QSignalSpy spy(&wp, &WeightProcessor::stopNow);
 
-        // Wait past 5s, feed rising weight
-        QTest::qWait(5500);
+        // Advance past 5s, feed rising weight
+        m_fakeClock += 5500;
         for (int i = 0; i < 20; i++) {
             double w = 30.0 + i * 1.0;  // Rising from 30 to 49
             wp.processWeight(w);
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QVERIFY(spy.count() >= 1);
@@ -228,6 +250,7 @@ private slots:
 
     void sawTriggeredCarriesData() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -237,12 +260,12 @@ private slots:
         QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
         QSignalSpy sawSpy(&wp, &WeightProcessor::sawTriggered);
 
-        // Wait past 5s, feed rising weight
-        QTest::qWait(5500);
+        // Advance past 5s, feed rising weight
+        m_fakeClock += 5500;
         for (int i = 0; i < 30; i++) {
             double w = 30.0 + i * 0.5;
             wp.processWeight(w);
-            QTest::qWait(200);
+            m_fakeClock += 200;
         }
 
         QVERIFY(stopSpy.count() >= 1);
@@ -263,6 +286,7 @@ private slots:
 
     void untaredCupDetected() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -273,8 +297,11 @@ private slots:
         QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
 
         // Feed weight > 50g within first 3 seconds
+        // WeightProcessor logs a sanity-check warning for high weight values
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
         wp.processWeight(80.0);
-        QTest::qWait(200);
+        m_fakeClock += 200;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sanity check: weight 80"));
         wp.processWeight(80.0);
 
         QCOMPARE(cupSpy.count(), 1);  // Should detect untared cup
@@ -285,6 +312,7 @@ private slots:
 
     void untaredCupNotAfter3Seconds() {
         WeightProcessor wp;
+        installFakeClock(wp);
         configureEspresso(wp, 36.0, 0);
         wp.startExtraction();
         wp.markExtractionStart();
@@ -293,10 +321,10 @@ private slots:
 
         QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
 
-        // Wait past 3 seconds, then feed high weight
-        QTest::qWait(3500);
+        // Advance past 3 seconds, then feed high weight
+        m_fakeClock += 3500;
         wp.processWeight(80.0);
-        QTest::qWait(200);
+        m_fakeClock += 200;
         wp.processWeight(80.0);
 
         QCOMPARE(cupSpy.count(), 0);  // Too late for untared cup detection
