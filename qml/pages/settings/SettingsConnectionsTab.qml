@@ -981,7 +981,6 @@ Item {
                                     BLEManager.clearSavedRefractometer()
                                     Settings.savedRefractometerAddress = ""
                                     Settings.savedRefractometerName = ""
-                                    Settings.refractometerEnabled = false
                                 }
                             }
                         }

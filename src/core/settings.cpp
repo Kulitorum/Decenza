@@ -438,17 +438,6 @@ void Settings::setShowScaleDialogs(bool enabled) {
 }
 
 // Refractometer
-bool Settings::refractometerEnabled() const {
-    return m_settings.value("refractometer/enabled", false).toBool();
-}
-
-void Settings::setRefractometerEnabled(bool enabled) {
-    if (refractometerEnabled() != enabled) {
-        m_settings.setValue("refractometer/enabled", enabled);
-        emit refractometerEnabledChanged();
-    }
-}
-
 QString Settings::savedRefractometerAddress() const {
     return m_settings.value("refractometer/address", "").toString();
 }

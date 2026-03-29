@@ -34,7 +34,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Refractometer settings
     QJsonObject refractometer;
-    refractometer["enabled"] = settings->refractometerEnabled();
     refractometer["address"] = settings->savedRefractometerAddress();
     refractometer["name"] = settings->savedRefractometerName();
     root["refractometer"] = refractometer;
@@ -387,7 +386,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Refractometer settings
     if (json.contains("refractometer") && !excludeKeys.contains("refractometer")) {
         QJsonObject refractometer = json["refractometer"].toObject();
-        if (refractometer.contains("enabled")) settings->setRefractometerEnabled(refractometer["enabled"].toBool());
         if (refractometer.contains("address")) settings->setSavedRefractometerAddress(refractometer["address"].toString());
         if (refractometer.contains("name")) settings->setSavedRefractometerName(refractometer["name"].toString());
     }
