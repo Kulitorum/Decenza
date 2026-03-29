@@ -108,6 +108,8 @@ jobs:
           ninja -j$(nproc)
 
       - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           cd build
           ctest --output-on-failure
