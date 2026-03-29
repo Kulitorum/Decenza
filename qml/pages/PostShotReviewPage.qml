@@ -406,10 +406,12 @@ Page {
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
             }
 
-            // Rating (moved to top, right after graph)
+            // Rating (moved to top, right after graph) + Read TDS button when R2 configured
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
+
+                property bool hasRefractometer: Settings.savedRefractometerAddress !== ""
 
                 Tr {
                     id: ratingLabel
@@ -425,7 +427,8 @@ Page {
                 Rectangle {
                     id: ratingBox
                     anchors.left: parent.left
-                    anchors.right: parent.right
+                    anchors.right: readTdsButton.visible ? readTdsButton.left : parent.right
+                    anchors.rightMargin: readTdsButton.visible ? Theme.scaled(8) : 0
                     anchors.top: ratingLabel.bottom
                     anchors.topMargin: Theme.scaled(2)
                     height: Theme.scaled(44)
@@ -442,6 +445,46 @@ Page {
                         accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                         onValueModified: function(newValue) {
                             editEnjoyment = newValue
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: readTdsButton
+                    property bool refConnected: BLEManager.refractometerConnected
+                    property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
+                    visible: parent.hasRefractometer
+                    anchors.right: parent.right
+                    anchors.top: ratingBox.top
+                    anchors.bottom: ratingBox.bottom
+                    width: Theme.scaled(80)
+                    radius: Theme.scaled(12)
+                    color: Theme.surfaceColor
+                    border.width: 1
+                    border.color: Theme.textSecondaryColor
+                    opacity: (refConnected && !refMeasuring) ? 1.0 : 0.5
+                    Accessible.ignored: true
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: {
+                            if (!readTdsButton.refConnected) return TranslationManager.translate("postshotreview.refractometer.off", "R2 Off")
+                            if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
+                            return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
+                        }
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(13)
+                        Accessible.ignored: true
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                        accessibleItem: readTdsButton
+                        enabled: readTdsButton.refConnected && !readTdsButton.refMeasuring
+                        onAccessibleClicked: {
+                            if (typeof Refractometer !== "undefined" && Refractometer)
+                                Refractometer.requestMeasurement()
                         }
                     }
                 }
@@ -607,24 +650,6 @@ Page {
                                     calculateEy()
                                 }
                                 onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
-                            }
-                            // Read TDS from refractometer (visible when refractometer is configured)
-                            AccessibleButton {
-                                property bool refConnected: BLEManager.refractometerConnected
-                                property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
-                                visible: Settings.savedRefractometerAddress !== ""
-                                text: {
-                                    if (!refConnected) return TranslationManager.translate("postshotreview.refractometer.off", "R2 Off")
-                                    if (refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
-                                    return TranslationManager.translate("postshotreview.refractometer.read", "Read")
-                                }
-                                accessibleName: TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
-                                enabled: refConnected && !refMeasuring
-                                Layout.preferredHeight: Theme.scaled(28)
-                                onClicked: {
-                                    if (typeof Refractometer !== "undefined" && Refractometer)
-                                        Refractometer.requestMeasurement()
-                                }
                             }
                         }
                     }

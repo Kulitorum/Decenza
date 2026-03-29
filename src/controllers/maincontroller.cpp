@@ -1359,13 +1359,6 @@ void MainController::onShotEnded() {
         m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata);
     }
 
-    // Auto-read TDS from refractometer if enabled and connected
-    if (m_refractometer && m_refractometer->isConnected()
-        && m_settings && m_settings->refractometerEnabled()) {
-        qDebug() << "  -> Auto-requesting TDS from refractometer";
-        m_refractometer->requestMeasurement();
-    }
-
     // Store pending shot data for later upload (user can re-upload with updated metadata)
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.

@@ -987,40 +987,6 @@ Item {
                         }
                     }
 
-                    // Refractometer inline settings (only when connected)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: BLEManager.refractometerConnected
-                        spacing: Theme.scaled(15)
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            Text {
-                                text: TranslationManager.translate("settings.refractometer.enabled", "Auto-read TDS")
-                                font.pixelSize: Theme.scaled(14)
-                                color: Theme.textColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: TranslationManager.translate("settings.refractometer.enabledDesc", "Automatically read TDS after each shot")
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
-                                wrapMode: Text.WordWrap
-                                Accessible.ignored: true
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        StyledSwitch {
-                            checked: Settings.refractometerEnabled
-                            accessibleName: TranslationManager.translate("settings.refractometer.autoReadTds", "Auto-read TDS after shot")
-                            onToggled: Settings.refractometerEnabled = checked
-                        }
-                    }
-
                     // Read TDS Now button (only when connected)
                     AccessibleButton {
                         Layout.fillWidth: true
