@@ -185,10 +185,11 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         QJsonObject request = doc.object();
         QString rpcMethod = request["method"].toString();
 
-        // Initialize can come without a session — creates one
+        // Initialize can come without a session — creates one.
+        // Pass sessionHeader so reconnecting clients reuse their existing session.
         McpSession* session = nullptr;
         if (rpcMethod == "initialize") {
-            session = findOrCreateSession(QString()); // always create new
+            session = findOrCreateSession(sessionHeader);
             if (!session) {
                 sendJsonRpcError(socket, -32000, "Too many sessions",
                                  request["id"].toVariant(), sessionHeader);
@@ -279,6 +280,12 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         socket->flush();
 
         m_sseClients.insert(socket);
+
+        // Associate SSE socket with session if the client sent a session header
+        McpSession* sseSession = findSession(sessionHeader);
+        if (sseSession)
+            sseSession->setSseSocket(socket);
+
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
             m_sseClients.remove(socket);
             qDebug() << "McpServer: SSE client disconnected, remaining:" << m_sseClients.size();
@@ -326,6 +333,12 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
         return handleResourcesList(params, session);
     if (method == "resources/read")
         return handleResourcesRead(params, session, socket, requestId);
+    if (method == "resources/subscribe")
+        return handleResourcesSubscribe(params, session);
+    if (method == "resources/unsubscribe")
+        return handleResourcesUnsubscribe(params, session);
+    if (method == "ping")
+        return QJsonObject(); // empty result per spec
 
     // Unknown method
     QJsonObject error;
@@ -587,9 +600,52 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     return result;
 }
 
+QJsonObject McpServer::handleResourcesSubscribe(const QJsonObject& params, McpSession* session)
+{
+    QString uri = params["uri"].toString();
+    if (uri.isEmpty()) {
+        QJsonObject error;
+        error["code"] = -32602;
+        error["message"] = "Missing required parameter: uri";
+        QJsonObject result;
+        result["error"] = error;
+        return result;
+    }
+
+    session->subscribe(uri);
+    qDebug() << "McpServer: Session" << session->id() << "subscribed to" << uri;
+    return QJsonObject(); // empty result per spec
+}
+
+QJsonObject McpServer::handleResourcesUnsubscribe(const QJsonObject& params, McpSession* session)
+{
+    QString uri = params["uri"].toString();
+    if (uri.isEmpty()) {
+        QJsonObject error;
+        error["code"] = -32602;
+        error["message"] = "Missing required parameter: uri";
+        QJsonObject result;
+        result["error"] = error;
+        return result;
+    }
+
+    session->unsubscribe(uri);
+    qDebug() << "McpServer: Session" << session->id() << "unsubscribed from" << uri;
+    return QJsonObject(); // empty result per spec
+}
+
 McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
 {
-    Q_UNUSED(sessionHeader)
+    // If the client sent a session ID that we still have, reuse it.
+    // This prevents session leaks when mcp-remote reconnects and re-initializes.
+    if (!sessionHeader.isEmpty()) {
+        McpSession* existing = m_sessions.value(sessionHeader, nullptr);
+        if (existing) {
+            qDebug() << "McpServer: Reusing existing session" << sessionHeader;
+            existing->touch();
+            return existing;
+        }
+    }
 
     if (static_cast<int>(m_sessions.size()) >= MaxSessions) {
         qWarning() << "McpServer: Too many sessions (" << m_sessions.size() << ")";

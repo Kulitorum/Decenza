@@ -93,6 +93,8 @@ private:
     QJsonObject handleResourcesList(const QJsonObject& params, McpSession* session);
     QJsonObject handleResourcesRead(const QJsonObject& params, McpSession* session,
                                     QTcpSocket* socket, const QVariant& requestId);
+    QJsonObject handleResourcesSubscribe(const QJsonObject& params, McpSession* session);
+    QJsonObject handleResourcesUnsubscribe(const QJsonObject& params, McpSession* session);
 
     // Session management
     McpSession* findOrCreateSession(const QString& sessionHeader);

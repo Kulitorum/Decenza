@@ -1197,6 +1197,60 @@ echo
 # ─── 17. Session Management ───
 echo -e "${CYAN}17. Session Management${NC}"
 
+# Test: Re-initialize reuses existing session (no session leak)
+REINIT_RESP=$(curl -s -D /tmp/mcp_reinit_headers -X POST "$BASE" -H "Content-Type: application/json" \
+    -H "Mcp-Session-Id: $SESSION" \
+    -d '{"jsonrpc":"2.0","id":170,"method":"initialize","params":{"capabilities":{}}}')
+REINIT_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_reinit_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+assert_ok "re-initialize returns success" "$REINIT_RESP" \
+    "d.get('result',{}).get('protocolVersion') is not None"
+if [ "$REINIT_SID" = "$SESSION" ]; then
+    echo -e "  ${GREEN}PASS${NC} re-initialize reuses same session ID (no leak)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} re-initialize should reuse session ID (got: '$REINIT_SID', expected: '$SESSION')"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: Session still works after re-initialize
+AFTER_REINIT=$(rpc 171 "tools/list" '{}')
+assert_ok "session works after re-initialize" "$AFTER_REINIT" \
+    "isinstance(d.get('result',{}).get('tools'), list)"
+
+# Test: Re-initialize without session header creates new (first connect)
+FRESH_RESP=$(curl -s -D /tmp/mcp_fresh_headers -X POST "$BASE" -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":172,"method":"initialize","params":{"capabilities":{}}}')
+FRESH_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_fresh_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+assert_ok "initialize without session header creates new session" "$FRESH_RESP" \
+    "d.get('result',{}).get('protocolVersion') is not None"
+if [ -n "$FRESH_SID" ] && [ "$FRESH_SID" != "$SESSION" ]; then
+    echo -e "  ${GREEN}PASS${NC} no-header initialize creates new session"
+    PASS=$((PASS + 1))
+    # Clean up
+    curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $FRESH_SID" > /dev/null 2>&1
+    ALL_SESSIONS+=("$FRESH_SID")
+else
+    echo -e "  ${RED}FAIL${NC} expected new session ID, got: '$FRESH_SID'"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: Re-initialize with unknown session ID creates new (expired session)
+STALE_RESP=$(curl -s -D /tmp/mcp_stale_headers -X POST "$BASE" -H "Content-Type: application/json" \
+    -H "Mcp-Session-Id: 00000000-0000-0000-0000-000000000000" \
+    -d '{"jsonrpc":"2.0","id":173,"method":"initialize","params":{"capabilities":{}}}')
+STALE_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_stale_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+assert_ok "initialize with unknown session creates new" "$STALE_RESP" \
+    "d.get('result',{}).get('protocolVersion') is not None"
+if [ -n "$STALE_SID" ] && [ "$STALE_SID" != "00000000-0000-0000-0000-000000000000" ]; then
+    echo -e "  ${GREEN}PASS${NC} stale session ID creates new session"
+    PASS=$((PASS + 1))
+    curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $STALE_SID" > /dev/null 2>&1
+    ALL_SESSIONS+=("$STALE_SID")
+else
+    echo -e "  ${RED}FAIL${NC} expected new session ID for stale header (got: '$STALE_SID')"
+    FAIL=$((FAIL + 1))
+fi
+
 # DELETE session
 DEL_RESP=$(curl -s -X DELETE "$BASE" -H "Mcp-Session-Id: $SESSION")
 assert_ok "DELETE /mcp returns 200" "$DEL_RESP" \
@@ -1214,6 +1268,31 @@ if [ -n "$DEL_SID" ]; then
     ALL_SESSIONS+=("$DEL_SID")
     SESSION="$DEL_SID"  # Update SESSION to the auto-recovered one
 fi
+
+echo
+
+# ─── 17b. Ping & Subscribe ───
+echo -e "${CYAN}17b. Ping & Subscribe${NC}"
+
+# Test: ping returns empty result
+PING_RESP=$(rpc 180 "ping" '{}')
+assert_ok "ping returns empty result" "$PING_RESP" \
+    "'result' in d and d['result'] == {}"
+
+# Test: resources/subscribe
+SUB_RESP=$(rpc 181 "resources/subscribe" '{"uri":"decenza://machine/state"}')
+assert_ok "resources/subscribe returns success" "$SUB_RESP" \
+    "'result' in d and not d['result']"
+
+# Test: resources/subscribe with missing uri
+SUB_ERR=$(rpc 182 "resources/subscribe" '{}')
+assert_ok "resources/subscribe rejects missing uri" "$SUB_ERR" \
+    "d.get('result',{}).get('error',{}).get('code') == -32602 or d.get('error',{}).get('code') == -32602"
+
+# Test: resources/unsubscribe
+UNSUB_RESP=$(rpc 183 "resources/unsubscribe" '{"uri":"decenza://machine/state"}')
+assert_ok "resources/unsubscribe returns success" "$UNSUB_RESP" \
+    "'result' in d and not d['result']"
 
 echo
 
