@@ -39,27 +39,31 @@ Page {
         console.log("[ScreensaverPage] Loaded, type:", screensaverType,
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
                     "disabled:", isDisabledMode)
-        // #582 diagnostic: log geometry chain to find where the gap originates
-        console.log("[#582 diag] Window size:", Window.width, "x", Window.height)
-        console.log("[#582 diag] ScreensaverPage size:", width, "x", height,
-                    "pos:", x, y)
-        if (parent) {
-            console.log("[#582 diag] parent (StackView) size:", parent.width, "x", parent.height,
-                        "pos:", parent.x, parent.y)
-            if (parent.parent) {
-                console.log("[#582 diag] grandparent (contentItem) size:",
-                            parent.parent.width, "x", parent.parent.height,
-                            "pos:", parent.parent.x, parent.parent.y)
-                if (parent.parent.parent) {
-                    console.log("[#582 diag] great-grandparent size:",
-                                parent.parent.parent.width, "x", parent.parent.parent.height,
-                                "pos:", parent.parent.parent.x, parent.parent.parent.y)
+        // #582 diagnostic: log geometry chain to find where the gap originates.
+        // Deferred so layout geometry is valid (width/height are 0 at onCompleted).
+        Qt.callLater(function() {
+            console.log("[#582 diag] Window size:", Window.width, "x", Window.height)
+            console.log("[#582 diag] ScreensaverPage size:", width, "x", height,
+                        "pos:", x, y)
+            if (parent) {
+                console.log("[#582 diag] parent (StackView) size:", parent.width, "x", parent.height,
+                            "pos:", parent.x, parent.y)
+                if (parent.parent) {
+                    console.log("[#582 diag] grandparent (contentItem) size:",
+                                parent.parent.width, "x", parent.parent.height,
+                                "pos:", parent.parent.x, parent.parent.y)
+                    if (parent.parent.parent) {
+                        console.log("[#582 diag] great-grandparent size:",
+                                    parent.parent.parent.width, "x", parent.parent.parent.height,
+                                    "pos:", parent.parent.parent.x, parent.parent.parent.y)
+                    }
                 }
             }
-        }
-        console.log("[#582 diag] Screen.height:", Screen.height,
-                    "Screen.desktopAvailableHeight:", Screen.desktopAvailableHeight,
-                    "Screen.devicePixelRatio:", Screen.pixelDensity)
+            console.log("[#582 diag] Screen.height:", Screen.height,
+                        "Screen.desktopAvailableHeight:", Screen.desktopAvailableHeight,
+                        "Screen.pixelDensity:", Screen.pixelDensity,
+                        "Screen.devicePixelRatio:", Screen.devicePixelRatio)
+        })
         if (isDisabledMode) {
             // Dim backlight to minimum (1%) and show black overlay.
             // We keep FLAG_KEEP_SCREEN_ON set to avoid potential EGL surface
