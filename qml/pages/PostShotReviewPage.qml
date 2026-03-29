@@ -462,7 +462,7 @@ Page {
                     color: Theme.surfaceColor
                     border.width: 1
                     border.color: Theme.textSecondaryColor
-                    opacity: (refConnected && !refMeasuring) ? 1.0 : 0.5
+                    opacity: refMeasuring ? 0.5 : 1.0
                     Accessible.ignored: true
 
                     Text {
@@ -479,12 +479,18 @@ Page {
 
                     AccessibleMouseArea {
                         anchors.fill: parent
-                        accessibleName: TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                        accessibleName: readTdsButton.refConnected
+                            ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                            : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
                         accessibleItem: readTdsButton
-                        enabled: readTdsButton.refConnected && !readTdsButton.refMeasuring
+                        enabled: !readTdsButton.refMeasuring
                         onAccessibleClicked: {
-                            if (typeof Refractometer !== "undefined" && Refractometer)
-                                Refractometer.requestMeasurement()
+                            if (readTdsButton.refConnected) {
+                                if (typeof Refractometer !== "undefined" && Refractometer)
+                                    Refractometer.requestMeasurement()
+                            } else {
+                                BLEManager.tryDirectConnectToRefractometer()
+                            }
                         }
                     }
                 }
