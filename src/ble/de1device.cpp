@@ -404,18 +404,70 @@ void DE1Device::parseVersion(const QByteArray& data) {
 
     const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
 
+    // BLE: APIVersion(1), Release(1), Commits(2), Changes(1), Sha(4)
     int bleApi = d[0];
     double bleRelease = BinaryCodec::decodeF8_1_7(d[1]);
+    uint16_t bleCommits = (static_cast<uint16_t>(d[2]) << 8) | d[3];
+    int bleChanges = d[4];
+    // FW: APIVersion(1), Release(1), Commits(2), Changes(1), Sha(4)
     int fwApi = d[5];
     double fwRelease = BinaryCodec::decodeF8_1_7(d[6]);
+    uint16_t fwCommits = (static_cast<uint16_t>(d[7]) << 8) | d[8];
+    int fwChanges = d[9];
 
-    m_firmwareVersion = QString("FW %1.%2, BLE %3.%4")
-        .arg(fwApi).arg(fwRelease, 0, 'f', 1)
-        .arg(bleApi).arg(bleRelease, 0, 'f', 1);
+    // Line 1: BLE version (matches de1app format)
+    m_firmwareVersion = QString("BLE v%1.%2.%3, API v%4")
+        .arg(bleRelease, 0, 'f', 1).arg(bleChanges).arg(bleCommits).arg(bleApi);
+    // Line 2: FW version (only if different SHA, matching de1app)
+    m_firmwareVersion += QString("\nFW v%1.%2.%3, API v%4")
+        .arg(fwRelease, 0, 'f', 1).arg(fwChanges).arg(fwCommits).arg(fwApi);
     emit firmwareVersionChanged();
 
     // Trigger full initialization after version is received (like de1app does)
     sendInitialSettings();
+}
+
+void DE1Device::rebuildVersionLine3() {
+    // Build the third line: "pcb=1.3, model=DE1PRO, firmware=v1342"
+    // Only emit once we have at least the firmware build number
+    if (m_firmwareBuildNumber == 0) return;
+
+    // Strip any existing third line
+    int nlCount = 0;
+    int cutPos = -1;
+    for (int i = 0; i < m_firmwareVersion.size(); ++i) {
+        if (m_firmwareVersion[i] == QLatin1Char('\n')) {
+            nlCount++;
+            if (nlCount == 2) { cutPos = i; break; }
+        }
+    }
+    if (cutPos >= 0)
+        m_firmwareVersion = m_firmwareVersion.left(cutPos);
+
+    static const QStringList modelNames = {
+        QStringLiteral("unknown"),  // 0
+        QStringLiteral("DE1"),      // 1
+        QStringLiteral("DE1+"),     // 2
+        QStringLiteral("DE1PRO"),   // 3
+        QStringLiteral("DE1XL"),    // 4
+        QStringLiteral("DE1CAFE"),  // 5
+        QStringLiteral("DE1XXL"),   // 6
+        QStringLiteral("DE1XXXL")   // 7
+    };
+
+    QStringList parts;
+    if (m_cpuBoardModel > 0) {
+        parts << QString("pcb=%1").arg(m_cpuBoardModel / 1000.0, 0, 'f', 1);
+    }
+    if (m_machineModel > 0 && m_machineModel < modelNames.size()) {
+        parts << QString("model=%1").arg(modelNames[m_machineModel]);
+    }
+    parts << QString("firmware=v%1").arg(m_firmwareBuildNumber);
+
+    m_firmwareVersion += QStringLiteral("\n") + parts.join(QStringLiteral(", "));
+    emit firmwareVersionChanged();
+
+    qDebug() << "[BLE DE1] Machine info:" << parts.join(", ");
 }
 
 void DE1Device::requestGHCStatus() {
@@ -466,18 +518,37 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             emit isHeadlessChanged();
         }
     }
+    // CPU board model (address 0x800008) — e.g. 1300 = pcb 1.3
+    else if (address == 0x800008) {
+        if (data.size() >= 8) {
+            uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
+                           static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
+            m_cpuBoardModel = val;
+            rebuildVersionLine3();
+        }
+    }
+    // Machine model (address 0x80000C) — 1=DE1, 2=DE1+, 3=DE1PRO, etc.
+    else if (address == 0x80000C) {
+        if (data.size() >= 8) {
+            uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
+                           static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
+            m_machineModel = static_cast<int>(val);
+            rebuildVersionLine3();
+        }
+    }
     // Firmware build number (address 0x800010) — e.g. 1342 for "v1342"
     else if (address == 0x800010) {
         if (data.size() >= 8) {
-            uint32_t buildNumber = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
-                                   (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
-                                   (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
-                                   static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
-            m_firmwareBuildNumber = static_cast<int>(buildNumber);
-            // Append build number to the version string
-            m_firmwareVersion = QString("%1, v%2").arg(m_firmwareVersion).arg(m_firmwareBuildNumber);
-            emit firmwareVersionChanged();
-            qDebug() << "[BLE DE1] Firmware build number:" << m_firmwareBuildNumber;
+            uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
+                           (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
+                           static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
+            m_firmwareBuildNumber = static_cast<int>(val);
+            rebuildVersionLine3();
         }
     }
     // Check if this is REFILL_KIT response (address 0x80385C)
@@ -940,13 +1011,15 @@ void DE1Device::sendInitialSettings() {
 
     m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
 
-    // Read firmware build number (CPU firmware, e.g. v1342)
-    {
+    // Read machine identity MMRs (CPU board model, machine model, firmware build)
+    // These populate the third line of the firmware version string
+    for (uint32_t addr : {DE1::MMR::CPU_BOARD_MODEL, DE1::MMR::MACHINE_MODEL,
+                          DE1::MMR::FIRMWARE_VERSION}) {
         QByteArray req(20, 0);
-        req[0] = 0x00;   // Len = 0 (read 4 bytes)
-        req[1] = 0x80;
-        req[2] = 0x00;
-        req[3] = 0x10;   // Address 0x800010
+        req[0] = 0x00;
+        req[1] = static_cast<char>((addr >> 16) & 0xFF);
+        req[2] = static_cast<char>((addr >> 8) & 0xFF);
+        req[3] = static_cast<char>(addr & 0xFF);
         m_transport->write(DE1::Characteristic::READ_FROM_MMR, req);
     }
 

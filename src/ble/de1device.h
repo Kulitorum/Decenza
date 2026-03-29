@@ -221,6 +221,7 @@ private:
     void parseWaterLevel(const QByteArray& data);
     void parseVersion(const QByteArray& data);
     void parseMMRResponse(const QByteArray& data);
+    void rebuildVersionLine3();
     void requestGHCStatus();
 
     void sendInitialSettings();
@@ -246,6 +247,8 @@ private:
     int m_lastEmittedWaterLevelMl = -1;    // Throttle: also emit when ml changes (color thresholds)
     QString m_firmwareVersion;
     int m_firmwareBuildNumber = 0;
+    int m_machineModel = 0;
+    uint32_t m_cpuBoardModel = 0;
 
     bool m_connecting = false;
     bool m_simulationMode = false;
