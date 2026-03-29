@@ -1564,13 +1564,144 @@ int main(int argc, char *argv[])
                 // FLAG_LAYOUT_NO_LIMITS = 0x200 - extend window into navigation bar area
                 window.callMethod<void>("addFlags", "(I)V", 0x200);
 
-                // Immersive sticky mode flags
+                // API 30+ (Android 11): use WindowInsetsController (modern replacement
+                // for the deprecated setSystemUiVisibility) and tell Android to not
+                // offset the content area for system bars. Fixes a gap at the top of
+                // the screen on some tablets (e.g. Lenovo Tab One #582) where the
+                // deprecated API doesn't fully prevent content insets.
+                if (QNativeInterface::QAndroidApplication::sdkVersion() >= 30) {
+                    // Content extends behind system bars — app handles its own layout
+                    window.callMethod<void>("setDecorFitsSystemWindows", "(Z)V", false);
+
+                    QJniObject insetsController = window.callObjectMethod(
+                        "getInsetsController",
+                        "()Landroid/view/WindowInsetsController;");
+                    if (insetsController.isValid()) {
+                        // Hide status bars and navigation bars
+                        jint statusBars = QJniObject::callStaticMethod<jint>(
+                            "android/view/WindowInsets$Type", "statusBars", "()I");
+                        jint navBars = QJniObject::callStaticMethod<jint>(
+                            "android/view/WindowInsets$Type", "navigationBars", "()I");
+                        insetsController.callMethod<void>("hide", "(I)V",
+                            statusBars | navBars);
+
+                        // BEHAVIOR_SHOW_TRANSIENT_BARS_BY_GESTURE = 2
+                        insetsController.callMethod<void>(
+                            "setSystemBarsBehavior", "(I)V", 2);
+                    }
+                }
+
+                // Legacy API (all versions): setSystemUiVisibility for API 28-29,
+                // and as fallback on devices where WindowInsetsController has quirks.
                 // IMMERSIVE_STICKY | FULLSCREEN | HIDE_NAVIGATION | LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN
                 // 0x1000 | 0x4 | 0x2 | 0x100 | 0x200 | 0x400 = 0x1706
                 QJniObject decorView = window.callObjectMethod("getDecorView", "()Landroid/view/View;");
                 if (decorView.isValid()) {
                     decorView.callMethod<void>("setSystemUiVisibility", "(I)V", 0x1706);
                 }
+
+                // --- Diagnostic logging for #582 (gap at top on some tablets) ---
+                if (decorView.isValid()) {
+                    // DecorView dimensions (the root Android view)
+                    jint dw = decorView.callMethod<jint>("getWidth", "()I");
+                    jint dh = decorView.callMethod<jint>("getHeight", "()I");
+                    qDebug() << "[#582 diag] DecorView size:" << dw << "x" << dh;
+
+                    // Content view position and size within DecorView
+                    // android.R.id.content = 0x01020002
+                    QJniObject contentView = decorView.callObjectMethod(
+                        "findViewById", "(I)Landroid/view/View;", 0x01020002);
+                    if (contentView.isValid()) {
+                        jint cx = contentView.callMethod<jint>("getLeft", "()I");
+                        jint cy = contentView.callMethod<jint>("getTop", "()I");
+                        jint cw = contentView.callMethod<jint>("getWidth", "()I");
+                        jint ch = contentView.callMethod<jint>("getHeight", "()I");
+                        qDebug() << "[#582 diag] ContentView pos:" << cx << cy
+                                 << "size:" << cw << "x" << ch;
+                    }
+
+                    // Root window insets (API 23+)
+                    QJniObject rootInsets = decorView.callObjectMethod(
+                        "getRootWindowInsets", "()Landroid/view/WindowInsets;");
+                    if (rootInsets.isValid()) {
+                        if (QNativeInterface::QAndroidApplication::sdkVersion() >= 30) {
+                            // Modern insets API — get system bars and display cutout insets
+                            jint barType = QJniObject::callStaticMethod<jint>(
+                                "android/view/WindowInsets$Type", "systemBars", "()I");
+                            QJniObject barInsets = rootInsets.callObjectMethod(
+                                "getInsets", "(I)Landroid/graphics/Insets;", barType);
+                            if (barInsets.isValid()) {
+                                qDebug() << "[#582 diag] systemBars insets:"
+                                         << "top=" << barInsets.getField<jint>("top")
+                                         << "bottom=" << barInsets.getField<jint>("bottom")
+                                         << "left=" << barInsets.getField<jint>("left")
+                                         << "right=" << barInsets.getField<jint>("right");
+                            }
+                            jint cutoutType = QJniObject::callStaticMethod<jint>(
+                                "android/view/WindowInsets$Type", "displayCutout", "()I");
+                            QJniObject cutoutInsets = rootInsets.callObjectMethod(
+                                "getInsets", "(I)Landroid/graphics/Insets;", cutoutType);
+                            if (cutoutInsets.isValid()) {
+                                qDebug() << "[#582 diag] displayCutout insets:"
+                                         << "top=" << cutoutInsets.getField<jint>("top")
+                                         << "bottom=" << cutoutInsets.getField<jint>("bottom")
+                                         << "left=" << cutoutInsets.getField<jint>("left")
+                                         << "right=" << cutoutInsets.getField<jint>("right");
+                            }
+                        }
+                        // Display cutout object (API 28+)
+                        QJniObject cutout = rootInsets.callObjectMethod(
+                            "getDisplayCutout", "()Landroid/view/DisplayCutout;");
+                        if (cutout.isValid()) {
+                            qDebug() << "[#582 diag] DisplayCutout present:"
+                                     << "safeTop=" << cutout.callMethod<jint>("getSafeInsetTop", "()I")
+                                     << "safeBottom=" << cutout.callMethod<jint>("getSafeInsetBottom", "()I")
+                                     << "safeLeft=" << cutout.callMethod<jint>("getSafeInsetLeft", "()I")
+                                     << "safeRight=" << cutout.callMethod<jint>("getSafeInsetRight", "()I");
+                        } else {
+                            qDebug() << "[#582 diag] DisplayCutout: none";
+                        }
+                    }
+                }
+
+                // Screen real size vs display size
+                QJniObject windowManager = activity.callObjectMethod(
+                    "getWindowManager", "()Landroid/view/WindowManager;");
+                if (windowManager.isValid()) {
+                    QJniObject display = windowManager.callObjectMethod(
+                        "getDefaultDisplay", "()Landroid/view/Display;");
+                    if (display.isValid()) {
+                        // getRealSize — full physical screen including system bars
+                        QJniObject realSize("android/graphics/Point");
+                        display.callMethod<void>("getRealSize", "(Landroid/graphics/Point;)V",
+                            realSize.object());
+                        jint rx = realSize.getField<jint>("x");
+                        jint ry = realSize.getField<jint>("y");
+
+                        // getSize — usable display area
+                        QJniObject usableSize("android/graphics/Point");
+                        display.callMethod<void>("getSize", "(Landroid/graphics/Point;)V",
+                            usableSize.object());
+                        jint ux = usableSize.getField<jint>("x");
+                        jint uy = usableSize.getField<jint>("y");
+
+                        qDebug() << "[#582 diag] Screen realSize:" << rx << "x" << ry
+                                 << "usableSize:" << ux << "x" << uy
+                                 << "diff:" << (rx - ux) << (ry - uy);
+                    }
+                }
+
+                // LayoutParams cutout mode
+                QJniObject attrs = window.callObjectMethod(
+                    "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
+                if (attrs.isValid()) {
+                    jint cutoutMode = attrs.getField<jint>("layoutInDisplayCutoutMode");
+                    // 0=default, 1=shortEdges, 2=never, 3=always
+                    qDebug() << "[#582 diag] layoutInDisplayCutoutMode:" << cutoutMode;
+                }
+                qDebug() << "[#582 diag] SDK version:"
+                         << QNativeInterface::QAndroidApplication::sdkVersion();
+                // --- End diagnostic logging ---
             }
         });
     }
