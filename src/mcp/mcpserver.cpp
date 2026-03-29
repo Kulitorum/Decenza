@@ -218,20 +218,28 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             if (!session && sessionHeader.isEmpty() && m_sessions.size() == 1) {
                 session = m_sessions.begin().value();
             }
-            // Auto-recover: if session expired or ID is stale, create a new one
-            // instead of hard-failing. mcp-remote can't re-initialize on its own,
-            // so rejecting here leaves the client permanently broken until restart.
+            // Auto-recover: if session expired or ID is stale, reuse the sole
+            // remaining session if possible, otherwise create a new one.
+            // mcp-remote can't re-initialize on its own, so rejecting here
+            // leaves the client permanently broken until restart.
             if (!session) {
-                qDebug() << "McpServer: Session not found (expired or stale), auto-creating new session";
-                session = findOrCreateSession(QString());
-                if (!session) {
-                    sendJsonRpcError(socket, -32000, "Too many sessions",
-                                     request["id"].toVariant(), sessionHeader);
-                    return;
+                if (m_sessions.size() == 1) {
+                    // Only one session exists — the client almost certainly belongs
+                    // to it. Reuse it to avoid leaking a new session on every request.
+                    session = m_sessions.begin().value();
+                    qDebug() << "McpServer: Stale session header, reusing sole session" << session->id();
+                } else {
+                    qDebug() << "McpServer: Session not found (expired or stale), auto-creating new session";
+                    session = findOrCreateSession(QString());
+                    if (!session) {
+                        sendJsonRpcError(socket, -32000, "Too many sessions",
+                                         request["id"].toVariant(), sessionHeader);
+                        return;
+                    }
+                    // Mark as initialized — the client already completed initialize
+                    // in a prior session, so skip the handshake requirement
+                    session->setInitialized(true);
                 }
-                // Mark as initialized — the client already completed initialize
-                // in a prior session, so skip the handshake requirement
-                session->setInitialized(true);
             }
             if (!session->initialized() && rpcMethod != "notifications/initialized"
                 && rpcMethod != "ping") {
