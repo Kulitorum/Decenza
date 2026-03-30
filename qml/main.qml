@@ -15,7 +15,17 @@ ApplicationWindow {
     width: 960
     height: 600
     title: "Decenza"
-    color: screensaverActive ? "black" : Theme.backgroundColor
+    color: Theme.backgroundColor
+
+    // Override Qt 6.9+ automatic safe area padding on ApplicationWindow.
+    // Qt reads Android system bar insets and offsets contentItem, even in
+    // fullscreen immersive mode. This causes a gap on some tablets (e.g.
+    // Lenovo Tab One #582). Since we run fullscreen with system bars hidden,
+    // there is nothing to protect content from — use the full window.
+    topPadding: 0
+    bottomPadding: 0
+    leftPadding: 0
+    rightPadding: 0
 
     // Debug flag to force live view on operation pages (for development)
     property bool debugLiveView: false
