@@ -85,6 +85,13 @@ Page {
         }
     }
 
+    // Deselect preset when user edits any DYE field — presets are immutable favorites
+    function deselectPresetOnEdit() {
+        if (!isEditMode && Settings.selectedBeanPreset >= 0) {
+            Settings.selectedBeanPreset = -1
+        }
+    }
+
     // Check if there's actual bean data loaded (not just empty)
     function hasGuestBeanData() {
         return Settings.dyeBeanBrand.length > 0 || Settings.dyeBeanType.length > 0
@@ -533,12 +540,8 @@ Page {
                                                 // This may trigger Repeater model rebuild and destroy this delegate,
                                                 // but all critical work is already done above.
                                                 if (oldSelected >= 0 && oldSelected !== targetIndex) {
-                                                    var oldPreset = s.getBeanPreset(oldSelected)
-                                                    s.updateBeanPreset(oldSelected,
-                                                        oldPreset.name || "",
-                                                        oldBrand, oldType, oldRoastDate,
-                                                        oldRoastLevel, oldGrinderBrand, oldGrinderModel,
-                                                        oldGrinderBurrs, oldGrinderSetting)
+                                                    // Don't save DYE changes back to the old preset —
+                                                    // presets are immutable favorites, not live-synced
                                                 }
                                             }
                                             beanPill.Drag.drop()
@@ -611,7 +614,10 @@ Page {
                                 anchors.fill: parent
                                 accessibleName: TranslationManager.translate("beaninfo.accessibility.addpreset", "Add new bean preset")
                                 accessibleItem: addBeanButton
-                                onAccessibleClicked: savePresetDialog.open()
+                                onAccessibleClicked: {
+                                    savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
+                                    savePresetDialog.open()
+                                }
                             }
                         }
                     }
@@ -644,10 +650,10 @@ Page {
                         if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
                         return list
                     }
-                    onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else Settings.dyeBeanBrand = t; }
+                    onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else { Settings.dyeBeanBrand = t; deselectPresetOnEdit(); } }
                     onSuggestionSelected: function(t) {
                         if (isEditMode) { editBeanType = ""; editRoastDate = ""; }
-                        else { Settings.dyeBeanType = ""; Settings.dyeRoastDate = ""; }
+                        else { Settings.dyeBeanType = ""; Settings.dyeRoastDate = ""; deselectPresetOnEdit(); }
                         var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
                         if (types.length === 1) {
                             if (isEditMode) editBeanType = types[0]; else Settings.dyeBeanType = types[0];
@@ -669,9 +675,9 @@ Page {
                         if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
                         return list
                     }
-                    onTextEdited: function(t) { if (isEditMode) editBeanType = t; else Settings.dyeBeanType = t; }
+                    onTextEdited: function(t) { if (isEditMode) editBeanType = t; else { Settings.dyeBeanType = t; deselectPresetOnEdit(); } }
                     onSuggestionSelected: function(t) {
-                        if (isEditMode) editRoastDate = ""; else Settings.dyeRoastDate = "";
+                        if (isEditMode) editRoastDate = ""; else { Settings.dyeRoastDate = ""; deselectPresetOnEdit(); }
                     }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -689,7 +695,7 @@ Page {
                         text: isEditMode ? editRoastDate : Settings.dyeRoastDate
                         inputHints: Qt.ImhDate
                         inputMask: "9999-99-99"
-                        onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
+                        onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else { Settings.dyeRoastDate = t; deselectPresetOnEdit(); } }
                     }
 
                     AccessibleButton {
@@ -733,12 +739,12 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) {
-                        if (isEditMode) editGrinderBrand = t; else Settings.dyeGrinderBrand = t;
+                        if (isEditMode) editGrinderBrand = t; else { Settings.dyeGrinderBrand = t; deselectPresetOnEdit(); }
                     }
                     onSuggestionSelected: function(t) {
                         // Clear model and burrs, then auto-fill if only one option
                         if (isEditMode) { editGrinderModel = ""; editGrinderBurrs = ""; }
-                        else { Settings.dyeGrinderModel = ""; Settings.dyeGrinderBurrs = ""; }
+                        else { Settings.dyeGrinderModel = ""; Settings.dyeGrinderBurrs = ""; deselectPresetOnEdit(); }
                         var models = Settings.knownGrinderModels(t)
                         if (models.length === 1) {
                             if (isEditMode) editGrinderModel = models[0]; else Settings.dyeGrinderModel = models[0];
@@ -767,7 +773,7 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) {
-                        if (isEditMode) editGrinderModel = t; else Settings.dyeGrinderModel = t;
+                        if (isEditMode) editGrinderModel = t; else { Settings.dyeGrinderModel = t; deselectPresetOnEdit(); }
                     }
                     onSuggestionSelected: function(t) {
                         // Auto-fill burrs if only one option
@@ -796,7 +802,7 @@ Page {
                         }
                         return merged
                     }
-                    onTextEdited: function(t) { if (isEditMode) editGrinderBurrs = t; else Settings.dyeGrinderBurrs = t; }
+                    onTextEdited: function(t) { if (isEditMode) editGrinderBurrs = t; else { Settings.dyeGrinderBurrs = t; deselectPresetOnEdit(); } }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
 
@@ -811,7 +817,7 @@ Page {
                         TranslationManager.translate("shotmetadata.roastlevel.mediumdark", "Medium-Dark"),
                         TranslationManager.translate("shotmetadata.roastlevel.dark", "Dark")]
                     currentValue: isEditMode ? editRoastLevel : Settings.dyeRoastLevel
-                    onValueChanged: function(v) { if (isEditMode) editRoastLevel = v; else Settings.dyeRoastLevel = v; }
+                    onValueChanged: function(v) { if (isEditMode) editRoastLevel = v; else { Settings.dyeRoastLevel = v; deselectPresetOnEdit(); } }
                 }
 
                 SuggestionField {
@@ -825,7 +831,7 @@ Page {
                         if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
                         return list
                     }
-                    onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else Settings.dyeGrinderSetting = t; }
+                    onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else { Settings.dyeGrinderSetting = t; deselectPresetOnEdit(); } }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
 
@@ -1072,17 +1078,19 @@ Page {
         closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property string suggestedName: ""  // Set before opening to pre-fill
+        property bool goBackAfterSave: false  // Navigate back after saving (unsaved changes flow)
 
         onOpened: {
             popupKeyboardOffset = shotMetadataPage.height * 0.25
             // Use suggested name if provided, otherwise clear
             newBeanNameInput.text = suggestedName
-            suggestedName = ""  // Reset for next time
+            suggestedName = ""
             newBeanNameInput.forceActiveFocus()
         }
 
         onClosed: {
             popupKeyboardOffset = 0
+            goBackAfterSave = false
         }
 
         background: Rectangle {
@@ -1160,8 +1168,11 @@ Page {
                             if (savedIndex >= 0) {
                                 Settings.selectedBeanPreset = savedIndex
                             }
+                            var shouldGoBack = savePresetDialog.goBackAfterSave
                             newBeanNameInput.text = ""
+                            savePresetDialog.goBackAfterSave = false
                             savePresetDialog.close()
+                            if (shouldGoBack) root.goBack()
                         }
                     }
                 }
@@ -1371,23 +1382,40 @@ Page {
                     accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
                     onClicked: {
                         unsavedChangesDialog.close()
-                        // Save current values to the selected preset (if any)
+                        // Don't save DYE changes back to the preset —
+                        // presets are immutable favorites. Just keep DYE as-is and deselect.
                         if (Settings.selectedBeanPreset >= 0) {
-                            var preset = Settings.getBeanPreset(Settings.selectedBeanPreset)
-                            if (preset && preset.name !== undefined) {
-                                Settings.updateBeanPreset(Settings.selectedBeanPreset,
-                                    preset.name || "",
-                                    Settings.dyeBeanBrand,
-                                    Settings.dyeBeanType,
-                                    Settings.dyeRoastDate,
-                                    Settings.dyeRoastLevel,
-                                    Settings.dyeGrinderBrand,
-                                    Settings.dyeGrinderModel,
-                                    Settings.dyeGrinderBurrs,
-                                    Settings.dyeGrinderSetting)
-                            }
+                            Settings.selectedBeanPreset = -1
                         }
                         root.goBack()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.primaryColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("beaninfo.unsaved.saveFavorite", "Save Favorite")
+                    accessibleName: TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")
+                    onClicked: {
+                        unsavedChangesDialog.close()
+                        // Open the save preset dialog with suggested name from current DYE fields
+                        savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
+                        savePresetDialog.goBackAfterSave = true
+                        savePresetDialog.open()
                     }
                     background: Rectangle {
                         radius: Theme.buttonRadius
