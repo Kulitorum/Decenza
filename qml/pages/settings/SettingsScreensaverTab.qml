@@ -382,6 +382,7 @@ Item {
 
         // Screensaver settings
         Rectangle {
+            objectName: "screensaver"
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.surfaceColor

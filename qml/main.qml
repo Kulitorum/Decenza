@@ -1498,7 +1498,6 @@ ApplicationWindow {
                             MainController.updateChecker.downloadAndInstall()
                         }
                         updateDialog.close()
-                        // Navigate to settings Update tab (index 13)
                         goToSettings(11)  // Navigate to About tab (has update controls)
 
                     }

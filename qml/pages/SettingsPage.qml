@@ -496,45 +496,50 @@ Page {
             settingsPage.highlightCardId = cardId || ""
             settingsPage.markTabLoaded(tabIndex)
             tabBar.currentIndex = tabIndex
-            // Delay to let tab load and layout before scrolling
-            if (cardId) scrollToCardTimer.restart()
+            if (cardId) scrollToCard(tabIndex, cardId)
         }
     }
 
-    // Scroll-to-card after search navigation
-    Timer {
-        id: scrollToCardTimer
-        interval: 300
-        repeat: false
-        onTriggered: {
-            var cardId = settingsPage.highlightCardId
-            if (!cardId) return
-            settingsPage.highlightCardId = ""
+    // Scroll-to-card after search navigation (event-based, no timer)
+    function scrollToCard(tabIndex, cardId) {
+        var loader = tabContent.children[tabIndex]
+        if (!loader) return
 
-            // Find the active tab's loaded item
-            var loader = tabContent.children[tabContent.currentIndex]
-            if (!loader || !loader.item) return
-            var tabItem = loader.item
-
-            // Find card by objectName recursively
-            var card = findChildByObjectName(tabItem, cardId)
-            if (!card) return
-
-            // Find the Flickable ancestor to scroll
-            var flickable = findFlickableParent(card)
-            if (flickable) {
-                // Map card position to Flickable content coordinates
-                var mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
-                var targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
-                    flickable.contentHeight - flickable.height))
-                flickable.contentY = targetY
+        if (loader.item) {
+            // Tab already loaded — scroll immediately
+            doScrollAndHighlight(loader.item, cardId)
+        } else {
+            // Wait for async Loader to finish via statusChanged signal
+            var conn = function() {
+                if (loader.status === Loader.Ready && loader.item) {
+                    loader.statusChanged.disconnect(conn)
+                    doScrollAndHighlight(loader.item, cardId)
+                }
             }
-
-            // Flash highlight
-            highlightOverlay.target = card
-            highlightOverlay.parent = card.parent
-            highlightAnimation.restart()
+            loader.statusChanged.connect(conn)
         }
+    }
+
+    function doScrollAndHighlight(tabItem, cardId) {
+        // Find card by objectName recursively
+        var card = findChildByObjectName(tabItem, cardId)
+        if (!card) return
+
+        // Find the Flickable ancestor to scroll
+        var flickable = findFlickableParent(card)
+        if (flickable) {
+            // Map card position to Flickable content coordinates
+            var mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
+            var targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
+                flickable.contentHeight - flickable.height))
+            flickable.contentY = targetY
+        }
+
+        // Flash highlight
+        highlightOverlay.target = card
+        highlightOverlay.parent = card.parent
+        highlightAnimation.restart()
+        settingsPage.highlightCardId = ""
     }
 
     function findChildByObjectName(parent, name) {

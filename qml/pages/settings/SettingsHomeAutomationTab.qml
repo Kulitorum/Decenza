@@ -15,6 +15,7 @@ KeyboardAwareContainer {
 
         // Left column: MQTT Configuration
         Rectangle {
+            objectName: "mqtt"
             Layout.preferredWidth: Theme.scaled(300)
             Layout.fillHeight: true
             color: Theme.surfaceColor

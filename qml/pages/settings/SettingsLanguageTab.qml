@@ -33,7 +33,7 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingMedium
 
-        // ========== LEFT COLUMN: Language + Translation (1/3) ==========
+        // ========== LEFT COLUMN: Language + Translation ==========
         Rectangle {
             objectName: "language"
             Layout.preferredWidth: Theme.scaled(300)
@@ -347,7 +347,7 @@ Item {
             }
         }
 
-        // ========== RIGHT COLUMN: Accessibility (2/3) ==========
+        // ========== RIGHT COLUMN: Accessibility ==========
         Rectangle {
             objectName: "accessibility"
             Layout.fillWidth: true

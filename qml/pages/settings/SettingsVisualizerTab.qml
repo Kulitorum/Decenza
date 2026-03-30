@@ -19,6 +19,7 @@ KeyboardAwareContainer {
 
         // Account settings
         Rectangle {
+            objectName: "visualizer"
             Layout.preferredWidth: Theme.scaled(350)
             Layout.fillHeight: true
             color: Theme.surfaceColor

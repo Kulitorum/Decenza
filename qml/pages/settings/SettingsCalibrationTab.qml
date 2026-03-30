@@ -163,13 +163,17 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             Text {
+                                id: resetText
                                 text: TranslationManager.translate("settings.options.reset", "Reset")
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(12)
-                                MouseArea {
+                                Accessible.ignored: true
+                                AccessibleMouseArea {
                                     anchors.fill: parent
                                     anchors.margins: -Theme.scaled(4)
-                                    onClicked: Settings.resetSawLearning()
+                                    accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTiming", "Reset weight stop timing")
+                                    accessibleItem: resetText
+                                    onAccessibleClicked: Settings.resetSawLearning()
                                 }
                             }
                         }

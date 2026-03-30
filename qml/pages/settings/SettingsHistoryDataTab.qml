@@ -803,7 +803,7 @@ KeyboardAwareContainer {
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
                 border.width: 2
-                border.color: importResultDialog.isError ? Theme.dangerColor : Theme.primaryColor
+                border.color: importResultDialog.isError ? Theme.errorColor : Theme.primaryColor
             }
 
             contentItem: Column {
@@ -813,7 +813,7 @@ KeyboardAwareContainer {
                 Text {
                     text: importResultDialog.title
                     font: Theme.subtitleFont
-                    color: importResultDialog.isError ? Theme.dangerColor : Theme.textColor
+                    color: importResultDialog.isError ? Theme.errorColor : Theme.textColor
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 

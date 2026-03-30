@@ -7,6 +7,7 @@ import "../../components/layout"
 import "../../components/library"
 
 Item {
+    objectName: "layoutEditor"
     id: layoutTab
 
     // Currently selected item for move operations

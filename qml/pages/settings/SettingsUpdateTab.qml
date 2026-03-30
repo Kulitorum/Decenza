@@ -192,7 +192,7 @@ Item {
                 // About section
                 Text {
                     Layout.fillWidth: true
-                    text: "Built by Michael Holm (Kulitorum) during Christmas 2025. Three weeks, lots of coffee, one app."
+                    text: TranslationManager.translate("about.credits", "Built by Michael Holm (Kulitorum) during Christmas 2025. Three weeks, lots of coffee, one app.")
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(13)
                     color: Theme.textColor
@@ -201,7 +201,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Thanks to the Decent community and the de1app developers for inspiration."
+                    text: TranslationManager.translate("about.communityThanks", "Thanks to the Decent community and the de1app developers for inspiration.")
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     color: Theme.textSecondaryColor
@@ -700,7 +700,7 @@ Item {
                 Layout.fillWidth: true
                 height: Theme.scaled(48)
                 radius: Theme.buttonRadius
-                color: "#0070BA"  // PayPal blue
+                color: Theme.primaryColor
 
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
@@ -719,7 +719,7 @@ Item {
                     text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
                     font.pixelSize: Theme.scaled(15)
                     font.bold: true
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     Accessible.ignored: true
                 }
             }

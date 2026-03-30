@@ -7,11 +7,22 @@
 // cardId matches the objectName on the card Rectangle in the tab QML
 // title/description are translated; keywords are English fallbacks for cross-language search
 
-function getTabName(index) {
+function getTabName(index, tr) {
+    if (!tr) tr = function(key, fallback) { return fallback }
     var names = [
-        "Connections", "Machine", "Calibration", "History & Data",
-        "Themes", "Layout", "Screensaver", "Visualizer", "AI",
-        "MQTT", "Language & Access", "About"
+        tr("settings.tab.connections", "Connections"),
+        tr("settings.tab.machine", "Machine"),
+        tr("settings.tab.calibration", "Calibration"),
+        tr("settings.tab.historyData", "History & Data"),
+        tr("settings.tab.themes", "Themes"),
+        tr("settings.tab.layout", "Layout"),
+        tr("settings.tab.screensaver", "Screensaver"),
+        tr("settings.tab.visualizer", "Visualizer"),
+        tr("settings.tab.ai", "AI"),
+        tr("settings.tab.mqtt", "MQTT"),
+        tr("settings.tab.langAccess", "Language & Access"),
+        tr("settings.tab.about", "About"),
+        tr("settings.tab.debug", "Debug")
     ]
     return index < names.length ? names[index] : ""
 }
@@ -137,7 +148,7 @@ function getSearchEntries(tr) {
           title: tr("settings.data.enablesecurity", "Enable Security"),
           description: tr("settings.search.securityDesc", "HTTPS encryption and authenticator verification"),
           keywords: ["security", "https", "totp", "authenticator", "password", "encryption"] },
-        { tabIndex: 3, cardId: "enableServer",
+        { tabIndex: 3, cardId: "shotHistory",
           title: tr("settings.data.importfrom", "Import from Another Device"),
           description: tr("settings.search.deviceMigrationDesc", "Import from another Decenza device on WiFi"),
           keywords: ["migration", "transfer", "device", "import", "wifi", "sync"] },

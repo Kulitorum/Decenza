@@ -127,6 +127,7 @@ Dialog {
                 sourceSize.height: Theme.scaled(20)
                 Layout.alignment: Qt.AlignVCenter
                 visible: source != ""
+                Accessible.ignored: true
             }
 
             StyledTextField {
@@ -163,7 +164,7 @@ Dialog {
                 radius: Theme.scaled(6)
 
                 Accessible.role: Accessible.Button
-                Accessible.name: modelData.title + ", " + SearchIndex.getTabName(modelData.tabIndex) + " tab"
+                Accessible.name: modelData.title + ", " + SearchIndex.getTabName(modelData.tabIndex, TranslationManager.translate.bind(TranslationManager)) + " tab"
                 Accessible.focusable: true
                 Accessible.onPressAction: resultMouseArea.clicked(null)
 
@@ -208,7 +209,7 @@ Dialog {
                         Text {
                             id: tabBadgeText
                             anchors.centerIn: parent
-                            text: SearchIndex.getTabName(modelData.tabIndex)
+                            text: SearchIndex.getTabName(modelData.tabIndex, TranslationManager.translate.bind(TranslationManager))
                             color: Theme.primaryColor
                             font.pixelSize: Theme.scaled(10)
                             font.bold: true

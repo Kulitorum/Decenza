@@ -36,6 +36,7 @@ KeyboardAwareContainer {
 
     // Full-width card
     Rectangle {
+        objectName: "aiProvider"
         anchors.fill: parent
         color: Theme.surfaceColor
         radius: Theme.cardRadius
@@ -396,6 +397,7 @@ KeyboardAwareContainer {
                 Item { height: Theme.scaled(8) }
 
                 RowLayout {
+                    objectName: "mcpServer"
                     Layout.fillWidth: true
                     Text {
                         text: TranslationManager.translate("settings.ai.section.mcp", "MCP Server (AI Remote Control)")
