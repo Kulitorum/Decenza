@@ -308,13 +308,15 @@ Page {
                                         colorizationColor: Theme.textSecondaryColor
                                     }
 
-                                    MouseArea {
+                                    AccessibleMouseArea {
                                         id: sparkleMouseArea
                                         anchors.fill: parent
                                         anchors.margins: Theme.scaled(-4)
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
+                                        accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
+                                        accessibleItem: sparkleIcon
+                                        onAccessibleClicked: {
                                             knowledgeDialog.profileTitle = modelData.title
                                             knowledgeDialog.content = ProfileManager.profileKnowledgeContent(modelData.title)
                                             knowledgeDialog.open()
@@ -354,22 +356,22 @@ Page {
                                     if (profileDelegate.isBuiltIn) {
                                         if (profileDelegate.isSelected) {
                                             Settings.removeSelectedBuiltInProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
-                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.removed_from_selected", "Removed from selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.addSelectedBuiltInProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
-                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.added_to_selected", "Added to selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                                         }
                                     } else {
                                         if (profileDelegate.isSelected) {
                                             Settings.addHiddenProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
-                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.removed_from_selected", "Removed from selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.removeHiddenProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
-                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.added_to_selected", "Added to selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                                         }
                                     }
                                 }
@@ -396,10 +398,10 @@ Page {
                                                 break
                                             }
                                         }
-                                        profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.removed_from_favorites", "Removed from favorites"))
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_favorites", "Removed from favorites"))
                                     } else {
                                         Settings.addFavoriteProfile(modelData.title, modelData.name)
-                                        profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.added_to_favorites", "Added to favorites"))
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_favorites", "Added to favorites"))
                                     }
                                 }
                             }
@@ -638,7 +640,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     key: "profileselector.favorites.empty"
-                    fallback: "No favorites yet.\nUse the ... menu on a profile\nto add it to favorites."
+                    fallback: "No favorites yet.\nTap the star icon on any profile\nto add it to favorites."
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -1166,6 +1168,7 @@ Page {
 
     Rectangle {
         id: profileToast
+        parent: Overlay.overlay
         visible: false
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)

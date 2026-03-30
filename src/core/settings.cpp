@@ -775,10 +775,6 @@ void Settings::setSelectedFavoriteProfile(int index) {
 }
 
 void Settings::addFavoriteProfile(const QString& name, const QString& filename) {
-    // Ensure consistency: select the profile when favoriting it
-    removeHiddenProfile(filename);
-    addSelectedBuiltInProfile(filename);
-
     QByteArray data = m_settings.value("profile/favorites").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
@@ -794,6 +790,10 @@ void Settings::addFavoriteProfile(const QString& name, const QString& filename) 
             return;
         }
     }
+
+    // Ensure consistency: un-hide and select the profile when favoriting it
+    removeHiddenProfile(filename);
+    addSelectedBuiltInProfile(filename);
 
     QJsonObject favorite;
     favorite["name"] = name;

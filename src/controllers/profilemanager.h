@@ -34,7 +34,7 @@ struct ProfileInfo {
  * isolated testing of profile/MCP functionality.
  *
  * Dependencies: Settings, DE1Device, MachineState, ProfileStorage
- * Does NOT depend on: MQTT, ShotServer, ShotHistory, Visualizer, AI, Network
+ * Does NOT depend on: MQTT, ShotServer, ShotHistory, Visualizer, Network
  */
 class ProfileManager : public QObject {
     Q_OBJECT
