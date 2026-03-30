@@ -217,7 +217,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "Update any app setting on the device. This is the tool to use when the user asks to change "
         "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
         "brew temperature (espressoTemperature), or any other setting. "
-        "Covers all QML settings tabs: preferences, connections, screensaver, accessibility, AI, "
+        "Covers all QML settings tabs: machine, calibration, connections, screensaver, accessibility, AI, "
         "espresso, steam, water, flush, DYE metadata, MQTT, themes, visualizer, update, data, "
         "history, language, debug, battery, heater, auto-favorites. "
         "API keys and passwords are excluded (sensitive). "
@@ -261,7 +261,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"dyeEspressoEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Enjoyment rating 0-100"}}},
                 {"dyeShotNotes", QJsonObject{{"type", "string"}, {"description", "Shot notes"}}},
                 {"dyeBarista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
-                // Preferences
+                // Machine
                 {"themeMode", QJsonObject{{"type", "string"}, {"description", "Theme mode: 'dark', 'light', or 'system'"}}},
                 {"darkThemeName", QJsonObject{{"type", "string"}, {"description", "Dark mode theme name"}}},
                 {"lightThemeName", QJsonObject{{"type", "string"}, {"description", "Light mode theme name"}}},
@@ -569,7 +569,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "dyeBarista";
             }
 
-            // === Preferences ===
+            // === Machine ===
             if (args.contains("themeMode")) {
                 QString v = args["themeMode"].toString();
                 addSetter([settings, v]() { settings->setThemeMode(v); });

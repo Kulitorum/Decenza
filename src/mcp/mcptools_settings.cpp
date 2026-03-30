@@ -19,7 +19,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
     registry->registerTool(
         "settings_get",
         "Read app settings. Returns all settings, specific keys, or a category of settings. "
-        "Categories match QML settings tabs: preferences, connections, screensaver, accessibility, "
+        "Categories match QML settings tabs: machine, calibration, connections, screensaver, accessibility, "
         "ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, "
         "history, language, debug, battery, heater, autofavorites",
         QJsonObject{
@@ -33,7 +33,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 {"category", QJsonObject{
                     {"type", "string"},
                     {"description", "Return only settings from this category. "
-                     "One of: preferences, connections, screensaver, accessibility, ai, "
+                     "One of: machine, calibration, connections, screensaver, accessibility, ai, "
                      "espresso, steam, water, flush, dye, mqtt, themes, visualizer, "
                      "update, data, history, language, debug, battery, heater, autofavorites"}
                 }}
@@ -60,29 +60,31 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 return true;
             };
 
-            // === Preferences ===
-            if (include("themeMode", "preferences")) result["themeMode"] = settings->themeMode();
-            if (include("darkThemeName", "preferences")) result["darkThemeName"] = settings->darkThemeName();
-            if (include("lightThemeName", "preferences")) result["lightThemeName"] = settings->lightThemeName();
-            if (include("autoSleepMinutes", "preferences")) result["autoSleepMinutes"] = settings->value("autoSleepMinutes", 60).toInt();
-            if (include("postShotReviewTimeout", "preferences")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
-            if (include("keepSteamHeaterOn", "preferences")) result["keepSteamHeaterOn"] = settings->keepSteamHeaterOn();
-            if (include("steamAutoFlushSeconds", "preferences")) result["steamAutoFlushSeconds"] = settings->steamAutoFlushSeconds();
-            if (include("refillKitOverride", "preferences")) result["refillKitOverride"] = settings->refillKitOverride();
-            if (include("waterRefillPoint", "preferences")) result["waterRefillPoint"] = settings->waterRefillPoint();
-            if (include("waterLevelDisplayUnit", "preferences")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
-            if (include("useFlowScale", "preferences")) result["useFlowScale"] = settings->useFlowScale();
-            if (include("screenBrightness", "preferences")) result["screenBrightness"] = settings->screenBrightness();
-            if (include("defaultShotRating", "preferences")) result["defaultShotRating"] = settings->defaultShotRating();
-            if (include("headlessSkipPurgeConfirm", "preferences")) result["headlessSkipPurgeConfirm"] = settings->headlessSkipPurgeConfirm();
-            if (include("launcherMode", "preferences")) result["launcherMode"] = settings->launcherMode();
-            if (include("flowCalibrationMultiplier", "preferences")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
-            if (include("autoFlowCalibration", "preferences")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
-            if (include("ignoreVolumeWithScale", "preferences")) result["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
-            if (include("autoWakeEnabled", "preferences")) result["autoWakeEnabled"] = settings->autoWakeEnabled();
-            if (include("autoWakeStayAwakeEnabled", "preferences")) result["autoWakeStayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();
-            if (include("autoWakeStayAwakeMinutes", "preferences")) result["autoWakeStayAwakeMinutes"] = settings->autoWakeStayAwakeMinutes();
-            if (include("steamTwoTapStop", "preferences")) result["steamTwoTapStop"] = settings->steamTwoTapStop();
+            // === Machine ===
+            if (include("themeMode", "machine")) result["themeMode"] = settings->themeMode();
+            if (include("darkThemeName", "machine")) result["darkThemeName"] = settings->darkThemeName();
+            if (include("lightThemeName", "machine")) result["lightThemeName"] = settings->lightThemeName();
+            if (include("autoSleepMinutes", "machine")) result["autoSleepMinutes"] = settings->value("autoSleepMinutes", 60).toInt();
+            if (include("postShotReviewTimeout", "machine")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
+            if (include("keepSteamHeaterOn", "machine")) result["keepSteamHeaterOn"] = settings->keepSteamHeaterOn();
+            if (include("steamAutoFlushSeconds", "machine")) result["steamAutoFlushSeconds"] = settings->steamAutoFlushSeconds();
+            if (include("refillKitOverride", "machine")) result["refillKitOverride"] = settings->refillKitOverride();
+            if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->waterRefillPoint();
+            if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
+            if (include("screenBrightness", "machine")) result["screenBrightness"] = settings->screenBrightness();
+            if (include("defaultShotRating", "machine")) result["defaultShotRating"] = settings->defaultShotRating();
+            if (include("headlessSkipPurgeConfirm", "machine")) result["headlessSkipPurgeConfirm"] = settings->headlessSkipPurgeConfirm();
+            if (include("launcherMode", "machine")) result["launcherMode"] = settings->launcherMode();
+            if (include("autoWakeEnabled", "machine")) result["autoWakeEnabled"] = settings->autoWakeEnabled();
+            if (include("autoWakeStayAwakeEnabled", "machine")) result["autoWakeStayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();
+            if (include("autoWakeStayAwakeMinutes", "machine")) result["autoWakeStayAwakeMinutes"] = settings->autoWakeStayAwakeMinutes();
+
+            // === Calibration ===
+            if (include("useFlowScale", "calibration")) result["useFlowScale"] = settings->useFlowScale();
+            if (include("flowCalibrationMultiplier", "calibration")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
+            if (include("autoFlowCalibration", "calibration")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
+            if (include("ignoreVolumeWithScale", "calibration")) result["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
+            if (include("steamTwoTapStop", "calibration")) result["steamTwoTapStop"] = settings->steamTwoTapStop();
 
             // === Connections ===
             if (include("machineAddress", "connections")) result["machineAddress"] = settings->machineAddress();
