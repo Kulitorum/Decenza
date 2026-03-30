@@ -37,7 +37,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                           ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, Settings* settings);
 void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineState* machineState,
-                          ProfileManager* profileManager);
+                          ProfileManager* profileManager, MainController* mainController,
+                          Settings* settings);
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         AccessibilityManager* accessibility,
@@ -81,7 +82,8 @@ void McpServer::registerAllTools()
     registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
                               m_screensaverManager, m_translationManager, m_batteryManager);
     registerDialingTools(m_toolRegistry, m_mainController, m_profileManager, m_shotHistory, m_settings);
-    registerControlTools(m_toolRegistry, m_device, m_machineState, m_profileManager);
+    registerControlTools(m_toolRegistry, m_device, m_machineState, m_profileManager,
+                         m_mainController, m_settings);
     registerWriteTools(m_toolRegistry, m_profileManager, m_shotHistory, m_settings,
                        m_accessibilityManager, m_screensaverManager,
                        m_translationManager, m_batteryManager);

@@ -87,8 +87,8 @@ Each tool has a `category` that determines the minimum access level required:
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
 | `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme |
 
 ### Tool → Confirmation Level Mapping
 
@@ -193,6 +193,28 @@ This avoids holding HTTP connections and works naturally with the conversational
 |------|-------------|----------|
 | `settings_get` | Read all app settings, specific keys, or a category. Categories: machine, calibration, connections, screensaver, accessibility, ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug, battery, heater, autofavorites. Sensitive fields (API keys, passwords) are excluded. | read |
 | `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: machine, calibration, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. Sensitive fields (API keys, passwords) excluded. | settings |
+| `reset_saw_learning` | Reset stop-at-weight learning data. Useful when switching beans or grind settings. | settings |
+| `clear_flow_calibration` | Clear per-profile flow calibration multiplier. Defaults to current profile if none specified. | settings |
+| `apply_theme` | Apply a preset theme ('Default Dark', 'Default Light', or user-created). | settings |
+| `backup_now` | Create an immediate backup of database, settings, profiles, and media. | control |
+| `mqtt_connect` | Connect to the configured MQTT broker. | control |
+| `mqtt_disconnect` | Disconnect from the MQTT broker. | control |
+| `mqtt_publish_discovery` | Publish Home Assistant MQTT discovery messages. Requires connected broker. | control |
+
+### Devices & Scale
+| Tool | Description | Category |
+|------|-------------|----------|
+| `devices_list` | List discovered BLE devices (DE1 machines and scales) | read |
+| `devices_scan` | Start scanning for BLE devices | control |
+| `devices_connect_scale` | Connect to a scale by BLE address | control |
+| `devices_connect_de1` | Connect to a DE1 machine by BLE address | control |
+| `devices_disconnect_scale` | Disconnect and forget the current BLE scale | control |
+| `devices_connection_status` | Get connection status of DE1 machine and scale | read |
+| `scale_tare` | Tare (zero) the connected scale | control |
+| `scale_timer_start` | Start the scale's built-in timer | control |
+| `scale_timer_stop` | Stop the scale's built-in timer | control |
+| `scale_timer_reset` | Reset the scale's built-in timer | control |
+| `scale_get_weight` | Get current weight and flow rate from the scale | read |
 
 ### AI Dial-In Conversation (key feature)
 

@@ -622,7 +622,7 @@ tools = d.get('result',{}).get('tools',[])
 print(json.dumps([t['name'] for t in tools]))
 " 2>/dev/null)
 
-CONTROL_TOOLS="machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame"
+CONTROL_TOOLS="machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame backup_now mqtt_connect mqtt_disconnect mqtt_publish_discovery devices_connect_de1 devices_disconnect_scale reset_saw_learning clear_flow_calibration apply_theme"
 for tool in $CONTROL_TOOLS; do
     assert_ok "control tool '$tool' registered" "$TOOLS_JSON2" \
         "'$tool' in d"
@@ -638,6 +638,42 @@ assert_ok "machine_stop rejects when not flowing" "$STOP" \
 SKIP_RAW=$(rpc 72 "tools/call" '{"name":"machine_skip_frame","arguments":{}}')
 SKIP_RESULT=$(echo "$SKIP_RAW" | parse_tool_result)
 assert_ok "machine_skip_frame rejects when not extracting" "$SKIP_RESULT" \
+    "'error' in d"
+
+# Test backup_now
+BACKUP_RAW=$(rpc 73 "tools/call" '{"name":"backup_now","arguments":{"confirmed":true}}')
+BACKUP_RESULT=$(echo "$BACKUP_RAW" | parse_tool_result)
+assert_ok "backup_now returns success or error" "$BACKUP_RESULT" \
+    "'success' in d or 'error' in d"
+
+# Test reset_saw_learning
+SAW_RAW=$(rpc 74 "tools/call" '{"name":"reset_saw_learning","arguments":{"confirmed":true}}')
+SAW_RESULT=$(echo "$SAW_RAW" | parse_tool_result)
+assert_ok "reset_saw_learning succeeds" "$SAW_RESULT" \
+    "d.get('success') == True"
+
+# Test clear_flow_calibration (with no profile — should use current)
+FLOWCAL_RAW=$(rpc 75 "tools/call" '{"name":"clear_flow_calibration","arguments":{}}')
+FLOWCAL_RESULT=$(echo "$FLOWCAL_RAW" | parse_tool_result)
+assert_ok "clear_flow_calibration returns success or error" "$FLOWCAL_RESULT" \
+    "'success' in d or 'error' in d"
+
+# Test apply_theme
+THEME_RAW=$(rpc 76 "tools/call" '{"name":"apply_theme","arguments":{"name":"Default Dark"}}')
+THEME_RESULT=$(echo "$THEME_RAW" | parse_tool_result)
+assert_ok "apply_theme succeeds" "$THEME_RESULT" \
+    "d.get('success') == True"
+
+# Test mqtt_connect (may fail if no broker configured — just check it responds)
+MQTT_RAW=$(rpc 77 "tools/call" '{"name":"mqtt_connect","arguments":{}}')
+MQTT_RESULT=$(echo "$MQTT_RAW" | parse_tool_result)
+assert_ok "mqtt_connect returns success or error" "$MQTT_RESULT" \
+    "'success' in d or 'error' in d or 'message' in d"
+
+# Test devices_connect_de1 with empty address
+DE1CON_RAW=$(rpc 78 "tools/call" '{"name":"devices_connect_de1","arguments":{"address":""}}')
+DE1CON_RESULT=$(echo "$DE1CON_RAW" | parse_tool_result)
+assert_ok "devices_connect_de1 rejects empty address" "$DE1CON_RESULT" \
     "'error' in d"
 
 echo

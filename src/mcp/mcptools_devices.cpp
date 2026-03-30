@@ -100,4 +100,59 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             return result;
         },
         "read");
+
+    // devices_connect_de1
+    registry->registerTool(
+        "devices_connect_de1",
+        "Connect to a DE1 machine by its BLE address. Use devices_list to find available machines.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"address", QJsonObject{{"type", "string"}, {"description", "BLE address of the DE1 to connect"}}}
+            }},
+            {"required", QJsonArray{"address"}}
+        },
+        [device](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!device) {
+                result["error"] = "DE1 device not available";
+                return result;
+            }
+            QString address = args["address"].toString();
+            if (address.isEmpty()) {
+                result["error"] = "address is required";
+                return result;
+            }
+            if (device->isConnected()) {
+                result["message"] = "Already connected to a DE1 machine";
+                return result;
+            }
+            QMetaObject::invokeMethod(device, "connectToDevice",
+                Qt::QueuedConnection, Q_ARG(QString, address));
+            result["success"] = true;
+            result["message"] = "Connecting to DE1 at " + address;
+            return result;
+        },
+        "control");
+
+    // devices_disconnect_scale
+    registry->registerTool(
+        "devices_disconnect_scale",
+        "Disconnect and forget the currently connected BLE scale. "
+        "The scale will need to be re-selected via devices_connect_scale.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
+        [bleManager](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            bleManager->clearSavedScale();
+            result["success"] = true;
+            result["message"] = "Scale disconnected and forgotten";
+            return result;
+        },
+        "control");
 }
