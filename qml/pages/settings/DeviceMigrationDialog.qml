@@ -39,16 +39,22 @@ Dialog {
         border.width: 1
     }
 
-    contentItem: Flickable {
-        contentHeight: migrationContent.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        flickableDirection: Flickable.VerticalFlick
+    contentItem: KeyboardAwareContainer {
+        textFields: [manualIpField, migrationTotpField]
+        targetFlickable: migrationFlickable
 
-        ColumnLayout {
-            id: migrationContent
-            width: parent.width
-            spacing: Theme.scaled(10)
+        Flickable {
+            id: migrationFlickable
+            anchors.fill: parent
+            contentHeight: migrationContent.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+
+            ColumnLayout {
+                id: migrationContent
+                width: parent.width
+                spacing: Theme.scaled(10)
 
         Tr {
             key: "settings.data.importfrom"
@@ -215,7 +221,7 @@ Dialog {
                 visible: !MainController.dataMigration.isSearching &&
                          MainController.dataMigration.discoveredDevices.length === 0 &&
                          migrationDialog.searchPerformed
-                text: TranslationManager.translate("settings.data.nodeviceshint", "Make sure the other device has Remote Access enabled in Shot History settings.")
+                text: TranslationManager.translate("settings.data.nodeviceshint", "Make sure the other device has Remote Access enabled in History & Data settings.")
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(11)
                 wrapMode: Text.WordWrap
@@ -559,6 +565,7 @@ Dialog {
                 accessibleName: TranslationManager.translate("settings.data.closeMigration", "Close device migration")
                 onClicked: migrationDialog.close()
             }
+        }
         }
     }
 }

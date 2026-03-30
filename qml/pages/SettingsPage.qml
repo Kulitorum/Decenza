@@ -47,7 +47,7 @@ Page {
         }
     }
 
-    // Search button (right end of tab bar)
+    // Search button (left end of tab bar)
     Rectangle {
         id: searchButton
         anchors.top: parent.top
@@ -514,6 +514,8 @@ Page {
                 if (loader.status === Loader.Ready && loader.item) {
                     loader.statusChanged.disconnect(conn)
                     doScrollAndHighlight(loader.item, cardId)
+                } else if (loader.status === Loader.Error) {
+                    loader.statusChanged.disconnect(conn)
                 }
             }
             loader.statusChanged.connect(conn)
@@ -542,13 +544,24 @@ Page {
         settingsPage.highlightCardId = ""
     }
 
-    function findChildByObjectName(parent, name) {
-        if (!parent) return null
-        for (var i = 0; i < parent.children.length; i++) {
-            var child = parent.children[i]
+    function findChildByObjectName(item, name) {
+        if (!item) return null
+        // Check the item itself (handles root-level objectName like SettingsLayoutTab)
+        if (item.objectName === name) return item
+        for (var i = 0; i < item.children.length; i++) {
+            var child = item.children[i]
             if (child.objectName === name) return child
             var found = findChildByObjectName(child, name)
             if (found) return found
+        }
+        // Flickable children live in contentItem, not in .children
+        if (item.contentItem && item instanceof Flickable) {
+            for (var j = 0; j < item.contentItem.children.length; j++) {
+                var contentChild = item.contentItem.children[j]
+                if (contentChild.objectName === name) return contentChild
+                var found2 = findChildByObjectName(contentChild, name)
+                if (found2) return found2
+            }
         }
         return null
     }

@@ -20,7 +20,7 @@ function getTabName(index, tr) {
         tr("settings.tab.visualizer", "Visualizer"),
         tr("settings.tab.ai", "AI"),
         tr("settings.tab.mqtt", "MQTT"),
-        tr("settings.tab.langAccess", "Language & Access"),
+        tr("settings.tab.languageAccess", "Language & Access"),
         tr("settings.tab.about", "About"),
         tr("settings.tab.debug", "Debug")
     ]

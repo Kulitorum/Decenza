@@ -577,7 +577,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: "↓"
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
                         Accessible.ignored: true

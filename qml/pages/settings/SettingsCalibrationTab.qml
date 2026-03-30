@@ -211,14 +211,17 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             Text {
+                                id: calibrateText
                                 text: TranslationManager.translate("settings.calibration.calibrate", "Calibrate...")
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(12)
+                                Accessible.ignored: true
                                 AccessibleMouseArea {
                                     anchors.fill: parent
                                     anchors.margins: -Theme.scaled(4)
                                     accessibleName: TranslationManager.translate("settings.calibration.openCalibration", "Open heater calibration")
-                                    onClicked: calibrationWarningDialog.open()
+                                    accessibleItem: calibrateText
+                                    onAccessibleClicked: calibrationWarningDialog.open()
                                 }
                             }
                         }
