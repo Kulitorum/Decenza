@@ -154,8 +154,8 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
 
 void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
                                           const QByteArray& value) {
-    tickleWatchdog();
     if (characteristicUuid == Scale::Decent::READ) {
+        tickleWatchdog();
         parseWeightData(value);
     }
 }
@@ -230,7 +230,11 @@ void DecentScale::tickleWatchdog() {
 }
 
 void DecentScale::onWatchdogFired() {
-    if (!m_transport || !m_characteristicsReady) return;
+    if (!m_transport || !m_characteristicsReady) {
+        DECENT_WARN("Watchdog fired but transport/characteristics not ready — stopping watchdog");
+        stopWatchdog();
+        return;
+    }
 
     m_watchdogRetries++;
 
@@ -299,6 +303,7 @@ void DecentScale::resetTimer() {
 }
 
 void DecentScale::sleep() {
+    stopWatchdog();
     stopHeartbeat();
     if (!m_transport || !m_characteristicsReady) {
         emit sleepCompleted();

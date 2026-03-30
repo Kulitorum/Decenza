@@ -369,10 +369,9 @@ private slots:
         scale.m_characteristicsReady = true;
         scale.startWatchdog();
 
-        // Expect watchdog warnings for each retry + final exhaustion message
-        for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
+        // Expect watchdog warnings: 10 retry warnings + 1 "max retries exhausted" = 11 total
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*max retries.*"));
 
         int baseNotifyCount = transport->m_notifyEnableCount;
 
@@ -412,6 +411,45 @@ private slots:
         for (int i = 0; i < 5; i++) {
             scale.onWatchdogFired();
         }
+        QCOMPARE(transport->m_disconnectCount, 0);
+    }
+
+    void watchdogStopsOnDisconnect() {
+        // Transport disconnect should cancel the watchdog so it doesn't fire on a dead transport
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+
+        // Simulate transport disconnect (fires onTransportDisconnected via signal)
+        emit transport->disconnected();
+
+        // Wait past the initial watchdog timeout — should NOT fire
+        QTest::qWait(1500);
+
+        QCOMPARE(transport->m_notifyEnableCount, 0);
+        QCOMPARE(transport->m_disconnectCount, 0);
+    }
+
+    void watchdogGuardsCharacteristicsReady() {
+        // onWatchdogFired should log and stop when characteristics are not ready
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+
+        // Characteristics become unready (e.g., during teardown)
+        scale.m_characteristicsReady = false;
+
+        // Expect the guard warning
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*not ready.*stopping watchdog.*"));
+
+        // Fire watchdog — should log, stop watchdog, and return without re-enabling or disconnecting
+        scale.onWatchdogFired();
+
+        QCOMPARE(transport->m_notifyEnableCount, 0);
         QCOMPARE(transport->m_disconnectCount, 0);
     }
 };
