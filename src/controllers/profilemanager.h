@@ -112,6 +112,7 @@ public:
     Q_INVOKABLE QString titleToFilename(const QString& title) const;
     Q_INVOKABLE QString findProfileByTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
+    Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
 

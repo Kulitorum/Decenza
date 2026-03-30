@@ -292,12 +292,13 @@ Page {
                                 }
 
                                 Image {
+                                    id: sparkleIcon
                                     visible: modelData.hasKnowledgeBase === true
                                     source: "qrc:/icons/sparkle.svg"
                                     sourceSize.width: Theme.scaled(14)
                                     sourceSize.height: Theme.scaled(14)
                                     Layout.alignment: Qt.AlignVCenter
-                                    opacity: 0.6
+                                    opacity: sparkleMouseArea.containsMouse ? 1.0 : 0.6
                                     Accessible.ignored: true
 
                                     layer.enabled: true
@@ -305,6 +306,19 @@ Page {
                                     layer.effect: MultiEffect {
                                         colorization: 1.0
                                         colorizationColor: Theme.textSecondaryColor
+                                    }
+
+                                    MouseArea {
+                                        id: sparkleMouseArea
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.scaled(-4)
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            knowledgeDialog.profileTitle = modelData.title
+                                            knowledgeDialog.content = ProfileManager.profileKnowledgeContent(modelData.title)
+                                            knowledgeDialog.open()
+                                        }
                                     }
                                 }
                             }
@@ -933,6 +947,104 @@ Page {
                         deleteDialog.close()
                     }
                 }
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(8)
+            border.color: Theme.borderColor
+        }
+    }
+
+    // Profile AI knowledge base dialog
+    Dialog {
+        id: knowledgeDialog
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
+        height: Math.min(knowledgeContent.implicitHeight + Theme.scaled(120), parent.height - Theme.scaled(80))
+        padding: 0
+        modal: true
+
+        property string profileTitle: ""
+        property string content: ""
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.scaled(8)
+
+                Image {
+                    source: "qrc:/icons/sparkle.svg"
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.primaryColor
+                    }
+                }
+
+                Text {
+                    text: knowledgeDialog.profileTitle
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
+
+        contentItem: Flickable {
+            clip: true
+            contentHeight: knowledgeContent.implicitHeight + Theme.scaled(30)
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+
+            Text {
+                id: knowledgeContent
+                width: parent.width - Theme.scaled(40)
+                x: Theme.scaled(20)
+                y: Theme.scaled(15)
+                text: knowledgeDialog.content
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+                lineHeight: 1.4
+            }
+        }
+
+        footer: Item {
+            implicitHeight: Theme.scaled(55)
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+
+            AccessibleButton {
+                anchors.centerIn: parent
+                width: Theme.scaled(100)
+                text: TranslationManager.translate("common.button.ok", "OK")
+                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
+                onClicked: knowledgeDialog.close()
             }
         }
 
