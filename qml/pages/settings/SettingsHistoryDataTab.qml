@@ -7,13 +7,11 @@ import "../../components"
 
 KeyboardAwareContainer {
     id: historyDataTab
-    textFields: [manualIpField, totpCodeField, migrationTotpField, portField]
+    textFields: [totpCodeField, portField]
 
     // Track backup operation state
     property bool backupInProgress: false
     property bool restoreInProgress: false
-    property bool searchPerformed: false
-
     // Cache hasStoragePermission()
     property bool hasStoragePerm: Qt.platform.os !== "android" ||
         (MainController.backupManager ? MainController.backupManager.hasStoragePermission() : false)
@@ -23,13 +21,6 @@ KeyboardAwareContainer {
     }
     onVisibleChanged: {
         if (visible) recheckStoragePermission()
-    }
-
-    Connections {
-        target: MainController.dataMigration
-        function onDiscoveryComplete() {
-            historyDataTab.searchPerformed = true
-        }
     }
 
     // Hidden helper for clipboard copy
@@ -228,6 +219,21 @@ KeyboardAwareContainer {
                             }
                         }
                     }
+                }
+
+                // Divider
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: Theme.borderColor
+                }
+
+                // Import from another device
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.data.importfrom", "Import from Another Device") + "..."
+                    accessibleName: TranslationManager.translate("settings.data.importfromAccessible", "Import data from another Decenza device on your network")
+                    onClicked: deviceMigrationDialog.open()
                 }
             }
         }
@@ -691,6 +697,11 @@ KeyboardAwareContainer {
             }
     }
 
+    // Device Migration Dialog
+    DeviceMigrationDialog {
+        id: deviceMigrationDialog
+    }
+
     // File dialogs for shot import
         FileDialog {
             id: shotZipDialog
@@ -861,15 +872,7 @@ KeyboardAwareContainer {
             // Error is already shown via errorMessage property
         }
 
-        function onAuthenticationSucceeded() {
-            migrationTotpField.text = ""
-        }
-
-        function onAuthenticationFailed(error) {
-            migrationTotpField.text = ""
-            migrationAuthError.text = error
-            migrationTotpField.forceActiveFocus()
-        }
+        // Auth success/failure handled inside DeviceMigrationDialog
     }
 
     // Import complete popup

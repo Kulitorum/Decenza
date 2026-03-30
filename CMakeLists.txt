@@ -603,6 +603,7 @@ set(QML_FILES
     qml/pages/settings/SettingsUpdateTab.qml
     qml/pages/settings/SettingsDebugTab.qml
     qml/pages/settings/SettingsSearchDialog.qml
+    qml/pages/settings/DeviceMigrationDialog.qml
     qml/pages/settings/SettingsLayoutTab.qml
     qml/pages/settings/LayoutEditorZone.qml
     qml/pages/settings/AddLanguagePage.qml
