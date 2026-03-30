@@ -317,7 +317,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
 
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
             m_sseClients.remove(socket);
-            // Clear the session's SSE socket reference
+            // Clear the session's SSE socket reference — the client may reconnect
+            // SSE without re-initializing, so keep the session alive.
             for (auto* s : std::as_const(m_sessions)) {
                 if (s->sseSocket() == socket) {
                     s->setSseSocket(nullptr);
@@ -683,6 +684,25 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
             return existing;
         }
     }
+
+    // Clean up orphaned sessions before creating a new one.
+    // When mcp-remote's SSE connection drops and it re-initializes (without
+    // sending a session header), the old session stays around with no SSE
+    // socket. Over hours this fills the session quota. Remove sessions whose
+    // SSE transport is gone — the client has already moved on.
+    QStringList orphaned;
+    for (auto it = m_sessions.constBegin(); it != m_sessions.constEnd(); ++it) {
+        if (!it.value()->sseSocket())
+            orphaned.append(it.key());
+    }
+    for (const QString& id : orphaned) {
+        qDebug() << "McpServer: Removing orphaned session (no SSE socket)" << id;
+        if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == id)
+            m_pendingConfirmation.reset();
+        delete m_sessions.take(id);
+    }
+    if (!orphaned.isEmpty())
+        emit activeSessionCountChanged();
 
     if (static_cast<int>(m_sessions.size()) >= MaxSessions) {
         qWarning() << "McpServer: Too many sessions (" << m_sessions.size() << ")";
