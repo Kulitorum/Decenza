@@ -599,8 +599,7 @@ set(QML_FILES
     qml/pages/settings/SettingsAccessibilityTab.qml
     qml/pages/settings/SettingsThemesTab.qml
     qml/pages/settings/SettingsLanguageTab.qml
-    qml/pages/settings/SettingsShotHistoryTab.qml
-    qml/pages/settings/SettingsDataTab.qml
+    qml/pages/settings/SettingsHistoryDataTab.qml
     qml/pages/settings/SettingsHomeAutomationTab.qml
     qml/pages/settings/SettingsUpdateTab.qml
     qml/pages/settings/SettingsAboutTab.qml

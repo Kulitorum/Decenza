@@ -71,8 +71,7 @@ Page {
                     TranslationManager.translate("settings.tab.themes", "Themes"),
                     TranslationManager.translate("settings.tab.layout", "Layout"),
                     TranslationManager.translate("settings.tab.language", "Language"),
-                    TranslationManager.translate("settings.tab.history", "History"),
-                    TranslationManager.translate("settings.tab.data", "Data"),
+                    TranslationManager.translate("settings.tab.historyData", "History & Data"),
                     TranslationManager.translate("settings.tab.mqtt", "MQTT")
                 ]
                 if (MainController.updateChecker.canCheckForUpdates) tabNames.push(TranslationManager.translate("settings.tab.update", "Update"))
@@ -201,15 +200,9 @@ Page {
         }
 
         StyledTabButton {
-            id: historyTabButton
-            text: TranslationManager.translate("settings.tab.history", "History")
-            tabLabel: TranslationManager.translate("settings.tab.history", "History")
-        }
-
-        StyledTabButton {
-            id: dataTabButton
-            text: TranslationManager.translate("settings.tab.data", "Data")
-            tabLabel: TranslationManager.translate("settings.tab.data", "Data")
+            id: historyDataTabButton
+            text: TranslationManager.translate("settings.tab.historyData", "History & Data")
+            tabLabel: TranslationManager.translate("settings.tab.historyData", "History & Data")
         }
 
         StyledTabButton {
@@ -340,50 +333,42 @@ Page {
             source: "settings/SettingsLanguageTab.qml"
         }
 
-        // Tab 10: History - lazy loaded on first visit
+        // Tab 10: History & Data - lazy loaded on first visit
         Loader {
-            id: historyLoader
+            id: historyDataLoader
             active: 10 in settingsPage.loadedTabs
             asynchronous: true
-            source: "settings/SettingsShotHistoryTab.qml"
+            source: "settings/SettingsHistoryDataTab.qml"
         }
 
-        // Tab 11: Data - lazy loaded on first visit
-        Loader {
-            id: dataLoader
-            active: 11 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsDataTab.qml"
-        }
-
-        // Tab 12: Home Automation - lazy loaded on first visit
+        // Tab 11: Home Automation - lazy loaded on first visit
         Loader {
             id: homeAutomationLoader
-            active: 12 in settingsPage.loadedTabs
+            active: 11 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsHomeAutomationTab.qml"
         }
 
-        // Tab 13: Update - lazy loaded on first visit (not on iOS - App Store handles updates)
+        // Tab 12: Update - lazy loaded on first visit (not on iOS - App Store handles updates)
         Loader {
             id: updateLoader
-            active: MainController.updateChecker.canCheckForUpdates && (13 in settingsPage.loadedTabs)
+            active: MainController.updateChecker.canCheckForUpdates && (12 in settingsPage.loadedTabs)
             asynchronous: true
             source: "settings/SettingsUpdateTab.qml"
         }
 
-        // Tab 14: About - lazy loaded on first visit
+        // Tab 13: About - lazy loaded on first visit
         Loader {
             id: aboutLoader
-            active: 14 in settingsPage.loadedTabs
+            active: 13 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsAboutTab.qml"
         }
 
-        // Tab 15: Debug - only in debug builds, lazy loaded on first visit
+        // Tab 14: Debug - only in debug builds, lazy loaded on first visit
         Loader {
             id: debugLoader
-            active: Settings.isDebugBuild && (15 in settingsPage.loadedTabs)
+            active: Settings.isDebugBuild && (14 in settingsPage.loadedTabs)
             asynchronous: true
             source: "settings/SettingsDebugTab.qml"
         }
