@@ -596,7 +596,6 @@ set(QML_FILES
     qml/pages/settings/SettingsScreensaverTab.qml
     qml/pages/settings/SettingsVisualizerTab.qml
     qml/pages/settings/SettingsAITab.qml
-    qml/pages/settings/SettingsAccessibilityTab.qml
     qml/pages/settings/SettingsThemesTab.qml
     qml/pages/settings/SettingsLanguageTab.qml
     qml/pages/settings/SettingsHistoryDataTab.qml

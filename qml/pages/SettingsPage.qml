@@ -67,10 +67,9 @@ Page {
                     TranslationManager.translate("settings.tab.screensaver", "Screensaver"),
                     TranslationManager.translate("settings.tab.visualizer", "Visualizer"),
                     TranslationManager.translate("settings.tab.ai", "AI"),
-                    TranslationManager.translate("settings.tab.accessibility", "Accessibility"),
                     TranslationManager.translate("settings.tab.themes", "Themes"),
                     TranslationManager.translate("settings.tab.layout", "Layout"),
-                    TranslationManager.translate("settings.tab.language", "Language"),
+                    TranslationManager.translate("settings.tab.languageAccess", "Language & Access"),
                     TranslationManager.translate("settings.tab.historyData", "History & Data"),
                     TranslationManager.translate("settings.tab.mqtt", "MQTT")
                 ]
@@ -144,12 +143,6 @@ Page {
         }
 
         StyledTabButton {
-            id: accessibilityTabButton
-            text: TranslationManager.translate("settings.tab.accessibility", "Access")
-            tabLabel: TranslationManager.translate("settings.tab.accessibility.full", "Accessibility")
-        }
-
-        StyledTabButton {
             id: themesTabButton
             text: TranslationManager.translate("settings.tab.themes", "Themes")
             tabLabel: TranslationManager.translate("settings.tab.themes", "Themes")
@@ -164,8 +157,8 @@ Page {
         // Language tab with badge for untranslated strings
         StyledTabButton {
             id: languageTabButton
-            text: TranslationManager.translate("settings.tab.language", "Language")
-            tabLabel: TranslationManager.translate("settings.tab.language", "Language")
+            text: TranslationManager.translate("settings.tab.languageAccess", "Lang & Access")
+            tabLabel: TranslationManager.translate("settings.tab.languageAccess.full", "Language & Access")
 
             // Override contentItem to add badge
             contentItem: Row {
@@ -287,18 +280,10 @@ Page {
             source: "settings/SettingsAITab.qml"
         }
 
-        // Tab 6: Accessibility - lazy loaded on first visit
-        Loader {
-            id: accessibilityLoader
-            active: 6 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsAccessibilityTab.qml"
-        }
-
-        // Tab 7: Themes - lazy loaded on first visit
+        // Tab 6: Themes - lazy loaded on first visit
         Loader {
             id: themesLoader
-            active: 7 in settingsPage.loadedTabs
+            active: 6 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsThemesTab.qml"
             onLoaded: {
@@ -308,50 +293,50 @@ Page {
             }
         }
 
-        // Tab 8: Layout - lazy loaded on first visit
+        // Tab 7: Layout - lazy loaded on first visit
         Loader {
             id: layoutLoader
-            active: 8 in settingsPage.loadedTabs
+            active: 7 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsLayoutTab.qml"
         }
 
-        // Tab 9: Language - lazy loaded on first visit
+        // Tab 8: Language & Access - lazy loaded on first visit
         Loader {
             id: languageLoader
-            active: 9 in settingsPage.loadedTabs
+            active: 8 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsLanguageTab.qml"
         }
 
-        // Tab 10: History & Data - lazy loaded on first visit
+        // Tab 9: History & Data - lazy loaded on first visit
         Loader {
             id: historyDataLoader
-            active: 10 in settingsPage.loadedTabs
+            active: 9 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsHistoryDataTab.qml"
         }
 
-        // Tab 11: Home Automation - lazy loaded on first visit
+        // Tab 10: Home Automation - lazy loaded on first visit
         Loader {
             id: homeAutomationLoader
-            active: 11 in settingsPage.loadedTabs
+            active: 10 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsHomeAutomationTab.qml"
         }
 
-        // Tab 12: About (merged Update + About) - lazy loaded on first visit
+        // Tab 11: About (merged Update + About) - lazy loaded on first visit
         Loader {
             id: aboutLoader
-            active: 12 in settingsPage.loadedTabs
+            active: 11 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsUpdateTab.qml"
         }
 
-        // Tab 13: Debug - only in debug builds, lazy loaded on first visit
+        // Tab 12: Debug - only in debug builds, lazy loaded on first visit
         Loader {
             id: debugLoader
-            active: Settings.isDebugBuild && (13 in settingsPage.loadedTabs)
+            active: Settings.isDebugBuild && (12 in settingsPage.loadedTabs)
             asynchronous: true
             source: "settings/SettingsDebugTab.qml"
         }

@@ -343,6 +343,300 @@ Item {
                 Item { Layout.fillHeight: true }
             }
         }
+
+        // Third column: Accessibility
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.maximumWidth: Theme.scaled(350)
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+
+            Flickable {
+                anchors.fill: parent
+                anchors.margins: Theme.scaled(15)
+                contentHeight: accessibilityColumn.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                ColumnLayout {
+                    id: accessibilityColumn
+                    width: parent.width
+                    spacing: Theme.scaled(12)
+
+                    Tr {
+                        key: "settings.accessibility.title"
+                        fallback: "Accessibility"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.accessibility.desc"
+                        fallback: "Screen reader support and audio feedback for blind and visually impaired users"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // Enable toggle
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+
+                        Tr {
+                            key: "settings.accessibility.enable"
+                            fallback: "Enable Accessibility"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: AccessibilityManager.enabled
+                            accessibleName: TranslationManager.translate("settings.accessibility.enable", "Enable Accessibility")
+                            onCheckedChanged: AccessibilityManager.enabled = checked
+                        }
+                    }
+
+                    // TTS toggle
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+                        opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+                        Tr {
+                            key: "settings.accessibility.voiceAnnouncements"
+                            fallback: "Voice Announcements"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: AccessibilityManager.ttsEnabled
+                            enabled: AccessibilityManager.enabled
+                            accessibleName: TranslationManager.translate("settings.accessibility.voiceAnnouncements", "Voice Announcements")
+                            onCheckedChanged: {
+                                if (AccessibilityManager.enabled) {
+                                    if (checked) {
+                                        AccessibilityManager.ttsEnabled = true
+                                        AccessibilityManager.announce(TranslationManager.translate("accessibility.voiceAnnouncementsEnabled", "Voice announcements enabled"), true)
+                                    } else {
+                                        AccessibilityManager.announce(TranslationManager.translate("accessibility.voiceAnnouncementsDisabled", "Voice announcements disabled"), true)
+                                        AccessibilityManager.ttsEnabled = false
+                                    }
+                                } else {
+                                    AccessibilityManager.ttsEnabled = checked
+                                }
+                            }
+                        }
+                    }
+
+                    // Tick sound toggle
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+                        opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.accessibility.frameTick"
+                                fallback: "Frame Tick Sound"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.accessibility.frameTickDesc"
+                                fallback: "Play a tick when extraction frames change"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: AccessibilityManager.tickEnabled
+                            enabled: AccessibilityManager.enabled
+                            accessibleName: TranslationManager.translate("settings.accessibility.frameTick", "Frame Tick Sound")
+                            onCheckedChanged: {
+                                AccessibilityManager.tickEnabled = checked
+                                if (AccessibilityManager.enabled) {
+                                    AccessibilityManager.announce(checked ? TranslationManager.translate("accessibility.frameTickEnabled", "Frame tick sound enabled") : TranslationManager.translate("accessibility.frameTickDisabled", "Frame tick sound disabled"), true)
+                                }
+                            }
+                        }
+                    }
+
+                    // Tick sound picker and volume
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+                        opacity: (AccessibilityManager.enabled && AccessibilityManager.tickEnabled) ? 1.0 : 0.5
+
+                        Tr {
+                            key: "settings.accessibility.tickSound"
+                            fallback: "Tick Sound"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            value: AccessibilityManager.tickSoundIndex
+                            from: 1
+                            to: 4
+                            stepSize: 1
+                            suffix: ""
+                            displayText: TranslationManager.translate("accessibility.soundValue", "Sound %1").arg(value)
+                            accessibleName: TranslationManager.translate("accessibility.selectTickSound", "Select tick sound, 1 to 4. Current: %1").arg(value)
+                            enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
+                            onValueModified: function(newValue) {
+                                AccessibilityManager.tickSoundIndex = newValue
+                            }
+                        }
+
+                        ValueInput {
+                            value: AccessibilityManager.tickVolume
+                            from: 10
+                            to: 100
+                            stepSize: 10
+                            suffix: "%"
+                            accessibleName: TranslationManager.translate("accessibility.tickVolume", "Tick volume. Current: %1 percent").arg(value)
+                            enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
+                            onValueModified: function(newValue) {
+                                AccessibilityManager.tickVolume = newValue
+                            }
+                        }
+                    }
+
+                    // Divider
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Theme.borderColor
+                        Layout.topMargin: Theme.scaled(4)
+                        Layout.bottomMargin: Theme.scaled(4)
+                    }
+
+                    // Extraction announcements
+                    Tr {
+                        key: "settings.accessibility.extractionTitle"
+                        fallback: "Extraction Announcements"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.accessibility.extractionDesc"
+                        fallback: "Spoken updates during espresso extraction"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+
+                        Tr {
+                            key: "settings.accessibility.extractionEnable"
+                            fallback: "Enable During Extraction"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: AccessibilityManager.extractionAnnouncementsEnabled
+                            enabled: AccessibilityManager.enabled
+                            accessibleName: TranslationManager.translate("settings.accessibility.extractionEnable", "Enable During Extraction")
+                            onCheckedChanged: AccessibilityManager.extractionAnnouncementsEnabled = checked
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+                        opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
+
+                        Tr {
+                            key: "settings.accessibility.announcementMode"
+                            fallback: "Mode"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledComboBox {
+                            id: modeComboBox
+                            Layout.preferredWidth: Theme.scaled(180)
+                            accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode", "Announcement mode")
+                            enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
+                            model: [
+                                TranslationManager.translate("settings.accessibility.modeBoth", "Time + Milestones"),
+                                TranslationManager.translate("settings.accessibility.modeTimed", "Timed Updates"),
+                                TranslationManager.translate("settings.accessibility.modeMilestones", "Weight Milestones")
+                            ]
+                            currentIndex: {
+                                var mode = AccessibilityManager.extractionAnnouncementMode
+                                if (mode === "both") return 0
+                                if (mode === "timed") return 1
+                                if (mode === "milestones_only") return 2
+                                return 0
+                            }
+                            onCurrentIndexChanged: {
+                                var modes = ["both", "timed", "milestones_only"]
+                                AccessibilityManager.extractionAnnouncementMode = modes[currentIndex]
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(15)
+                        visible: AccessibilityManager.extractionAnnouncementMode !== "milestones_only"
+                        opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
+
+                        Tr {
+                            key: "settings.accessibility.updateInterval"
+                            fallback: "Update Interval"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            value: AccessibilityManager.extractionAnnouncementInterval
+                            from: 5
+                            to: 30
+                            stepSize: 5
+                            suffix: "s"
+                            accessibleName: TranslationManager.translate("settings.accessibility.updateInterval", "Update Interval")
+                            enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
+                            onValueModified: function(newValue) {
+                                AccessibilityManager.extractionAnnouncementInterval = newValue
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Delete confirmation popup
