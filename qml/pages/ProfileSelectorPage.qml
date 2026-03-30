@@ -328,11 +328,11 @@ Page {
                             // === Select/Unselect toggle (add/remove from "Selected" list) ===
                             StyledIconButton {
                                 id: selectToggleButton
-                                visible: viewFilter.currentIndex !== 0  // All views except "Selected"
+                                visible: viewFilter.currentIndex !== 0  // Hidden on "Selected" view (use overflow menu to remove)
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
-                                icon.source: profileDelegate.isSelected ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
+                                icon.source: profileDelegate.isSelected ? "qrc:/icons/box-checked.svg" : "qrc:/icons/box.svg"
                                 active: profileDelegate.isSelected
                                 accessibleName: profileDelegate.isSelected ? TranslationManager.translate("profileselector.accessible.remove_from_selected", "Remove from selected") : TranslationManager.translate("profileselector.accessible.add_to_selected", "Add to selected")
 
@@ -341,26 +341,29 @@ Page {
                                         if (profileDelegate.isSelected) {
                                             Settings.removeSelectedBuiltInProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.addSelectedBuiltInProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.added_to_selected", "Added to selected"))
                                         }
                                     } else {
                                         if (profileDelegate.isSelected) {
                                             Settings.addHiddenProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.removeHiddenProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.added_to_selected", "Added to selected"))
                                         }
                                     }
                                 }
                             }
 
-                            // === "Selected" view: Favorite toggle button (hollow/filled star) ===
+                            // === Favorite toggle button (hollow/filled star) ===
                             StyledIconButton {
                                 id: favoriteToggleButton
-                                visible: viewFilter.currentIndex === 0  // Only in "Selected" view
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
@@ -379,8 +382,10 @@ Page {
                                                 break
                                             }
                                         }
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.removed_from_favorites", "Removed from favorites"))
                                     } else {
                                         Settings.addFavoriteProfile(modelData.title, modelData.name)
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileSelector.toast.added_to_favorites", "Added to favorites"))
                                     }
                                 }
                             }
@@ -1038,6 +1043,41 @@ Page {
             radius: Theme.scaled(8)
             border.color: Theme.borderColor
         }
+    }
+
+    // Toast notification
+    function showToast(message) {
+        profileToastText.text = message
+        profileToast.visible = true
+        profileToastTimer.restart()
+    }
+
+    Rectangle {
+        id: profileToast
+        visible: false
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: profileToastText.implicitWidth + Theme.scaled(32)
+        height: Theme.scaled(40)
+        radius: Theme.scaled(20)
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: 1
+        z: 10
+
+        Text {
+            id: profileToastText
+            anchors.centerIn: parent
+            color: Theme.textColor
+            font: Theme.bodyFont
+        }
+    }
+
+    Timer {
+        id: profileToastTimer
+        interval: 3000
+        onTriggered: profileToast.visible = false
     }
 
     // Bottom bar
