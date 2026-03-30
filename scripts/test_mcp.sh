@@ -1204,11 +1204,11 @@ echo -e "${CYAN}15. Rate Limiting${NC}"
 delete_session
 create_session
 
-# Fire 11 machine_wake calls (succeeds on simulator).
-# Calls 1-10 should work, 11th should be rate limited.
+# Fire 61 machine_wake calls (succeeds on simulator).
+# Calls 1-60 should work, 61st should be rate limited (limit is 60/min).
 RATE_OK=true
-ELEVENTH_LIMITED=false
-for i in $(seq 1 11); do
+OVER_LIMIT_HIT=false
+for i in $(seq 1 61); do
     RATE_RAW=$(rpc $((100+i)) "tools/call" '{"name":"machine_wake","arguments":{}}')
     HAS_RATE_ERR=$(echo "$RATE_RAW" | python3 -c "
 import json, sys
@@ -1219,22 +1219,22 @@ try:
 except:
     print('0')
 " 2>/dev/null)
-    if [ "$i" -le 10 ] && [ "$HAS_RATE_ERR" = "1" ]; then RATE_OK=false; fi
-    if [ "$i" -eq 11 ] && [ "$HAS_RATE_ERR" = "1" ]; then ELEVENTH_LIMITED=true; fi
+    if [ "$i" -le 60 ] && [ "$HAS_RATE_ERR" = "1" ]; then RATE_OK=false; fi
+    if [ "$i" -eq 61 ] && [ "$HAS_RATE_ERR" = "1" ]; then OVER_LIMIT_HIT=true; fi
 done
 
 if [ "$RATE_OK" = true ]; then
-    echo -e "  ${GREEN}PASS${NC} first 10 control calls not rate limited"
+    echo -e "  ${GREEN}PASS${NC} first 60 control calls not rate limited"
     PASS=$((PASS + 1))
 else
-    echo -e "  ${RED}FAIL${NC} some of first 10 calls were incorrectly rate limited"
+    echo -e "  ${RED}FAIL${NC} some of first 60 calls were incorrectly rate limited"
     FAIL=$((FAIL + 1))
 fi
-if [ "$ELEVENTH_LIMITED" = true ]; then
-    echo -e "  ${GREEN}PASS${NC} 11th control call rate limited"
+if [ "$OVER_LIMIT_HIT" = true ]; then
+    echo -e "  ${GREEN}PASS${NC} 61st control call rate limited"
     PASS=$((PASS + 1))
 else
-    echo -e "  ${RED}FAIL${NC} 11th control call should be rate limited"
+    echo -e "  ${RED}FAIL${NC} 61st control call should be rate limited"
     FAIL=$((FAIL + 1))
 fi
 
