@@ -199,6 +199,7 @@ Item {
 
         // Machine Connection
         Rectangle {
+            objectName: "machineConnection"
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.surfaceColor
@@ -494,6 +495,7 @@ Item {
 
         // Scale Connection
         Rectangle {
+            objectName: "scaleConnection"
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.surfaceColor

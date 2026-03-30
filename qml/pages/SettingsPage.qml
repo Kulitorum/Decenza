@@ -15,6 +15,9 @@ Page {
     // Requested tab to switch to (set before pushing page)
     property int requestedTabIndex: -1
 
+    // Card to highlight after search navigation (cleared after use)
+    property string highlightCardId: ""
+
     // Track which tabs have been visited (lazy-load: only load tab content on first visit)
     property var loadedTabs: ({})
 
@@ -49,12 +52,14 @@ Page {
         id: searchButton
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin
-        anchors.right: parent.right
-        anchors.rightMargin: Theme.standardMargin
+        anchors.left: parent.left
+        anchors.leftMargin: Theme.standardMargin
         width: Theme.scaled(44)
         height: tabBar.height
-        color: searchMouseArea.containsMouse ? Theme.surfaceColor : "transparent"
-        radius: Theme.scaled(8)
+        color: searchMouseArea.containsMouse ? Qt.lighter(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+        radius: Theme.scaled(12)
+        border.width: 1
+        border.color: Theme.borderColor
         z: 3
 
         Accessible.role: Accessible.Button
@@ -84,10 +89,10 @@ Page {
         id: tabBar
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin
-        anchors.left: parent.left
-        anchors.leftMargin: Theme.standardMargin
-        anchors.right: searchButton.left
-        anchors.rightMargin: Theme.scaled(8)
+        anchors.left: searchButton.right
+        anchors.leftMargin: Theme.scaled(8)
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.standardMargin
         z: 2
 
         property bool accessibilityCustomHandler: true
@@ -487,9 +492,101 @@ Page {
     // Settings search dialog
     SettingsSearchDialog {
         id: settingsSearchDialog
-        onResultSelected: function(tabIndex) {
+        onResultSelected: function(tabIndex, cardId) {
+            settingsPage.highlightCardId = cardId || ""
             settingsPage.markTabLoaded(tabIndex)
             tabBar.currentIndex = tabIndex
+            // Delay to let tab load and layout before scrolling
+            if (cardId) scrollToCardTimer.restart()
+        }
+    }
+
+    // Scroll-to-card after search navigation
+    Timer {
+        id: scrollToCardTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            var cardId = settingsPage.highlightCardId
+            if (!cardId) return
+            settingsPage.highlightCardId = ""
+
+            // Find the active tab's loaded item
+            var loader = tabContent.children[tabContent.currentIndex]
+            if (!loader || !loader.item) return
+            var tabItem = loader.item
+
+            // Find card by objectName recursively
+            var card = findChildByObjectName(tabItem, cardId)
+            if (!card) return
+
+            // Find the Flickable ancestor to scroll
+            var flickable = findFlickableParent(card)
+            if (flickable) {
+                // Map card position to Flickable content coordinates
+                var mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
+                var targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
+                    flickable.contentHeight - flickable.height))
+                flickable.contentY = targetY
+            }
+
+            // Flash highlight
+            highlightOverlay.target = card
+            highlightOverlay.parent = card.parent
+            highlightAnimation.restart()
+        }
+    }
+
+    function findChildByObjectName(parent, name) {
+        if (!parent) return null
+        for (var i = 0; i < parent.children.length; i++) {
+            var child = parent.children[i]
+            if (child.objectName === name) return child
+            var found = findChildByObjectName(child, name)
+            if (found) return found
+        }
+        return null
+    }
+
+    function findFlickableParent(item) {
+        var p = item.parent
+        while (p) {
+            if (p instanceof Flickable) return p
+            p = p.parent
+        }
+        return null
+    }
+
+    // Highlight overlay for search results
+    Rectangle {
+        id: highlightOverlay
+        property Item target: null
+        visible: false
+        color: "transparent"
+        border.width: 2
+        border.color: Theme.primaryColor
+        radius: Theme.cardRadius
+        z: 100
+
+        states: State {
+            name: "positioned"
+            when: highlightOverlay.target !== null
+            PropertyChanges {
+                target: highlightOverlay
+                x: highlightOverlay.target ? highlightOverlay.target.x : 0
+                y: highlightOverlay.target ? highlightOverlay.target.y : 0
+                width: highlightOverlay.target ? highlightOverlay.target.width : 0
+                height: highlightOverlay.target ? highlightOverlay.target.height : 0
+            }
+        }
+
+        SequentialAnimation {
+            id: highlightAnimation
+            PropertyAction { target: highlightOverlay; property: "visible"; value: true }
+            PropertyAction { target: highlightOverlay; property: "opacity"; value: 1 }
+            NumberAnimation { target: highlightOverlay; property: "opacity"; from: 1; to: 0; duration: 2000; easing.type: Easing.InQuad }
+            PropertyAction { target: highlightOverlay; property: "visible"; value: false }
+            PropertyAction { target: highlightOverlay; property: "target"; value: null }
         }
     }
 

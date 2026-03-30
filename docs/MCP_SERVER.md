@@ -191,8 +191,8 @@ This avoids holding HTTP connections and works naturally with the conversational
 ### Settings
 | Tool | Description | Category |
 |------|-------------|----------|
-| `settings_get` | Read all app settings, specific keys, or a category. Categories: preferences, connections, screensaver, accessibility, ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug, battery, heater, autofavorites. Sensitive fields (API keys, passwords) are excluded. | read |
-| `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: preferences, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. Sensitive fields (API keys, passwords) excluded. | settings |
+| `settings_get` | Read all app settings, specific keys, or a category. Categories: machine, calibration, connections, screensaver, accessibility, ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug, battery, heater, autofavorites. Sensitive fields (API keys, passwords) are excluded. | read |
+| `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: machine, calibration, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. Sensitive fields (API keys, passwords) excluded. | settings |
 
 ### AI Dial-In Conversation (key feature)
 

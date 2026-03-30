@@ -86,6 +86,7 @@ private:
     bool m_manualGeocoded = false;
 
     bool m_hasFreshFix = false;  // true once a live GPS fix (not cached) has been received
+    bool m_permissionRequested = false;  // true while a permission request is in-flight
 
     // Throttle reverse geocoding (don't query if position hasn't changed much)
     double m_lastGeocodedLat = 0.0;

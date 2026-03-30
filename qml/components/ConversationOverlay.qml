@@ -626,7 +626,7 @@ Rectangle {
                     ? TranslationManager.translate("aiReport.webMessage",
                         "To report issues with the AI advisor, use the AI Conversations page in the web interface to view and download the conversation, then share it with the developer.")
                     : TranslationManager.translate("aiReport.webMessageDisabled",
-                        "Remote Access must be enabled before you can report bad advice. Go to Settings → Shot History and turn on Remote Access, then try again.")
+                        "Remote Access must be enabled before you can report bad advice. Go to Settings → History & Data and turn on Remote Access, then try again.")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap

@@ -17,6 +17,7 @@ Item {
 
         // Left column: Current version info
         Rectangle {
+            objectName: "checkUpdates"
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
             color: Theme.surfaceColor
@@ -37,13 +38,13 @@ Item {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: Theme.scaled(80)
+                    height: Theme.scaled(65)
                     color: Theme.backgroundColor
                     radius: Theme.scaled(8)
 
                     ColumnLayout {
                         anchors.centerIn: parent
-                        spacing: Theme.scaled(2)
+                        spacing: Theme.scaled(1)
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
@@ -56,7 +57,7 @@ Item {
                             Layout.alignment: Qt.AlignHCenter
                             text: "v" + AppVersion
                             color: Theme.accentColor
-                            font.pixelSize: Theme.scaled(22)
+                            font.pixelSize: Theme.scaled(18)
                             font.bold: true
                         }
 
@@ -108,8 +109,6 @@ Item {
                         }
                     }
                 }
-
-                Item { height: 5 }
 
                 // Auto-check toggle
                 RowLayout {
@@ -194,89 +193,38 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: "Built by Michael Holm (Kulitorum) during Christmas 2025. Three weeks, lots of coffee, one app."
-                    font: Theme.bodyFont
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.scaled(13)
                     color: Theme.textColor
                     wrapMode: Text.Wrap
-                    lineHeight: 1.4
-                }
-
-                Tr {
-                    Layout.fillWidth: true
-                    key: "about.donationMessage"
-                    fallback: "If you find this app useful, donations are welcome but never expected."
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    wrapMode: Text.Wrap
-                    lineHeight: 1.4
-                }
-
-                // Donation button
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacingSmall
-                    height: Theme.scaled(56)
-                    radius: Theme.buttonRadius
-                    color: "#0070BA"  // PayPal blue
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: donateArea.clicked(null)
-
-                    MouseArea {
-                        id: donateArea
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
-                    }
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
-                        color: "white"
-                        Accessible.ignored: true
-                    }
                 }
 
                 Text {
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacingSmall
-                    text: "paypal@kulitorum.com"
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Image {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.topMargin: Theme.spacingMedium
-                    source: "qrc:/qrcode.png"
-                    width: Theme.scaled(150)
-                    height: Theme.scaled(150)
-                    fillMode: Image.PreserveAspectFit
-                    sourceSize.width: 150
-                    sourceSize.height: 150
-                }
-
-                // Credits
-                Text {
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacingSmall
                     text: "Thanks to the Decent community and the de1app developers for inspiration."
-                    font: Theme.bodyFont
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.scaled(11)
                     color: Theme.textSecondaryColor
                     wrapMode: Text.Wrap
-                    lineHeight: 1.4
                 }
 
                 Item { Layout.fillHeight: true }
+
+                // Support button
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("about.supportProject", "Support This Project")
+                    accessibleName: TranslationManager.translate("about.supportProject", "Support This Project")
+                    primary: true
+                    onClicked: donateDialog.open()
+                }
             }
         }
 
         // Right column: Update status and actions
         Rectangle {
+            objectName: "releaseNotes"
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.surfaceColor
@@ -685,6 +633,104 @@ Item {
             NumberAnimation { target: translationUploadToast; property: "opacity"; to: 1; duration: 150 }
             PauseAnimation { duration: 2000 }
             NumberAnimation { target: translationUploadToast; property: "opacity"; to: 0; duration: 300 }
+        }
+    }
+
+    // Donate dialog
+    Dialog {
+        id: donateDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.85, Theme.scaled(360))
+        modal: true
+        dim: true
+        padding: Theme.spacingMedium
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("about.supportProject", "Support This Project")
+                font.pixelSize: Theme.scaled(16)
+                font.bold: true
+                color: Theme.textColor
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("about.donationMessage", "If you find this app useful, donations are welcome but never expected.")
+                font.family: Theme.bodyFont.family
+                font.pixelSize: Theme.scaled(13)
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            // QR code
+            Image {
+                Layout.alignment: Qt.AlignHCenter
+                source: "qrc:/qrcode.png"
+                width: Theme.scaled(150)
+                height: Theme.scaled(150)
+                fillMode: Image.PreserveAspectFit
+                sourceSize.width: 150
+                sourceSize.height: 150
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: "paypal@kulitorum.com"
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            // Donate via PayPal button
+            Rectangle {
+                Layout.fillWidth: true
+                height: Theme.scaled(48)
+                radius: Theme.buttonRadius
+                color: "#0070BA"  // PayPal blue
+
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
+                Accessible.focusable: true
+                Accessible.onPressAction: donateArea.clicked(null)
+
+                MouseArea {
+                    id: donateArea
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
+                    font.pixelSize: Theme.scaled(15)
+                    font.bold: true
+                    color: "white"
+                    Accessible.ignored: true
+                }
+            }
+
+            // Close button
+            AccessibleButton {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("common.button.close", "Close")
+                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Close dialog")
+                onClicked: donateDialog.close()
+            }
         }
     }
 }

@@ -132,8 +132,14 @@ void LocationProvider::requestUpdate()
 
     auto status = qApp->checkPermission(locationPermission);
     if (status == Qt::PermissionStatus::Undetermined) {
+        if (m_permissionRequested) {
+            qDebug() << "LocationProvider: Permission request already in-flight, skipping";
+            return;
+        }
+        m_permissionRequested = true;
         qDebug() << "LocationProvider: Requesting location permission...";
         qApp->requestPermission(locationPermission, this, [this](const QPermission& permission) {
+            m_permissionRequested = false;
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 qDebug() << "LocationProvider: Location permission granted";
                 m_source->requestUpdate(60000);

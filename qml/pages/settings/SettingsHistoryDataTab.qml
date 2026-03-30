@@ -7,7 +7,7 @@ import "../../components"
 
 KeyboardAwareContainer {
     id: historyDataTab
-    textFields: [totpCodeField, portField]
+    textFields: [totpCodeField]
 
     // Track backup operation state
     property bool backupInProgress: false
@@ -35,6 +35,7 @@ KeyboardAwareContainer {
 
         // Left column: Shot History stats and import
         Rectangle {
+            objectName: "shotHistory"
             Layout.preferredWidth: Theme.scaled(300)
             Layout.fillHeight: true
             color: Theme.surfaceColor
@@ -240,6 +241,7 @@ KeyboardAwareContainer {
 
         // Middle column: Daily Backup
         Rectangle {
+            objectName: "dailyBackup"
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
             color: Theme.surfaceColor
@@ -471,8 +473,9 @@ KeyboardAwareContainer {
             }
         }
 
-        // Left column: Server status (source device)
+        // Right column: Server & Security
         Rectangle {
+            objectName: "enableServer"
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
             color: Theme.surfaceColor

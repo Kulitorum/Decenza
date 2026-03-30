@@ -16,7 +16,7 @@ Dialog {
     padding: Theme.scaled(16)
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
-    signal resultSelected(int tabIndex)
+    signal resultSelected(int tabIndex, string cardId)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -30,27 +30,85 @@ Dialog {
         searchField.forceActiveFocus()
     }
 
-    // Filter results based on search text
-    property var allEntries: SearchIndex.getSearchEntries()
+    // Levenshtein distance for fuzzy matching
+    function editDistance(a, b) {
+        if (a.length === 0) return b.length
+        if (b.length === 0) return a.length
+        var matrix = []
+        for (var i = 0; i <= b.length; i++) matrix[i] = [i]
+        for (var j = 0; j <= a.length; j++) matrix[0][j] = j
+        for (i = 1; i <= b.length; i++) {
+            for (j = 1; j <= a.length; j++) {
+                var cost = a[j - 1] === b[i - 1] ? 0 : 1
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j - 1] + cost
+                )
+            }
+        }
+        return matrix[b.length][a.length]
+    }
+
+    // Check if queryWord fuzzy-matches any word in targetWords
+    function fuzzyWordMatch(queryWord, targetWords) {
+        var maxDist = queryWord.length <= 3 ? 0 : (queryWord.length <= 5 ? 1 : 2)
+        for (var i = 0; i < targetWords.length; i++) {
+            var tw = targetWords[i]
+            // Exact substring still works
+            if (tw.indexOf(queryWord) !== -1) return true
+            // Fuzzy: compare against words of similar length
+            if (maxDist > 0 && Math.abs(tw.length - queryWord.length) <= maxDist) {
+                if (editDistance(queryWord, tw) <= maxDist) return true
+            }
+            // Fuzzy: check if query is a fuzzy prefix of a longer word
+            if (maxDist > 0 && tw.length > queryWord.length) {
+                var prefix = tw.substring(0, queryWord.length + maxDist)
+                if (editDistance(queryWord, prefix) <= maxDist) return true
+            }
+        }
+        return false
+    }
+
+    // Rebuild entries when language changes
+    property int _langVersion: TranslationManager.translationVersion
+
+    // Filter results based on search text (with fuzzy matching)
+    property var allEntries: {
+        var v = _langVersion  // Force re-evaluation on language change
+        return SearchIndex.getSearchEntries(TranslationManager.translate.bind(TranslationManager))
+    }
     property var filteredEntries: {
         var query = searchField.text.trim().toLowerCase()
         if (query.length === 0) return allEntries
 
         var results = []
-        var words = query.split(/\s+/)
+        var queryWords = query.split(/\s+/)
 
         for (var i = 0; i < allEntries.length; i++) {
             var entry = allEntries[i]
             var searchText = (entry.title + " " + entry.description + " " + entry.keywords.join(" ")).toLowerCase()
 
-            var allMatch = true
-            for (var w = 0; w < words.length; w++) {
-                if (searchText.indexOf(words[w]) === -1) {
-                    allMatch = false
+            // Fast path: exact substring match for all query words
+            var allExact = true
+            for (var w = 0; w < queryWords.length; w++) {
+                if (searchText.indexOf(queryWords[w]) === -1) {
+                    allExact = false
                     break
                 }
             }
-            if (allMatch) results.push(entry)
+            if (allExact) { results.push(entry); continue }
+
+            // Slow path: fuzzy word matching
+            var targetWords = searchText.split(/\s+/)
+            var allFuzzy = true
+            for (w = 0; w < queryWords.length; w++) {
+                if (!fuzzyWordMatch(queryWords[w], targetWords)) {
+                    allFuzzy = false
+                    break
+                }
+            }
+            if (allFuzzy) results.push(entry)
         }
         return results
     }
@@ -165,7 +223,7 @@ Dialog {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        searchDialog.resultSelected(modelData.tabIndex)
+                        searchDialog.resultSelected(modelData.tabIndex, modelData.cardId || "")
                         searchDialog.close()
                     }
                 }

@@ -33,37 +33,39 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingMedium
 
-        // Left column: Language selection
+        // ========== LEFT COLUMN: Language + Translation (1/3) ==========
         Rectangle {
-            Layout.fillWidth: true
+            objectName: "language"
+            Layout.preferredWidth: Theme.scaled(300)
+            Layout.maximumWidth: Theme.scaled(350)
             Layout.fillHeight: true
-            Layout.maximumWidth: Theme.scaled(300)
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     key: "language.languages"
                     fallback: "Languages"
-                    font: Theme.subtitleFont
                     color: Theme.textColor
+                    font.pixelSize: Theme.scaled(16)
+                    font.bold: true
                 }
 
                 ListView {
                     id: languageList
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    Layout.preferredHeight: Theme.scaled(140)
                     clip: true
                     model: TranslationManager.availableLanguages
 
                     delegate: Item {
                         id: langDelegate
                         width: languageList.width
-                        height: Math.max(Theme.scaled(44), langContentRow.implicitHeight + Theme.scaled(8) * 2)
+                        height: Math.max(Theme.scaled(36), langContentRow.implicitHeight + Theme.scaled(6) * 2)
 
                         property bool highlighted: modelData === TranslationManager.currentLanguage
                         property string langCode: modelData
@@ -100,7 +102,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: langDelegate.nativeName !== langDelegate.displayName ? langDelegate.displayName + " (" + langDelegate.nativeName + ")" : langDelegate.displayName
                                 font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.bodyFont.pixelSize
+                                font.pixelSize: Theme.scaled(13)
                                 font.bold: langDelegate.highlighted
                                 color: {
                                     var version = TranslationManager.translationVersion  // Force re-evaluation
@@ -158,17 +160,17 @@ Item {
 
                     AccessibleButton {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(48)
+                        Layout.preferredHeight: Theme.scaled(40)
                         text: "Add..."
                         accessibleName: TranslationManager.translate("language.accessible.add", "Add language")
                         accessibleDescription: TranslationManager.translate("language.accessible.add.description", "Add a new language for translation")
                         onClicked: pageStack.push("AddLanguagePage.qml")
                     }
 
-                    // Delete button - temporarily visible
+                    // Delete button
                     AccessibleButton {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(48)
+                        Layout.preferredHeight: Theme.scaled(40)
                         visible: true
                         text: TranslationManager.translate("language.delete", "Delete")
                         accessibleName: TranslationManager.translate("language.accessible.delete", "Delete language")
@@ -180,7 +182,7 @@ Item {
 
                     AccessibleButton {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(48)
+                        Layout.preferredHeight: Theme.scaled(40)
                         text: TranslationManager.downloading ? "..." : "Update"
                         accessibleName: TranslationManager.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
                         accessibleDescription: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
@@ -189,32 +191,29 @@ Item {
                         onClicked: TranslationManager.downloadLanguage(TranslationManager.currentLanguage)
                     }
                 }
-            }
-        }
 
-        // Right column: Translation progress & actions
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
+                // Divider
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: Theme.borderColor
+                    Layout.topMargin: Theme.scaled(4)
+                    Layout.bottomMargin: Theme.scaled(4)
+                }
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
+                // Translation section
                 Tr {
                     key: "language.translation"
                     fallback: "Translation"
-                    font: Theme.subtitleFont
                     color: Theme.textColor
+                    font.pixelSize: Theme.scaled(16)
+                    font.bold: true
                 }
 
                 // Progress card (non-English only)
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: progressColumn.height + 24
+                    implicitHeight: progressColumn.height + Theme.scaled(16)
                     color: Theme.backgroundColor
                     radius: Theme.buttonRadius
                     visible: TranslationManager.currentLanguage !== "en"
@@ -224,8 +223,8 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(8)
+                        anchors.margins: Theme.scaled(10)
+                        spacing: Theme.scaled(6)
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -233,7 +232,7 @@ Item {
                             Text {
                                 text: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
                                 font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.bodyFont.pixelSize
+                                font.pixelSize: Theme.scaled(13)
                                 font.bold: true
                                 color: Theme.textColor
                             }
@@ -266,16 +265,16 @@ Item {
                             }
 
                             background: Rectangle {
-                                implicitHeight: Theme.scaled(8)
+                                implicitHeight: Theme.scaled(6)
                                 color: Theme.borderColor
-                                radius: Theme.scaled(4)
+                                radius: Theme.scaled(3)
                             }
 
                             contentItem: Item {
                                 Rectangle {
                                     width: parent.parent.visualPosition * parent.width
                                     height: parent.height
-                                    radius: Theme.scaled(4)
+                                    radius: Theme.scaled(3)
                                     color: Theme.successColor
                                 }
                             }
@@ -298,18 +297,20 @@ Item {
                 // English info
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: Theme.scaled(50)
+                    implicitHeight: englishInfoText.implicitHeight + Theme.scaled(16)
                     color: Theme.backgroundColor
                     radius: Theme.buttonRadius
                     visible: TranslationManager.currentLanguage === "en"
 
                     Text {
+                        id: englishInfoText
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.margins: Theme.scaled(8)
                         text: "English is the base language.\nYou can customize the default text below."
-                        font: Theme.bodyFont
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.scaled(12)
                         color: Theme.textSecondaryColor
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
@@ -319,6 +320,7 @@ Item {
                 // Browse strings button
                 AccessibleButton {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(40)
                     activeFocusOnTab: false
                     text: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.browseCustomize", "Browse & Customize Strings...") : TranslationManager.translate("language.browseTranslate", "Browse & Translate Strings...")
                     accessibleName: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.accessible.browse.en", "Browse and customize strings") : TranslationManager.translate("language.accessible.browse", "Browse and translate strings")
@@ -330,6 +332,7 @@ Item {
                 // Submit to community button (not for English, developer mode only)
                 AccessibleButton {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(40)
                     activeFocusOnTab: false
                     text: TranslationManager.uploading ? "Uploading..." : "Submit to Community"
                     accessibleName: TranslationManager.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
@@ -344,25 +347,19 @@ Item {
             }
         }
 
-        // Third column: Accessibility
+        // ========== RIGHT COLUMN: Accessibility (2/3) ==========
         Rectangle {
+            objectName: "accessibility"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.maximumWidth: Theme.scaled(350)
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
-            Flickable {
+            ColumnLayout {
+                id: accessibilityColumn
                 anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                contentHeight: accessibilityColumn.implicitHeight
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-
-                ColumnLayout {
-                    id: accessibilityColumn
-                    width: parent.width
-                    spacing: Theme.scaled(12)
+                anchors.margins: Theme.scaled(12)
+                spacing: Theme.scaled(6)
 
                     Tr {
                         key: "settings.accessibility.title"
@@ -377,14 +374,14 @@ Item {
                         key: "settings.accessibility.desc"
                         fallback: "Screen reader support and audio feedback for blind and visually impaired users"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.WordWrap
                     }
 
                     // Enable toggle
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
 
                         Tr {
                             key: "settings.accessibility.enable"
@@ -405,7 +402,7 @@ Item {
                     // TTS toggle
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
                         opacity: AccessibilityManager.enabled ? 1.0 : 0.5
 
                         Tr {
@@ -440,7 +437,7 @@ Item {
                     // Tick sound toggle
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
                         opacity: AccessibilityManager.enabled ? 1.0 : 0.5
 
                         ColumnLayout {
@@ -480,7 +477,7 @@ Item {
                     // Tick sound picker and volume
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
                         opacity: (AccessibilityManager.enabled && AccessibilityManager.tickEnabled) ? 1.0 : 0.5
 
                         Tr {
@@ -493,6 +490,7 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         ValueInput {
+                            Layout.maximumWidth: Theme.scaled(150)
                             value: AccessibilityManager.tickSoundIndex
                             from: 1
                             to: 4
@@ -507,6 +505,7 @@ Item {
                         }
 
                         ValueInput {
+                            Layout.maximumWidth: Theme.scaled(150)
                             value: AccessibilityManager.tickVolume
                             from: 10
                             to: 100
@@ -525,8 +524,8 @@ Item {
                         Layout.fillWidth: true
                         height: 1
                         color: Theme.borderColor
-                        Layout.topMargin: Theme.scaled(4)
-                        Layout.bottomMargin: Theme.scaled(4)
+                        Layout.topMargin: Theme.scaled(2)
+                        Layout.bottomMargin: Theme.scaled(2)
                     }
 
                     // Extraction announcements
@@ -543,13 +542,13 @@ Item {
                         key: "settings.accessibility.extractionDesc"
                         fallback: "Spoken updates during espresso extraction"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.WordWrap
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
 
                         Tr {
                             key: "settings.accessibility.extractionEnable"
@@ -570,7 +569,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
                         opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
 
                         Tr {
@@ -584,7 +583,8 @@ Item {
 
                         StyledComboBox {
                             id: modeComboBox
-                            Layout.preferredWidth: Theme.scaled(180)
+                            Layout.preferredWidth: Theme.scaled(160)
+                            Layout.maximumWidth: Theme.scaled(180)
                             accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode", "Announcement mode")
                             enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
                             model: [
@@ -608,7 +608,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
                         visible: AccessibilityManager.extractionAnnouncementMode !== "milestones_only"
                         opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
 
@@ -637,7 +637,6 @@ Item {
                 }
             }
         }
-    }
 
     // Delete confirmation popup
     Dialog {

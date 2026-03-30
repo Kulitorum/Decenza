@@ -28,6 +28,7 @@ Item {
 
                 // Flow Calibration
                 Rectangle {
+                    objectName: "flowCalibration"
                     Layout.fillWidth: true
                     implicitHeight: flowCalContent.implicitHeight + Theme.scaled(20)
                     color: Theme.surfaceColor
@@ -116,6 +117,7 @@ Item {
 
                 // Weight Stop Timing (was Stop-at-Weight Calibration)
                 Rectangle {
+                    objectName: "weightStopTiming"
                     Layout.fillWidth: true
                     implicitHeight: sawContent.implicitHeight + Theme.scaled(24)
                     color: Theme.surfaceColor
@@ -176,6 +178,7 @@ Item {
 
                 // Heater Calibration Card
                 Rectangle {
+                    objectName: "heaterCalibration"
                     Layout.fillWidth: true
                     implicitHeight: calibrateContent.implicitHeight + Theme.scaled(24)
                     color: Theme.surfaceColor
@@ -234,6 +237,7 @@ Item {
 
                 // Virtual Scale (FlowScale)
                 Rectangle {
+                    objectName: "virtualScale"
                     Layout.fillWidth: true
                     implicitHeight: flowScaleContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
@@ -286,6 +290,7 @@ Item {
 
                 // Prefer Weight over Volume (was Ignore Stop-at-Volume with Scale)
                 Rectangle {
+                    objectName: "preferWeight"
                     Layout.fillWidth: true
                     implicitHeight: ignoreVolumeContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor

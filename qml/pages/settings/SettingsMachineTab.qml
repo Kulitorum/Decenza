@@ -36,6 +36,7 @@ KeyboardAwareContainer {
 
                 // Auto-sleep settings
                 Rectangle {
+                    objectName: "autoSleep"
                     Layout.fillWidth: true
                     implicitHeight: autoSleepContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
@@ -89,6 +90,7 @@ KeyboardAwareContainer {
 
                 // Auto-Wake Timer Card
                 Rectangle {
+                    objectName: "autoWake"
                     Layout.fillWidth: true
                     implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(24)
                     color: Theme.surfaceColor
@@ -294,6 +296,7 @@ KeyboardAwareContainer {
 
                 // Battery / Charging settings
                 Rectangle {
+                    objectName: "batteryCharging"
                     Layout.fillWidth: true
                     implicitHeight: batteryContent.implicitHeight + Theme.scaled(20)
                     color: Theme.surfaceColor
@@ -492,731 +495,9 @@ KeyboardAwareContainer {
                     }
                 }
 
-            }
-
-            // ========== MIDDLE COLUMN: App Behavior ==========
-            ColumnLayout {
-                Layout.preferredWidth: Theme.scaled(350)
-                Layout.alignment: Qt.AlignTop
-                spacing: Theme.scaled(15)
-
-                // Theme mode preferences card
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: themeModeColumn.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: themeModeColumn
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
-
-                        Text {
-                            text: TranslationManager.translate("settings.preferences.themeMode", "Theme Mode")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        // Follow system theme toggle
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(15)
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                id: followSystemSwitch
-                                checked: Settings.themeMode === "system"
-                                accessibleName: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
-                                onCheckedChanged: {
-                                    if (checked) {
-                                        Settings.themeMode = "system"
-                                    } else {
-                                        Settings.themeMode = Settings.isDarkMode ? "dark" : "light"
-                                    }
-                                }
-                            }
-                        }
-
-                        // Dark theme selector
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(15)
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledComboBox {
-                                id: darkThemeCombo
-                                Layout.preferredWidth: Theme.scaled(180)
-                                accessibleLabel: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
-                                model: Settings.themeNames
-                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.darkThemeName))
-                                onActivated: Settings.applyDarkTheme(Settings.themeNames[currentIndex])
-                            }
-                        }
-
-                        // Light theme selector
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(15)
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledComboBox {
-                                id: lightThemeCombo
-                                Layout.preferredWidth: Theme.scaled(180)
-                                accessibleLabel: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
-                                model: Settings.themeNames
-                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.lightThemeName))
-                                onActivated: Settings.applyLightTheme(Settings.themeNames[currentIndex])
-                            }
-                        }
-                    }
-                }
-
-                // Extraction View Mode
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: extractionViewContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: extractionViewContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
-
-                        property string currentMode: Settings.value("espresso/extractionView", "chart")
-
-                        Connections {
-                            target: Settings
-                            function onValueChanged(key) {
-                                if (key === "espresso/extractionView") {
-                                    extractionViewContent.currentMode = Settings.value("espresso/extractionView", "chart")
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: TranslationManager.translate("settings.preferences.extractionView", "Extraction View")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.preferences.extractionViewDesc", "Visualization during espresso extraction")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Repeater {
-                            model: ListModel {
-                                ListElement { mode: "chart"; icon: "qrc:/icons/Graph.svg"; labelKey: "settings.preferences.viewChart"; labelFallback: "Shot Chart" }
-                                ListElement { mode: "cupFill"; icon: "qrc:/icons/espresso.svg"; labelKey: "settings.preferences.viewCupFill"; labelFallback: "Cup Fill" }
-                            }
-
-                            delegate: Rectangle {
-                                id: viewOptionCard
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Theme.scaled(44)
-                                radius: Theme.scaled(8)
-                                color: extractionViewContent.currentMode === model.mode
-                                    ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-                                    : Theme.backgroundColor
-                                border.color: extractionViewContent.currentMode === model.mode
-                                    ? Theme.primaryColor : Theme.borderColor
-                                border.width: extractionViewContent.currentMode === model.mode
-                                    ? Theme.scaled(2) : Theme.scaled(1)
-
-                                Accessible.ignored: true
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.scaled(12)
-                                    anchors.rightMargin: Theme.scaled(12)
-                                    spacing: Theme.scaled(10)
-
-                                    Image {
-                                        source: model.icon
-                                        sourceSize.width: Theme.scaled(20)
-                                        sourceSize.height: Theme.scaled(20)
-                                        Layout.alignment: Qt.AlignVCenter
-                                    }
-
-                                    Text {
-                                        text: TranslationManager.translate(model.labelKey, model.labelFallback)
-                                        color: Theme.textColor
-                                        font.family: Theme.bodyFont.family
-                                        font.pixelSize: Theme.bodyFont.pixelSize
-                                        Layout.fillWidth: true
-                                        Accessible.ignored: true
-                                    }
-
-                                    // Radio indicator
-                                    Rectangle {
-                                        width: Theme.scaled(18)
-                                        height: Theme.scaled(18)
-                                        radius: Theme.scaled(9)
-                                        border.color: extractionViewContent.currentMode === model.mode
-                                            ? Theme.primaryColor : Theme.textSecondaryColor
-                                        border.width: Theme.scaled(2)
-                                        color: "transparent"
-                                        Layout.alignment: Qt.AlignVCenter
-
-                                        Rectangle {
-                                            anchors.centerIn: parent
-                                            width: Theme.scaled(8)
-                                            height: Theme.scaled(8)
-                                            radius: Theme.scaled(4)
-                                            color: Theme.primaryColor
-                                            visible: extractionViewContent.currentMode === model.mode
-                                        }
-                                    }
-                                }
-
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    accessibleName: TranslationManager.translate(model.labelKey, model.labelFallback)
-                                    accessibleItem: viewOptionCard
-                                    onAccessibleClicked: {
-                                        extractionViewContent.currentMode = model.mode
-                                        Settings.setValue("espresso/extractionView", model.mode)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Post-shot review auto-close
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: postShotContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: postShotContent
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
-
-                        Text {
-                            text: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.machine.shotReviewTimerDesc", "Return to idle after reviewing shot")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Item { Layout.fillHeight: true }
-
-                        ValueInput {
-                            id: postShotReviewInput
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 31
-                            stepSize: 1
-                            decimals: 0
-                            value: machineTab.postShotReviewTimeout
-                            displayText: value === 0
-                                ? TranslationManager.translate("settings.preferences.instant", "Instant")
-                                : value === 31
-                                    ? TranslationManager.translate("settings.preferences.never", "Never")
-                                    : (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
-                            accessibleName: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
-
-                            onValueModified: function(newValue) {
-                                machineTab.postShotReviewTimeout = newValue
-                                Settings.setValue("postShotReviewTimeout", newValue)
-                            }
-                        }
-
-                        Item { Layout.fillHeight: true }
-                    }
-                }
-
-                // Screen Zoom Configuration
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: scaleContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: scaleContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
-
-                        Text {
-                            text: TranslationManager.translate("settings.machine.screenZoom", "Screen Zoom")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.machine.screenZoomDesc", "Adjust UI scale individually for each screen to optimize readability.")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(10)
-
-                            Text {
-                                text: TranslationManager.translate("settings.machine.configureZoomPerScreen", "Configure zoom per screen")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                checked: machineTab.configurePageScaleEnabled
-                                accessibleName: TranslationManager.translate("settings.machine.configureZoom", "Configure zoom per screen")
-                                onClicked: {
-                                    console.log("Switch clicked, checked =", checked)
-                                    Settings.setValue("ui/configurePageScale", checked)
-                                    // Also set Theme directly as fallback
-                                    Theme.configurePageScaleEnabled = checked
-                                    console.log("Theme.configurePageScaleEnabled =", Theme.configurePageScaleEnabled)
-                                }
-                            }
-                        }
-
-                        Text {
-                            visible: machineTab.configurePageScaleEnabled
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.machine.zoomHint", "Navigate to each screen and use the floating control to adjust its zoom.")
-                            color: Theme.primaryColor
-                            font.family: Theme.captionFont.family
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-                }
-
-                // Launcher Mode (Android only)
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: launcherContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-                    visible: Qt.platform.os === "android"
-
-                    ColumnLayout {
-                        id: launcherContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(8)
-
-                        Text {
-                            text: TranslationManager.translate("settings.options.launcherMode", "Launcher Mode")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher.")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: TranslationManager.translate("settings.options.useAsLauncher", "Use as Home Screen")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                checked: Settings.launcherMode
-                                accessibleName: TranslationManager.translate(
-                                    "settings.options.useAsLauncher", "Use as Home Screen")
-                                onToggled: Settings.launcherMode = checked
-                            }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            visible: Settings.launcherMode
-                            text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
-                            color: Theme.warningColor
-                            font.family: Theme.captionFont.family
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-                }
-
-            }
-
-            // ========== RIGHT COLUMN: Water & Features ==========
-            ColumnLayout {
-                Layout.preferredWidth: Theme.scaled(350)
-                Layout.alignment: Qt.AlignTop
-                spacing: Theme.scaled(15)
-
-                // Water Level Status
-                Rectangle {
-                    id: waterLevelCard
-                    Layout.fillWidth: true
-                    implicitHeight: waterLevelContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    property bool refillKitActive: Settings.refillKitOverride === 1 ||
-                                                    (Settings.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
-
-                    ColumnLayout {
-                        id: waterLevelContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(12)
-
-                        // Header
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(8)
-
-                            Text {
-                                text: TranslationManager.translate("settings.options.waterLevel", "Water Level")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(16)
-                                font.bold: true
-                            }
-
-                            // Refill kit active indicator
-                            Rectangle {
-                                width: Theme.scaled(20)
-                                height: Theme.scaled(20)
-                                radius: Theme.scaled(10)
-                                color: Theme.successColor + "30"
-                                visible: waterLevelCard.refillKitActive
-
-                                ColoredIcon {
-                                    anchors.centerIn: parent
-                                    source: "qrc:/icons/tick.svg"
-                                    iconWidth: Theme.scaled(12)
-                                    iconHeight: Theme.scaled(12)
-                                    iconColor: Theme.successColor
-                                }
-                            }
-
-                            Text {
-                                text: TranslationManager.translate("settings.options.refillKitActive", "Auto-refill active")
-                                color: Theme.successColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(12)
-                                visible: waterLevelCard.refillKitActive
-                            }
-                        }
-
-                        // Current water level display
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: levelDisplay.implicitHeight + Theme.scaled(20)
-                            color: {
-                                var level = DE1Device.waterLevelMm
-                                if (waterLevelCard.refillKitActive && level < 10) {
-                                    return Theme.errorColor + "20"
-                                }
-                                return Theme.backgroundColor
-                            }
-                            radius: Theme.scaled(6)
-
-                            ColumnLayout {
-                                id: levelDisplay
-                                anchors.fill: parent
-                                anchors.margins: Theme.scaled(10)
-                                spacing: Theme.scaled(4)
-
-                                Text {
-                                    text: {
-                                        var level = DE1Device.waterLevelMm
-                                        var ml = DE1Device.waterLevelMl
-                                        var percent = DE1Device.waterLevel
-                                        return ml + " ml (" + percent.toFixed(0) + "%) · " + level.toFixed(1) + " mm"
-                                    }
-                                    color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(18)
-                                    font.bold: true
-                                }
-
-                                // Warning for low water with active refill kit
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.scaled(4)
-                                    visible: waterLevelCard.refillKitActive && DE1Device.waterLevelMm < 10
-
-                                    Image {
-                                        source: Theme.emojiToImage("\u26A0")
-                                        sourceSize.width: Theme.scaled(12)
-                                        sourceSize.height: Theme.scaled(12)
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: TranslationManager.translate("settings.options.refillKitMalfunction",
-                                            "Water critically low despite refill kit - check kit connection")
-                                        color: Theme.errorColor
-                                        font.pixelSize: Theme.scaled(12)
-                                        wrapMode: Text.WordWrap
-                                    }
-                                }
-                            }
-                        }
-
-                        // Display unit toggle
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: TranslationManager.translate("settings.options.showInMl", "Show in milliliters (ml)")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                checked: Settings.waterLevelDisplayUnit === "ml"
-                                accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters")
-                                onToggled: {
-                                    Settings.waterLevelDisplayUnit = checked ? "ml" : "percent"
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Water Refill Threshold (only when refill kit is not active)
-                Rectangle {
-                    id: waterRefillThresholdCard
-                    Layout.fillWidth: true
-                    implicitHeight: refillContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-                    visible: {
-                        var override = Settings.refillKitOverride
-                        var detected = DE1Device.refillKitDetected === 1
-                        return override === 0 || (override === 2 && !detected)
-                    }
-
-                    ColumnLayout {
-                        id: refillContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(8)
-
-                        Text {
-                            text: TranslationManager.translate("settings.options.waterRefillLevel", "Water Refill Threshold")
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        ValueInput {
-                            Layout.fillWidth: true
-                            from: 3
-                            to: 70
-                            stepSize: 1
-                            decimals: 0
-                            value: Settings.waterRefillPoint
-                            suffix: " mm"
-                            accessibleName: TranslationManager.translate("settings.options.waterRefillLevelAccessible", "Water refill level")
-                            onValueModified: function(newValue) {
-                                Settings.waterRefillPoint = newValue
-                            }
-                        }
-                    }
-                }
-
-                // Refill Kit
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: refillKitContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    property bool kitAvailable: DE1Device.refillKitDetected > 0
-
-                    ColumnLayout {
-                        id: refillKitContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(8)
-                        opacity: parent.kitAvailable ? 1.0 : 0.5
-
-                        Text {
-                            text: TranslationManager.translate("settings.preferences.refillKit", "Refill Kit")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            text: {
-                                var status = DE1Device.refillKitDetected
-                                if (status === 1) return TranslationManager.translate("settings.preferences.refillKitDetected", "Status: Detected")
-                                if (status === 0) return TranslationManager.translate("settings.preferences.refillKitNotDetected", "Status: Not detected")
-                                return TranslationManager.translate("settings.preferences.refillKitUnknown", "Status: Unknown")
-                            }
-                            color: DE1Device.refillKitDetected === 1 ? Theme.successColor : Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Row {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(42)
-                            spacing: Theme.scaled(8)
-
-                            Repeater {
-                                model: [
-                                    { value: 2, label: TranslationManager.translate("settings.preferences.refillKitAuto", "Auto"), desc: TranslationManager.translate("settings.preferences.refillKitAutoDesc", "Auto-detect") },
-                                    { value: 0, label: TranslationManager.translate("settings.preferences.refillKitOff", "Off"), desc: TranslationManager.translate("settings.preferences.refillKitOffDesc", "Force off") },
-                                    { value: 1, label: TranslationManager.translate("settings.preferences.refillKitOn", "On"), desc: TranslationManager.translate("settings.preferences.refillKitOnDesc", "Force on") }
-                                ]
-
-                                delegate: Rectangle {
-                                    id: refillKitButton
-                                    width: (parent.width - 2 * parent.spacing) / 3
-                                    height: parent.height
-                                    radius: Theme.scaled(6)
-                                    color: Settings.refillKitOverride === modelData.value ?
-                                           Theme.primaryColor : Theme.backgroundColor
-                                    border.color: Settings.refillKitOverride === modelData.value ?
-                                                  Theme.primaryColor : Theme.textSecondaryColor
-                                    border.width: 1
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: Theme.scaled(2)
-
-                                        Text {
-                                            text: modelData.label
-                                            color: Settings.refillKitOverride === modelData.value ?
-                                                   "white" : Theme.textColor
-                                            font.pixelSize: Theme.scaled(14)
-                                            font.bold: true
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-
-                                        Text {
-                                            text: modelData.desc
-                                            color: Settings.refillKitOverride === modelData.value ?
-                                                   Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
-                                            font.pixelSize: Theme.scaled(10)
-                                            Layout.alignment: Qt.AlignHCenter
-                                        }
-                                    }
-
-                                    AccessibleMouseArea {
-                                        anchors.fill: parent
-                                        accessibleName: modelData.label + " refill kit mode. " + modelData.desc +
-                                                       (Settings.refillKitOverride === modelData.value ? ", selected" : "")
-                                        accessibleItem: refillKitButton
-                                        onAccessibleClicked: Settings.refillKitOverride = modelData.value
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Shot Map Settings
                 Rectangle {
+                    objectName: "shotMap"
                     Layout.fillWidth: true
                     implicitHeight: shotMapContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
@@ -1374,8 +655,740 @@ KeyboardAwareContainer {
                     }
                 }
 
+            }
+
+            // ========== MIDDLE COLUMN: App Behavior ==========
+            ColumnLayout {
+                Layout.preferredWidth: Theme.scaled(350)
+                Layout.alignment: Qt.AlignTop
+                spacing: Theme.scaled(15)
+
+                // Theme mode preferences card
+                Rectangle {
+                    objectName: "themeMode"
+                    Layout.fillWidth: true
+                    implicitHeight: themeModeColumn.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: themeModeColumn
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.themeMode", "Theme Mode")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        // Follow system theme toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                id: followSystemSwitch
+                                checked: Settings.themeMode === "system"
+                                accessibleName: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
+                                onCheckedChanged: {
+                                    if (checked) {
+                                        Settings.themeMode = "system"
+                                    } else {
+                                        Settings.themeMode = Settings.isDarkMode ? "dark" : "light"
+                                    }
+                                }
+                            }
+                        }
+
+                        // Dark theme selector
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledComboBox {
+                                id: darkThemeCombo
+                                Layout.preferredWidth: Theme.scaled(180)
+                                accessibleLabel: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
+                                model: Settings.themeNames
+                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.darkThemeName))
+                                onActivated: Settings.applyDarkTheme(Settings.themeNames[currentIndex])
+                            }
+                        }
+
+                        // Light theme selector
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledComboBox {
+                                id: lightThemeCombo
+                                Layout.preferredWidth: Theme.scaled(180)
+                                accessibleLabel: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
+                                model: Settings.themeNames
+                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.lightThemeName))
+                                onActivated: Settings.applyLightTheme(Settings.themeNames[currentIndex])
+                            }
+                        }
+                    }
+                }
+
+                // Extraction View Mode
+                Rectangle {
+                    objectName: "extractionView"
+                    Layout.fillWidth: true
+                    implicitHeight: extractionViewContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: extractionViewContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        property string currentMode: Settings.value("espresso/extractionView", "chart")
+
+                        Connections {
+                            target: Settings
+                            function onValueChanged(key) {
+                                if (key === "espresso/extractionView") {
+                                    extractionViewContent.currentMode = Settings.value("espresso/extractionView", "chart")
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.extractionView", "Extraction View")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.preferences.extractionViewDesc", "Visualization during espresso extraction")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Repeater {
+                            model: ListModel {
+                                ListElement { mode: "chart"; icon: "qrc:/icons/Graph.svg"; labelKey: "settings.preferences.viewChart"; labelFallback: "Shot Chart" }
+                                ListElement { mode: "cupFill"; icon: "qrc:/icons/espresso.svg"; labelKey: "settings.preferences.viewCupFill"; labelFallback: "Cup Fill" }
+                            }
+
+                            delegate: Rectangle {
+                                id: viewOptionCard
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.scaled(44)
+                                radius: Theme.scaled(8)
+                                color: extractionViewContent.currentMode === model.mode
+                                    ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                                    : Theme.backgroundColor
+                                border.color: extractionViewContent.currentMode === model.mode
+                                    ? Theme.primaryColor : Theme.borderColor
+                                border.width: extractionViewContent.currentMode === model.mode
+                                    ? Theme.scaled(2) : Theme.scaled(1)
+
+                                Accessible.ignored: true
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.scaled(12)
+                                    anchors.rightMargin: Theme.scaled(12)
+                                    spacing: Theme.scaled(10)
+
+                                    Image {
+                                        source: model.icon
+                                        sourceSize.width: Theme.scaled(20)
+                                        sourceSize.height: Theme.scaled(20)
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+
+                                    Text {
+                                        text: TranslationManager.translate(model.labelKey, model.labelFallback)
+                                        color: Theme.textColor
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.bodyFont.pixelSize
+                                        Layout.fillWidth: true
+                                        Accessible.ignored: true
+                                    }
+
+                                    // Radio indicator
+                                    Rectangle {
+                                        width: Theme.scaled(18)
+                                        height: Theme.scaled(18)
+                                        radius: Theme.scaled(9)
+                                        border.color: extractionViewContent.currentMode === model.mode
+                                            ? Theme.primaryColor : Theme.textSecondaryColor
+                                        border.width: Theme.scaled(2)
+                                        color: "transparent"
+                                        Layout.alignment: Qt.AlignVCenter
+
+                                        Rectangle {
+                                            anchors.centerIn: parent
+                                            width: Theme.scaled(8)
+                                            height: Theme.scaled(8)
+                                            radius: Theme.scaled(4)
+                                            color: Theme.primaryColor
+                                            visible: extractionViewContent.currentMode === model.mode
+                                        }
+                                    }
+                                }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate(model.labelKey, model.labelFallback)
+                                    accessibleItem: viewOptionCard
+                                    onAccessibleClicked: {
+                                        extractionViewContent.currentMode = model.mode
+                                        Settings.setValue("espresso/extractionView", model.mode)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Post-shot review auto-close
+                Rectangle {
+                    objectName: "shotReviewTimer"
+                    Layout.fillWidth: true
+                    implicitHeight: postShotContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: postShotContent
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        Text {
+                            text: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.machine.shotReviewTimerDesc", "Return to idle after reviewing shot")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Item { Layout.fillHeight: true }
+
+                        ValueInput {
+                            id: postShotReviewInput
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 31
+                            stepSize: 1
+                            decimals: 0
+                            value: machineTab.postShotReviewTimeout
+                            displayText: value === 0
+                                ? TranslationManager.translate("settings.preferences.instant", "Instant")
+                                : value === 31
+                                    ? TranslationManager.translate("settings.preferences.never", "Never")
+                                    : (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
+                            accessibleName: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
+
+                            onValueModified: function(newValue) {
+                                machineTab.postShotReviewTimeout = newValue
+                                Settings.setValue("postShotReviewTimeout", newValue)
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
+                // Screen Zoom Configuration
+                Rectangle {
+                    objectName: "screenZoom"
+                    Layout.fillWidth: true
+                    implicitHeight: scaleContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: scaleContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        Text {
+                            text: TranslationManager.translate("settings.machine.screenZoom", "Screen Zoom")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.machine.screenZoomDesc", "Adjust UI scale individually for each screen to optimize readability.")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(10)
+
+                            Text {
+                                text: TranslationManager.translate("settings.machine.configureZoomPerScreen", "Configure zoom per screen")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: machineTab.configurePageScaleEnabled
+                                accessibleName: TranslationManager.translate("settings.machine.configureZoom", "Configure zoom per screen")
+                                onClicked: {
+                                    console.log("Switch clicked, checked =", checked)
+                                    Settings.setValue("ui/configurePageScale", checked)
+                                    // Also set Theme directly as fallback
+                                    Theme.configurePageScaleEnabled = checked
+                                    console.log("Theme.configurePageScaleEnabled =", Theme.configurePageScaleEnabled)
+                                }
+                            }
+                        }
+
+                        Text {
+                            visible: machineTab.configurePageScaleEnabled
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.machine.zoomHint", "Navigate to each screen and use the floating control to adjust its zoom.")
+                            color: Theme.primaryColor
+                            font.family: Theme.captionFont.family
+                            font.pixelSize: Theme.captionFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                // Launcher Mode (Android only)
+                Rectangle {
+                    objectName: "launcherMode"
+                    Layout.fillWidth: true
+                    implicitHeight: launcherContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    visible: Qt.platform.os === "android"
+
+                    ColumnLayout {
+                        id: launcherContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: TranslationManager.translate("settings.options.launcherMode", "Launcher Mode")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher.")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.options.useAsLauncher", "Use as Home Screen")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.launcherMode
+                                accessibleName: TranslationManager.translate(
+                                    "settings.options.useAsLauncher", "Use as Home Screen")
+                                onToggled: Settings.launcherMode = checked
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            visible: Settings.launcherMode
+                            text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
+                            color: Theme.warningColor
+                            font.family: Theme.captionFont.family
+                            font.pixelSize: Theme.captionFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+            }
+
+            // ========== RIGHT COLUMN: Water & Features ==========
+            ColumnLayout {
+                Layout.preferredWidth: Theme.scaled(350)
+                Layout.alignment: Qt.AlignTop
+                spacing: Theme.scaled(15)
+
+                // Water Level Status
+                Rectangle {
+                    id: waterLevelCard
+                    objectName: "waterLevel"
+                    Layout.fillWidth: true
+                    implicitHeight: waterLevelContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    property bool refillKitActive: Settings.refillKitOverride === 1 ||
+                                                    (Settings.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
+
+                    ColumnLayout {
+                        id: waterLevelContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(12)
+
+                        // Header
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+
+                            Text {
+                                text: TranslationManager.translate("settings.options.waterLevel", "Water Level")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(16)
+                                font.bold: true
+                            }
+
+                            // Refill kit active indicator
+                            Rectangle {
+                                width: Theme.scaled(20)
+                                height: Theme.scaled(20)
+                                radius: Theme.scaled(10)
+                                color: Theme.successColor + "30"
+                                visible: waterLevelCard.refillKitActive
+
+                                ColoredIcon {
+                                    anchors.centerIn: parent
+                                    source: "qrc:/icons/tick.svg"
+                                    iconWidth: Theme.scaled(12)
+                                    iconHeight: Theme.scaled(12)
+                                    iconColor: Theme.successColor
+                                }
+                            }
+
+                            Text {
+                                text: TranslationManager.translate("settings.options.refillKitActive", "Auto-refill active")
+                                color: Theme.successColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(12)
+                                visible: waterLevelCard.refillKitActive
+                            }
+                        }
+
+                        // Current water level display
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: levelDisplay.implicitHeight + Theme.scaled(20)
+                            color: {
+                                var level = DE1Device.waterLevelMm
+                                if (waterLevelCard.refillKitActive && level < 10) {
+                                    return Theme.errorColor + "20"
+                                }
+                                return Theme.backgroundColor
+                            }
+                            radius: Theme.scaled(6)
+
+                            ColumnLayout {
+                                id: levelDisplay
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(10)
+                                spacing: Theme.scaled(4)
+
+                                Text {
+                                    text: {
+                                        var level = DE1Device.waterLevelMm
+                                        var ml = DE1Device.waterLevelMl
+                                        var percent = DE1Device.waterLevel
+                                        return ml + " ml (" + percent.toFixed(0) + "%) · " + level.toFixed(1) + " mm"
+                                    }
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(18)
+                                    font.bold: true
+                                }
+
+                                // Warning for low water with active refill kit
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.scaled(4)
+                                    visible: waterLevelCard.refillKitActive && DE1Device.waterLevelMm < 10
+
+                                    Image {
+                                        source: Theme.emojiToImage("\u26A0")
+                                        sourceSize.width: Theme.scaled(12)
+                                        sourceSize.height: Theme.scaled(12)
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: TranslationManager.translate("settings.options.refillKitMalfunction",
+                                            "Water critically low despite refill kit - check kit connection")
+                                        color: Theme.errorColor
+                                        font.pixelSize: Theme.scaled(12)
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+                        }
+
+                        // Display unit toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.options.showInMl", "Show in milliliters (ml)")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.waterLevelDisplayUnit === "ml"
+                                accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters")
+                                onToggled: {
+                                    Settings.waterLevelDisplayUnit = checked ? "ml" : "percent"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Water Refill Threshold (only when refill kit is not active)
+                Rectangle {
+                    id: waterRefillThresholdCard
+                    objectName: "waterRefillThreshold"
+                    Layout.fillWidth: true
+                    implicitHeight: refillContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    visible: {
+                        var override = Settings.refillKitOverride
+                        var detected = DE1Device.refillKitDetected === 1
+                        return override === 0 || (override === 2 && !detected)
+                    }
+
+                    ColumnLayout {
+                        id: refillContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: TranslationManager.translate("settings.options.waterRefillLevel", "Water Refill Threshold")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        ValueInput {
+                            Layout.fillWidth: true
+                            from: 3
+                            to: 70
+                            stepSize: 1
+                            decimals: 0
+                            value: Settings.waterRefillPoint
+                            suffix: " mm"
+                            accessibleName: TranslationManager.translate("settings.options.waterRefillLevelAccessible", "Water refill level")
+                            onValueModified: function(newValue) {
+                                Settings.waterRefillPoint = newValue
+                            }
+                        }
+                    }
+                }
+
+                // Refill Kit
+                Rectangle {
+                    objectName: "refillKit"
+                    Layout.fillWidth: true
+                    implicitHeight: refillKitContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    property bool kitAvailable: DE1Device.refillKitDetected > 0
+
+                    ColumnLayout {
+                        id: refillKitContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
+                        opacity: parent.kitAvailable ? 1.0 : 0.5
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.refillKit", "Refill Kit")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Text {
+                            text: {
+                                var status = DE1Device.refillKitDetected
+                                if (status === 1) return TranslationManager.translate("settings.preferences.refillKitDetected", "Status: Detected")
+                                if (status === 0) return TranslationManager.translate("settings.preferences.refillKitNotDetected", "Status: Not detected")
+                                return TranslationManager.translate("settings.preferences.refillKitUnknown", "Status: Unknown")
+                            }
+                            color: DE1Device.refillKitDetected === 1 ? Theme.successColor : Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        Row {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.scaled(42)
+                            spacing: Theme.scaled(8)
+
+                            Repeater {
+                                model: [
+                                    { value: 2, label: TranslationManager.translate("settings.preferences.refillKitAuto", "Auto"), desc: TranslationManager.translate("settings.preferences.refillKitAutoDesc", "Auto-detect") },
+                                    { value: 0, label: TranslationManager.translate("settings.preferences.refillKitOff", "Off"), desc: TranslationManager.translate("settings.preferences.refillKitOffDesc", "Force off") },
+                                    { value: 1, label: TranslationManager.translate("settings.preferences.refillKitOn", "On"), desc: TranslationManager.translate("settings.preferences.refillKitOnDesc", "Force on") }
+                                ]
+
+                                delegate: Rectangle {
+                                    id: refillKitButton
+                                    width: (parent.width - 2 * parent.spacing) / 3
+                                    height: parent.height
+                                    radius: Theme.scaled(6)
+                                    color: Settings.refillKitOverride === modelData.value ?
+                                           Theme.primaryColor : Theme.backgroundColor
+                                    border.color: Settings.refillKitOverride === modelData.value ?
+                                                  Theme.primaryColor : Theme.textSecondaryColor
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: Theme.scaled(2)
+
+                                        Text {
+                                            text: modelData.label
+                                            color: Settings.refillKitOverride === modelData.value ?
+                                                   "white" : Theme.textColor
+                                            font.pixelSize: Theme.scaled(14)
+                                            font.bold: true
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+
+                                        Text {
+                                            text: modelData.desc
+                                            color: Settings.refillKitOverride === modelData.value ?
+                                                   Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
+                                            font.pixelSize: Theme.scaled(10)
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
+
+                                    AccessibleMouseArea {
+                                        anchors.fill: parent
+                                        accessibleName: modelData.label + " refill kit mode. " + modelData.desc +
+                                                       (Settings.refillKitOverride === modelData.value ? ", selected" : "")
+                                        accessibleItem: refillKitButton
+                                        onAccessibleClicked: Settings.refillKitOverride = modelData.value
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Headless Machine Settings (only visible on headless machines)
                 Rectangle {
+                    objectName: "headlessMachine"
                     Layout.fillWidth: true
                     implicitHeight: headlessContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
@@ -1424,6 +1437,7 @@ KeyboardAwareContainer {
 
                 // Steam Heater Settings
                 Rectangle {
+                    objectName: "steamHeater"
                     Layout.fillWidth: true
                     implicitHeight: steamContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
@@ -1519,6 +1533,7 @@ KeyboardAwareContainer {
 
                 // Simulation Mode
                 Rectangle {
+                    objectName: "simulationMode"
                     Layout.fillWidth: true
                     implicitHeight: offlineContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor

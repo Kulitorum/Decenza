@@ -38,7 +38,7 @@ ApplicationWindow {
     property string returnToPageName: ""
     property int returnToShotId: 0
 
-    // True while the first-run restore dialog is active (prevents SettingsDataTab from also handling restore signals)
+    // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
 
     // Global accessibility: find closest Text within radius of tap
     // Use physical units: 10mm (~1cm) converted to pixels
