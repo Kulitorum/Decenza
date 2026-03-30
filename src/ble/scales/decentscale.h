@@ -42,16 +42,26 @@ private:
     void parseWeightData(const QByteArray& data);
     void sendCommand(const QByteArray& command);
     void sendHeartbeat();
-    void enableWeightNotifications(const QString& reason, bool force = false);
+    void enableWeightNotifications(const QString& reason);
     void startHeartbeat();
     void stopHeartbeat();
+    void startWatchdog();
+    void stopWatchdog();
+    void tickleWatchdog();
+    void onWatchdogFired();
     uint8_t calculateXor(const QByteArray& data);
+
+    // de1app watchdog constants
+    static constexpr int kWatchdogFirstTimeoutMs = 1000;   // Initial: 1s to verify data flowing
+    static constexpr int kWatchdogTickleTimeoutMs = 2000;   // Subsequent: 2s after each update
+    static constexpr int kWatchdogMaxRetries = 10;          // Re-enable notifications up to 10 times
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "Decent Scale";
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
-    qint64 m_lastNotificationEnableMs = 0;
-    qint64 m_lastScalePacketMs = 0;
+    bool m_watchdogUpdatesSeen = false;
+    int m_watchdogRetries = 0;
     QTimer* m_heartbeatTimer = nullptr;
+    QTimer* m_watchdogTimer = nullptr;
 };

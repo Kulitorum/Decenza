@@ -1,9 +1,11 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QRegularExpression>
 #include <QBluetoothUuid>
 
 #include "ble/scales/decentscale.h"
 #include "ble/scales/bookooscale.h"
+#include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
 
 // Test BLE packet parsing for scale implementations.
@@ -13,6 +15,26 @@
 // de1app references:
 //   Decent: de1plus/scale.tcl proc decent_scale_parse_response
 //   Bookoo: de1plus/scale.tcl proc bookoo_parse_response
+
+// Minimal mock transport for watchdog tests
+class MockScaleBleTransport : public ScaleBleTransport {
+    Q_OBJECT
+public:
+    explicit MockScaleBleTransport(QObject* parent = nullptr) : ScaleBleTransport(parent) {}
+
+    void connectToDevice(const QString&, const QString&) override {}
+    void disconnectFromDevice() override { m_disconnectCount++; }
+    void discoverServices() override {}
+    void discoverCharacteristics(const QBluetoothUuid&) override {}
+    void enableNotifications(const QBluetoothUuid&, const QBluetoothUuid&) override { m_notifyEnableCount++; }
+    void writeCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&,
+                             const QByteArray&, WriteType = WriteType::WithResponse) override {}
+    void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override {}
+    bool isConnected() const override { return true; }
+
+    int m_notifyEnableCount = 0;
+    int m_disconnectCount = 0;
+};
 
 class tst_ScaleProtocol : public QObject {
     Q_OBJECT
@@ -293,6 +315,104 @@ private slots:
 
         BookooScale bookoo(nullptr);
         bookoo.onCharacteristicChanged(Scale::Bookoo::STATUS, single);
+    }
+
+    // ==========================================
+    // DecentScale: watchdog behavior
+    // ==========================================
+
+    void watchdogFiresWhenNoData() {
+        // Watchdog should fire and re-enable notifications when no weight data arrives
+        auto* transport = new MockScaleBleTransport;  // DecentScale takes ownership via setParent
+        DecentScale scale(transport);
+
+        // Simulate characteristics discovered to arm the watchdog
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+
+        // Expect watchdog warning after timeout
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+
+        // Wait for initial watchdog timeout (1s) + margin
+        QTest::qWait(1200);
+
+        // Watchdog should have re-enabled notifications at least once
+        QVERIFY(transport->m_notifyEnableCount >= 1);
+    }
+
+    void watchdogTickleResetsTimer() {
+        // Weight data arriving should prevent the watchdog from firing
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+
+        // Feed data before the 1s initial timeout
+        QTest::qWait(500);
+        auto pkt = buildDecentWeightPacket(18.0);
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        int countAfterTickle = transport->m_notifyEnableCount;
+
+        // Wait past the initial timeout — should NOT fire since we tickled
+        QTest::qWait(800);
+
+        QCOMPARE(transport->m_notifyEnableCount, countAfterTickle);
+    }
+
+    void watchdogDisconnectsAfterMaxRetries() {
+        // After 10 failed retries, watchdog should disconnect for reconnection
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+
+        // Expect watchdog warnings for each retry + final exhaustion message
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*max retries.*"));
+
+        int baseNotifyCount = transport->m_notifyEnableCount;
+
+        // Manually fire the watchdog 10 times (faster than waiting 10+ seconds)
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++) {
+            scale.onWatchdogFired();
+        }
+
+        QCOMPARE(transport->m_disconnectCount, 1);
+        // Should have re-enabled notifications for retries 1-9 (10th triggers disconnect)
+        QCOMPARE(transport->m_notifyEnableCount - baseNotifyCount, DecentScale::kWatchdogMaxRetries - 1);
+    }
+
+    void watchdogRetryCountResetsOnData() {
+        // Receiving data should reset the retry counter
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+
+        // Expect watchdog warnings for retry attempts
+        for (int i = 0; i < 10; i++)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+
+        // Fire watchdog 5 times (half of max)
+        for (int i = 0; i < 5; i++) {
+            scale.onWatchdogFired();
+        }
+        QCOMPARE(transport->m_disconnectCount, 0);
+
+        // Data arrives — resets retry count
+        auto pkt = buildDecentWeightPacket(20.0);
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        // Fire 5 more times — should NOT disconnect (retries reset to 0)
+        for (int i = 0; i < 5; i++) {
+            scale.onWatchdogFired();
+        }
+        QCOMPARE(transport->m_disconnectCount, 0);
     }
 };
 
