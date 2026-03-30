@@ -422,6 +422,9 @@ private slots:
         scale.m_characteristicsReady = true;
         scale.startWatchdog();
 
+        // Expect the disconnect warning from onTransportDisconnected
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
+
         // Simulate transport disconnect (fires onTransportDisconnected via signal)
         emit transport->disconnected();
 
