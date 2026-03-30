@@ -82,6 +82,7 @@ void DecentScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void DecentScale::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
         DECENT_WARN("Decent Scale service not found");
+        m_transport->disconnectFromDevice();
         emit errorOccurred("Decent Scale service not found");
         return;
     }
