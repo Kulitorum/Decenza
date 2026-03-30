@@ -455,6 +455,31 @@ private slots:
         QCOMPARE(transport->m_notifyEnableCount, 0);
         QCOMPARE(transport->m_disconnectCount, 0);
     }
+
+    void wakeRestartsWatchdog() {
+        // wake() should restart heartbeat and watchdog after sleep() stopped them
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startWatchdog();
+        scale.startHeartbeat();
+
+        // sleep() stops both
+        scale.stopWatchdog();
+        scale.stopHeartbeat();
+
+        // wake() should restart them
+        scale.wake();
+
+        // Expect watchdog warning if no data arrives within 1s
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+
+        QTest::qWait(1200);
+
+        // Watchdog should have fired and re-enabled notifications
+        QVERIFY(transport->m_notifyEnableCount >= 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ScaleProtocol)

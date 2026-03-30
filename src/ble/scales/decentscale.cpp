@@ -102,13 +102,13 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // Start periodic heartbeat to keep connection alive
     startHeartbeat();
 
-    // Follow de1app sequence EXACTLY:
+    // Follow de1app sequence EXACTLY (temporal order):
     // 1. Heartbeat immediately
-    // 2. Heartbeat at 2000ms
-    // 3. LCD at 200ms
-    // 4. Enable notifications at 300ms
-    // 5. Enable notifications at 400ms (again for reliability)
-    // 6. LCD at 500ms (in case first was dropped)
+    // 2. LCD at 200ms
+    // 3. Enable notifications at 300ms
+    // 4. Enable notifications at 400ms (again for reliability)
+    // 5. LCD at 500ms (in case first was dropped)
+    // 6. Heartbeat at 2000ms
 
     DECENT_LOG("Starting de1app-style wake sequence");
 
@@ -141,7 +141,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
         wake();
     });
 
-    // Start watchdog after notification enables — verifies data actually flows
+    // Start watchdog (1s timeout allows pending 300/400ms notification enables to trigger data flow)
     startWatchdog();
 
     // Heartbeat at 2000ms
@@ -190,8 +190,8 @@ void DecentScale::parseWeightData(const QByteArray& data) {
 }
 
 void DecentScale::sendKeepAlive() {
-    // Heartbeat handles keep-alive; the base class 30s timer is a no-op for Decent Scale.
-    // The watchdog timer handles stale data detection with much tighter timeouts.
+    // Base class 30s timer still fires, but this override intentionally does nothing.
+    // The 1s heartbeat handles keep-alive, and the watchdog handles stale data detection.
 }
 
 void DecentScale::enableWeightNotifications(const QString& reason) {
@@ -210,7 +210,7 @@ void DecentScale::startWatchdog() {
     m_watchdogRetries = 0;
     // Initial timeout: verify weight data starts flowing within 1s
     m_watchdogTimer->start(kWatchdogFirstTimeoutMs);
-    DECENT_LOG("Watchdog started (initial 1s timeout)");
+    DECENT_LOG(QString("Watchdog started (initial %1ms timeout)").arg(kWatchdogFirstTimeoutMs));
 }
 
 void DecentScale::stopWatchdog() {
@@ -320,6 +320,12 @@ void DecentScale::wake() {
     // Command 0A 01 01 00 01 enables LCD (grams mode)
     // Must match official de1app: 03 0A 01 01 00 01 [xor]
     sendCommand(QByteArray::fromHex("0A01010001"));
+
+    // Restart heartbeat and watchdog if they were stopped by sleep()
+    if (m_characteristicsReady) {
+        startHeartbeat();
+        startWatchdog();
+    }
 }
 
 void DecentScale::disableLcd() {
