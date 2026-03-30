@@ -34,7 +34,7 @@ struct ProfileInfo {
  * isolated testing of profile/MCP functionality.
  *
  * Dependencies: Settings, DE1Device, MachineState, ProfileStorage
- * Does NOT depend on: MQTT, ShotServer, ShotHistory, Visualizer, AI, Network
+ * Does NOT depend on: MQTT, ShotServer, ShotHistory, Visualizer, Network
  */
 class ProfileManager : public QObject {
     Q_OBJECT
@@ -112,6 +112,7 @@ public:
     Q_INVOKABLE QString titleToFilename(const QString& title) const;
     Q_INVOKABLE QString findProfileByTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
+    Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
 

@@ -140,6 +140,9 @@ public:
     // Returns empty string if no match found. Uses title + editorType fallback.
     static QString computeProfileKbId(const QString& profileTitle, const QString& editorType = QString());
 
+    // Get the knowledge base content for a profile by title/type. Returns empty string if no match.
+    static QString findProfileSection(const QString& profileTitle, const QString& profileType = QString());
+
 private:
     // Helper methods
     double findValueAtTime(const QVector<QPointF>& data, double time) const;
@@ -165,5 +168,4 @@ private:
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
-    static QString findProfileSection(const QString& profileTitle, const QString& profileType = QString());
 };

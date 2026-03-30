@@ -572,6 +572,10 @@ QString ProfileManager::findProfileByTitle(const QString& title) const {
     return QString();
 }
 
+QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) const {
+    return ShotSummarizer::findProfileSection(profileTitle);
+}
+
 bool ProfileManager::profileExists(const QString& filename) const {
     if (m_availableProfiles.contains(filename))
         return true;

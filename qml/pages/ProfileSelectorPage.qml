@@ -292,12 +292,13 @@ Page {
                                 }
 
                                 Image {
+                                    id: sparkleIcon
                                     visible: modelData.hasKnowledgeBase === true
                                     source: "qrc:/icons/sparkle.svg"
                                     sourceSize.width: Theme.scaled(14)
                                     sourceSize.height: Theme.scaled(14)
                                     Layout.alignment: Qt.AlignVCenter
-                                    opacity: 0.6
+                                    opacity: sparkleMouseArea.containsMouse ? 1.0 : 0.6
                                     Accessible.ignored: true
 
                                     layer.enabled: true
@@ -305,6 +306,21 @@ Page {
                                     layer.effect: MultiEffect {
                                         colorization: 1.0
                                         colorizationColor: Theme.textSecondaryColor
+                                    }
+
+                                    AccessibleMouseArea {
+                                        id: sparkleMouseArea
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.scaled(-4)
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
+                                        accessibleItem: sparkleIcon
+                                        onAccessibleClicked: {
+                                            knowledgeDialog.profileTitle = modelData.title
+                                            knowledgeDialog.content = ProfileManager.profileKnowledgeContent(modelData.title)
+                                            knowledgeDialog.open()
+                                        }
                                     }
                                 }
                             }
@@ -328,11 +344,11 @@ Page {
                             // === Select/Unselect toggle (add/remove from "Selected" list) ===
                             StyledIconButton {
                                 id: selectToggleButton
-                                visible: viewFilter.currentIndex !== 0  // All views except "Selected"
+                                visible: viewFilter.currentIndex !== 0  // Hidden on "Selected" view (use overflow menu to remove)
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
-                                icon.source: profileDelegate.isSelected ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
+                                icon.source: profileDelegate.isSelected ? "qrc:/icons/box-checked.svg" : "qrc:/icons/box.svg"
                                 active: profileDelegate.isSelected
                                 accessibleName: profileDelegate.isSelected ? TranslationManager.translate("profileselector.accessible.remove_from_selected", "Remove from selected") : TranslationManager.translate("profileselector.accessible.add_to_selected", "Add to selected")
 
@@ -340,27 +356,30 @@ Page {
                                     if (profileDelegate.isBuiltIn) {
                                         if (profileDelegate.isSelected) {
                                             Settings.removeSelectedBuiltInProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.addSelectedBuiltInProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                                         }
                                     } else {
                                         if (profileDelegate.isSelected) {
                                             Settings.addHiddenProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.removeHiddenProfile(modelData.name)
-                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
+                                            AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
+                                            profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                                         }
                                     }
                                 }
                             }
 
-                            // === "Selected" view: Favorite toggle button (hollow/filled star) ===
+                            // === Favorite toggle button (hollow/filled star) ===
                             StyledIconButton {
                                 id: favoriteToggleButton
-                                visible: viewFilter.currentIndex === 0  // Only in "Selected" view
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
@@ -379,8 +398,10 @@ Page {
                                                 break
                                             }
                                         }
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_favorites", "Removed from favorites"))
                                     } else {
                                         Settings.addFavoriteProfile(modelData.title, modelData.name)
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_favorites", "Added to favorites"))
                                     }
                                 }
                             }
@@ -619,7 +640,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     key: "profileselector.favorites.empty"
-                    fallback: "No favorites yet.\nUse the ... menu on a profile\nto add it to favorites."
+                    fallback: "No favorites yet.\nTap the star icon on any profile\nto add it to favorites."
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -938,6 +959,104 @@ Page {
         }
     }
 
+    // Profile AI knowledge base dialog
+    Dialog {
+        id: knowledgeDialog
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
+        height: Math.min(knowledgeContent.implicitHeight + Theme.scaled(120), parent.height - Theme.scaled(80))
+        padding: 0
+        modal: true
+
+        property string profileTitle: ""
+        property string content: ""
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.scaled(8)
+
+                Image {
+                    source: "qrc:/icons/sparkle.svg"
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.primaryColor
+                    }
+                }
+
+                Text {
+                    text: knowledgeDialog.profileTitle
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
+
+        contentItem: Flickable {
+            clip: true
+            contentHeight: knowledgeContent.implicitHeight + Theme.scaled(30)
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+
+            Text {
+                id: knowledgeContent
+                width: parent.width - Theme.scaled(40)
+                x: Theme.scaled(20)
+                y: Theme.scaled(15)
+                text: knowledgeDialog.content
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+                lineHeight: 1.4
+            }
+        }
+
+        footer: Item {
+            implicitHeight: Theme.scaled(55)
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+
+            AccessibleButton {
+                anchors.centerIn: parent
+                width: Theme.scaled(100)
+                text: TranslationManager.translate("common.button.ok", "OK")
+                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
+                onClicked: knowledgeDialog.close()
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(8)
+            border.color: Theme.borderColor
+        }
+    }
+
     // New profile type picker dialog
     Dialog {
         id: newProfileDialog
@@ -1038,6 +1157,42 @@ Page {
             radius: Theme.scaled(8)
             border.color: Theme.borderColor
         }
+    }
+
+    // Toast notification
+    function showToast(message) {
+        profileToastText.text = message
+        profileToast.visible = true
+        profileToastTimer.restart()
+    }
+
+    Rectangle {
+        id: profileToast
+        parent: Overlay.overlay
+        visible: false
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: profileToastText.implicitWidth + Theme.scaled(32)
+        height: Theme.scaled(40)
+        radius: Theme.scaled(20)
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: 1
+        z: 10
+
+        Text {
+            id: profileToastText
+            anchors.centerIn: parent
+            color: Theme.textColor
+            font: Theme.bodyFont
+        }
+    }
+
+    Timer {
+        id: profileToastTimer
+        interval: 3000
+        onTriggered: profileToast.visible = false
     }
 
     // Bottom bar
