@@ -1056,9 +1056,10 @@ KeyboardAwareContainer {
         }
     }
 
-    // Status message for backup operations
+    // Status message for backup operations (reparented to avoid layout warnings)
     Rectangle {
         id: backupStatusBackground
+        parent: Overlay.overlay
         visible: false
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
