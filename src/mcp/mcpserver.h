@@ -155,6 +155,6 @@ private:
     // Limits
     static constexpr int MaxSessions = 8;
     static constexpr int MaxSseConnections = 4;
-    static constexpr int SessionTimeoutMinutes = 30;  // safety net — sessions are removed on SSE disconnect
+    static constexpr int SessionTimeoutMinutes = 30;  // safety net — orphan cleanup only runs during session creation
     static constexpr int RateLimitPerMinute = 10;
 };
