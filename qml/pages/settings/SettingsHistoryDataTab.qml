@@ -512,7 +512,7 @@ KeyboardAwareContainer {
 
                         Tr {
                             key: "settings.data.enableserverdesc"
-                            fallback: "Required for data sharing and remote access"
+                            fallback: "Access shot data, layout editor, and AI from your browser"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(9)
                             Layout.fillWidth: true
@@ -594,7 +594,7 @@ KeyboardAwareContainer {
 
                         Tr {
                             key: "settings.data.enablesecuritydesc"
-                            fallback: "HTTPS encryption and authenticator app verification"
+                            fallback: "Encrypt connections and require a code from your authenticator app"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(9)
                             Layout.fillWidth: true

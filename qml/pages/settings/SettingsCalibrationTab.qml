@@ -53,7 +53,9 @@ Item {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.disableAutoCalibration", "Disable auto calibration")
+                                text: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration — learns from your scale after each shot")
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -61,9 +63,9 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: !Settings.autoFlowCalibration
-                                accessibleName: TranslationManager.translate("settings.preferences.disableAutoCalibration", "Disable auto calibration")
-                                onToggled: Settings.autoFlowCalibration = !checked
+                                checked: Settings.autoFlowCalibration
+                                accessibleName: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration")
+                                onToggled: Settings.autoFlowCalibration = checked
                             }
                         }
 
@@ -155,7 +157,7 @@ Item {
                             Layout.fillWidth: true
 
                             Text {
-                                text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none")) + " · " + TranslationManager.translate("settings.options.autoLearns", "auto-learns timing")
+                                text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none")) + " · " + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -223,7 +225,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.calibration.description", "Idle temp, warmup flow rates, timeout")
+                            text: TranslationManager.translate("settings.calibration.description", "Configure steam heater warm-up behavior for consistent temperature")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -265,7 +267,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.virtualScaleDesc",
-                                  "Estimate cup weight from the machine's flow sensor when no Bluetooth scale is connected. Accuracy depends on dose weight being set correctly.")
+                                  "Estimate cup weight from the machine's flow sensor when no Bluetooth scale is connected. Accuracy depends on flow calibration.")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -322,7 +324,7 @@ Item {
 
                             Text {
                                 text: TranslationManager.translate("settings.calibration.preferWeightOverVolumeDesc",
-                                    "When a Bluetooth scale is paired, ignore the profile's volume limit and stop by weight only")
+                                    "When a Bluetooth scale is paired, stop by weight only instead of weight and volume")
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 color: Theme.textSecondaryColor

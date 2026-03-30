@@ -405,11 +405,23 @@ Item {
                         spacing: Theme.scaled(8)
                         opacity: AccessibilityManager.enabled ? 1.0 : 0.5
 
-                        Tr {
-                            key: "settings.accessibility.voiceAnnouncements"
-                            fallback: "Voice Announcements"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.accessibility.voiceAnnouncements"
+                                fallback: "Voice Announcements"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.accessibility.voiceAnnouncementsDesc"
+                                fallback: "Speak shot progress aloud"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                            }
                         }
 
                         Item { Layout.fillWidth: true }
@@ -452,7 +464,7 @@ Item {
                             Tr {
                                 Layout.fillWidth: true
                                 key: "settings.accessibility.frameTickDesc"
-                                fallback: "Play a tick when extraction frames change"
+                                fallback: "Play a tick when the machine moves to the next extraction step"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(11)
                                 wrapMode: Text.WordWrap
@@ -614,7 +626,7 @@ Item {
 
                         Tr {
                             key: "settings.accessibility.updateInterval"
-                            fallback: "Update Interval"
+                            fallback: "Announce Every"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }

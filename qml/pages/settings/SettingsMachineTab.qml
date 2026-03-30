@@ -118,6 +118,15 @@ KeyboardAwareContainer {
                             font.bold: true
                         }
 
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.options.autoWakeDesc", "Schedule the machine to turn on automatically")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
                         // Row 1: Day buttons
                         RowLayout {
                             Layout.fillWidth: true
@@ -970,7 +979,7 @@ KeyboardAwareContainer {
 
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.machine.screenZoomDesc", "Adjust UI scale individually for each screen to optimize readability.")
+                            text: TranslationManager.translate("settings.machine.screenZoomDesc", "Make text and controls larger or smaller on each screen")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
