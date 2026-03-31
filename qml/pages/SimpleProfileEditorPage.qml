@@ -432,9 +432,9 @@ Page {
                                 Text { text: TranslationManager.translate("simpleProfile.flowRate", "Flow rate"); font: Theme.captionFont; color: Theme.flowColor }
                                 ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: 10; stepSize: 0.1; suffix: " mL/s"; value: val(recipe.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { updateRecipe("preinfusionFlowRate", Math.round(newValue * 10) / 10) } }
 
-                                // Limit pressure (exit condition — preinfusion stops when this pressure is reached)
-                                Text { text: TranslationManager.translate("simpleProfile.limitPressure", "Limit pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionStopPressure", "Preinfusion stop pressure"); from: 0.5; to: 8; stepSize: 0.1; suffix: " bar"; value: val(recipe.preinfusionStopPressure, 4.0); onValueModified: function(newValue) { updateRecipe("preinfusionStopPressure", Math.round(newValue * 10) / 10) } }
+                                // Exit pressure (preinfusion advances to next step when this pressure is reached)
+                                Text { text: TranslationManager.translate("simpleProfile.exitPressure", "Exit pressure"); font: Theme.captionFont; color: Theme.pressureColor }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionExitPressure", "Preinfusion exit pressure"); from: 0.5; to: 8; stepSize: 0.1; suffix: " bar"; value: val(recipe.preinfusionStopPressure, 4.0); onValueModified: function(newValue) { updateRecipe("preinfusionStopPressure", Math.round(newValue * 10) / 10) } }
                             }
                         }
 
@@ -474,13 +474,13 @@ Page {
                                 Text { text: TranslationManager.translate("simpleProfile.holdTime", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.holdTime", "Hold time"); from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.holdTime, 10); onValueModified: function(newValue) { updateRecipe("holdTime", Math.round(newValue)) } }
 
-                                // Flow: holdFlow + limit pressure
-                                // Pressure: limit flow + espressoPressure
-                                // First slider: flow has holdFlow, pressure has limiterValue (limit flow)
-                                Text { text: isFlow ? TranslationManager.translate("simpleProfile.flow", "Flow") : TranslationManager.translate("simpleProfile.limitFlow", "Limit flow"); font: Theme.captionFont; color: Theme.flowColor }
+                                // Flow: holdFlow + pressure limit
+                                // Pressure: flow limit + espressoPressure
+                                // First slider: flow has holdFlow, pressure has limiterValue (flow limit)
+                                Text { text: isFlow ? TranslationManager.translate("simpleProfile.flow", "Flow") : TranslationManager.translate("simpleProfile.flowLimit", "Flow limit"); font: Theme.captionFont; color: Theme.flowColor }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.flowColor
-                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.holdFlow", "Hold flow") : TranslationManager.translate("simpleProfileEditor.flowLimiter", "Flow limiter")
+                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.holdFlow", "Hold flow") : TranslationManager.translate("simpleProfileEditor.flowLimit", "Flow limit")
                                     from: isFlow ? 0.1 : 0; to: 8; stepSize: 0.1; suffix: " mL/s"
                                     displayText: !isFlow && val(recipe.limiterValue, 3.5) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""
                                     value: isFlow ? val(recipe.holdFlow, 2.2) : val(recipe.limiterValue, 3.5)
@@ -489,11 +489,11 @@ Page {
                                         : updateRecipe("limiterValue", Math.round(newValue * 10) / 10) }
                                 }
 
-                                // Second slider: flow has limiterValue (limit pressure), pressure has espressoPressure
-                                Text { text: isFlow ? TranslationManager.translate("simpleProfile.limitPressure", "Limit pressure") : TranslationManager.translate("simpleProfile.pressure2", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
+                                // Second slider: flow has limiterValue (pressure limit), pressure has espressoPressure
+                                Text { text: isFlow ? TranslationManager.translate("simpleProfile.pressureLimit", "Pressure limit") : TranslationManager.translate("simpleProfile.pressure2", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.pressureColor
-                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.pressureLimiter", "Pressure limiter") : TranslationManager.translate("simpleProfileEditor.holdPressure", "Hold pressure")
+                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.pressureLimit", "Pressure limit") : TranslationManager.translate("simpleProfileEditor.holdPressure", "Hold pressure")
                                     from: isFlow ? 0 : 1; to: 12; stepSize: 0.1; suffix: " bar"
                                     displayText: isFlow && val(recipe.limiterValue, 3.5) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""
                                     value: isFlow ? val(recipe.limiterValue, 3.5) : val(recipe.espressoPressure, 8.4)
