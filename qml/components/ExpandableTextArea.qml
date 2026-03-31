@@ -144,7 +144,8 @@ Rectangle {
             font: root.textFont
             color: Theme.textColor
             wrapMode: TextArea.Wrap
-            readOnly: root.readOnly
+            readOnly: root.readOnly || root.isMobile  // Mobile uses fullscreen dialog, never inline
+            enabled: !root.isMobile  // Prevent focus on mobile — avoids adjustPan flash before dialog redirect
             leftPadding: Theme.scaled(8)
             rightPadding: root.isMobile ? Theme.scaled(8) : Theme.scaled(24) // room for expand button on desktop
             topPadding: Theme.scaled(4)
@@ -154,7 +155,7 @@ Rectangle {
             Accessible.role: Accessible.EditableText
             Accessible.name: root.accessibleName
             Accessible.description: text
-            Accessible.focusable: true
+            Accessible.focusable: !root.isMobile
 
             onTextChanged: {
                 if (root.text !== text) {
@@ -162,19 +163,10 @@ Rectangle {
                 }
             }
 
-            property bool _redirectingToDialog: false
             onActiveFocusChanged: {
-                if (activeFocus && root.isMobile) {
-                    // On mobile, redirect to fullscreen dialog
-                    _redirectingToDialog = true
-                    focus = false
-                    root.openEditorDialog()
-                    return
-                }
-                if (!activeFocus && !_redirectingToDialog) {
+                if (!activeFocus) {
                     root.editingFinished()
                 }
-                _redirectingToDialog = false
             }
         }
     }
