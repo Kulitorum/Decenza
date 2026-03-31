@@ -848,6 +848,12 @@ int main(int argc, char *argv[])
     WeatherManager weatherManager(&sharedNetworkManager);
     weatherManager.setLocationProvider(mainController.locationProvider());
 
+    // DE1 auto-reconnect state — declared early because autoWakeManager and
+    // applicationStateChanged lambdas capture these by reference.
+    int de1ReconnectAttempt = 0;
+    QTimer de1ReconnectTimer;
+    de1ReconnectTimer.setSingleShot(true);
+
     // Auto-wake manager for scheduled wake-ups
     AutoWakeManager autoWakeManager(&settings);
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
@@ -856,11 +862,14 @@ int main(int argc, char *argv[])
                      &mainController, &MainController::autoWakeTriggered);
     // Also wake the scale and reconnect DE1 if needed
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
-                     [&physicalScale, &bleManager, &settings, &de1Device]() {
+                     [&physicalScale, &bleManager, &settings, &de1Device, &de1ReconnectTimer, &de1ReconnectAttempt]() {
         qDebug() << "AutoWakeManager: Waking scale and reconnecting DE1 if needed";
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
-            // Delay slightly to let BLE stack initialize after wake
-            QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToDE1);
+            // Reset reconnect counter and start fresh retry sequence
+            de1ReconnectAttempt = 0;
+            if (!de1ReconnectTimer.isActive()) {
+                de1ReconnectTimer.start(500);
+            }
         }
         if (physicalScale && physicalScale->isConnected()) {
             physicalScale->wake();
@@ -1010,6 +1019,65 @@ int main(int argc, char *argv[])
         } else {
             qDebug() << "Scale reconnect: retries exhausted, waiting for manual reconnect or app resume";
             bleManager.appendScaleLog("Auto-reconnect exhausted - tap Scan to retry");
+        }
+    });
+
+    // DE1 auto-reconnect after disconnect. Matches de1app behaviour: on Android it
+    // retries essentially forever (99999999 attempts) because the DE1 may be in deep
+    // sleep and take a while to become reachable. We use backoff: 5s, 30s, then 60s
+    // repeated. After 12 total attempts (5s + 30s + 10×60s ≈ 10.5 min) we stop —
+    // the DE1 is likely powered off, and we'd just be wasting BLE scans. The user
+    // can wake it manually or the app resume handler will retry.
+    constexpr int kDE1MaxReconnectAttempts = 12;  // 5s + 30s + 10*60s = ~10.5 min
+
+    QObject::connect(&de1ReconnectTimer, &QTimer::timeout,
+                     [&bleManager, &de1Device, &settings, &de1ReconnectAttempt, &de1ReconnectTimer]() {
+        if (settings.machineAddress().isEmpty()) {
+            qDebug() << "DE1 reconnect: no saved DE1 address, stopping retries";
+            return;
+        }
+        if (de1Device.isConnected() || de1Device.isConnecting()) {
+            qDebug() << "DE1 reconnect: already connected/connecting, stopping retries";
+            return;
+        }
+        de1ReconnectAttempt++;
+        qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt << "of" << kDE1MaxReconnectAttempts;
+        bleManager.tryDirectConnectToDE1();
+
+        if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
+            // 30s after first attempt, 60s for all subsequent
+            // (the initial 5s delay before attempt 1 is set by connectedChanged)
+            int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
+            de1ReconnectTimer.start(delay);
+        } else {
+            qDebug() << "DE1 reconnect: retries exhausted after" << de1ReconnectAttempt << "attempts";
+        }
+    });
+
+    // When DE1 connects or disconnects, manage reconnect timer
+    QObject::connect(&de1Device, &DE1Device::connectedChanged,
+                     [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings
+#ifndef Q_OS_IOS
+                     , &usbManager
+#endif
+                     ]() {
+        if (de1Device.isConnected()) {
+            // Connected — stop any pending reconnect attempts
+            de1ReconnectTimer.stop();
+            de1ReconnectAttempt = 0;
+        } else {
+            // Disconnected — start auto-reconnect if we have a saved address
+#ifndef Q_OS_IOS
+            if (usbManager.isDe1Connected()) {
+                // Don't try BLE reconnect if USB is handling the DE1
+                return;
+            }
+#endif
+            if (!settings.machineAddress().isEmpty() && !de1ReconnectTimer.isActive()) {
+                de1ReconnectAttempt = 0;
+                de1ReconnectTimer.start(5000);  // First retry after 5s
+                qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
+            }
         }
     });
 
@@ -1732,7 +1800,7 @@ int main(int argc, char *argv[])
     // Note: DE1 is NOT put to sleep when backgrounded - users may switch apps while
     // the machine is heating up and expect it to continue (e.g., checking Visualizer)
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         if (state == Qt::ApplicationSuspended) {
@@ -1786,9 +1854,13 @@ int main(int argc, char *argv[])
             // (prevents theme colors from falling back to defaults on wake)
             settings.sync();
 
-            // Try to reconnect/wake DE1 (delay to let BLE stack initialize after resume)
+            // Try to reconnect/wake DE1 — reset the reconnect counter so we get
+            // a fresh set of retries after resume (the DE1 may still be waking up).
             if (!de1Device.isConnected() && !de1Device.isConnecting()) {
-                QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToDE1);
+                de1ReconnectAttempt = 0;
+                if (!de1ReconnectTimer.isActive()) {
+                    de1ReconnectTimer.start(500);  // Short delay to let BLE stack initialize
+                }
             }
 
             // Try to reconnect/wake scale
