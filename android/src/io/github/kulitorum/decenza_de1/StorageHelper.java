@@ -128,6 +128,26 @@ public class StorageHelper {
     }
 
     /**
+     * Get the path to the logs directory (Documents/Decenza/logs).
+     * Creates the directory if it doesn't exist.
+     * Uses external storage so logs survive APK updates.
+     */
+    public static String getLogsPath() {
+        java.io.File documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+        java.io.File logsDir = new java.io.File(new java.io.File(documentsDir, "Decenza"), "logs");
+
+        if (!logsDir.exists()) {
+            if (logsDir.mkdirs()) {
+                Log.i(TAG, "Created logs directory: " + logsDir.getAbsolutePath());
+            } else {
+                Log.e(TAG, "Failed to create logs directory: " + logsDir.getAbsolutePath());
+            }
+        }
+
+        return logsDir.getAbsolutePath();
+    }
+
+    /**
      * Check if we need to request storage permission.
      * Returns true for Android 6+ where runtime permission is needed.
      */

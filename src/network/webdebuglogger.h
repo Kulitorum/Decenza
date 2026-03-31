@@ -60,5 +60,5 @@ private:
 
     // File persistence
     QString m_logFilePath;
-    static constexpr qint64 MAX_LOG_FILE_SIZE = 500 * 1024;  // 500KB - enough for ~5-10 min with BLE noise
+    static constexpr qint64 MAX_LOG_FILE_SIZE = 2 * 1024 * 1024;  // 2MB - several days of sessions
 };
