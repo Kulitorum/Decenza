@@ -408,6 +408,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                     log(QString("Descriptor error (suppressed): %1").arg(static_cast<int>(error)));
                 }
             }, qc);
+            log("Starting characteristic discovery for DE1 service");
             m_service->discoverDetails();
         } else {
             warn("ERROR: createServiceObject() returned null for DE1 service UUID");
@@ -443,6 +444,7 @@ void BleTransport::onServiceDiscoveryFinished() {
 void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) {
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         setupService();
+        log(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
         subscribeAll();
 
 #ifdef Q_OS_ANDROID
