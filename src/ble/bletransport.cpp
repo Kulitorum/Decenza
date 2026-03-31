@@ -538,6 +538,9 @@ void BleTransport::setupService() {
     const QList<QLowEnergyCharacteristic> chars = m_service->characteristics();
     for (const auto& c : chars) {
         m_characteristics[c.uuid()] = c;
+        log(QString("  Char %1 props=0x%2")
+            .arg(c.uuid().toString().mid(1, 8))
+            .arg(static_cast<int>(c.properties()), 2, 16, QChar('0')));
     }
 }
 
