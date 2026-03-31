@@ -103,6 +103,7 @@ Page {
             if (matchIndex >= 0) {
                 // Auto-select the matching preset instead of showing the dialog
                 Settings.selectedBeanPreset = matchIndex
+                _snapSelectedPreset = matchIndex
             } else {
                 guestBeanDialog.open()
             }
@@ -694,7 +695,7 @@ Page {
                     DatePickerDialog {
                         id: beanDatePicker
                         onDateSelected: function(dateString) {
-                            if (isEditMode) editRoastDate = dateString; else Settings.dyeRoastDate = dateString;
+                            if (isEditMode) editRoastDate = dateString; else { Settings.dyeRoastDate = dateString; deselectPresetOnEdit(); }
                         }
                     }
                 }
@@ -1150,6 +1151,15 @@ Page {
                             }
                             // Update snapshot so handleBack() doesn't show spurious unsaved changes dialog
                             _snapSelectedPreset = Settings.selectedBeanPreset
+                            _snapBrand = Settings.dyeBeanBrand
+                            _snapType = Settings.dyeBeanType
+                            _snapRoastDate = Settings.dyeRoastDate
+                            _snapRoastLevel = Settings.dyeRoastLevel
+                            _snapGrinderBrand = Settings.dyeGrinderBrand
+                            _snapGrinderModel = Settings.dyeGrinderModel
+                            _snapGrinderBurrs = Settings.dyeGrinderBurrs
+                            _snapGrinderSetting = Settings.dyeGrinderSetting
+                            _snapBarista = Settings.dyeBarista
                             var shouldGoBack = savePresetDialog.goBackAfterSave
                             newBeanNameInput.text = ""
                             savePresetDialog.goBackAfterSave = false
