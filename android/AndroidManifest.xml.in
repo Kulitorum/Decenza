@@ -21,6 +21,8 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <!-- Foreground service for BLE keep-alive (prevents Samsung/OEM app killing) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Wake lock keeps CPU alive while screen is off so BLE timers keep firing -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- APK installation permission for remote updates -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
