@@ -17,9 +17,6 @@ Item {
     signal inputFocused(Item field)  // Emitted when text input gets focus (for keyboard handling)
     signal inputBlurred()  // Emitted when text input loses focus
 
-    // Close suggestion popup (called by parent when focus leaves all fields)
-    function dismissSuggestions() { suggestionPopup.close() }
-
     // Accessibility mode: show buttons below text field instead of overlapping
     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
