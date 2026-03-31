@@ -38,6 +38,7 @@ Dialog {
     // Bean and profile
     property string beanBrand: ""
     property string beanType: ""
+    property string roastDate: ""
     property string selectedProfileTitle: ""
     property string originalProfileFilename: ""
 
@@ -180,6 +181,7 @@ Dialog {
         grindSetting = Settings.dyeGrinderSetting
         beanBrand = Settings.dyeBeanBrand
         beanType = Settings.dyeBeanType
+        roastDate = Settings.dyeRoastDate
         selectedProfileTitle = ProfileManager.currentProfileName
         originalProfileFilename = Settings.currentProfile
         showScaleWarning = false
@@ -286,6 +288,7 @@ Dialog {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
+            Layout.topMargin: Theme.scaled(8)
             spacing: Theme.scaled(4)
 
             Text {
@@ -319,7 +322,7 @@ Dialog {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
-            Layout.topMargin: Theme.scaled(4)
+            Layout.topMargin: Theme.scaled(8)
             spacing: Theme.scaled(4)
 
             Text {
@@ -342,12 +345,61 @@ Dialog {
             }
         }
 
+        // Roast date
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.scaled(20)
+            Layout.rightMargin: Theme.scaled(20)
+            Layout.topMargin: Theme.scaled(8)
+            spacing: Theme.scaled(4)
+
+            Text {
+                text: TranslationManager.translate("brewDialog.roastDateLabel", "Roast date:")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: Theme.scaled(75)
+                Accessible.ignored: true
+            }
+
+            StyledTextField {
+                id: roastDateInput
+                Layout.fillWidth: true
+                placeholder: "yyyy-mm-dd"
+                accessibleName: TranslationManager.translate("brewDialog.roastDate", "Roast date")
+                text: root.roastDate
+                inputMethodHints: Qt.ImhDate
+                inputMask: "9999-99-99"
+                onTextEdited: root.roastDate = text
+            }
+
+            AccessibleButton {
+                id: roastDateCalendarBtn
+                Layout.preferredWidth: Theme.scaled(44)
+                Layout.preferredHeight: Theme.scaled(44)
+                Layout.alignment: Qt.AlignVCenter
+                accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                leftPadding: Theme.scaled(8)
+                rightPadding: Theme.scaled(8)
+                icon.source: "qrc:/emoji/1f4c5.svg"
+                icon.width: Theme.scaled(20)
+                icon.height: Theme.scaled(20)
+                text: ""
+                onClicked: roastDatePicker.openWithDate(root.roastDate)
+            }
+
+            DatePickerDialog {
+                id: roastDatePicker
+                onDateSelected: function(dateString) { root.roastDate = dateString }
+            }
+        }
+
         // Content
         ColumnLayout {
             Layout.fillWidth: true
             Layout.margins: Theme.scaled(20)
-            Layout.topMargin: Theme.scaled(12)
-            spacing: Theme.scaled(12)
+            Layout.topMargin: Theme.scaled(8)
+            spacing: Theme.scaled(8)
 
             // Low dose warning
             Rectangle {
@@ -423,7 +475,7 @@ Dialog {
 
                     // Save to profile button
                     AccessibleButton {
-                        Layout.preferredHeight: Theme.scaled(56)
+                        Layout.preferredHeight: Theme.scaled(44)
                         text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
                         accessibleName: TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
                         primary: true
@@ -497,7 +549,7 @@ Dialog {
                 }
 
                 AccessibleButton {
-                    Layout.preferredHeight: Theme.scaled(56)
+                    Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("brewDialog.getFromScale", "Get from scale")
                     accessibleName: TranslationManager.translate("brewDialog.getDoseFromScale", "Get dose from scale")
                     primary: true
@@ -570,7 +622,7 @@ Dialog {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: TranslationManager.translate("brewDialog.stopAtWeightLabel", "Stop at weight:")
+                        text: TranslationManager.translate("brewDialog.stopAtWeightLabel", "Stop at:")
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         Layout.alignment: Qt.AlignVCenter
@@ -603,7 +655,7 @@ Dialog {
 
                     // Save to profile button
                     AccessibleButton {
-                        Layout.preferredHeight: Theme.scaled(56)
+                        Layout.preferredHeight: Theme.scaled(44)
                         text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
                         accessibleName: TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
                         primary: true
@@ -757,6 +809,7 @@ Dialog {
                     root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
                     root.beanBrand = Settings.dyeBeanBrand
                     root.beanType = Settings.dyeBeanType
+                    root.roastDate = Settings.dyeRoastDate
                     root.selectedProfileTitle = ProfileManager.currentProfileName
                     root.grinderBrand = Settings.dyeGrinderBrand
                     root.grinderModel = Settings.dyeGrinderModel
@@ -816,6 +869,7 @@ Dialog {
                     Settings.lastUsedRatio = root.ratio
                     Settings.dyeBeanBrand = root.beanBrand
                     Settings.dyeBeanType = root.beanType
+                    Settings.dyeRoastDate = root.roastDate
                     Settings.dyeGrinderBrand = root.grinderBrand
                     Settings.dyeGrinderModel = root.grinderModel
                     Settings.dyeGrinderBurrs = root.grinderBurrs

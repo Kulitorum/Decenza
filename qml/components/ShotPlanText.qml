@@ -22,6 +22,7 @@ Text {
             return [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
         return ""
     }
+    property string roastDate: Settings.dyeRoastDate
     property string grindSize: Settings.dyeGrinderSetting
     property double dose: Settings.dyeBeanWeight
     property double targetWeight: ProfileManager.targetWeight
@@ -36,9 +37,13 @@ Text {
             parts.push(profileName + (tempStr ? " (" + tempStr + ")" : ""))
         }
         if (beanName) {
-            parts.push(beanName + (grindSize ? " (" + grindSize + ")" : ""))
+            var beanLine = beanName + (grindSize ? " (" + grindSize + ")" : "")
+            if (roastDate) beanLine += " \u00B7 " + roastDate
+            parts.push(beanLine)
         } else if (grindSize) {
             parts.push("Grind: " + grindSize)
+        } else if (roastDate) {
+            parts.push(roastDate)
         }
         if (dose > 0 || targetWeight > 0) {
             var yieldParts = []

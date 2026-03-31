@@ -29,6 +29,8 @@ Item {
     onTextChanged: {
         if (textInput.text !== text) {
             textInput.text = text
+            if (!textInput.activeFocus)
+                textInput.cursorPosition = 0
         }
     }
 
