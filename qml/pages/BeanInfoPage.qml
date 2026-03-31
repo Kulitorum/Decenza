@@ -633,6 +633,7 @@ Page {
                         }
                     }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
 
                 SuggestionField {
@@ -651,6 +652,7 @@ Page {
                         if (isEditMode) editRoastDate = ""; else { Settings.dyeRoastDate = ""; deselectPresetOnEdit(); }
                     }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
 
                 Item {
@@ -726,6 +728,7 @@ Page {
                         }
                     }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
 
                 SuggestionField {
@@ -756,6 +759,7 @@ Page {
                         if (!isEditMode) deselectPresetOnEdit();
                     }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
 
                 SuggestionField {
@@ -776,6 +780,7 @@ Page {
                     }
                     onTextEdited: function(t) { if (isEditMode) editGrinderBurrs = t; else { Settings.dyeGrinderBurrs = t; deselectPresetOnEdit(); } }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
 
                 // === ROW 3: Roast level, Setting, Barista ===
@@ -805,6 +810,7 @@ Page {
                     }
                     onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else { Settings.dyeGrinderSetting = t; deselectPresetOnEdit(); } }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
 
                 SuggestionField {
@@ -819,6 +825,7 @@ Page {
                     }
                     onTextEdited: function(t) { if (isEditMode) editBarista = t; else Settings.dyeBarista = t; }
                     onInputFocused: function(field) { focusedField = field }
+                    onInputBlurred: Qt.callLater(checkFocusReset)
                 }
             }
 

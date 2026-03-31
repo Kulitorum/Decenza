@@ -15,6 +15,7 @@ Item {
     signal textEdited(string text)
     signal suggestionSelected(string text)  // Emitted when user picks from dropdown (not on keystroke)
     signal inputFocused(Item field)  // Emitted when text input gets focus (for keyboard handling)
+    signal inputBlurred()  // Emitted when text input loses focus
 
     // Accessibility mode: show buttons below text field instead of overlapping
     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
@@ -124,6 +125,7 @@ Item {
                 // Emit textEdited to ensure value is committed when losing focus
                 // Don't set root.text here - that breaks the parent binding!
                 root.textEdited(text)
+                root.inputBlurred()
                 // Small delay before closing to allow clicking on popup items
                 closeTimer.restart()
             }
