@@ -365,12 +365,12 @@ Dialog {
             StyledTextField {
                 id: roastDateInput
                 Layout.fillWidth: true
-                placeholder: "yyyy-mm-dd"
+                placeholder: TranslationManager.translate("brewDialog.roastDatePlaceholder", "yyyy-mm-dd")
                 accessibleName: TranslationManager.translate("brewDialog.roastDate", "Roast date")
                 text: root.roastDate
                 inputMethodHints: Qt.ImhDate
                 inputMask: "9999-99-99"
-                onTextEdited: root.roastDate = text
+                onTextEdited: root.roastDate = text.replace(/_/g, "")
             }
 
             AccessibleButton {

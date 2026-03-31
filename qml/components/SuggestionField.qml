@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import Decenza
 
 // Autocomplete text field that shows filtered suggestions as you type
@@ -215,12 +216,19 @@ Item {
             color: arrowArea.pressed ? Theme.surfaceColor : "transparent"
             Accessible.ignored: true
 
-            Text {
+            Image {
                 anchors.centerIn: parent
-                text: suggestionPopup.visible ? "\u25B2" : "\u25BC"
-                color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(18)
+                source: "qrc:/icons/ArrowLeft.svg"
+                sourceSize.width: Theme.scaled(14)
+                sourceSize.height: Theme.scaled(14)
+                rotation: suggestionPopup.visible ? -90 : 90
                 Accessible.ignored: true
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textSecondaryColor
+                }
             }
 
             MouseArea {

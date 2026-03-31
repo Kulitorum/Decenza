@@ -41,9 +41,9 @@ Text {
             if (roastDate) beanLine += " \u00B7 " + roastDate
             parts.push(beanLine)
         } else if (grindSize) {
-            parts.push("Grind: " + grindSize)
+            parts.push(TranslationManager.translate("shotplantext.grind", "Grind: ") + grindSize)
         } else if (roastDate) {
-            parts.push(roastDate)
+            parts.push(TranslationManager.translate("shotplantext.roastedOn", "Roasted: ") + roastDate)
         }
         if (dose > 0 || targetWeight > 0) {
             var yieldParts = []
