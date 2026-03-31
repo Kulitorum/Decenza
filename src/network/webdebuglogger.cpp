@@ -5,6 +5,10 @@
 #include <QDir>
 #include <QTextStream>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
+
 WebDebugLogger* WebDebugLogger::s_instance = nullptr;
 QtMessageHandler WebDebugLogger::s_previousHandler = nullptr;
 
@@ -27,8 +31,21 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
 {
     m_timer.start();
 
-    // Set up log file path
-    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    // Set up log file path — use external storage on Android so logs survive APK updates.
+    // Falls back to internal app data if external storage is unavailable.
+    QString dataDir;
+#ifdef Q_OS_ANDROID
+    QJniObject javaPath = QJniObject::callStaticObjectMethod(
+        "io/github/kulitorum/decenza_de1/StorageHelper",
+        "getLogsPath",
+        "()Ljava/lang/String;");
+    if (javaPath.isValid()) {
+        dataDir = javaPath.toString();
+    }
+#endif
+    if (dataDir.isEmpty()) {
+        dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    }
     QDir().mkpath(dataDir);
     m_logFilePath = dataDir + "/debug.log";
 

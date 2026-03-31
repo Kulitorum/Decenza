@@ -2,6 +2,7 @@
 #include "protocol/de1characteristics.h"
 
 #include <QBluetoothAddress>
+#include <QLowEnergyConnectionParameters>
 #include <QDebug>
 
 #ifdef Q_OS_ANDROID
@@ -298,17 +299,15 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
 
 void BleTransport::onControllerConnected() {
     log("Controller connected, starting service discovery");
-#ifdef Q_OS_ANDROID
-    // Request a shorter BLE connection interval to reduce post-GC-pause delivery latency.
-    // Default interval is ~30-50ms; HIGH priority is 7.5-15ms. See issue #342.
-    const QString addr = m_controller->remoteAddress().toString();
-    jboolean result = QJniObject::callStaticMethod<jboolean>(
-        "io/github/kulitorum/decenza_de1/BleHelper",
-        "requestHighConnectionPriority",
-        "(Ljava/lang/String;)Z",
-        QJniObject::fromString(addr).object());
-    log(QString("requestHighConnectionPriority: %1").arg(result ? "success" : "failed"));
-#endif
+
+    // Request CONNECTION_PRIORITY_HIGH to reduce BLE connection interval from the
+    // default ~30-50ms to 7.5-15ms, which reduces how long Android GC pauses delay
+    // BLE notification delivery. See issue #342.
+    // On Android, QLowEnergyConnectionParameters with minimumInterval < 30ms maps to
+    // BluetoothGatt.CONNECTION_PRIORITY_HIGH. Default params have min=7.5ms.
+    QLowEnergyConnectionParameters params;
+    m_controller->requestConnectionUpdate(params);
+
     m_controller->discoverServices();
 }
 
@@ -409,6 +408,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                     log(QString("Descriptor error (suppressed): %1").arg(static_cast<int>(error)));
                 }
             }, qc);
+            log("Starting characteristic discovery for DE1 service");
             m_service->discoverDetails();
         } else {
             warn("ERROR: createServiceObject() returned null for DE1 service UUID");
@@ -444,6 +444,7 @@ void BleTransport::onServiceDiscoveryFinished() {
 void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) {
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         setupService();
+        log(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
         subscribeAll();
 
 #ifdef Q_OS_ANDROID
@@ -537,6 +538,9 @@ void BleTransport::setupService() {
     const QList<QLowEnergyCharacteristic> chars = m_service->characteristics();
     for (const auto& c : chars) {
         m_characteristics[c.uuid()] = c;
+        log(QString("  Char %1 props=0x%2")
+            .arg(c.uuid().toString().mid(1, 8))
+            .arg(static_cast<int>(c.properties()), 2, 16, QChar('0')));
     }
 }
 

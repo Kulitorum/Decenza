@@ -1,21 +1,17 @@
 package io.github.kulitorum.decenza_de1;
 
-import android.bluetooth.BluetoothGatt;
 import android.util.Log;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.Map;
 
 /**
- * Android-only BLE and GC helper utilities not exposed by Qt.
+ * Android-only GC helper utilities not exposed by Qt.
  *
- * Qt 6 does not expose BluetoothGatt.requestConnectionPriority() or JVM
- * heap utilization tuning through its public API. This class uses reflection
- * on Qt's internal QtBluetoothLE class (for GATT access) and on
- * dalvik.system.VMRuntime (for heap tuning).
+ * Uses reflection on dalvik.system.VMRuntime for heap utilization tuning.
+ * CONNECTION_PRIORITY_HIGH is now handled via Qt's public
+ * QLowEnergyController::requestConnectionUpdate() API instead of reflection.
  *
- * All reflection is best-effort: if field/method names change between Qt or
- * Android versions the calls silently no-op and log a warning.
+ * All reflection is best-effort: if method names change between Android
+ * versions the calls silently no-op and log a warning.
  */
 public class BleHelper {
     private static final String TAG = "DecenzaBleHelper";
@@ -104,58 +100,4 @@ public class BleHelper {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // CONNECTION_PRIORITY_HIGH
-    // -------------------------------------------------------------------------
-
-    /**
-     * Request CONNECTION_PRIORITY_HIGH for the GATT connection to the given
-     * MAC address. Call this after QLowEnergyController emits connected().
-     *
-     * CONNECTION_PRIORITY_HIGH reduces the BLE connection interval from the
-     * default ~30-50 ms to 7.5-15 ms, which reduces how long Android GC
-     * pauses delay BLE notification delivery and BLE write commands.
-     *
-     * @param macAddress The Bluetooth MAC address (e.g. "AA:BB:CC:DD:EE:FF")
-     * @return true if the request was submitted, false if it could not be made
-     */
-    public static boolean requestHighConnectionPriority(String macAddress) {
-        try {
-            // Qt 6 stores all LE controller instances in a static HashMap on
-            // org.qtproject.qt.android.bluetooth.QtBluetoothLE.
-            Class<?> qtBleClass = Class.forName(
-                "org.qtproject.qt.android.bluetooth.QtBluetoothLE");
-
-            Field leMapField = qtBleClass.getDeclaredField("leMap");
-            leMapField.setAccessible(true);
-            Map<?, ?> leMap = (Map<?, ?>) leMapField.get(null);
-
-            if (leMap == null || leMap.isEmpty()) {
-                Log.w(TAG, "requestHighConnectionPriority: Qt leMap is null or empty");
-                return false;
-            }
-
-            Field gattField = qtBleClass.getDeclaredField("mBluetoothGatt");
-            gattField.setAccessible(true);
-
-            for (Object instance : leMap.values()) {
-                BluetoothGatt gatt = (BluetoothGatt) gattField.get(instance);
-                if (gatt == null) continue;
-                if (macAddress.equalsIgnoreCase(gatt.getDevice().getAddress())) {
-                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-                    Log.i(TAG, "Requested CONNECTION_PRIORITY_HIGH for " + macAddress);
-                    return true;
-                }
-            }
-
-            Log.w(TAG, "requestHighConnectionPriority: no GATT found for " + macAddress);
-        } catch (ClassNotFoundException e) {
-            Log.w(TAG, "requestHighConnectionPriority: Qt internal class not found: " + e.getMessage());
-        } catch (NoSuchFieldException e) {
-            Log.w(TAG, "requestHighConnectionPriority: Qt internal field not found (Qt version mismatch?): " + e.getMessage());
-        } catch (Exception e) {
-            Log.w(TAG, "requestHighConnectionPriority: unexpected error: " + e.getMessage());
-        }
-        return false;
-    }
 }
