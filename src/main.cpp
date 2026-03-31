@@ -1025,9 +1025,9 @@ int main(int argc, char *argv[])
     // DE1 auto-reconnect after disconnect. Matches de1app behaviour: on Android it
     // retries essentially forever (99999999 attempts) because the DE1 may be in deep
     // sleep and take a while to become reachable. We use backoff: 5s, 30s, then 60s
-    // repeated. After 10 failed attempts at 60s intervals (~10 min) we stop — the
-    // DE1 is likely powered off, and we'd just be wasting BLE scans. The user can
-    // wake it manually or the app resume handler will retry.
+    // repeated. After 12 total attempts (5s + 30s + 10×60s ≈ 10.5 min) we stop —
+    // the DE1 is likely powered off, and we'd just be wasting BLE scans. The user
+    // can wake it manually or the app resume handler will retry.
     constexpr int kDE1MaxReconnectAttempts = 12;  // 5s + 30s + 10*60s = ~10.5 min
 
     QObject::connect(&de1ReconnectTimer, &QTimer::timeout,
@@ -1045,7 +1045,8 @@ int main(int argc, char *argv[])
         bleManager.tryDirectConnectToDE1();
 
         if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
-            // Backoff: 5s first, 30s second, then 60s for the rest
+            // 30s after first attempt, 60s for all subsequent
+            // (the initial 5s delay before attempt 1 is set by connectedChanged)
             int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
             de1ReconnectTimer.start(delay);
         } else {

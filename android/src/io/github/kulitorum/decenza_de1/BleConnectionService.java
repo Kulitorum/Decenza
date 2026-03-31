@@ -61,16 +61,18 @@ public class BleConnectionService extends Service {
         //
         // The wake lock is held only while the DE1 is connected (service lifecycle),
         // so it has zero impact when the machine is off or disconnected.
-        try {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
-                m_wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-                    "Decenza::BLEKeepalive");
-                m_wakeLock.acquire();
-                Log.d(TAG, "Acquired PARTIAL_WAKE_LOCK for BLE keepalive");
+        if (m_wakeLock == null) {
+            try {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    m_wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                        "Decenza::BLEKeepalive");
+                    m_wakeLock.acquire();
+                    Log.d(TAG, "Acquired PARTIAL_WAKE_LOCK for BLE keepalive");
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to acquire wake lock: " + e.getMessage());
             }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to acquire wake lock: " + e.getMessage());
         }
 
         Log.d(TAG, "Foreground service started");
