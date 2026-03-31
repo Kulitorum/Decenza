@@ -434,9 +434,15 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
 
+                    property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
+
+                    // Hidden StyledTextField that holds the text and send logic.
+                    // On desktop it is visible inline; on mobile it is hidden and
+                    // the fullscreen inputDialog is used instead.
                     StyledTextField {
                         id: conversationInput
                         Layout.fillWidth: true
+                        visible: !parent.isMobile
                         placeholder: overlay.pendingShotSummary.length > 0
                                      ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
                                      : TranslationManager.translate("conversation.placeholder", "Ask a follow-up question...")
@@ -490,6 +496,49 @@ Rectangle {
                         }
                     }
 
+                    // Mobile: tap target that opens fullscreen input dialog.
+                    // Avoids keyboard opening/closing thrashing the conversation layout.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        radius: Theme.scaled(6)
+                        color: Theme.surfaceColor
+                        border.color: Theme.borderColor
+                        border.width: 1
+                        visible: parent.isMobile
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.scaled(12)
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: overlay.pendingShotSummary.length > 0
+                                  ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
+                                  : TranslationManager.translate("conversation.placeholder", "Ask a follow-up question...")
+                            font: Theme.bodyFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("conversation.input.accessible", "Type a message")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: inputTapArea.clicked(null)
+
+                        MouseArea {
+                            id: inputTapArea
+                            anchors.fill: parent
+                            enabled: MainController.aiManager && MainController.aiManager.conversation &&
+                                     !MainController.aiManager.conversation.busy &&
+                                     !overlay.contextLoading
+                            onClicked: {
+                                inputDialogTextArea.text = ""
+                                inputDialog.open()
+                                inputDialogTextArea.forceActiveFocus()
+                            }
+                        }
+                    }
+
+                    // Desktop: inline send button
                     Rectangle {
                         Layout.preferredWidth: Theme.scaled(60)
                         Layout.preferredHeight: Theme.scaled(44)
@@ -497,6 +546,7 @@ Rectangle {
                         color: conversationInput.text.length > 0 ? Theme.primaryColor : Theme.surfaceColor
                         border.color: Theme.borderColor
                         border.width: conversationInput.text.length > 0 ? 0 : 1
+                        visible: !parent.isMobile
 
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("conversation.send.accessible", "Send message")
@@ -521,6 +571,121 @@ Rectangle {
                             onClicked: conversationInput.sendFollowUp()
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // Fullscreen input dialog for mobile — avoids keyboard thrashing the conversation layout.
+    // Opens above the keyboard with a large text area; Send dismisses and returns to conversation.
+    Dialog {
+        id: inputDialog
+        parent: Overlay.overlay
+        modal: true
+        padding: 0
+        closePolicy: Dialog.CloseOnEscape
+
+        property bool keyboardActive: inputDialogTextArea.activeFocus
+        property real keyboardHeight: {
+            if (!keyboardActive) return 0
+            var kbh = Qt.inputMethod.keyboardRectangle.height
+            if (kbh > 0) return kbh
+            return parent.height * 0.45
+        }
+
+        width: parent.width
+        height: {
+            // Android: adjustPan shifts the window, use full height
+            if (Qt.platform.os === "android") return parent.height
+            // iOS: shrink above keyboard
+            if (keyboardHeight > 0) return parent.height - keyboardHeight
+            return parent.height
+        }
+        x: 0
+        y: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header with Cancel and Send
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(44)
+
+                AccessibleButton {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                    onClicked: inputDialog.close()
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("conversation.input.title", "Message")
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                    Accessible.ignored: true
+                }
+
+                AccessibleButton {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.scaled(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("conversation.send", "Send")
+                    accessibleName: TranslationManager.translate("conversation.send.accessible", "Send message")
+                    primary: true
+                    enabled: inputDialogTextArea.text.length > 0 &&
+                             MainController.aiManager && MainController.aiManager.conversation &&
+                             !MainController.aiManager.conversation.busy &&
+                             !overlay.contextLoading
+                    onClicked: {
+                        conversationInput.text = inputDialogTextArea.text
+                        inputDialog.close()
+                        conversationInput.sendFollowUp()
+                    }
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Large text editing area
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.margins: Theme.scaled(12)
+                contentWidth: availableWidth
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                TextArea {
+                    id: inputDialogTextArea
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    wrapMode: TextArea.Wrap
+                    leftPadding: Theme.scaled(8)
+                    rightPadding: Theme.scaled(8)
+                    topPadding: Theme.scaled(8)
+                    bottomPadding: Theme.scaled(8)
+                    background: Rectangle {
+                        color: Theme.backgroundColor
+                        radius: Theme.scaled(4)
+                    }
+
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("conversation.input.accessible", "Type a message")
+                    Accessible.description: text
+                    Accessible.focusable: true
                 }
             }
         }
