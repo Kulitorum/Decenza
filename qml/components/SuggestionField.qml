@@ -126,8 +126,9 @@ Item {
                 // Don't set root.text here - that breaks the parent binding!
                 root.textEdited(text)
                 root.inputBlurred()
-                // Small delay before closing to allow clicking on popup items
-                closeTimer.restart()
+                // Defer popup close — if the user clicked a popup item,
+                // selectSuggestion() will have set justSelected = true by now
+                Qt.callLater(closeSuggestionsIfBlurred)
             }
         }
 
@@ -280,16 +281,12 @@ Item {
     // Track if we just selected an item (to prevent reopening)
     property bool justSelected: false
 
-    // Delay closing popup to allow clicking items
-    Timer {
-        id: closeTimer
-        interval: 200
-        onTriggered: {
-            if (!textInput.activeFocus && !justSelected) {
-                suggestionPopup.close()
-            }
-            justSelected = false
+    // Close popup after focus loss — deferred so selectSuggestion() can set justSelected first
+    function closeSuggestionsIfBlurred() {
+        if (!textInput.activeFocus && !justSelected) {
+            suggestionPopup.close()
         }
+        justSelected = false
     }
 
     // Typing-driven autocomplete popup (kept for live filtering while typing)

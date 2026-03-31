@@ -484,7 +484,7 @@ Page {
                                         id: beanText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: beanDelegate.beanIndex === Settings.selectedBeanPreset ? "white" : Theme.textColor
+                                        color: beanDelegate.beanIndex === Settings.selectedBeanPreset ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -579,6 +579,7 @@ Page {
                                 text: "+"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(20)
+                                Accessible.ignored: true
                             }
 
                             AccessibleTapHandler {
@@ -857,7 +858,7 @@ Page {
             anchors.centerIn: parent
             key: "shotmetadata.button.hidekeyboard"
             fallback: "Hide keyboard"
-            color: "white"
+            color: Theme.primaryContrastColor
             font.pixelSize: Theme.scaled(13)
             font.bold: true
             Accessible.ignored: true
@@ -910,7 +911,7 @@ Page {
                 Tr {
                     key: "beaninfo.button.save"
                     fallback: "Save Changes"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
@@ -1349,7 +1350,7 @@ Page {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         Accessible.ignored: true
@@ -1565,7 +1566,7 @@ Page {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         Accessible.ignored: true
