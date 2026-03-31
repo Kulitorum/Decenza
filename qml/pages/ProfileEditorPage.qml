@@ -1359,6 +1359,7 @@ Page {
                     accessibleName: step && step.pump === "pressure" ? "Flow limit" : "Pressure limit"
                     from: 0; to: step && step.pump === "pressure" ? 8 : 12; stepSize: 0.1
                     suffix: step && step.pump === "pressure" ? " mL/s" : " bar"
+                    displayText: { var v = stepVersion; var val = step ? (step.max_flow_or_pressure || 0) : 0; return val === 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { var v = stepVersion; return step ? (step.max_flow_or_pressure || 0) : 0 }
                     onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 10) / 10; uploadProfile() } }
                 }
