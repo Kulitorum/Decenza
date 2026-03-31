@@ -329,8 +329,10 @@ void MachineState::updatePhase() {
                 if (m_tareTimeoutTimer)
                     m_tareTimeoutTimer->stop();
 
-                // Reset and start scale timer when flow starts (like de1app)
-                if (m_scale) {
+                // Reset and start scale timer when non-espresso flow starts.
+                // For espresso, reset + start are handled separately below
+                // (split by preheating phase for scales with independent reset).
+                if (m_scale && !isInEspresso) {
                     m_scale->resetTimer();
                     m_scale->startTimer();
                     qDebug() << "=== SCALE TIMER: Reset + Started (flow began) ===";
@@ -364,11 +366,14 @@ void MachineState::updatePhase() {
                     m_lastEmittedPreinfusionVolumeMl = -1;
                     m_lastEmittedPourVolumeMl = -1;
 
-                    // Reset and start scale timer (like de1app)
+                    // Start scale timer. For scales with independent reset, reset was
+                    // already sent at cycle start. For others, send reset+start together.
                     if (m_scale) {
-                        m_scale->resetTimer();
+                        if (!m_scale->hasIndependentTimerReset()) {
+                            m_scale->resetTimer();
+                        }
                         m_scale->startTimer();
-                        qDebug() << "=== SCALE TIMER: Reset + Started (espresso extraction began) ===";
+                        qDebug() << "=== SCALE TIMER: Started (espresso extraction began) ===";
                     }
                 } else if (!m_shotTimer->isActive()) {
                     // Actual glitch recovery: restart timer without resetting state
@@ -413,6 +418,32 @@ void MachineState::updatePhase() {
             m_shotStartTime = 0;  // Mark as invalid so preinfusion properly starts it
             m_lastAutoTareTime = 0;  // Reset holdoff for new espresso cycle
             emit shotTimeChanged();  // Update UI to show 0 during preheating
+
+            // Reset scale timer at cycle start (like de1app's on_major_state_change).
+            // Normally startTimer() is sent later when extraction begins, separating
+            // the two commands by the preheating phase to avoid BLE command contention
+            // (WriteWithoutResponse can silently drop back-to-back packets).
+            // Only split for scales with a true independent reset — some scales implement
+            // resetTimer() as tare (Eclair) or send the same bytes as startTimer (DiFluid),
+            // so splitting would cause unwanted side effects during preheating.
+            // If already flowing (machine skipped preheating), send both now — there
+            // won't be a separate extraction-start transition to send startTimer().
+            if (m_scale && m_scale->hasIndependentTimerReset()) {
+                m_scale->resetTimer();
+                if (isFlowing()) {
+                    m_scale->startTimer();
+                    qDebug() << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing) ===";
+                } else {
+                    qDebug() << "=== SCALE TIMER: Reset (espresso cycle started, waiting for extraction) ===";
+                }
+            } else if (m_scale && isFlowing()) {
+                // Safety net: machine skipped preheating (missed BLE substate notification).
+                // Non-independent-reset scales won't reach the startingExtraction path
+                // (requires wasInEspresso=true), so send reset+start together here.
+                m_scale->resetTimer();
+                m_scale->startTimer();
+                qDebug() << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing, non-independent reset) ===";
+            }
 
             // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
             // can reset its m_shotStartTime before any shot samples arrive via BLE.

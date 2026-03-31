@@ -19,6 +19,7 @@ public slots:
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;
+    bool hasIndependentTimerReset() const override { return false; }  // Delegates to tare()
     void sendKeepAlive() override;
 
 private slots:
