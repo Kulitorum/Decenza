@@ -20,6 +20,18 @@ void WeightProcessor::processWeight(double weight)
 {
     qint64 wallClock = m_wallClock();
 
+    // Spike filter (issue #610): reject single-packet BLE corruption.
+    // A Felicita scale was observed sending 1649g instead of ~10g, causing a
+    // false SAW stop. Any reading that jumps more than 100g from the previous
+    // sample is clearly corrupted — espresso never changes that fast.
+    if (m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
+        qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
+                   << "last=" << m_lastRawWeight;
+        return;
+    }
+    m_hasLastWeight = true;
+    m_lastRawWeight = weight;
+
     // De-jitter: BLE events arrive on the main thread via QueuedConnection, and when
     // the main thread is busy (QML rendering), multiple events queue up and are
     // delivered in a burst. The worker thread processes them all within ~1ms, so
@@ -115,11 +127,14 @@ void WeightProcessor::processWeight(double weight)
     // extraction means the scale is mid-reset. Block SAW and enter recovery mode —
     // matching de1app's on_tare_seen pattern: clear the LSLR and wait for the scale
     // to return to ~0g before re-arming, so oscillation samples never corrupt SAW.
+    // Uses raw weight — a single -6g reading is a clear tare-reset signal.
     if (m_tareComplete && weight < -5.0) {
         m_tareComplete = false;
         m_oscillationDetected = true;
         m_settleCount = 0;
         m_weightSamples.clear();  // Discard oscillation samples from LSLR
+
+        m_hasLastWeight = false;  // Accept first reading at any weight after recovery
         qWarning() << "[SAW-Worker] Scale oscillation detected (weight=" << weight
                    << "g) - SAW blocked, awaiting settle";
     }
@@ -135,6 +150,8 @@ void WeightProcessor::processWeight(double weight)
                 m_oscillationDetected = false;
                 m_settleCount = 0;
                 m_weightSamples.clear();  // Fresh LSLR baseline from post-settle readings
+        
+                m_hasLastWeight = false;  // Accept first reading at any weight after recovery
                 qDebug() << "[SAW-Worker] Scale settled after oscillation, SAW re-armed";
             }
         } else {
@@ -269,6 +286,9 @@ void WeightProcessor::startExtraction()
     m_extractionStartTime = 0;  // Set later by markExtractionStart() when flow actually begins
     m_frameWeightSkipSent.clear();
     m_weightSamples.clear();
+
+    m_lastRawWeight = 0;
+    m_hasLastWeight = false;
     m_currentFrame = -1;
     m_tareComplete = false;
     m_oscillationDetected = false;
@@ -313,6 +333,9 @@ void WeightProcessor::stopExtraction()
 void WeightProcessor::resetForRetare()
 {
     m_weightSamples.clear();
+
+    m_lastRawWeight = 0;
+    m_hasLastWeight = false;
     m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();
