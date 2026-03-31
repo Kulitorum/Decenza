@@ -15,7 +15,6 @@ Page {
     property int editShotId: 0  // Set > 0 to edit existing shot from history
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
-    property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
     // Incremented when async distinct cache refreshes; referenced in suggestion bindings
     // to force QML re-evaluation (the >= 0 condition is always true by design)
@@ -44,7 +43,9 @@ Page {
     property string _snapType
     property string _snapRoastDate
     property string _snapRoastLevel
+    property string _snapGrinderBrand
     property string _snapGrinderModel
+    property string _snapGrinderBurrs
     property string _snapGrinderSetting
     property string _snapBarista
     property int _snapSelectedPreset: -1
@@ -65,7 +66,9 @@ Page {
             _snapType = Settings.dyeBeanType
             _snapRoastDate = Settings.dyeRoastDate
             _snapRoastLevel = Settings.dyeRoastLevel
+            _snapGrinderBrand = Settings.dyeGrinderBrand
             _snapGrinderModel = Settings.dyeGrinderModel
+            _snapGrinderBurrs = Settings.dyeGrinderBurrs
             _snapGrinderSetting = Settings.dyeGrinderSetting
             _snapBarista = Settings.dyeBarista
             _snapSelectedPreset = Settings.selectedBeanPreset
@@ -208,7 +211,9 @@ Page {
             || Settings.dyeBeanType !== _snapType
             || Settings.dyeRoastDate !== _snapRoastDate
             || Settings.dyeRoastLevel !== _snapRoastLevel
+            || Settings.dyeGrinderBrand !== _snapGrinderBrand
             || Settings.dyeGrinderModel !== _snapGrinderModel
+            || Settings.dyeGrinderBurrs !== _snapGrinderBurrs
             || Settings.dyeGrinderSetting !== _snapGrinderSetting
             || Settings.dyeBarista !== _snapBarista
             || Settings.selectedBeanPreset !== _snapSelectedPreset) {
@@ -468,6 +473,7 @@ Page {
                                                      (beanDelegate.beanIndex === Settings.selectedBeanPreset ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.focusable: true
+                                    Accessible.description: TranslationManager.translate("beaninfo.accessible.preset.hint", "Long-press to rename or delete this preset.")
                                     Accessible.onPressAction: {
                                         var s = beanPresetsRow.settings
                                         var targetIndex = beanDelegate.beanIndex
@@ -492,6 +498,7 @@ Page {
                                         text: modelData.name
                                         color: beanDelegate.beanIndex === Settings.selectedBeanPreset ? "white" : Theme.textColor
                                         font: Theme.bodyFont
+                                        Accessible.ignored: true
                                     }
 
                                     MouseArea {
@@ -517,32 +524,8 @@ Page {
                                                 shotMetadataPage.forceActiveFocus()
 
                                                 var targetIndex = beanDelegate.beanIndex
-                                                var oldSelected = s.selectedBeanPreset
-
-                                                // Capture current DYE values before applyBeanPreset overwrites them
-                                                var oldBrand = s.dyeBeanBrand
-                                                var oldType = s.dyeBeanType
-                                                var oldRoastDate = s.dyeRoastDate
-                                                var oldRoastLevel = s.dyeRoastLevel
-                                                var oldGrinderBrand = s.dyeGrinderBrand
-                                                var oldGrinderModel = s.dyeGrinderModel
-                                                var oldGrinderBurrs = s.dyeGrinderBurrs
-                                                var oldGrinderSetting = s.dyeGrinderSetting
-
-                                                // Apply new preset FIRST — this is the critical operation that
-                                                // syncs DYE fields with the selected preset. Must happen before
-                                                // updateBeanPreset, which emits beanPresetsChanged and can
-                                                // destroy this delegate (Repeater model rebuild).
                                                 s.selectedBeanPreset = targetIndex
                                                 s.applyBeanPreset(targetIndex)
-
-                                                // Save old DYE values back to the previous preset (lower priority).
-                                                // This may trigger Repeater model rebuild and destroy this delegate,
-                                                // but all critical work is already done above.
-                                                if (oldSelected >= 0 && oldSelected !== targetIndex) {
-                                                    // Don't save DYE changes back to the old preset —
-                                                    // presets are immutable favorites, not live-synced
-                                                }
                                             }
                                             beanPill.Drag.drop()
                                             if (beanPresetsRow) beanPresetsRow.draggedIndex = -1
@@ -1304,13 +1287,12 @@ Page {
         width: Theme.scaled(360)
         modal: true
         padding: 0
-        title: TranslationManager.translate("beaninfo.unsaved.title", "Unsaved Changes")
 
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1
-            border.color: "white"
+            border.color: Theme.borderColor
         }
 
         contentItem: ColumnLayout {
@@ -1334,7 +1316,7 @@ Page {
                 Layout.margins: Theme.scaled(20)
             }
 
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
@@ -1344,75 +1326,10 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("beaninfo.unsaved.discard", "Discard")
-                    accessibleName: TranslationManager.translate("beaninfo.unsaved.discard.accessible", "Discard changes and go back")
-                    onClicked: {
-                        unsavedChangesDialog.close()
-                        // Restore snapshot values
-                        Settings.dyeBeanBrand = _snapBrand
-                        Settings.dyeBeanType = _snapType
-                        Settings.dyeRoastDate = _snapRoastDate
-                        Settings.dyeRoastLevel = _snapRoastLevel
-                        Settings.dyeGrinderModel = _snapGrinderModel
-                        Settings.dyeGrinderSetting = _snapGrinderSetting
-                        Settings.dyeBarista = _snapBarista
-                        Settings.selectedBeanPreset = _snapSelectedPreset
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Accessible.ignored: true
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
-                    accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
-                    onClicked: {
-                        unsavedChangesDialog.close()
-                        // Don't save DYE changes back to the preset —
-                        // presets are immutable favorites. Just keep DYE as-is and deselect.
-                        if (Settings.selectedBeanPreset >= 0) {
-                            Settings.selectedBeanPreset = -1
-                        }
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Accessible.ignored: true
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("beaninfo.unsaved.saveFavorite", "Save Favorite")
                     accessibleName: TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")
                     onClicked: {
                         unsavedChangesDialog.close()
-                        // Open the save preset dialog with suggested name from current DYE fields
                         savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
                         savePresetDialog.goBackAfterSave = true
                         savePresetDialog.open()
@@ -1428,6 +1345,74 @@ Page {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         Accessible.ignored: true
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        text: TranslationManager.translate("beaninfo.unsaved.discard", "Discard")
+                        accessibleName: TranslationManager.translate("beaninfo.unsaved.discard.accessible", "Discard changes and go back")
+                        onClicked: {
+                            unsavedChangesDialog.close()
+                            Settings.dyeBeanBrand = _snapBrand
+                            Settings.dyeBeanType = _snapType
+                            Settings.dyeRoastDate = _snapRoastDate
+                            Settings.dyeRoastLevel = _snapRoastLevel
+                            Settings.dyeGrinderBrand = _snapGrinderBrand
+                            Settings.dyeGrinderModel = _snapGrinderModel
+                            Settings.dyeGrinderBurrs = _snapGrinderBurrs
+                            Settings.dyeGrinderSetting = _snapGrinderSetting
+                            Settings.dyeBarista = _snapBarista
+                            Settings.selectedBeanPreset = _snapSelectedPreset
+                            root.goBack()
+                        }
+                        background: Rectangle {
+                            radius: Theme.buttonRadius
+                            color: "transparent"
+                            border.width: 1
+                            border.color: Theme.primaryColor
+                        }
+                        contentItem: Text {
+                            text: parent.text
+                            font: Theme.bodyFont
+                            color: Theme.primaryColor
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
+                        accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
+                        onClicked: {
+                            unsavedChangesDialog.close()
+                            if (Settings.selectedBeanPreset >= 0) {
+                                Settings.selectedBeanPreset = -1
+                            }
+                            root.goBack()
+                        }
+                        background: Rectangle {
+                            radius: Theme.buttonRadius
+                            color: "transparent"
+                            border.width: 1
+                            border.color: Theme.primaryColor
+                        }
+                        contentItem: Text {
+                            text: parent.text
+                            font: Theme.bodyFont
+                            color: Theme.primaryColor
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            Accessible.ignored: true
+                        }
                     }
                 }
             }
@@ -1559,8 +1544,7 @@ Page {
                     onClicked: {
                         guestBeanDialog.close()
                         // Open the save preset dialog with a suggested name
-                        savePresetDialog.suggestedName = Settings.dyeBeanBrand +
-                            (Settings.dyeBeanType ? " " + Settings.dyeBeanType : "")
+                        savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
                         savePresetDialog.open()
                     }
                     background: Rectangle {
