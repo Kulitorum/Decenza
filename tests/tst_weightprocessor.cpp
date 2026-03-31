@@ -327,6 +327,30 @@ private slots:
         QCOMPARE(stopSpy.count(), 0);
     }
 
+    void consecutiveRejectionsAutoReset() {
+        // After 3 consecutive rejections, the filter accepts the new baseline.
+        // This handles legitimate shifts (cup removal, scale reconnect).
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        // Establish baseline at ~10g
+        feedRising(wp, 8.0, 2.0, 5);
+        QVERIFY(flowSpy.count() >= 4);
+
+        // Inject 3 readings at 500g — first 2 rejected, 3rd accepted as new baseline
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*500"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*500"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike filter reset"));
+        int countBefore = flowSpy.count();
+        wp.processWeight(500.0); m_fakeClock += 200;
+        wp.processWeight(500.0); m_fakeClock += 200;
+        wp.processWeight(500.0); m_fakeClock += 200;
+
+        // 3rd reading should have been accepted — flowRatesReady emitted
+        QCOMPARE(flowSpy.count(), countBefore + 1);
+    }
+
     void spikeDoesNotCorruptFlowRate() {
         // A rejected spike should not affect LSLR flow computation
         WeightProcessor wp;

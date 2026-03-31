@@ -23,11 +23,21 @@ void WeightProcessor::processWeight(double weight)
     // Spike filter (issue #610): reject single-packet BLE corruption.
     // A Felicita scale was observed sending 1649g instead of ~10g, causing a
     // false SAW stop. Any reading that jumps more than 100g from the previous
-    // sample is clearly corrupted — espresso never changes that fast.
+    // sample is rejected. Auto-resets after 3 consecutive rejections to handle
+    // legitimate shifts (cup removal, tare, scale reconnect at different offset).
     if (m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
-        qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
-                   << "last=" << m_lastRawWeight;
-        return;
+        if (++m_consecutiveRejections < 3) {
+            m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
+            qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
+                       << "last=" << m_lastRawWeight;
+            return;
+        }
+        qWarning() << "[SAW-Worker] Spike filter reset after"
+                   << m_consecutiveRejections << "consecutive rejections"
+                   << "— accepting new baseline:" << weight;
+        m_consecutiveRejections = 0;
+    } else {
+        m_consecutiveRejections = 0;
     }
     m_hasLastWeight = true;
     m_lastRawWeight = weight;
@@ -150,7 +160,6 @@ void WeightProcessor::processWeight(double weight)
                 m_oscillationDetected = false;
                 m_settleCount = 0;
                 m_weightSamples.clear();  // Fresh LSLR baseline from post-settle readings
-        
                 m_hasLastWeight = false;  // Accept first reading at any weight after recovery
                 qDebug() << "[SAW-Worker] Scale settled after oscillation, SAW re-armed";
             }
@@ -276,6 +285,7 @@ void WeightProcessor::setTareComplete(bool complete)
         // re-armed if called mid-shot (e.g. physical scale reconnects after a BLE drop).
         m_oscillationDetected = false;
         m_settleCount = 0;
+        m_hasLastWeight = false;  // Tare shifts weight baseline — accept first post-tare reading
     }
 }
 
@@ -289,6 +299,7 @@ void WeightProcessor::startExtraction()
 
     m_lastRawWeight = 0;
     m_hasLastWeight = false;
+    m_consecutiveRejections = 0;
     m_currentFrame = -1;
     m_tareComplete = false;
     m_oscillationDetected = false;
@@ -336,6 +347,7 @@ void WeightProcessor::resetForRetare()
 
     m_lastRawWeight = 0;
     m_hasLastWeight = false;
+    m_consecutiveRejections = 0;
     m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();
