@@ -39,6 +39,8 @@ Rectangle {
     signal pendingShotSummaryCleared()
     signal closed()
 
+    property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
+
     visible: false
     color: Theme.backgroundColor
     z: 200
@@ -252,7 +254,7 @@ Rectangle {
                     // Spacer to avoid overlap with global hide-keyboard button on mobile
                     // (button is scaled(36) wide + standardMargin from edge)
                     Item {
-                        visible: (Qt.platform.os === "android" || Qt.platform.os === "ios")
+                        visible: overlay.isMobile
                         width: Theme.scaled(52)
                         height: 1
                     }
@@ -437,10 +439,17 @@ Rectangle {
 
                 // Input row
                 RowLayout {
+                    id: inputRow
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
 
-                    property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
+                    // Shared by conversationInput, mobileInputButton, and send controls
+                    property bool canSend: MainController.aiManager && MainController.aiManager.conversation &&
+                                           !MainController.aiManager.conversation.busy &&
+                                           !overlay.contextLoading
+                    property string inputPlaceholder: overlay.pendingShotSummary.length > 0
+                                     ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
+                                     : TranslationManager.translate("conversation.placeholder", "Ask a follow-up question...")
 
                     // Input field that holds the text and send logic.
                     // Visible inline on desktop; hidden on mobile where the
@@ -448,13 +457,9 @@ Rectangle {
                     StyledTextField {
                         id: conversationInput
                         Layout.fillWidth: true
-                        visible: !parent.isMobile
-                        placeholder: overlay.pendingShotSummary.length > 0
-                                     ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
-                                     : TranslationManager.translate("conversation.placeholder", "Ask a follow-up question...")
-                        enabled: MainController.aiManager && MainController.aiManager.conversation &&
-                                 !MainController.aiManager.conversation.busy &&
-                                 !overlay.contextLoading
+                        visible: !overlay.isMobile
+                        placeholder: parent.inputPlaceholder
+                        enabled: parent.canSend
 
                         Keys.onReturnPressed: sendFollowUp()
                         Keys.onEnterPressed: sendFollowUp()
@@ -512,7 +517,7 @@ Rectangle {
                         color: Theme.surfaceColor
                         border.color: Theme.borderColor
                         border.width: 1
-                        visible: parent.isMobile
+                        visible: overlay.isMobile
                         opacity: inputTapArea.enabled ? 1.0 : 0.5
                         Accessible.ignored: true
 
@@ -520,9 +525,7 @@ Rectangle {
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: overlay.pendingShotSummary.length > 0
-                                  ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
-                                  : TranslationManager.translate("conversation.placeholder", "Ask a follow-up question...")
+                            text: inputRow.inputPlaceholder
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
@@ -533,9 +536,7 @@ Rectangle {
                             anchors.fill: parent
                             accessibleName: TranslationManager.translate("conversation.input.accessible", "Type a message")
                             accessibleItem: mobileInputButton
-                            enabled: MainController.aiManager && MainController.aiManager.conversation &&
-                                     !MainController.aiManager.conversation.busy &&
-                                     !overlay.contextLoading
+                            enabled: inputRow.canSend
                             onAccessibleClicked: {
                                 inputDialogTextArea.text = ""
                                 inputDialog.open()
@@ -553,7 +554,7 @@ Rectangle {
                         color: conversationInput.text.length > 0 ? Theme.primaryColor : Theme.surfaceColor
                         border.color: Theme.borderColor
                         border.width: conversationInput.text.length > 0 ? 0 : 1
-                        visible: !parent.isMobile
+                        visible: !overlay.isMobile
 
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("conversation.send.accessible", "Send message")
@@ -571,10 +572,7 @@ Rectangle {
                         MouseArea {
                             id: sendArea
                             anchors.fill: parent
-                            enabled: conversationInput.text.length > 0 &&
-                                     MainController.aiManager && MainController.aiManager.conversation &&
-                                     !MainController.aiManager.conversation.busy &&
-                                     !overlay.contextLoading
+                            enabled: conversationInput.text.length > 0 && inputRow.canSend
                             onClicked: conversationInput.sendFollowUp()
                         }
                     }
@@ -593,19 +591,17 @@ Rectangle {
         closePolicy: Dialog.CloseOnEscape
         onOpened: inputDialogTextArea.forceActiveFocus()
 
-        property bool keyboardActive: inputDialogTextArea.activeFocus
+        // Keyboard height for iOS shrink-above-keyboard layout.
+        // Android uses adjustPan (window shifts), so always full height.
         property real keyboardHeight: {
-            if (!keyboardActive) return 0
+            if (!inputDialogTextArea.activeFocus) return 0
             var kbh = Qt.inputMethod.keyboardRectangle.height
-            if (kbh > 0) return kbh
-            return parent.height * 0.45
+            return kbh > 0 ? kbh : parent.height * 0.45
         }
 
         width: parent.width
         height: {
-            // Android: adjustPan shifts the window, use full height
             if (Qt.platform.os === "android") return parent.height
-            // iOS: shrink above keyboard
             if (keyboardHeight > 0) return parent.height - keyboardHeight
             return parent.height
         }
@@ -648,10 +644,7 @@ Rectangle {
                     text: TranslationManager.translate("conversation.send", "Send")
                     accessibleName: TranslationManager.translate("conversation.send.accessible", "Send message")
                     primary: true
-                    enabled: inputDialogTextArea.text.length > 0 &&
-                             MainController.aiManager && MainController.aiManager.conversation &&
-                             !MainController.aiManager.conversation.busy &&
-                             !overlay.contextLoading
+                    enabled: inputDialogTextArea.text.length > 0 && inputRow.canSend
                     onClicked: {
                         // Route through conversationInput.sendFollowUp() to reuse
                         // context-prepending and ask()/followUp() branching logic
