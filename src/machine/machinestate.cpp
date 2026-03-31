@@ -330,8 +330,8 @@ void MachineState::updatePhase() {
                     m_tareTimeoutTimer->stop();
 
                 // Reset and start scale timer when non-espresso flow starts.
-                // For espresso, reset + start are handled separately: reset at cycle
-                // start, start at extraction start (see isInEspresso blocks below).
+                // For espresso, reset + start are handled separately below
+                // (split by preheating phase for scales with independent reset).
                 if (m_scale && !isInEspresso) {
                     m_scale->resetTimer();
                     m_scale->startTimer();
@@ -366,8 +366,12 @@ void MachineState::updatePhase() {
                     m_lastEmittedPreinfusionVolumeMl = -1;
                     m_lastEmittedPourVolumeMl = -1;
 
-                    // Start scale timer (reset was sent at cycle start, like de1app)
+                    // Start scale timer. For scales with independent reset, reset was
+                    // already sent at cycle start. For others, send reset+start together.
                     if (m_scale) {
+                        if (!m_scale->hasIndependentTimerReset()) {
+                            m_scale->resetTimer();
+                        }
                         m_scale->startTimer();
                         qDebug() << "=== SCALE TIMER: Started (espresso extraction began) ===";
                     }
@@ -419,9 +423,12 @@ void MachineState::updatePhase() {
             // Normally startTimer() is sent later when extraction begins, separating
             // the two commands by the preheating phase to avoid BLE command contention
             // (WriteWithoutResponse can silently drop back-to-back packets).
+            // Only split for scales with a true independent reset — some scales implement
+            // resetTimer() as tare (Eclair) or send the same bytes as startTimer (DiFluid),
+            // so splitting would cause unwanted side effects during preheating.
             // If already flowing (machine skipped preheating), send both now — there
             // won't be a separate extraction-start transition to send startTimer().
-            if (m_scale) {
+            if (m_scale && m_scale->hasIndependentTimerReset()) {
                 m_scale->resetTimer();
                 if (isFlowing()) {
                     m_scale->startTimer();
