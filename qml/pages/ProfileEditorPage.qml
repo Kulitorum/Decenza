@@ -1340,7 +1340,7 @@ Page {
                 }
 
                 // Max duration
-                Text { text: TranslationManager.translate("profileEditor.maxDuration", "Duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                Text { text: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                 ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); from: 0; to: 120; stepSize: 1; suffix: " s"; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue); uploadProfile() } } }
 
                 // Max volume
@@ -1356,9 +1356,10 @@ Page {
                 ValueInput {
                     Layout.fillWidth: true
                     valueColor: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor
-                    accessibleName: step && step.pump === "pressure" ? "Flow limit" : "Pressure limit"
+                    accessibleName: step && step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit")
                     from: 0; to: step && step.pump === "pressure" ? 8 : 12; stepSize: 0.1
                     suffix: step && step.pump === "pressure" ? " mL/s" : " bar"
+                    displayText: { var v = stepVersion; var val = step ? (step.max_flow_or_pressure || 0) : 0; return val === 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { var v = stepVersion; return step ? (step.max_flow_or_pressure || 0) : 0 }
                     onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 10) / 10; uploadProfile() } }
                 }
