@@ -227,28 +227,20 @@ Page {
         }
     }
 
-    // Scroll to focused field when it changes
+    // Scroll to focused field when it changes or when keyboard height changes
     onFocusedFieldChanged: {
         if (focusedField) {
-            scrollTimer.restart()
+            Qt.callLater(scrollToFocusedField)
         }
     }
 
-    Timer {
-        id: scrollTimer
-        interval: 150
-        onTriggered: scrollToFocusedField()
-    }
-
-    // Reset focusedField when focus leaves all text fields
-    Timer {
-        id: focusResetTimer
-        interval: 100
-        onTriggered: {
-            if (focusedField && !focusedField.activeFocus) {
-                focusedField = null
-                flickable.contentY = 0
-            }
+    // Reset focusedField when focus leaves all text fields.
+    // Uses Qt.callLater instead of a timer — by the next event loop iteration,
+    // focus has settled on the new field (if any).
+    function checkFocusReset() {
+        if (focusedField && !focusedField.activeFocus) {
+            focusedField = null
+            flickable.contentY = 0
         }
     }
 
@@ -289,6 +281,7 @@ Page {
         anchors.rightMargin: Theme.standardMargin
         // Add bottom padding for keyboard: use real height if available, else estimate when focused
         property real kbHeight: Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+        onKbHeightChanged: if (focusedField) Qt.callLater(scrollToFocusedField)
         contentHeight: mainColumn.height + (kbHeight > 0 ? kbHeight : (focusedField ? shotMetadataPage.height * 0.5 : 0))
         clip: true
         boundsBehavior: Flickable.StopAtBounds
@@ -639,7 +632,7 @@ Page {
                             _pendingBeanAutoFill = t  // Cache miss — retry when async fetch completes
                         }
                     }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 SuggestionField {
@@ -657,7 +650,7 @@ Page {
                     onSuggestionSelected: function(t) {
                         if (isEditMode) editRoastDate = ""; else { Settings.dyeRoastDate = ""; deselectPresetOnEdit(); }
                     }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 Item {
@@ -732,7 +725,7 @@ Page {
                             }
                         }
                     }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 SuggestionField {
@@ -762,7 +755,7 @@ Page {
                         }
                         if (!isEditMode) deselectPresetOnEdit();
                     }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 SuggestionField {
@@ -782,7 +775,7 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { if (isEditMode) editGrinderBurrs = t; else { Settings.dyeGrinderBurrs = t; deselectPresetOnEdit(); } }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 // === ROW 3: Roast level, Setting, Barista ===
@@ -811,7 +804,7 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else { Settings.dyeGrinderSetting = t; deselectPresetOnEdit(); } }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 SuggestionField {
@@ -825,7 +818,7 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { if (isEditMode) editBarista = t; else Settings.dyeBarista = t; }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                    onInputFocused: function(field) { focusedField = field }
                 }
             }
 
@@ -961,14 +954,13 @@ Page {
             onActiveFocusChanged: {
                 if (activeFocus) {
                     focusedField = fieldInput
-                    focusResetTimer.stop()
                     if (AccessibilityManager.enabled) {
                         var stripped = text.replace(/[\s\-]/g, "")
                         let announcement = parent.label + ". " + (stripped.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty"))
                         AccessibilityManager.announce(announcement)
                     }
                 } else {
-                    focusResetTimer.restart()
+                    Qt.callLater(checkFocusReset)
                 }
             }
 
