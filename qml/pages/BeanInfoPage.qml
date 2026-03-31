@@ -36,6 +36,27 @@ Page {
                 // else: cache miss still pending, keep _pendingBeanAutoFill for next signal
             }
         }
+        function onShotReady(shotId, shot) {
+            if (shotId !== shotMetadataPage.editShotId) return
+            editShotData = shot
+            if (editShotData.id) {
+                editBeanBrand = editShotData.beanBrand || ""
+                editBeanType = editShotData.beanType || ""
+                editRoastDate = editShotData.roastDate || ""
+                editRoastLevel = editShotData.roastLevel || ""
+                editGrinderBrand = editShotData.grinderBrand || ""
+                editGrinderModel = editShotData.grinderModel || ""
+                editGrinderBurrs = editShotData.grinderBurrs || ""
+                editGrinderSetting = editShotData.grinderSetting || ""
+                editBarista = editShotData.barista || ""
+                editDoseWeight = editShotData.doseWeight || 0
+                editDrinkWeight = editShotData.finalWeight || 0
+                editDrinkTds = editShotData.drinkTds || 0
+                editDrinkEy = editShotData.drinkEy || 0
+                editEnjoyment = editShotData.enjoyment ?? 0
+                editNotes = editShotData.espressoNotes || ""
+            }
+        }
     }
 
     // Snapshot of DYE values at page open (for Discard in unsaved-changes dialog)
@@ -107,33 +128,6 @@ Page {
     function loadShotForEditing() {
         if (editShotId <= 0) return
         MainController.shotHistory.requestShot(editShotId)
-    }
-
-    // Handle async shot data
-    Connections {
-        target: MainController.shotHistory
-        function onShotReady(shotId, shot) {
-            if (shotId !== shotMetadataPage.editShotId) return
-            editShotData = shot
-            if (editShotData.id) {
-                // Populate editing fields
-                editBeanBrand = editShotData.beanBrand || ""
-                editBeanType = editShotData.beanType || ""
-                editRoastDate = editShotData.roastDate || ""
-                editRoastLevel = editShotData.roastLevel || ""
-                editGrinderBrand = editShotData.grinderBrand || ""
-                editGrinderModel = editShotData.grinderModel || ""
-                editGrinderBurrs = editShotData.grinderBurrs || ""
-                editGrinderSetting = editShotData.grinderSetting || ""
-                editBarista = editShotData.barista || ""
-                editDoseWeight = editShotData.doseWeight || 0
-                editDrinkWeight = editShotData.finalWeight || 0
-                editDrinkTds = editShotData.drinkTds || 0
-                editDrinkEy = editShotData.drinkEy || 0
-                editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
-                editNotes = editShotData.espressoNotes || ""
-            }
-        }
     }
 
     // Editing fields (separate from Settings.dye* to avoid polluting current session)
@@ -1313,7 +1307,7 @@ Page {
             }
 
             Text {
-                text: TranslationManager.translate("beaninfo.unsaved.message", "Do you want to keep your changes?")
+                text: TranslationManager.translate("beaninfo.unsaved.message", "Save as a favorite, keep as-is, or discard?")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
