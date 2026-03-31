@@ -765,6 +765,7 @@ Page {
                         if (burrs.length === 1) {
                             if (isEditMode) editGrinderBurrs = burrs[0]; else Settings.dyeGrinderBurrs = burrs[0];
                         }
+                        if (!isEditMode) deselectPresetOnEdit();
                     }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -908,6 +909,7 @@ Page {
                     sourceSize.width: Theme.scaled(16)
                     sourceSize.height: Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
 
                 Tr {
@@ -916,6 +918,7 @@ Page {
                     color: "white"
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
             }
 
@@ -1151,6 +1154,8 @@ Page {
                             if (savedIndex >= 0) {
                                 Settings.selectedBeanPreset = savedIndex
                             }
+                            // Update snapshot so handleBack() doesn't show spurious unsaved changes dialog
+                            _snapSelectedPreset = Settings.selectedBeanPreset
                             var shouldGoBack = savePresetDialog.goBackAfterSave
                             newBeanNameInput.text = ""
                             savePresetDialog.goBackAfterSave = false
@@ -1394,6 +1399,8 @@ Page {
                         accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
                         onClicked: {
                             unsavedChangesDialog.close()
+                            // DYE fields now diverge from the preset — clear the association
+                            // rather than corrupting the preset with the edited values
                             if (Settings.selectedBeanPreset >= 0) {
                                 Settings.selectedBeanPreset = -1
                             }
@@ -1431,7 +1438,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1
-            border.color: "white"
+            border.color: Theme.borderColor
         }
 
         contentItem: ColumnLayout {
@@ -1533,6 +1540,7 @@ Page {
                         color: Theme.primaryColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
                     }
                 }
 
@@ -1557,6 +1565,7 @@ Page {
                         color: "white"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
                     }
                 }
             }
