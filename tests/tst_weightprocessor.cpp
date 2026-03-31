@@ -162,10 +162,12 @@ private slots:
         wp.processWeight(-6.0);
         m_fakeClock += 200;
 
-        // Settle near zero (3+ readings < 2g)
-        feedConstant(wp, 0.5, 5);
+        // Settle near zero (exactly 3 readings to trigger recovery — no extra
+        // samples that would re-arm the rate filter at 0.5g baseline)
+        feedConstant(wp, 0.5, 3);
 
         // Now build valid flow and exceed target — should trigger SAW
+        // (rate filter was disarmed by settle, so the jump to 30g is accepted)
         feedRising(wp, 30.0, 2.0, 20);
 
         QVERIFY2(stopSpy.count() >= 1,
@@ -291,6 +293,91 @@ private slots:
         m_fakeClock += 200;
 
         QCOMPARE(cupSpy.count(), 0);
+    }
+
+    // ==========================================
+    // Spike rejection (issue #610)
+    // ==========================================
+
+    void singleSpikeRejectedByRateFilter() {
+        // Reproduces issue #610: Felicita sends 1649g instead of ~10g
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 42.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(2);
+
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+
+        m_fakeClock += 5500;
+
+        // Build normal flow at ~2 g/s up to ~10g
+        feedRising(wp, 0.0, 2.0, 8);  // 0→3.2g over 1.6s
+
+        // Inject a single corrupt reading (1649g) — should be rejected
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*1649"));
+        wp.processWeight(1649.0);
+        m_fakeClock += 200;
+
+        // Continue normal flow — SAW should NOT have triggered
+        feedRising(wp, 4.0, 2.0, 5);
+
+        QCOMPARE(stopSpy.count(), 0);
+    }
+
+    void consecutiveRejectionsAutoReset() {
+        // After 3 consecutive rejections, the filter accepts the new baseline.
+        // This handles legitimate shifts (cup removal, scale reconnect).
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        // Establish baseline at ~10g
+        feedRising(wp, 8.0, 2.0, 5);
+        QVERIFY(flowSpy.count() >= 4);
+
+        // Inject 3 readings at 500g — first 2 rejected, 3rd accepted as new baseline
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*500"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*500"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike filter reset"));
+        int countBefore = flowSpy.count();
+        wp.processWeight(500.0); m_fakeClock += 200;
+        wp.processWeight(500.0); m_fakeClock += 200;
+        wp.processWeight(500.0); m_fakeClock += 200;
+
+        // 3rd reading should have been accepted — flowRatesReady emitted
+        QCOMPARE(flowSpy.count(), countBefore + 1);
+    }
+
+    void spikeDoesNotCorruptFlowRate() {
+        // A rejected spike should not affect LSLR flow computation
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        // Build stable 2 g/s flow
+        feedRising(wp, 0.0, 2.0, 10);
+
+        int countBefore = flowSpy.count();
+        double flowBefore = flowSpy.last().at(2).toDouble();  // flowRateShort
+
+        // Inject spike — rejected, no new signal emitted
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected"));
+        wp.processWeight(500.0);
+        m_fakeClock += 200;
+
+        QCOMPARE(flowSpy.count(), countBefore);  // No signal from rejected sample
+
+        // Next normal sample should still show ~2 g/s flow
+        wp.processWeight(4.2);
+        m_fakeClock += 200;
+
+        double flowAfter = flowSpy.last().at(2).toDouble();
+        QVERIFY2(qAbs(flowAfter - flowBefore) < 1.5,
+                 qPrintable(QString("Flow should be stable after spike rejection: before=%1 after=%2")
+                            .arg(flowBefore).arg(flowAfter)));
     }
 
     // ==========================================

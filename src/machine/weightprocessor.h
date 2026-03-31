@@ -73,6 +73,12 @@ private:
     };
     QList<WeightSample> m_weightSamples;
 
+    // Spike filter: rejects single-packet BLE corruption (issue #610).
+    // Auto-resets after 3 consecutive rejections to handle legitimate shifts.
+    double m_lastRawWeight = 0;
+    bool m_hasLastWeight = false;
+    int m_consecutiveRejections = 0;
+
     // State
     bool m_active = false;
     bool m_tareComplete = false;
