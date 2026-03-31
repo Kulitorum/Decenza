@@ -43,6 +43,12 @@ Rectangle {
     color: Theme.backgroundColor
     z: 200
 
+    onVisibleChanged: {
+        if (!visible && inputDialog.visible) {
+            inputDialog.close()
+        }
+    }
+
     function open() {
         visible = true
         Qt.callLater(function() {
@@ -436,9 +442,9 @@ Rectangle {
 
                     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
 
-                    // Hidden StyledTextField that holds the text and send logic.
-                    // On desktop it is visible inline; on mobile it is hidden and
-                    // the fullscreen inputDialog is used instead.
+                    // Input field that holds the text and send logic.
+                    // Visible inline on desktop; hidden on mobile where the
+                    // fullscreen inputDialog is used instead.
                     StyledTextField {
                         id: conversationInput
                         Layout.fillWidth: true
@@ -499,6 +505,7 @@ Rectangle {
                     // Mobile: tap target that opens fullscreen input dialog.
                     // Avoids keyboard opening/closing thrashing the conversation layout.
                     Rectangle {
+                        id: mobileInputButton
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(44)
                         radius: Theme.scaled(6)
@@ -506,6 +513,8 @@ Rectangle {
                         border.color: Theme.borderColor
                         border.width: 1
                         visible: parent.isMobile
+                        opacity: inputTapArea.enabled ? 1.0 : 0.5
+                        Accessible.ignored: true
 
                         Text {
                             anchors.left: parent.left
@@ -519,21 +528,19 @@ Rectangle {
                             Accessible.ignored: true
                         }
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("conversation.input.accessible", "Type a message")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: inputTapArea.clicked(null)
-
-                        MouseArea {
+                        AccessibleMouseArea {
                             id: inputTapArea
                             anchors.fill: parent
+                            accessibleName: TranslationManager.translate("conversation.input.accessible", "Type a message")
+                            accessibleItem: mobileInputButton
                             enabled: MainController.aiManager && MainController.aiManager.conversation &&
                                      !MainController.aiManager.conversation.busy &&
                                      !overlay.contextLoading
-                            onClicked: {
+                            onAccessibleClicked: {
                                 inputDialogTextArea.text = ""
                                 inputDialog.open()
-                                inputDialogTextArea.forceActiveFocus()
+                                // forceActiveFocus is in inputDialog.onOpened to avoid
+                                // keyboard flash before dialog animation completes
                             }
                         }
                     }
@@ -584,6 +591,7 @@ Rectangle {
         modal: true
         padding: 0
         closePolicy: Dialog.CloseOnEscape
+        onOpened: inputDialogTextArea.forceActiveFocus()
 
         property bool keyboardActive: inputDialogTextArea.activeFocus
         property real keyboardHeight: {
@@ -645,6 +653,8 @@ Rectangle {
                              !MainController.aiManager.conversation.busy &&
                              !overlay.contextLoading
                     onClicked: {
+                        // Route through conversationInput.sendFollowUp() to reuse
+                        // context-prepending and ask()/followUp() branching logic
                         conversationInput.text = inputDialogTextArea.text
                         inputDialog.close()
                         conversationInput.sendFollowUp()
