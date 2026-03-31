@@ -15,6 +15,7 @@ Item {
     signal textEdited(string text)
     signal suggestionSelected(string text)  // Emitted when user picks from dropdown (not on keystroke)
     signal inputFocused(Item field)  // Emitted when text input gets focus (for keyboard handling)
+    signal inputBlurred()  // Emitted when text input loses focus
 
     // Accessibility mode: show buttons below text field instead of overlapping
     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
@@ -124,8 +125,10 @@ Item {
                 // Emit textEdited to ensure value is committed when losing focus
                 // Don't set root.text here - that breaks the parent binding!
                 root.textEdited(text)
-                // Small delay before closing to allow clicking on popup items
-                closeTimer.restart()
+                root.inputBlurred()
+                // Defer popup close — if the user clicked a popup item,
+                // selectSuggestion() will have set justSelected = true by now
+                Qt.callLater(closeSuggestionsIfBlurred)
             }
         }
 
@@ -278,16 +281,12 @@ Item {
     // Track if we just selected an item (to prevent reopening)
     property bool justSelected: false
 
-    // Delay closing popup to allow clicking items
-    Timer {
-        id: closeTimer
-        interval: 200
-        onTriggered: {
-            if (!textInput.activeFocus && !justSelected) {
-                suggestionPopup.close()
-            }
-            justSelected = false
+    // Close popup after focus loss — deferred so selectSuggestion() can set justSelected first
+    function closeSuggestionsIfBlurred() {
+        if (!textInput.activeFocus && !justSelected) {
+            suggestionPopup.close()
         }
+        justSelected = false
     }
 
     // Typing-driven autocomplete popup (kept for live filtering while typing)
@@ -298,7 +297,7 @@ Item {
         width: textInput.width
         implicitHeight: Math.min(suggestionList.contentHeight + 2, Theme.scaled(250))
         padding: 1
-        closePolicy: Popup.NoAutoClose  // We handle closing manually
+        closePolicy: Popup.CloseOnPressOutside
 
         background: Rectangle {
             color: Theme.surfaceColor
