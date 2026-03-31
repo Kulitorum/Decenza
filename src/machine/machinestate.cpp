@@ -436,6 +436,13 @@ void MachineState::updatePhase() {
                 } else {
                     qDebug() << "=== SCALE TIMER: Reset (espresso cycle started, waiting for extraction) ===";
                 }
+            } else if (m_scale && isFlowing()) {
+                // Safety net: machine skipped preheating (missed BLE substate notification).
+                // Non-independent-reset scales won't reach the startingExtraction path
+                // (requires wasInEspresso=true), so send reset+start together here.
+                m_scale->resetTimer();
+                m_scale->startTimer();
+                qDebug() << "=== SCALE TIMER: Reset + Started (espresso cycle started, already flowing, non-independent reset) ===";
             }
 
             // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
