@@ -1067,8 +1067,6 @@ int main(int argc, char *argv[])
             de1ReconnectAttempt = 0;
         } else {
             // Disconnected — start auto-reconnect if we have a saved address
-            // Guard: don't start timers during app shutdown (event loop already gone)
-            if (QCoreApplication::closingDown()) return;
 #ifndef Q_OS_IOS
             if (usbManager.isDe1Connected()) {
                 // Don't try BLE reconnect if USB is handling the DE1
@@ -2003,6 +2001,11 @@ int main(int argc, char *argv[])
     });
 
     int result = app.exec();
+
+    // Disconnect DE1 signals before stack destruction — the reconnect lambda
+    // tries to start a QTimer after the event dispatcher is torn down, crashing
+    // in QThreadData::hasEventDispatcher() during ~DE1Device::disconnect()
+    QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
 
     // Disable crash handler before cleanup - crashes during C++ runtime destruction
     // are not actionable and shouldn't prompt users to submit bug reports
