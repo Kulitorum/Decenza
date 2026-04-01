@@ -107,9 +107,7 @@ private slots:
         QCOMPARE(p2.targetVolume(), 0.0);
         QCOMPARE(p2.espressoTemperature(), 88.0);  // Synced from first frame for advanced profiles
         QCOMPARE(p2.steps().size(), 1);
-        // De1app defaults NumberOfPreinfuseFrames to 0 when missing (binary.tcl line 990).
-        // Advanced profiles don't auto-calculate — the profile author sets it explicitly.
-        QCOMPARE(p2.preinfuseFrameCount(), 0);
+        QCOMPARE(p2.preinfuseFrameCount(), 1);  // Explicit value from makeAdvancedProfileJson()
     }
 
     void jsonLegacyFlatFieldsFallback() {
