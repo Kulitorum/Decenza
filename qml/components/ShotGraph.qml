@@ -64,8 +64,13 @@ ChartView {
     function recalcMax() {
         var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
-        if (newMax !== calculatedMax)
+        if (newMax !== calculatedMax) {
             calculatedMax = newMax
+            // Assign imperatively to break the binding loop:
+            // calculatedMax → timeAxis.max → ChartView relayout → plotArea → recalcMax
+            timeAxis.max = newMax
+            timeAxis.tickCount = Math.min(7, Math.max(3, Math.floor(newMax / 10) + 2))
+        }
     }
 
     Connections {
@@ -85,9 +90,9 @@ ChartView {
     ValueAxis {
         id: timeAxis
         min: 0
-        // recalcMax() guarantees calculatedMax >= minTime
-        max: calculatedMax
-        tickCount: Math.min(7, Math.max(3, Math.floor(calculatedMax / 10) + 2))
+        // max and tickCount are set imperatively by recalcMax() to avoid binding loop
+        max: minTime
+        tickCount: 3
         labelFormat: "%.0f"
         labelsColor: Theme.textSecondaryColor
         gridLineColor: Qt.rgba(255, 255, 255, 0.1)
