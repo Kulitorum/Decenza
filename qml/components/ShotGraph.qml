@@ -52,22 +52,21 @@ ChartView {
     // Solve: max = rawTime + paddingPixels * (max / plotWidth)
     // => max = rawTime * plotWidth / (plotWidth - paddingPixels)
     //
-    // Both calculatedMax and cachedPlotWidth are updated imperatively to avoid a
-    // binding loop: calculatedMax → timeAxis.max → ChartView relayout → plotArea →
-    // cachedPlotWidth → calculatedMax. Qt detects the circular dependency chain even
-    // when guards prevent infinite recursion, so we break it by removing the binding.
+    // timeAxis.max and tickCount are set imperatively in recalcMax() to avoid a
+    // binding loop: max → ChartView relayout → plotArea → cachedPlotWidth → recalcMax → max.
+    // Qt detects the circular dependency chain even when guards prevent infinite recursion,
+    // so we break it by removing all declarative bindings on timeAxis properties.
     property double minTime: 5.0
     property double paddingPixels: Theme.scaled(5)
     property double cachedPlotWidth: 1
-    property double calculatedMax: 5.0  // initial value; updated imperatively by recalcMax()
+    property double _lastAxisMax: 5.0  // Internal change-detection cache — do NOT bind to this (causes binding loop)
 
     function recalcMax() {
         var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
-        if (newMax !== calculatedMax) {
-            calculatedMax = newMax
-            // Assign imperatively to break the binding loop:
-            // calculatedMax → timeAxis.max → ChartView relayout → plotArea → recalcMax
+        if (newMax !== _lastAxisMax) {
+            _lastAxisMax = newMax
+            // Assign imperatively — see block comment above for binding loop explanation
             timeAxis.max = newMax
             timeAxis.tickCount = Math.min(7, Math.max(3, Math.floor(newMax / 10) + 2))
         }
