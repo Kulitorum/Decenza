@@ -243,7 +243,7 @@ private slots:
         QSignalSpy spy(&scale, &ScaleDevice::buttonPressed);
 
         auto pkt = buildDecentPacket(0xAA, 0x01, 0x00, 0x00, 0x00);
-        pkt[6] = 0x00;  // Wrong checksum
+        pkt[6] = static_cast<char>(static_cast<uint8_t>(pkt[6]) ^ 0xFF);  // Flip all bits
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);

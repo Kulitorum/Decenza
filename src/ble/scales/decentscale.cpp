@@ -292,7 +292,7 @@ void DecentScale::sendCommand(const QByteArray& command) {
 
 uint8_t DecentScale::calculateXor(const QByteArray& data) {
     uint8_t result = 0;
-    for (int i = 0; i < data.size() - 1; i++) {
+    for (qsizetype i = 0; i < data.size() - 1; i++) {
         result ^= static_cast<uint8_t>(data[i]);
     }
     return result;
