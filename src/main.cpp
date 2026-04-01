@@ -1067,6 +1067,8 @@ int main(int argc, char *argv[])
             de1ReconnectAttempt = 0;
         } else {
             // Disconnected — start auto-reconnect if we have a saved address
+            // Guard: don't start timers during app shutdown (event loop already gone)
+            if (QCoreApplication::closingDown()) return;
 #ifndef Q_OS_IOS
             if (usbManager.isDe1Connected()) {
                 // Don't try BLE reconnect if USB is handling the DE1
