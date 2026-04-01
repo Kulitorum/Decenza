@@ -436,23 +436,22 @@ void ShotDataModel::trimSettlingData() {
 
     // Trim time-based series using cutoff from last retained pressure sample.
     // Goals and weight flow rate have different sample counts than DE1 sensor data.
-    if (trimIndex > 0) {
-        double cutoffTime = m_pressurePoints.last().x();
-        for (auto& segment : m_pressureGoalSegments) {
-            while (!segment.isEmpty() && segment.last().x() > cutoffTime)
-                segment.removeLast();
-        }
-        for (auto& segment : m_flowGoalSegments) {
-            while (!segment.isEmpty() && segment.last().x() > cutoffTime)
-                segment.removeLast();
-        }
-        while (!m_temperatureGoalPoints.isEmpty() && m_temperatureGoalPoints.last().x() > cutoffTime)
-            m_temperatureGoalPoints.removeLast();
-        while (!m_weightFlowRatePoints.isEmpty() && m_weightFlowRatePoints.last().x() > cutoffTime)
-            m_weightFlowRatePoints.removeLast();
-        while (!m_weightFlowRateRawPoints.isEmpty() && m_weightFlowRateRawPoints.last().x() > cutoffTime)
-            m_weightFlowRateRawPoints.removeLast();
+    // (trimIndex is guaranteed > 0 by the early returns above)
+    double cutoffTime = m_pressurePoints.last().x();
+    for (auto& segment : m_pressureGoalSegments) {
+        while (!segment.isEmpty() && segment.last().x() > cutoffTime)
+            segment.removeLast();
     }
+    for (auto& segment : m_flowGoalSegments) {
+        while (!segment.isEmpty() && segment.last().x() > cutoffTime)
+            segment.removeLast();
+    }
+    while (!m_temperatureGoalPoints.isEmpty() && m_temperatureGoalPoints.last().x() > cutoffTime)
+        m_temperatureGoalPoints.removeLast();
+    while (!m_weightFlowRatePoints.isEmpty() && m_weightFlowRatePoints.last().x() > cutoffTime)
+        m_weightFlowRatePoints.removeLast();
+    while (!m_weightFlowRateRawPoints.isEmpty() && m_weightFlowRateRawPoints.last().x() > cutoffTime)
+        m_weightFlowRateRawPoints.removeLast();
 
     // Do NOT trim cumulative weight data (m_weightPoints, m_cumulativeWeightPoints) —
     // weight continues to change during settling and the settled final weight is accurate.

@@ -68,7 +68,7 @@ void ShotTimingController::setCurrentProfile(const Profile* profile)
 
 void ShotTimingController::startShot()
 {
-    // Cancel settling timer if running (user started new shot before settling completed)
+    // Cancel settling if in progress (user started new shot before settling completed)
     // Emit shotProcessingReady so the previous shot is saved before we reset state.
     // IMPORTANT: m_extractionEndTime must not be reset until after shotProcessingReady
     // is fully handled, because onShotEnded() reads extractionDuration() synchronously.
@@ -151,7 +151,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
                                          int frameNumber, bool isFlowMode)
 {
     // Keep capturing samples during settling (shows pressure/flow declining after stop)
-    bool isSettling = m_settlingTimer.isActive();
+    bool isSettling = m_sawSettling;
     if (!m_shotActive && !isSettling) {
         return;
     }
@@ -195,8 +195,8 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
 
 void ShotTimingController::onWeightSample(double weight, double flowRate, double flowRateShort)
 {
-    // Keep updating weight while settling timer is running (for SAW learning)
-    if (m_settlingTimer.isActive()) {
+    // Keep updating weight while settling is active (for SAW learning)
+    if (m_sawSettling) {
         // Track peak weight during settling for cup removal detection
         if (weight > m_settlingPeakWeight) {
             m_settlingPeakWeight = weight;
@@ -360,7 +360,7 @@ void ShotTimingController::onDisplayTimerTick()
     // shotTimeChanged deferred to ShotDataModel's 33ms flush timer
 
     // Check settling stability here (in case scale stops sending samples)
-    if (m_settlingTimer.isActive() && m_lastWeightChangeTime > 0) {
+    if (m_sawSettling && m_lastWeightChangeTime > 0) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
 
         // Fast path: no weight samples at all for 1 second

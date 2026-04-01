@@ -1201,12 +1201,12 @@ void MainController::onShotEnded() {
     if (doseWeight <= 0 && m_profileManager->currentProfile().hasRecommendedDose())
         doseWeight = m_profileManager->currentProfile().recommendedDose();
 
-    // Get final weight — prefer post-settling weight from timing controller (includes drip),
-    // fall back to last recorded scale data, then estimate from volume
+    // Get final weight from timing controller (post-settling weight for SAW shots includes
+    // drip after stop; for non-SAW shots this is the instantaneous weight at stop time).
+    // Fall back to last recorded scale data, then estimate from volume.
     double finalWeight = 0;
     const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
     if (m_timingController && m_timingController->currentWeight() > 0) {
-        // Post-settling weight is the most accurate — includes drip after stop
         finalWeight = m_timingController->currentWeight();
     } else if (!cumulativeWeight.isEmpty()) {
         finalWeight = cumulativeWeight.last().y();
@@ -1227,11 +1227,12 @@ void MainController::onShotEnded() {
     // Trim trailing zero-pressure samples from SAW settling period before saving.
     // During settling the DE1 reports 0 pressure/flow while the scale settles — these
     // cause a vertical drop to 0 at the end of the graph. Weight data is preserved.
-    // NOTE: Must run before smoothWeightFlowRate() — smoothing saves a raw copy that
-    // would otherwise include the trailing zeros.
+    // NOTE: Must run before smoothWeightFlowRate() — smoothWeightFlowRate() snapshots
+    // m_weightFlowRatePoints as the raw export copy before smoothing. Running trim first
+    // ensures neither the smoothed nor raw copy includes trailing zeros.
     m_shotDataModel->trimSettlingData();
 
-    // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).
+    // Smooth weight flow rate before saving (centered moving average, window=5, ≈ 2.2s at 5Hz).
     // The raw LSLR data from recording has staircase artifacts from 0.1g scale quantization;
     // this post-processing matches de1app's smoothing level for storage and visualizer export.
     m_shotDataModel->smoothWeightFlowRate();
@@ -1792,7 +1793,8 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
 
     // Skip adding sensor data to graph during settling — DE1 reports 0 pressure/flow
     // while the scale settles, which draws a vertical drop to 0 on the live graph.
-    // Weight data still flows via addWeightSample from the timing controller.
+    // Weight data still flows — ShotTimingController::weightSampleReady connects
+    // directly to ShotDataModel::addWeightSample in main.cpp, bypassing this function.
     if (isSettling) {
         return;
     }
