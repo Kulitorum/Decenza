@@ -1,6 +1,7 @@
 #include "decentscale.h"
 #include "scalelogging.h"
 #include "../protocol/de1characteristics.h"
+#include "../protocol/decentscaleprotocol.h"
 #include <algorithm>
 #include <QTimer>
 
@@ -167,6 +168,18 @@ void DecentScale::parseWeightData(const QByteArray& data) {
 
     uint8_t command = d[1];
 
+    // Validate XOR checksum on all packet types except LED response (0x0A),
+    // which uses all 7 bytes for data and has no room for a checksum.
+    // See: https://github.com/Kulitorum/Decenza/issues/560
+    if (command != 0x0A) {
+        uint8_t expected = DecentScaleProtocol::calculateXor(data);
+        if (expected != d[6]) {
+            DECENT_WARN(QString("Invalid checksum on type 0x%1, dropping packet")
+                        .arg(command, 2, 16, QChar('0')));
+            return;
+        }
+    }
+
     if (command == 0xCE || command == 0xCA) {
         // Weight data
         int16_t weightRaw = (static_cast<int16_t>(d[2]) << 8) | d[3];
@@ -273,17 +286,9 @@ void DecentScale::sendCommand(const QByteArray& command) {
         packet[i + 1] = command[i];
     }
 
-    packet[6] = calculateXor(packet);
+    packet[6] = DecentScaleProtocol::calculateXor(packet);
 
     m_transport->writeCharacteristic(Scale::Decent::SERVICE, Scale::Decent::WRITE, packet);
-}
-
-uint8_t DecentScale::calculateXor(const QByteArray& data) {
-    uint8_t result = 0;
-    for (int i = 0; i < data.size() - 1; i++) {
-        result ^= static_cast<uint8_t>(data[i]);
-    }
-    return result;
 }
 
 void DecentScale::tare() {

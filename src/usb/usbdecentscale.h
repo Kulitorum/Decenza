@@ -72,8 +72,6 @@ private:
     void sendCommand(const QByteArray& commandData);
     void writeRaw(const QByteArray& data);
 
-    static uint8_t calculateXor(const QByteArray& data);
-
     QByteArray m_buffer;
     QTimer m_heartbeatTimer;
 

@@ -7,6 +7,7 @@
 #include "ble/scales/bookooscale.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
+#include "ble/protocol/decentscaleprotocol.h"
 
 // Test BLE packet parsing for scale implementations.
 // Feeds raw byte arrays through onCharacteristicChanged() (public slot)
@@ -50,11 +51,7 @@ private:
         pkt[3] = static_cast<char>(d3);
         pkt[4] = static_cast<char>(d4);
         pkt[5] = static_cast<char>(d5);
-        // XOR of bytes 0-5
-        uint8_t xorVal = 0;
-        for (int i = 0; i < 6; i++)
-            xorVal ^= static_cast<uint8_t>(pkt[i]);
-        pkt[6] = static_cast<char>(xorVal);
+        pkt[6] = static_cast<char>(DecentScaleProtocol::calculateXor(pkt));
         return pkt;
     }
 
@@ -215,14 +212,61 @@ private slots:
     }
 
     void decentChecksumValidation() {
-        // Decent Scale may or may not validate XOR checksum.
-        // Test that a valid packet works (already tested above).
-        // This test verifies the checksum calculation itself.
+        // Valid checksum byte matches XOR of bytes 0-5
         auto pkt = buildDecentWeightPacket(50.0);
         uint8_t expected = 0;
         for (int i = 0; i < 6; i++)
             expected ^= static_cast<uint8_t>(pkt[i]);
         QCOMPARE(static_cast<uint8_t>(pkt[6]), expected);
+    }
+
+    void decentBadChecksumDropped() {
+        // Corrupt checksum byte — weight should NOT be emitted
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+
+        auto pkt = buildDecentWeightPacket(42.0);
+        pkt[6] = static_cast<char>(static_cast<uint8_t>(pkt[6]) ^ 0xFF);  // Flip all bits
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        QCOMPARE(spy.count(), 0);
+    }
+
+    void decentBadChecksumButtonDropped() {
+        // Corrupt button packet should be dropped
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::buttonPressed);
+
+        auto pkt = buildDecentPacket(0xAA, 0x01, 0x00, 0x00, 0x00);
+        pkt[6] = static_cast<char>(static_cast<uint8_t>(pkt[6]) ^ 0xFF);  // Flip all bits
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        QCOMPARE(spy.count(), 0);
+    }
+
+    void decentLedResponseSkipsChecksum() {
+        // LED response (0x0A) has no checksum — should parse regardless of byte 6
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::batteryLevelChanged);
+
+        // Build LED response with arbitrary byte 6 (firmware version, not checksum)
+        QByteArray pkt(7, 0);
+        pkt[0] = 0x03;
+        pkt[1] = 0x0A;
+        pkt[2] = 0x00;  // weight hi
+        pkt[3] = 0x00;  // weight lo
+        pkt[4] = static_cast<char>(60);   // battery 60%
+        pkt[5] = 0x01;  // firmware version hi
+        pkt[6] = 0x02;  // firmware version lo (NOT a checksum)
+
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        QVERIFY(spy.count() >= 1);
+        QCOMPARE(spy.last().at(0).toInt(), 60);
     }
 
     // ==========================================
@@ -301,6 +345,7 @@ private slots:
         QByteArray oversized(255, 0x42);
 
         DecentScale decent(nullptr);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*"));
         decent.onCharacteristicChanged(Scale::Decent::READ, oversized);
 
         BookooScale bookoo(nullptr);
