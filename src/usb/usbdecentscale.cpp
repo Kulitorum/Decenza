@@ -85,6 +85,7 @@ void UsbDecentScale::sleep()
 {
     // LCD disable + sleep: 0A 02 00
     sendCommand(QByteArray::fromHex("0A0200"));
+    emit sleepCompleted();
 }
 
 // ===========================================================================
@@ -243,13 +244,17 @@ void UsbDecentScale::processBuffer()
 
         QByteArray packet = m_buffer.left(7);
 
-        // Validate XOR checksum
-        uint8_t expected = DecentScaleProtocol::calculateXor(packet);
-        uint8_t actual = static_cast<uint8_t>(packet[6]);
-        if (expected != actual) {
-            // Bad checksum — skip this byte and try again
-            m_buffer.remove(0, 1);
-            continue;
+        // Validate XOR checksum — skip for LED response (0x0A) which uses
+        // all 7 bytes for data (byte 6 is firmware version, not checksum)
+        uint8_t command = static_cast<uint8_t>(packet[1]);
+        if (command != 0x0A) {
+            uint8_t expected = DecentScaleProtocol::calculateXor(packet);
+            uint8_t actual = static_cast<uint8_t>(packet[6]);
+            if (expected != actual) {
+                // Bad checksum — skip this byte and try again
+                m_buffer.remove(0, 1);
+                continue;
+            }
         }
 
         // Valid packet — consume and process
@@ -276,7 +281,7 @@ void UsbDecentScale::processPacket(const QByteArray& packet)
         setWeight(weight);
     } else if (command == 0x0A) {
         // LED response packet (openscale/HDS format):
-        // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5]=firmware high, [6]=XOR
+        // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5-6]=firmware version
         // Battery: 0-100 = percentage, 0xFF = charging
         uint8_t battByte = d[4];
         if (battByte <= 100) {
