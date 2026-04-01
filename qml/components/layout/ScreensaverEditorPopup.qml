@@ -306,39 +306,19 @@ Dialog {
         }
 
         // Labels toggle (only for last shot)
-        RowLayout {
-            Layout.fillWidth: true
+        StyledSwitch {
             visible: popup.itemType === "lastShot"
-
-            Text {
-                text: TranslationManager.translate("screensaverEditor.label.showAxisLabels", "Show axis labels")
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                Layout.fillWidth: true
-            }
-
-            Switch {
-                checked: popup.shotShowLabels
-                onToggled: popup.shotShowLabels = checked
-            }
+            text: TranslationManager.translate("screensaverEditor.label.showAxisLabels", "Show axis labels")
+            checked: popup.shotShowLabels
+            onToggled: popup.shotShowLabels = checked
         }
 
         // Frame labels toggle (only for last shot)
-        RowLayout {
-            Layout.fillWidth: true
+        StyledSwitch {
             visible: popup.itemType === "lastShot"
-
-            Text {
-                text: TranslationManager.translate("screensaverEditor.label.showFrameLabels", "Show frame labels")
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                Layout.fillWidth: true
-            }
-
-            Switch {
-                checked: popup.shotShowPhaseLabels
-                onToggled: popup.shotShowPhaseLabels = checked
-            }
+            text: TranslationManager.translate("screensaverEditor.label.showFrameLabels", "Show frame labels")
+            checked: popup.shotShowPhaseLabels
+            onToggled: popup.shotShowPhaseLabels = checked
         }
 
         // Shot plan visibility toggles
