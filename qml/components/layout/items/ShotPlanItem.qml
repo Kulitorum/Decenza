@@ -7,6 +7,31 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Read configuration from layout properties, refreshed on any layout change.
+    property bool showProfile: true
+    property bool showRoaster: true
+    property bool showGrind: true
+    property bool showRoastDate: false
+    property bool showDoseYield: true
+
+    function refreshProps() {
+        if (!itemId) return
+        var p = Settings.getItemProperties(itemId)
+        showProfile = p.shotPlanShowProfile !== false
+        showRoaster = p.shotPlanShowRoaster !== false
+        showGrind = p.shotPlanShowGrind !== false
+        showRoastDate = p.shotPlanShowRoastDate === true
+        showDoseYield = p.shotPlanShowDoseYield !== false
+    }
+
+    onItemIdChanged: refreshProps()
+
+    Connections {
+        target: Settings
+        function onLayoutConfigurationChanged() { root.refreshProps() }
+    }
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -30,6 +55,11 @@ Item {
             id: compactShotPlan
             anchors.centerIn: parent
             visible: text !== ""
+            showProfile: root.showProfile
+            showRoaster: root.showRoaster
+            showGrind: root.showGrind
+            showRoastDate: root.showRoastDate
+            showDoseYield: root.showDoseYield
             onClicked: brewDialog.open()
         }
     }
@@ -46,6 +76,11 @@ Item {
             id: fullShotPlan
             anchors.centerIn: parent
             visible: text !== ""
+            showProfile: root.showProfile
+            showRoaster: root.showRoaster
+            showGrind: root.showGrind
+            showRoastDate: root.showRoastDate
+            showDoseYield: root.showDoseYield
             onClicked: brewDialog.open()
         }
     }

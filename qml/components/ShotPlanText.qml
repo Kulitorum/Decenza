@@ -12,16 +12,18 @@ Text {
     font: Theme.bodyFont
     color: mouseArea.pressed ? Theme.accentColor : Theme.textSecondaryColor
 
+    // Visibility flags — all default true except roastDate
+    property bool showProfile: true
+    property bool showRoaster: true     // Bean brand (e.g. "Caffe Lusso")
+    property bool showGrind: true       // Bean type + grind (e.g. "Gran Miscela Carmo Espresso Blend (14)")
+    property bool showRoastDate: false
+    property bool showDoseYield: true
+
     property string profileName: ProfileManager.currentProfileName
     property double profileTemp: ProfileManager.profileTargetTemperature
     property double overrideTemp: Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemp
-    property string beanName: {
-        // Always use the live DYE fields (brand + type) — same source as BrewDialog.
-        // Preset name is just a label; the actual bean info is in dyeBeanBrand/dyeBeanType.
-        if (Settings.dyeBeanBrand || Settings.dyeBeanType)
-            return [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
-        return ""
-    }
+    property string roasterBrand: Settings.dyeBeanBrand || ""
+    property string coffeeName: Settings.dyeBeanType || ""
     property string roastDate: Settings.dyeRoastDate
     property string grindSize: Settings.dyeGrinderSetting
     property double dose: Settings.dyeBeanWeight
@@ -29,23 +31,25 @@ Text {
 
     text: {
         var parts = []
-        var tempStr = profileTemp > 0 ? profileTemp.toFixed(0) + "\u00B0C" : ""
-        if (Settings.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1) {
-            tempStr = profileTemp.toFixed(0) + " \u2192 " + overrideTemp.toFixed(0) + "\u00B0C"
-        }
-        if (profileName) {
+        if (showProfile && profileName) {
+            var tempStr = profileTemp > 0 ? profileTemp.toFixed(0) + "\u00B0C" : ""
+            if (Settings.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1) {
+                tempStr = profileTemp.toFixed(0) + " \u2192 " + overrideTemp.toFixed(0) + "\u00B0C"
+            }
             parts.push(profileName + (tempStr ? " (" + tempStr + ")" : ""))
         }
-        if (beanName) {
-            var beanLine = beanName + (grindSize ? " (" + grindSize + ")" : "")
-            if (roastDate) beanLine += " \u00B7 " + roastDate
-            parts.push(beanLine)
-        } else if (grindSize) {
-            parts.push(TranslationManager.translate("shotplantext.grind", "Grind: ") + grindSize)
-        } else if (roastDate) {
-            parts.push(TranslationManager.translate("shotplantext.roastedOn", "Roasted: ") + roastDate)
+        if (showRoaster && roasterBrand)
+            parts.push(roasterBrand)
+        if (showGrind) {
+            var coffeeParts = []
+            if (coffeeName) coffeeParts.push(coffeeName)
+            if (grindSize) coffeeParts.push("(" + grindSize + ")")
+            if (coffeeParts.length > 0)
+                parts.push(coffeeParts.join(" "))
         }
-        if (dose > 0 || targetWeight > 0) {
+        if (showRoastDate && roastDate)
+            parts.push(roastDate)
+        if (showDoseYield && (dose > 0 || targetWeight > 0)) {
             var yieldParts = []
             if (dose > 0) yieldParts.push(dose.toFixed(1) + "g in")
             if (targetWeight > 0) yieldParts.push(targetWeight.toFixed(1) + "g out")

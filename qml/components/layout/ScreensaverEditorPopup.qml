@@ -16,8 +16,13 @@ Dialog {
     property real shotScale: 1.0   // 1.0 = standard width, 2.5 = wide
     property bool shotShowLabels: false  // Show axis labels on graph
     property bool shotShowPhaseLabels: true  // Show frame transition labels
+    property bool shotPlanShowProfile: true
+    property bool shotPlanShowRoaster: true
+    property bool shotPlanShowGrind: true
+    property bool shotPlanShowRoastDate: false
+    property bool shotPlanShowDoseYield: true
 
-    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot"
+    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
 
     signal saved()
 
@@ -38,6 +43,11 @@ Dialog {
         shotScale = typeof props.shotScale === "number" ? props.shotScale : 1.0
         shotShowLabels = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false
         shotShowPhaseLabels = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true
+        shotPlanShowProfile = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true
+        shotPlanShowRoaster = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true
+        shotPlanShowGrind = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true
+        shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
+        shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
         open()
     }
 
@@ -70,6 +80,13 @@ Dialog {
             Settings.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
             Settings.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
         }
+        if (itemType === "shotPlan") {
+            Settings.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
+            Settings.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
+            Settings.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
+            Settings.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
+            Settings.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
+        }
         saved()
         close()
     }
@@ -88,6 +105,7 @@ Dialog {
                     case "screensaverAttractor": return TranslationManager.translate("screensaverEditor.title.attractor", "Attractors Settings")
                     case "screensaverShotMap": return TranslationManager.translate("screensaverEditor.title.shotMap", "Shot Map Settings")
                     case "lastShot": return TranslationManager.translate("screensaverEditor.title.lastShot", "Last Shot Settings")
+                    case "shotPlan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
                     default: return TranslationManager.translate("screensaverEditor.title.default", "Screensaver Settings")
                 }
             }
@@ -320,6 +338,83 @@ Dialog {
             Switch {
                 checked: popup.shotShowPhaseLabels
                 onToggled: popup.shotShowPhaseLabels = checked
+            }
+        }
+
+        // Shot plan visibility toggles
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+            visible: popup.itemType === "shotPlan"
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: popup.shotPlanShowProfile
+                    onToggled: popup.shotPlanShowProfile = checked
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: TranslationManager.translate("shotPlanEditor.showRoaster", "Roaster")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: popup.shotPlanShowRoaster
+                    onToggled: popup.shotPlanShowRoaster = checked
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: popup.shotPlanShowGrind
+                    onToggled: popup.shotPlanShowGrind = checked
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: popup.shotPlanShowRoastDate
+                    onToggled: popup.shotPlanShowRoastDate = checked
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: popup.shotPlanShowDoseYield
+                    onToggled: popup.shotPlanShowDoseYield = checked
+                }
             }
         }
 
