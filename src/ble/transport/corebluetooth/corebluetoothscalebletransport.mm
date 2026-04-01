@@ -452,7 +452,7 @@ didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
             return;
         }
 
-        d->log(QString("Write success for %1").arg(cu.toString()));
+        // Write success — don't log (heartbeat writes flood the log at 1/sec)
         emit d->q->characteristicWritten(cu);
     }, Qt::QueuedConnection);
 }
@@ -690,7 +690,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
         ? CBCharacteristicWriteWithoutResponse
         : CBCharacteristicWriteWithResponse;
 
-    log(QString("Writing %1 bytes to %2").arg(data.size()).arg(characteristicUuid.toString()));
+    // Don't log routine writes — failures are logged in the callback
 
     // On iOS, Qt main thread = dispatch main queue, so just call directly
     NSData* ns = [NSData dataWithBytes:data.constData() length:data.size()];
