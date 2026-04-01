@@ -711,26 +711,15 @@ Profile Profile::loadFromTclString(const QString& content) {
     // Determine if this is an advanced profile (settings_2c or settings_2c2)
     bool isAdvancedProfile = profile.m_profileType.startsWith("settings_2c");
 
-    // Extract target weight/volume — de1app uses different keys based on profile type:
-    // Simple profiles (settings_2a/2b) use final_desired_shot_weight/volume
-    // Advanced profiles (settings_2c/2c2) use final_desired_shot_weight/volume_advanced
+    // Extract target weight/volume — de1app uses different keys based on profile type
+    // (no cross-key fallback, matching de1app behavior):
+    // Simple profiles (settings_2a/2b): final_desired_shot_weight, final_desired_shot_volume
+    // Advanced profiles (settings_2c/2c2): final_desired_shot_weight_advanced, final_desired_shot_volume_advanced
     QString val;
-    if (isAdvancedProfile) {
-        val = extractValue("final_desired_shot_weight_advanced");
-        if (val.isEmpty()) val = extractValue("final_desired_shot_weight");
-    } else {
-        val = extractValue("final_desired_shot_weight");
-        if (val.isEmpty()) val = extractValue("final_desired_shot_weight_advanced");
-    }
+    val = extractValue(isAdvancedProfile ? "final_desired_shot_weight_advanced" : "final_desired_shot_weight");
     if (!val.isEmpty()) profile.m_targetWeight = val.toDouble();
 
-    if (isAdvancedProfile) {
-        val = extractValue("final_desired_shot_volume_advanced");
-        if (val.isEmpty()) val = extractValue("final_desired_shot_volume");
-    } else {
-        val = extractValue("final_desired_shot_volume");
-        if (val.isEmpty()) val = extractValue("final_desired_shot_volume_advanced");
-    }
+    val = extractValue(isAdvancedProfile ? "final_desired_shot_volume_advanced" : "final_desired_shot_volume");
     if (!val.isEmpty()) profile.m_targetVolume = val.toDouble();
 
     val = extractValue("espresso_temperature");
