@@ -74,6 +74,7 @@ private:
     QLowEnergyController* m_controller = nullptr;
     QLowEnergyService* m_service = nullptr;
     QMap<QBluetoothUuid, QLowEnergyCharacteristic> m_characteristics;
+    bool m_characteristicsReady = false;
 
     // Command queue (50ms spacing between BLE writes)
     QQueue<std::function<void()>> m_commandQueue;

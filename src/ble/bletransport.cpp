@@ -229,6 +229,7 @@ void BleTransport::disconnect() {
         m_service = nullptr;
     }
     m_characteristics.clear();
+    m_characteristicsReady = false;
 
     if (m_controller) {
         m_controller->disconnectFromDevice();
@@ -260,7 +261,8 @@ bool BleTransport::isConnected() const {
     return m_controller &&
            (m_controller->state() == QLowEnergyController::ConnectedState ||
             m_controller->state() == QLowEnergyController::DiscoveredState) &&
-           m_service != nullptr;
+           m_service != nullptr &&
+           m_characteristicsReady;
 }
 
 // -- BLE-specific public API --
@@ -444,6 +446,7 @@ void BleTransport::onServiceDiscoveryFinished() {
 void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) {
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         setupService();
+        m_characteristicsReady = true;
         log(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
         subscribeAll();
 
