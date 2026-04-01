@@ -88,7 +88,7 @@ add_decenza_test(tst_profile tst_profile.cpp ${PROFILE_SOURCES} ${CODEC_SOURCES}
 - [ ] `nestedExitConditions` — all 4 exit types (pressure_over/under, flow_over/under) + weight
 - [ ] `limiterRoundTrip` — value=0 with range=0.2 (D-Flow limiter pattern)
 - [ ] `preinfuseFrameCountPreserved` — JSON with `number_of_preinfuse_frames: 2`, verify not recomputed (bug #425)
-- [ ] `preinfuseFrameCountFallback` — JSON without key → auto-counted from frames
+- [ ] `preinfuseFrameCountFallback` — JSON without key → defaults to 0 (matching de1app binary.tcl line 990)
 - [ ] `simpleRecipeModeAutoFix` — settings_2a profile with `is_recipe_mode: true` loads as `false` (bug #517)
 - [ ] `editorTypeInference` — recipe without `editorType`: settings_2a → Pressure, title "A-Flow..." → AFlow
 - [ ] `espressoTempSyncFromFirstFrame` — advanced profile: `espresso_temperature` syncs from first frame

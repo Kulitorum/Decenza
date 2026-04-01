@@ -141,7 +141,7 @@ The `weight` field (Tcl) or `exit_weight` field (JSON) is **independent** of the
 1. **Tcl lists with braces**: `{frame name}` becomes `"frame name"` in JSON
 2. **Floating point cleanup**: `6.000000000000007` should become `6.0`
 3. **Boolean conversion**: Tcl `0`/`1` becomes JSON `false`/`true`
-4. **preinfuse_frame_count**: Count frames that are part of preinfusion (before main extraction)
+4. **preinfuse_frame_count**: Use `final_desired_shot_volume_advanced_count_start` from the de1app TCL source. For simple profiles (settings_2a/2b), this is auto-calculated during frame generation. For advanced profiles, use the explicit value (de1app defaults to 0 when missing).
 5. **temperature_presets**: Create 4 useful presets around the base temperature
 
 ## Example Ported Profile
