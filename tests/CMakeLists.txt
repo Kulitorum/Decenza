@@ -206,7 +206,7 @@ add_decenza_test(tst_saw
 )
 
 # --- tst_settling: SAW settling trimSettlingData(), m_sawSettling flag, shot save ordering ---
-find_package(Qt6 REQUIRED COMPONENTS Charts)
+find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
 add_decenza_test(tst_settling
     tst_settling.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
@@ -218,7 +218,7 @@ add_decenza_test(tst_settling
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
 )
-target_link_libraries(tst_settling PRIVATE Qt6::Charts)
+target_link_libraries(tst_settling PRIVATE Qt6::Charts Qt6::Quick)
 
 # --- tst_sav: MachineState SAV tests ---
 add_decenza_test(tst_sav
