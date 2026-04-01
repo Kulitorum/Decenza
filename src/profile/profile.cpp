@@ -583,11 +583,13 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     // De1app defaults NumberOfPreinfuseFrames to 0 when the field is missing
     // (binary.tcl line 990: ifexists returns empty → 0). For simple profiles
-    // (settings_2a/2b), de1app calculates it during frame generation, which
-    // Decenza already handles via countPreinfuseFrames() in the generation code
-    // above. Do NOT auto-calculate here for advanced profiles — the profile
-    // author sets final_desired_shot_volume_advanced_count_start explicitly,
-    // and we must match de1app behavior for the same profile.
+    // (settings_2a/2b), de1app calculates it during frame generation
+    // (pressure_to_advanced_list / flow_to_advanced_list in profile.tcl),
+    // which Decenza already handles via countPreinfuseFrames() in the simple
+    // profile generation block above (~line 540). Do NOT auto-calculate here
+    // for advanced profiles — the profile author sets
+    // final_desired_shot_volume_advanced_count_start explicitly, and we must
+    // match de1app behavior for the same profile.
 
     return profile;
 }
@@ -877,6 +879,8 @@ Profile Profile::loadFromTclString(const QString& content) {
     // Read preinfuse frame count from TCL data
     // de1app uses "final_desired_shot_volume_advanced_count_start" as NumberOfPreinfuseFrames
     // (binary.tcl line 990). Default to 0 when missing, matching de1app's ifexists behavior.
+    // For simple TCL profiles (settings_2a/2b), de1app always includes this field
+    // (set by pressure_to_advanced_list / flow_to_advanced_list in profile.tcl).
     val = extractValue("final_desired_shot_volume_advanced_count_start");
     profile.m_preinfuseFrameCount = val.isEmpty() ? 0 : val.toInt();
 

@@ -232,18 +232,19 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 {"tempPreinfuse", QJsonObject{{"type", "number"}, {"description", "Preinfusion temperature (Celsius)"}}},
                 {"tempHold", QJsonObject{{"type", "number"}, {"description", "Hold temperature (Celsius)"}}},
                 {"tempDecline", QJsonObject{{"type", "number"}, {"description", "Decline temperature (Celsius)"}}},
-                // Advanced profile fields
-                {"title", QJsonObject{{"type", "string"}, {"description", "Advanced: profile title"}}},
-                {"author", QJsonObject{{"type", "string"}, {"description", "Advanced: profile author"}}},
+                // Advanced profile fields (only applied when editorType is "advanced")
+                {"title", QJsonObject{{"type", "string"}, {"description", "Profile title (advanced editor only)"}}},
+                {"author", QJsonObject{{"type", "string"}, {"description", "Profile author (advanced editor only)"}}},
                 {"espresso_temperature", QJsonObject{{"type", "number"}, {"description", "Advanced: base espresso temperature (Celsius)"}}},
                 {"target_weight", QJsonObject{{"type", "number"}, {"description", "Advanced: target weight (grams)"}}},
                 {"target_volume", QJsonObject{{"type", "number"}, {"description", "Advanced: target volume (mL)"}}},
-                {"profile_notes", QJsonObject{{"type", "string"}, {"description", "Advanced: profile notes text"}}},
+                {"notes", QJsonObject{{"type", "string"}, {"description", "Advanced: profile notes text"}}},
                 {"has_recommended_dose", QJsonObject{{"type", "boolean"}, {"description", "Advanced: enable recommended dose"}}},
                 {"recommended_dose", QJsonObject{{"type", "number"}, {"description", "Advanced: recommended dose (grams)"}}},
                 {"tank_desired_water_temperature", QJsonObject{{"type", "number"}, {"description", "Advanced: tank water temperature (Celsius)"}}},
-                {"maximum_flow_range_advanced", QJsonObject{{"type", "number"}, {"description", "Advanced: flow limiter range"}}},
-                {"maximum_pressure_range_advanced", QJsonObject{{"type", "number"}, {"description", "Advanced: pressure limiter range"}}},
+                {"maximum_flow_range_advanced", QJsonObject{{"type", "number"}, {"description", "Advanced: flow limiter range (mL/s)"}}},
+                {"maximum_pressure_range_advanced", QJsonObject{{"type", "number"}, {"description", "Advanced: pressure limiter range (bar)"}}},
+                {"preinfuse_frame_count", QJsonObject{{"type", "integer"}, {"description", "Advanced: number of preinfusion frames for BLE header (de1app defaults to 0)"}}},
                 {"steps", QJsonObject{{"type", "array"}, {"description", "Advanced: array of frame objects (same format as profiles_get_params returns)"}}},
                 // Confirmation
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}

@@ -1255,7 +1255,9 @@ void ProfileManager::uploadProfile(const QVariantMap& profileData) {
     if (profileData.contains("author")) {
         m_currentProfile.setAuthor(profileData["author"].toString());
     }
-    if (profileData.contains("profile_notes")) {
+    if (profileData.contains("notes")) {
+        m_currentProfile.setProfileNotes(profileData["notes"].toString());
+    } else if (profileData.contains("profile_notes")) {
         m_currentProfile.setProfileNotes(profileData["profile_notes"].toString());
     }
     if (profileData.contains("espresso_temperature")) {
