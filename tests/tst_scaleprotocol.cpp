@@ -7,6 +7,7 @@
 #include "ble/scales/bookooscale.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
+#include "ble/protocol/decentscaleprotocol.h"
 
 // Test BLE packet parsing for scale implementations.
 // Feeds raw byte arrays through onCharacteristicChanged() (public slot)
@@ -50,11 +51,7 @@ private:
         pkt[3] = static_cast<char>(d3);
         pkt[4] = static_cast<char>(d4);
         pkt[5] = static_cast<char>(d5);
-        // XOR of bytes 0-5
-        uint8_t xorVal = 0;
-        for (int i = 0; i < 6; i++)
-            xorVal ^= static_cast<uint8_t>(pkt[i]);
-        pkt[6] = static_cast<char>(xorVal);
+        pkt[6] = static_cast<char>(DecentScaleProtocol::calculateXor(pkt));
         return pkt;
     }
 

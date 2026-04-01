@@ -1,4 +1,5 @@
 #include "usb/usbdecentscale.h"
+#include "ble/protocol/decentscaleprotocol.h"
 
 #ifdef Q_OS_ANDROID
 #include "usb/androidusbscalehelper.h"
@@ -243,7 +244,7 @@ void UsbDecentScale::processBuffer()
         QByteArray packet = m_buffer.left(7);
 
         // Validate XOR checksum
-        uint8_t expected = calculateXor(packet);
+        uint8_t expected = DecentScaleProtocol::calculateXor(packet);
         uint8_t actual = static_cast<uint8_t>(packet[6]);
         if (expected != actual) {
             // Bad checksum — skip this byte and try again
@@ -302,7 +303,7 @@ void UsbDecentScale::sendCommand(const QByteArray& commandData)
         packet[i + 1] = commandData[i];
     }
 
-    packet[6] = static_cast<char>(calculateXor(packet));
+    packet[6] = static_cast<char>(DecentScaleProtocol::calculateXor(packet));
 
     writeRaw(packet);
 }
@@ -321,11 +322,4 @@ void UsbDecentScale::writeRaw(const QByteArray& data)
 #endif
 }
 
-uint8_t UsbDecentScale::calculateXor(const QByteArray& data)
-{
-    uint8_t result = 0;
-    for (int i = 0; i < data.size() - 1; i++) {
-        result ^= static_cast<uint8_t>(data[i]);
-    }
-    return result;
-}
+

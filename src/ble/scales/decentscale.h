@@ -49,7 +49,6 @@ private:
     void stopWatchdog();
     void tickleWatchdog();
     void onWatchdogFired();
-    uint8_t calculateXor(const QByteArray& data);
 
     // de1app watchdog constants
     static constexpr int kWatchdogFirstTimeoutMs = 1000;   // Initial: 1s to verify data flowing
