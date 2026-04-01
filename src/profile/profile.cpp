@@ -581,12 +581,13 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
     }
 
-    // If preinfuse frame count wasn't in JSON and wasn't set by simple profile generation,
-    // count consecutive leading frames with exit conditions
-    if (!obj.contains("number_of_preinfuse_frames") && !obj.contains("preinfuse_frame_count")
-        && profile.m_preinfuseFrameCount == 0 && !profile.m_steps.isEmpty()) {
-        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
-    }
+    // De1app defaults NumberOfPreinfuseFrames to 0 when the field is missing
+    // (binary.tcl line 990: ifexists returns empty → 0). For simple profiles
+    // (settings_2a/2b), de1app calculates it during frame generation, which
+    // Decenza already handles via countPreinfuseFrames() in the generation code
+    // above. Do NOT auto-calculate here for advanced profiles — the profile
+    // author sets final_desired_shot_volume_advanced_count_start explicitly,
+    // and we must match de1app behavior for the same profile.
 
     return profile;
 }
@@ -874,22 +875,10 @@ Profile Profile::loadFromTclString(const QString& content) {
     }
 
     // Read preinfuse frame count from TCL data
-    // de1app stores this as "final_desired_shot_volume_advanced_count_start"
-    // which tells the machine when to start counting pour volume
+    // de1app uses "final_desired_shot_volume_advanced_count_start" as NumberOfPreinfuseFrames
+    // (binary.tcl line 990). Default to 0 when missing, matching de1app's ifexists behavior.
     val = extractValue("final_desired_shot_volume_advanced_count_start");
-    if (!val.isEmpty()) {
-        profile.m_preinfuseFrameCount = val.toInt();
-    } else {
-        // Fallback: count consecutive leading steps with exit conditions
-        profile.m_preinfuseFrameCount = 0;
-        for (const auto& step : profile.m_steps) {
-            if (step.exitIf) {
-                profile.m_preinfuseFrameCount++;
-            } else {
-                break;
-            }
-        }
-    }
+    profile.m_preinfuseFrameCount = val.isEmpty() ? 0 : val.toInt();
 
     qDebug() << "Loaded Tcl profile:" << profile.m_title
              << "with" << profile.m_steps.size() << "steps";
