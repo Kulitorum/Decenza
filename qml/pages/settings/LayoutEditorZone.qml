@@ -331,7 +331,7 @@ Rectangle {
                         z: -1
                         onClicked: root.itemTapped(modelData.id)
                         onPressAndHold: {
-                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot")
+                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot" || modelData.type === "shotPlan")
                                 root.editCustomRequested(modelData.id, root.zoneName)
                         }
                     }

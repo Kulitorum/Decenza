@@ -7,6 +7,13 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    readonly property bool showProfile: modelData.shotPlanShowProfile !== false
+    readonly property bool showRoaster: modelData.shotPlanShowRoaster !== false
+    readonly property bool showGrind: modelData.shotPlanShowGrind !== false
+    readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
+    readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -30,6 +37,11 @@ Item {
             id: compactShotPlan
             anchors.centerIn: parent
             visible: text !== ""
+            showProfile: root.showProfile
+            showRoaster: root.showRoaster
+            showGrind: root.showGrind
+            showRoastDate: root.showRoastDate
+            showDoseYield: root.showDoseYield
             onClicked: brewDialog.open()
         }
     }
@@ -46,6 +58,11 @@ Item {
             id: fullShotPlan
             anchors.centerIn: parent
             visible: text !== ""
+            showProfile: root.showProfile
+            showRoaster: root.showRoaster
+            showGrind: root.showGrind
+            showRoastDate: root.showRoastDate
+            showDoseYield: root.showDoseYield
             onClicked: brewDialog.open()
         }
     }

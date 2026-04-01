@@ -1868,6 +1868,40 @@ QString ShotServer::generateLayoutPage() const
                     </label>
                 </div>
             </div>
+
+            <div id="ssShotPlanSettings" style="display:none">
+                <div class="section-label">Visible elements</div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowProfile" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Profile &amp; temperature</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowRoaster" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Roaster</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowGrind" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Coffee (grind)</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowRoastDate" onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Roast date</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowDoseYield" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Dose &amp; yield</span>
+                    </label>
+                </div>
+            </div>
 )HTML";
     html += R"HTML(
             <!-- No settings message -->
@@ -2518,7 +2552,7 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = {id: itemId, zone: zone};
             if (type === "custom") {
                 openEditor(itemId, zone);
-            } else if (type.indexOf("screensaver") === 0 || type === "lastShot") {
+            } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan") {
                 openScreensaverEditor(itemId, zone, type);
             }
         }
@@ -2636,6 +2670,7 @@ QString ShotServer::generateLayoutPage() const
 
         // Hide all setting sections
         document.getElementById("ssClockSettings").style.display = "none";
+        document.getElementById("ssShotPlanSettings").style.display = "none";
         document.getElementById("ssMapSettings").style.display = "none";
         document.getElementById("ssLastShotSettings").style.display = "none";
         document.getElementById("ssNoSettings").style.display = "none";
@@ -2665,6 +2700,13 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("ssShotShowLabels").checked = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false;
                     document.getElementById("ssShotShowPhaseLabels").checked = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true;
                     document.getElementById("ssLastShotSettings").style.display = "";
+                } else if (type === "shotPlan") {
+                    document.getElementById("spShowProfile").checked = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true;
+                    document.getElementById("spShowRoaster").checked = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true;
+                    document.getElementById("spShowGrind").checked = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true;
+                    document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
+                    document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
+                    document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
                 }
@@ -2705,6 +2747,12 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotScale", value: shotScale}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
+        } else if (ssEditingType === "shotPlan") {
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowProfile", value: document.getElementById("spShowProfile").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoaster", value: document.getElementById("spShowRoaster").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowGrind", value: document.getElementById("spShowGrind").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoastDate", value: document.getElementById("spShowRoastDate").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowDoseYield", value: document.getElementById("spShowDoseYield").checked}, function() {});
         }
     }
 
@@ -2720,6 +2768,10 @@ QString ShotServer::generateLayoutPage() const
         ssAutoSave();
     }
     function ssShotToggleChanged() {
+        ssAutoSave();
+    }
+
+    function spToggleChanged() {
         ssAutoSave();
     }
 

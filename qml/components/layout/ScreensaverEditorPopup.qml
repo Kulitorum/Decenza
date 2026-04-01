@@ -16,8 +16,13 @@ Dialog {
     property real shotScale: 1.0   // 1.0 = standard width, 2.5 = wide
     property bool shotShowLabels: false  // Show axis labels on graph
     property bool shotShowPhaseLabels: true  // Show frame transition labels
+    property bool shotPlanShowProfile: true
+    property bool shotPlanShowRoaster: true
+    property bool shotPlanShowGrind: true
+    property bool shotPlanShowRoastDate: false
+    property bool shotPlanShowDoseYield: true
 
-    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot"
+    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
 
     signal saved()
 
@@ -38,6 +43,11 @@ Dialog {
         shotScale = typeof props.shotScale === "number" ? props.shotScale : 1.0
         shotShowLabels = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false
         shotShowPhaseLabels = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true
+        shotPlanShowProfile = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true
+        shotPlanShowRoaster = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true
+        shotPlanShowGrind = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true
+        shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
+        shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
         open()
     }
 
@@ -70,6 +80,13 @@ Dialog {
             Settings.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
             Settings.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
         }
+        if (itemType === "shotPlan") {
+            Settings.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
+            Settings.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
+            Settings.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
+            Settings.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
+            Settings.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
+        }
         saved()
         close()
     }
@@ -88,6 +105,7 @@ Dialog {
                     case "screensaverAttractor": return TranslationManager.translate("screensaverEditor.title.attractor", "Attractors Settings")
                     case "screensaverShotMap": return TranslationManager.translate("screensaverEditor.title.shotMap", "Shot Map Settings")
                     case "lastShot": return TranslationManager.translate("screensaverEditor.title.lastShot", "Last Shot Settings")
+                    case "shotPlan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
                     default: return TranslationManager.translate("screensaverEditor.title.default", "Screensaver Settings")
                 }
             }
@@ -288,38 +306,51 @@ Dialog {
         }
 
         // Labels toggle (only for last shot)
-        RowLayout {
-            Layout.fillWidth: true
+        StyledSwitch {
             visible: popup.itemType === "lastShot"
-
-            Text {
-                text: TranslationManager.translate("screensaverEditor.label.showAxisLabels", "Show axis labels")
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                Layout.fillWidth: true
-            }
-
-            Switch {
-                checked: popup.shotShowLabels
-                onToggled: popup.shotShowLabels = checked
-            }
+            text: TranslationManager.translate("screensaverEditor.label.showAxisLabels", "Show axis labels")
+            checked: popup.shotShowLabels
+            onToggled: popup.shotShowLabels = checked
         }
 
         // Frame labels toggle (only for last shot)
-        RowLayout {
-            Layout.fillWidth: true
+        StyledSwitch {
             visible: popup.itemType === "lastShot"
+            text: TranslationManager.translate("screensaverEditor.label.showFrameLabels", "Show frame labels")
+            checked: popup.shotShowPhaseLabels
+            onToggled: popup.shotShowPhaseLabels = checked
+        }
 
-            Text {
-                text: TranslationManager.translate("screensaverEditor.label.showFrameLabels", "Show frame labels")
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                Layout.fillWidth: true
+        // Shot plan visibility toggles
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+            visible: popup.itemType === "shotPlan"
+
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
+                checked: popup.shotPlanShowProfile
+                onToggled: popup.shotPlanShowProfile = checked
             }
-
-            Switch {
-                checked: popup.shotShowPhaseLabels
-                onToggled: popup.shotShowPhaseLabels = checked
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showRoaster", "Roaster")
+                checked: popup.shotPlanShowRoaster
+                onToggled: popup.shotPlanShowRoaster = checked
+            }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
+                checked: popup.shotPlanShowGrind
+                onToggled: popup.shotPlanShowGrind = checked
+            }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
+                checked: popup.shotPlanShowRoastDate
+                onToggled: popup.shotPlanShowRoastDate = checked
+            }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
+                checked: popup.shotPlanShowDoseYield
+                onToggled: popup.shotPlanShowDoseYield = checked
             }
         }
 

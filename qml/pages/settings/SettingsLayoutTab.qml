@@ -93,7 +93,7 @@ Item {
     function openCustomEditor(itemId, zoneName) {
         var props = Settings.getItemProperties(itemId)
         var type = props.type || ""
-        if (type.startsWith("screensaver") || type === "lastShot") {
+        if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else {
             customEditorPopup.openForItem(itemId, zoneName, props)
