@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QRegularExpression>
 
 #include "models/shotdatamodel.h"
 #include "controllers/shottimingcontroller.h"
@@ -73,6 +74,7 @@ private slots:
         }
 
         qsizetype sizeBefore = model.pressureData().size();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("all 20 samples have zero pressure"));
         model.trimSettlingData();
         // Must preserve all data — trimIndex==0 guard prevents data loss
         QCOMPARE(model.pressureData().size(), sizeBefore);
@@ -153,6 +155,7 @@ private slots:
 
         // Start a new shot while settling — should cancel settling and emit shotProcessingReady
         QSignalSpy spy(&tc, &ShotTimingController::shotProcessingReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cancelling settling"));
         tc.startShot();
         QVERIFY(!tc.isSawSettling());
         QCOMPARE(spy.count(), 1);  // Previous shot's shotProcessingReady emitted
