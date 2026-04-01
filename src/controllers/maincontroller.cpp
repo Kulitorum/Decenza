@@ -1201,11 +1201,14 @@ void MainController::onShotEnded() {
     if (doseWeight <= 0 && m_profileManager->currentProfile().hasRecommendedDose())
         doseWeight = m_profileManager->currentProfile().recommendedDose();
 
-    // Get final weight — use actual scale data if available, estimate from volume only
-    // when no scale data was recorded at all (no scale connected)
+    // Get final weight — prefer post-settling weight from timing controller (includes drip),
+    // fall back to last recorded scale data, then estimate from volume
     double finalWeight = 0;
     const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
-    if (!cumulativeWeight.isEmpty()) {
+    if (m_timingController && m_timingController->currentWeight() > 0) {
+        // Post-settling weight is the most accurate — includes drip after stop
+        finalWeight = m_timingController->currentWeight();
+    } else if (!cumulativeWeight.isEmpty()) {
         finalWeight = cumulativeWeight.last().y();
     } else if (m_machineState) {
         // No scale data at all — estimate weight from volume: ml - 5 - dose*0.5
@@ -1220,6 +1223,11 @@ void MainController::onShotEnded() {
     // (SAW-stopped shots reach approximately the target weight)
     if (finalWeight <= 0 && m_profileManager->currentProfile().targetWeight() > 0)
         finalWeight = m_profileManager->currentProfile().targetWeight();
+
+    // Trim trailing zero-pressure samples from SAW settling period before saving.
+    // During settling the DE1 reports 0 pressure/flow while the scale settles — these
+    // cause a vertical drop to 0 at the end of the graph. Weight data is preserved.
+    m_shotDataModel->trimSettlingData();
 
     // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).
     // The raw LSLR data from recording has staircase artifacts from 0.1g scale quantization;
@@ -1778,6 +1786,13 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                                           sample.frameNumber, isFlowMode);
         // Use timing controller's time for graph data (ensures weight and other curves align)
         time = m_timingController->shotTime();
+    }
+
+    // Skip adding sensor data to graph during settling — DE1 reports 0 pressure/flow
+    // while the scale settles, which draws a vertical drop to 0 on the live graph.
+    // Weight data still flows via addWeightSample from the timing controller.
+    if (isSettling) {
+        return;
     }
 
     // Add sample data to graph

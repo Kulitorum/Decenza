@@ -402,6 +402,56 @@ void ShotDataModel::smoothWeightFlowRate(int window) {
     m_weightFlowRatePoints = smoothed;
 }
 
+void ShotDataModel::trimSettlingData() {
+    // Find the last sample with non-zero pressure — samples after this are from the
+    // SAW settling period where the DE1 reports 0 pressure/flow while the scale settles.
+    // De1app stops recording at the end of pouring substate; we trim at save time to
+    // preserve live drip visualization during settling but produce clean history graphs.
+    qsizetype trimIndex = m_pressurePoints.size();
+    while (trimIndex > 0 && m_pressurePoints[trimIndex - 1].y() <= 0.0) {
+        --trimIndex;
+    }
+
+    if (trimIndex >= m_pressurePoints.size()) {
+        return;  // Nothing to trim
+    }
+
+    qsizetype removed = m_pressurePoints.size() - trimIndex;
+    qDebug() << "[ShotDataModel] Trimming" << removed << "trailing zero-pressure settling samples"
+             << "(keeping" << trimIndex << "of" << m_pressurePoints.size() << ")";
+
+    // Trim sensor data series to the same length
+    m_pressurePoints.resize(trimIndex);
+    m_flowPoints.resize(qMin(m_flowPoints.size(), trimIndex));
+    m_temperaturePoints.resize(qMin(m_temperaturePoints.size(), trimIndex));
+    m_temperatureMixPoints.resize(qMin(m_temperatureMixPoints.size(), trimIndex));
+    m_resistancePoints.resize(qMin(m_resistancePoints.size(), trimIndex));
+    m_waterDispensedPoints.resize(qMin(m_waterDispensedPoints.size(), trimIndex));
+
+    // Trim time-based series using cutoff from last retained pressure sample.
+    // Goals and weight flow rate have different sample counts than DE1 sensor data.
+    if (trimIndex > 0) {
+        double cutoffTime = m_pressurePoints.last().x();
+        for (auto& segment : m_pressureGoalSegments) {
+            while (!segment.isEmpty() && segment.last().x() > cutoffTime)
+                segment.removeLast();
+        }
+        for (auto& segment : m_flowGoalSegments) {
+            while (!segment.isEmpty() && segment.last().x() > cutoffTime)
+                segment.removeLast();
+        }
+        while (!m_temperatureGoalPoints.isEmpty() && m_temperatureGoalPoints.last().x() > cutoffTime)
+            m_temperatureGoalPoints.removeLast();
+        while (!m_weightFlowRatePoints.isEmpty() && m_weightFlowRatePoints.last().x() > cutoffTime)
+            m_weightFlowRatePoints.removeLast();
+        while (!m_weightFlowRateRawPoints.isEmpty() && m_weightFlowRateRawPoints.last().x() > cutoffTime)
+            m_weightFlowRateRawPoints.removeLast();
+    }
+
+    // Do NOT trim cumulative weight data (m_weightPoints, m_cumulativeWeightPoints) —
+    // weight continues to change during settling and the settled final weight is accurate.
+}
+
 void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameNumber, bool isFlowMode, const QString& transitionReason) {
     m_pendingMarkers.append({time, label});
 

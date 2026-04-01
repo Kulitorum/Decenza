@@ -84,6 +84,7 @@ public slots:
     void markExtractionStart(double time);
     void markStopAt(double time);  // Mark when SAW or user stopped the shot
     void smoothWeightFlowRate(int window = 5);  // Apply centered moving average to weight flow rate
+    void trimSettlingData();  // Remove trailing zero-pressure samples recorded during SAW settling
     void addPhaseMarker(double time, const QString& label, int frameNumber = -1, bool isFlowMode = false, const QString& transitionReason = QString());
 
 signals:
