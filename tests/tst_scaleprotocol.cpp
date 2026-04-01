@@ -348,6 +348,7 @@ private slots:
         QByteArray oversized(255, 0x42);
 
         DecentScale decent(nullptr);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*"));
         decent.onCharacteristicChanged(Scale::Decent::READ, oversized);
 
         BookooScale bookoo(nullptr);
