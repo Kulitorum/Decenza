@@ -509,11 +509,11 @@ Page {
                 RowLayout { Layout.fillWidth: true
                     Text { text: TranslationManager.translate("profileEditor.dose", "Recommended dose"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
-                    Switch {
+                    StyledSwitch {
                         id: recommendedDoseSwitch
                         checked: profile ? !!profile.has_recommended_dose : false
                         onToggled: { if (profile) { profile.has_recommended_dose = checked; uploadProfile() } }
-                        Accessible.name: TranslationManager.translate("profileEditor.toggleRecommendedDose", "Toggle recommended dose")
+                        accessibleName: TranslationManager.translate("profileEditor.toggleRecommendedDose", "Toggle recommended dose")
                     }
                 }
                 ColumnLayout {
@@ -1373,11 +1373,11 @@ Page {
                     Text { text: "4:"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.primaryColor }
                     Text { text: TranslationManager.translate("profileEditor.moveOnIf", "Move on if..."); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.textColor }
                     Item { Layout.fillWidth: true }
-                    Switch {
+                    StyledSwitch {
                         id: exitIfSwitch
                         checked: { var v = stepVersion; return step ? step.exit_if : false }
                         onToggled: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_if = checked; uploadProfile() } }
-                        Accessible.name: TranslationManager.translate("profileEditor.moveOnIfConditionMet", "Move on if condition met")
+                        accessibleName: TranslationManager.translate("profileEditor.moveOnIfConditionMet", "Move on if condition met")
                     }
                 }
 
