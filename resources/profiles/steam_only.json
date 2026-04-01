@@ -10,7 +10,7 @@
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
     "target_weight": 0,
-    "target_volume": 0,
+    "target_volume": 30.0,
     "mode": "frame_based",
     "temperature_presets": [
         0,

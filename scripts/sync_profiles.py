@@ -48,7 +48,9 @@ def parse_tcl_profile(filepath):
     # Extract profile-level numeric settings
     NUMERIC_KEYS = [
         'final_desired_shot_weight_advanced',
+        'final_desired_shot_weight',
         'final_desired_shot_volume_advanced',
+        'final_desired_shot_volume',
         'espresso_temperature',
         'tank_desired_water_temperature',
         'maximum_pressure',
@@ -279,9 +281,16 @@ def sync_profile(jdata, tdata):
 
     # Sync profile-level settings
     # Map: (Decenza JSON key, TCL key, default when absent from TCL)
+    # Use type-dependent weight/volume keys:
+    # Simple profiles (settings_2a/2b) use the non-advanced values,
+    # Advanced profiles (settings_2c/2c2) use the advanced values.
+    is_advanced = tdata.get('profile_type', '').startswith('settings_2c')
+    weight_key = 'final_desired_shot_weight_advanced' if is_advanced else 'final_desired_shot_weight'
+    volume_key = 'final_desired_shot_volume_advanced' if is_advanced else 'final_desired_shot_volume'
+
     SETTINGS_MAP = [
-        ('target_weight', 'final_desired_shot_weight_advanced', 0.0),
-        ('target_volume', 'final_desired_shot_volume_advanced', 0.0),
+        ('target_weight', weight_key, 0.0),
+        ('target_volume', volume_key, 0.0),
         ('espresso_temperature', 'espresso_temperature', None),
         ('tank_desired_water_temperature', 'tank_desired_water_temperature', 0.0),
         ('maximum_pressure', 'maximum_pressure', 0.0),

@@ -465,7 +465,7 @@ Page {
 
                                     // Time
                                     Text { text: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.infuseTime, 20); onValueModified: function(newValue) { updateRecipe("infuseTime", Math.round(newValue)) } }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: val(recipe.infuseTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.infuseTime, 20); onValueModified: function(newValue) { updateRecipe("infuseTime", Math.round(newValue)) } }
 
                                     // Volume
                                     Text { text: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }

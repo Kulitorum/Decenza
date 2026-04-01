@@ -71,8 +71,11 @@ def parse_tcl_profile(filepath):
     # Map TCL key -> normalized key, with default value
     tcl_settings = {
         # Common settings
-        'final_desired_shot_weight_advanced': ('target_weight', 0.0),
-        'final_desired_shot_volume_advanced': ('target_volume', 0.0),
+        # Note: weight/volume use type-dependent keys, handled after extraction
+        'final_desired_shot_weight_advanced': ('_weight_advanced', 0.0),
+        'final_desired_shot_weight': ('_weight_simple', 0.0),
+        'final_desired_shot_volume_advanced': ('_volume_advanced', 0.0),
+        'final_desired_shot_volume': ('_volume_simple', 0.0),
         'espresso_temperature': ('espresso_temperature', 0.0),
         'tank_desired_water_temperature': ('tank_temperature', 0.0),
         'maximum_pressure': ('maximum_pressure', 0.0),
@@ -116,6 +119,21 @@ def parse_tcl_profile(filepath):
         else:
             m = re.search(rf'\b{tcl_key}\s+(\S+)', content)
             profile[norm_key] = m.group(1) if m else default
+
+    # Resolve type-dependent weight/volume keys:
+    # Simple profiles (settings_2a/2b) use the non-advanced values,
+    # Advanced profiles (settings_2c/2c2) use the advanced values.
+    is_advanced = profile.get('profile_type', '').startswith('settings_2c')
+    w_simple = profile.pop('_weight_simple')
+    w_adv = profile.pop('_weight_advanced')
+    v_simple = profile.pop('_volume_simple')
+    v_adv = profile.pop('_volume_advanced')
+    if is_advanced:
+        profile['target_weight'] = w_adv
+        profile['target_volume'] = v_adv
+    else:
+        profile['target_weight'] = w_simple
+        profile['target_volume'] = v_simple
 
     return profile
 
