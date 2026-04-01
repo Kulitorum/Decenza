@@ -1227,6 +1227,8 @@ void MainController::onShotEnded() {
     // Trim trailing zero-pressure samples from SAW settling period before saving.
     // During settling the DE1 reports 0 pressure/flow while the scale settles — these
     // cause a vertical drop to 0 at the end of the graph. Weight data is preserved.
+    // NOTE: Must run before smoothWeightFlowRate() — smoothing saves a raw copy that
+    // would otherwise include the trailing zeros.
     m_shotDataModel->trimSettlingData();
 
     // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).

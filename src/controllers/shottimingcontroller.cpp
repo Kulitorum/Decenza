@@ -72,9 +72,10 @@ void ShotTimingController::startShot()
     // Emit shotProcessingReady so the previous shot is saved before we reset state.
     // IMPORTANT: m_extractionEndTime must not be reset until after shotProcessingReady
     // is fully handled, because onShotEnded() reads extractionDuration() synchronously.
-    if (m_settlingTimer.isActive()) {
+    if (m_sawSettling) {
         qWarning() << "[SAW] Cancelling settling timer - new shot started, saving previous shot";
         m_sawTriggeredThisShot = false;
+        m_sawSettling = false;
         m_settlingTimer.stop();
         m_displayTimer.stop();
         emit sawSettlingChanged();
@@ -99,6 +100,7 @@ void ShotTimingController::startShot()
     m_extractionStarted = false;
 
     // Reset SAW learning state
+    m_sawSettling = false;
     m_sawTriggeredThisShot = false;
     m_flowRateAtStop = 0.0;
     m_weightAtStop = 0.0;
@@ -215,6 +217,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // valid pre-removal reading so the saved shot preserves the correct
             // final weight. The corrupted `weight` parameter is discarded.
             m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation
+            m_sawSettling = false;
             m_settlingTimer.stop();
             m_displayTimer.stop();
             emit sawSettlingChanged();
@@ -417,6 +420,7 @@ void ShotTimingController::startSettlingTimer()
     m_lastSettlingAvg = m_weight;
     m_settlingAvgStableSince = 0;
 
+    m_sawSettling = true;
     m_settlingTimer.setInterval(10000);  // 10 second max timeout
     m_settlingTimer.start();
     emit sawSettlingChanged();
@@ -424,8 +428,9 @@ void ShotTimingController::startSettlingTimer()
 
 void ShotTimingController::onSettlingComplete()
 {
-    // Reset flag FIRST to prevent re-triggering if another operation ends (e.g., steaming)
+    // Reset flags FIRST to prevent re-triggering if another operation ends (e.g., steaming)
     m_sawTriggeredThisShot = false;
+    m_sawSettling = false;
 
     // Settling is done - stop display timer and notify UI
     m_displayTimer.stop();

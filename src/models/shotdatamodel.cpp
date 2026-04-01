@@ -416,6 +416,12 @@ void ShotDataModel::trimSettlingData() {
         return;  // Nothing to trim
     }
 
+    if (trimIndex == 0) {
+        qWarning() << "[ShotDataModel] trimSettlingData: all" << m_pressurePoints.size()
+                   << "samples have zero pressure — skipping trim to preserve data";
+        return;
+    }
+
     qsizetype removed = m_pressurePoints.size() - trimIndex;
     qDebug() << "[ShotDataModel] Trimming" << removed << "trailing zero-pressure settling samples"
              << "(keeping" << trimIndex << "of" << m_pressurePoints.size() << ")";
@@ -503,12 +509,12 @@ void ShotDataModel::onFlushTimerTick() {
     }
 
     // Update goal curve LineSeries (infrequent updates, replace() is fine)
-    for (int i = 0; i < m_pressureGoalSegments.size() && i < m_pressureGoalSeriesList.size(); ++i) {
+    for (qsizetype i = 0; i < m_pressureGoalSegments.size() && i < m_pressureGoalSeriesList.size(); ++i) {
         if (m_pressureGoalSeriesList[i] && !m_pressureGoalSegments[i].isEmpty()) {
             m_pressureGoalSeriesList[i]->replace(m_pressureGoalSegments[i]);
         }
     }
-    for (int i = 0; i < m_flowGoalSegments.size() && i < m_flowGoalSeriesList.size(); ++i) {
+    for (qsizetype i = 0; i < m_flowGoalSegments.size() && i < m_flowGoalSeriesList.size(); ++i) {
         if (m_flowGoalSeriesList[i] && !m_flowGoalSegments[i].isEmpty()) {
             m_flowGoalSeriesList[i]->replace(m_flowGoalSegments[i]);
         }

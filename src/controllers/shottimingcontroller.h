@@ -49,7 +49,7 @@ public:
     bool isTareComplete() const { return m_tareState == TareState::Complete; }
     double currentWeight() const { return m_weight; }
     TareState tareState() const { return m_tareState; }
-    bool isSawSettling() const { return m_settlingTimer.isActive(); }
+    bool isSawSettling() const { return m_sawSettling; }
 
     // Configuration
     void setScale(ScaleDevice* scale);
@@ -141,6 +141,7 @@ private:
     double m_weightAtStop = 0.0;      // Weight when SAW triggered
     double m_targetWeightAtStop = 0.0;
     QTimer m_settlingTimer;
+    bool m_sawSettling = false;  // Event-based flag (not timer-backed) for settling state
     double m_lastStableWeight = 0.0;  // For detecting weight stabilization
     qint64 m_lastWeightChangeTime = 0; // Timestamp of last significant weight change (ms)
     double m_settlingPeakWeight = 0.0; // Peak weight seen during settling (for cup removal detection)
