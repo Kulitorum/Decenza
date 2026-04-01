@@ -1891,7 +1891,7 @@ QString ShotServer::generateLayoutPage() const
                 </div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowRoastDate" checked onchange="spToggleChanged()">
+                        <input type="checkbox" id="spShowRoastDate" onchange="spToggleChanged()">
                         <span style="color:var(--text-secondary)">Roast date</span>
                     </label>
                 </div>
