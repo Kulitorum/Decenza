@@ -14,8 +14,8 @@ Text {
 
     // Visibility flags — all default true except roastDate
     property bool showProfile: true
-    property bool showRoaster: true     // Roaster name (e.g. "Caffe Lusso")
-    property bool showGrind: true       // Coffee name + grind setting (e.g. "Gran Miscela Carmo Espresso Blend (14)")
+    property bool showRoaster: true
+    property bool showGrind: true
     property bool showRoastDate: false
     property bool showDoseYield: true
 

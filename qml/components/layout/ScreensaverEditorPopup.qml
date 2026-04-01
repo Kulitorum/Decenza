@@ -347,84 +347,30 @@ Dialog {
             spacing: Theme.spacingSmall
             visible: popup.itemType === "shotPlan"
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-                Switch {
-                    checked: popup.shotPlanShowProfile
-                    onToggled: popup.shotPlanShowProfile = checked
-                    Accessible.name: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
-                }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
+                checked: popup.shotPlanShowProfile
+                onToggled: popup.shotPlanShowProfile = checked
             }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: TranslationManager.translate("shotPlanEditor.showRoaster", "Roaster")
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-                Switch {
-                    checked: popup.shotPlanShowRoaster
-                    onToggled: popup.shotPlanShowRoaster = checked
-                    Accessible.name: TranslationManager.translate("shotPlanEditor.showRoaster", "Roaster")
-                }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showRoaster", "Roaster")
+                checked: popup.shotPlanShowRoaster
+                onToggled: popup.shotPlanShowRoaster = checked
             }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-                Switch {
-                    checked: popup.shotPlanShowGrind
-                    onToggled: popup.shotPlanShowGrind = checked
-                    Accessible.name: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
-                }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
+                checked: popup.shotPlanShowGrind
+                onToggled: popup.shotPlanShowGrind = checked
             }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-                Switch {
-                    checked: popup.shotPlanShowRoastDate
-                    onToggled: popup.shotPlanShowRoastDate = checked
-                    Accessible.name: TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
-                }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
+                checked: popup.shotPlanShowRoastDate
+                onToggled: popup.shotPlanShowRoastDate = checked
             }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    Layout.fillWidth: true
-                    Accessible.ignored: true
-                }
-                Switch {
-                    checked: popup.shotPlanShowDoseYield
-                    onToggled: popup.shotPlanShowDoseYield = checked
-                    Accessible.name: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
-                }
+            StyledSwitch {
+                text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
+                checked: popup.shotPlanShowDoseYield
+                onToggled: popup.shotPlanShowDoseYield = checked
             }
         }
 
