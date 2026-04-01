@@ -234,9 +234,21 @@ def parse_de1app_values(de1app_dir):
             m = re.search(r'profile_title\s+(\S+)', content)
         title = m.group(1).strip() if m else f.stem
 
-        m = re.search(r'final_desired_shot_weight_advanced\s+([0-9.]+)', content)
+        # Use type-dependent keys: simple profiles use non-advanced, advanced use _advanced
+        m = re.search(r'settings_profile_type\s+(\S+)', content)
+        ptype = m.group(1) if m else ''
+        is_advanced = ptype.startswith('settings_2c')
+
+        if is_advanced:
+            m = re.search(r'final_desired_shot_weight_advanced\s+([0-9.]+)', content)
+        else:
+            m = re.search(r'final_desired_shot_weight(?!_)\s+([0-9.]+)', content)
         tw = float(m.group(1)) if m else 0.0
-        m = re.search(r'final_desired_shot_volume_advanced\s+([0-9.]+)', content)
+
+        if is_advanced:
+            m = re.search(r'final_desired_shot_volume_advanced\s+([0-9.]+)', content)
+        else:
+            m = re.search(r'final_desired_shot_volume(?!_)\s+([0-9.]+)', content)
         tv = float(m.group(1)) if m else 0.0
 
         expected[title.lower()] = {'file': f.name, 'weight': tw, 'volume': tv}
