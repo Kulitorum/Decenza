@@ -21,7 +21,8 @@
  *   2. Call connectToDevice(deviceInfo)
  *   3. BleTransport handles service discovery, subscribes to notifications,
  *      reads initial values, and requests Idle state
- *   4. Emits connected() when ready for I/O
+ *   4. Emits connected() when ready for I/O (isConnected() returns false until
+ *      characteristic discovery completes, even if the BLE link is up)
  *   5. Call disconnect() or delete to tear down
  */
 class BleTransport : public DE1Transport {

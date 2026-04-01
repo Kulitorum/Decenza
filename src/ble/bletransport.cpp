@@ -326,6 +326,7 @@ void BleTransport::onControllerDisconnected() {
     m_writePending = false;
     m_writeTimeoutTimer.stop();
     m_commandTimer.stop();
+    m_characteristicsReady = false;
 
     emit disconnected();
 }
