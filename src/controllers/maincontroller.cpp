@@ -1097,7 +1097,20 @@ void MainController::onEspressoCycleStarted() {
         }
     }
 
-    // Clear the graph when entering espresso preheating (new cycle from idle)
+    // Save previous shot if settling is still in progress — startShot() emits
+    // shotProcessingReady synchronously, which triggers onShotEnded(). This must
+    // happen BEFORE clearing the model or resetting m_extractionStarted, otherwise
+    // the previous shot's data is lost.
+    if (m_timingController) {
+        m_timingController->setTargetWeight(m_profileManager->targetWeight());
+        m_timingController->setCurrentProfile(m_profileManager->currentProfilePtr());
+        m_timingController->startShot();
+        m_timingController->tare();
+    } else {
+        qWarning() << "No timing controller!";
+    }
+
+    // Clear the graph for the new espresso cycle (previous shot is now saved)
     m_shotStartTime = 0;
     m_lastShotTime = 0;
     m_extractionStarted = false;
@@ -1122,16 +1135,6 @@ void MainController::onEspressoCycleStarted() {
         m_flowScale->reset();
         double dose = m_settings ? m_settings->dyeBeanWeight() : 0.0;
         m_flowScale->setDose(dose);
-    }
-
-    // Start timing controller and tare via it
-    if (m_timingController) {
-        m_timingController->setTargetWeight(m_profileManager->targetWeight());
-        m_timingController->setCurrentProfile(m_profileManager->currentProfilePtr());
-        m_timingController->startShot();
-        m_timingController->tare();
-    } else {
-        qWarning() << "No timing controller!";
     }
 
     // Clear any pending BLE commands to prevent stale profile uploads

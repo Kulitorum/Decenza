@@ -205,6 +205,21 @@ add_decenza_test(tst_saw
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
 )
 
+# --- tst_settling: SAW settling trimSettlingData(), m_sawSettling flag, shot save ordering ---
+find_package(Qt6 REQUIRED COMPONENTS Charts)
+add_decenza_test(tst_settling
+    tst_settling.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+target_link_libraries(tst_settling PRIVATE Qt6::Charts)
+
 # --- tst_sav: MachineState SAV tests ---
 add_decenza_test(tst_sav
     tst_sav.cpp
