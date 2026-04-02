@@ -199,12 +199,20 @@ Dialog {
         border.color: "white"
     }
 
-    contentItem: Item {
+    contentItem: KeyboardAwareContainer {
         implicitHeight: Math.min(mainColumn.implicitHeight * root.dialogScale,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight * root.dialogScale)
         implicitWidth: Theme.scaled(520) * root.dialogScale
+        textFields: [
+            profileInput.textField, beanBrandInput.textField,
+            beanTypeInput.textField, roastDateInput,
+            grinderBrandInput.textField, grinderModelInput.textField,
+            grinderBurrsInput.textField, grindInput.textField
+        ]
+        targetFlickable: brewFlickable
 
         Flickable {
+            id: brewFlickable
             anchors.fill: parent
             contentHeight: mainColumn.implicitHeight * root.dialogScale
             contentWidth: parent.width
@@ -899,5 +907,5 @@ Dialog {
         }
         } // ColumnLayout (mainColumn)
         } // Flickable
-    } // Item (contentItem)
+    } // KeyboardAwareContainer (contentItem)
 }
