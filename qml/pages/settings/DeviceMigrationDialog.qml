@@ -57,6 +57,8 @@ Dialog {
     }
 
     contentItem: KeyboardAwareContainer {
+        id: migrationKeyboardContainer
+        inOverlay: true
         textFields: [manualIpField, migrationTotpField]
         targetFlickable: migrationFlickable
 
@@ -64,6 +66,7 @@ Dialog {
             id: migrationFlickable
             anchors.fill: parent
             contentHeight: migrationContent.implicitHeight
+                           + migrationKeyboardContainer.estimatedKeyboardHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
@@ -73,12 +76,20 @@ Dialog {
                 width: parent.width
                 spacing: Theme.scaled(10)
 
-        Tr {
-            key: "settings.data.importfrom"
-            fallback: "Import from Another Device"
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(14)
-            font.bold: true
+        RowLayout {
+            Layout.fillWidth: true
+
+            Tr {
+                key: "settings.data.importfrom"
+                fallback: "Import from Another Device"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(14)
+                font.bold: true
+                Layout.fillWidth: true
+                Accessible.ignored: true
+            }
+
+            HideKeyboardButton {}
         }
 
         Tr {

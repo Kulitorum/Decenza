@@ -23,8 +23,16 @@ Item {
     // Optional Flickable to scroll on Android (adjustPan can't scroll inside Flickables)
     property Flickable targetFlickable: null
 
+    // Set true when inside a Dialog/Popup overlay where Android adjustPan
+    // doesn't work. Uses keyboard-height-aware scrolling instead.
+    property bool inOverlay: false
+
     // Current shift amount
     property real keyboardOffset: 0
+
+    // Estimated keyboard height for use in Flickable contentHeight bindings.
+    // Updated when a text field gains focus in overlay mode.
+    property real estimatedKeyboardHeight: 0
 
     // True when a registered text field has focus
     property bool textFieldFocused: false
@@ -58,7 +66,9 @@ Item {
         // Android uses adjustPan which handles keyboard avoidance at the OS level.
         // Skip container shift to avoid double-shifting, but scroll the Flickable
         // since adjustPan can't scroll inside Qt Flickables.
-        if (Qt.platform.os === "android") {
+        // Exception: adjustPan doesn't work for Dialogs/Popups in the Qt overlay,
+        // so inOverlay mode falls through to the keyboard-height-aware path below.
+        if (Qt.platform.os === "android" && !inOverlay) {
             if (targetFlickable)
                 ensureFieldVisibleInFlickable(focusedField)
             keyboardOffset = 0
@@ -80,6 +90,23 @@ Item {
         }
 
         var visibleBottom = root.height - kbHeight
+
+        // For overlays with a Flickable, scroll instead of shifting the container.
+        // This keeps the dialog in place and scrolls content within it.
+        if (inOverlay && targetFlickable) {
+            keyboardOffset = 0
+            estimatedKeyboardHeight = kbHeight
+            var fieldPos = focusedField.mapToItem(targetFlickable.contentItem, 0, 0)
+            var fieldBottom = fieldPos.y + focusedField.height
+            var margin = 20
+            var visibleHeight = root.height - kbHeight
+            var maxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
+            if (fieldBottom + margin > targetFlickable.contentY + visibleHeight) {
+                targetFlickable.contentY = Math.min(
+                    fieldBottom + margin - visibleHeight, maxContentY)
+            }
+            return
+        }
 
         // Get field's original position (undo current shift)
         var fieldPos = focusedField.mapToItem(root, 0, 0)
@@ -129,6 +156,7 @@ Item {
             updateKeyboardOffset()
         } else if (wasFocused) {
             keyboardOffset = 0
+            estimatedKeyboardHeight = 0
         }
     }
 

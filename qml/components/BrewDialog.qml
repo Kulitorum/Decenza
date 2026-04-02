@@ -200,9 +200,11 @@ Dialog {
     }
 
     contentItem: KeyboardAwareContainer {
+        id: keyboardContainer
         implicitHeight: Math.min(mainColumn.implicitHeight * root.dialogScale,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight * root.dialogScale)
         implicitWidth: Theme.scaled(520) * root.dialogScale
+        inOverlay: true
         textFields: [
             profileInput.textField, beanBrandInput.textField,
             beanTypeInput.textField, roastDateInput,
@@ -215,6 +217,7 @@ Dialog {
             id: brewFlickable
             anchors.fill: parent
             contentHeight: mainColumn.implicitHeight * root.dialogScale
+                           + keyboardContainer.estimatedKeyboardHeight
             contentWidth: parent.width
             clip: true
             boundsBehavior: Flickable.StopAtBounds
