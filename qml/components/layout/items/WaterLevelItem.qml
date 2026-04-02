@@ -11,9 +11,11 @@ Item {
     property bool showMl: Settings.waterLevelDisplayUnit === "ml"
 
     // Margin = mm of water remaining before firmware halts the machine.
-    // Firmware halts at raw sensor <= waterRefillPoint; waterLevelMm includes 5mm sensor offset.
+    // waterLevelMm = rawSensorMm + 5mm offset (sensor mounted above intake).
+    // waterRefillPoint is in raw sensor mm (sent to firmware as-is).
+    // So: margin = waterLevelMm - sensorOffset - waterRefillPoint = rawSensorMm - waterRefillPoint.
     readonly property real sensorOffset: 5.0
-    readonly property real margin: DE1Device.waterLevelMm - (Settings.waterRefillPoint + sensorOffset)
+    readonly property real margin: DE1Device.waterLevelMm - sensorOffset - Settings.waterRefillPoint
     readonly property string warningState: {
         if (margin > 7) return "ok"
         if (margin > 5) return "low"
@@ -33,11 +35,13 @@ Item {
         running: root.isBlinking && root.visible
         repeat: true
         interval: root.warningState === "low" ? 2000
-                : root.warningState === "warning" ? 1000 : 500
+                : root.warningState === "warning" ? 1000 : 500  // critical
         property bool blinkOn: true
         onTriggered: blinkOn = !blinkOn
         onRunningChanged: if (!running) blinkOn = true
     }
+
+    onWarningStateChanged: if (isBlinking) blinkTimer.blinkOn = true
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -45,13 +49,17 @@ Item {
     Accessible.role: Accessible.StaticText
     Accessible.name: {
         var level = root.showMl
-            ? DE1Device.waterLevelMl + " milliliters"
-            : DE1Device.waterLevel.toFixed(0) + " percent"
-        var warning = root.warningState === "critical" ? ". Warning: water level critically low, refill soon"
-                    : root.warningState !== "ok" ? ". Warning: water level is low" : ""
-        return "Water level: " + level + warning
+            ? DE1Device.waterLevelMl + " " + TranslationManager.translate("waterlevel.accessible.milliliters", "milliliters")
+            : DE1Device.waterLevel.toFixed(0) + " " + TranslationManager.translate("waterlevel.accessible.percent", "percent")
+        var warning = root.warningState === "critical"
+            ? ". " + TranslationManager.translate("waterlevel.accessible.warning.critical", "Warning: water level critically low, refill soon")
+            : root.warningState !== "ok"
+            ? ". " + TranslationManager.translate("waterlevel.accessible.warning.low", "Warning: water level is low")
+            : ""
+        return TranslationManager.translate("waterlevel.accessible.label", "Water level:") + " " + level + warning
     }
     Accessible.focusable: true
+    Accessible.onPressAction: fullMouseArea.clicked(null)
 
     // --- COMPACT MODE ---
     Item {
@@ -104,15 +112,20 @@ Item {
         }
 
         MouseArea {
+            id: fullMouseArea
             anchors.fill: parent
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var warning = root.warningState === "critical" ? ". Warning: water level critically low, refill soon"
-                               : root.warningState !== "ok" ? ". Warning: water level is low" : ""
+                    var warning = root.warningState === "critical"
+                        ? ". " + TranslationManager.translate("waterlevel.accessible.warning.critical", "Warning: water level critically low, refill soon")
+                        : root.warningState !== "ok"
+                        ? ". " + TranslationManager.translate("waterlevel.accessible.warning.low", "Warning: water level is low")
+                        : ""
+                    var label = TranslationManager.translate("waterlevel.accessible.label", "Water level:")
                     if (root.showMl) {
-                        AccessibilityManager.announceLabel("Water level: " + DE1Device.waterLevelMl + " milliliters" + warning)
+                        AccessibilityManager.announceLabel(label + " " + DE1Device.waterLevelMl + " " + TranslationManager.translate("waterlevel.accessible.milliliters", "milliliters") + warning)
                     } else {
-                        AccessibilityManager.announceLabel("Water level: " + DE1Device.waterLevel.toFixed(0) + " percent" + warning)
+                        AccessibilityManager.announceLabel(label + " " + DE1Device.waterLevel.toFixed(0) + " " + TranslationManager.translate("waterlevel.accessible.percent", "percent") + warning)
                     }
                 }
             }
