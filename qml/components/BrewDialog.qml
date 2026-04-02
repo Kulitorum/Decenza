@@ -196,7 +196,7 @@ Dialog {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
         border.width: 1
-        border.color: "white"
+        border.color: Theme.borderColor
     }
 
     contentItem: KeyboardAwareContainer {
@@ -221,6 +221,7 @@ Dialog {
             contentWidth: parent.width
             clip: true
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
         ColumnLayout {
             id: mainColumn

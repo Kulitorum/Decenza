@@ -89,24 +89,25 @@ Item {
             return
         }
 
-        var visibleBottom = root.height - kbHeight
-
         // For overlays with a Flickable, scroll instead of shifting the container.
         // This keeps the dialog in place and scrolls content within it.
         if (inOverlay && targetFlickable) {
             keyboardOffset = 0
             estimatedKeyboardHeight = kbHeight
-            var fieldPos = focusedField.mapToItem(targetFlickable.contentItem, 0, 0)
-            var fieldBottom = fieldPos.y + focusedField.height
-            var margin = 20
-            var visibleHeight = root.height - kbHeight
-            var maxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
-            if (fieldBottom + margin > targetFlickable.contentY + visibleHeight) {
+            // Use mapToItem for both top and bottom to handle scaled parents correctly
+            var overlayFieldTop = focusedField.mapToItem(targetFlickable.contentItem, 0, 0)
+            var overlayFieldBottom = focusedField.mapToItem(targetFlickable.contentItem, 0, focusedField.height)
+            var overlayMargin = 20
+            var overlayVisibleHeight = root.height - kbHeight
+            var overlayMaxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
+            if (overlayFieldBottom.y + overlayMargin > targetFlickable.contentY + overlayVisibleHeight) {
                 targetFlickable.contentY = Math.min(
-                    fieldBottom + margin - visibleHeight, maxContentY)
+                    overlayFieldBottom.y + overlayMargin - overlayVisibleHeight, overlayMaxContentY)
             }
             return
         }
+
+        var visibleBottom = root.height - kbHeight
 
         // Get field's original position (undo current shift)
         var fieldPos = focusedField.mapToItem(root, 0, 0)
@@ -155,8 +156,16 @@ Item {
         if (textFieldFocused) {
             updateKeyboardOffset()
         } else if (wasFocused) {
-            keyboardOffset = 0
-            estimatedKeyboardHeight = 0
+            // Defer reset: Qt fires activeFocusChanged(false) on the old field
+            // before activeFocusChanged(true) on the new field. Without deferral,
+            // estimatedKeyboardHeight resets to 0 between fields, causing the
+            // Flickable contentHeight to shrink and contentY to clamp.
+            Qt.callLater(function() {
+                if (!hasActiveFocus()) {
+                    keyboardOffset = 0
+                    estimatedKeyboardHeight = 0
+                }
+            })
         }
     }
 
