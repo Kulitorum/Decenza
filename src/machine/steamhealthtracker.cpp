@@ -235,6 +235,9 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
 
     // --- Compute progress toward thresholds ---
 
+    double pressureRange = PRESSURE_THRESHOLD - baselinePressure;
+    double tempRange = TEMPERATURE_THRESHOLD - baselineTemp;
+
     double progressP = 0;
     if (pressureRange > 0 && currentPressure > baselinePressure) {
         progressP = (currentPressure - baselinePressure) / pressureRange;
