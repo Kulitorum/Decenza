@@ -64,6 +64,8 @@ void DecentScale::onTransportDisconnected() {
     DECENT_WARN("Transport disconnected");
     stopWatchdog();
     stopHeartbeat();
+    m_consecutiveChecksumFailures = 0;
+    m_checksumDisabled = false;
     setConnected(false);
 }
 
@@ -171,12 +173,24 @@ void DecentScale::parseWeightData(const QByteArray& data) {
     // Validate XOR checksum on all packet types except LED response (0x0A),
     // which uses all 7 bytes for data and has no room for a checksum.
     // See: https://github.com/Kulitorum/Decenza/issues/560
-    if (command != 0x0A) {
+    // Original Decent Scale (v1) may not compute checksums correctly — auto-disable
+    // after consecutive failures. See: https://github.com/Kulitorum/Decenza/issues/630
+    if (command != 0x0A && !m_checksumDisabled) {
         uint8_t expected = DecentScaleProtocol::calculateXor(data);
         if (expected != d[6]) {
-            DECENT_WARN(QString("Invalid checksum on type 0x%1, dropping packet")
-                        .arg(command, 2, 16, QChar('0')));
-            return;
+            m_consecutiveChecksumFailures++;
+            if (m_consecutiveChecksumFailures >= kChecksumFailureThreshold) {
+                m_checksumDisabled = true;
+                DECENT_WARN("Checksum validation disabled — scale may be original Decent Scale (non-HDS)");
+            } else {
+                DECENT_WARN(QString("Invalid checksum on type 0x%1, dropping packet (%2/%3)")
+                            .arg(command, 2, 16, QChar('0'))
+                            .arg(m_consecutiveChecksumFailures)
+                            .arg(kChecksumFailureThreshold));
+                return;
+            }
+        } else {
+            m_consecutiveChecksumFailures = 0;
         }
     }
 

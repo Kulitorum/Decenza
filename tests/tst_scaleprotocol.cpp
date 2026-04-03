@@ -248,6 +248,66 @@ private slots:
         QCOMPARE(spy.count(), 0);
     }
 
+    void decentChecksumAutoDisableAfterConsecutiveFailures() {
+        // Original Decent Scale (v1) sends invalid checksums — after 5 consecutive
+        // failures, checksum validation should be disabled and weight data accepted.
+        // See: https://github.com/Kulitorum/Decenza/issues/630
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+
+        // Build a weight packet with deliberately wrong checksum
+        auto pkt = buildDecentWeightPacket(42.0);
+        pkt[6] = static_cast<char>(static_cast<uint8_t>(pkt[6]) ^ 0xFF);
+
+        // First 4 failures should drop the packet
+        for (int i = 0; i < 4; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*dropping packet.*"));
+            scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+        }
+        QCOMPARE(spy.count(), 0);
+
+        // 5th failure should trigger auto-disable and accept the packet
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Checksum validation disabled.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+        QVERIFY(spy.count() >= 1);
+        QCOMPARE(spy.last().at(0).toDouble(), 42.0);
+
+        // Subsequent bad-checksum packets should also be accepted without warnings
+        auto pkt2 = buildDecentWeightPacket(55.0);
+        pkt2[6] = static_cast<char>(static_cast<uint8_t>(pkt2[6]) ^ 0xFF);
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt2);
+        QCOMPARE(spy.last().at(0).toDouble(), 55.0);
+    }
+
+    void decentChecksumResetOnGoodPacket() {
+        // A valid checksum should reset the consecutive failure counter
+        DecentScale scale(nullptr);
+        QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
+
+        auto badPkt = buildDecentWeightPacket(42.0);
+        badPkt[6] = static_cast<char>(static_cast<uint8_t>(badPkt[6]) ^ 0xFF);
+
+        // Send 3 bad packets (under threshold)
+        for (int i = 0; i < 3; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*dropping packet.*"));
+            scale.onCharacteristicChanged(Scale::Decent::READ, badPkt);
+        }
+        QCOMPARE(spy.count(), 0);
+
+        // Send a good packet — resets counter
+        auto goodPkt = buildDecentWeightPacket(10.0);
+        scale.onCharacteristicChanged(Scale::Decent::READ, goodPkt);
+        QVERIFY(spy.count() >= 1);
+
+        // Send 3 more bad packets — should still drop (counter was reset)
+        spy.clear();
+        for (int i = 0; i < 3; i++) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Invalid checksum.*dropping packet.*"));
+            scale.onCharacteristicChanged(Scale::Decent::READ, badPkt);
+        }
+        QCOMPARE(spy.count(), 0);
+    }
+
     void decentLedResponseSkipsChecksum() {
         // LED response (0x0A) has no checksum — should parse regardless of byte 6
         DecentScale scale(nullptr);

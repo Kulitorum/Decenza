@@ -54,6 +54,7 @@ private:
     static constexpr int kWatchdogFirstTimeoutMs = 1000;   // Initial: 1s to verify data flowing
     static constexpr int kWatchdogTickleTimeoutMs = 2000;   // Subsequent: 2s after each update
     static constexpr int kWatchdogMaxRetries = 10;          // Re-enable notifications up to 10 times
+    static constexpr int kChecksumFailureThreshold = 5;     // Disable checksum after N consecutive failures
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "Decent Scale";
@@ -61,6 +62,8 @@ private:
     bool m_characteristicsReady = false;
     bool m_watchdogUpdatesSeen = false;
     int m_watchdogRetries = 0;
+    int m_consecutiveChecksumFailures = 0;
+    bool m_checksumDisabled = false;
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
 };
