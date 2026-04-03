@@ -249,8 +249,8 @@ private slots:
     }
 
     void decentChecksumAutoDisableAfterConsecutiveFailures() {
-        // Original Decent Scale (v1) sends invalid checksums — after 5 consecutive
-        // failures, checksum validation should be disabled and weight data accepted.
+        // Original Decent Scale (v1) sends invalid checksums — on the 5th consecutive
+        // failure, checksum validation is disabled and the triggering packet is accepted.
         // See: https://github.com/Kulitorum/Decenza/issues/630
         DecentScale scale(nullptr);
         QSignalSpy spy(&scale, &ScaleDevice::weightChanged);
