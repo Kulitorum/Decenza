@@ -146,7 +146,8 @@ void SteamHealthTracker::clearHistory() {
 //     overshoots the target, that's the signal.
 //
 // Warning fires when current value has moved 60% of the way from baseline
-// toward the hard threshold (8 bar / 180°C). Re-warns at most every 5 sessions.
+// toward the warn threshold (baseline x 3.0 for pressure, capped at 8 bar / 180°C
+// for temperature). Re-warns at most every 5 sessions.
 //
 // Auto-reset: If the newest session drops >= 30% of the range (relative to the
 // rolling average of recent sessions) toward the threshold, we assume a descale
@@ -200,8 +201,10 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         double recentAvgPressure = recentPressureSum / recentCount;
         double recentAvgTemp = recentTempSum / recentCount;
 
-        double pressureWarnLevel = baselinePressure * PRESSURE_WARN_MULTIPLIER;
-        double pressureRange = pressureWarnLevel - recentAvgPressure;
+        double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
+        // Use baseline-to-warnlevel range (not recentAvg-to-warnlevel) so auto-reset
+        // still fires when recentAvg has already exceeded the warn level (heavy buildup).
+        double pressureRange = pressureWarnLevel - baselinePressure;
         if (pressureRange > 0) {
             double drop = recentAvgPressure - currentPressure;
             if (drop >= pressureRange * AUTO_RESET_DROP_THRESHOLD) {
@@ -239,7 +242,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     // Pressure threshold is flow-relative: baseline * multiplier (same buildup level at any flow)
     // Temperature threshold remains fixed (overshoot from target is flow-independent)
 
-    double pressureWarnLevel = baselinePressure * PRESSURE_WARN_MULTIPLIER;
+    double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
     double pressureRange = pressureWarnLevel - baselinePressure;
     double tempRange = TEMPERATURE_THRESHOLD - baselineTemp;
 

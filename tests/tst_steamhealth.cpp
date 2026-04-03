@@ -217,8 +217,9 @@ private slots:
             tracker.onSessionComplete(&model, 150, 160);
         }
 
-        // Now add session at 5.8 bar — 60%+ of range from 2.0 to 8.0
-        // progress = (5.8 - 2.0) / (8.0 - 2.0) = 3.8/6.0 = 0.63
+        // Now add session at 5.8 bar — well above 60% of flow-relative range
+        // warnLevel = min(2.0 * 3.0, 8.0) = 6.0, range = 6.0 - 2.0 = 4.0
+        // progress = (5.8 - 2.0) / 4.0 = 3.8/4.0 = 0.95
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
         SteamDataModel highModel;
         for (int j = 0; j < 40; ++j)
