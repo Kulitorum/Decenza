@@ -146,7 +146,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -155,7 +155,7 @@ private slots:
         // Now add session at flow=155 (within ±10 tolerance) — should still be comparable
         SteamDataModel model;
         for (int j = 0; j < 40; ++j)
-            model.addSample(2.0 + j * 0.2, 2.5, 1.0, 161.0);
+            model.addSample(2.0 + j * 0.6, 2.5, 1.0, 161.0);
         tracker.onSessionComplete(&model, 155, 161);
 
         // currentPressure should reflect the new session (not 0.0 which would mean no comparable data)
@@ -169,14 +169,14 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
         // Change to very different flow (200, well outside ±10) — should not be comparable
         SteamDataModel model;
         for (int j = 0; j < 40; ++j)
-            model.addSample(2.0 + j * 0.2, 5.0, 1.0, 160.0);
+            model.addSample(2.0 + j * 0.6, 5.0, 1.0, 160.0);
         tracker.onSessionComplete(&model, 200, 160);
 
         // The baseline/current should still reflect flow=200 sessions,
@@ -198,7 +198,7 @@ private slots:
         for (int i = 0; i < 6; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0 + i * 0.1, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0 + i * 0.1, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -213,7 +213,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -223,7 +223,7 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
         SteamDataModel highModel;
         for (int j = 0; j < 40; ++j)
-            highModel.addSample(2.0 + j * 0.2, 5.8, 1.0, 160.0);
+            highModel.addSample(2.0 + j * 0.6, 5.8, 1.0, 160.0);
         tracker.onSessionComplete(&highModel, 150, 160);
 
         QCOMPARE(warnSpy.count(), 1);
@@ -241,7 +241,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -250,7 +250,7 @@ private slots:
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 5.8, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 5.8, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         };
 
@@ -261,7 +261,7 @@ private slots:
         for (int i = 0; i < 4; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 5.8, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 5.8, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
         QCOMPARE(warnSpy.count(), 1);  // Still only 1
@@ -279,13 +279,13 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
         SteamDataModel highModel;
         for (int j = 0; j < 40; ++j)
-            highModel.addSample(2.0 + j * 0.2, 5.8, 1.0, 160.0);
+            highModel.addSample(2.0 + j * 0.6, 5.8, 1.0, 160.0);
         tracker.onSessionComplete(&highModel, 150, 160);
         QCOMPARE(warnSpy.count(), 1);
 
@@ -304,23 +304,23 @@ private slots:
 
         // Session 1: 3.0 bar
         SteamDataModel m1;
-        for (int j = 0; j < 40; ++j) m1.addSample(2.0 + j * 0.2, 3.0, 1.0, 160.0);
+        for (int j = 0; j < 40; ++j) m1.addSample(2.0 + j * 0.6, 3.0, 1.0, 160.0);
         tracker.onSessionComplete(&m1, 150, 160);
 
         // Session 2: 2.0 bar (lowest)
         SteamDataModel m2;
-        for (int j = 0; j < 40; ++j) m2.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+        for (int j = 0; j < 40; ++j) m2.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
         tracker.onSessionComplete(&m2, 150, 160);
 
         // Session 3: 2.5 bar
         SteamDataModel m3;
-        for (int j = 0; j < 40; ++j) m3.addSample(2.0 + j * 0.2, 2.5, 1.0, 160.0);
+        for (int j = 0; j < 40; ++j) m3.addSample(2.0 + j * 0.6, 2.5, 1.0, 160.0);
         tracker.onSessionComplete(&m3, 150, 160);
 
         // Sessions 4-5
         SteamDataModel m4, m5;
-        for (int j = 0; j < 40; ++j) m4.addSample(2.0 + j * 0.2, 2.8, 1.0, 160.0);
-        for (int j = 0; j < 40; ++j) m5.addSample(2.0 + j * 0.2, 3.2, 1.0, 160.0);
+        for (int j = 0; j < 40; ++j) m4.addSample(2.0 + j * 0.6, 2.8, 1.0, 160.0);
+        for (int j = 0; j < 40; ++j) m5.addSample(2.0 + j * 0.6, 3.2, 1.0, 160.0);
         tracker.onSessionComplete(&m4, 150, 160);
         tracker.onSessionComplete(&m5, 150, 160);
 
@@ -335,7 +335,7 @@ private slots:
         // Session with temp setting = 160
         SteamDataModel model;
         for (int j = 0; j < 40; ++j)
-            model.addSample(2.0 + j * 0.2, 2.0, 1.0, 165.0);  // actual 165, target 160
+            model.addSample(2.0 + j * 0.6, 2.0, 1.0, 165.0);  // actual 165, target 160
 
         // Need 5 sessions for hasData
         for (int i = 0; i < 5; ++i)
@@ -356,7 +356,7 @@ private slots:
         for (int i = 0; i < 160; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -381,7 +381,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -397,7 +397,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 4.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 4.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -414,7 +414,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
         QCOMPARE(warnSpy.count(), 0);
@@ -423,7 +423,7 @@ private slots:
         {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 4.3, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 4.3, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
         QCOMPARE(warnSpy.count(), 0);  // No warning — below 60%
@@ -433,7 +433,7 @@ private slots:
         {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 4.5, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 4.5, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
         QCOMPARE(warnSpy.count(), 1);  // Warning fires
@@ -449,7 +449,7 @@ private slots:
         for (int i = 0; i < 5; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 3.5, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 3.5, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
@@ -458,7 +458,7 @@ private slots:
         {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
-                model.addSample(2.0 + j * 0.2, 6.5, 1.0, 160.0);
+                model.addSample(2.0 + j * 0.6, 6.5, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
         QCOMPARE(warnSpy.count(), 1);
