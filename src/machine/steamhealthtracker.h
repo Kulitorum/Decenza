@@ -99,6 +99,7 @@ private:
     static constexpr int MAX_HISTORY_SIZE = 150;             // sessions to keep
     static constexpr double TREND_PROGRESS_THRESHOLD = 0.6;   // warn at 60% of the way from baseline to hard threshold
     static constexpr double AUTO_RESET_DROP_THRESHOLD = 0.3;  // auto-reset baseline if drop >= 30% of range (likely descale)
+    static constexpr int AUTO_RESET_KEEP_SESSIONS = 3;       // sessions to keep after auto-reset
     static constexpr double TRIM_SECONDS = 2.0;              // skip first 2s of samples
     static constexpr int FLOW_TOLERANCE = 10;                // ±0.10 mL/s for settings comparison
     static constexpr int TEMP_TOLERANCE = 2;                 // ±2°C for settings comparison

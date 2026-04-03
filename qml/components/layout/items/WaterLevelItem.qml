@@ -17,6 +17,9 @@ Item {
     readonly property real sensorOffset: 5.0
     readonly property real margin: DE1Device.waterLevelMm - sensorOffset - Settings.waterRefillPoint
     readonly property string warningState: {
+        // No warning when disconnected — waterLevelMm initializes to 0.0 which would
+        // falsely trigger "critical" on every startup until the first BLE update arrives.
+        if (!DE1Device.connected) return "ok"
         if (margin > 7) return "ok"
         if (margin > 5) return "low"
         if (margin > 3) return "warning"

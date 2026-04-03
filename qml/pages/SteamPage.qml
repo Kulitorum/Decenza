@@ -247,7 +247,7 @@ Page {
                                 id: livePitcherText
                                 anchors.centerIn: parent
                                 text: modelData.name
-                                color: index === Settings.selectedSteamPitcher ? "white" : Theme.textColor
+                                color: index === Settings.selectedSteamPitcher ? Theme.primaryContrastColor : Theme.textColor
                                 font: Theme.bodyFont
                                 Accessible.ignored: true
                             }
@@ -320,7 +320,7 @@ Page {
                     anchors.centerIn: parent
                     width: parent.width - Theme.spacingMedium * 2
                     text: warningText
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
@@ -329,6 +329,7 @@ Page {
 
                 Accessible.role: Accessible.StaticText
                 Accessible.name: warningText
+                Accessible.focusable: true
             }
 
             // === TIMER VIEW (default) ===

@@ -90,6 +90,9 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     summary.steamTemperature = steamTempSetting;
     summary.durationSeconds = static_cast<int>(model->rawTime());
 
+    // Note: loadHistory/saveHistory do QSettings I/O on the main thread.
+    // At 150 sessions (~15KB JSON) this completes in <1ms — acceptable tradeoff
+    // vs. the complexity of threading the entire load→analyze→save pipeline.
     auto history = loadHistory();
     history.prepend(summary);
     while (history.size() > MAX_HISTORY_SIZE) {
@@ -145,8 +148,10 @@ void SteamHealthTracker::clearHistory() {
 // Warning fires when current value has moved 60% of the way from baseline
 // toward the hard threshold (8 bar / 180°C). Re-warns at most every 5 sessions.
 //
-// Auto-reset: If current drops >= 30% of the range from baseline to threshold,
-// we assume a descale happened and trim old sessions.
+// Auto-reset: If the newest session drops >= 30% of the range (relative to the
+// rolling average of recent sessions) toward the threshold, we assume a descale
+// happened and trim old sessions. Uses actual measured values for both pressure
+// and temperature (not the target setting).
 
 void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
                                      int steamFlow, int steamTemp) {
@@ -180,36 +185,46 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     qsizetype n = comparable.size();
 
     // --- Auto-reset on meaningful drop (likely descale) ---
-    double pressureRange = PRESSURE_THRESHOLD - baselinePressure;
+    // Compare the newest session against a rolling average of the previous few sessions
+    // (not the all-time minimum, which would make auto-reset impossible to trigger).
+    // For temperature, compare actual measurements (not the target setting).
     bool autoReset = false;
-    if (pressureRange > 0 && baselinePressure > 0) {
-        // Check if the newest session is much lower than the previous baseline.
-        // "Previous baseline" here is the lowest of the older sessions (excluding the newest).
-        double prevBaseline = comparable[1]->avgPressure;
-        for (qsizetype i = 2; i < n; ++i) {
-            prevBaseline = qMin(prevBaseline, comparable[i]->avgPressure);
+    qsizetype recentCount = qMin(qsizetype(5), n - 1);
+    if (recentCount > 0) {
+        double recentPressureSum = 0, recentTempSum = 0;
+        for (qsizetype i = 1; i <= recentCount; ++i) {
+            recentPressureSum += comparable[i]->avgPressure;
+            recentTempSum += comparable[i]->avgTemperature;
         }
-        double prevRange = PRESSURE_THRESHOLD - prevBaseline;
-        double drop = prevBaseline - currentPressure;
-        if (prevRange > 0 && drop >= prevRange * AUTO_RESET_DROP_THRESHOLD) {
-            autoReset = true;
+        double recentAvgPressure = recentPressureSum / recentCount;
+        double recentAvgTemp = recentTempSum / recentCount;
+
+        double pressureRange = PRESSURE_THRESHOLD - recentAvgPressure;
+        if (pressureRange > 0) {
+            double drop = recentAvgPressure - currentPressure;
+            if (drop >= pressureRange * AUTO_RESET_DROP_THRESHOLD) {
+                autoReset = true;
+            }
         }
-    }
-    double tempRange = TEMPERATURE_THRESHOLD - baselineTemp;
-    if (!autoReset && tempRange > 0 && baselineTemp > 0) {
-        double drop = baselineTemp - currentTemp;
-        if (drop >= tempRange * AUTO_RESET_DROP_THRESHOLD) {
-            autoReset = true;
+        double tempRange = TEMPERATURE_THRESHOLD - recentAvgTemp;
+        if (!autoReset && tempRange > 0) {
+            double drop = recentAvgTemp - currentTemp;
+            if (drop >= tempRange * AUTO_RESET_DROP_THRESHOLD) {
+                autoReset = true;
+            }
         }
     }
 
     if (autoReset) {
-        qDebug() << "SteamHealth [auto-reset]"
-                 << "pressureDrop:" << baselinePressure << "→" << currentPressure << "bar"
-                 << "tempDrop:" << baselineTemp << "→" << currentTemp << "°C"
-                 << "trimmedTo: 3 sessions";
+        // Clear comparable list before mutating history (pointers would be invalidated)
+        comparable.clear();
 
-        while (history.size() > 3) {
+        qDebug() << "SteamHealth [auto-reset]"
+                 << "pressure:" << currentPressure << "bar"
+                 << "temp:" << currentTemp << "°C"
+                 << "trimmedTo:" << AUTO_RESET_KEEP_SESSIONS << "sessions";
+
+        while (history.size() > AUTO_RESET_KEEP_SESSIONS) {
             history.removeLast();
         }
         saveHistory(history);
