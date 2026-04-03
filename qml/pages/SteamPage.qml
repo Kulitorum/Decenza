@@ -83,9 +83,9 @@ Page {
     // Steam flow is stored as 0.01 ml/s units (e.g., 150 = 1.5 ml/s)
     function flowToDisplay(flow) {
         if (flow === undefined || flow === null || isNaN(flow)) {
-            return "1.5"  // Default
+            return "1.50"  // Default
         }
-        return (flow / 100).toFixed(1)
+        return (flow / 100).toFixed(2)
     }
 
     // Get current pitcher's values with defaults
@@ -359,7 +359,7 @@ Page {
                         height: width
                         radius: Theme.cardRadius
                         color: decreaseMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
-                        border.color: "white"
+                        border.color: Theme.borderColor
                         border.width: 1
 
                         Accessible.role: Accessible.Button
@@ -411,7 +411,7 @@ Page {
                         height: width
                         radius: Theme.cardRadius
                         color: increaseMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
-                        border.color: "white"
+                        border.color: Theme.borderColor
                         border.width: 1
 
                         Accessible.role: Accessible.Button
@@ -497,6 +497,7 @@ Page {
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
                         MainController.setSteamFlowImmediate(newValue)
+                        saveCurrentPitcher(getCurrentPitcherDuration(), newValue)
                     }
                 }
 
@@ -573,14 +574,14 @@ Page {
                 color: stopTapHandler.isPressed
                     ? Qt.darker((steamSoftStopped && !Settings.headlessSkipPurgeConfirm) ? Theme.primaryColor : Theme.errorColor, 1.2)
                     : ((steamSoftStopped && !Settings.headlessSkipPurgeConfirm) ? Theme.primaryColor : Theme.errorColor)
-                border.color: "white"
+                border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
                 Text {
                     id: stopButtonText
                     anchors.centerIn: parent
                     text: (steamSoftStopped && !Settings.headlessSkipPurgeConfirm) ? "PURGE" : "STOP"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
                 }
@@ -764,7 +765,7 @@ Page {
                                         id: pitcherText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? "white" : Theme.textColor
+                                        color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -1038,10 +1039,10 @@ Page {
 
         Text {
             text: durationSlider.value.toFixed(0) + "s"
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
         Tr {
             id: flowLabelText
             key: "steam.label.flow"
@@ -1050,13 +1051,13 @@ Page {
         }
         Text {
             text: flowLabelText.text + " " + flowToDisplay(flowSlider.value)
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
         Text {
             text: steamTempSlider.value.toFixed(0) + "°C"
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
     }

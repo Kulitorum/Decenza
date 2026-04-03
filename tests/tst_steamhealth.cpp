@@ -217,8 +217,9 @@ private slots:
             tracker.onSessionComplete(&model, 150, 160);
         }
 
-        // Now add session at 5.8 bar — 60%+ of range from 2.0 to 8.0
-        // progress = (5.8 - 2.0) / (8.0 - 2.0) = 3.8/6.0 = 0.63
+        // Now add session at 5.8 bar — well above 60% of flow-relative range
+        // warnLevel = min(2.0 * 3.0, 8.0) = 6.0, range = 6.0 - 2.0 = 4.0
+        // progress = (5.8 - 2.0) / 4.0 = 3.8/4.0 = 0.95
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
         SteamDataModel highModel;
         for (int j = 0; j < 40; ++j)
@@ -364,8 +365,103 @@ private slots:
 
     void thresholdPropertiesExposed() {
         SteamHealthTracker tracker;
+        // Fresh tracker with no baseline returns hard limit
         QCOMPARE(tracker.pressureThreshold(), 8.0);
         QCOMPARE(tracker.temperatureThreshold(), 180.0);
+    }
+
+    // ==========================================
+    // SteamHealthTracker: flow-relative thresholds
+    // ==========================================
+
+    void pressureThresholdIsFlowRelative() {
+        SteamHealthTracker tracker;
+
+        // Seed 5 sessions at baseline ~2.0 bar
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // pressureThreshold = min(2.0 * 3.0, 8.0) = 6.0
+        QCOMPARE(tracker.pressureThreshold(), 6.0);
+    }
+
+    void pressureThresholdCappedAtHardLimit() {
+        SteamHealthTracker tracker;
+
+        // Seed 5 sessions at baseline ~4.0 bar (high flow)
+        // 4.0 * 3.0 = 12.0, should be capped at 8.0
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 4.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        QCOMPARE(tracker.pressureThreshold(), 8.0);
+    }
+
+    void warningAt60PercentBoundary() {
+        SteamHealthTracker tracker;
+        QSignalSpy warnSpy(&tracker, &SteamHealthTracker::scaleBuildupWarning);
+
+        // Seed 5 sessions at baseline ~2.0 bar
+        // warnLevel = min(2.0 * 3.0, 8.0) = 6.0, range = 4.0
+        // 60% threshold = 2.0 + 4.0 * 0.6 = 4.4 bar
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+        QCOMPARE(warnSpy.count(), 0);
+
+        // Session at 4.3 bar — just below 60% (progress = 2.3/4.0 = 0.575)
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 4.3, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+        QCOMPARE(warnSpy.count(), 0);  // No warning — below 60%
+
+        // Session at 4.5 bar — above 60% (progress = 2.5/4.0 = 0.625)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 4.5, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+        QCOMPARE(warnSpy.count(), 1);  // Warning fires
+    }
+
+    void highBaselineWarningStillReachable() {
+        SteamHealthTracker tracker;
+        QSignalSpy warnSpy(&tracker, &SteamHealthTracker::scaleBuildupWarning);
+
+        // Seed 5 sessions at baseline ~3.5 bar (high flow)
+        // warnLevel = min(3.5 * 3.0, 8.0) = 8.0, range = 4.5
+        // 60% threshold = 3.5 + 4.5 * 0.6 = 6.2 bar (below hard limit — reachable)
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 3.5, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // Session at 6.5 bar — above 60% (progress = 3.0/4.5 = 0.667)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.2, 6.5, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+        QCOMPARE(warnSpy.count(), 1);
     }
 };
 

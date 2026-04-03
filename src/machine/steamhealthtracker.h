@@ -26,7 +26,7 @@ class SteamHealthTracker : public QObject {
     Q_PROPERTY(double currentPressure READ currentPressure NOTIFY sessionHistoryChanged)
     Q_PROPERTY(double currentTemperature READ currentTemperature NOTIFY sessionHistoryChanged)
     Q_PROPERTY(bool hasData READ hasData NOTIFY sessionHistoryChanged)
-    Q_PROPERTY(double pressureThreshold READ pressureThreshold CONSTANT)
+    Q_PROPERTY(double pressureThreshold READ pressureThreshold NOTIFY sessionHistoryChanged)
     Q_PROPERTY(double temperatureThreshold READ temperatureThreshold CONSTANT)
 
 public:
@@ -38,7 +38,7 @@ public:
     double currentPressure() const { return m_currentPressure; }
     double currentTemperature() const { return m_currentTemperature; }
     bool hasData() const { return m_sessionCount >= MIN_SESSIONS_FOR_TREND; }
-    double pressureThreshold() const { return PRESSURE_THRESHOLD; }
+    double pressureThreshold() const { return m_baselinePressure > 0 ? qMin(m_baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT) : PRESSURE_HARD_LIMIT; }
     double temperatureThreshold() const { return TEMPERATURE_THRESHOLD; }
 
     // Called per BLE sample during steaming (live threshold checks)
@@ -90,14 +90,15 @@ private:
     bool m_pressureWarningEmitted = false;
     bool m_temperatureWarningEmitted = false;
 
-    // Thresholds (matching de1app defaults)
-    static constexpr double PRESSURE_THRESHOLD = 8.0;       // bar
+    // Thresholds
+    static constexpr double PRESSURE_HARD_LIMIT = 8.0;      // bar — absolute safety net for live onSample() check
+    static constexpr double PRESSURE_WARN_MULTIPLIER = 3.0;  // warn when pressure reaches this multiple of baseline
     static constexpr double TEMPERATURE_THRESHOLD = 180.0;   // °C
     static constexpr int CLOG_SAMPLE_THRESHOLD = 10;         // samples exceeding threshold
     static constexpr int MIN_SAMPLES_FOR_ANALYSIS = 30;      // minimum session length
     static constexpr int MIN_SESSIONS_FOR_TREND = 5;         // minimum comparable sessions
     static constexpr int MAX_HISTORY_SIZE = 150;             // sessions to keep
-    static constexpr double TREND_PROGRESS_THRESHOLD = 0.6;   // warn at 60% of the way from baseline to hard threshold
+    static constexpr double TREND_PROGRESS_THRESHOLD = 0.6;   // warn at 60% of the way from baseline to flow-relative threshold
     static constexpr double AUTO_RESET_DROP_THRESHOLD = 0.3;  // auto-reset baseline if drop >= 30% of range (likely descale)
     static constexpr int AUTO_RESET_KEEP_SESSIONS = 3;       // sessions to keep after auto-reset
     static constexpr double TRIM_SECONDS = 2.0;              // skip first 2s of samples

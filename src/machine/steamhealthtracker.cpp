@@ -26,7 +26,7 @@ bool SteamHealthTracker::isComparable(const SteamSessionSummary& s, int steamFlo
 }
 
 void SteamHealthTracker::onSample(double pressure, double temperature) {
-    if (!m_pressureWarningEmitted && pressure > PRESSURE_THRESHOLD) {
+    if (!m_pressureWarningEmitted && pressure > PRESSURE_HARD_LIMIT) {
         m_pressureWarningEmitted = true;
         emit pressureTooHigh();
     }
@@ -58,7 +58,7 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     int highPressureCount = 0;
     int highTempCount = 0;
     for (const auto& pt : pressureData) {
-        if (pt.x() >= TRIM_SECONDS && pt.y() > PRESSURE_THRESHOLD)
+        if (pt.x() >= TRIM_SECONDS && pt.y() > PRESSURE_HARD_LIMIT)
             ++highPressureCount;
     }
     for (const auto& pt : temperatureData) {
@@ -68,7 +68,7 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
 
     if (highPressureCount > CLOG_SAMPLE_THRESHOLD) {
         qWarning() << "SteamHealth [clog] descale warning -" << highPressureCount
-                   << "samples exceeded" << PRESSURE_THRESHOLD << "bar";
+                   << "samples exceeded" << PRESSURE_HARD_LIMIT << "bar";
         emit descaleWarning();
     }
     if (highTempCount > CLOG_SAMPLE_THRESHOLD) {
@@ -146,7 +146,8 @@ void SteamHealthTracker::clearHistory() {
 //     overshoots the target, that's the signal.
 //
 // Warning fires when current value has moved 60% of the way from baseline
-// toward the hard threshold (8 bar / 180°C). Re-warns at most every 5 sessions.
+// toward the warn threshold (baseline x 3.0 for pressure, capped at 8 bar / 180°C
+// for temperature). Re-warns at most every 5 sessions.
 //
 // Auto-reset: If the newest session drops >= 30% of the range (relative to the
 // rolling average of recent sessions) toward the threshold, we assume a descale
@@ -188,6 +189,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     // Compare the newest session against a rolling average of the previous few sessions
     // (not the all-time minimum, which would make auto-reset impossible to trigger).
     // For temperature, compare actual measurements (not the target setting).
+    // Pressure range is flow-relative (baseline * multiplier), not a fixed threshold.
     bool autoReset = false;
     qsizetype recentCount = qMin(qsizetype(5), n - 1);
     if (recentCount > 0) {
@@ -199,7 +201,10 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         double recentAvgPressure = recentPressureSum / recentCount;
         double recentAvgTemp = recentTempSum / recentCount;
 
-        double pressureRange = PRESSURE_THRESHOLD - recentAvgPressure;
+        double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
+        // Use baseline-to-warnlevel range (not recentAvg-to-warnlevel) so auto-reset
+        // still fires when recentAvg has already exceeded the warn level (heavy buildup).
+        double pressureRange = pressureWarnLevel - baselinePressure;
         if (pressureRange > 0) {
             double drop = recentAvgPressure - currentPressure;
             if (drop >= pressureRange * AUTO_RESET_DROP_THRESHOLD) {
@@ -234,8 +239,11 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     }
 
     // --- Compute progress toward thresholds ---
+    // Pressure threshold is flow-relative: baseline * multiplier (same buildup level at any flow)
+    // Temperature threshold remains fixed (overshoot from target is flow-independent)
 
-    double pressureRange = PRESSURE_THRESHOLD - baselinePressure;
+    double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
+    double pressureRange = pressureWarnLevel - baselinePressure;
     double tempRange = TEMPERATURE_THRESHOLD - baselineTemp;
 
     double progressP = 0;
@@ -252,6 +260,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
              << "comparable:" << n
              << "baselineP:" << baselinePressure << "bar"
              << "currentP:" << currentPressure << "bar"
+             << "warnLevel:" << QString::number(pressureWarnLevel, 'f', 1) << "bar"
              << "progressP:" << QString::number(progressP, 'f', 2)
              << "baselineT:" << baselineTemp << "°C (target:" << steamTemp << ")"
              << "currentT:" << currentTemp << "°C"
@@ -269,7 +278,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     if (progressP >= TREND_PROGRESS_THRESHOLD) {
         qWarning() << "SteamHealth [warn] pressure at" << currentPressure
                    << "bar, baseline" << baselinePressure
-                   << "bar (" << qRound(progressP * 100) << "% toward" << PRESSURE_THRESHOLD << "bar)";
+                   << "bar (" << qRound(progressP * 100) << "% toward" << pressureWarnLevel << "bar)";
         m_lastWarnedSession = m_sessionCount;
         m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
         emit scaleBuildupWarning(
