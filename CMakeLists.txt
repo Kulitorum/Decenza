@@ -256,6 +256,8 @@ set(SOURCES
     src/profile/recipegenerator.cpp
     src/profile/recipeanalyzer.cpp
     src/models/shotdatamodel.cpp
+    src/models/steamdatamodel.cpp
+    src/machine/steamhealthtracker.cpp
     src/controllers/maincontroller.cpp
     src/controllers/profilemanager.cpp
     src/controllers/directcontroller.cpp
@@ -393,6 +395,8 @@ set(HEADERS
     src/profile/recipegenerator.h
     src/profile/recipeanalyzer.h
     src/models/shotdatamodel.h
+    src/models/steamdatamodel.h
+    src/machine/steamhealthtracker.h
     src/controllers/maincontroller.h
     src/controllers/profilemanager.h
     src/controllers/directcontroller.h
@@ -619,6 +623,7 @@ set(QML_FILES
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/ShotGraph.qml
+    qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
     qml/components/ShotPlanText.qml
     qml/components/ProfileGraph.qml

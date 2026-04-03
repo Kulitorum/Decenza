@@ -331,3 +331,12 @@ add_decenza_test(tst_mcpserver_session
 )
 target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_steamhealth: SteamDataModel summaries and SteamHealthTracker trend detection ---
+add_decenza_test(tst_steamhealth
+    tst_steamhealth.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/steamdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/machine/steamhealthtracker.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+)
+target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Charts)

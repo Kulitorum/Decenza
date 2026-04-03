@@ -344,6 +344,255 @@ Item {
                         }
                     }
                 }
+
+                // Steam Health Monitor
+                Rectangle {
+                    objectName: "steamHealth"
+                    Layout.fillWidth: true
+                    implicitHeight: steamHealthContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: steamHealthContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: TranslationManager.translate("settings.calibration.steamHealth", "Steam Health")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.calibration.steamHealthDesc",
+                                "Tracks steam pressure and temperature trends across sessions to detect scale buildup before it becomes critical.")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+
+                        // Status: no data yet
+                        Text {
+                            visible: !SteamHealthTracker.hasData
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.calibration.steamHealthNoData",
+                                "Not enough data yet. At least 5 steam sessions with the same settings are needed to establish a baseline.")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            font.italic: true
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+
+                        // Pressure row
+                        ColumnLayout {
+                            visible: SteamHealthTracker.hasData
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(4)
+
+                            Text {
+                                text: TranslationManager.translate("settings.calibration.steamPressure", "Pressure")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
+
+                                Text {
+                                    text: TranslationManager.translate("settings.calibration.baseline", "Baseline") +
+                                          ": " + SteamHealthTracker.baselinePressure.toFixed(1) + " bar"
+                                    color: Theme.textSecondaryColor
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(12)
+                                    Accessible.ignored: true
+                                }
+
+                                Text {
+                                    text: TranslationManager.translate("settings.calibration.current", "Current") +
+                                          ": " + SteamHealthTracker.currentPressure.toFixed(1) + " bar"
+                                    color: {
+                                        var range = SteamHealthTracker.pressureThreshold - SteamHealthTracker.baselinePressure
+                                        if (range <= 0) return Theme.textColor
+                                        var progress = (SteamHealthTracker.currentPressure - SteamHealthTracker.baselinePressure) / range
+                                        if (progress >= 0.6) return Theme.errorColor
+                                        if (progress >= 0.3) return Theme.warningColor
+                                        return Theme.textColor
+                                    }
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(12)
+                                    Accessible.ignored: true
+                                }
+                            }
+
+                            // Progress bar
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: Theme.scaled(6)
+                                radius: Theme.scaled(3)
+                                color: Theme.backgroundColor
+
+                                Rectangle {
+                                    width: {
+                                        var range = SteamHealthTracker.pressureThreshold - SteamHealthTracker.baselinePressure
+                                        if (range <= 0) return 0
+                                        var progress = Math.max(0, Math.min(1,
+                                            (SteamHealthTracker.currentPressure - SteamHealthTracker.baselinePressure) / range))
+                                        return parent.width * progress
+                                    }
+                                    height: parent.height
+                                    radius: Theme.scaled(3)
+                                    color: {
+                                        var range = SteamHealthTracker.pressureThreshold - SteamHealthTracker.baselinePressure
+                                        if (range <= 0) return Theme.primaryColor
+                                        var progress = (SteamHealthTracker.currentPressure - SteamHealthTracker.baselinePressure) / range
+                                        if (progress >= 0.6) return Theme.errorColor
+                                        if (progress >= 0.3) return Theme.warningColor
+                                        return Theme.primaryColor
+                                    }
+                                }
+                            }
+                        }
+
+                        // Temperature row
+                        ColumnLayout {
+                            visible: SteamHealthTracker.hasData
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(4)
+
+                            Text {
+                                text: TranslationManager.translate("settings.calibration.steamTemperature", "Temperature")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
+
+                                Text {
+                                    text: TranslationManager.translate("settings.calibration.target", "Target") +
+                                          ": " + SteamHealthTracker.baselineTemperature.toFixed(0) + "°C"
+                                    color: Theme.textSecondaryColor
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(12)
+                                    Accessible.ignored: true
+                                }
+
+                                Text {
+                                    text: TranslationManager.translate("settings.calibration.actual", "Actual") +
+                                          ": " + SteamHealthTracker.currentTemperature.toFixed(0) + "°C"
+                                    color: {
+                                        var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
+                                        if (range <= 0) return Theme.textColor
+                                        var progress = (SteamHealthTracker.currentTemperature - SteamHealthTracker.baselineTemperature) / range
+                                        if (progress >= 0.6) return Theme.errorColor
+                                        if (progress >= 0.3) return Theme.warningColor
+                                        return Theme.textColor
+                                    }
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(12)
+                                    Accessible.ignored: true
+                                }
+                            }
+
+                            // Progress bar
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: Theme.scaled(6)
+                                radius: Theme.scaled(3)
+                                color: Theme.backgroundColor
+
+                                Rectangle {
+                                    width: {
+                                        var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
+                                        if (range <= 0) return 0
+                                        var progress = Math.max(0, Math.min(1,
+                                            (SteamHealthTracker.currentTemperature - SteamHealthTracker.baselineTemperature) / range))
+                                        return parent.width * progress
+                                    }
+                                    height: parent.height
+                                    radius: Theme.scaled(3)
+                                    color: {
+                                        var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
+                                        if (range <= 0) return Theme.primaryColor
+                                        var progress = (SteamHealthTracker.currentTemperature - SteamHealthTracker.baselineTemperature) / range
+                                        if (progress >= 0.6) return Theme.errorColor
+                                        if (progress >= 0.3) return Theme.warningColor
+                                        return Theme.primaryColor
+                                    }
+                                }
+                            }
+                        }
+
+                        // Session count + Reset button
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.spacingSmall
+
+                            Text {
+                                text: TranslationManager.translate("settings.calibration.steamSessions", "Sessions tracked") +
+                                      ": " + SteamHealthTracker.sessionCount
+                                color: Theme.textSecondaryColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(12)
+                                Accessible.ignored: true
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Rectangle {
+                                id: resetBaselineBtn
+                                visible: SteamHealthTracker.sessionCount > 0
+                                width: resetBaselineText.implicitWidth + Theme.spacingMedium * 2
+                                height: Theme.scaled(28)
+                                radius: Theme.scaled(4)
+                                color: resetBaselineMa.containsMouse ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
+                                border.color: Theme.textSecondaryColor
+                                border.width: 1
+
+                                Accessible.ignored: true
+
+                                Text {
+                                    id: resetBaselineText
+                                    anchors.centerIn: parent
+                                    text: TranslationManager.translate("settings.calibration.resetBaseline", "Reset Baseline")
+                                    color: Theme.textColor
+                                    font.family: Theme.bodyFont.family
+                                    font.pixelSize: Theme.scaled(12)
+                                    Accessible.ignored: true
+                                }
+
+                                AccessibleMouseArea {
+                                    id: resetBaselineMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    accessibleName: TranslationManager.translate("settings.calibration.resetBaseline", "Reset Baseline")
+                                    accessibleItem: resetBaselineBtn
+                                    onAccessibleClicked: SteamHealthTracker.clearHistory()
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Spacer

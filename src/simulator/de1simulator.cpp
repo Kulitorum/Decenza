@@ -312,16 +312,19 @@ void DE1Simulator::onSimulationTimerTick()
             executeFrame();
         }
     } else if (m_state == DE1::State::Steam) {
-        // Simple steam simulation
+        // Steam simulation with realistic pressure, flow, and temperature curves
         m_steamTemp = 140.0 + fractalNoise(elapsed * 0.5, 2) * 3.0;
         m_pressure = 1.5 + fractalNoise(elapsed * 2.0, 2) * 0.3;
+        m_flow = 1.2 + fractalNoise(elapsed * 1.5, 2) * 0.2;
 
-        // Emit shot samples so DE1Device.steamTemperature updates in QML
+        // Emit shot samples at 5Hz so SteamDataModel receives data for the graph
         if (m_tickCount % 2 == 0) {
             ShotSample sample;
             sample.timestamp = QDateTime::currentMSecsSinceEpoch();
+            sample.timer = m_shotTimer.elapsed() / 1000.0;
             sample.steamTemp = m_steamTemp;
             sample.groupPressure = m_pressure;
+            sample.groupFlow = m_flow;
             emit shotSampleReceived(sample);
         }
     } else if (m_state == DE1::State::HotWater || m_state == DE1::State::HotWaterRinse) {

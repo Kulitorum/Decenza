@@ -10,6 +10,8 @@
 #include "../network/visualizerimporter.h"
 #include "../ai/aimanager.h"
 #include "../models/shotdatamodel.h"
+#include "../models/steamdatamodel.h"
+#include "../machine/steamhealthtracker.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../profile/profileconverter.h"
@@ -43,6 +45,8 @@ class MainController : public QObject {
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT)
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT)
+    Q_PROPERTY(SteamDataModel* steamDataModel READ steamDataModel CONSTANT)
+    Q_PROPERTY(SteamHealthTracker* steamHealthTracker READ steamHealthTracker CONSTANT)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY frameChanged)
     Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY goalsChanged)
     Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY goalsChanged)
@@ -91,6 +95,10 @@ public:
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
+    SteamDataModel* steamDataModel() const { return m_steamDataModel; }
+    SteamHealthTracker* steamHealthTracker() const { return m_steamHealthTracker; }
+    void setSteamDataModel(SteamDataModel* model) { m_steamDataModel = model; }
+    void setSteamHealthTracker(SteamHealthTracker* tracker) { m_steamHealthTracker = tracker; }
     bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
@@ -214,6 +222,10 @@ private:
     BLEManager* m_bleManager = nullptr;
     FlowScale* m_flowScale = nullptr;  // Shadow FlowScale for comparison logging
     DiFluidR2* m_refractometer = nullptr;
+
+    SteamDataModel* m_steamDataModel = nullptr;
+    SteamHealthTracker* m_steamHealthTracker = nullptr;
+    double m_steamStartTime = 0;  // Timer base for relative steam timestamps
 
     double m_shotStartTime = 0;
     double m_lastSampleTime = 0;  // For delta time calculation (DE1's raw timer)

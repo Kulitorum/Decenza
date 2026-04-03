@@ -129,6 +129,19 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 qDebug() << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
                 m_settings->setSteamDisabled(false);
             }
+
+            // Steam session ended — run post-session analysis
+            if (phase != MachineState::Phase::Steaming && m_steamStartTime > 0) {
+                if (m_steamHealthTracker && m_steamDataModel) {
+                    m_steamHealthTracker->onSessionComplete(
+                        m_steamDataModel,
+                        m_settings->steamFlow(),
+                        static_cast<int>(m_settings->steamTemperature()));
+                }
+                m_steamStartTime = 0;
+                if (m_steamHealthTracker)
+                    m_steamHealthTracker->resetSession();
+            }
         });
     }
     // Create visualizer uploader and importer
@@ -1659,6 +1672,26 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         }
     }
     m_lastSampleTime = sample.timer;
+
+    // Record steam data during Steaming phase
+    if (phase == MachineState::Phase::Steaming && m_steamDataModel) {
+        if (m_steamStartTime == 0) {
+            m_steamStartTime = sample.timer;
+            m_steamDataModel->clear();
+            // Add flow goal line from current settings
+            double flowGoal = m_settings->steamFlow() / 100.0;
+            m_steamDataModel->addFlowGoalPoint(0, flowGoal);
+            m_steamDataModel->addFlowGoalPoint(m_settings->steamTimeout(), flowGoal);
+            if (m_steamHealthTracker)
+                m_steamHealthTracker->resetSession();
+        }
+        double t = sample.timer - m_steamStartTime;
+        m_steamDataModel->addSample(t, sample.groupPressure, sample.groupFlow, sample.steamTemp);
+
+        // Live threshold warnings
+        if (m_steamHealthTracker)
+            m_steamHealthTracker->onSample(sample.groupPressure, sample.steamTemp);
+    }
 
     // Record shot data only during active espresso phases OR during settling (for drip visualization)
     bool isEspressoPhase = (phase == MachineState::Phase::Preinfusion ||

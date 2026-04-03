@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../components"
 
@@ -111,6 +112,94 @@ Page {
         }
     }
 
+    // Steam view mode: "timer" (default) or "chart"
+    property string steamViewMode: Settings.value("steam/steamView", "timer")
+    Connections {
+        target: Settings
+        function onValueChanged(key) {
+            if (key === "steam/steamView")
+                steamViewMode = Settings.value("steam/steamView", "timer")
+        }
+    }
+
+    // Warning banner (auto-dismiss after 5 seconds — allowed per CLAUDE.md for UI auto-dismiss)
+    property string warningText: ""
+    property bool warningVisible: false
+    Timer {
+        id: warningDismissTimer
+        interval: 5000
+        onTriggered: warningVisible = false
+    }
+
+    // Warning connections
+    Connections {
+        target: SteamHealthTracker
+
+        function onPressureTooHigh() {
+            warningText = TranslationManager.translate("steam.warning.pressureHigh",
+                "Warning: steam pressure is too high")
+            warningVisible = true
+            warningDismissTimer.restart()
+        }
+        function onTemperatureTooHigh() {
+            warningText = TranslationManager.translate("steam.warning.temperatureHigh",
+                "Warning: steam temperature is too high")
+            warningVisible = true
+            warningDismissTimer.restart()
+        }
+        function onDescaleWarning() {
+            steamWarningDialog.warningMessage = TranslationManager.translate("steam.warning.descale",
+                "Your machine may need descaling. Steam pressure was consistently too high.")
+            steamWarningDialog.open()
+        }
+        function onTemperatureWarning(message) {
+            steamWarningDialog.warningMessage = message
+            steamWarningDialog.open()
+        }
+        function onScaleBuildupWarning(message) {
+            steamWarningDialog.warningMessage = message
+            steamWarningDialog.open()
+        }
+    }
+
+    // Post-session warning dialog
+    Dialog {
+        id: steamWarningDialog
+        property string warningMessage: ""
+        title: TranslationManager.translate("steam.warning.title", "Steam Warning")
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.85, Theme.scaled(360))
+        padding: Theme.spacingMedium
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: steamWarningDialog.warningMessage
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                Accessible.ignored: true
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("common.button.ok", "OK")
+                accessibleName: TranslationManager.translate("common.button.ok", "OK")
+                Layout.alignment: Qt.AlignRight
+                onClicked: steamWarningDialog.close()
+            }
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.standardMargin
@@ -127,50 +216,128 @@ Page {
             Layout.fillHeight: true
             spacing: Theme.scaled(20)
 
-            // Preset pills for quick switching during steaming
-            Row {
-                Layout.alignment: Qt.AlignHCenter
+            // Top row: preset pills + view toggle button
+            RowLayout {
+                Layout.fillWidth: true
                 spacing: Theme.scaled(8)
 
-                Repeater {
-                    model: Settings.steamPitcherPresets
+                Item { Layout.fillWidth: true }
 
-                    Rectangle {
-                        width: livePitcherText.implicitWidth + 24
-                        height: Theme.scaled(36)
-                        radius: Theme.scaled(18)
-                        color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.surfaceColor
-                        border.color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: 1
+                // Preset pills for quick switching during steaming
+                Row {
+                    spacing: Theme.scaled(8)
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: modelData.name + (index === Settings.selectedSteamPitcher ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: livePitcherMa.clicked(null)
+                    Repeater {
+                        model: Settings.steamPitcherPresets
 
-                        Text {
-                            id: livePitcherText
-                            anchors.centerIn: parent
-                            text: modelData.name
-                            color: index === Settings.selectedSteamPitcher ? "white" : Theme.textColor
-                            font: Theme.bodyFont
-                            Accessible.ignored: true
-                        }
+                        Rectangle {
+                            width: livePitcherText.implicitWidth + 24
+                            height: Theme.scaled(36)
+                            radius: Theme.scaled(18)
+                            color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.surfaceColor
+                            border.color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
+                            border.width: 1
 
-                        MouseArea {
-                            id: livePitcherMa
-                            anchors.fill: parent
-                            onClicked: {
-                                Settings.selectedSteamPitcher = index
-                                var flow = modelData.flow !== undefined ? modelData.flow : 150
-                                Settings.steamTimeout = modelData.duration
-                                Settings.steamFlow = flow
-                                MainController.startSteamHeating()
+                            Accessible.role: Accessible.Button
+                            Accessible.name: modelData.name + (index === Settings.selectedSteamPitcher ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: livePitcherMa.clicked(null)
+
+                            Text {
+                                id: livePitcherText
+                                anchors.centerIn: parent
+                                text: modelData.name
+                                color: index === Settings.selectedSteamPitcher ? Theme.primaryContrastColor : Theme.textColor
+                                font: Theme.bodyFont
+                                Accessible.ignored: true
+                            }
+
+                            MouseArea {
+                                id: livePitcherMa
+                                anchors.fill: parent
+                                onClicked: {
+                                    Settings.selectedSteamPitcher = index
+                                    var flow = modelData.flow !== undefined ? modelData.flow : 150
+                                    Settings.steamTimeout = modelData.duration
+                                    Settings.steamFlow = flow
+                                    MainController.startSteamHeating()
+                                }
                             }
                         }
                     }
                 }
+
+                Item { Layout.fillWidth: true }
+
+                // View toggle button (graph/timer)
+                Rectangle {
+                    width: Theme.scaled(44)
+                    height: Theme.scaled(44)
+                    radius: Theme.cardRadius
+                    color: viewToggleMa.containsMouse ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/Graph.svg"
+                        sourceSize.width: Theme.scaled(24)
+                        sourceSize.height: Theme.scaled(24)
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.textColor
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        id: viewToggleMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        accessibleName: TranslationManager.translate("steam.viewToggle.accessibility",
+                            "Switch between timer and chart view")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            var newMode = steamViewMode === "timer" ? "chart" : "timer"
+                            steamViewMode = newMode
+                            Settings.setValue("steam/steamView", newMode)
+                        }
+                    }
+                }
             }
+
+            // Warning banner (live warnings during steaming)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: warningBannerText.implicitHeight + Theme.spacingSmall * 2
+                visible: warningVisible
+                radius: Theme.cardRadius
+                color: Theme.errorColor
+
+                Text {
+                    id: warningBannerText
+                    anchors.centerIn: parent
+                    width: parent.width - Theme.spacingMedium * 2
+                    text: warningText
+                    color: Theme.primaryContrastColor
+                    font: Theme.bodyFont
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    Accessible.ignored: true
+                }
+
+                Accessible.role: Accessible.StaticText
+                Accessible.name: warningText
+                Accessible.focusable: true
+            }
+
+            // === TIMER VIEW (default) ===
+            ColumnLayout {
+                visible: steamViewMode === "timer"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: Theme.scaled(20)
 
             Item { Layout.fillHeight: true }
 
@@ -342,7 +509,56 @@ Page {
                 }
             }
 
-            Item { Layout.fillHeight: true }
+            } // end timer view ColumnLayout
+
+            // === CHART VIEW ===
+            ColumnLayout {
+                visible: steamViewMode === "chart"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: Theme.scaled(8)
+
+                SteamGraph {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                }
+
+                // Condensed info row
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: Theme.spacingLarge
+
+                    Text {
+                        text: {
+                            if (isSteamHeating) {
+                                return Math.round(currentSteamTemp) + "°C / " + Math.round(targetSteamTemp) + "°C"
+                            } else if (isPuffing && root.steamAutoFlushCountdown > 0) {
+                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.steamAutoFlushSeconds + "s"
+                            } else {
+                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.steamTimeout + "s"
+                            }
+                        }
+                        color: Theme.textColor
+                        font: Theme.subtitleFont
+                        Accessible.ignored: true
+                    }
+
+                    Text {
+                        text: flowToDisplay(Settings.steamFlow) + " mL/s"
+                        color: Theme.flowColor
+                        font: Theme.subtitleFont
+                        Accessible.ignored: true
+                    }
+
+                    Text {
+                        text: Math.round(currentSteamTemp) + "°C"
+                        color: Theme.temperatureColor
+                        font: Theme.subtitleFont
+                        Accessible.ignored: true
+                    }
+                }
+            }
 
             // Stop button for headless machines (two-stage for steam)
             // First press: stops steam flow (soft stop)
