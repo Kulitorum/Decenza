@@ -83,9 +83,9 @@ Page {
     // Steam flow is stored as 0.01 ml/s units (e.g., 150 = 1.5 ml/s)
     function flowToDisplay(flow) {
         if (flow === undefined || flow === null || isNaN(flow)) {
-            return "1.5"  // Default
+            return "1.50"  // Default
         }
-        return (flow / 100).toFixed(1)
+        return (flow / 100).toFixed(2)
     }
 
     // Get current pitcher's values with defaults
@@ -497,6 +497,7 @@ Page {
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
                         MainController.setSteamFlowImmediate(newValue)
+                        saveCurrentPitcher(Settings.steamTimeout, newValue)
                     }
                 }
 
