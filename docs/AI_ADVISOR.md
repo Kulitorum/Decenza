@@ -599,7 +599,6 @@ Summary of the layered context approach:
 | Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
 | Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~2.1K tokens | Per app release | System prompt caching | **Done** |
 | Grinder context | Observed settings range, min/max, smallest step from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
-| Bean age | Days since roast, computed from roast date | ~10 tokens | Every request | Not cacheable | **Done** |
 | Profile catalog | Compact one-liner per profile for cross-profile awareness | ~2-3K tokens | Per app release | System prompt caching | Not implemented |
 | Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
 | Dial-in history | Last 5 shots with same profile family (recipe, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
@@ -619,7 +618,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 4. ~~**Smarter summarizer observations**~~ — **Done** (April 2026, PR #635). `temperatureUnstable` flag is now recipe-aware: suppressed when the temperature goal curve shows intentional stepping (range > 5°C). Eliminates false positives on D-Flow, 80s Espresso, and other temperature-stepping profiles.
 5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
 6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and smallest step in the user context. MCP uses the same shared helper.
-7. ~~**Bean age calculation**~~ — **Done** (April 2026, PR #635). Days since roast computed from `roastDate` and included in the user prompt. The "Forbidden Simplifications" section prevents the AI from assuming old = stale (users may freeze beans).
+7. ~~**Bean age calculation**~~ — **Skipped.** The raw roast date is already in the user prompt. Pre-computing "days since roast" adds noise that can mislead the AI for users who freeze beans. The AI can do the math itself if relevant, and the "Forbidden Simplifications" section already prevents it from assuming old = stale.
 8. **Refocus knowledge base** — Shift KB entries away from derivable curve behavior toward non-derivable wisdom: roast suitability, flavor character, community tips, cross-profile comparisons. Start with thin entries (Default, Flow Profile) and seek A-Flow author guidance.
 9. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
 

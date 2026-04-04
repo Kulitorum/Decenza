@@ -11,7 +11,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
-#include <QDate>
 #include <QFile>
 #include <QTextStream>
 
@@ -493,17 +492,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.beanBrand.isEmpty() && !summary.beanType.isEmpty()) out << " - ";
         out << summary.beanType;
         if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
-        if (!summary.roastDate.isEmpty()) {
-            out << ", roasted " << summary.roastDate;
-            // Compute bean age — the AI is instructed not to assume old = stale
-            // (users may freeze beans and thaw weekly portions)
-            QDate roastDate = QDate::fromString(summary.roastDate, "yyyy-MM-dd");
-            if (roastDate.isValid()) {
-                qint64 daysAgo = roastDate.daysTo(QDate::currentDate());
-                if (daysAgo >= 0)
-                    out << " (" << daysAgo << " days since roast)";
-            }
-        }
+        if (!summary.roastDate.isEmpty()) out << ", roasted " << summary.roastDate;
         out << "\n";
     }
     if (!summary.grinderBrand.isEmpty() || !summary.grinderModel.isEmpty()) {
