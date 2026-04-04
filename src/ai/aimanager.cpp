@@ -544,16 +544,8 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                     "From the user's own shot history with this grinder:\n\n";
                 section += "- **Model**: " + grinderCtx.model + "\n";
 
-                // Enrich with specs from grinder database (burr geometry, swappability)
-                QString geometry = GrinderAliases::burrGeometry(grinderBrand, grinderCtx.model, grinderBurrs);
-                if (!geometry.isEmpty()) {
-                    section += "- **Burrs**: " + geometry;
-                    if (!grinderBurrs.isEmpty() && !grinderBurrs.contains(geometry))
-                        section += " (" + grinderBurrs + ")";
-                    section += "\n";
-                } else if (!grinderBurrs.isEmpty()) {
-                    section += "- **Burrs**: " + grinderBurrs + "\n";
-                }
+                // Burr specs are already shown per-shot in buildUserPrompt().
+                // Only add swappability here — it's grinder-level info not in per-shot data.
                 if (GrinderAliases::isBurrSwappable(grinderBrand, grinderCtx.model))
                     section += "- **Burr-swappable**: yes (aftermarket burrs available for this grinder)\n";
 
