@@ -241,8 +241,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         if (!roastDateStr.isEmpty()) {
                             QDate roastDate = QDate::fromString(roastDateStr, "yyyy-MM-dd");
                             if (roastDate.isValid()) {
-                                qint64 daysSinceRoast = roastDate.daysTo(QDate::currentDate());
-                                bean["beanAgeDays"] = daysSinceRoast;
+                                qint64 days = roastDate.daysTo(QDate::currentDate());
+                                bean["daysSinceRoast"] = days;
+                                bean["daysSinceRoastNote"] = "Days since roast date, NOT freshness. "
+                                    "Many users freeze beans and thaw weekly — ask about storage before assuming degradation.";
                             }
                         }
                         result["currentBean"] = bean;

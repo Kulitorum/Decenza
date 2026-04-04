@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <QDate>
 #include <QFile>
 #include <QTextStream>
 
@@ -497,7 +498,15 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.beanBrand.isEmpty() && !summary.beanType.isEmpty()) out << " - ";
         out << summary.beanType;
         if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
-        if (!summary.roastDate.isEmpty()) out << ", roasted " << summary.roastDate;
+        if (!summary.roastDate.isEmpty()) {
+            out << ", roasted " << summary.roastDate;
+            QDate roastDate = QDate::fromString(summary.roastDate, "yyyy-MM-dd");
+            if (roastDate.isValid()) {
+                qint64 days = roastDate.daysTo(QDate::currentDate());
+                if (days >= 0)
+                    out << " (" << days << " days since roast, not necessarily freshness — ask about storage)";
+            }
+        }
         out << "\n";
     }
     if (!summary.grinderBrand.isEmpty() || !summary.grinderModel.isEmpty()) {
@@ -675,6 +684,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         // Grinder info
         QString grinderBrand = shot.value("grinderBrand").toString();
         QString grinderModel = shot.value("grinderModel").toString();
+        QString grinderBurrs = shot.value("grinderBurrs").toString();
         QString grinderSetting = shot.value("grinderSetting").toString();
         if (!grinderBrand.isEmpty() || !grinderModel.isEmpty() || !grinderSetting.isEmpty()) {
             out << "- Grinder: ";
@@ -683,6 +693,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
                 if (!grinderBrand.isEmpty()) out << " ";
                 out << grinderModel;
             }
+            if (!grinderBurrs.isEmpty()) out << " with " << grinderBurrs;
             if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
             out << "\n";
         }
