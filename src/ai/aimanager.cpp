@@ -490,17 +490,16 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
 
         // Query grinder context on background thread using the shared helper (also used by MCP dialing_get_context)
         GrinderContext grinderCtx;
-        QString grinderBrand, grinderBurrs;
+        QString grinderBrand;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            q.prepare("SELECT grinder_brand, grinder_model, grinder_burrs, beverage_type "
+            q.prepare("SELECT grinder_brand, grinder_model, beverage_type "
                       "FROM shots WHERE id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
             if (q.exec() && q.next()) {
                 grinderBrand = q.value(0).toString();
                 QString model = q.value(1).toString();
-                grinderBurrs = q.value(2).toString();
-                QString bev = q.value(3).toString();
+                QString bev = q.value(2).toString();
                 if (!model.isEmpty())
                     grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, bev);
             }
@@ -509,8 +508,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         // Summarization runs on main thread (ShotSummarizer is owned by AIManager)
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots),
                                          grinderCtx = std::move(grinderCtx),
-                                         grinderBrand = std::move(grinderBrand),
-                                         grinderBurrs = std::move(grinderBurrs)]() mutable {
+                                         grinderBrand = std::move(grinderBrand)]() mutable {
             if (!self) return;
             if (serial != self->m_contextSerial) {
                 // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
