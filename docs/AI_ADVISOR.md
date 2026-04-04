@@ -624,9 +624,9 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 9. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
 
 ### Phase 1: Quick wins (no external dependencies)
-1. **System prompt bean guidance** (idea #4 fallback B) — Add two sentences to system prompt telling the AI to share what it knows about recognized roasters/beans. Zero cost, immediate value.
-2. **Profile catalog** (idea #1) — Generate compact profile summaries at build time, include in system prompt. Enables basic cross-profile awareness.
-3. **Grinder knowledge base** — Curated database of ~150 grinders with burr size, type, material, adjustment sensitivity, and espresso suitability. See [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md). When user enters grinder model, AI can provide grind-setting guidance and explain grind characteristics for their specific burr geometry.
+1. ~~**System prompt bean guidance**~~ (idea #4 fallback B) — **Done.** `sharedBeanKnowledge()` in `shotsummarizer.cpp` includes proactive guidance about origin/processing characteristics, variety flavor profiles (Geisha, SL28, Caturra, Bourbon), roaster style recognition, and taste-to-bean mapping. Shared between espresso and filter prompts.
+2. **Profile catalog** (idea #1) — Generate compact profile summaries at build time, include in system prompt. Enables basic cross-profile awareness. Note: MCP already exposes `profiles_list` tool and `decenza://profiles/list` resource, but the in-app AI has no catalog.
+3. **Grinder knowledge base** — Partially done: `GrinderAliases::burrGeometry()` enriches shot summaries with burr specs (e.g. "Niche Zero" → "(63mm conical)"). The full curated database (~150 grinders) in [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md) is NOT loaded into the system prompt. Remaining: load grinder specs as a system prompt reference for grind-setting guidance.
 4. ~~**Structured grinder + burr fields**~~ (idea #8) — **Done** in PR #368.
 5. ~~**Espresso dial-in reference tables**~~ (idea #10) — **Done** (April 2026, PR #635). Moved to Phase 0 item 3.
 
