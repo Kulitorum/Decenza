@@ -799,15 +799,18 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         }
     }
 
-    // Include profile catalog for cross-profile awareness
-    loadProfileKnowledge();
-    if (!s_profileCatalog.isEmpty()) {
-        base += QStringLiteral("\n\n## Available Profiles with Curated Knowledge\n\n"
-            "These profiles have detailed knowledge entries. When the user's roast, beans, "
-            "or goals suggest a better match, you can recommend switching to one of these. "
-            "The current shot's profile has a detailed section below — the others are available "
-            "for comparison and recommendations.\n\n")
-            + s_profileCatalog;
+    // Include profile catalog for cross-profile awareness (espresso only — catalog
+    // and "When to Suggest a Different Profile" guidance are espresso-centric)
+    if (beverageType.toLower() != "filter" && beverageType.toLower() != "pourover") {
+        loadProfileKnowledge();
+        if (!s_profileCatalog.isEmpty()) {
+            base += QStringLiteral("\n\n## Available Profiles with Curated Knowledge\n\n"
+                "These profiles have detailed knowledge entries. When the user's roast, beans, "
+                "or goals suggest a better match, you can recommend switching to one of these. "
+                "The current shot's profile has a detailed section below — the others are available "
+                "for comparison and recommendations.\n\n")
+                + s_profileCatalog;
+        }
     }
 
     // Look up profile-specific knowledge
