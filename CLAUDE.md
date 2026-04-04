@@ -215,6 +215,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - `native` is a reserved JavaScript keyword - use `nativeName` instead
 - **Never use Unicode symbols as icons in text** (e.g., `"\u270E"`, `"\u2717"`, `"\u2630"`). These render as tofu squares on devices without the right font glyphs. Use SVG icons from `qrc:/icons/` with `Image` instead. For buttons/menu items, use a `Row { Image {} Text {} }` contentItem. Safe Unicode characters (°, ·, —, →, ×) that are in standard fonts are OK.
 - **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
+- **Use `??` not `||` for numeric defaults where 0 is valid.** JavaScript `||` treats `0` as falsy, so `value || 0.6` returns `0.6` when `value` is `0`. Use `value ?? 0.6` (nullish coalescing) which only falls back for `null`/`undefined`. Only use `||` when `0` genuinely means "no data" (e.g., unrated enjoyment, unmeasured TDS).
 
 ### QML Gotchas
 
