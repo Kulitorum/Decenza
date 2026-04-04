@@ -81,7 +81,7 @@ private:
 
         // bytes 10-12: flow (0)
         pkt[13] = static_cast<char>(battery);
-        // bytes 14-19: standby, buzzer, flow smooth, auto-mode, checksum (0)
+        // bytes 14-19: standby, buzzer, XOR (don't matter for parsing)
         return pkt;
     }
 
