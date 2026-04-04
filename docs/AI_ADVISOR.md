@@ -306,7 +306,7 @@ Filter 2.1 — high-flow pour-over style, 96C, 1:15 ratio, filter
 
 **With caching**: Anthropic 90% discount, OpenAI 50% automatic. Minimal incremental cost per request.
 
-**Status**: Not implemented. Ready to build.
+**Status**: **Done** (April 2026). Implemented as a compact KB-only catalog (19 profiles) rather than all ~95 profiles. Built from `profile_knowledge.md` during KB loading via `buildProfileCatalog()`. Included in `shotAnalysisSystemPrompt()` as "Available Profiles with Curated Knowledge" section. ~500 cacheable tokens.
 
 ### 2. Curated Profile Knowledge Base
 
@@ -600,7 +600,7 @@ Summary of the layered context approach:
 | Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
 | Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~2.1K tokens | Per app release | System prompt caching | **Done** |
 | Grinder context | Observed settings range, min/max, smallest step from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
-| Profile catalog | Compact one-liner per profile for cross-profile awareness | ~2-3K tokens | Per app release | System prompt caching | Not implemented |
+| Profile catalog | Compact one-liner per KB profile (19 profiles) for cross-profile awareness | ~0.5K tokens | Per app release | System prompt caching | **Done** |
 | Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
 | Dial-in history | Last 5 shots with same profile family (recipe, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
 | User history | Profile usage stats across all profiles, best/worst shots | ~1-2K tokens | Per session | Could be second cached block | Not implemented |
@@ -625,7 +625,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 
 ### Phase 1: Quick wins (no external dependencies)
 1. ~~**System prompt bean guidance**~~ (idea #4 fallback B) — **Done.** `sharedBeanKnowledge()` in `shotsummarizer.cpp` includes proactive guidance about origin/processing characteristics, variety flavor profiles (Geisha, SL28, Caturra, Bourbon), roaster style recognition, and taste-to-bean mapping. Shared between espresso and filter prompts.
-2. **Profile catalog** (idea #1) — Generate compact profile summaries at build time, include in system prompt. Enables basic cross-profile awareness. Note: MCP already exposes `profiles_list` tool and `decenza://profiles/list` resource, but the in-app AI has no catalog.
+2. ~~**Profile catalog**~~ (idea #1) — **Done** (April 2026). `buildProfileCatalog()` generates a compact one-liner per KB profile (name, category, roast suitability) from `profile_knowledge.md` during KB loading. Included in `shotAnalysisSystemPrompt()` as "Available Profiles with Curated Knowledge" section (~500 cacheable tokens). Covers the 19 profiles with KB entries. Enables cross-profile recommendations (e.g., "your light roast may work better on Blooming Espresso").
 3. **Grinder knowledge base** — Partially done: `GrinderAliases::burrGeometry()` enriches shot summaries with burr specs (e.g. "Niche Zero" → "(63mm conical)"). Loading the full 150-grinder database into the system prompt is wasteful — most users have 1-2 grinders. Better approach: query shot history for distinct grinders/burrs the user has used, pull specs from `GrinderAliases` for just those, and include in the user prompt alongside grinder context. This lets the AI recommend burr changes for multi-grinder users and give grind-setting guidance specific to their equipment.
 4. ~~**Structured grinder + burr fields**~~ (idea #8) — **Done** in PR #368.
 5. ~~**Espresso dial-in reference tables**~~ (idea #10) — **Done** (April 2026, PR #635). Moved to Phase 0 item 3.
