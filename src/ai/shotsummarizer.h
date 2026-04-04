@@ -178,6 +178,10 @@ private:
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
 
+    // Profile catalog (compact one-liner per KB profile for cross-profile awareness)
+    static QString s_profileCatalog;
+    static void buildProfileCatalog();
+
     // Dial-in reference tables (shared between in-app AI and MCP)
     static QString s_dialInReference;
     static bool s_dialInReferenceLoaded;

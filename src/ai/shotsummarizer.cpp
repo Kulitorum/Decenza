@@ -19,6 +19,9 @@
 QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
 bool ShotSummarizer::s_knowledgeLoaded = false;
 
+// Static cache for profile catalog (compact one-liner per KB profile)
+QString ShotSummarizer::s_profileCatalog;
+
 // Static cache for dial-in reference tables
 QString ShotSummarizer::s_dialInReference;
 bool ShotSummarizer::s_dialInReferenceLoaded = false;
@@ -796,6 +799,17 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         }
     }
 
+    // Include profile catalog for cross-profile awareness
+    loadProfileKnowledge();
+    if (!s_profileCatalog.isEmpty()) {
+        base += QStringLiteral("\n\n## Available Profiles with Curated Knowledge\n\n"
+            "These profiles have detailed knowledge entries. When the user's roast, beans, "
+            "or goals suggest a better match, you can recommend switching to one of these. "
+            "The current shot's profile has a detailed section below — the others are available "
+            "for comparison and recommendations.\n\n")
+            + s_profileCatalog;
+    }
+
     // Look up profile-specific knowledge
     // Try direct KB ID first (from database), then fall back to fuzzy title/editorType matching
     QString profileSection;
@@ -892,6 +906,44 @@ void ShotSummarizer::loadProfileKnowledge()
 
     qDebug() << "ShotSummarizer: Loaded" << s_profileKnowledge.size()
              << "profile knowledge entries";
+
+    buildProfileCatalog();
+}
+
+void ShotSummarizer::buildProfileCatalog()
+{
+    // Build compact one-liner per unique KB profile for cross-profile awareness.
+    // Extracts Category and Roast lines from each profile's content.
+    QSet<QString> seen;
+    QStringList lines;
+
+    for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
+        const ProfileKnowledge& pk = it.value();
+        if (seen.contains(pk.name)) continue;
+        seen.insert(pk.name);
+
+        QString category;
+        QString roast;
+        for (const QString& line : pk.content.split('\n')) {
+            if (line.startsWith(QStringLiteral("Category:")) && category.isEmpty()) {
+                category = line.mid(9).trimmed();
+            } else if (line.startsWith(QStringLiteral("Roast:")) && roast.isEmpty()) {
+                roast = line.mid(6).trimmed();
+            }
+        }
+
+        QString entry = pk.name + QStringLiteral(" — ") + category;
+        if (!roast.isEmpty()) {
+            entry += QStringLiteral(". ") + roast;
+        }
+        lines << entry;
+    }
+
+    // Sort alphabetically for consistent ordering
+    lines.sort(Qt::CaseInsensitive);
+    s_profileCatalog = lines.join('\n');
+
+    qDebug() << "ShotSummarizer: Built profile catalog with" << lines.size() << "entries";
 }
 
 void ShotSummarizer::loadDialInReference()
