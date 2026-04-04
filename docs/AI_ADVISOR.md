@@ -43,7 +43,7 @@
 
 ### What the AI Now Knows (Profile Knowledge Base)
 
-When the shot uses one of ~18 curated profiles, the system prompt includes:
+When the shot uses one of ~19 curated profiles, the system prompt includes:
 - Expected curve shapes (pressure, flow, temperature behavior)
 - What is intentional vs. problematic (e.g., declining pressure in D-Flow is by design)
 - Roast suitability and grind guidance
@@ -238,24 +238,25 @@ The D-Flow fix was possible because Damian published detailed explanations. Most
 
 | Profile | Quality | What's missing |
 |---------|---------|----------------|
-| **D-Flow** | Strong | Fixed March 2026. Author-sourced. |
+| **D-Flow** | Strong | Fixed March 2026. Author-sourced. April 2026: fill temps verified per-variant against JSON frames, Damian's LRv2/LRv3 temps documented. |
 | **A-Flow** | Medium | No author (Janek) design philosophy. Does A-Flow use temperature stepping? Are the 9-10 bar pressure numbers from Janek or our guess? No expected pressure range from author. |
-| **Adaptive v2** | Good | Has Gagné's Coffee ad Astra post. |
-| **Blooming Espresso** | Good | Has Rao's guidance. |
-| **Blooming Allongé** | Medium | Who designed it? No dial-in tips beyond grind and pressure. |
+| **Adaptive v2** | Good | Has Gagné's Coffee ad Astra post. April 2026: pressure corrected to ~9 bar (8.8 bar exit, 9.5 bar extraction limiter) from JSON frames. |
+| **Blooming Espresso** | Good | Has Rao's guidance. April 2026: added temperature line (97.5→90→92°C), corrected fill flow to 4 ml/s, added extraction limiter detail. |
+| **Blooming Allongé** | Good | April 2026: corrected percolation flow to 3.5 ml/s from JSON, added temperature range (91-95°C), added pressure guidance for too-fine grind. |
 | **Allongé / Rao Allongé** | Good | — |
-| **Default** | Thin | Only 6 lines. No DO NOT flag instructions. When to use vs Best Overall or other lever profiles? |
-| **Londinium/LRv3** | Good | — |
-| **Turbo Shot** | Medium | Who designed it? No author-sourced dial-in guidance. |
-| **Filter 2.0/2.1** | Good | — |
-| **Sprover** | Medium | Sparse on dial-in tips. |
-| **Gentle & Sweet** | Good | — |
-| **Extractamundo Dos** | Medium | No author attribution. Why is it a community favorite? |
-| **Flow Profile** | Thin | Only 6 lines. No author, no dial-in tips. |
-| **Cremina** | Good | — |
-| **80s Espresso** | Good | — |
-| **Best Overall** | Medium | Sparse on dial-in tips. |
-| **E61** | Good | — |
+| **Default** | Good | April 2026: added temperature (90→88°C), added DO NOT flag for declining pressure. |
+| **Londinium/LRv3** | Good | April 2026: added disambiguation note vs Damian's LRv2/LRv3, documented flow-limit behavior from JSON frames. |
+| **Turbo Shot** | Good | April 2026: corrected temperature to 90°C default from JSON, added frame-level detail (preinfusion flow, pressure limiter). |
+| **Filter 2.0/2.1** | Good | April 2026: corrected preinfusion temp to 92°C from JSON, added Filter 2.1 variant note. |
+| **Filter3** | Good | **New** April 2026. No-bypass filter profile. Full 7-phase flow data from JSON, setup/calibration from official Decent guide and Scott Rao blog, dialing-in and output targets from Diaspora community. |
+| **Sprover** | Medium | April 2026: clarified dosing jargon. Still sparse on dial-in tips. |
+| **Gentle & Sweet** | Good | April 2026: added temperature (88°C), added DO NOT flag for temperature increase recommendations. |
+| **Extractamundo Dos** | Good | April 2026: documented dynamic bloom phase and temperature stepping (83.5→67.5→74.5°C) from JSON frames, added DO NOT flag. |
+| **Flow Profile** | Good | April 2026: expanded with variant flow rates (2.0/1.2 ml/s), temperatures (92/88°C), grind guidance, two DO NOT flags. |
+| **Cremina** | Good | April 2026: corrected temperature to 91.5-92°C from JSON. |
+| **80s Espresso** | Good | April 2026: corrected temperature range to 82→72°C and pressure to 7.8→5 bar from JSON. |
+| **Best Overall** | Good | April 2026: corrected pressure to 8.4 bar from JSON. |
+| **E61** | Good | April 2026: quantified pressure decline threshold (avoid <4 bar). |
 
 #### Systematic gaps (not profile-specific)
 
@@ -263,13 +264,13 @@ The D-Flow fix was possible because Damian published detailed explanations. Most
 
 2. **No user feedback loop for bad advice.** The enjoyment score rates the shot, not the advice. If the AI gives wrong recommendations, we only learn about it anecdotally. Could add: a simple "was this advice helpful?" signal after each AI response.
 
-3. **Dial-in reference tables are collected but unused.** [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md) has structured multi-variable relationships (roast→temp→flavor, flow→clarity/body, pressure sweet spot, flavor correction). This is high-impact data that should be in the system prompt — it's Phase 1 item 5 but arguably should be Phase 0 given it directly improves advice quality.
+3. ~~**Dial-in reference tables are collected but unused.**~~ **Done** (April 2026, PR #635). Now loaded from Qt resource and included in system prompt.
 
-4. **Espresso system prompt doesn't prioritize profile notes.** The filter prompt says "Always read and respect" the profile intent, but the espresso prompt only says "Profile Intent is the Reference Frame" — it doesn't explicitly tell the AI to trust profile notes over the knowledge base when they conflict. One sentence fix.
+4. ~~**Espresso system prompt doesn't prioritize profile notes.**~~ **Done** (April 2026, PR #635).
 
 5. **Profile notes quality varies.** All shipped profiles have notes populated, but quality ranges from detailed (`blooming_espresso.json` — full paragraph explaining the technique) to minimal (`damian_s_q.json` — "A very popular profile made with D-Flow, spun out as its own profile"). The minimal ones don't help the AI much.
 
-6. **Temperature stepping profiles beyond D-Flow.** We deeply researched D-Flow's temperature behavior. Other profiles also use temperature stepping (80s Espresso: 80→70°C, Filter 2.0: 90→85°C, many custom user profiles). The recipe-aware system prompt rules (proposed above) would cover all of these generically, but they're not implemented yet.
+6. ~~**Temperature stepping profiles beyond D-Flow.**~~ **Done** (April 2026, PR #635). Recipe-aware system prompt rules now cover all temperature-stepping profiles generically. Additionally, the April 2026 KB quality pass (PR #646) documented exact temperature stepping values for Extractamundo Dos (83.5→67.5→74.5°C), 80s Espresso (82→72°C), Filter 2.0 (92→85°C), and Filter3 (94→92→90→88°C).
 
 7. **A-Flow author knowledge.** A-Flow is the second most popular profile editor (after D-Flow) and the only other custom editor. Janek's design intent, expected ranges, and guidance are not well-documented in our KB. Source: check if Janek has published anything similar to Damian's coffee.brakel.com.au site.
 
@@ -333,7 +334,7 @@ Blooming Espresso:
 
 **Who writes it**: Could be maintained by the developer/community, updated with app releases. Alternatively, seeded from community knowledge and refined over time.
 
-**Status**: **Implemented.** Knowledge base lives in [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) (human-readable, source-tagged) and [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) (AI-optimized, loaded as Qt resource). 18 profiles documented with expected curve behavior, temperature, flow rates, grind guidance, and "DO NOT flag" instructions. Data sourced from Decent blog posts, the "4 mothers" theory, and transcripts from three Decent video tutorials (light/medium/dark roast profiles). Profile matching in `ShotSummarizer::shotAnalysisSystemPrompt()` with fuzzy title matching and alias support.
+**Status**: **Implemented.** Knowledge base lives in [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) (human-readable, source-tagged) and [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) (AI-optimized, loaded as Qt resource). 19 profiles documented with expected curve behavior, temperature, flow rates, grind guidance, and "DO NOT flag" instructions. Data sourced from Decent blog posts, the "4 mothers" theory, and transcripts from three Decent video tutorials (light/medium/dark roast profiles). Profile matching in `ShotSummarizer::shotAnalysisSystemPrompt()` with fuzzy title matching and alias support.
 
 ### 3. User History Summary
 
@@ -595,7 +596,7 @@ Summary of the layered context approach:
 
 | Layer | Content | Size | Changes | Caching | Status |
 |-------|---------|------|---------|---------|--------|
-| Static knowledge | System prompt + curated profile knowledge base | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
+| Static knowledge | System prompt + curated profile knowledge base (19 profiles) | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
 | Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
 | Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~2.1K tokens | Per app release | System prompt caching | **Done** |
 | Grinder context | Observed settings range, min/max, smallest step from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
@@ -619,7 +620,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
 6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and smallest step in the user context. MCP uses the same shared helper.
 7. ~~**Bean age calculation**~~ — **Skipped.** The raw roast date is already in the user prompt. Pre-computing "days since roast" adds noise that can mislead the AI for users who freeze beans. The AI can do the math itself if relevant, and the "Forbidden Simplifications" section already prevents it from assuming old = stale.
-8. **Refocus knowledge base** — Shift KB entries away from derivable curve behavior toward non-derivable wisdom: roast suitability, flavor character, community tips, cross-profile comparisons. Start with thin entries (Default, Flow Profile) and seek A-Flow author guidance.
+8. ~~**Refocus knowledge base**~~ — **Partial** (April 2026, PR #646). Systematic quality pass: all 19 entries verified against profile JSON frame data, incorrect temperatures/pressures/flows corrected, missing temperatures added to 6 entries, DO NOT flags added to 4 entries, thin entries expanded (Default, Flow Profile), Extractamundo Dos bloom phase documented, Londinium naming disambiguated. New Filter3 entry added with data from JSON frames, official Decent guide, Scott Rao blog, and Diaspora community. Remaining: shift entries away from derivable curve behavior toward non-derivable wisdom, seek A-Flow author guidance.
 9. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
 
 ### Phase 1: Quick wins (no external dependencies)
@@ -636,7 +637,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 
 ### Phase 3: Personalization (app-side work)
 6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same `knowledge_base_id` are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::getRecentShotsByKbId()`.
-7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 18 profiles documented, integrated into system prompt via `shotAnalysisSystemPrompt()`.
+7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 19 profiles documented, integrated into system prompt via `shotAnalysisSystemPrompt()`.
 8. **User history summary across profiles** (idea #3 remaining) — Aggregate shot history into per-session summary showing which profiles the user has tried, average ratings, best/worst combos. Would enable cross-profile recommendations.
 9. **Cross-profile recommendation guidance** (idea #6) — Depends on #1 being in place. Deferred until bean database integration enables profile recommendations.
 
@@ -647,11 +648,11 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 
 ### External Dependencies
 - **Loffee Labs API access**: Keith responded (March 2026) — API undergoing modernization, new keys paused. Beta access in ~1 month, full production ~2-3 months. Free usage offered. No manual key approval on new system. Required for Phase 2, step 4
-- ~~**Profile knowledge content**~~ — **Done.** 18 profiles documented from official Decent sources
+- ~~**Profile knowledge content**~~ — **Done.** 19 profiles documented from official Decent sources (quality pass April 2026, PR #646)
 
 ## Completed Data Collection
-- **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — 18 profiles with source-attributed guidance on roast suitability, temperature, ratio, grind, expected curve behavior, and dial-in tips. Enriched from three Decent video tutorials (light/medium/dark roast profiles).
-- **AI Profile Knowledge Resource**: [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) — AI-optimized extract loaded as Qt resource. Injected into system prompt per-profile via `ShotSummarizer::shotAnalysisSystemPrompt()`.
+- **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — 19 profiles with source-attributed guidance on roast suitability, temperature, ratio, grind, expected curve behavior, and dial-in tips. Enriched from three Decent video tutorials (light/medium/dark roast profiles).
+- **AI Profile Knowledge Resource**: [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) — AI-optimized extract loaded as Qt resource. Injected into system prompt per-profile via `ShotSummarizer::shotAnalysisSystemPrompt()`. 19 entries, all verified against profile JSON frames (April 2026, PR #646).
 - **Grinder Database**: [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md) — ~150 grinders across premium, mid-range, budget, commercial, and hand grinder categories with burr specs, plus aftermarket burr sets and grind-setting guidance
 - **Espresso Dial-In Reference Tables**: [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md) — Structured multi-variable reference from Åbn Coffee mapping roast level, temperature, grind size, infusion, peak pressure, flow rate, and ratio to their effects on taste, texture, and extraction. Includes flavor targeting tables ("how to get more acidity/sweetness/body/clarity"), flavor correction tables ("how to fix sourness/bitterness/thin taste"), TDS vs EY% taste relationships, Gagné's ratio-flow formula, flow rate recommendations by roast level, and preinfusion tuning guidance. Source: Åbn Coffee "Espresso tabel oversigt" (work in progress community reference).
 ## Related Internal Documentation

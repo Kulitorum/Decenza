@@ -145,29 +145,33 @@ void BookooScale::parseWeightData(const QByteArray& data) {
     // Bookoo 20-byte weight notification (from BooKooCode/OpenSource protocol docs):
     // [0]=0x03, [1]=0x0B, [2-4]=timer ms, [5]=unit, [6]=sign, [7-9]=weight*100,
     // [10]=flow sign, [11-12]=flow*100, [13]=battery%, [14-15]=standby min,
-    // [16]=buzzer, [17]=flow smooth, [18-19]=XOR
-    // de1app only parses bytes 0-9 (weight). We also extract battery from byte 13.
-    if (data.size() >= 10) {
-        const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
+    // [16]=buzzer, [17]=flow smooth, [18]=auto-mode condition, [19]=checksum
+    // Note: protocol doc describes XOR checksum but the documented command examples
+    // don't match a simple XOR. Checksum validation is skipped until the algorithm
+    // can be verified against real hardware.
+    if (data.size() < 10) return;
 
-        char sign = static_cast<char>(d[6]);
+    const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
 
-        // Weight is 3 bytes big-endian in hundredths of gram
-        uint32_t weightRaw = (d[7] << 16) | (d[8] << 8) | d[9];
-        double weight = weightRaw / 100.0;
+    char sign = static_cast<char>(d[6]);
 
-        if (sign == '-') {
-            weight = -weight;
-        }
+    // Weight is 3 bytes big-endian in hundredths of gram
+    uint32_t weightRaw = (static_cast<uint32_t>(d[7]) << 16)
+                       | (static_cast<uint32_t>(d[8]) << 8)
+                       | d[9];
+    double weight = weightRaw / 100.0;
 
-        setWeight(weight);
+    if (sign == '-') {
+        weight = -weight;
+    }
 
-        // Battery at byte 13 (0-100%)
-        if (data.size() >= 14) {
-            uint8_t battery = d[13];
-            if (battery <= 100) {
-                setBatteryLevel(battery);
-            }
+    setWeight(weight);
+
+    // Battery at byte 13 (0-100%)
+    if (data.size() >= 14) {
+        uint8_t battery = d[13];
+        if (battery <= 100) {
+            setBatteryLevel(battery);
         }
     }
 }
@@ -196,4 +200,11 @@ void BookooScale::stopTimer() {
 
 void BookooScale::resetTimer() {
     sendCommand(QByteArray::fromHex("030A0600000C"));
+}
+
+void BookooScale::sleep() {
+    // Bookoo protocol has no instant power-off command. Emit sleepCompleted immediately
+    // so the app exit sequence and remote sleep don't block waiting for BLE confirmation.
+    // (Matches Eureka pattern for scales without power-off confirmation.)
+    emit sleepCompleted();
 }
