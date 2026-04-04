@@ -499,7 +499,7 @@ Never suggest a profile change after a single shot unless the mismatch
 is severe. Give the current profile 2-3 shots to dial in first.
 ```
 
-**Status**: Not implemented. Depends on ideas #1 or #2 being in place first.
+**Status**: **Done** (April 2026). Added "When to Suggest a Different Profile" section to espresso system prompt. Uses the profile catalog (idea #1, also done) for cross-profile awareness.
 
 ### 8. Structured Grinder + Burr Fields
 
@@ -639,7 +639,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same `knowledge_base_id` are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::getRecentShotsByKbId()`.
 7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 19 profiles documented, integrated into system prompt via `shotAnalysisSystemPrompt()`.
 8. **User history summary across profiles** (idea #3 remaining) — Aggregate shot history into per-session summary showing which profiles the user has tried, average ratings, best/worst combos. Would enable cross-profile recommendations.
-9. **Cross-profile recommendation guidance** (idea #6) — Depends on #1 being in place. Deferred until bean database integration enables profile recommendations.
+9. ~~**Cross-profile recommendation guidance**~~ (idea #6) — **Done** (April 2026). Added "When to Suggest a Different Profile" section to espresso system prompt. Triggers: roast/profile mismatch, persistent issues across multiple shots, or user request. Guards against premature switching (2-3 shots minimum). Depends on profile catalog (Phase 1 item 2, also done).
 
 ### Phase 4: Optimization
 9. **Gemini context caching** (idea #5) — Implement when context size grows from above additions.

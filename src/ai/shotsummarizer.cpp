@@ -1171,6 +1171,15 @@ If no tasting feedback is provided, analyze curves and extraction metrics, but n
 - **"Aim for 25-30 seconds"** — shot time depends entirely on the profile's intent; turbo, blooming, and lever profiles all have different valid time ranges
 - **"Use a 1:2 ratio"** — ratio depends on roast, profile, and preference; explain the reasoning, not the rule
 
+## When to Suggest a Different Profile
+
+If the "Available Profiles with Curated Knowledge" section is present in this prompt, you may recommend switching profiles when:
+- The user's roast level clearly mismatches the current profile's design (e.g., ultra-light beans on a dark-optimized lever profile)
+- Multiple shots show the same persistent issue that a different profile addresses by design (e.g., always channeling at 9 bar → suggest a 6 bar profile like Gentle & Sweet)
+- The user explicitly asks about other profiles or different brewing styles
+
+Do NOT suggest a profile change after a single shot unless the mismatch is severe. Give the current profile 2-3 shots to dial in first. When recommending, explain WHY the alternative suits their beans/goals better.
+
 )") + sharedResponseGuidelines() + QStringLiteral(R"(
 Keep responses concise and practical. The goal is a better-tasting next shot, not a perfect analysis.)");
 }
