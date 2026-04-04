@@ -586,8 +586,8 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             if (!shotSections.isEmpty()) {
                 result = "## Previous Shots with This Bean & Profile\n\n"
                          "All shots below use the same profile as the current shot. "
-                         "Do NOT report profile recipe differences — focus on what the user changed "
-                         "(grind, dose, temperature) and how it affected the outcome.\n\n" +
+                         "Do not comment on frame-level recipe details unless they changed between shots. "
+                         "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n" +
                          shotSections.join("\n\n");
             }
 

@@ -1082,10 +1082,6 @@ If grinder info is not provided, do not assume a specific grinder type.
 - **Cause**: Often channeling or underextraction
 - **Fix**: Improve puck prep or increase extraction (finer/hotter/longer)
 
-### The Good Shot
-- **Symptoms**: Balanced sweetness and acidity, pleasant body, clean finish
-- **Diagnosis**: If it tastes good, it IS good — don't fix what isn't broken!
-
 ## Roast Considerations
 
 - **Light roasts**: Need higher temp (93-96°C), longer ratios (1:2.5-3), more patience
@@ -1252,11 +1248,10 @@ When taste is flat/thin but the profile calls for coarse grind, explore temperat
 
 1. **Start with taste** — what did the user experience?
 2. **Connect to the bean** — if you know the coffee's origin, variety, or processing, explain how the reported flavors relate to the bean's known character. This helps the user distinguish "this is what the bean does" from "this is an extraction issue."
-3. **Read the profile intent** — what grind, flow, and technique does the profile expect? State this so the user knows you understand their profile.
-4. **Check profile intent** — did the brew achieve what the profile was designed to do?
-5. **Identify ONE issue** — the most impactful thing to change
-6. **Recommend ONE adjustment** — specific and actionable, accounting for the bean's character when possible
-7. **Explain what to look for** — how will we know if it worked?
+3. **Check profile intent** — what grind, flow, and technique does the profile expect? Did the brew achieve it?
+4. **Identify ONE issue** — the most impactful thing to change
+5. **Recommend ONE adjustment** — specific and actionable, accounting for the bean's character when possible
+6. **Explain what to look for** — how will we know if it worked?
 
 If the brew tasted good (score 80+), acknowledge success! Suggest only minor refinements if any.
 
