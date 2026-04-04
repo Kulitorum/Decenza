@@ -585,8 +585,8 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
                 if (pt.y() > peakFlowVal) { peakFlowVal = pt.y(); peakFlowTime = pt.x(); }
             }
             out << "- Phase peaks: ";
-            out << "pressure " << QString::number(peakPressureVal, 'f', 1) << " bar @" << QString::number(peakPressureTime, 'f', 0) << "s, ";
-            out << "flow " << QString::number(peakFlowVal, 'f', 1) << " ml/s @" << QString::number(peakFlowTime, 'f', 0) << "s\n";
+            out << "pressure " << QString::number(peakPressureVal, 'f', 2) << " bar @" << QString::number(peakPressureTime, 'f', 0) << "s, ";
+            out << "flow " << QString::number(peakFlowVal, 'f', 2) << " ml/s @" << QString::number(peakFlowTime, 'f', 0) << "s\n";
         }
 
         // Find time of max deviation from target for the controlled variable
@@ -626,11 +626,11 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
             double tTarget = findValueAtTime(summary.tempGoalCurve, t);
 
             out << "- " << labels[i] << " @" << QString::number(t, 'f', 0) << "s: ";
-            out << QString::number(pressure, 'f', 1);
-            if (pTarget > 0.1) out << "(" << QString::number(pTarget, 'f', 0) << ")";
+            out << QString::number(pressure, 'f', 2);
+            if (pTarget > 0.1) out << "(" << QString::number(pTarget, 'f', 2) << ")";
             out << "bar ";
-            out << QString::number(flow, 'f', 1);
-            if (fTarget > 0.1) out << "(" << QString::number(fTarget, 'f', 1) << ")";
+            out << QString::number(flow, 'f', 2);
+            if (fTarget > 0.1) out << "(" << QString::number(fTarget, 'f', 2) << ")";
             out << "ml/s ";
             out << QString::number(temp, 'f', 0);
             if (tTarget > 0) out << "(" << QString::number(tTarget, 'f', 0) << ")";
