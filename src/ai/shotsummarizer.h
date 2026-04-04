@@ -168,4 +168,9 @@ private:
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
+
+    // Dial-in reference tables (shared between in-app AI and MCP)
+    static QString s_dialInReference;
+    static bool s_dialInReferenceLoaded;
+    static void loadDialInReference();
 };

@@ -70,6 +70,34 @@ This prevents the AI from flagging intentional profile behaviors as problems (e.
 
 ---
 
+## Shared Infrastructure: In-App AI and MCP
+
+Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same underlying components. Changes to shared code benefit both paths equally.
+
+### Shared Components
+
+| Component | File | What it provides |
+|-----------|------|-----------------|
+| **System prompt** | `ShotSummarizer::shotAnalysisSystemPrompt()` | Espresso/filter system prompt + dial-in reference tables + profile KB section. Both paths call this — the in-app AI uses it directly as the conversation system prompt, the MCP sends it as the `profileKnowledge` field |
+| **Shot summarizer** | `ShotSummarizer::buildUserPrompt()` | Phase metrics, anomaly detection, recipe description. The MCP sends this as the `shotAnalysis` field |
+| **Profile Knowledge Base** | `resources/ai/profile_knowledge.md` | Per-profile curated knowledge (18 profiles). Loaded as Qt resource, injected via `shotAnalysisSystemPrompt()` |
+| **Dial-in reference tables** | `resources/ai/espresso_dial_in_reference.md` | Structured variable→taste tables. Loaded as Qt resource, appended in `shotAnalysisSystemPrompt()` |
+| **Profile KB matching** | `ShotSummarizer::matchProfileKey()` | Three-tier matching: direct KB ID → fuzzy title → editor type fallback |
+| **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, smallest step. Used by both MCP and in-app AI `requestRecentShotContext()` |
+| **Dial-in history** | `ShotHistoryStorage::getRecentShotsByKbId()` | Last N shots with same profile family |
+
+### What Differs Between Paths
+
+| Aspect | In-App AI | MCP |
+|--------|-----------|-----|
+| **Multi-turn** | Yes (conversation history, shot-to-shot deltas) | No (single tool call, LLM manages context) |
+| **Grinder context format** | Markdown text in user prompt | JSON in tool response |
+| **Bean age** | Computed in `buildUserPrompt()` from shot's `roastDate` | Computed in tool response from `Settings::dyeRoastDate()` |
+| **Current DYE settings** | Not included (shot data has what was saved) | Included as `currentBean` JSON block |
+| **Current profile info** | Not included | Included as `currentProfile` JSON block |
+
+---
+
 ## Lessons Learned: Profile Knowledge Doesn't Scale (March 2026)
 
 ### The Problem
@@ -559,7 +587,7 @@ For non-swappable grinders (e.g. Eureka Mignon, Comandante), the field auto-fill
 - Flavor correction quick-reference (sour→do X, bitter→do Y)
 - TDS/EY interpretation guidelines
 
-**Status**: Reference data collected in [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md). Not yet integrated into system prompt.
+**Status**: **Done** (April 2026, PR #635). Loaded from Qt resource `:/ai/espresso_dial_in_reference.md` into `shotAnalysisSystemPrompt()`. Shared between in-app AI and MCP.
 
 ### 9. Conversation Context Layers
 
@@ -568,35 +596,39 @@ Summary of the layered context approach:
 | Layer | Content | Size | Changes | Caching | Status |
 |-------|---------|------|---------|---------|--------|
 | Static knowledge | System prompt + curated profile knowledge base | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
-| Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | Proposed (see Lessons Learned) |
-| Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~0.8-1K tokens | Per app release | System prompt caching | Data collected ([`ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md)), not yet in prompt |
+| Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
+| Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~2.1K tokens | Per app release | System prompt caching | **Done** |
+| Grinder context | Observed settings range, min/max, smallest step from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
+| Bean age | Days since roast, computed from roast date | ~10 tokens | Every request | Not cacheable | **Done** |
 | Profile catalog | Compact one-liner per profile for cross-profile awareness | ~2-3K tokens | Per app release | System prompt caching | Not implemented |
 | Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
 | Dial-in history | Last 5 shots with same profile family (recipe, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
 | User history | Profile usage stats across all profiles, best/worst shots | ~1-2K tokens | Per session | Could be second cached block | Not implemented |
 | Current shot | Shot data, phase breakdown, tasting notes | ~1-2K tokens | Every request | Not cacheable | **Done** |
 
-Total context today: ~5-7K tokens. With all layers: ~12-16K tokens, with ~50-70% cacheable.
+Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70% cacheable.
 
 ---
 
 ## Implementation Priority
 
 ### Phase 0: Fix interpretation quality (highest ROI, near-zero cost)
-1. **Recipe-aware system prompt** — Add ~250 tokens of recipe-interpretation rules teaching the AI to derive expected behavior from the profile recipe (temperature stepping, flow-controlled pressure decline, limiter meaning, phase transitions). Addresses the root cause of the D-Flow failures. Improves advice for ALL profiles including custom ones with no knowledge base entry. Fully cacheable. See "Lessons Learned" section above.
-2. **Espresso prompt: trust profile notes** — Add one sentence to espresso system prompt telling the AI to prioritize profile notes ("Profile intent") over knowledge base when they conflict, matching the filter prompt's existing "Always read and respect" language.
-3. **Dial-in reference tables in system prompt** — Data already collected in [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md). Add ~800-1000 cacheable tokens covering roast→temp→flavor, flow→clarity/body, pressure sweet spot, preinfusion tuning, flavor correction guide. Moved up from Phase 1 — directly improves advice quality.
-4. **Smarter summarizer observations** — Make `temperatureUnstable` flag recipe-aware: suppress or contextualize for profiles with temperature stepping across frames. Add pressure-slope analysis for channeling diagnosis. Code-only change, 0 token cost.
+1. ~~**Recipe-aware system prompt**~~ — **Done** (April 2026, PR #635). Added "Reading the Recipe for Expected Behavior" section to `espressoSystemPrompt()` with rules for temperature stepping, flow-controlled pressure decline, pressure→flow transitions, and exit conditions. ~250 cacheable tokens.
+2. ~~**Espresso prompt: trust profile notes**~~ — **Done** (April 2026, PR #635). Espresso system prompt now explicitly states profile intent takes priority over Profile Knowledge section when they conflict.
+3. ~~**Dial-in reference tables in system prompt**~~ — **Done** (April 2026, PR #635). Full `ESPRESSO_DIAL_IN_REFERENCE.md` content loaded from Qt resource (`:/ai/espresso_dial_in_reference.md`) and appended in `shotAnalysisSystemPrompt()`. Shared between in-app AI and MCP — the MCP's separate `referenceGuide` field was removed to avoid duplication. ~2,100 cacheable tokens.
+4. ~~**Smarter summarizer observations**~~ — **Done** (April 2026, PR #635). `temperatureUnstable` flag is now recipe-aware: suppressed when the temperature goal curve shows intentional stepping (range > 5°C). Eliminates false positives on D-Flow, 80s Espresso, and other temperature-stepping profiles.
 5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
-6. **Refocus knowledge base** — Shift KB entries away from derivable curve behavior toward non-derivable wisdom: roast suitability, flavor character, community tips, cross-profile comparisons. Start with thin entries (Default, Flow Profile) and seek A-Flow author guidance.
-7. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
+6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and smallest step in the user context. MCP uses the same shared helper.
+7. ~~**Bean age calculation**~~ — **Done** (April 2026, PR #635). Days since roast computed from `roastDate` and included in the user prompt. The "Forbidden Simplifications" section prevents the AI from assuming old = stale (users may freeze beans).
+8. **Refocus knowledge base** — Shift KB entries away from derivable curve behavior toward non-derivable wisdom: roast suitability, flavor character, community tips, cross-profile comparisons. Start with thin entries (Default, Flow Profile) and seek A-Flow author guidance.
+9. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
 
 ### Phase 1: Quick wins (no external dependencies)
 1. **System prompt bean guidance** (idea #4 fallback B) — Add two sentences to system prompt telling the AI to share what it knows about recognized roasters/beans. Zero cost, immediate value.
 2. **Profile catalog** (idea #1) — Generate compact profile summaries at build time, include in system prompt. Enables basic cross-profile awareness.
 3. **Grinder knowledge base** — Curated database of ~150 grinders with burr size, type, material, adjustment sensitivity, and espresso suitability. See [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md). When user enters grinder model, AI can provide grind-setting guidance and explain grind characteristics for their specific burr geometry.
-4. **Structured grinder + burr fields** (idea #8) — Split single "Grinder" field into Manufacturer / Model / Burrs with cascading autocomplete from history. Enables AI to look up exact grinder specs and burr flavor profile. See idea #8 for full design.
-5. **Espresso dial-in reference tables** (idea #10) — Add multi-variable dial-in knowledge (roast→temp→flavor, flow→clarity/body, pressure sweet spot, preinfusion tuning, flavor correction guide, TDS/EY interpretation) to system prompt. Data collected from Åbn Coffee reference in [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md). ~800-1000 additional tokens, fully cacheable.
+4. ~~**Structured grinder + burr fields**~~ (idea #8) — **Done** in PR #368.
+5. ~~**Espresso dial-in reference tables**~~ (idea #10) — **Done** (April 2026, PR #635). Moved to Phase 0 item 3.
 
 ### Phase 2: Bean enrichment
 3. **Visualizer coffee_bags lookup** (idea #4 tier 1) — Query user's own visualizer data for bean details. No new API keys needed, uses existing auth. Avoids double-entry for visualizer users.

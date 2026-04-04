@@ -92,6 +92,17 @@ struct ShotRecord {
     QString profileKbId;
 };
 
+// Grinder settings context from shot history (shared by MCP and in-app AI)
+struct GrinderContext {
+    QString model;
+    QString beverageType;
+    QStringList settingsObserved;
+    bool allNumeric = false;
+    double minSetting = 0;
+    double maxSetting = 0;
+    double smallestStep = 0;
+};
+
 // Filter criteria for queries
 struct ShotFilter {
     QString profileName;
@@ -210,6 +221,10 @@ public:
 
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
+
+    // Query observed grinder settings for a grinder model + beverage type.
+    // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
+    static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel, const QString& beverageType);
 
     // Convert ShotRecord to QVariantMap (shared by requestShot, ShotServer, AIManager)
     static QVariantMap convertShotRecord(const ShotRecord& record);

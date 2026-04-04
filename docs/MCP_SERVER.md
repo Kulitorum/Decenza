@@ -222,7 +222,7 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 
 | Tool | Description | Category |
 |------|-------------|----------|
-| `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family via `ShotHistoryStorage::getRecentShotsByKbId()`) + bean metadata + dial-in reference tables (`docs/ESPRESSO_DIAL_IN_REFERENCE.md`). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. | read |
+| `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge (includes espresso system prompt, dial-in reference tables, and profile-specific KB) + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family) + bean metadata + grinder context (observed settings range and step size). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. | read |
 | ~~`dialing_suggest_change`~~ | **Removed.** Was a no-op stub that returned `"suggestion_displayed"` without actually displaying anything or changing settings. The AI mistakenly treated it as applying changes (e.g., grind size). Use `settings_set` to change grind (`dyeGrinderSetting`), dose (`dyeBeanWeight`), yield (`targetWeight`), temperature (`espressoTemperature`), etc. | — |
 | ~~`dialing_apply_change`~~ | **Removed.** Was a convenience wrapper that duplicated `settings_set` + `profiles_set_active`. Caused the advanced-profile-corruption bug due to duplicated code paths. Use `settings_set` for temp/weight/DYE changes and `profiles_set_active` for profile switches. | — |
 
@@ -243,16 +243,16 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 | Context Layer | Source | Tool |
 |---------------|--------|------|
 | Profile recipe (frame-by-frame) | Profile JSON | `dialing_get_context` / `profiles_get_detail` |
-| Profile knowledge (roast suitability, expected curves) | `resources/ai/profile_knowledge.md` via `ShotSummarizer::s_profileKnowledge` | `dialing_get_context` |
+| Profile knowledge (system prompt + reference tables + per-profile KB) | `ShotSummarizer::shotAnalysisSystemPrompt()` — shared with in-app AI | `dialing_get_context` |
 | Shot data (curves, phases, anomalies) | `ShotSummarizer` | `dialing_get_context` / `shots_get_detail` |
 | Dial-in history (last N shots, same profile) | `ShotHistoryStorage::getRecentShotsByKbId()` | `dialing_get_context` |
+| Grinder context (observed settings range, step size) | `ShotHistoryStorage::queryGrinderContext()` — shared with in-app AI | `dialing_get_context` |
 | Bean metadata (brand, type, roast, grinder, burrs) | Shot metadata / Settings DYE | `dialing_get_context` |
 | Machine telemetry (live pressure/flow/temp) | `MachineState` / `DE1Device` | `machine_get_telemetry` |
 | All available profiles | Profile list | `profiles_list` |
-| Dial-in reference tables | `docs/ESPRESSO_DIAL_IN_REFERENCE.md` | `dialing_get_context` (included in bundle) |
 | Water level | `DE1Device::waterLevelMl()` / `waterLevelMm()` | `machine_get_state` |
 
-The MCP AI has a significant advantage over the in-app AI: it's not limited by token budgets or cloud API costs. It can read the full profile knowledge base, all dial-in reference tables, and maintain a long conversation across multiple shots without worrying about context trimming.
+The MCP AI still has advantages over the in-app AI: it's not limited by token budgets or cloud API costs, and it can maintain a long conversation across multiple shots without context trimming. However, as of PR #635, both paths share the same system prompt (including reference tables), grinder context logic, and profile knowledge — changes to shared components benefit both equally.
 
 ## AI-Friendly Data Conventions
 

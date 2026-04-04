@@ -6,16 +6,22 @@
 
 #include <cmath>
 #include <algorithm>
+#include <limits>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <QDate>
 #include <QFile>
 #include <QTextStream>
 
 // Static members for profile knowledge cache
 QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
 bool ShotSummarizer::s_knowledgeLoaded = false;
+
+// Static cache for dial-in reference tables
+QString ShotSummarizer::s_dialInReference;
+bool ShotSummarizer::s_dialInReferenceLoaded = false;
 
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation
 static QString normalizeProfileKey(const QString& key)
@@ -66,6 +72,23 @@ void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
     const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
 {
     if (!tempGoalData.isEmpty()) {
+        // Check if the profile intentionally uses temperature stepping (e.g., D-Flow 84→94°C).
+        // If the target temperature range exceeds 5°C, suppress the flag — the deviation
+        // is by design and flagging it actively misleads the AI.
+        double minGoal = std::numeric_limits<double>::max();
+        double maxGoal = std::numeric_limits<double>::lowest();
+        for (const auto& point : tempGoalData) {
+            if (point.y() > 0) {
+                minGoal = std::min(minGoal, point.y());
+                maxGoal = std::max(maxGoal, point.y());
+            }
+        }
+        if (maxGoal - minGoal > 5.0) {
+            // Intentional temperature stepping — don't flag
+            summary.temperatureUnstable = false;
+            return;
+        }
+
         double deviationSum = 0;
         int count = 0;
         for (const auto& point : tempData) {
@@ -470,7 +493,17 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.beanBrand.isEmpty() && !summary.beanType.isEmpty()) out << " - ";
         out << summary.beanType;
         if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
-        if (!summary.roastDate.isEmpty()) out << ", roasted " << summary.roastDate;
+        if (!summary.roastDate.isEmpty()) {
+            out << ", roasted " << summary.roastDate;
+            // Compute bean age — the AI is instructed not to assume old = stale
+            // (users may freeze beans and thaw weekly portions)
+            QDate roastDate = QDate::fromString(summary.roastDate, "yyyy-MM-dd");
+            if (roastDate.isValid()) {
+                qint64 daysAgo = roastDate.daysTo(QDate::currentDate());
+                if (daysAgo >= 0)
+                    out << " (" << daysAgo << " days since roast)";
+            }
+        }
         out << "\n";
     }
     if (!summary.grinderBrand.isEmpty() || !summary.grinderModel.isEmpty()) {
@@ -728,6 +761,17 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 {
     QString base = systemPrompt(beverageType);
 
+    // Append dial-in reference tables for espresso (cacheable, shared with MCP)
+    if (beverageType.toLower() != "filter" && beverageType.toLower() != "pourover") {
+        loadDialInReference();
+        if (!s_dialInReference.isEmpty()) {
+            base += QStringLiteral("\n\n## Espresso Dial-In Reference Tables\n\n"
+                "Structured relationships between espresso variables and their effects on taste. "
+                "Use these tables to make specific, multi-variable recommendations.\n\n")
+                + s_dialInReference;
+        }
+    }
+
     // Look up profile-specific knowledge
     // Try direct KB ID first (from database), then fall back to fuzzy title/editorType matching
     QString profileSection;
@@ -826,6 +870,34 @@ void ShotSummarizer::loadProfileKnowledge()
              << "profile knowledge entries";
 }
 
+void ShotSummarizer::loadDialInReference()
+{
+    if (s_dialInReferenceLoaded) return;
+
+    QFile file(QStringLiteral(":/ai/espresso_dial_in_reference.md"));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "ShotSummarizer: Failed to load dial-in reference resource";
+        s_dialInReferenceLoaded = true;
+        return;
+    }
+    s_dialInReferenceLoaded = true;
+
+    QString content = QTextStream(&file).readAll();
+    file.close();
+
+    // Strip the title line and source attribution (first 4 lines) — already introduced
+    // by the section header in shotAnalysisSystemPrompt()
+    qsizetype pos = 0;
+    for (int i = 0; i < 4 && pos >= 0; ++i)
+        pos = content.indexOf('\n', pos + 1);
+    if (pos > 0)
+        content = content.mid(pos + 1).trimmed();
+
+    s_dialInReference = content;
+    qDebug() << "ShotSummarizer: Loaded dial-in reference tables ("
+             << s_dialInReference.size() << "chars)";
+}
+
 // Shared matching logic: returns the matched key in s_profileKnowledge, or empty string.
 // profileTitle: the profile's display name (e.g. "D-Flow / my recipe")
 // editorTypeHint: either the raw editorType string ("dflow", "aflow") or the
@@ -921,7 +993,7 @@ QString ShotSummarizer::espressoSystemPrompt()
 
 **Taste is King.** Numbers are tools to understand taste, not goals in themselves. A shot that tastes great with "wrong" numbers is a great shot. A shot with "perfect" numbers that tastes bad needs fixing.
 
-**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic. When a profile description is shown as "Profile intent", this is the author's own words — always read and respect it. If the profile intent conflicts with other guidance, trust the author.
+**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic. When a profile description is shown as "Profile intent", this is the author's own words — always read and respect it. If the profile intent conflicts with the Profile Knowledge section or any other guidance, trust the author's description — it is the primary authority on how the profile should behave.
 
 ## The DE1 Machine
 
