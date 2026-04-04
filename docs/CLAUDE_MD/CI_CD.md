@@ -180,6 +180,16 @@ EOF
 - **Beta channel**: Users opt-in via Settings → Updates → "Beta updates". Prereleases are only shown to opted-in users.
 - **Platforms**: Android auto-downloads APK; iOS directs to App Store; desktop shows release page
 
+### Updating a pre-release with new commits
+When adding commits to an existing pre-release (same version, new builds):
+```bash
+# 1. Update the release notes
+gh release edit vX.Y.Z --notes "..."
+# 2. Move the tag to HEAD and force-push to trigger all 6 builds
+git tag -f vX.Y.Z HEAD && git push origin vX.Y.Z --force
+```
+Both steps are required — updating release notes alone does NOT trigger builds. The tag must be moved to include the new commits, and the force-push is what triggers CI.
+
 ### Promoting a pre-release to stable
 When promoting a pre-release to a full release, you must also set it as "latest" — GitHub does not do this automatically:
 ```bash
