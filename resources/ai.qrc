@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
         <file>ai/profile_knowledge.md</file>
+        <file>ai/espresso_dial_in_reference.md</file>
     </qresource>
 </RCC>

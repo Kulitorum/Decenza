@@ -6,16 +6,22 @@
 
 #include <cmath>
 #include <algorithm>
+#include <limits>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <QDate>
 #include <QFile>
 #include <QTextStream>
 
 // Static members for profile knowledge cache
 QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
 bool ShotSummarizer::s_knowledgeLoaded = false;
+
+// Static cache for dial-in reference tables
+QString ShotSummarizer::s_dialInReference;
+bool ShotSummarizer::s_dialInReferenceLoaded = false;
 
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation
 static QString normalizeProfileKey(const QString& key)
@@ -54,6 +60,10 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVecto
         for (const auto& phase : summary.phases) {
             if (!phase.isFlowMode) continue;
             if (phase.duration < 3.0) continue;
+            // Skip high-flow phases (> 3.0 ml/s avg) — at these rates, turbulence-driven
+            // flow variation is normal and indistinguishable from channeling by spike detection.
+            // Heuristic threshold; affects Allongé and turbo profiles.
+            if (phase.avgFlow > 3.0) continue;
             if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
                 summary.channelingDetected = true;
                 break;
@@ -65,21 +75,57 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVecto
 void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
     const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
 {
-    if (!tempGoalData.isEmpty()) {
+    if (tempGoalData.isEmpty()) {
+        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
+        summary.temperatureUnstable = tempStdDev > 2.0;
+        return;
+    }
+
+    bool overallUnstable = false;
+
+    for (auto& phase : summary.phases) {
+        // Check if this phase intentionally uses temperature stepping
+        double minGoal = std::numeric_limits<double>::max();
+        double maxGoal = std::numeric_limits<double>::lowest();
+        bool hasGoal = false;
+
+        for (const auto& point : tempGoalData) {
+            if (point.x() < phase.startTime) continue;
+            if (point.x() > phase.endTime) break;
+            if (point.y() > 0) {
+                minGoal = std::min(minGoal, point.y());
+                maxGoal = std::max(maxGoal, point.y());
+                hasGoal = true;
+            }
+        }
+
+        if (hasGoal && (maxGoal - minGoal > 5.0)) {
+            // Intentional temperature stepping in this phase — skip stability check
+            phase.temperatureUnstable = false;
+            continue;
+        }
+
+        // Calculate stability for this phase against target
         double deviationSum = 0;
         int count = 0;
         for (const auto& point : tempData) {
+            if (point.x() < phase.startTime) continue;
+            if (point.x() > phase.endTime) break;
+
             double target = findValueAtTime(tempGoalData, point.x());
             if (target > 0) {
                 deviationSum += std::abs(point.y() - target);
                 count++;
             }
         }
-        summary.temperatureUnstable = count > 0 && (deviationSum / count) > 2.0;
-    } else {
-        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
-        summary.temperatureUnstable = tempStdDev > 2.0;
+
+        if (count > 0 && (deviationSum / count) > 2.0) {
+            phase.temperatureUnstable = true;
+            overallUnstable = true;
+        }
     }
+
+    summary.temperatureUnstable = overallUnstable;
 }
 
 ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
@@ -163,11 +209,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
 
     // Extraction indicators
     summary.timeToFirstDrip = findTimeToFirstDrip(flowData);
-    // Channeling detection will be done after phase processing (see below)
-
-    // Temperature stability check - compare actual vs TARGET (not just variance)
-    const auto& tempGoalData = shotData->temperatureGoalData();
-    calculateTemperatureStability(summary, tempData, tempGoalData);
+    // Channeling and temperature stability done after phase processing (see below)
 
     // Get phase markers from shot data
     QVariantList markers = shotData->phaseMarkersVariant();
@@ -204,7 +246,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.phases.append(phase);
     } else {
         // Process each phase from markers
-        for (int i = 0; i < markers.size(); i++) {
+        for (qsizetype i = 0; i < markers.size(); i++) {
             QVariantMap marker = markers[i].toMap();
             double startTime = marker["time"].toDouble();
             double endTime = (i + 1 < markers.size())
@@ -258,7 +300,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         }
     }
 
-    // Detect channeling only during FLOW-CONTROLLED phases where flow should be stable.
+    // Per-phase anomaly detection (must run after phases are populated)
+    const auto& tempGoalData = shotData->temperatureGoalData();
+    calculateTemperatureStability(summary, tempData, tempGoalData);
     detectChannelingInPhases(summary, flowData);
 
     return summary;
@@ -330,6 +374,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // DYE metadata
     summary.beanBrand = shotData.value("beanBrand").toString();
     summary.beanType = shotData.value("beanType").toString();
+    summary.roastDate = shotData.value("roastDate").toString();
     summary.roastLevel = shotData.value("roastLevel").toString();
     summary.grinderBrand = shotData.value("grinderBrand").toString();
     summary.grinderModel = shotData.value("grinderModel").toString();
@@ -351,13 +396,11 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
-    // Temperature stability
-    calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
+    // Phase markers (temperature stability runs after phases are populated)
 
-    // Phase markers
     QVariantList phases = shotData.value("phases").toList();
     if (!phases.isEmpty()) {
-        for (int i = 0; i < phases.size(); i++) {
+        for (qsizetype i = 0; i < phases.size(); i++) {
             QVariantMap marker = phases[i].toMap();
             double startTime = marker.value("time", 0.0).toDouble();
             double endTime = (i + 1 < phases.size())
@@ -430,7 +473,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         summary.phases.append(phase);
     }
 
-    // Channeling detection (skip for filter/pourover)
+    // Per-phase anomaly detection (must run after phases are populated)
+    calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
     detectChannelingInPhases(summary, summary.flowCurve);
 
     return summary;
@@ -470,7 +514,19 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.beanBrand.isEmpty() && !summary.beanType.isEmpty()) out << " - ";
         out << summary.beanType;
         if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
-        if (!summary.roastDate.isEmpty()) out << ", roasted " << summary.roastDate;
+        if (!summary.roastDate.isEmpty()) {
+            out << ", roasted " << summary.roastDate;
+            QDate roastDate = QDate::fromString(summary.roastDate, "yyyy-MM-dd");
+            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, Qt::ISODate);
+            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, "MM/dd/yyyy");
+            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, "dd/MM/yyyy");
+
+            if (roastDate.isValid()) {
+                qint64 days = roastDate.daysTo(QDate::currentDate());
+                if (days >= 0)
+                    out << " (" << days << " days since roast, not necessarily freshness — ask about storage)";
+            }
+        }
         out << "\n";
     }
     if (!summary.grinderBrand.isEmpty() || !summary.grinderModel.isEmpty()) {
@@ -581,6 +637,8 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
             out << "\u00B0C ";
             out << QString::number(weight, 'f', 1) << "g\n";
         }
+        if (phase.temperatureUnstable)
+            out << "- **Temperature instability**: Average temperature deviated from target by >2\u00B0C during this phase\n";
         out << "\n";
     }
 
@@ -608,11 +666,9 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (summary.channelingDetected)
             out << "- **Flow instability**: Sudden flow spike during flow-controlled extraction phase — verify against profile intent before diagnosing channeling\n";
         if (summary.temperatureUnstable)
-            out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C — some profiles intentionally use large temperature steps (check profile notes and profile knowledge for guidance before flagging this as a problem)\n";
+            out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C during stable-temperature phases — this suggests the machine is not reaching or maintaining the setpoint\n";
         out << "\n";
     }
-
-    out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
 
     return prompt;
 }
@@ -650,6 +706,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         // Grinder info
         QString grinderBrand = shot.value("grinderBrand").toString();
         QString grinderModel = shot.value("grinderModel").toString();
+        QString grinderBurrs = shot.value("grinderBurrs").toString();
         QString grinderSetting = shot.value("grinderSetting").toString();
         if (!grinderBrand.isEmpty() || !grinderModel.isEmpty() || !grinderSetting.isEmpty()) {
             out << "- Grinder: ";
@@ -658,6 +715,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
                 if (!grinderBrand.isEmpty()) out << " ";
                 out << grinderModel;
             }
+            if (!grinderBurrs.isEmpty()) out << " with " << grinderBurrs;
             if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
             out << "\n";
         }
@@ -727,6 +785,17 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
                                                    const QString& profileType, const QString& profileKbId)
 {
     QString base = systemPrompt(beverageType);
+
+    // Append dial-in reference tables for espresso (cacheable, shared with MCP)
+    if (beverageType.toLower() != "filter" && beverageType.toLower() != "pourover") {
+        loadDialInReference();
+        if (!s_dialInReference.isEmpty()) {
+            base += QStringLiteral("\n\n## Espresso Dial-In Reference Tables\n\n"
+                "Structured relationships between espresso variables and their effects on taste. "
+                "Use these tables to make specific, multi-variable recommendations.\n\n")
+                + s_dialInReference;
+        }
+    }
 
     // Look up profile-specific knowledge
     // Try direct KB ID first (from database), then fall back to fuzzy title/editorType matching
@@ -826,6 +895,32 @@ void ShotSummarizer::loadProfileKnowledge()
              << "profile knowledge entries";
 }
 
+void ShotSummarizer::loadDialInReference()
+{
+    if (s_dialInReferenceLoaded) return;
+
+    QFile file(QStringLiteral(":/ai/espresso_dial_in_reference.md"));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "ShotSummarizer: Failed to load dial-in reference resource";
+        s_dialInReferenceLoaded = true;
+        return;
+    }
+    s_dialInReferenceLoaded = true;
+
+    QString content = QTextStream(&file).readAll();
+    file.close();
+
+    // Strip the preamble (title, source attribution, description) — already introduced
+    // by the section header in shotAnalysisSystemPrompt(). Seek to the first HR separator.
+    qsizetype pos = content.indexOf(QStringLiteral("\n---\n"));
+    if (pos > 0)
+        content = content.mid(pos + 5).trimmed();  // skip past "\n---\n"
+
+    s_dialInReference = content;
+    qDebug() << "ShotSummarizer: Loaded dial-in reference tables ("
+             << s_dialInReference.size() << "chars)";
+}
+
 // Shared matching logic: returns the matched key in s_profileKnowledge, or empty string.
 // profileTitle: the profile's display name (e.g. "D-Flow / my recipe")
 // editorTypeHint: either the raw editorType string ("dflow", "aflow") or the
@@ -921,7 +1016,7 @@ QString ShotSummarizer::espressoSystemPrompt()
 
 **Taste is King.** Numbers are tools to understand taste, not goals in themselves. A shot that tastes great with "wrong" numbers is a great shot. A shot with "perfect" numbers that tastes bad needs fixing.
 
-**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic. When a profile description is shown as "Profile intent", this is the author's own words — always read and respect it. If the profile intent conflicts with other guidance, trust the author.
+**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic. When a profile description is shown as "Profile intent", this is the author's own words — always read and respect it. If the profile intent conflicts with the Profile Knowledge section or any other guidance, trust the author's description — it is the primary authority on how the profile should behave.
 
 ## The DE1 Machine
 
@@ -938,7 +1033,7 @@ The data shows actual values with targets in parentheses. Here's how to interpre
 **Flow-controlled phases** (flow target 4-8+ ml/s):
 - The machine pushes water at the target flow rate
 - Pressure builds as a RESULT of puck resistance
-- High pressure (8-12 bar) with high flow target = good puck resistance, well-prepared puck
+- Pressure typically reaches 6-10 bar depending on grind and puck prep
 - The pressure "target" shown is actually a LIMITER (safety max), not a goal
 
 **Pressure-controlled phases** (pressure target 6-11 bar, low/no flow target):
@@ -965,15 +1060,6 @@ The profile recipe is included with each shot. Use it to set expectations BEFORE
 
 **Exit conditions**: Frames with exit conditions (e.g., "exit:p>3.0") advance when the condition is met. Short phase durations (1-2s) after exit conditions are normal — the machine transitions quickly.
 
-## Grinder & Burr Geometry
-
-If the user shares their grinder model, consider burr geometry:
-- **Flat burrs**: Produce bimodal particle distribution. More clarity in the cup but higher channeling risk. Flow deviations may indicate alignment issues.
-- **Conical burrs**: Produce unimodal distribution. More forgiving puck prep, less channeling-prone, but less clarity. Flow tends to be more stable.
-- **Grind setting**: A numeric grind setting is only meaningful relative to the specific grinder. Never compare settings across different grinder models.
-
-If grinder info is not provided, do not assume a specific grinder type.
-
 ## How to Read the Data
 
 You'll receive:
@@ -983,7 +1069,20 @@ You'll receive:
 4. **Extraction measurements**: TDS and EY if available (refractometer data)
 5. **Tasting notes**: the user's flavor perception (most important!)
 
-Phase data shows actual values with targets in parentheses. The "Peak delta" sample is the moment of maximum deviation from target for the controlled variable — this is where problems show up. If no peak-delta is shown, the phase tracked its target well.
+Phase data shows actual values with targets in parentheses. The "PeakΔ" sample is the moment of maximum deviation from target for the controlled variable — this is where problems show up. If no PeakΔ is shown, the phase tracked its target well.
+
+If no tasting feedback is provided, analyze curves and extraction metrics, but note that taste feedback would improve the analysis. Do not guess what the user tasted.
+
+## Grinder & Burr Geometry
+
+If the user shares their grinder model, consider burr geometry:
+- **Flat burrs**: Produce bimodal particle distribution. More clarity in the cup but higher channeling risk. Flow deviations may indicate alignment issues.
+- **Conical burrs**: Produce unimodal distribution. More forgiving puck prep, less channeling-prone, but less clarity. Flow tends to be more stable.
+- **Grind setting**: A numeric grind setting is only meaningful relative to the specific grinder. Never compare settings across different grinder models.
+
+If grinder info is not provided, do not assume a specific grinder type.
+
+**Grinder Context** (when provided): A "Grinder Context" section may appear with the user's own shot history data for their specific grinder. The settings, range, and step size are from their actual shots — not reference specs. Use the smallest step to calibrate grind change advice (e.g., if the smallest step is 0.5, say "try 0.5 finer" instead of "grind finer"). The observed range shows how much they have explored — if they are at the edge of their range, note that they are in new territory.
 
 ## Common Espresso Patterns
 
@@ -1016,10 +1115,6 @@ Phase data shows actual values with targets in parentheses. The "Peak delta" sam
 - **Symptoms**: Lacks body, feels empty in the middle, thin mouthfeel
 - **Cause**: Often channeling or underextraction
 - **Fix**: Improve puck prep or increase extraction (finer/hotter/longer)
-
-### The Good Shot
-- **Symptoms**: Balanced sweetness and acidity, pleasant body, clean finish
-- **Diagnosis**: If it tastes good, it IS good — don't fix what isn't broken!
 
 ## Roast Considerations
 
@@ -1187,11 +1282,10 @@ When taste is flat/thin but the profile calls for coarse grind, explore temperat
 
 1. **Start with taste** — what did the user experience?
 2. **Connect to the bean** — if you know the coffee's origin, variety, or processing, explain how the reported flavors relate to the bean's known character. This helps the user distinguish "this is what the bean does" from "this is an extraction issue."
-3. **Read the profile intent** — what grind, flow, and technique does the profile expect? State this so the user knows you understand their profile.
-4. **Check profile intent** — did the brew achieve what the profile was designed to do?
-5. **Identify ONE issue** — the most impactful thing to change
-6. **Recommend ONE adjustment** — specific and actionable, accounting for the bean's character when possible
-7. **Explain what to look for** — how will we know if it worked?
+3. **Check profile intent** — what grind, flow, and technique does the profile expect? Did the brew achieve it?
+4. **Identify ONE issue** — the most impactful thing to change
+5. **Recommend ONE adjustment** — specific and actionable, accounting for the bean's character when possible
+6. **Explain what to look for** — how will we know if it worked?
 
 If the brew tasted good (score 80+), acknowledge success! Suggest only minor refinements if any.
 
@@ -1202,16 +1296,22 @@ double ShotSummarizer::findValueAtTime(const QVector<QPointF>& data, double time
 {
     if (data.isEmpty()) return 0;
 
-    // Find closest point
-    for (int i = 0; i < data.size(); i++) {
-        if (data[i].x() >= time) {
-            if (i == 0) return data[i].y();
-            // Linear interpolation
-            double t = (time - data[i-1].x()) / (data[i].x() - data[i-1].x());
-            return data[i-1].y() + t * (data[i].y() - data[i-1].y());
-        }
-    }
-    return data.last().y();
+    // Use binary search for O(log N) lookup in time-sorted data
+    auto it = std::lower_bound(data.begin(), data.end(), time, [](const QPointF& p, double t) {
+        return p.x() < t;
+    });
+
+    if (it == data.end()) return data.last().y();
+    if (it == data.begin()) return it->y();
+
+    // Linear interpolation between *prev and *it
+    const auto& p1 = *(it - 1);
+    const auto& p2 = *it;
+    double dx = p2.x() - p1.x();
+    if (std::abs(dx) < 1e-6) return p2.y(); // Guard against division by zero
+
+    double t = (time - p1.x()) / dx;
+    return p1.y() + t * (p2.y() - p1.y());
 }
 
 double ShotSummarizer::calculateAverage(const QVector<QPointF>& data, double startTime, double endTime) const

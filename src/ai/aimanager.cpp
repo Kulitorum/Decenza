@@ -549,12 +549,25 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
         auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName, excludeShotId);
 
+        // Query grinder context on background thread using the shared helper (also used by MCP dialing_get_context)
+        GrinderContext grinderCtx;
+        withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("SELECT grinder_model, beverage_type FROM shots WHERE id = ?");
+            q.bindValue(0, static_cast<qint64>(excludeShotId));
+            if (q.exec() && q.next()) {
+                QString model = q.value(0).toString();
+                QString bev = q.value(1).toString();
+                if (!model.isEmpty())
+                    grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, bev);
+            }
+        });
+
         // Summarization runs on main thread (ShotSummarizer is owned by AIManager)
-        QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots)]() {
+        QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots), grinderCtx = std::move(grinderCtx)]() mutable {
             if (!self) return;
             if (serial != self->m_contextSerial) {
                 // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
-                // The newer request's callback will overwrite with real data.
                 emit self->recentShotContextReady(QString());
                 return;
             }
@@ -574,9 +587,26 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             if (!shotSections.isEmpty()) {
                 result = "## Previous Shots with This Bean & Profile\n\n"
                          "All shots below use the same profile as the current shot. "
-                         "Do NOT report profile recipe differences — focus on what the user changed "
-                         "(grind, dose, temperature) and how it affected the outcome.\n\n" +
+                         "Do not comment on frame-level recipe details unless they changed between shots. "
+                         "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n" +
                          shotSections.join("\n\n");
+            }
+
+            // Append grinder context if available (observed settings range and step size)
+            if (!grinderCtx.settingsObserved.isEmpty()) {
+                QString section = "\n\n## Grinder Context\n\n"
+                    "From the user's own shot history with this grinder:\n\n";
+                section += "- **Model**: " + grinderCtx.model + "\n";
+                section += "- **Settings used for " + grinderCtx.beverageType + "**: "
+                         + grinderCtx.settingsObserved.join(", ") + "\n";
+                if (grinderCtx.allNumeric && grinderCtx.maxSetting > grinderCtx.minSetting) {
+                    section += "- **Range explored**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
+                             + QString::number(grinderCtx.maxSetting) + "\n";
+                    if (grinderCtx.smallestStep > 0) {
+                        section += "- **Smallest step**: " + QString::number(grinderCtx.smallestStep) + "\n";
+                    }
+                }
+                result += section;
             }
 
             emit self->recentShotContextReady(result);

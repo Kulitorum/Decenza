@@ -11,12 +11,10 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QJsonArray>
-#include <QSet>
 #include <QJsonDocument>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
-#include <QFile>
 #include <QThread>
 #include <QMetaObject>
 #include <QCoreApplication>
@@ -29,8 +27,6 @@ struct DialingDbResult {
     QString profileKbId;
     QJsonArray dialInHistory;
     QJsonObject grinderContext;
-    QString referenceGuide;
-    QString profileKnowledgeBase;
 };
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
@@ -41,8 +37,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     registry->registerAsyncTool(
         "dialing_get_context",
         "Get full dial-in context: recent shot summary, dial-in history (last N shots with same profile), "
-        "profile knowledge, bean/grinder metadata, grinder context (observed settings range and step size), "
-        "and reference tables. This is the primary read tool for dial-in conversations — a single call gives "
+        "profile knowledge (includes system prompt, dial-in reference tables, and profile-specific KB), "
+        "bean/grinder metadata, and grinder context (observed settings range and step size). "
+        "This is the primary read tool for dial-in conversations — a single call gives "
         "everything needed to analyze a shot and suggest changes. Grinder settings are shown as the user "
         "entered them — may be numbers, letters, click counts, or grinder-specific notation like Eureka "
         "multi-turn (1+4 = 1 rotation + position 4). The grinderContext block shows the range and step "
@@ -144,75 +141,31 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         }
                     }
 
-                    // --- Grinder context ---
+                    // --- Grinder context (shared helper) ---
                     QString grinderModel = dbResult.shotData.contains("grinderModel")
                         ? dbResult.shotData["grinderModel"].toString() : QString();
                     QString beverageType = dbResult.shotData.value("beverageType", "espresso").toString();
                     if (beverageType.isEmpty()) beverageType = "espresso";
                     if (!grinderModel.isEmpty()) {
-                        QSqlQuery gQuery(db);
-                        gQuery.prepare("SELECT DISTINCT grinder_setting FROM shots "
-                                       "WHERE grinder_model = :model AND beverage_type = :bev "
-                                       "AND grinder_setting != ''");
-                        gQuery.bindValue(":model", grinderModel);
-                        gQuery.bindValue(":bev", beverageType);
-                        if (gQuery.exec()) {
-                            QJsonArray settingsArr;
-                            QSet<double> numericSet;
-                            bool allNumeric = true;
-                            bool hasAny = false;
-
-                            while (gQuery.next()) {
-                                QString s = gQuery.value(0).toString().trimmed();
-                                if (s.isEmpty()) continue;
-                                hasAny = true;
-                                settingsArr.append(s);
-                                bool ok;
-                                double v = s.toDouble(&ok);
-                                if (ok) {
-                                    numericSet.insert(v);
-                                } else {
-                                    allNumeric = false;
-                                }
-                            }
-
+                        GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(db, grinderModel, beverageType);
+                        if (!ctx.settingsObserved.isEmpty()) {
                             QJsonObject grinderCtx;
-                            grinderCtx["model"] = grinderModel;
-                            grinderCtx["beverageType"] = beverageType;
+                            grinderCtx["model"] = ctx.model;
+                            grinderCtx["beverageType"] = ctx.beverageType;
+                            QJsonArray settingsArr;
+                            for (const auto& s : ctx.settingsObserved)
+                                settingsArr.append(s);
                             grinderCtx["settingsObserved"] = settingsArr;
-                            if (hasAny) grinderCtx["isNumeric"] = allNumeric;
-
-                            QList<double> numeric(numericSet.begin(), numericSet.end());
-                            if (allNumeric && numeric.size() >= 2) {
-                                std::sort(numeric.begin(), numeric.end());
-                                grinderCtx["minSetting"] = numeric.first();
-                                grinderCtx["maxSetting"] = numeric.last();
-
-                                double smallestStep = numeric.last() - numeric.first();
-                                for (qsizetype i = 1; i < numeric.size(); ++i) {
-                                    double diff = numeric[i] - numeric[i-1];
-                                    if (diff > 0 && diff < smallestStep)
-                                        smallestStep = diff;
-                                }
-                                grinderCtx["smallestStep"] = smallestStep;
+                            grinderCtx["isNumeric"] = ctx.allNumeric;
+                            if (ctx.allNumeric && ctx.maxSetting > ctx.minSetting) {
+                                grinderCtx["minSetting"] = ctx.minSetting;
+                                grinderCtx["maxSetting"] = ctx.maxSetting;
+                                grinderCtx["smallestStep"] = ctx.smallestStep;
                             }
-
                             dbResult.grinderContext = grinderCtx;
                         }
                     }
                 });
-
-                // --- File I/O on background thread (avoid blocking main thread) ---
-                QFile refFile("docs/ESPRESSO_DIAL_IN_REFERENCE.md");
-                if (refFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                    dbResult.referenceGuide = QString::fromUtf8(refFile.readAll());
-                    refFile.close();
-                }
-                QFile kbFile("docs/PROFILE_KNOWLEDGE_BASE.md");
-                if (kbFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                    dbResult.profileKnowledgeBase = QString::fromUtf8(kbFile.readAll());
-                    kbFile.close();
-                }
 
                 // --- Deliver results to main thread for final assembly ---
                 // Main-thread work: settings access, AI analysis, profile info
@@ -265,8 +218,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     // --- Profile knowledge ---
                     QString profileTitle = sd["profileName"].toString();
+                    QString bevType = sd.value("beverageType", "espresso").toString();
+                    if (bevType.isEmpty()) bevType = "espresso";
                     QString profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
-                        "espresso", profileTitle, QString(), dbResult.profileKbId);
+                        bevType, profileTitle, QString(), dbResult.profileKbId);
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;
 
@@ -285,9 +240,15 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         QString roastDateStr = settings->dyeRoastDate();
                         if (!roastDateStr.isEmpty()) {
                             QDate roastDate = QDate::fromString(roastDateStr, "yyyy-MM-dd");
+                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, Qt::ISODate);
+                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, "MM/dd/yyyy");
+                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, "dd/MM/yyyy");
+
                             if (roastDate.isValid()) {
-                                qint64 daysSinceRoast = roastDate.daysTo(QDate::currentDate());
-                                bean["beanAgeDays"] = daysSinceRoast;
+                                qint64 days = roastDate.daysTo(QDate::currentDate());
+                                bean["daysSinceRoast"] = days;
+                                bean["daysSinceRoastNote"] = "Days since roast date, NOT freshness. "
+                                    "Many users freeze beans and thaw weekly — ask about storage before assuming degradation.";
                             }
                         }
                         result["currentBean"] = bean;
@@ -304,11 +265,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["currentProfile"] = profileInfo;
                     }
 
-                    // --- Dial-in reference tables (read on background thread) ---
-                    if (!dbResult.referenceGuide.isEmpty())
-                        result["referenceGuide"] = dbResult.referenceGuide;
-                    if (!dbResult.profileKnowledgeBase.isEmpty())
-                        result["profileKnowledgeBase"] = dbResult.profileKnowledgeBase;
+                    // Note: dial-in reference tables and profile knowledge base are now
+                    // embedded in the profileKnowledge system prompt (shared with in-app AI),
+                    // so they are no longer sent as separate fields here.
 
                     respond(result);
                 }, Qt::QueuedConnection);

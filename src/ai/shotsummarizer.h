@@ -39,6 +39,7 @@ struct PhaseSummary {
     // Temperature metrics (C)
     double avgTemperature = 0;
     double tempStability = 0;  // Std deviation
+    bool temperatureUnstable = false;
 
     // Weight gained during this phase
     double weightGained = 0;
@@ -129,7 +130,8 @@ public:
     static QString espressoSystemPrompt();
     static QString filterSystemPrompt();
 
-    // Profile-aware system prompt: base prompt + per-profile knowledge section.
+    // Profile-aware system prompt: base prompt + dial-in reference tables (espresso only)
+    // + per-profile knowledge section.
     // profileKbId: direct knowledge base key (from DB), bypasses fuzzy matching if set.
     // profileType: editor type description string, used as fallback for custom-titled profiles.
     static QString shotAnalysisSystemPrompt(const QString& beverageType, const QString& profileTitle,
@@ -168,4 +170,9 @@ private:
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
+
+    // Dial-in reference tables (shared between in-app AI and MCP)
+    static QString s_dialInReference;
+    static bool s_dialInReferenceLoaded;
+    static void loadDialInReference();
 };

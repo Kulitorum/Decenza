@@ -1719,6 +1719,64 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     return record;
 }
 
+GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
+    const QString& grinderModel, const QString& beverageType)
+{
+    GrinderContext ctx;
+    if (grinderModel.isEmpty()) return ctx;
+
+    ctx.model = grinderModel;
+    ctx.beverageType = beverageType.isEmpty() ? QStringLiteral("espresso") : beverageType;
+
+    QSqlQuery q(db);
+    q.prepare("SELECT DISTINCT grinder_setting FROM shots "
+              "WHERE grinder_model = :model AND beverage_type = :bev "
+              "AND grinder_setting != ''");
+    q.bindValue(":model", grinderModel);
+    q.bindValue(":bev", ctx.beverageType);
+    if (!q.exec()) return ctx;
+
+    QSet<double> numericSet;
+    ctx.allNumeric = true;
+    bool hasAny = false;
+
+    while (q.next()) {
+        QString s = q.value(0).toString().trimmed();
+        if (s.isEmpty()) continue;
+        hasAny = true;
+        ctx.settingsObserved.append(s);
+        bool ok;
+        double v = s.toDouble(&ok);
+        if (ok) {
+            numericSet.insert(v);
+        } else {
+            ctx.allNumeric = false;
+        }
+    }
+
+    if (!hasAny) {
+        ctx.allNumeric = false;
+        return ctx;
+    }
+
+    QList<double> numeric(numericSet.begin(), numericSet.end());
+    if (ctx.allNumeric && numeric.size() >= 2) {
+        std::sort(numeric.begin(), numeric.end());
+        ctx.minSetting = numeric.first();
+        ctx.maxSetting = numeric.last();
+
+        double smallest = numeric.last() - numeric.first();
+        for (qsizetype i = 1; i < numeric.size(); ++i) {
+            double diff = numeric[i] - numeric[i-1];
+            if (diff > 0 && diff < smallest)
+                smallest = diff;
+        }
+        ctx.smallestStep = smallest;
+    }
+
+    return ctx;
+}
+
 bool ShotHistoryStorage::deleteShot(qint64 shotId)
 {
     if (!m_ready) return false;
