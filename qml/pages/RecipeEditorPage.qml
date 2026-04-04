@@ -430,7 +430,7 @@ Page {
 
                             // Pressure
                             Text { text: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.1; suffix: " bar"; value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0; onValueModified: function(newValue) { updateRecipe("infusePressure", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.01; suffix: " bar"; value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0; onValueModified: function(newValue) { updateRecipe("infusePressure", Math.round(newValue * 100) / 100) } }
 
                             // Grouped: move to next step on first reached
                             Item {
@@ -520,11 +520,11 @@ Page {
 
                                     // Flow
                                     Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: 8; stepSize: 0.1; suffix: " mL/s"; value: val(recipe.pourFlow, 2.0); onValueModified: function(newValue) { updateRecipe("pourFlow", Math.round(newValue * 10) / 10) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: 8; stepSize: 0.01; suffix: " mL/s"; value: val(recipe.pourFlow, 2.0); onValueModified: function(newValue) { updateRecipe("pourFlow", Math.round(newValue * 100) / 100) } }
 
                                     // Pressure limit
                                     Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.1; suffix: " bar"; value: val(recipe.pourPressure, 9.0); onValueModified: function(newValue) { updateRecipe("pourPressure", Math.round(newValue * 10) / 10) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.01; suffix: " bar"; value: val(recipe.pourPressure, 9.0); onValueModified: function(newValue) { updateRecipe("pourPressure", Math.round(newValue * 100) / 100) } }
 
                                     // Ramp time (A-Flow only — pressure ramp up duration)
                                     Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipe.editorType === "aflow" }
