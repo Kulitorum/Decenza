@@ -678,7 +678,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.limitFlowRangeAccessible", "Limit flow range for pressure steps")
                     from: 0; to: 8; stepSize: 0.1; suffix: " mL/s"
-                    value: { stepVersion; return profile ? (profile.maximum_flow_range_advanced || 0.6) : 0.6 }
+                    value: { stepVersion; return profile ? (profile.maximum_flow_range_advanced ?? 0.6) : 0.6 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             var newRange = Math.round(newValue * 10) / 10
@@ -699,7 +699,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.pressureColor
                     accessibleName: TranslationManager.translate("profileEditor.limitPressureRangeAccessible", "Limit pressure range for flow steps")
                     from: 0; to: 8; stepSize: 0.1; suffix: " bar"
-                    value: { stepVersion; return profile ? (profile.maximum_pressure_range_advanced || 0.6) : 0.6 }
+                    value: { stepVersion; return profile ? (profile.maximum_pressure_range_advanced ?? 0.6) : 0.6 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             var newRange = Math.round(newValue * 10) / 10
@@ -1544,8 +1544,8 @@ Page {
     // Pressure-pump steps get the flow range limit; flow-pump steps get the pressure range limit
     function applyRangeToAllSteps() {
         if (!profile || !profile.steps) return
-        var flowRange = profile.maximum_flow_range_advanced || 0.6
-        var pressureRange = profile.maximum_pressure_range_advanced || 0.6
+        var flowRange = profile.maximum_flow_range_advanced ?? 0.6
+        var pressureRange = profile.maximum_pressure_range_advanced ?? 0.6
         for (var i = 0; i < profile.steps.length; i++) {
             if (profile.steps[i].pump === "pressure") {
                 profile.steps[i].max_flow_or_pressure_range = flowRange
