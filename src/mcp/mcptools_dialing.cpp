@@ -240,6 +240,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         QString roastDateStr = settings->dyeRoastDate();
                         if (!roastDateStr.isEmpty()) {
                             QDate roastDate = QDate::fromString(roastDateStr, "yyyy-MM-dd");
+                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, Qt::ISODate);
+                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, "MM/dd/yyyy");
+                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, "dd/MM/yyyy");
+
                             if (roastDate.isValid()) {
                                 qint64 days = roastDate.daysTo(QDate::currentDate());
                                 bean["daysSinceRoast"] = days;

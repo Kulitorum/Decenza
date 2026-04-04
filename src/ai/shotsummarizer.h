@@ -39,6 +39,7 @@ struct PhaseSummary {
     // Temperature metrics (C)
     double avgTemperature = 0;
     double tempStability = 0;  // Std deviation
+    bool temperatureUnstable = false;
 
     // Weight gained during this phase
     double weightGained = 0;

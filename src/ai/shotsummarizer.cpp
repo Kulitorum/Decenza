@@ -75,38 +75,57 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVecto
 void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
     const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
 {
-    if (!tempGoalData.isEmpty()) {
-        // Check if the profile intentionally uses temperature stepping (e.g., D-Flow 84→94°C).
-        // If the target temperature range exceeds 5°C, suppress the flag — the deviation
-        // is by design and flagging it actively misleads the AI.
+    if (tempGoalData.isEmpty()) {
+        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
+        summary.temperatureUnstable = tempStdDev > 2.0;
+        return;
+    }
+
+    bool overallUnstable = false;
+
+    for (auto& phase : summary.phases) {
+        // Check if this phase intentionally uses temperature stepping
         double minGoal = std::numeric_limits<double>::max();
         double maxGoal = std::numeric_limits<double>::lowest();
+        bool hasGoal = false;
+
         for (const auto& point : tempGoalData) {
+            if (point.x() < phase.startTime) continue;
+            if (point.x() > phase.endTime) break;
             if (point.y() > 0) {
                 minGoal = std::min(minGoal, point.y());
                 maxGoal = std::max(maxGoal, point.y());
+                hasGoal = true;
             }
         }
-        if (maxGoal - minGoal > 5.0) {
-            // Intentional temperature stepping — don't flag
-            summary.temperatureUnstable = false;
-            return;
+
+        if (hasGoal && (maxGoal - minGoal > 5.0)) {
+            // Intentional temperature stepping in this phase — skip stability check
+            phase.temperatureUnstable = false;
+            continue;
         }
 
+        // Calculate stability for this phase against target
         double deviationSum = 0;
         int count = 0;
         for (const auto& point : tempData) {
+            if (point.x() < phase.startTime) continue;
+            if (point.x() > phase.endTime) break;
+
             double target = findValueAtTime(tempGoalData, point.x());
             if (target > 0) {
                 deviationSum += std::abs(point.y() - target);
                 count++;
             }
         }
-        summary.temperatureUnstable = count > 0 && (deviationSum / count) > 2.0;
-    } else {
-        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
-        summary.temperatureUnstable = tempStdDev > 2.0;
+
+        if (count > 0 && (deviationSum / count) > 2.0) {
+            phase.temperatureUnstable = true;
+            overallUnstable = true;
+        }
     }
+
+    summary.temperatureUnstable = overallUnstable;
 }
 
 ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
@@ -190,11 +209,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
 
     // Extraction indicators
     summary.timeToFirstDrip = findTimeToFirstDrip(flowData);
-    // Channeling detection will be done after phase processing (see below)
-
-    // Temperature stability check - compare actual vs TARGET (not just variance)
-    const auto& tempGoalData = shotData->temperatureGoalData();
-    calculateTemperatureStability(summary, tempData, tempGoalData);
+    // Channeling and temperature stability done after phase processing (see below)
 
     // Get phase markers from shot data
     QVariantList markers = shotData->phaseMarkersVariant();
@@ -285,7 +300,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         }
     }
 
-    // Detect channeling only during FLOW-CONTROLLED phases where flow should be stable.
+    // Per-phase anomaly detection (must run after phases are populated)
+    const auto& tempGoalData = shotData->temperatureGoalData();
+    calculateTemperatureStability(summary, tempData, tempGoalData);
     detectChannelingInPhases(summary, flowData);
 
     return summary;
@@ -379,10 +396,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
-    // Temperature stability
-    calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
+    // Phase markers (temperature stability runs after phases are populated)
 
-    // Phase markers
     QVariantList phases = shotData.value("phases").toList();
     if (!phases.isEmpty()) {
         for (qsizetype i = 0; i < phases.size(); i++) {
@@ -458,7 +473,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         summary.phases.append(phase);
     }
 
-    // Channeling detection (skip for filter/pourover)
+    // Per-phase anomaly detection (must run after phases are populated)
+    calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
     detectChannelingInPhases(summary, summary.flowCurve);
 
     return summary;
@@ -501,6 +517,10 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.roastDate.isEmpty()) {
             out << ", roasted " << summary.roastDate;
             QDate roastDate = QDate::fromString(summary.roastDate, "yyyy-MM-dd");
+            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, Qt::ISODate);
+            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, "MM/dd/yyyy");
+            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, "dd/MM/yyyy");
+
             if (roastDate.isValid()) {
                 qint64 days = roastDate.daysTo(QDate::currentDate());
                 if (days >= 0)
@@ -617,6 +637,8 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
             out << "\u00B0C ";
             out << QString::number(weight, 'f', 1) << "g\n";
         }
+        if (phase.temperatureUnstable)
+            out << "- **Temperature instability**: Average temperature deviated from target by >2\u00B0C during this phase\n";
         out << "\n";
     }
 
@@ -1274,16 +1296,22 @@ double ShotSummarizer::findValueAtTime(const QVector<QPointF>& data, double time
 {
     if (data.isEmpty()) return 0;
 
-    // Find closest point
-    for (int i = 0; i < data.size(); i++) {
-        if (data[i].x() >= time) {
-            if (i == 0) return data[i].y();
-            // Linear interpolation
-            double t = (time - data[i-1].x()) / (data[i].x() - data[i-1].x());
-            return data[i-1].y() + t * (data[i].y() - data[i-1].y());
-        }
-    }
-    return data.last().y();
+    // Use binary search for O(log N) lookup in time-sorted data
+    auto it = std::lower_bound(data.begin(), data.end(), time, [](const QPointF& p, double t) {
+        return p.x() < t;
+    });
+
+    if (it == data.end()) return data.last().y();
+    if (it == data.begin()) return it->y();
+
+    // Linear interpolation between *prev and *it
+    const auto& p1 = *(it - 1);
+    const auto& p2 = *it;
+    double dx = p2.x() - p1.x();
+    if (std::abs(dx) < 1e-6) return p2.y(); // Guard against division by zero
+
+    double t = (time - p1.x()) / dx;
+    return p1.y() + t * (p2.y() - p1.y());
 }
 
 double ShotSummarizer::calculateAverage(const QVector<QPointF>& data, double startTime, double endTime) const

@@ -564,7 +564,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         });
 
         // Summarization runs on main thread (ShotSummarizer is owned by AIManager)
-        QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots), grinderCtx = std::move(grinderCtx)]() {
+        QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots), grinderCtx = std::move(grinderCtx)]() mutable {
             if (!self) return;
             if (serial != self->m_contextSerial) {
                 // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
