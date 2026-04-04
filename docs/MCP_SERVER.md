@@ -243,16 +243,16 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 | Context Layer | Source | Tool |
 |---------------|--------|------|
 | Profile recipe (frame-by-frame) | Profile JSON | `dialing_get_context` / `profiles_get_detail` |
-| Profile knowledge (system prompt + reference tables + per-profile KB) | `ShotSummarizer::shotAnalysisSystemPrompt()` — shared with in-app AI | `dialing_get_context` |
+| Profile knowledge (system prompt + reference tables + per-profile KB + profile catalog + cross-profile guidance) | `ShotSummarizer::shotAnalysisSystemPrompt()` — shared with in-app AI | `dialing_get_context` |
 | Shot data (curves, phases, anomalies) | `ShotSummarizer` | `dialing_get_context` / `shots_get_detail` |
 | Dial-in history (last N shots, same profile) | `ShotHistoryStorage::getRecentShotsByKbId()` | `dialing_get_context` |
-| Grinder context (observed settings range, step size) | `ShotHistoryStorage::queryGrinderContext()` — shared with in-app AI | `dialing_get_context` |
+| Grinder context (observed settings range, step size, burr-swappable flag) | `ShotHistoryStorage::queryGrinderContext()` + `GrinderAliases` — shared with in-app AI | `dialing_get_context` |
 | Bean metadata (brand, type, roast, grinder, burrs) | Shot metadata / Settings DYE | `dialing_get_context` |
 | Machine telemetry (live pressure/flow/temp) | `MachineState` / `DE1Device` | `machine_get_telemetry` |
 | All available profiles | Profile list | `profiles_list` |
 | Water level | `DE1Device::waterLevelMl()` / `waterLevelMm()` | `machine_get_state` |
 
-The MCP AI still has advantages over the in-app AI: it's not limited by token budgets or cloud API costs, and it can maintain a long conversation across multiple shots without context trimming. However, as of PR #635, both paths share the same system prompt (including reference tables), grinder context logic, and profile knowledge — changes to shared components benefit both equally.
+The MCP AI still has advantages over the in-app AI: it's not limited by token budgets or cloud API costs, and it can maintain a long conversation across multiple shots without context trimming. However, as of PR #635/#647, both paths share the same system prompt (including reference tables, profile catalog with cross-profile recommendation guidance, and burr-swappable grinder enrichment), grinder context logic, and profile knowledge — changes to shared components benefit both equally.
 
 ## AI-Friendly Data Conventions
 
