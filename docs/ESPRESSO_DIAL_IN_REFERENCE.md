@@ -17,7 +17,7 @@ This document captures structured relationships between espresso variables (roas
 | **Risk of puck issues** | High | ← | | → | Low |
 | **Puck prep importance** | Important | ← | | → | Not so important |
 | **Characteristic taste** | Fruits | Caramel | Choc. + fruit | Milk choc. | Dark choc. |
-| **Temperature** | 96°C | 94°C | 92°C | 90°C | 88°C |
+| **Temperature (starting point)** | 96°C | 94°C | 92°C | 90°C | 88°C |
 
 ---
 
@@ -105,34 +105,23 @@ Note: "Too high" also increases risk of bad-bean harsh taste becoming apparent.
 
 ---
 
-## 7. Ratio (N:1)
+## 7. Ratio (dose:yield, shown as 1:X in shot data)
 
-| Attribute | Too long/high | 4:1 and up | 3:1 | 1–2:1 | Too short/low |
-|-----------|--------------|------------|-----|-------|--------------|
+| Attribute | Too long (1:4+) | Long (1:3–1:4) | Standard (1:2–1:3) | Short (1:1–1:2) | Too short |
+|-----------|-----------------|----------------|--------------------|-----------------| ----------|
 | **Perceived strength** | Very low | Lower | | Higher | Very high |
-| **Taste / mouthfeel** | ← Higher clarity | | | More body → | |
+| **Taste / mouthfeel** | Higher clarity | | | More body | |
 | **Extraction** | Too high | Higher | | Lower | Too low |
 
-### Taste vs Total Extraction and Ratio
+### Taste vs Extraction
 
 | Over-extracted | Sweet spot | Under-extracted |
 |---------------|------------|-----------------|
 | Bitter, thin, watery, astringent, burnt, drying, lacking | Sweet, ripe, balanced and rich taste | Sour, mouth-puckering, distracting, salty |
 
-### Gagné Formula: Ratio vs Flow
+### Ratio and Flow Rate Relationship
 
-```
-Flow = 4.867 - (6.6 × ratio)
-```
-
-Where ratio is expressed as 1/n (e.g., 2:1 → 0.5), and flow is in ml/g.
-
-| Ratio | Flow (ml/g) | Notes |
-|-------|-------------|-------|
-| 4:1 | 1.8 | Risk of muted bitter taste |
-| 3:1 | 2.2 | |
-| 2:1 | 3.3 | Risk of sour taste |
-| 5:1 @ 3.5 / 6:1 @ 4.0 | | Extended ratios |
+Higher ratios (1:3+) generally pair with faster flow for clarity. Shorter ratios (1:1.5–1:2) pair with slower flow for body. When adjusting ratio, consider adjusting flow rate in the same direction to maintain balance.
 
 ---
 
@@ -142,7 +131,7 @@ How to increase the likelihood of achieving certain flavors and textures.
 
 (↑ = increase/darker/finer/longer/higher, ↓ = decrease/lighter/coarser/shorter/lower, ? = uncertain)
 
-| Want more: | Roast level | Temp | Grind size | Infusion | Peak pressure | Flow rate | Ratio N:1 |
+| Want more: | Roast level | Temp | Grind size | Infusion | Peak pressure | Flow rate | Ratio (1:X) |
 |------------|-------------|------|------------|----------|---------------|-----------|-----------|
 | **Acidity** | ↓ lighter | ↓ | ↑ finer | ↑ longer | ↓ | ↑ higher | ?? |
 | **Sweetness** | ↑? | ↑? | ↓? finer | | ↑ | ↑↓? | Match endflow to ratio |
@@ -160,7 +149,7 @@ Notes:
 
 How to correct some perceived unpleasant tastes. All corrections should be made in small iterations — try not to change more than one variable at a time. Sometimes going too far in one direction can have the opposite effect (like grinding too fine).
 
-| Problem | Roast level | Temp | Grind size | Infusion | Peak pressure | Flow rate | Ratio N:1 |
+| Problem | Roast level | Temp | Grind size | Infusion | Peak pressure | Flow rate | Ratio (1:X) |
 |---------|-------------|------|------------|----------|---------------|-----------|-----------|
 | **Sour & salty** | ↑ darker | ↑ | ↓ finer | | ↑ | ↑? | ? |
 | **Harshness, bitterness & astringency** | ↓ lighter | ↓ | ↑ coarser | ↑ longer | ↓ | ↓? | ? |

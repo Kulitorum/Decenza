@@ -59,6 +59,10 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVecto
         for (const auto& phase : summary.phases) {
             if (!phase.isFlowMode) continue;
             if (phase.duration < 3.0) continue;
+            // Skip high-flow phases (> 3.0 ml/s avg) — flow variation is expected
+            // physics at these rates, not channeling. Affects Allongé, filter-style,
+            // and turbo profiles where the KB notes flow variation is normal.
+            if (phase.avgFlow > 3.0) continue;
             if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
                 summary.channelingDetected = true;
                 break;
@@ -630,11 +634,9 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (summary.channelingDetected)
             out << "- **Flow instability**: Sudden flow spike during flow-controlled extraction phase — verify against profile intent before diagnosing channeling\n";
         if (summary.temperatureUnstable)
-            out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C — some profiles intentionally use large temperature steps (check profile notes and profile knowledge for guidance before flagging this as a problem)\n";
+            out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C during stable-temperature phases — this suggests the machine is not reaching or maintaining the setpoint\n";
         out << "\n";
     }
-
-    out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
 
     return prompt;
 }
@@ -999,7 +1001,7 @@ The data shows actual values with targets in parentheses. Here's how to interpre
 **Flow-controlled phases** (flow target 4-8+ ml/s):
 - The machine pushes water at the target flow rate
 - Pressure builds as a RESULT of puck resistance
-- High pressure (8-12 bar) with high flow target = good puck resistance, well-prepared puck
+- Pressure typically reaches 6-10 bar depending on grind and puck prep
 - The pressure "target" shown is actually a LIMITER (safety max), not a goal
 
 **Pressure-controlled phases** (pressure target 6-11 bar, low/no flow target):
@@ -1026,15 +1028,6 @@ The profile recipe is included with each shot. Use it to set expectations BEFORE
 
 **Exit conditions**: Frames with exit conditions (e.g., "exit:p>3.0") advance when the condition is met. Short phase durations (1-2s) after exit conditions are normal — the machine transitions quickly.
 
-## Grinder & Burr Geometry
-
-If the user shares their grinder model, consider burr geometry:
-- **Flat burrs**: Produce bimodal particle distribution. More clarity in the cup but higher channeling risk. Flow deviations may indicate alignment issues.
-- **Conical burrs**: Produce unimodal distribution. More forgiving puck prep, less channeling-prone, but less clarity. Flow tends to be more stable.
-- **Grind setting**: A numeric grind setting is only meaningful relative to the specific grinder. Never compare settings across different grinder models.
-
-If grinder info is not provided, do not assume a specific grinder type.
-
 ## How to Read the Data
 
 You'll receive:
@@ -1044,7 +1037,18 @@ You'll receive:
 4. **Extraction measurements**: TDS and EY if available (refractometer data)
 5. **Tasting notes**: the user's flavor perception (most important!)
 
-Phase data shows actual values with targets in parentheses. The "Peak delta" sample is the moment of maximum deviation from target for the controlled variable — this is where problems show up. If no peak-delta is shown, the phase tracked its target well.
+Phase data shows actual values with targets in parentheses. The "PeakΔ" sample is the moment of maximum deviation from target for the controlled variable — this is where problems show up. If no PeakΔ is shown, the phase tracked its target well.
+
+If no tasting feedback is provided, analyze curves and extraction metrics, but note that taste feedback would improve the analysis. Do not guess what the user tasted.
+
+## Grinder & Burr Geometry
+
+If the user shares their grinder model, consider burr geometry:
+- **Flat burrs**: Produce bimodal particle distribution. More clarity in the cup but higher channeling risk. Flow deviations may indicate alignment issues.
+- **Conical burrs**: Produce unimodal distribution. More forgiving puck prep, less channeling-prone, but less clarity. Flow tends to be more stable.
+- **Grind setting**: A numeric grind setting is only meaningful relative to the specific grinder. Never compare settings across different grinder models.
+
+If grinder info is not provided, do not assume a specific grinder type.
 
 ## Common Espresso Patterns
 
