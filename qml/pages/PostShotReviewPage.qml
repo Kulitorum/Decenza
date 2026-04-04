@@ -20,7 +20,20 @@ Page {
             BLEManager.tryDirectConnectToRefractometer()
         }
     }
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
+        // Reconnect refractometer when returning to this page
+        if (Settings.savedRefractometerAddress !== "" && !BLEManager.refractometerConnected) {
+            BLEManager.tryDirectConnectToRefractometer()
+        }
+    }
+
+    // Disconnect refractometer when leaving to save battery (requires physical wake to reconnect)
+    Component.onDestruction: {
+        if (typeof Refractometer !== "undefined" && Refractometer && Refractometer.connected) {
+            Refractometer.disconnectFromDevice()
+        }
+    }
 
     function handleBack() {
         if (hasUnsavedChanges) {

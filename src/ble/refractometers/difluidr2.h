@@ -39,7 +39,7 @@ public:
     QString name() const { return m_name; }
 
     void connectToDevice(const QBluetoothDeviceInfo& device);
-    void disconnectFromDevice();
+    Q_INVOKABLE void disconnectFromDevice();
 
     Q_INVOKABLE void requestMeasurement();
 
