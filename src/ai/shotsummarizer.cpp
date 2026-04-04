@@ -1049,6 +1049,8 @@ If the user shares their grinder model, consider burr geometry:
 
 If grinder info is not provided, do not assume a specific grinder type.
 
+**Grinder Context** (when provided): A "Grinder Context" section may appear with the user's own shot history data for their specific grinder. The settings, range, and step size are from their actual shots — not reference specs. Use the smallest step to calibrate grind change advice (e.g., if the smallest step is 0.5, say "try 0.5 finer" instead of "grind finer"). The observed range shows how much they have explored — if they are at the edge of their range, note that they are in new territory.
+
 ## Common Espresso Patterns
 
 ### The Gusher

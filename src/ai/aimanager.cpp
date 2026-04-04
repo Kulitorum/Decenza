@@ -594,16 +594,16 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
 
             // Append grinder context if available (observed settings range and step size)
             if (!grinderCtx.settingsObserved.isEmpty()) {
-                QString section = "\n\n## Grinder Context\n\n";
+                QString section = "\n\n## Grinder Context\n\n"
+                    "From the user's own shot history with this grinder:\n\n";
                 section += "- **Model**: " + grinderCtx.model + "\n";
-                section += "- **Settings used** (" + grinderCtx.beverageType + "): "
+                section += "- **Settings used for " + grinderCtx.beverageType + "**: "
                          + grinderCtx.settingsObserved.join(", ") + "\n";
                 if (grinderCtx.allNumeric && grinderCtx.maxSetting > grinderCtx.minSetting) {
-                    section += "- **Range**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
+                    section += "- **Range explored**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
                              + QString::number(grinderCtx.maxSetting) + "\n";
                     if (grinderCtx.smallestStep > 0) {
-                        section += "- **Smallest step observed**: " + QString::number(grinderCtx.smallestStep)
-                                 + " (use this to calibrate 'one click finer/coarser' advice)\n";
+                        section += "- **Smallest step**: " + QString::number(grinderCtx.smallestStep) + "\n";
                     }
                 }
                 result += section;
