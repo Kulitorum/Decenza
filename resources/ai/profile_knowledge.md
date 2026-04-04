@@ -128,9 +128,11 @@ How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s
 Expected curves: Very low pressure throughout (well under 5 bar limiter on prewet, near zero during percolation). Flow flat at 1.1 ml/s during extraction. Temperature steps down across phases.
 Temperature: 94°C prewet/bloom, 92°C early extraction, declining to 88°C late extraction (water sensor). The declining temperature is intentional.
 Dose: 22g in Filter3 basket
-Grind: As coarse as the grinder allows (e.g. 11 o'clock setting on a Niche Zero). If water comes out of the holes at the top of the basket, grind is too fine.
-Setup: Center a 58.5mm paper filter in the bottom of the Filter3 basket, wet it with flush water before adding grounds. Shake to level grounds after dosing.
-Dialing in: 30 seconds into extraction, unlock the portafilter and check for 2-4 cm of water on the grounds. Finer if not enough water, coarser if too much.
+Grind: As coarse as the grinder allows (e.g. 11 o'clock setting on a Niche Zero, slightly coarser than V60). Most people grind too fine. If water comes out of the holes at the top of the basket, grind is too fine.
+Setup: Requires Filter3 basket and appropriate paper (Decent precut, hand-cut Chemex, or Pulsar — most other espresso paper is not porous enough). Remove the portafilter spring. Center paper in the bottom of the basket, wet it with flush water. Add 22g of coffee and shake to level. Set water level refill to at least 500 ml in Settings/Machine to ensure enough water.
+Flow calibration: Before first use, run the full profile without a portafilter and weigh the output. Target ~75g at the end of the first step (Prewet) and ~360 ml total. Adjust individual step flow rates (not the global calibration) to hit these targets — changing global calibration may affect espresso profiles.
+Dialing in: 30 seconds into extraction, unlock the portafilter, swirl, and check for 2-4 cm of water on the grounds. Finer if not enough water, coarser if too much. Drawdown after the profile ends should be under 60 seconds (ideally ~30s) — if longer, grind is too fine.
+Output: 300-330g of coffee in the cup. Use stop-at-weight set ~30 ml below target to account for residual water draining from the basket after the profile ends.
 Duration: ~275s total (~4.5 minutes)
 Flavor: Filter-like clarity with no bypass dilution. Described by Scott Rao as producing results from "the world's best single-cup filter-coffee machine."
 Roast: Good for light and medium roasts.
