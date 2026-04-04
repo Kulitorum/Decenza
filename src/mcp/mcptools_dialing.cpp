@@ -96,48 +96,43 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     // --- Dial-in history (same profile family) ---
                     if (!dbResult.profileKbId.isEmpty()) {
-                        QSqlQuery hQuery(db);
-                        hQuery.prepare("SELECT id, timestamp, profile_name, dose_weight, final_weight, "
-                                       "duration_seconds, enjoyment, grinder_setting, grinder_model, "
-                                       "espresso_notes, bean_brand, bean_type, yield_override, profile_json "
-                                       "FROM shots WHERE profile_kb_id = ? "
-                                       "AND id != ? "
-                                       "ORDER BY timestamp DESC LIMIT ?");
-                        hQuery.bindValue(0, dbResult.profileKbId);
-                        hQuery.bindValue(1, resolvedShotId);
-                        hQuery.bindValue(2, historyLimit);
-                        if (hQuery.exec()) {
-                            while (hQuery.next()) {
-                                QJsonObject h;
-                                h["id"] = hQuery.value("id").toLongLong();
-                                auto dt = QDateTime::fromSecsSinceEpoch(hQuery.value("timestamp").toLongLong());
-                                h["timestamp"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
-                                h["profileName"] = hQuery.value("profile_name").toString();
-                                h["doseG"] = hQuery.value("dose_weight").toDouble();
-                                h["yieldG"] = hQuery.value("final_weight").toDouble();
-                                h["durationSec"] = hQuery.value("duration_seconds").toDouble();
-                                h["enjoyment0to100"] = hQuery.value("enjoyment").toInt();
-                                h["grinderSetting"] = hQuery.value("grinder_setting").toString();
-                                h["grinderModel"] = hQuery.value("grinder_model").toString();
-                                h["notes"] = hQuery.value("espresso_notes").toString();
-                                h["beanBrand"] = hQuery.value("bean_brand").toString();
-                                h["beanType"] = hQuery.value("bean_type").toString();
-                                // Use yield_override (brew-by-ratio target) if set, else profile's target_weight
-                                double yieldOverride = hQuery.value("yield_override").toDouble();
-                                if (yieldOverride > 0) {
-                                    h["targetWeightG"] = yieldOverride;
-                                } else {
-                                    QString profileJson = hQuery.value("profile_json").toString();
-                                    if (!profileJson.isEmpty()) {
-                                        QJsonObject profileObj = QJsonDocument::fromJson(profileJson.toUtf8()).object();
-                                        QJsonValue tw = profileObj["target_weight"];
-                                        double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
-                                        if (twVal > 0)
-                                            h["targetWeightG"] = twVal;
-                                    }
+                        QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, dbResult.profileKbId, historyLimit, resolvedShotId);
+                        for (const auto& v : history) {
+                            QVariantMap shot = v.toMap();
+                            QJsonObject h;
+                            h["id"] = shot["id"].toLongLong();
+                            h["timestamp"] = shot["dateTime"].toString();
+                            h["profileName"] = shot["profileName"].toString();
+                            h["doseG"] = shot["doseWeight"].toDouble();
+                            h["yieldG"] = shot["finalWeight"].toDouble();
+                            h["durationSec"] = shot["duration"].toDouble();
+                            h["enjoyment0to100"] = shot["enjoyment"].toInt();
+                            h["grinderSetting"] = shot["grinderSetting"].toString();
+                            h["grinderModel"] = shot["grinderModel"].toString();
+                            h["grinderBrand"] = shot["grinderBrand"].toString();
+                            h["grinderBurrs"] = shot["grinderBurrs"].toString();
+                            h["notes"] = shot["espressoNotes"].toString();
+                            h["beanBrand"] = shot["beanBrand"].toString();
+                            h["beanType"] = shot["beanType"].toString();
+                            double tempOverride = shot["temperatureOverride"].toDouble();
+                            if (tempOverride > 0)
+                                h["temperatureOverrideC"] = tempOverride;
+
+                            // Use yieldOverride (brew-by-ratio target) if set, else profile's target_weight
+                            double yieldOverride = shot["yieldOverride"].toDouble();
+                            if (yieldOverride > 0) {
+                                h["targetWeightG"] = yieldOverride;
+                            } else {
+                                QString profileJson = shot["profileJson"].toString();
+                                if (!profileJson.isEmpty()) {
+                                    QJsonObject profileObj = QJsonDocument::fromJson(profileJson.toUtf8()).object();
+                                    QJsonValue tw = profileObj["target_weight"];
+                                    double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+                                    if (twVal > 0)
+                                        h["targetWeightG"] = twVal;
                                 }
-                                dbResult.dialInHistory.append(h);
                             }
+                            dbResult.dialInHistory.append(h);
                         }
                     }
 

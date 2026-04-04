@@ -219,6 +219,10 @@ public:
     // Returns summary data (not full time-series) for dial-in history queries.
     Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
 
+    // Query recent shots by KB ID (summary data, no time-series).
+    // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
+    static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1);
+
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
 

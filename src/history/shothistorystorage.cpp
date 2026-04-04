@@ -1503,41 +1503,11 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
     }
 
     const QString dbPath = m_dbPath;
-
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, kbId, limit, destroyed]() {
         QVariantList results;
         withTempDb(dbPath, "shs_kbid", [&](QSqlDatabase& db) {
-            QSqlQuery query(db);
-            query.prepare(QStringLiteral(
-                "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
-                "duration_seconds, enjoyment, grinder_setting, grinder_model, "
-                "espresso_notes, bean_brand, bean_type, profile_kb_id "
-                "FROM shots WHERE profile_kb_id = :kbId "
-                "ORDER BY timestamp DESC LIMIT :limit"));
-            query.bindValue(":kbId", kbId);
-            query.bindValue(":limit", limit);
-
-            if (query.exec()) {
-                while (query.next()) {
-                    QVariantMap shot;
-                    shot["id"] = query.value("id").toLongLong();
-                    shot["timestamp"] = query.value("timestamp").toLongLong();
-                    shot["profileName"] = query.value("profile_name").toString();
-                    shot["dose"] = query.value("dose_weight").toDouble();
-                    shot["yield"] = query.value("final_weight").toDouble();
-                    shot["duration"] = query.value("duration_seconds").toDouble();
-                    shot["enjoyment"] = query.value("enjoyment").toInt();
-                    shot["grinderSetting"] = query.value("grinder_setting").toString();
-                    shot["grinderModel"] = query.value("grinder_model").toString();
-                    shot["notes"] = query.value("espresso_notes").toString();
-                    shot["beanBrand"] = query.value("bean_brand").toString();
-                    shot["beanType"] = query.value("bean_type").toString();
-                    results.append(shot);
-                }
-            } else {
-                qWarning() << "ShotHistoryStorage: recentShotsByKbId query failed:" << query.lastError().text();
-            }
+            results = loadRecentShotsByKbIdStatic(db, kbId, limit);
         });
 
         if (*destroyed) return;
@@ -1552,6 +1522,72 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
 
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId)
+{
+    QVariantList results;
+    QString sql = QStringLiteral(R"(
+        SELECT id, timestamp, profile_name, duration_seconds, final_weight, dose_weight,
+               bean_brand, bean_type, roast_level, grinder_brand, grinder_model,
+               grinder_burrs, grinder_setting, drink_tds, drink_ey, enjoyment,
+               espresso_notes, roast_date, temperature_override, yield_override, profile_json, beverage_type
+        FROM shots
+        WHERE profile_kb_id = ?
+    )");
+    if (excludeShotId >= 0)
+        sql += QStringLiteral(" AND id != ?");
+    sql += QStringLiteral(" ORDER BY timestamp DESC LIMIT ?");
+
+    QSqlQuery query(db);
+    if (!query.prepare(sql)) {
+        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: prepare failed:" << query.lastError().text();
+        return results;
+    }
+
+    int idx = 0;
+    query.bindValue(idx++, kbId);
+    if (excludeShotId >= 0)
+        query.bindValue(idx++, excludeShotId);
+    query.bindValue(idx, limit);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap shot;
+            shot["id"] = query.value("id").toLongLong();
+            qint64 ts = query.value("timestamp").toLongLong();
+            shot["timestamp"] = ts;
+            shot["profileName"] = query.value("profile_name").toString();
+            shot["doseWeight"] = query.value("dose_weight").toDouble();
+            shot["finalWeight"] = query.value("final_weight").toDouble();
+            shot["duration"] = query.value("duration_seconds").toDouble();
+            shot["enjoyment"] = query.value("enjoyment").toInt();
+            shot["grinderSetting"] = query.value("grinder_setting").toString();
+            shot["grinderModel"] = query.value("grinder_model").toString();
+            shot["grinderBrand"] = query.value("grinder_brand").toString();
+            shot["grinderBurrs"] = query.value("grinder_burrs").toString();
+            shot["espressoNotes"] = query.value("espresso_notes").toString();
+            shot["beanBrand"] = query.value("bean_brand").toString();
+            shot["beanType"] = query.value("bean_type").toString();
+            shot["roastLevel"] = query.value("roast_level").toString();
+            shot["roastDate"] = query.value("roast_date").toString();
+            shot["drinkTds"] = query.value("drink_tds").toDouble();
+            shot["drinkEy"] = query.value("drink_ey").toDouble();
+            shot["temperatureOverride"] = query.value("temperature_override").toDouble();
+            shot["yieldOverride"] = query.value("yield_override").toDouble();
+            shot["profileJson"] = query.value("profile_json").toString();
+            shot["beverageType"] = query.value("beverage_type").toString();
+
+            // ISO 8601 with timezone for API/AI consumption (CLAUDE.md convention)
+            QDateTime dt = QDateTime::fromSecsSinceEpoch(ts);
+            shot["dateTime"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+
+            results.append(shot);
+        }
+    } else {
+        qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed:" << query.lastError().text();
+    }
+    return results;
 }
 
 QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)

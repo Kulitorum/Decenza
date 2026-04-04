@@ -176,71 +176,6 @@ ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
     return metadata;
 }
 
-// File-scope helper: runs on a background thread with its own SQLite connection.
-// Returns recent shots matching the given knowledge base ID, for AI dial-in history.
-static QVariantList loadRecentShotsByKbId(
-    const QString& dbPath, const QString& profileKbId, int limit, qint64 excludeShotId)
-{
-    QVariantList results;
-    withTempDb(dbPath, "ai_recent", [&](QSqlDatabase& db) {
-        QString sql = QStringLiteral(R"(
-            SELECT id, timestamp, profile_name, duration_seconds,
-                   final_weight, dose_weight, bean_brand, bean_type, roast_level,
-                   grinder_brand, grinder_model, grinder_burrs, grinder_setting,
-                   drink_tds, drink_ey, enjoyment, espresso_notes,
-                   temperature_override, profile_json
-            FROM shots
-            WHERE profile_kb_id = ?
-        )");
-        if (excludeShotId >= 0)
-            sql += QStringLiteral(" AND id != ?");
-        sql += QStringLiteral(" ORDER BY timestamp DESC LIMIT ?");
-
-        QSqlQuery query(db);
-        if (!query.prepare(sql)) {
-            qWarning() << "AIManager::loadRecentShotsByKbId: prepare failed:" << query.lastError().text();
-            return;
-        }
-        int idx = 0;
-        query.bindValue(idx++, profileKbId);
-        if (excludeShotId >= 0)
-            query.bindValue(idx++, excludeShotId);
-        query.bindValue(idx, limit);
-
-        if (!query.exec()) {
-            qWarning() << "AIManager::loadRecentShotsByKbId: failed:" << query.lastError().text();
-            return;
-        }
-        while (query.next()) {
-            QVariantMap shot;
-            shot["id"] = query.value(0).toLongLong();
-            shot["timestamp"] = query.value(1).toLongLong();
-            shot["profileName"] = query.value(2).toString();
-            shot["duration"] = query.value(3).toDouble();
-            shot["finalWeight"] = query.value(4).toDouble();
-            shot["doseWeight"] = query.value(5).toDouble();
-            shot["beanBrand"] = query.value(6).toString();
-            shot["beanType"] = query.value(7).toString();
-            shot["roastLevel"] = query.value(8).toString();
-            shot["grinderBrand"] = query.value(9).toString();
-            shot["grinderModel"] = query.value(10).toString();
-            shot["grinderBurrs"] = query.value(11).toString();
-            shot["grinderSetting"] = query.value(12).toString();
-            shot["drinkTds"] = query.value(13).toDouble();
-            shot["drinkEy"] = query.value(14).toDouble();
-            shot["enjoyment"] = query.value(15).toInt();
-            shot["espressoNotes"] = query.value(16).toString();
-            shot["temperatureOverride"] = query.value(17).toDouble();
-            shot["profileJson"] = query.value(18).toString();
-            QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(1).toLongLong());
-            // ISO 8601 with timezone for AI consumption (CLAUDE.md MCP convention)
-            shot["dateTime"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
-            results.append(shot);
-        }
-    });
-    return results;
-}
-
 void AIManager::analyzeShot(ShotDataModel* shotData,
                              Profile* profile,
                              double doseWeight,
@@ -319,7 +254,10 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
         QPointer<AIManager> self(this);
 
         QThread* thread = QThread::create([self, dbPath, kbId, excludeId, systemPrompt, userPrompt]() {
-            QVariantList recentShots = loadRecentShotsByKbId(dbPath, kbId, 5, excludeId);
+            QVariantList recentShots;
+            withTempDb(dbPath, "ai_recent", [&](QSqlDatabase& db) {
+                recentShots = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, kbId, 5, excludeId);
+            });
 
             QMetaObject::invokeMethod(qApp, [self, systemPrompt, userPrompt, recentShots = std::move(recentShots)]() {
                 if (!self) return;
