@@ -11,7 +11,8 @@ Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian'
 Expected curves: Pressure peaks between 6 and 9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
 Damian's LRv2: If the puck erodes too fast during extraction, switches from pressure to flow control at 1.7 ml/s. This may cause a pressure drop — intentional puck-erosion recovery.
 Damian's LRv3: Pure lever decline — does NOT switch to flow control. Simpler and preferred when dialed in well.
-Temperature: Fill temperature varies by variant — D-Flow/default uses 86°C, while D-Flow/Q, La Pavoni, and Damian's Q use 84°C with a 94°C rise target. The low fill temperature is INTENTIONAL and controls bitterness — hotter fill water produces dark spots in the crema and more bitter taste. After filling, the target rises to 94°C, but the coffee never reaches 94°C — the high setpoint just makes the heater pump hot water that mixes with the cooler water above the puck, gradually reaching ~86-90°C at the basket (varies by fill temp and ambient conditions). This is a KEY aspect of D-Flow. DO NOT flag the large gap between temperature target (94°C) and actual (~86-90°C) as a problem — it is by design.
+Damian's LRv2/LRv3 temperatures: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than standard D-Flow variants due to different fill/soak behavior. These are standalone lever profiles that share the D-Flow family matching but behave more like the Londinium profile.
+Temperature: Fill temperature varies by variant — D-Flow/default uses 88°C (frame temperature), while D-Flow/Q, La Pavoni, and Damian's Q use 84°C with a 94°C rise target. The low fill temperature is INTENTIONAL and controls bitterness — hotter fill water produces dark spots in the crema and more bitter taste. After filling, the target rises to 94°C, but the coffee never reaches 94°C — the high setpoint just makes the heater pump hot water that mixes with the cooler water above the puck, gradually reaching ~86-90°C at the basket (varies by fill temp and ambient conditions). This is a KEY aspect of D-Flow. DO NOT flag the large gap between temperature target (94°C) and actual (~86-90°C) as a problem — it is by design.
 Flow calibration: If actual flow is consistently below target (e.g. 1.8 target but only 1.5 actual), the flow sensor may be over-reading by ~20%. Reducing the calibration value will show more pressure for the same grind.
 Grind: Medium-fine. Grind determines curve shape: finer grinds produce constant-pressure extraction (boiler-like), coarser grinds produce declining pressure (lever-like). Both are valid — the pressure curve shape is a function of grind, not a problem.
 Roast: All roasts. Excellent for medium (floral/fruity + chocolate). Good for light and dark.
@@ -29,7 +30,7 @@ DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise 
 
 ## Adaptive v2
 Category: Flow/adaptive
-How it works: Rises pressure to 8.6 bar for ~7 seconds, then adapts to grind coarseness by locking in whatever flow rate exists. Switches to stable flow after pressure peak.
+How it works: Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists. Switches to stable flow after pressure peak. Extraction flow limiter at 9.5 bar.
 Expected curves: Pressure peaks near 9 bar then gradually declines. Flow settles at 2.0-2.7 ml/s. Variable curves are expected — the profile adapts to grind size.
 Duration: 26-40s. With large flat burrs, the extraction phase may be very short (rapid high-flow extraction in 15-20s after long pre-infusion soak).
 Pre-infusion: Lots of dripping is fine with flat burr grinders (up to 17g dripping worked well in testing). Pressure drops steeply during drip phase with coarse/flat-burr grinds — this is normal.
@@ -41,6 +42,7 @@ DO NOT flag variable pressure curves or steep pre-infusion pressure drop as prob
 Category: Blooming
 How it works: Fill at ~4 ml/s until pressure peaks, close valve for 30s bloom, then ramp to 2.2 ml/s flow-controlled extraction with an 8.6 bar limiter. The 30-second pause with zero flow is INTENTIONAL.
 Expected curves: Initial pressure spike during fill, then 30s of declining/zero pressure (bloom phase), then pressure rise to 6-9 bar for extraction. Flow near zero during bloom is BY DESIGN.
+Temperature: 97.5°C preinfusion/fill, drops to 90°C during bloom, 92°C extraction. The high preinfusion temperature and the drop during bloom are intentional.
 Dialing in: Water should appear on bottom of puck almost immediately after fill. Aim for 6-8g dripping before pressure rise. Pressure during extraction should be 6-9 bar and NEVER hit maximum. If pressure hits max, grind is too fine.
 Grind: Very fine — grind as fine as manageable. Paper filter under puck can prevent pressure crash.
 Duration: ~70s total
@@ -86,7 +88,7 @@ DO NOT flag declining pressure as a problem — it defines lever-style profiles.
 ## Londinium / LRv3
 Also matches: "Londonium"
 Category: Lever
-Note: This is the standalone Londinium profile. "Damian's LRv2" and "Damian's LRv3" are D-Flow family variants covered in the D-Flow section — they share the LR naming but have different fill/infuse behavior and higher temperatures (89-90°C vs 88°C here).
+Note: This is the standalone Londinium profile. "Damian's LRv2" and "Damian's LRv3" are D-Flow family variants covered in the D-Flow section — they share the LR naming but have different fill/infuse behavior and higher frame temperatures (LRv2: 89°C, LRv3: 90°C, vs 88-89°C here).
 How it works: Fast fill at 2 bar, then spring-lever soak at ~3 bar until dripping appears, then 9 bar declining pressure. If puck erodes too fast (flow exceeds 2.8 ml/s), switches to flow control at 2.5 ml/s to prevent gushing.
 Expected curves: 3 bar hold during soak (dripping phase), then 9 bar peak with gradual decline. Pressure stays high (9→8 bar) because flow is held constant. Flow relatively constant throughout.
 Temperature: 88-89°C (stepping down slightly during extraction)
@@ -124,7 +126,7 @@ DO NOT flag low pressure or high ratio as problems.
 
 ## Filter3
 Category: Filter (no-bypass)
-How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four declining-temperature stages (92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses water temperature sensor (not coffee sensor). All water passes through the coffee bed — no bypass.
+How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four extraction steps at three declining temperature levels (92→92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses water temperature sensor (not coffee sensor). All water passes through the coffee bed — no bypass.
 Expected curves: Very low pressure throughout (well under 5 bar limiter on prewet, near zero during percolation). Flow flat at 1.1 ml/s during extraction. Temperature steps down across phases.
 Temperature: 94°C prewet/bloom, 92°C early extraction, declining to 88°C late extraction (water sensor). The declining temperature is intentional.
 Dose: 22g in Filter3 basket
@@ -132,7 +134,7 @@ Grind: As coarse as the grinder allows (e.g. 11 o'clock setting on a Niche Zero,
 Setup: Requires Filter3 basket and appropriate paper (Decent precut, hand-cut Chemex, or Pulsar — most other espresso paper is not porous enough). Remove the portafilter spring. Center paper in the bottom of the basket, wet it with flush water. Add 22g of coffee and shake to level. Set water level refill to at least 500 ml in Settings/Machine to ensure enough water.
 Flow calibration: Before first use, run the full profile without a portafilter and weigh the output. Target ~75g at the end of the first step (Prewet) and ~360 ml total. Adjust individual step flow rates (not the global calibration) to hit these targets — changing global calibration may affect espresso profiles.
 Dialing in: 30 seconds into extraction, unlock the portafilter, swirl, and check for 2-4 cm of water on the grounds. Finer if not enough water, coarser if too much. Drawdown after the profile ends should be under 60 seconds (ideally ~30s) — if longer, grind is too fine.
-Output: 300-330g of coffee in the cup. Use stop-at-weight set ~30 ml below target to account for residual water draining from the basket after the profile ends.
+Output: 300-330g of coffee in the cup. Use stop-at-weight set ~30g below target to account for residual water draining from the basket after the profile ends.
 Duration: ~275s total (~4.5 minutes)
 Flavor: Filter-like clarity with no bypass dilution. Described by Scott Rao as producing results from "the world's best single-cup filter-coffee machine."
 Roast: Good for light and medium roasts.
