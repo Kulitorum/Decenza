@@ -169,7 +169,6 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     const auto& pressureData = shotData->pressureData();
     const auto& flowData = shotData->flowData();
     const auto& tempData = shotData->temperatureData();
-    const auto& weightFlowData = shotData->weightFlowRateData();  // Flow rate from scale (g/s)
     const auto& cumulativeWeightData = shotData->cumulativeWeightData();  // Cumulative weight (g)
 
     if (pressureData.isEmpty()) {
@@ -180,7 +179,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.pressureCurve = pressureData;
     summary.flowCurve = flowData;
     summary.tempCurve = tempData;
-    summary.weightCurve = weightFlowData;  // Flow rate useful for AI analysis (detecting channeling spikes)
+    summary.weightCurve = cumulativeWeightData;  // Cumulative weight (g) — matches history path
 
     // Store target/goal curves (what the profile intended)
     summary.pressureGoalCurve = shotData->pressureGoalData();
