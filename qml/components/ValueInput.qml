@@ -11,7 +11,7 @@ Item {
     property real from: 0
     property real to: 100
     property real stepSize: 1
-    property int decimals: stepSize < 1 ? 1 : 0
+    property int decimals: stepSize >= 1 ? 0 : (stepSize >= 0.1 ? 1 : 2)
 
     // Display
     property string suffix: ""
