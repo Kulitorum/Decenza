@@ -37,8 +37,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     registry->registerAsyncTool(
         "dialing_get_context",
         "Get full dial-in context: recent shot summary, dial-in history (last N shots with same profile), "
-        "profile knowledge (includes system prompt, dial-in reference tables, and profile-specific KB), "
-        "bean/grinder metadata, and grinder context (observed settings range and step size). "
+        "profile knowledge (includes system prompt, dial-in reference tables, profile catalog with cross-profile recommendation guidance, and profile-specific KB), "
+        "bean/grinder metadata, and grinder context (observed settings range, step size, and burr-swappable flag). "
         "This is the primary read tool for dial-in conversations — a single call gives "
         "everything needed to analyze a shot and suggest changes. Grinder settings are shown as the user "
         "entered them — may be numbers, letters, click counts, or grinder-specific notation like Eureka "
