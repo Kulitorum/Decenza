@@ -122,6 +122,21 @@ Extraction yield: 23-26% at 1.4-1.5% strength
 Roast: Lower temperature for darker or defective roasts
 DO NOT flag low pressure or high ratio as problems.
 
+## Filter3
+Category: Filter (no-bypass)
+How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four declining-temperature stages (92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses water temperature sensor (not coffee sensor). All water passes through the coffee bed — no bypass.
+Expected curves: Very low pressure throughout (well under 5 bar limiter on prewet, near zero during percolation). Flow flat at 1.1 ml/s during extraction. Temperature steps down across phases.
+Temperature: 94°C prewet/bloom, 92°C early extraction, declining to 88°C late extraction (water sensor). The declining temperature is intentional.
+Dose: 22g in Filter3 basket
+Grind: As coarse as the grinder allows (e.g. 11 o'clock setting on a Niche Zero). If water comes out of the holes at the top of the basket, grind is too fine.
+Setup: Center a 58.5mm paper filter in the bottom of the Filter3 basket, wet it with flush water before adding grounds. Shake to level grounds after dosing.
+Dialing in: 30 seconds into extraction, unlock the portafilter and check for 2-4 cm of water on the grounds. Finer if not enough water, coarser if too much.
+Duration: ~275s total (~4.5 minutes)
+Flavor: Filter-like clarity with no bypass dilution. Described by Scott Rao as producing results from "the world's best single-cup filter-coffee machine."
+Roast: Good for light and medium roasts.
+DO NOT flag low pressure, long brew time, or very coarse grind as problems — this is filter-style brewing, not espresso.
+DO NOT flag declining temperature as a problem — the temperature steps are intentional for balanced extraction across the long brew time.
+
 ## Sprover
 Category: Filter simulation
 How it works: Intentionally under-dose the basket (e.g. ~15g in a 20g basket), coarse grind, low pressure. Simulates pour-over coffee through the espresso machine.
