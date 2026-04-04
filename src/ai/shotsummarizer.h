@@ -160,6 +160,13 @@ private:
     void calculateTemperatureStability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 
+    // Shared prompt sections
+    static QString sharedCorePhilosophy();
+    static QString sharedGrinderGuidance();
+    static QString sharedBeanKnowledge();
+    static QString sharedForbiddenSimplifications();
+    static QString sharedResponseGuidelines();
+
     // Profile knowledge base
     struct ProfileKnowledge {
         QString name;       // Display name (e.g. "D-Flow")
