@@ -549,7 +549,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
         auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName, excludeShotId);
 
-        // Query grinder context on background thread (same logic as MCP dialing_get_context)
+        // Query grinder context on background thread using the shared helper (also used by MCP dialing_get_context)
         GrinderContext grinderCtx;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
@@ -567,6 +567,7 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots), grinderCtx = std::move(grinderCtx)]() {
             if (!self) return;
             if (serial != self->m_contextSerial) {
+                // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
                 emit self->recentShotContextReady(QString());
                 return;
             }

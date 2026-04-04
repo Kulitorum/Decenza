@@ -129,7 +129,8 @@ public:
     static QString espressoSystemPrompt();
     static QString filterSystemPrompt();
 
-    // Profile-aware system prompt: base prompt + per-profile knowledge section.
+    // Profile-aware system prompt: base prompt + dial-in reference tables (espresso only)
+    // + per-profile knowledge section.
     // profileKbId: direct knowledge base key (from DB), bypasses fuzzy matching if set.
     // profileType: editor type description string, used as fallback for custom-titled profiles.
     static QString shotAnalysisSystemPrompt(const QString& beverageType, const QString& profileTitle,

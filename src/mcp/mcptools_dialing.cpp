@@ -218,8 +218,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     // --- Profile knowledge ---
                     QString profileTitle = sd["profileName"].toString();
+                    QString bevType = sd.value("beverageType", "espresso").toString();
+                    if (bevType.isEmpty()) bevType = "espresso";
                     QString profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
-                        "espresso", profileTitle, QString(), dbResult.profileKbId);
+                        bevType, profileTitle, QString(), dbResult.profileKbId);
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;
 

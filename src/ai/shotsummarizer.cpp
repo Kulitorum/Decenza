@@ -59,9 +59,9 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVecto
         for (const auto& phase : summary.phases) {
             if (!phase.isFlowMode) continue;
             if (phase.duration < 3.0) continue;
-            // Skip high-flow phases (> 3.0 ml/s avg) — flow variation is expected
-            // physics at these rates, not channeling. Affects Allongé, filter-style,
-            // and turbo profiles where the KB notes flow variation is normal.
+            // Skip high-flow phases (> 3.0 ml/s avg) — at these rates, turbulence-driven
+            // flow variation is normal and indistinguishable from channeling by spike detection.
+            // Heuristic threshold; affects Allongé and turbo profiles.
             if (phase.avgFlow > 3.0) continue;
             if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
                 summary.channelingDetected = true;
@@ -230,7 +230,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.phases.append(phase);
     } else {
         // Process each phase from markers
-        for (int i = 0; i < markers.size(); i++) {
+        for (qsizetype i = 0; i < markers.size(); i++) {
             QVariantMap marker = markers[i].toMap();
             double startTime = marker["time"].toDouble();
             double endTime = (i + 1 < markers.size())
@@ -356,6 +356,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // DYE metadata
     summary.beanBrand = shotData.value("beanBrand").toString();
     summary.beanType = shotData.value("beanType").toString();
+    summary.roastDate = shotData.value("roastDate").toString();
     summary.roastLevel = shotData.value("roastLevel").toString();
     summary.grinderBrand = shotData.value("grinderBrand").toString();
     summary.grinderModel = shotData.value("grinderModel").toString();
@@ -383,7 +384,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // Phase markers
     QVariantList phases = shotData.value("phases").toList();
     if (!phases.isEmpty()) {
-        for (int i = 0; i < phases.size(); i++) {
+        for (qsizetype i = 0; i < phases.size(); i++) {
             QVariantMap marker = phases[i].toMap();
             double startTime = marker.value("time", 0.0).toDouble();
             double endTime = (i + 1 < phases.size())
@@ -876,13 +877,11 @@ void ShotSummarizer::loadDialInReference()
     QString content = QTextStream(&file).readAll();
     file.close();
 
-    // Strip the title line and source attribution (first 4 lines) — already introduced
-    // by the section header in shotAnalysisSystemPrompt()
-    qsizetype pos = 0;
-    for (int i = 0; i < 4 && pos >= 0; ++i)
-        pos = content.indexOf('\n', pos + 1);
+    // Strip the preamble (title, source attribution, description) — already introduced
+    // by the section header in shotAnalysisSystemPrompt(). Seek to the first HR separator.
+    qsizetype pos = content.indexOf(QStringLiteral("\n---\n"));
     if (pos > 0)
-        content = content.mid(pos + 1).trimmed();
+        content = content.mid(pos + 5).trimmed();  // skip past "\n---\n"
 
     s_dialInReference = content;
     qDebug() << "ShotSummarizer: Loaded dial-in reference tables ("
