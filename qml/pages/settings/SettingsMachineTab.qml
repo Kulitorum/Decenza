@@ -1632,16 +1632,16 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Screen Capture (for Pocket app remote control)
+                // Pocket Integration (remote control via Pocket app)
                 Rectangle {
-                    objectName: "screenCapture"
+                    objectName: "pocketIntegration"
                     Layout.fillWidth: true
-                    implicitHeight: screenCaptureContent.implicitHeight + Theme.scaled(30)
+                    implicitHeight: pocketContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
-                        id: screenCaptureContent
+                        id: pocketContent
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
@@ -1649,7 +1649,7 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(8)
 
                         Text {
-                            text: TranslationManager.translate("settings.machine.screenCaptureTitle", "Screen Capture")
+                            text: TranslationManager.translate("settings.machine.pocketIntegrationTitle", "Pocket Integration")
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
@@ -1658,7 +1658,7 @@ KeyboardAwareContainer {
 
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.machine.screenCaptureDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
+                            text: TranslationManager.translate("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -1669,7 +1669,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.machine.screenCapture", "Screen Capture")
+                                text: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
@@ -1679,7 +1679,7 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 checked: Settings.screenCaptureEnabled
-                                accessibleName: TranslationManager.translate("settings.machine.screenCapture", "Screen Capture")
+                                accessibleName: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
                                 onToggled: {
                                     Settings.screenCaptureEnabled = checked
                                 }
