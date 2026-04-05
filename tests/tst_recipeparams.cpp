@@ -60,7 +60,8 @@ private slots:
         QVERIFY(parsed.rampDownEnabled);
         QVERIFY(!parsed.flowExtractionUp);
         QVERIFY(parsed.secondFillEnabled);
-        QCOMPARE(parsed.editorType, EditorType::AFlow);
+        // editorType is intentionally not serialized to JSON (derived from profile title at load time)
+        QCOMPARE(parsed.editorType, EditorType::DFlow);  // default when absent from JSON
         QCOMPARE(parsed.preinfuseFrameCount, 3);
     }
 

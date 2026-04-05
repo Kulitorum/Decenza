@@ -59,9 +59,10 @@ struct McpTestFixture {
     DE1Device device;
     MachineState machineState;
     // Suppress expected warnings during ProfileManager construction — test env has
-    // no saved profile (falls back to default) and no ai.qrc (knowledge base missing).
+    // no saved profile (falls back to default), no ai.qrc (knowledge base missing),
+    // and may have stale favorites/currentProfile in real QSettings from the dev machine.
     // Filter must be declared before profileManager so it is constructed first and destroyed last.
-    ScopedWarningFilter constructionFilter{"Profile not found|Failed to load profile knowledge"};
+    ScopedWarningFilter constructionFilter{"Profile not found|Failed to load profile knowledge|refreshProfiles: .*stale"};
     ProfileManager profileManager;
     McpToolRegistry registry;
 
