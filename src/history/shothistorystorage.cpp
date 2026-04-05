@@ -844,7 +844,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         tmpRecord.pressure = shotData->pressureData();
         tmpRecord.flow = shotData->flowData();
         tmpRecord.temperature = shotData->temperatureData();
-        tmpRecord.weight = shotData->weightData();
+        tmpRecord.weight = shotData->cumulativeWeightData();
 
         // Extract phase markers into the record
         QVariantList tmpMarkers = shotData->phaseMarkersVariant();
@@ -2022,6 +2022,52 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // Compute phase summaries on-the-fly for legacy shots that lack them
     if (record.phaseSummariesJson.isEmpty() && !record.pressure.isEmpty() && !record.phases.isEmpty()) {
         computePhaseSummaries(record);
+    }
+
+    // Recompute quality flags for legacy shots (DB defaults are 0/0 which looks like "clean").
+    // Use the same trigger as derived curves: if conductance was freshly computed, the shot
+    // predates migration 10 and its quality flags are just DB defaults, not real analysis.
+    if (needsDerivedCurves && !record.pressure.isEmpty()) {
+        // Find pour boundaries for channeling/temp checks
+        double pourStart = 0, pourEnd = record.pressure.last().x();
+        for (const auto& pm : record.phases) {
+            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
+            if (pm.label == "End") pourEnd = pm.time;
+        }
+        if (pourStart == 0) {
+            for (const auto& pm : record.phases) {
+                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
+            }
+        }
+
+        // Channeling
+        record.channelingDetected = false;
+        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
+            for (const auto& phase : record.phases) {
+                if (!phase.isFlowMode || phase.label == "Start" || phase.label == "End") continue;
+                double phaseEnd = 0;
+                for (qsizetype pi = 0; pi < record.phases.size(); ++pi) {
+                    if (record.phases[pi].time == phase.time && pi + 1 < record.phases.size()) {
+                        phaseEnd = record.phases[pi + 1].time;
+                        break;
+                    }
+                }
+                if (phaseEnd - phase.time < ShotAnalysis::CHANNELING_MIN_PHASE_DURATION) continue;
+                if (ShotAnalysis::detectChannelingInRange(record.flow, phase.time, phaseEnd)) {
+                    record.channelingDetected = true;
+                    break;
+                }
+            }
+        }
+
+        // Temperature stability
+        record.temperatureUnstable = false;
+        if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10) {
+            if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
+                double avgDev = ShotAnalysis::avgTempDeviation(record.temperature, record.temperatureGoal, pourStart, pourEnd);
+                record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
+            }
+        }
     }
 
     return record;

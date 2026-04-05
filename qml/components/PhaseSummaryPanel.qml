@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
@@ -46,11 +47,19 @@ Item {
 
                 Item { Layout.fillWidth: true }
 
-                Text {
-                    text: root.expanded ? "\u25BC" : "\u25B6"
-                    font.pixelSize: Theme.captionFont.pixelSize
-                    color: Theme.textSecondaryColor
+                Image {
+                    source: "qrc:/icons/ArrowLeft.svg"
+                    sourceSize.width: Theme.scaled(12)
+                    sourceSize.height: Theme.scaled(12)
+                    rotation: root.expanded ? -90 : 180
                     Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
             }
 

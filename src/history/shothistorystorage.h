@@ -176,7 +176,7 @@ struct ShotSaveData {
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;
 
-    // Quality flags (computed at save time from ShotSummarizer)
+    // Quality flags (computed at save time using ShotAnalysis helpers)
     bool channelingDetected = false;
     bool temperatureUnstable = false;
 

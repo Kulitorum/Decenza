@@ -22,7 +22,7 @@ Dialog {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
         border.color: Theme.borderColor
-        border.width: 1
+        border.width: Theme.scaled(1)
     }
 
     header: null

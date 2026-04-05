@@ -10,6 +10,7 @@ Item {
 
     required property var graph
     property bool advancedMode: false
+    property bool liveMode: false  // true = live shot graph (hides post-shot-only curves like dC/dt)
 
     Layout.fillWidth: true
     implicitHeight: legendRow.height
@@ -35,7 +36,7 @@ Item {
                   tip: TranslationManager.translate("graph.tip.resistance", "Puck resistance (P/F). Rising = puck tightening. Falling = puck opening. Erratic = channeling.") },
                 { label: TranslationManager.translate("graph.conductance", "Conduct(F\u00B2/P)"), sColor: Theme.conductanceColor, key: "showConductance", advanced: true,
                   tip: TranslationManager.translate("graph.tip.conductance", "Conductance (F\u00B2/P, Darcy's law). Rising = puck opening up. Stable = consistent extraction. Spike = channeling.") },
-                { label: TranslationManager.translate("graph.dCdt", "dC/dt"), sColor: Theme.conductanceDerivativeColor, key: "showConductanceDerivative", advanced: true,
+                { label: TranslationManager.translate("graph.dCdt", "dC/dt"), sColor: Theme.conductanceDerivativeColor, key: "showConductanceDerivative", advanced: true, postShotOnly: true,
                   tip: TranslationManager.translate("graph.tip.dCdt", "Rate of change of conductance. The best channeling detector — spikes reveal transient channels that are invisible in other curves.") },
                 { label: TranslationManager.translate("graph.darcyResistance", "Resist(P/F\u00B2)"), sColor: Theme.darcyResistanceColor, key: "showDarcyResistance", advanced: true,
                   tip: TranslationManager.translate("graph.tip.darcyResistance", "Darcy resistance (P/F\u00B2). Physics-based puck resistance for laminar flow. Inverse of conductance.") },
@@ -45,7 +46,7 @@ Item {
 
             delegate: Rectangle {
                 required property var modelData
-                visible: !modelData.advanced || legendRoot.advancedMode
+                visible: (!modelData.advanced || legendRoot.advancedMode) && (!modelData.postShotOnly || !legendRoot.liveMode)
                 width: visible ? legendItemRow.width + Theme.spacingMedium * 2 : 0
                 height: visible ? Math.max(Theme.scaled(44), legendItemRow.height + Theme.scaled(24)) : 0
                 radius: Theme.scaled(4)
@@ -56,6 +57,7 @@ Item {
                 Accessible.name: modelData.label
                 Accessible.checked: legendRoot.graph[modelData.key] ?? false
                 Accessible.focusable: true
+                Accessible.description: TranslationManager.translate("graph.tip.longPressHint", "Long-press to view description.")
                 Accessible.onPressAction: toggleVisibility()
 
                 function toggleVisibility() {
@@ -79,20 +81,31 @@ Item {
                     }
                 }
 
+                property bool longPressShowing: false
+
                 MouseArea {
                     id: legendItemArea
                     anchors.fill: parent
                     preventStealing: true
                     hoverEnabled: true
                     onClicked: toggleVisibility()
-                    onPressAndHold: legendTip.show(modelData.tip, 4000)
+                    onPressAndHold: {
+                        parent.longPressShowing = true
+                        longPressHideTimer.restart()
+                    }
+                }
+
+                Timer {
+                    id: longPressHideTimer
+                    interval: 4000
+                    onTriggered: parent.longPressShowing = false
                 }
 
                 ToolTip {
                     id: legendTip
                     text: modelData.tip ?? ""
-                    visible: legendItemArea.containsMouse && legendItemArea.pressedButtons === 0 && text !== ""
-                    delay: 500
+                    visible: ((legendItemArea.containsMouse && legendItemArea.pressedButtons === 0) || parent.longPressShowing) && text !== ""
+                    delay: parent.longPressShowing ? 0 : 500
                     width: Math.min(Theme.scaled(280), Theme.windowWidth * 0.7)
 
                     contentItem: Text {

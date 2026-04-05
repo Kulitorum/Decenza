@@ -34,6 +34,7 @@ Item {
 
             Accessible.role: Accessible.StaticText
             Accessible.name: channelingText.text
+            Accessible.focusable: true
 
             Row {
                 id: channelingRow
@@ -67,6 +68,7 @@ Item {
 
             Accessible.role: Accessible.StaticText
             Accessible.name: tempText.text
+            Accessible.focusable: true
 
             Row {
                 id: tempRow
@@ -100,6 +102,7 @@ Item {
 
             Accessible.role: Accessible.StaticText
             Accessible.name: cleanText.text
+            Accessible.focusable: true
 
             Row {
                 id: cleanRow
