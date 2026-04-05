@@ -203,6 +203,10 @@ QtObject {
     property color weightColor: _c("weightColor", Settings.customThemeColors.weightColor || "#a2693d")
     property color weightFlowColor: _c("weightFlowColor", Settings.customThemeColors.weightFlowColor || "#d4a574")
     property color resistanceColor: _c("resistanceColor", Settings.customThemeColors.resistanceColor || "#eae83d")
+    property color conductanceColor: _c("conductanceColor", Settings.customThemeColors.conductanceColor || "#00d2d3")
+    property color conductanceDerivativeColor: _c("conductanceDerivativeColor", Settings.customThemeColors.conductanceDerivativeColor || "#e056a0")
+    property color darcyResistanceColor: _c("darcyResistanceColor", Settings.customThemeColors.darcyResistanceColor || "#f0a500")
+    property color temperatureMixColor: _c("temperatureMixColor", Settings.customThemeColors.temperatureMixColor || "#ce93d8")
     property color waterLevelColor: _c("waterLevelColor", Settings.customThemeColors.waterLevelColor || "#4e85f4")
 
     // Tracking status colors (profile goal vs actual)

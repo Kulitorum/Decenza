@@ -20,6 +20,10 @@ ChartView {
     property bool showWeight: Settings.value("graph/showWeight", true)
     property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
     property bool showResistance: Settings.value("graph/showResistance", false)
+    property bool showConductance: Settings.value("graph/showConductance", false)
+    property bool showConductanceDerivative: Settings.value("graph/showConductanceDerivative", false)
+    property bool showDarcyResistance: Settings.value("graph/showDarcyResistance", false)
+    property bool showTemperatureMix: Settings.value("graph/showTemperatureMix", false)
 
     // Which right-side axis labels to display (tap axis to swap)
     property bool showWeightAxis: Settings.value("graph/showWeightAxis", true)
@@ -47,6 +51,10 @@ ChartView {
     property var weightData: []
     property var weightFlowRateData: []
     property var resistanceData: []
+    property var conductanceData: []
+    property var darcyResistanceData: []
+    property var conductanceDerivativeData: []
+    property var temperatureMixData: []
     property var pressureGoalData: []
     property var flowGoalData: []
     property var temperatureGoalData: []
@@ -79,6 +87,22 @@ ChartView {
         }
         for (i = 0; i < resistanceData.length; i++) {
             resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
+        }
+        conductanceSeries.clear()
+        for (i = 0; i < conductanceData.length; i++) {
+            conductanceSeries.append(conductanceData[i].x, conductanceData[i].y)
+        }
+        darcyResistanceSeries.clear()
+        for (i = 0; i < darcyResistanceData.length; i++) {
+            darcyResistanceSeries.append(darcyResistanceData[i].x, darcyResistanceData[i].y)
+        }
+        conductanceDerivativeSeries.clear()
+        for (i = 0; i < conductanceDerivativeData.length; i++) {
+            conductanceDerivativeSeries.append(conductanceDerivativeData[i].x, conductanceDerivativeData[i].y)
+        }
+        temperatureMixSeries.clear()
+        for (i = 0; i < temperatureMixData.length; i++) {
+            temperatureMixSeries.append(temperatureMixData[i].x, temperatureMixData[i].y)
         }
 
         // Update time axis
@@ -157,7 +181,11 @@ ChartView {
             { key: "temperature", name: "Temp", series: temperatureSeries, unit: "\u00B0C", show: showTemperature },
             { key: "weight", name: "Weight", series: weightSeries, unit: "g", show: showWeight },
             { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s", show: showWeightFlow },
-            { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "", show: showResistance }
+            { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "", show: showResistance },
+            { key: "conductance", name: "Conductance", series: conductanceSeries, unit: "", show: showConductance },
+            { key: "darcyResistance", name: "Darcy R", series: darcyResistanceSeries, unit: "", show: showDarcyResistance },
+            { key: "dCdt", name: "dC/dt", series: conductanceDerivativeSeries, unit: "", show: showConductanceDerivative },
+            { key: "mixTemp", name: "Mix temp", series: temperatureMixSeries, unit: "\u00B0C", show: showTemperatureMix }
         ]
 
         for (var i = 0; i < curves.length; i++) {
@@ -208,7 +236,11 @@ ChartView {
             { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow },
             { name: "Weight", series: weightSeries, show: showWeight },
             { name: "Temp", series: temperatureSeries, show: showTemperature },
-            { name: "Resistance", series: resistanceSeries, show: showResistance }
+            { name: "Resistance", series: resistanceSeries, show: showResistance },
+            { name: "Conductance", series: conductanceSeries, show: showConductance },
+            { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance },
+            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative },
+            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix }
         ]
 
         var parts = []
@@ -441,6 +473,46 @@ ChartView {
         axisX: timeAxis
         axisY: pressureAxis
         visible: chart.showResistance
+    }
+
+    LineSeries {
+        id: conductanceSeries
+        name: "Conductance"
+        color: Theme.conductanceColor
+        width: Theme.scaled(2)
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showConductance
+    }
+
+    LineSeries {
+        id: darcyResistanceSeries
+        name: "Darcy Resistance"
+        color: Theme.darcyResistanceColor
+        width: Theme.scaled(2)
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showDarcyResistance
+    }
+
+    LineSeries {
+        id: conductanceDerivativeSeries
+        name: "dC/dt"
+        color: Theme.conductanceDerivativeColor
+        width: Theme.scaled(2)
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showConductanceDerivative
+    }
+
+    LineSeries {
+        id: temperatureMixSeries
+        name: "Mix Temp"
+        color: Theme.temperatureMixColor
+        width: Theme.scaled(2)
+        axisX: timeAxis
+        axisYRight: tempAxis
+        visible: chart.showTemperatureMix
     }
 
     // Phase marker vertical lines (up to 10 markers)

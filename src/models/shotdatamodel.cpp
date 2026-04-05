@@ -11,6 +11,8 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_temperaturePoints.reserve(INITIAL_CAPACITY);
     m_temperatureMixPoints.reserve(INITIAL_CAPACITY);
     m_resistancePoints.reserve(INITIAL_CAPACITY);
+    m_conductancePoints.reserve(INITIAL_CAPACITY);
+    m_darcyResistancePoints.reserve(INITIAL_CAPACITY);
     m_waterDispensedPoints.reserve(INITIAL_CAPACITY);
     m_temperatureGoalPoints.reserve(INITIAL_CAPACITY);
     m_weightPoints.reserve(INITIAL_CAPACITY);
@@ -83,13 +85,19 @@ void ShotDataModel::registerSeries(const QVariantList& pressureGoalSegments, con
 void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                         FastLineRenderer* temperature,
                                         FastLineRenderer* weight, FastLineRenderer* weightFlow,
-                                        FastLineRenderer* resistance) {
+                                        FastLineRenderer* resistance,
+                                        FastLineRenderer* conductance,
+                                        FastLineRenderer* darcyResistance,
+                                        FastLineRenderer* temperatureMix) {
     m_fastPressure = pressure;
     m_fastFlow = flow;
     m_fastTemperature = temperature;
     m_fastWeight = weight;
     m_fastWeightFlow = weightFlow;
     m_fastResistance = resistance;
+    m_fastConductance = conductance;
+    m_fastDarcyResistance = darcyResistance;
+    m_fastTemperatureMix = temperatureMix;
 
     // Reset flush indices
     m_lastFlushedPressure = 0;
@@ -98,6 +106,9 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
     m_lastFlushedWeight = 0;
     m_lastFlushedWeightFlow = 0;
     m_lastFlushedResistance = 0;
+    m_lastFlushedConductance = 0;
+    m_lastFlushedDarcyResistance = 0;
+    m_lastFlushedTemperatureMix = 0;
 
     // Bulk-load any existing data (e.g., returning to espresso page after shot)
     if (!m_pressurePoints.isEmpty() || !m_flowPoints.isEmpty() || !m_weightPoints.isEmpty()) {
@@ -112,6 +123,9 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
         if (m_fastWeight) m_fastWeight->setPoints(m_weightPoints);
         if (m_fastWeightFlow) m_fastWeightFlow->setPoints(m_weightFlowRatePoints);
         if (m_fastResistance) m_fastResistance->setPoints(m_resistancePoints);
+        if (m_fastConductance) m_fastConductance->setPoints(m_conductancePoints);
+        if (m_fastDarcyResistance) m_fastDarcyResistance->setPoints(m_darcyResistancePoints);
+        if (m_fastTemperatureMix) m_fastTemperatureMix->setPoints(m_temperatureMixPoints);
 
         // Mark all as flushed
         m_lastFlushedPressure = m_pressurePoints.size();
@@ -120,6 +134,9 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
         m_lastFlushedWeight = m_weightPoints.size();
         m_lastFlushedWeightFlow = m_weightFlowRatePoints.size();
         m_lastFlushedResistance = m_resistancePoints.size();
+        m_lastFlushedConductance = m_conductancePoints.size();
+        m_lastFlushedDarcyResistance = m_darcyResistancePoints.size();
+        m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
     qDebug() << "ShotDataModel: Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
@@ -135,6 +152,9 @@ void ShotDataModel::clear() {
     m_temperaturePoints.clear();
     m_temperatureMixPoints.clear();
     m_resistancePoints.clear();
+    m_conductancePoints.clear();
+    m_darcyResistancePoints.clear();
+    m_conductanceDerivativePoints.clear();
     m_waterDispensedPoints.clear();
     m_temperatureGoalPoints.clear();
     m_weightPoints.clear();
@@ -158,12 +178,18 @@ void ShotDataModel::clear() {
     if (m_fastWeight) m_fastWeight->clear();
     if (m_fastWeightFlow) m_fastWeightFlow->clear();
     if (m_fastResistance) m_fastResistance->clear();
+    if (m_fastConductance) m_fastConductance->clear();
+    if (m_fastDarcyResistance) m_fastDarcyResistance->clear();
+    if (m_fastTemperatureMix) m_fastTemperatureMix->clear();
     m_lastFlushedPressure = 0;
     m_lastFlushedFlow = 0;
     m_lastFlushedTemp = 0;
     m_lastFlushedWeight = 0;
     m_lastFlushedWeightFlow = 0;
     m_lastFlushedResistance = 0;
+    m_lastFlushedConductance = 0;
+    m_lastFlushedDarcyResistance = 0;
+    m_lastFlushedTemperatureMix = 0;
 
     // Clear goal/marker chart series
     if (m_temperatureGoalSeries) m_temperatureGoalSeries->clear();
@@ -237,6 +263,18 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
         resistance = qMin(pressure / flow, 15.0);
     }
     m_resistancePoints.append(QPointF(time, resistance));
+
+    // Conductance: F^2 / P (Darcy's law for laminar flow through porous media)
+    // Darcy Resistance: P / F^2 (inverse of conductance)
+    // Both clamped to 19 to match Visualizer.coffee convention
+    double conductance = 0.0;
+    double darcyResistance = 0.0;
+    if (flow > 0.05 && pressure > 0.05) {
+        conductance = qMin((flow * flow) / pressure, 19.0);
+        darcyResistance = qMin(pressure / (flow * flow), 19.0);
+    }
+    m_conductancePoints.append(QPointF(time, conductance));
+    m_darcyResistancePoints.append(QPointF(time, darcyResistance));
 
     // Water dispensed: cumulative flow integration (flow is ml/s)
     double waterDispensed = 0.0;
@@ -402,6 +440,65 @@ void ShotDataModel::smoothWeightFlowRate(int window) {
     m_weightFlowRatePoints = smoothed;
 }
 
+void ShotDataModel::computeConductanceDerivative() {
+    // Compute dC/dt (rate of change of conductance, scaled x10, Gaussian smoothed).
+    // This is the single most diagnostic visual for puck integrity — it reveals
+    // transient channeling events that are invisible in pressure/flow/resistance curves.
+    // Formula matches Visualizer.coffee (app/models/shot_chart/additional_charts.rb).
+    m_conductanceDerivativePoints.clear();
+
+    qsizetype n = m_conductancePoints.size();
+    if (n < 3) return;
+
+    // Step 1: Compute raw derivative using central differences, scaled x10
+    QVector<double> rawDerivative(n, 0.0);
+    for (qsizetype i = 1; i < n - 1; ++i) {
+        double dt = m_conductancePoints[i + 1].x() - m_conductancePoints[i - 1].x();
+        if (dt > 0.001) {
+            double dc = m_conductancePoints[i + 1].y() - m_conductancePoints[i - 1].y();
+            rawDerivative[i] = (dc / dt) * 10.0;
+        }
+    }
+    // Edge values: forward/backward difference
+    {
+        double dt = m_conductancePoints[1].x() - m_conductancePoints[0].x();
+        if (dt > 0.001)
+            rawDerivative[0] = ((m_conductancePoints[1].y() - m_conductancePoints[0].y()) / dt) * 10.0;
+        dt = m_conductancePoints[n - 1].x() - m_conductancePoints[n - 2].x();
+        if (dt > 0.001)
+            rawDerivative[n - 1] = ((m_conductancePoints[n - 1].y() - m_conductancePoints[n - 2].y()) / dt) * 10.0;
+    }
+
+    // Step 2: Apply 9-point Gaussian kernel (matches Visualizer.coffee)
+    static constexpr double GAUSSIAN[] = {
+        0.048297, 0.08393, 0.124548, 0.157829, 0.170793,
+        0.157829, 0.124548, 0.08393, 0.048297
+    };
+    static constexpr qsizetype KERNEL_HALF = 4;
+
+    m_conductanceDerivativePoints.reserve(n);
+    for (qsizetype i = 0; i < n; ++i) {
+        double smoothed = 0.0;
+        double weightSum = 0.0;
+        for (qsizetype k = -KERNEL_HALF; k <= KERNEL_HALF; ++k) {
+            qsizetype idx = i + k;
+            if (idx >= 0 && idx < n) {
+                double w = GAUSSIAN[k + KERNEL_HALF];
+                smoothed += rawDerivative[idx] * w;
+                weightSum += w;
+            }
+        }
+        if (weightSum > 0.0)
+            smoothed /= weightSum;
+
+        // Clamp to [-5, 19] per Visualizer convention
+        smoothed = qBound(-5.0, smoothed, 19.0);
+        m_conductanceDerivativePoints.append(QPointF(m_conductancePoints[i].x(), smoothed));
+    }
+
+    qDebug() << "ShotDataModel: Computed conductance derivative (" << n << " points)";
+}
+
 void ShotDataModel::trimSettlingData() {
     // Find the last sample with non-zero pressure — samples after this are from the
     // SAW settling period where the DE1 reports 0 pressure/flow while the scale settles.
@@ -432,6 +529,8 @@ void ShotDataModel::trimSettlingData() {
     m_temperaturePoints.resize(qMin(m_temperaturePoints.size(), trimIndex));
     m_temperatureMixPoints.resize(qMin(m_temperatureMixPoints.size(), trimIndex));
     m_resistancePoints.resize(qMin(m_resistancePoints.size(), trimIndex));
+    m_conductancePoints.resize(qMin(m_conductancePoints.size(), trimIndex));
+    m_darcyResistancePoints.resize(qMin(m_darcyResistancePoints.size(), trimIndex));
     m_waterDispensedPoints.resize(qMin(m_waterDispensedPoints.size(), trimIndex));
 
     // Trim time-based series using cutoff from last retained pressure sample.
@@ -505,6 +604,21 @@ void ShotDataModel::onFlushTimerTick() {
         for (qsizetype i = m_lastFlushedResistance; i < m_resistancePoints.size(); ++i)
             m_fastResistance->appendPoint(m_resistancePoints[i].x(), m_resistancePoints[i].y());
         m_lastFlushedResistance = m_resistancePoints.size();
+    }
+    if (m_fastConductance) {
+        for (qsizetype i = m_lastFlushedConductance; i < m_conductancePoints.size(); ++i)
+            m_fastConductance->appendPoint(m_conductancePoints[i].x(), m_conductancePoints[i].y());
+        m_lastFlushedConductance = m_conductancePoints.size();
+    }
+    if (m_fastDarcyResistance) {
+        for (qsizetype i = m_lastFlushedDarcyResistance; i < m_darcyResistancePoints.size(); ++i)
+            m_fastDarcyResistance->appendPoint(m_darcyResistancePoints[i].x(), m_darcyResistancePoints[i].y());
+        m_lastFlushedDarcyResistance = m_darcyResistancePoints.size();
+    }
+    if (m_fastTemperatureMix) {
+        for (qsizetype i = m_lastFlushedTemperatureMix; i < m_temperatureMixPoints.size(); ++i)
+            m_fastTemperatureMix->appendPoint(m_temperatureMixPoints[i].x(), m_temperatureMixPoints[i].y());
+        m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
     // Update goal curve LineSeries (infrequent updates, replace() is fine)

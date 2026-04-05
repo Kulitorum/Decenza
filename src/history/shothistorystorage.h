@@ -71,6 +71,9 @@ struct ShotRecord {
     QVector<QPointF> temperatureGoal;
     QVector<QPointF> temperatureMix;
     QVector<QPointF> resistance;
+    QVector<QPointF> conductance;
+    QVector<QPointF> darcyResistance;
+    QVector<QPointF> conductanceDerivative;
     QVector<QPointF> waterDispensed;
     QVector<QPointF> weight;
     QVector<QPointF> weightFlowRate;  // Flow rate from scale (g/s) for visualizer export
@@ -90,6 +93,13 @@ struct ShotRecord {
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") for profile-aware analysis
     QString profileKbId;
+
+    // Quality flags (computed at save time, recomputed on-the-fly for legacy shots)
+    bool channelingDetected = false;
+    bool temperatureUnstable = false;
+
+    // Phase summaries JSON (per-phase metrics: duration, avgPressure, avgFlow, weightGained, etc.)
+    QString phaseSummariesJson;
 };
 
 // Grinder settings context from shot history (shared by MCP and in-app AI)
@@ -166,6 +176,13 @@ struct ShotSaveData {
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;
 
+    // Quality flags (computed at save time from ShotSummarizer)
+    bool channelingDetected = false;
+    bool temperatureUnstable = false;
+
+    // Phase summaries JSON (per-phase metrics for UI display)
+    QString phaseSummariesJson;
+
     // Pre-compressed sample data blob
     QByteArray compressedSamples;
     int sampleCount = 0;
@@ -226,6 +243,14 @@ public:
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
 
+    // Compute conductance, Darcy resistance, and conductance derivative
+    // from raw pressure/flow data for legacy shots that lack these fields.
+    static void computeDerivedCurves(ShotRecord& record);
+
+    // Compute per-phase summaries (avg pressure, flow, weight gained, etc.) from raw curves
+    // and phase markers for legacy shots that lack phaseSummariesJson.
+    static void computePhaseSummaries(ShotRecord& record);
+
     // Query observed grinder settings for a grinder model + beverage type.
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel, const QString& beverageType);
@@ -239,6 +264,10 @@ public:
 
     // Delete shot(s)
     Q_INVOKABLE void deleteShots(const QVariantList& shotIds);
+
+    // Generate a concise shot quality summary from a shot data QVariantMap.
+    // Returns a list of {text, type} maps for display in ShotAnalysisDialog.
+    Q_INVOKABLE QVariantList generateShotSummary(const QVariantMap& shotData) const;
 
     // Async: runs delete on background thread, emits shotDeleted()
     Q_INVOKABLE void requestDeleteShot(qint64 shotId);
@@ -351,7 +380,7 @@ signals:
 private:
     bool createTables();
     bool runMigrations();
-    QByteArray compressSampleData(ShotDataModel* shotData);
+    QByteArray compressSampleData(ShotDataModel* shotData, const QString& phaseSummariesJson = QString());
     static void decompressSampleData(const QByteArray& blob, ShotRecord* record);
     void updateTotalShots();
     QString buildFilterQuery(const ShotFilter& filter, QVariantList& bindValues);

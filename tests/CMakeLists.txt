@@ -147,6 +147,7 @@ set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/controllers/profilemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/profilestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
@@ -156,6 +157,7 @@ set(PROFILEMANAGER_SOURCES
 # History sources (ShotHistoryStorage + transitive deps)
 set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
@@ -298,6 +300,7 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}
@@ -321,6 +324,7 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}

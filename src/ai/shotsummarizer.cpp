@@ -1,4 +1,5 @@
 #include "shotsummarizer.h"
+#include "shotanalysis.h"
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
@@ -57,20 +58,23 @@ QString ShotSummarizer::profileTypeDescription(const QString& editorType)
 void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const
 {
     summary.channelingDetected = false;
-    bool isFilter = summary.beverageType.toLower() == "filter" ||
-                    summary.beverageType.toLower() == "pourover";
-    if (!isFilter) {
-        for (const auto& phase : summary.phases) {
-            if (!phase.isFlowMode) continue;
-            if (phase.duration < 3.0) continue;
-            // Skip high-flow phases (> 3.0 ml/s avg) — at these rates, turbulence-driven
-            // flow variation is normal and indistinguishable from channeling by spike detection.
-            // Heuristic threshold; affects Allongé and turbo profiles.
-            if (phase.avgFlow > 3.0) continue;
-            if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
-                summary.channelingDetected = true;
-                break;
-            }
+
+    // Use shared skip-check (filter/pourover/turbo)
+    double pourStart = 0, pourEnd = summary.totalDuration;
+    for (const auto& phase : summary.phases) {
+        if (phase.startTime > 0 && pourStart == 0) pourStart = phase.startTime;
+        pourEnd = phase.endTime;
+    }
+    if (ShotAnalysis::shouldSkipChannelingCheck(summary.beverageType, flowData, pourStart, pourEnd))
+        return;
+
+    for (const auto& phase : summary.phases) {
+        if (!phase.isFlowMode) continue;
+        if (phase.duration < ShotAnalysis::CHANNELING_MIN_PHASE_DURATION) continue;
+        if (phase.avgFlow > ShotAnalysis::CHANNELING_MAX_AVG_FLOW) continue;
+        if (ShotAnalysis::detectChannelingInRange(flowData, phase.startTime, phase.endTime)) {
+            summary.channelingDetected = true;
+            break;
         }
     }
 }
@@ -80,49 +84,20 @@ void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
 {
     if (tempGoalData.isEmpty()) {
         double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
-        summary.temperatureUnstable = tempStdDev > 2.0;
+        summary.temperatureUnstable = tempStdDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
         return;
     }
 
     bool overallUnstable = false;
 
     for (auto& phase : summary.phases) {
-        // Check if this phase intentionally uses temperature stepping
-        double minGoal = std::numeric_limits<double>::max();
-        double maxGoal = std::numeric_limits<double>::lowest();
-        bool hasGoal = false;
-
-        for (const auto& point : tempGoalData) {
-            if (point.x() < phase.startTime) continue;
-            if (point.x() > phase.endTime) break;
-            if (point.y() > 0) {
-                minGoal = std::min(minGoal, point.y());
-                maxGoal = std::max(maxGoal, point.y());
-                hasGoal = true;
-            }
-        }
-
-        if (hasGoal && (maxGoal - minGoal > 5.0)) {
-            // Intentional temperature stepping in this phase — skip stability check
+        if (ShotAnalysis::hasIntentionalTempStepping(tempGoalData, phase.startTime, phase.endTime)) {
             phase.temperatureUnstable = false;
             continue;
         }
 
-        // Calculate stability for this phase against target
-        double deviationSum = 0;
-        int count = 0;
-        for (const auto& point : tempData) {
-            if (point.x() < phase.startTime) continue;
-            if (point.x() > phase.endTime) break;
-
-            double target = findValueAtTime(tempGoalData, point.x());
-            if (target > 0) {
-                deviationSum += std::abs(point.y() - target);
-                count++;
-            }
-        }
-
-        if (count > 0 && (deviationSum / count) > 2.0) {
+        double avgDev = ShotAnalysis::avgTempDeviation(tempData, tempGoalData, phase.startTime, phase.endTime);
+        if (avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD) {
             phase.temperatureUnstable = true;
             overallUnstable = true;
         }
