@@ -1967,8 +1967,10 @@ int main(int argc, char *argv[])
 
         // Stop weight processor thread first (before BLE shutdown).
         // Any pending SOW commands are no longer needed since we're exiting.
+        qDebug() << "[ShutdownTrace] Stopping weight thread";
         weightThread.quit();
         weightThread.wait(1000);
+        qDebug() << "[ShutdownTrace] Weight thread stopped";
 
         bool needBleWait = false;
 
@@ -2024,7 +2026,9 @@ int main(int argc, char *argv[])
         // Without this, if the app is force-killed (e.g. after a hang), Android's
         // Bluetooth stack keeps the stale GATT connection — on Samsung devices this
         // can prevent the app from reconnecting until the device is rebooted.
+        qDebug() << "[ShutdownTrace] Disconnecting DE1 BLE";
         de1Device.disconnect();
+        qDebug() << "[ShutdownTrace] Disconnecting scale BLE";
         if (physicalScale) {
             physicalScale->disconnectFromScale();
         }
@@ -2036,26 +2040,33 @@ int main(int argc, char *argv[])
         // Disable Qt's accessibility bridge before window destruction
         // This prevents iOS crash (SIGBUS) where the accessibility system tries to
         // sync with already-destroyed QML items during app exit
+        qDebug() << "[ShutdownTrace] Disabling QAccessible";
         QAccessible::setActive(false);
 
         // Shutdown accessibility to stop TTS before any other cleanup
         // This prevents race conditions with Android's hwuiTask thread
+        qDebug() << "[ShutdownTrace] Shutting down accessibility manager";
         accessibilityManager.shutdown();
+        qDebug() << "[ShutdownTrace] aboutToQuit handler complete";
     });
 
     int result = app.exec();
+    qDebug() << "[ShutdownTrace] app.exec() returned";
 
     // Disconnect DE1 signals before stack destruction — the reconnect lambda
     // tries to start a QTimer after the event dispatcher is torn down, crashing
     // in QThreadData::hasEventDispatcher() during ~DE1Device::disconnect()
+    qDebug() << "[ShutdownTrace] Disconnecting DE1 signals";
     QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
 
     // Disable crash handler before cleanup - crashes during C++ runtime destruction
     // are not actionable and shouldn't prompt users to submit bug reports
+    qDebug() << "[ShutdownTrace] Uninstalling crash handler";
     CrashHandler::uninstall();
 
     // Drain remaining log messages and restore default handler.
     // Must be after CrashHandler (reverse of installation order).
+    qDebug() << "[ShutdownTrace] Uninstalling AsyncLogger - this is the last message";
     AsyncLogger::uninstall();
 
     return result;
