@@ -288,12 +288,12 @@ AnalysisFlags: flow_trend_ok
 
 ## Best Practice Light Roast
 Category: Adaptive/Blooming hybrid
-How it works: Combines Brakel's Londinium, Rao's Blooming, and Gagné's Adaptive techniques into a single forgiving light-roast profile. Preinfusion at low pressure (3 bar) until dripping, then 1.5 bar gentle soak, then pressure ramps up to ~9–10.5 bar, then flow-controlled extraction at ~2.5 ml/s with a 10.5 bar pressure limiter.
+How it works: Unites the best practices learned from the Decent: Brakel's Londinium preinfusion technique, Rao's Blooming, and Gagné's Adaptive flow-locking. Preinfusion at low pressure (3 bar) until dripping, then a 1.5 bar gentle soak to fully saturate the puck, then pressure ramps to ~9–10.5 bar, then flow-controlled extraction at ~2.5 ml/s with a 10.5 bar pressure limiter. Canonical recipe: 18g in, 50g out, in ~60 seconds.
 Expected curves: Very low pressure during fill/soak (~1.5–3 bar), then pressure rise to ~9–10 bar, then pressure-limited flow extraction. Pressure may not reach the limiter if grind is coarse. Variable curves are expected — the profile adapts to grind.
 Temperature: 92°C preinfusion, 90°C extraction
 Duration: ~50–70s total (longer than most due to extended preinfusion soak)
 Dose: 18g → 50g out (~1:2.8)
-Grind: Coarse for light roasts (target ~2.5 ml/s extraction flow)
+Grind: Coarse for light roasts (target ~2.5 ml/s extraction flow). Grind fine enough to maintain dripping during preinfusion; if dripping stops completely, grind is too coarse.
 Roast: Light roasts primarily. Can adapt to medium with temperature adjustment.
 DO NOT flag the long low-pressure soak phase as a problem — it is the intentional bloom/preinfusion designed for light-roast pucks.
 
@@ -311,23 +311,25 @@ DO NOT flag variable bloom duration or zero flow during bloom as problems — th
 ## Gagné Adaptive
 Also matches: "Gagné/Adaptive Shot 92C v1.0", "Gagné/Adaptive Allongé 94C v1.0", "Gagne Adaptive Shot", "Gagne Adaptive Allonge"
 Category: Adaptive/Flow
-How it works: Based on Rao Blooming but more forgiving. Preinfusion at 3.5–4 ml/s until 4 bar, then rises to 8.6 bar, then enters multiple "scan" frames that detect flow rate and lock in a stable flow-controlled extraction. The Allongé variant targets longer shots (1:4+) at 94°C with coarser grind.
+How it works: Created by Jonathan Gagné (Coffee ad Astra). An evolution of Rao Blooming that adapts to your grind — preinfusion at 3.5–4 ml/s until 4 bar, then pressure rises to 8.6 bar, then "scan" frames detect the current flow at peak pressure and lock it in for the rest of the shot. You dial in by targeting a flow rate with your grind, not by chasing a pressure curve. Finer grind → lower flow (~2.2 ml/s standard espresso style); coarser grind → higher flow (~4 ml/s Allongé style). The Allongé variant at 94°C targets longer shots (1:4+) with coarser grind.
 Expected curves: Pressure rises to 8.6 bar then stabilizes around 6 bar as flow control takes over. Flow adapts to grind — coarser grinds yield higher flow. Variable curves are EXPECTED — the profile detects grind resistance and adapts.
 Temperature: 92°C (Adaptive Shot), 94°C (Adaptive Allongé)
 Duration: ~25–45s (Adaptive Shot), longer for Allongé
 Dose: 20g → 40–50g (Adaptive Shot); higher ratio for Allongé
-Grind: Flat burrs preferred. Dial grind to achieve target flow rate, not a specific pressure curve.
-Roast: Light roasts (Adaptive Shot: 84–86°C for dark). Allongé: all roasts, optimized for light.
+Grind: Flat burrs preferred. Dial grind to target the flow rate you want — finer for ~2.2 ml/s standard espresso, coarser for ~4 ml/s Allongé-style. The profile will lock in whatever flow it sees at peak pressure.
+Flavor: Light roasts: bright, layered, fruited. At Allongé ratios: filter-like clarity with less body. At standard espresso ratios: concentrated and structured. The flow-locked extraction produces consistent character across a wide range of grind settings.
+Roast: Light roasts primarily (Adaptive Shot). Allongé: all roasts, optimized for light. For dark roasts, lower temperature to 84–86°C.
 DO NOT flag variable pressure curves or multi-step scan frames as problems — the profile is actively detecting and adapting to grind resistance.
 AnalysisFlags: flow_trend_ok
 
 ## I Got Your Back
 Category: Adaptive (grind-invariant)
-How it works: Adaptive profile that never fails regardless of grind setting. Preinfusion then detects puck resistance: if resistance is LOW (coarse grind), routes to a flat 2.2 ml/s flow extraction; if resistance is HIGH (fine grind), pauses, ramps pressure, then flat flow. Works across the full grind range.
-Expected curves: Variable by design — the pressure/flow path depends on which resistance branch is taken. Both paths converge to stable flow-controlled extraction. Either behavior is correct.
+How it works: Created by Shin. The goal is to never fail to produce an acceptable espresso at any grinder setting. During preinfusion, the profile detects puck resistance via pressure: if resistance is LOW (coarse grind — pressure stays low), it routes immediately to a flat 2.2 ml/s flow extraction; if resistance is HIGH (fine grind — pressure peaks), it triggers a bloom pause, then ramps pressure and transitions to flat flow. Both paths converge to stable flow-controlled extraction.
+Expected curves: Variable by design — the pressure/flow path taken depends on grind resistance. Both paths produce stable flow-controlled extraction. Either curve shape is correct.
 Temperature: 90°C
 Duration: ~25–40s
-Grind: Any — the profile routes itself to the correct extraction path
+Grind: Any — the profile detects resistance and routes itself to the appropriate extraction path
+Flavor: Reliable baseline espresso at any grind setting. The coarse-grind (low-resistance) path produces cleaner, brighter cups; the fine-grind (bloom) path adds more body and complexity. Both produce drinkable espresso.
 Roast: All roasts
 DO NOT flag variable curves or unexpected path-switching as problems — the adaptive branching is the entire purpose of this profile.
 
@@ -424,12 +426,13 @@ DO NOT flag zero or near-zero pressure, high water-to-coffee ratio, long duratio
 
 ## Trendy 6 Bar Low Pressure
 Category: Flat pressure (light roast)
-How it works: Long 20s preinfusion at 4 bar then flat 6 bar extraction. Lower pressure than traditional profiles reduces channeling risk and produces a sweeter, less astringent cup from beans that resist extraction at 9 bar.
+How it works: Long 20s preinfusion at 4 bar then flat 6 bar extraction. Lower pressure than traditional profiles reduces channeling risk and produces a sweeter, less astringent cup from beans that resist extraction at 9 bar. Specifically designed for sophisticated light roasts that smell great but resist being well extracted at standard pressure.
 Expected curves: 4 bar during preinfusion, then flat 6 bar extraction. Flow increases over time as puck erodes — normal for constant-pressure profiles. Pressure stays at 6 bar throughout extraction.
 Temperature: 92°C
 Duration: ~35–55s extraction after preinfusion
 Grind: Coarser than traditional (lower pressure requires slightly coarser grind to maintain flow)
-Roast: Light roasts specifically — designed for sophisticated light roasts that struggle with standard 9 bar.
+Flavor: Sweet, rounded, less astringent than 9 bar profiles. Suited to aromatic light roasts that produce hollow, bitter, or sour results at standard pressure. The lower pressure coaxes sweetness from resistant beans without forcing harsh extraction.
+Roast: Light roasts specifically — for sophisticated light roasts that struggle with standard 9 bar. Try this when your light roast smells great but tastes off at normal pressure.
 DO NOT flag the 6 bar pressure as underpressure — the reduced extraction pressure is the point of this profile.
 AnalysisFlags: flow_trend_ok
 

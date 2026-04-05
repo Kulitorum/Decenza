@@ -372,6 +372,217 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 - **Optional**: Paper/micromesh filter under puck to reduce oils and fines `[SRC:eaf-profiling]`
 - **Best for**: Filter coffee simulation in espresso machine `[SRC:eaf-profiling]`
 
+### Classic Italian / Gentler 8.4 Bar / Italian Australian
+
+- **Category**: Flat pressure `[SRC:profile-notes]`
+- **How it works**: Short preinfusion (4–8s at 4 bar) then sustained flat pressure extraction — 9 bar for Classic Italian, 8.4 bar for the gentler variant, 8.7 bar for Italian Australian. Emulates mainstream café espresso. `[SRC:profile-notes]`
+- **Pressure curve**: Flat throughout extraction. Flow increases as puck erodes — this is expected and normal for flat-pressure profiles. `[SRC:profile-notes]`
+- **Temperature**: 94°C (Classic Italian), 89.5°C (Gentler 8.4 bar), 88°C (Italian Australian) `[SRC:profile-notes]`
+- **Duration**: ~30–40s extraction after preinfusion `[SRC:profile-notes]`
+- **Grind**: Medium-fine. The 8.4 bar variant is more forgiving of puck prep. `[SRC:profile-notes]`
+- **Roast suitability**:
+  - Medium: Good — emulates café espresso with chocolate and body `[SRC:profile-notes]`
+  - Dark: Good — Italian Australian specifically uses 88°C to prevent overextraction of dark roasts `[SRC:profile-notes]`
+- **Best for**: Traditional Italian-style espresso; users familiar with E61-style machines; milk drinks
+
+### Traditional Lever Machine (and Low Pressure / Two Spring variants)
+
+- **Category**: Lever `[SRC:profile-notes]`
+- **How it works**: Spring-lever machine emulations. ~20s preinfusion at 4 bar (drip fill), then pressure peaks and gradually declines as the simulated spring decompresses. Traditional lever: 9 bar peak. Low pressure 6 bar: 6 bar peak, sweeter and gentler. Two spring: 9 bar peak held longer (second spring maintains pressure). `[SRC:profile-notes]`
+- **Pressure curve**: Gradual declining pressure after peak. The decline is intentional — this is a spring lever. `[SRC:profile-notes]`
+- **Temperature**: 92–94°C `[SRC:profile-notes]`
+- **Duration**: ~35s total extraction `[SRC:profile-notes]`
+- **Grind**: Medium `[SRC:profile-notes]`
+- **Flavor**: Sweet and smooth. Low pressure 6 bar variant is the gentlest and sweetest. Two spring variant produces more concentrated flavor from sustained peak pressure. `[SRC:profile-notes]`
+- **Roast suitability**:
+  - Medium: Good — sweet, full body `[SRC:profile-notes]`
+  - Dark: Good — smooth, traditional character `[SRC:profile-notes]`
+- **Best for**: Users who want to emulate a physical lever machine; sweet, smooth espresso without the complexity of advanced profiles
+
+### Advanced Spring Lever (and Weiss variant)
+
+- **Category**: Lever with flow recovery `[SRC:profile-notes]`
+- **How it works**: Spring-lever emulation with a flow-limit safety valve. If puck erodes too fast (flow exceeds the limiter), the profile switches to 1.5 ml/s flow-controlled extraction to prevent gushing. The Weiss variant uses 90°C (vs 88°C) and is tuned slightly differently. Both variants are more tolerant of grind variation than a pure lever profile. `[SRC:profile-notes]`
+- **Pressure curve**: 9 bar peak then gradual decline. If the flow-control step activates (visible as a pressure drop and stabilization), that is the safety valve working — not a problem. `[SRC:profile-notes]`
+- **Temperature**: 88°C (Advanced), 90°C (Weiss) `[SRC:profile-notes]`
+- **Duration**: ~35–45s `[SRC:profile-notes]`
+- **Dose**: 18g → ~32g out `[SRC:profile-notes]`
+- **Roast suitability**:
+  - All roasts: Good — the flow recovery step makes these forgiving across roast levels `[SRC:profile-notes]`
+- **Best for**: Users who want a lever-style profile but need more margin for grind variation; a good "training wheels" lever profile
+
+### Best Practice (Light Roast)
+
+- **Category**: Adaptive/Blooming hybrid `[SRC:profile-notes]`
+- **How it works**: Unites the best practices learned from the Decent machine: Brakel's Londinium preinfusion technique, Rao's Blooming, and Gagné's Adaptive flow-locking. Designed as a single forgiving light-roast profile. `[SRC:profile-notes]`
+- **Preinfusion**: Low pressure (3 bar) until dripping, then 1.5 bar gentle soak to fully saturate the puck `[SRC:profile-notes]`
+- **Extraction**: Pressure ramps to ~9–10.5 bar then flow-controlled at ~2.5 ml/s with 10.5 bar limiter `[SRC:profile-notes]`
+- **Temperature**: 92°C preinfusion, 90°C extraction `[SRC:profile-notes]`
+- **Duration**: ~50–70s total `[SRC:profile-notes]`
+- **Dose**: 18g in, 50g out in ~60 seconds (1:2.8) — canonical starting recipe `[SRC:profile-notes]`
+- **Grind**: Coarse for light roasts, targeting ~2.5 ml/s extraction flow. Grind fine enough to maintain dripping during preinfusion. `[SRC:profile-notes]`
+- **Roast suitability**:
+  - Light: Excellent — forgiving, high-extraction, designed specifically for light roasts `[SRC:profile-notes]`
+- **Best for**: Light roast users who want a single versatile profile that doesn't require precise grind targeting; combines the best of three approaches in one profile
+
+### Easy Blooming (Active Pressure Decline)
+
+- **Category**: Blooming (adaptive) `[SRC:community-index]`
+- **Creator**: Stéphane `[SRC:community-index]`
+- **How it works**: An accessible evolution of Rao Blooming. The key innovation is a pressure-threshold bloom exit: rather than a fixed timer, the bloom phase ends when pressure declines to a threshold value (~1.5–2 bar). This makes bloom duration self-adjust to grind coarseness — finer grinds hold pressure longer (longer bloom); coarser grinds depressurize quickly (shorter bloom). After bloom, active pressure decline manages increasing flow as the puck erodes. `[SRC:community-index]`
+- **Motivation**: The original Rao Blooming profile requires precise grind timing — minor changes in grind can have massive impact on extraction pressure, making it difficult to dial in consistently. Easy Blooming removes the need to manually adjust bloom time when changing grind size. `[SRC:community-index]`
+- **Temperature**: 88°C default (adjustable 84–90°C for different roasts) `[SRC:profile-notes]`
+- **Duration**: ~25–45s (varies with grind — coarser grind = shorter bloom = shorter total) `[SRC:profile-notes]`
+- **Dose**: 20g → 40–50g (1:2–2.5) `[SRC:profile-notes]`
+- **Grind**: Flat burrs preferred. Conical grinders: raise temperature ~2°C. `[SRC:community-index]`
+- **Roast suitability**:
+  - Light: Excellent — primary target, more forgiving than standard Blooming `[SRC:community-index]`
+  - Medium: Good — lower temperature to 84–86°C `[SRC:profile-notes]`
+- **Best for**: Users who want the benefits of Rao Blooming without the difficulty of precision grind timing; those who frequently change beans or grind settings
+
+### Gagné Adaptive Shot / Allongé
+
+- **Category**: Adaptive/Flow `[SRC:bc-adaptive]`
+- **Creator**: Jonathan Gagné (Coffee ad Astra) `[SRC:bc-adaptive]`
+- **How it works**: After preinfusion, pressure rises to 8.6 bar. A series of "scan" frames then detects the current flow at peak pressure and locks it in for the rest of the shot. The profile adapts to the grind — finer grind produces ~2.2 ml/s standard espresso; coarser grind produces ~4 ml/s Allongé-style. You dial in by targeting a flow rate with grind, not by chasing a pressure curve. `[SRC:bc-adaptive]`
+- **Key insight**: The profile makes it possible to produce either a flow-profile shot or a Rao Allongé from the same profile — grind coarser for Allongé, finer for standard espresso. Shots that are slightly off-dial still taste decent because the flow is always at a sensible rate. `[SRC:bc-adaptive]`
+- **Temperature**: 92°C (Adaptive Shot), 94°C (Adaptive Allongé) `[SRC:profile-notes]`
+- **Duration**: ~25–45s (Adaptive Shot); longer for Allongé `[SRC:profile-notes]`
+- **Dose**: 20g → 40–50g (Adaptive Shot); higher ratio for Allongé `[SRC:profile-notes]`
+- **Grind**: Flat burrs preferred. Coarser → higher flow → Allongé-style; finer → lower flow → espresso-style. `[SRC:bc-adaptive]`
+- **Roast suitability**:
+  - Light: Good (Adaptive Shot at 92°C; lower to 84–86°C for dark) `[SRC:profile-notes]`
+  - Light-medium: Excellent — bright, layered, fruited `[SRC:bc-adaptive]`
+- **Best for**: Users who want a forgiving, grind-adaptive profile; those who like to dial in by flow rate rather than pressure; bridge between standard espresso and Rao Allongé
+
+### I Got Your Back
+
+- **Category**: Adaptive (grind-invariant) `[SRC:profile-notes]`
+- **Creator**: Shin `[SRC:profile-notes]`
+- **How it works**: The goal is to never fail to produce an acceptable espresso at any grinder dial setting. During preinfusion, the profile detects puck resistance via pressure: low resistance (coarse grind) → immediately routes to flat 2.2 ml/s flow extraction; high resistance (fine grind) → triggers a bloom pause, then ramps pressure and transitions to flat flow. `[SRC:profile-notes]`
+- **Temperature**: 90°C `[SRC:profile-notes]`
+- **Duration**: ~25–40s `[SRC:profile-notes]`
+- **Grind**: Any — the profile detects resistance and routes to the appropriate extraction path `[SRC:profile-notes]`
+- **Roast suitability**:
+  - All roasts: Good — designed to work regardless of grind or roast `[SRC:profile-notes]`
+- **Best for**: New DE1 users still finding their grind range; anyone who wants a "can't fail" fallback profile; guests using the machine without dialing in
+
+### TurboBloom
+
+- **Category**: Blooming/Turbo hybrid `[SRC:community-index]`
+- **Creator**: Collin `[SRC:community-index]`
+- **How it works**: Created as a companion to TurboTurbo after Collin noticed that a very short bloom step recovers positive qualities lost at slower PI flow rates. Fast fill at 8 ml/s saturates the puck quickly, then a very short (~5s) bloom until pressure drops to 2.2 bar, then 6 bar extraction with a 4.5 ml/s flow limiter. The fast fill + short bloom combination achieves even extraction while allowing high flow during the extraction phase. `[SRC:community-index]`
+- **Temperature**: 86°C fill → 70°C bloom (intentional, reduces harshness) → 80°C extraction `[SRC:profile-notes]`
+- **Duration**: ~25–35s `[SRC:profile-notes]`
+- **Dose**: 15g → 45g (1:3) `[SRC:community-index]`
+- **Grind**: Coarse — high-extraction burrs targeting 3–4.5 ml/s final flow `[SRC:community-index]`
+- **Flavor**: Same tasting notes as TurboTurbo (high clarity, brightness) but cleaner, less astringency. The short bloom reduces harshness compared to the no-bloom approach. `[SRC:community-index]`
+- **Roast suitability**:
+  - All roasts: Good — optimized for high-extraction flat burr grinders `[SRC:community-index]`
+- **Best for**: High-extraction flat burr grinder users (SSP HU, EK-style); those who prefer TurboTurbo flavor but want slightly cleaner results; 1:3 ratio shots
+
+### TurboTurbo
+
+- **Category**: Turbo (no bloom) `[SRC:community-index]`
+- **Creators**: Collin and Jan `[SRC:community-index]`
+- **How it works**: High-extraction turbo shot without a bloom phase. Rapid preinfusion at 96°C to saturate the puck, then 6 bar extraction at 93°C with a 4.5 ml/s flow limiter. Original design used 97°C/8 ml/s preinfusion; refined to 96°C/4 ml/s for better consistency and less astringency. High temperature is appropriate for the coarse grind: coarser grounds need hotter water to reach the same extraction temperature at the puck. `[SRC:community-index]`
+- **Temperature**: 96°C preinfusion, 93°C extraction `[SRC:profile-notes]`
+- **Duration**: ~20–30s `[SRC:profile-notes]`
+- **Dose**: 15g → 45g (1:3) `[SRC:community-index]`
+- **Grind**: Coarse — much coarser than traditional espresso; targeting 3–4.5 ml/s `[SRC:community-index]`
+- **Flavor**: High clarity, bright, concentrated. Clean espresso with less bitterness and astringency than traditional 9 bar profiles. More like concentrated filter coffee than classic espresso. Shines with large flat burrs (SSP HU, EK-style). `[SRC:community-index]`
+- **Community note**: Some users tweak to 7 bar and extend preinfusion by 5s for more extraction and mouthfeel with more chocolate notes, while retaining the turbo character. `[SRC:community-index]`
+- **Roast suitability**:
+  - All roasts: Good — especially effective with flat burr high-extraction grinders `[SRC:community-index]`
+- **Best for**: High-extraction flat burr grinder users; fast shots (20–30s); users who want filter-coffee clarity in an espresso format
+
+### Gentle Flat / Long Preinfusion Family
+
+- **Category**: Gentle/Long Preinfusion Flow `[SRC:profile-notes]`
+- **How it works**: A family of Seattle-style profiles by John Weiss sharing a very long preinfusion soak (10–37s) before extraction. Designed to fully saturate light-roast pucks for even, channeling-free extraction. Also known as "Slayer-style" after the Slayer espresso machine which pioneered this technique. `[SRC:profile-notes]`
+- **Variants and parameters**: `[SRC:profile-notes]`
+  - *Gentle flat 2.5 ml/s*: 2.5 ml/s for 10s preinfusion, then 2.5 ml/s for 45s extraction at 6 bar
+  - *Gentle preinfusion flow*: 3.5 ml/s for 30s preinfusion, then 2.2 ml/s for 21s at 9 bar
+  - *Hybrid pour over espresso*: 2.0 ml/s for 25s to 1.5 bar, then 2.2 ml/s for 20s at 9 bar
+  - *Innovative long preinfusion* (Slayer-style): 1.5 ml/s for 37s to 2.0 bar, then 2.5 ml/s for 25s at 9 bar
+- **Temperature**: 92°C (most variants), 98°C (Innovative long preinfusion — intentionally high for light roasts) `[SRC:profile-notes]`
+- **Duration**: ~50–65s total `[SRC:profile-notes]`
+- **Roast suitability**:
+  - Light/ultra-light aromatic roasts: Excellent — profiles designed for beans that resist extraction at normal parameters `[SRC:profile-notes]`
+- **Best for**: Light/ultra-light aromatic roasts that resist standard extraction; users who want a gentler Slayer-style approach; the "Innovative long preinfusion" variant is the closest DE1 equivalent to a true Slayer shot
+
+### Preinfuse Then 45ml of Water
+
+- **Category**: Volume-based `[SRC:profile-notes]`
+- **Creator**: Matt Perger technique `[SRC:profile-notes]`
+- **How it works**: 25s preinfusion at 4 bar to fully saturate the puck, then extraction at 9 bar until a fixed 45ml of water has been delivered. Shot ends by volume, not weight or time — no scale required. The fixed water volume produces consistent results by bypassing scale dependency. `[SRC:profile-notes]`
+- **Temperature**: 90°C `[SRC:profile-notes]`
+- **Duration**: ~40–50s `[SRC:profile-notes]`
+- **Ratio**: Output depends on dose — approximately 1:2–2.5 for 18–20g doses with 45ml water `[SRC:profile-notes]`
+- **Grind**: Medium-fine `[SRC:profile-notes]`
+- **Roast suitability**:
+  - All roasts: Good `[SRC:profile-notes]`
+- **Best for**: Users without a scale; anyone who wants consistent volume-based shots; a simple, reliable profile for new users
+
+### 7g Basket
+
+- **Category**: Micro-espresso `[SRC:profile-notes]`
+- **How it works**: Optimized for the Decent 7g mini-basket. Reduced flow rate and lower peak pressure (7.5 bar) protect the small, thin puck from channeling and blowthrough. `[SRC:profile-notes]`
+- **Temperature**: 90°C `[SRC:profile-notes]`
+- **Duration**: ~16–20s `[SRC:profile-notes]`
+- **Dose**: 7g → 18–28g out `[SRC:profile-notes]`
+- **Grind**: Fine — small basket rewards fine grind for extraction efficiency `[SRC:profile-notes]`
+- **Community tips**: Sub-14g doses are significantly harder to dial in than standard. Essential practices: use a dosing funnel (small baskets spill easily), place a paper filter on top of the puck (improves flow evenness for thin pucks), level carefully. Starting profiles: Extractamundo Dos and Gentle & Sweet work well for single shots — both are more forgiving than lever profiles for thin pucks. Some users find slightly lower temperatures (~87–88°C) reduce bitterness. `[SRC:profile-notes]`
+- **Roast suitability**:
+  - All roasts: Good `[SRC:profile-notes]`
+- **Best for**: Single-dose shots with the Decent mini-basket; users who prefer small, concentrated espresso
+
+### Espresso Forge (Dark and Light)
+
+- **Category**: Manual machine emulation `[SRC:profile-notes]`
+- **How it works**: Emulates the Espresso Forge piston-pump manual espresso machine. Both variants use rising pressure then a long gradual pressure decline to mimic the forge's manual pressure profile. `[SRC:profile-notes]`
+- **Dark variant**: Preinfusion at 6 ml/s to 3 bar, then 7.5 bar peak, then 30s gradual decline to 3 bar. Temperature declining 84°C → 81°C → 78°C. For medium-dark roasts seeking more fruit flavors, similar character to Classic Italian Lever. `[SRC:profile-notes]`
+- **Light variant**: Long 25s pre-brew soak at 1 bar, then high-pressure ramp to 10 bar over 20s, then 50s gradual decline to 6 bar. Temperature 96°C → declining. High temperature intentional for light roast extraction. `[SRC:profile-notes]`
+- **Duration**: ~35–40s (Dark), ~60–70s (Light) `[SRC:profile-notes]`
+- **Roast suitability**:
+  - Dark variant: Medium to dark `[SRC:profile-notes]`
+  - Light variant: Medium to light `[SRC:profile-notes]`
+- **Best for**: Users who own or are familiar with the Espresso Forge manual machine; those who want a long declining-pressure profile with temperature variation
+
+### Pour Over Basket
+
+- **Category**: Pour over (filter through espresso machine) `[SRC:profile-notes]`
+- **How it works**: Produces filter coffee using a pour-over basket placed under the group head. Multi-pulse brewing with prewet, bloom pause, and several water pulses. Not espresso — pressure stays near 0 bar throughout (gravity-fed). `[SRC:profile-notes]`
+- **Variants**: `[SRC:profile-notes]`
+  - *V60 variants*: 8 ml/s high-turbulence flow for 15–22g doses → 250–375g output
+  - *Kalita*: 6 ml/s lower flow (prevents choking); suits Ethiopian/decaf beans
+  - *Cold brew*: 2–2.5 ml/s flow at 20°C water → ~180s
+- **Temperature**: ~99–100°C (standard), ~20°C (cold brew) `[SRC:profile-notes]`
+- **Duration**: ~70–105s (standard); ~180s (cold brew) `[SRC:profile-notes]`
+- **Grind**: Filter grind (coarser than espresso). Coarsen if basket chokes. `[SRC:profile-notes]`
+- **Roast suitability**:
+  - All roasts: Good; especially suited to light/medium roasts `[SRC:profile-notes]`
+- **Best for**: Filter coffee from the DE1 without a separate filter brewer; light roast enthusiasts; cold brew convenience
+
+### Trendy 6 Bar Low Pressure
+
+- **Category**: Constant pressure (light roast) `[SRC:profile-notes]`
+- **How it works**: 20s preinfusion at 4 bar then flat 6 bar extraction. Designed specifically for sophisticated light roasts that smell great but resist being well extracted at standard 9 bar pressure. Lower pressure reduces channeling risk and coaxes sweetness from resistant pucks. `[SRC:profile-notes]`
+- **Temperature**: 92°C `[SRC:profile-notes]`
+- **Duration**: ~35–55s extraction after preinfusion `[SRC:profile-notes]`
+- **Grind**: Coarser than traditional espresso (lower pressure requires slightly coarser grind) `[SRC:profile-notes]`
+- **Flavor**: Sweet, rounded, less astringent than 9 bar profiles. Try this profile when your light roast smells excellent but produces hollow, bitter, or sour results at standard pressure. `[SRC:profile-notes]`
+- **Roast suitability**:
+  - Light: Excellent — specifically for aromatic light roasts that struggle at 9 bar `[SRC:profile-notes]`
+- **Best for**: Aromatic light roasts that taste off at standard pressure; a gentler alternative to Gentle & Sweet for resistant light roasts
+
+### GHC Manual Control
+
+- **Category**: Manual (operator-controlled) `[SRC:profile-notes]`
+- **How it works**: For machines with a Group Head Controller (GHC) — the user manually adjusts flow or pressure in real time via the GHC control. Not an automated profile. Used to log manual shots with the DE1's sensors. `[SRC:profile-notes]`
+- **Temperature**: 88–96°C configurable presets `[SRC:profile-notes]`
+- **Best for**: Baristas who want full hands-on control while still logging shot data; experienced users experimenting with manual technique; machines equipped with a GHC
+
 ---
 
 ## General Roast-Level Advice
@@ -484,8 +695,8 @@ Quick reference for which profiles work across roast levels. Profiles without a 
 - [x] ~~Turbo Shot profile specifics as implemented in Decenza~~ — Covered in profile_knowledge.md
 - [x] ~~Grind size guidance relative between profiles~~ — Added relative grind ordering from dark-video (E61 coarsest > 80's > Londinium=Cremina=Best Overall finest) and light-video (Allonge coarsest > Adaptive > G&S=Extractamundo > Blooming finest)
 - [ ] Blooming Espresso temperature guidance by roast (not mentioned in transcripts)
-- [ ] Community favorites and real-world dial-in tips for newer profiles (TurboBloom, Gagné Adaptive, Best Practice light roast, Easy Blooming) — profile_knowledge.md has design intent but lacks sourced community data
-- [ ] Sourced profile detail sections for the ~20 profiles added in 2026 — currently only covered in profile_knowledge.md without citation; this doc lacks entries for: Classic Italian, E61 variants, Traditional/Spring Lever, Advanced Spring Lever, Best Practice, Easy Blooming, Gagné Adaptive, I Got Your Back, TurboBloom, TurboTurbo, Gentle Flat / Long Preinfusion family, Preinfuse Then 45ml, 7g Basket, Espresso Forge, Pour Over Basket, Trendy 6 Bar, GHC Manual, Tea
+- [x] ~~Community favorites and real-world dial-in tips for newer profiles~~ — Added creator attributions (Stéphane/Easy Blooming, Jonathan Gagné/Gagné Adaptive, Collin/TurboBloom, Collin+Jan/TurboTurbo, Shin/I Got Your Back), sourced dial-in tips for all; profile_knowledge.md updated with creator info and dial-in guidance
+- [x] ~~Sourced profile detail sections for the ~20 profiles added in 2026~~ — Added `### ProfileName` sections for all: Classic Italian, Traditional/Spring Lever, Advanced Spring Lever, Best Practice, Easy Blooming, Gagné Adaptive, I Got Your Back, TurboBloom, TurboTurbo, Gentle Flat / Long Preinfusion family, Preinfuse Then 45ml, 7g Basket, Espresso Forge, Pour Over Basket, Trendy 6 Bar, GHC Manual. Sources: `community-index`, `bc-adaptive`, `profile-notes`. (Tea and Cleaning omitted — not espresso profiles, no dial-in guidance applicable.)
 - [ ] Video timestamps from Decent's YouTube for user reference
 
 ---
@@ -512,3 +723,6 @@ Quick reference for which profiles work across roast levels. Profiles without a 
 | `light-video` | 5 espresso profiles for light roasted coffee beans (video transcript) | https://decentespresso.com/blog/5_espresso_profiles_for_light_roasted_coffee_beans |
 | `medium-video` | 5 profiles for medium roasted beans (video transcript) | https://decentespresso.com/blog/5_profiles_for_medium_roasted_beans |
 | `dark-video` | 5 profiles for dark roasted beans (video transcript) | https://decentespresso.com/blog/5_profiles_for_dark_roasted_beans |
+| `community-index` | Community Profiles Index (Decent Diaspora Basecamp, doc 4263724650) | https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650 |
+| `bc-adaptive` | "New Adaptive Profiles for the DE1" by Jonathan Gagné (Decent Diaspora Basecamp) | https://3.basecamp.com/3671212/buckets/7351439/messages/3359060617 |
+| `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
