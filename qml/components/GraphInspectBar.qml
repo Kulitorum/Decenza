@@ -31,7 +31,7 @@ Flow {
             var g = inspectBar.graph
             var _deps = [g.showPressure, g.showFlow, g.showTemperature, g.showWeight, g.showWeightFlow,
                          g.showResistance, g.showConductance, g.showDarcyResistance,
-                         g.showConductanceDerivative, g.showTemperatureMix]
+                         g.showConductanceDerivative, g.showTemperatureMix, g.advancedMode]
             var vals = g.inspectValues
             // Order matches the legend: temperature pair, scale pair, resistance
             // pair, conductance pair.
@@ -39,13 +39,13 @@ Flow {
                 { key: "pressure",        show: g.showPressure },
                 { key: "flow",            show: g.showFlow },
                 { key: "temperature",     show: g.showTemperature },
-                { key: "mixTemp",         show: g.showTemperatureMix },
+                { key: "mixTemp",         show: g.showTemperatureMix && g.advancedMode },
                 { key: "weight",          show: g.showWeight },
                 { key: "weightFlow",      show: g.showWeightFlow },
-                { key: "resistance",      show: g.showResistance },
-                { key: "darcyResistance", show: g.showDarcyResistance },
-                { key: "conductance",     show: g.showConductance },
-                { key: "dCdt",            show: g.showConductanceDerivative }
+                { key: "resistance",      show: g.showResistance && g.advancedMode },
+                { key: "darcyResistance", show: g.showDarcyResistance && g.advancedMode },
+                { key: "conductance",     show: g.showConductance && g.advancedMode },
+                { key: "dCdt",            show: g.showConductanceDerivative && g.advancedMode }
             ]
             var items = []
             for (var i = 0; i < entries.length; i++) {

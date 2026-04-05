@@ -125,7 +125,10 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              const QVector<QPointF>& conductanceDerivative,
                                              const QList<HistoryPhaseMarker>& phases,
                                              const QString& beverageType,
-                                             double duration)
+                                             double duration,
+                                             const QVector<QPointF>& pressureGoal,
+                                             const QVector<QPointF>& flowGoal,
+                                             const QStringList& analysisFlags)
 {
     QVariantList lines;
 
@@ -148,7 +151,8 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     if (pourStart == 0 && preinfEnd > 0) pourStart = preinfEnd;
 
     // --- dC/dt analysis (channeling) ---
-    bool skipChanneling = shouldSkipChannelingCheck(beverageType, flow, pourStart, pourEnd);
+    bool skipChanneling = shouldSkipChannelingCheck(beverageType, flow, pourStart, pourEnd)
+        || analysisFlags.contains(QStringLiteral("channeling_expected"));
 
     if (!skipChanneling && !conductanceDerivative.isEmpty()) {
         double spikeTime = 0.0;
@@ -170,7 +174,9 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     // --- Flow trend during extraction ---
-    if (pourStart > 0 && pourEnd > pourStart && flow.size() > 10) {
+    // Skipped for profiles where declining/rising flow is intentional (e.g. Cremina lever).
+    const bool flowTrendOk = analysisFlags.contains(QStringLiteral("flow_trend_ok"));
+    if (!flowTrendOk && pourStart > 0 && pourEnd > pourStart && flow.size() > 10) {
         double flowStartSum = 0, flowEndSum = 0;
         int flowStartCount = 0, flowEndCount = 0;
         const double pourSpan = pourEnd - pourStart;
@@ -226,6 +232,41 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         }
     }
 
+    // --- Flow vs goal (grind direction) ---
+    // Only analyze during the pour phase where flow goal is meaningful (> FLOW_GOAL_MIN_AVG).
+    // A consistent gap between actual and goal flow indicates grind is off.
+    double flowGrindDelta = 0.0;  // positive = flow above goal (coarse), negative = below (fine)
+    bool hasFlowGoalData = false;
+    if (pourStart < pourEnd && !flow.isEmpty() && !flowGoal.isEmpty()) {
+        double actualSum = 0, goalSum = 0;
+        int count = 0;
+        for (const auto& fp : flow) {
+            if (fp.x() < pourStart || fp.x() > pourEnd) continue;
+            double goal = findValueAtTime(flowGoal, fp.x());
+            if (goal < FLOW_GOAL_MIN_AVG) continue;  // skip preinfusion/low-target periods
+            actualSum += fp.y();
+            goalSum += goal;
+            ++count;
+        }
+        if (count >= 5) {
+            hasFlowGoalData = true;
+            flowGrindDelta = (actualSum / count) - (goalSum / count);
+            if (flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {
+                QVariantMap line;
+                line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
+                    .arg(std::abs(flowGrindDelta), 0, 'f', 1);
+                line["type"] = QStringLiteral("caution");
+                lines.append(line);
+            } else if (flowGrindDelta > FLOW_DEVIATION_THRESHOLD) {
+                QVariantMap line;
+                line["text"] = QStringLiteral("Flow averaged %1 ml/s above target \u2014 grind may be too coarse")
+                    .arg(flowGrindDelta, 0, 'f', 1);
+                line["type"] = QStringLiteral("caution");
+                lines.append(line);
+            }
+        }
+    }
+
     // --- Verdict ---
     bool hasWarning = false, hasCaution = false;
     for (const auto& lineVar : lines) {
@@ -236,7 +277,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
 
     QVariantMap verdict;
     if (hasWarning) {
-        verdict["text"] = QStringLiteral("Verdict: Puck integrity issues \u2014 improve puck prep or grind finer.");
+        // Channeling detected — direction depends on whether flow was running slow or fast.
+        // Too-fine grind can cause puck collapse and channeling just as much as too-coarse.
+        if (hasFlowGoalData && flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {
+            verdict["text"] = QStringLiteral("Verdict: Puck collapsed \u2014 grind too fine. Try coarser and improve distribution.");
+        } else {
+            verdict["text"] = QStringLiteral("Verdict: Puck integrity issues \u2014 improve distribution, consider grinding finer.");
+        }
     } else if (hasCaution) {
         verdict["text"] = QStringLiteral("Verdict: Decent shot with minor issues to watch.");
     } else {

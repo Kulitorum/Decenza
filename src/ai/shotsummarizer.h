@@ -145,6 +145,11 @@ public:
     // Get the knowledge base content for a profile by title/type. Returns empty string if no match.
     static QString findProfileSection(const QString& profileTitle, const QString& profileType = QString());
 
+    // Get structured analysis flags for a KB entry by its ID.
+    // Returns empty list if kbId is not found. Flags are parsed from "AnalysisFlags:" lines
+    // in profile_knowledge.md and control which checks generateSummary() suppresses.
+    static QStringList getAnalysisFlags(const QString& kbId);
+
 private:
     // Helper methods
     double findValueAtTime(const QVector<QPointF>& data, double time) const;
@@ -171,6 +176,12 @@ private:
     struct ProfileKnowledge {
         QString name;       // Display name (e.g. "D-Flow")
         QString content;    // Full markdown section for this profile
+        // Structured flags parsed from "AnalysisFlags: flag1, flag2" lines.
+        // Used by generateSummary() to suppress false positives for profiles
+        // where specific behaviors are intentional. Current flags:
+        //   flow_trend_ok       — don't flag declining/rising flow as a caution
+        //   channeling_expected — minor channeling is normal for this profile
+        QStringList analysisFlags;
     };
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
     static bool s_knowledgeLoaded;

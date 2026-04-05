@@ -4,6 +4,7 @@
 #include <QPointF>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 
 struct HistoryPhaseMarker;
 
@@ -82,8 +83,15 @@ public:
         QString type;  // "good", "caution", "warning", "observation", "verdict"
     };
 
+    // Thresholds for flow-vs-goal grind detection
+    static constexpr double FLOW_GOAL_MIN_AVG = 0.3;    // ml/s — ignore goal periods with very low target (preinfusion)
+    static constexpr double FLOW_DEVIATION_THRESHOLD = 0.4;  // ml/s avg deviation to flag grind issue
+
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
+    // pressureGoal and flowGoal are the profile's target curves (may be empty).
+    // analysisFlags controls suppression of checks for profiles where certain
+    // behaviors are intentional — see ProfileKnowledge::analysisFlags for values.
     static QVariantList generateSummary(const QVector<QPointF>& pressure,
                                          const QVector<QPointF>& flow,
                                          const QVector<QPointF>& weight,
@@ -92,5 +100,8 @@ public:
                                          const QVector<QPointF>& conductanceDerivative,
                                          const QList<HistoryPhaseMarker>& phases,
                                          const QString& beverageType,
-                                         double duration);
+                                         double duration,
+                                         const QVector<QPointF>& pressureGoal = {},
+                                         const QVector<QPointF>& flowGoal = {},
+                                         const QStringList& analysisFlags = {});
 };

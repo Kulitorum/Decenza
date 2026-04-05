@@ -235,6 +235,7 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
+                    advancedMode: shotDetailPage.advancedMode
                     showPhaseLabels: shotDetailPage.advancedMode
                     pressureData: shotData.pressure || []
                     flowData: shotData.flow || []

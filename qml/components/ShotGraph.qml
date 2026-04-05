@@ -25,6 +25,8 @@ ChartView {
     property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
     property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
 
+    property bool advancedMode: false
+
     // Right axis toggle (weight vs temperature)
     property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
     function toggleRightAxis() {
@@ -265,7 +267,7 @@ ChartView {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showResistance
+        visible: chart.showResistance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -276,7 +278,7 @@ ChartView {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showConductance
+        visible: chart.showConductance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -287,7 +289,7 @@ ChartView {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: chart.showDarcyResistance
+        visible: chart.showDarcyResistance && chart.advancedMode
     }
 
     FastLineRenderer {
@@ -298,7 +300,7 @@ ChartView {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: tempAxis.min; maxY: tempAxis.max
-        visible: chart.showTemperatureMix
+        visible: chart.showTemperatureMix && chart.advancedMode
     }
 
     FastLineRenderer {

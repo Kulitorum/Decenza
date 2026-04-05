@@ -861,7 +861,7 @@ void ShotSummarizer::loadProfileKnowledge()
             keys << part.trimmed().toLower();
         }
 
-        // Check for "Also matches:" line in content
+        // Check for "Also matches:" and "AnalysisFlags:" lines in content
         for (const QString& line : currentContent.split('\n')) {
             if (line.startsWith(QStringLiteral("Also matches:"))) {
                 QString aliases = line.mid(14).trimmed();
@@ -874,7 +874,12 @@ void ShotSummarizer::loadProfileKnowledge()
                         keys << clean.toLower();
                     }
                 }
-                break;
+            } else if (line.startsWith(QStringLiteral("AnalysisFlags:"))) {
+                const QString flagStr = line.mid(14).trimmed();
+                for (const QString& f : flagStr.split(',')) {
+                    const QString flag = f.trimmed();
+                    if (!flag.isEmpty()) pk.analysisFlags << flag;
+                }
             }
         }
 
@@ -1041,6 +1046,13 @@ QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QS
         return s_profileKnowledge.value(key).content;
     }
     return QString();
+}
+
+QStringList ShotSummarizer::getAnalysisFlags(const QString& kbId)
+{
+    if (kbId.isEmpty()) return {};
+    loadProfileKnowledge();
+    return s_profileKnowledge.value(kbId).analysisFlags;
 }
 
 QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QString& editorType)

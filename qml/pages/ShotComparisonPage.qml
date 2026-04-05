@@ -129,6 +129,7 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
+                    advancedMode: shotComparisonPage.advancedMode
                     comparisonModel: shotComparisonPage.comparisonModel
                 }
 
