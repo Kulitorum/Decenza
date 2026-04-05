@@ -892,6 +892,32 @@ Page {
         property string profileTitle: ""
         property string content: ""
 
+        // Format raw KB markdown into HTML for display:
+        // - strips internal metadata lines (Also matches, AnalysisFlags)
+        // - bolds field labels ("Category:", "How it works:", etc.)
+        // - italicizes DO NOT lines
+        function formatContent(raw) {
+            var lines = raw.split('\n')
+            var parts = []
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i]
+                if (!line.trim()) continue
+                if (line.startsWith('Also matches:') || line.startsWith('AnalysisFlags:')) continue
+
+                var colonIdx = line.indexOf(': ')
+                if (colonIdx > 0 && colonIdx <= 35 && !line.startsWith('DO NOT')) {
+                    var label = line.substring(0, colonIdx)
+                    var value = line.substring(colonIdx + 2)
+                    parts.push('<b>' + label + ':</b> ' + value)
+                } else if (line.startsWith('DO NOT')) {
+                    parts.push('<i>' + line + '</i>')
+                } else {
+                    parts.push(line)
+                }
+            }
+            return parts.join('<br>')
+        }
+
         header: Item {
             implicitHeight: Theme.scaled(50)
 
@@ -943,11 +969,12 @@ Page {
                 width: parent.width - Theme.scaled(40)
                 x: Theme.scaled(20)
                 y: Theme.scaled(15)
-                text: knowledgeDialog.content
+                text: knowledgeDialog.formatContent(knowledgeDialog.content)
+                textFormat: Text.RichText
                 color: Theme.textColor
                 font: Theme.bodyFont
                 wrapMode: Text.WordWrap
-                lineHeight: 1.4
+                lineHeight: 1.5
             }
         }
 
