@@ -89,7 +89,8 @@ public:
 
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
-    // pressureGoal and flowGoal are the profile's target curves (may be empty).
+    // flowGoal is the profile's target flow curve and drives grind-direction analysis (may be empty).
+    // pressureGoal is accepted for API symmetry but currently unused.
     // analysisFlags controls suppression of checks for profiles where certain
     // behaviors are intentional — see ProfileKnowledge::analysisFlags for values.
     static QVariantList generateSummary(const QVector<QPointF>& pressure,

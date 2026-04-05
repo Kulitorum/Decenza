@@ -325,7 +325,7 @@ ChartView {
     // Pressure/Flow axis (left Y)
     ValueAxis {
         id: pressureAxis
-        min: 0
+        min: (chart.showConductanceDerivative && chart.advancedMode) ? -5 : 0
         max: pressureAxisMax
         tickCount: 5
         labelFormat: "%.0f"

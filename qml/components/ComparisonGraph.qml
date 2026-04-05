@@ -240,7 +240,7 @@ ChartView {
         id: pressureAxis
         readonly property bool hasAdvancedCurve: chart.advancedMode && (chart.showResistance || chart.showConductance
                                                 || chart.showDarcyResistance || chart.showConductanceDerivative)
-        min: chart.showConductanceDerivative ? -5 : 0
+        min: (chart.showConductanceDerivative && chart.advancedMode) ? -5 : 0
         max: hasAdvancedCurve ? 20 : 12
         tickCount: 5
         labelFormat: "%.0f"

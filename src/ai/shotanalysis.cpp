@@ -281,6 +281,8 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         // Too-fine grind can cause puck collapse and channeling just as much as too-coarse.
         if (hasFlowGoalData && flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {
             verdict["text"] = QStringLiteral("Verdict: Puck collapsed \u2014 grind too fine. Try coarser and improve distribution.");
+        } else if (hasFlowGoalData && flowGrindDelta > FLOW_DEVIATION_THRESHOLD) {
+            verdict["text"] = QStringLiteral("Verdict: Puck integrity issues \u2014 improve distribution. Grind appears coarse \u2014 try finer.");
         } else {
             verdict["text"] = QStringLiteral("Verdict: Puck integrity issues \u2014 improve distribution, consider grinding finer.");
         }

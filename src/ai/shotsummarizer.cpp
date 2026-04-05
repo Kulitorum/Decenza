@@ -84,6 +84,11 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary,
     if (ShotAnalysis::shouldSkipChannelingCheck(summary.beverageType, flowData, pourStart, pourEnd))
         return;
 
+    // Skip profiles where minor channeling is intentional (e.g. Allongé).
+    // Keeps the stored badge aligned with what generateSummary() shows in the popup.
+    if (getAnalysisFlags(summary.profileKbId).contains(QStringLiteral("channeling_expected")))
+        return;
+
     // Use dC/dt (conductance derivative) — the most diagnostic puck-integrity
     // signal. Only a Sustained event counts toward the stored "channeling"
     // anomaly flag; transient self-healed channels show up in the popup but

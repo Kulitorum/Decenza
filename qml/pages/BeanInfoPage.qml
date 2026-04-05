@@ -444,8 +444,9 @@ Page {
                             font.pixelSize: Theme.scaled(22)
                         }
 
-                        Text {
-                            text: "(" + Settings.beanPresets.length + ")"
+                        Tr {
+                            key: "beaninfo.preset.count"
+                            fallback: "(%1)".arg(Settings.beanPresets.length)
                             color: Theme.textColor
                             font.pixelSize: Theme.bodyFont.pixelSize
                         }
