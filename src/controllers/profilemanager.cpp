@@ -1167,7 +1167,7 @@ void ProfileManager::refreshProfiles() {
         QSet<QString> known(m_availableProfiles.begin(), m_availableProfiles.end());
 
         QVariantList favorites = m_settings->favoriteProfiles();
-        for (int i = static_cast<int>(favorites.size()) - 1; i >= 0; --i) {
+        for (qsizetype i = favorites.size() - 1; i >= 0; --i) {
             QString fn = favorites.at(i).toMap()[QStringLiteral("filename")].toString();
             if (!known.contains(fn)) {
                 qWarning() << "refreshProfiles: removing stale favorite" << fn << "(profile not found)";

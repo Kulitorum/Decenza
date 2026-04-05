@@ -636,7 +636,7 @@ Page {
 
                 // Empty state
                 Tr {
-                    visible: Settings.favoriteProfiles.length === 0 && Settings.selectedFavoriteProfile !== -1
+                    visible: Settings.favoriteProfiles.length === 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     key: "profileselector.favorites.empty"
