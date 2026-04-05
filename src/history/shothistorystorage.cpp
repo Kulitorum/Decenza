@@ -726,7 +726,7 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     // Weight-based flow rate (g/s) for visualizer export
     root["weightFlowRate"] = pointsToJsonObject(shotData->weightFlowRateData());
 
-    // Phase summaries for UI display (pre-computed by ShotSummarizer)
+    // Phase summaries for UI display (pre-computed by saveShotData() via computePhaseSummaries)
     if (!phaseSummariesJson.isEmpty()) {
         root["phaseSummaries"] = QJsonDocument::fromJson(phaseSummariesJson.toUtf8()).array();
     }

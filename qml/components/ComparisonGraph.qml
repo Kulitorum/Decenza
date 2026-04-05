@@ -228,14 +228,16 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Pressure/Flow/WeightFlow axis (left Y). When any advanced curve is
-    // enabled, expand the range to [-5, 20] so conductance, Darcy resistance,
-    // and dC/dt (all server-clamped to ≤19, with dC/dt ranging to -5) don't
-    // visually clip. Advanced curves share this axis, matching HistoryShotGraph.
+    // Pressure/Flow/WeightFlow axis (left Y). When any advanced curve that can
+    // exceed the pressure/flow range is enabled, expand the axis to [-5, 20]
+    // so they don't visually clip. Clamp ranges (see shotdatamodel.cpp and
+    // computeDerivedCurves()): resistance P/F → 15, conductance F²/P → 19,
+    // Darcy P/F² → 19, dC/dt → [-5, 19]. All share this axis, matching
+    // HistoryShotGraph's dynamic pressureAxisMax.
     ValueAxis {
         id: pressureAxis
-        readonly property bool hasAdvancedCurve: chart.showConductance || chart.showDarcyResistance
-                                                || chart.showConductanceDerivative
+        readonly property bool hasAdvancedCurve: chart.showResistance || chart.showConductance
+                                                || chart.showDarcyResistance || chart.showConductanceDerivative
         min: chart.showConductanceDerivative ? -5 : 0
         max: hasAdvancedCurve ? 20 : 12
         tickCount: 5
