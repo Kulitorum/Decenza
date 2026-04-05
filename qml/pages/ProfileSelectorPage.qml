@@ -716,6 +716,9 @@ Page {
                     visible: Settings.favoriteProfiles.length > 0
                     model: Settings.favoriteProfiles
                     selectedIndex: Settings.selectedFavoriteProfile
+                    rowAccessibleDescription: TranslationManager.translate(
+                        "profileselector.accessible.row_hint",
+                        "Double-tap or long-press to open profile editor.")
 
                     displayTextFn: function(row, index) {
                         if (!row) return ""

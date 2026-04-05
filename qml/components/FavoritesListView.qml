@@ -16,9 +16,14 @@ import Decenza
 //  - On release, emits rowMoved(startIndex, endIndex) once; consumer persists to its
 //    own store (Settings) and the resulting NOTIFY rebuilds the DelegateModel to match.
 //
-// Consumer API (identical to previous version):
-//   model, selectedIndex, displayTextFn, accessibleNameFn, deleteAccessibleNameFn,
-//   removeConfirmFn, trailingActionDelegate, showDeleteButton
+// Consumer API:
+//   model: QVariantList of row objects
+//   selectedIndex: external index of the selected row (or -1)
+//   displayTextFn(row, index), accessibleNameFn(row, index), deleteAccessibleNameFn(row, index)
+//   removeConfirmFn(row, index): return false to cancel delete
+//   trailingActionDelegate: Component whose loaded root sees `parent.row`, `parent.rowIndex`, `parent.selected`
+//   showDeleteButton: toggles the X button column
+//   rowAccessibleDescription: TalkBack/VoiceOver hint describing the long-press/double-tap action
 //
 // Signals: rowSelected(int), rowLongPressed(int), rowMoved(int from, int to), rowDeleted(int)
 Item {
@@ -36,6 +41,12 @@ Item {
                (row && row.name ? row.name : "")
     }
     property var removeConfirmFn: function(row, index) { return true }
+
+    // TalkBack/VoiceOver hint for the row's secondary (long-press/double-tap) action.
+    // Consumers should override with context-specific text (e.g. "rename preset", "edit profile").
+    property string rowAccessibleDescription: TranslationManager.translate(
+        "favorites.accessible.secondary_hint",
+        "Double-tap or long-press for more options.")
 
     signal rowSelected(int index)
     signal rowLongPressed(int index)
@@ -98,7 +109,7 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     shadowEnabled: true
-                    shadowColor: "#80000000"
+                    shadowColor: Theme.shadowColor
                     shadowBlur: 0.8
                     shadowVerticalOffset: 4
                 }
@@ -146,16 +157,25 @@ Item {
                                 autoScrollTimer.stop()
                                 autoScrollTimer.vy = 0
                                 var endIndex = rowDelegate.liveIndex
-                                root._dragging = false
                                 if (_startIndex >= 0 && endIndex !== _startIndex) {
+                                    // Emit before clearing _dragging so the selection-highlight
+                                    // binding doesn't re-evaluate against a stale selectedIndex
+                                    // for one frame before the consumer's Settings update lands.
                                     root.rowMoved(_startIndex, endIndex)
                                 }
+                                root._dragging = false
                                 _startIndex = -1
                             }
 
                             onCanceled: {
                                 autoScrollTimer.stop()
                                 autoScrollTimer.vy = 0
+                                // Roll back any live swaps performed during this drag so the
+                                // DelegateModel order stays in sync with the backing Settings list.
+                                var currentIndex = rowDelegate.liveIndex
+                                if (_startIndex >= 0 && currentIndex !== _startIndex) {
+                                    visualModel.items.move(currentIndex, _startIndex, 1)
+                                }
                                 root._dragging = false
                                 _startIndex = -1
                             }
@@ -184,7 +204,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: root.displayTextFn(rowDelegate.rowData, rowDelegate.liveIndex)
-                        color: rowDelegate.selected ? "white" : Theme.textColor
+                        color: rowDelegate.selected ? Theme.primaryContrastColor : Theme.textColor
                         font: Theme.bodyFont
                         elide: Text.ElideRight
                         Accessible.ignored: true
@@ -226,6 +246,7 @@ Item {
                     z: -1
                     accessibleName: rowDelegate.rowData
                         ? root.accessibleNameFn(rowDelegate.rowData, rowDelegate.liveIndex) : ""
+                    accessibleDescription: root.rowAccessibleDescription
                     accessibleItem: rowPill
                     supportLongPress: true
                     supportDoubleClick: true

@@ -492,6 +492,10 @@ Page {
                         wrapMode: Text.Wrap
                     }
 
+                    // This list is bound to the FULL `beanPresets` (unfiltered), so the
+                    // `index` passed to row callbacks is already an external index —
+                    // no `originalIndex` translation needed here. BeansItem / IdlePage
+                    // bind to the filtered `idleBeanPresets` view and map via originalIndex.
                     FavoritesListView {
                         id: beanPresetsList
                         Layout.fillWidth: true
@@ -499,6 +503,9 @@ Page {
                         visible: Settings.beanPresets.length > 0
                         model: Settings.beanPresets
                         selectedIndex: Settings.selectedBeanPreset
+                        rowAccessibleDescription: TranslationManager.translate(
+                            "beaninfo.accessible.row_hint",
+                            "Double-tap or long-press to rename preset.")
 
                         displayTextFn: function(row, index) {
                             return row && row.name ? row.name : ""
@@ -519,8 +526,10 @@ Page {
                             StyledIconButton {
                                 anchors.fill: parent
                                 active: parent.row ? (parent.row.showOnIdle !== false) : false
-                                activeColor: parent.selected ? "white" : Theme.primaryColor
-                                inactiveColor: parent.selected ? Qt.rgba(1, 1, 1, 0.5) : Theme.textSecondaryColor
+                                activeColor: parent.selected ? Theme.primaryContrastColor : Theme.primaryColor
+                                inactiveColor: parent.selected
+                                    ? Qt.rgba(Theme.primaryContrastColor.r, Theme.primaryContrastColor.g, Theme.primaryContrastColor.b, 0.5)
+                                    : Theme.textSecondaryColor
                                 icon.source: active ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
                                 icon.width: Theme.scaled(18)
                                 icon.height: Theme.scaled(18)
@@ -556,14 +565,26 @@ Page {
                         onRowMoved: function(from, to) {
                             // Shift the "unsaved-changes" snapshot so a pure reorder
                             // of the selected item doesn't trip the back-button dialog.
-                            // Mirrors the shift logic in Settings::moveBeanPreset.
+                            // Mirrors the shift logic in Settings::moveBeanPreset
+                            // (src/core/settings.cpp, Settings::moveBeanPreset).
                             var s = _snapSelectedPreset
                             if (s === from) _snapSelectedPreset = to
                             else if (from < s && to >= s) _snapSelectedPreset = s - 1
                             else if (from > s && to <= s) _snapSelectedPreset = s + 1
                             Settings.moveBeanPreset(from, to)
                         }
-                        onRowDeleted: function(index) { Settings.removeBeanPreset(index) }
+                        onRowDeleted: function(index) {
+                            // Mirror Settings::removeBeanPreset's selection adjustment
+                            // (src/core/settings.cpp, Settings::removeBeanPreset) on the
+                            // snapshot so deleting an unrelated preset doesn't trip the
+                            // back-button unsaved-changes dialog.
+                            var s = _snapSelectedPreset
+                            var newLen = Settings.beanPresets.length - 1
+                            if (newLen <= 0) _snapSelectedPreset = -1
+                            else if (s >= newLen) _snapSelectedPreset = newLen - 1
+                            else if (s > index) _snapSelectedPreset = s - 1
+                            Settings.removeBeanPreset(index)
+                        }
                     }
                 }
             }
@@ -582,7 +603,6 @@ Page {
                 Tr {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.scaled(0)
                     key: "beaninfo.section.bean"
                     fallback: "Bean"
                     color: Theme.textSecondaryColor
