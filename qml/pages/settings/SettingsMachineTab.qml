@@ -1632,6 +1632,62 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Screen Capture (for Pocket app remote control)
+                Rectangle {
+                    objectName: "screenCapture"
+                    Layout.fillWidth: true
+                    implicitHeight: screenCaptureContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: screenCaptureContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: TranslationManager.translate("settings.machine.screenCaptureTitle", "Screen Capture")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.machine.screenCaptureDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.machine.screenCapture", "Screen Capture")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.screenCaptureEnabled
+                                accessibleName: TranslationManager.translate("settings.machine.screenCapture", "Screen Capture")
+                                onToggled: {
+                                    Settings.screenCaptureEnabled = checked
+                                }
+                            }
+                        }
+                    }
+                }
+
             }
 
                         // Spacer

@@ -194,9 +194,11 @@ void RelayClient::handleCommand(const QString& commandId, const QString& command
     } else if (command == "status") {
         // No action needed, status is pushed separately
     } else if (command == "start_remote") {
-        if (m_window && !m_captureService) {
+        if (m_window && !m_captureService && m_settings && m_settings->screenCaptureEnabled()) {
             double scale = 0.5;
             m_captureService = std::make_unique<ScreenCaptureService>(m_window, &m_socket, scale);
+        } else if (m_settings && !m_settings->screenCaptureEnabled()) {
+            qDebug() << "RelayClient: Screen capture denied — disabled in settings";
         }
     } else if (command == "stop_remote") {
         m_captureService.reset();

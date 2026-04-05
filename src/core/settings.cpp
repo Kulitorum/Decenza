@@ -3290,6 +3290,17 @@ void Settings::setSimulationMode(bool enabled) {
     }
 }
 
+bool Settings::screenCaptureEnabled() const {
+    return m_settings.value("machine/screenCaptureEnabled", false).toBool();
+}
+
+void Settings::setScreenCaptureEnabled(bool enabled) {
+    if (screenCaptureEnabled() != enabled) {
+        m_settings.setValue("machine/screenCaptureEnabled", enabled);
+        emit screenCaptureEnabledChanged();
+    }
+}
+
 bool Settings::hideGhcSimulator() const {
     return m_settings.value("developer/hideGhcSimulator", false).toBool();
 }
