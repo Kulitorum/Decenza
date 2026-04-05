@@ -534,7 +534,16 @@ Page {
                             editPresetName = preset.name || ""
                             editPresetDialog.open()
                         }
-                        onRowMoved: function(from, to) { Settings.moveBeanPreset(from, to) }
+                        onRowMoved: function(from, to) {
+                            // Shift the "unsaved-changes" snapshot so a pure reorder
+                            // of the selected item doesn't trip the back-button dialog.
+                            // Mirrors the shift logic in Settings::moveBeanPreset.
+                            var s = _snapSelectedPreset
+                            if (s === from) _snapSelectedPreset = to
+                            else if (from < s && to >= s) _snapSelectedPreset = s - 1
+                            else if (from > s && to <= s) _snapSelectedPreset = s + 1
+                            Settings.moveBeanPreset(from, to)
+                        }
                         onRowDeleted: function(index) { Settings.removeBeanPreset(index) }
                     }
                 }
