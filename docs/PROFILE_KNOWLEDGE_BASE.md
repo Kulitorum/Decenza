@@ -688,6 +688,73 @@ Quick reference for which profiles work across roast levels. Profiles without a 
 
 ---
 
+## Basecamp Research Status
+
+Goal: research every built-in espresso profile from community sources and enrich the KB with creator info, dial-in tips, and real-world usage data.
+
+**Skip** (not espresso profiles — no dial-in analysis): Test profiles, Cleaning/Descale/Flush, Steam only.
+
+### ✅ Basecamp research complete
+
+| Profile | Source | Creator |
+|---------|--------|---------|
+| Easy Blooming | `community-index` | Stéphane |
+| Gagné/Adaptive Shot 92C | `bc-adaptive` | Jonathan Gagné |
+| Gagné/Adaptive Allongé 94C | `bc-adaptive` | Jonathan Gagné |
+| TurboBloom | `community-index` | Collin |
+| TurboTurbo | `community-index` | Collin + Jan |
+| I Got Your Back | `profile-notes` + confirmed | Shin |
+
+### 📚 Published sources only (Decent blog / videos / EAF / Scott Rao)
+
+Good KB coverage from official sources. Basecamp search for community dial-in tips is lower priority.
+
+| Profile(s) | Source key(s) |
+|------------|---------------|
+| D-Flow (all variants) | `dflow-blog`, `medium-video` |
+| Adaptive v2 | `adaptive-adastra`, `adaptive-search`, `light-video` |
+| Blooming Espresso | `rao-blooming`, `light-video` |
+| Blooming Allongé, Rao Allongé | `eaf-profiling`, `light-video` |
+| Default, Londinium | `medium-video`, `dark-video` |
+| Gentle & Sweet, Extractamundo Dos | `light-video`, `gentle-search` |
+| Flow Profile (milky / straight) | `medium-video` |
+| Cremina, 80's Espresso, Best Overall, E61 | `dark-video` |
+| Filter 2.0 / 2.1 | `filter-blog`, `filter-search` |
+| Sprover | `eaf-profiling` |
+| Turbo Shot | `eaf-profiling`, `turbo-search` |
+
+### 🔲 Needs Basecamp research — known community thread exists
+
+All listed in the [Community Profiles Index](https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650) with creator info and discussion links.
+
+- [ ] **Damian's LM Leva** — community-index has description + discussion link
+- [ ] **Damian's LRv2** — community-index has description + discussion link
+- [ ] **Londonium** (= Damian's Londinium R) — community-index has description + discussion link
+- [ ] **Damian's Q** — community-index variant
+- [ ] **Nu Skool** — community-index: Dan's profile with full user guide; detailed description available
+- [ ] **Idan's Strega Plus** — community-index has description + discussion thread link
+- [ ] **Adaptive Profile Low Pressure Infusion** — community-index (Trevor + Jonathan)
+- [ ] **JW Flat 9 bar Advanced / JW Spring Lever** — community-index (John Weiss)
+- [ ] **Hendon Turbo variants** (Turbo Shot → maps to Jan's series) — additional detail in community-index
+
+### 📄 Profile-notes only — search Basecamp, thread may or may not exist
+
+- [ ] **A-Flow variants** (default-dark, default-medium, default-like-dflow, default-very-dark)
+- [ ] **Advanced Spring Lever / Weiss Advanced Spring Lever** — search for Weiss community thread
+- [ ] **Best Practice (light roast)** — search for community discussion
+- [ ] **Classic Italian / Gentler 8.4 bar / Italian Australian** — search for community usage tips
+- [ ] **E61 variants** (rocketing, fast preinfusion, gently up to 10 bar) — variant-specific tips
+- [ ] **Espresso Forge Dark / Light** — search for community usage
+- [ ] **Filter3** — search for community discussion
+- [ ] **Gentle Flat / Long Preinfusion family** (all 4 variants) — John Weiss profiles, may have thread
+- [ ] **Preinfuse Then 45ml** — Matt Perger technique, search for community adaptation tips
+- [ ] **Pour Over Basket variants** — search for community grind/dose tips
+- [ ] **Trendy 6 Bar** — search for community usage
+- [ ] **Traditional Lever / Low Pressure 6 bar / Two Spring** — search for community usage
+- [ ] **Tea portafilter variants** — search for community brewing parameters (water temp, steep time, pressure by tea type)
+
+---
+
 ## TODO: Additional Data Needed
 
 - [x] ~~Specific temperature recommendations per profile per roast level~~ — Added for Cremina (92C), Londinium (88C), Best Overall (88C), E61 (92C), 80's Espresso (80-70C declining) from dark-video; D-Flow defaults from medium-video
