@@ -117,6 +117,22 @@ Page {
         }
     }
 
+    // Re-capture the unsaved-changes baseline from current Settings. Called after
+    // "choose" actions (selecting a preset, saving a preset) that alter Settings but
+    // aren't user-typed edits the back-button should prompt about.
+    function refreshSnapshot() {
+        _snapBrand = Settings.dyeBeanBrand
+        _snapType = Settings.dyeBeanType
+        _snapRoastDate = Settings.dyeRoastDate
+        _snapRoastLevel = Settings.dyeRoastLevel
+        _snapGrinderBrand = Settings.dyeGrinderBrand
+        _snapGrinderModel = Settings.dyeGrinderModel
+        _snapGrinderBurrs = Settings.dyeGrinderBurrs
+        _snapGrinderSetting = Settings.dyeGrinderSetting
+        _snapBarista = Settings.dyeBarista
+        _snapSelectedPreset = Settings.selectedBeanPreset
+    }
+
     // Check if there's actual bean data loaded (not just empty)
     function hasGuestBeanData() {
         return Settings.dyeBeanBrand.length > 0 || Settings.dyeBeanType.length > 0
@@ -527,6 +543,9 @@ Page {
                             shotMetadataPage.forceActiveFocus()
                             Settings.selectedBeanPreset = index
                             Settings.applyBeanPreset(index)
+                            // Picking a preset is a choice, not an edit — reset the baseline
+                            // so back-button doesn't prompt about the applied field values.
+                            refreshSnapshot()
                         }
                         onRowLongPressed: function(index) {
                             editPresetIndex = index
@@ -1132,16 +1151,7 @@ Page {
                                 Settings.selectedBeanPreset = savedIndex
                             }
                             // Update snapshot so handleBack() doesn't show spurious unsaved changes dialog
-                            _snapSelectedPreset = Settings.selectedBeanPreset
-                            _snapBrand = Settings.dyeBeanBrand
-                            _snapType = Settings.dyeBeanType
-                            _snapRoastDate = Settings.dyeRoastDate
-                            _snapRoastLevel = Settings.dyeRoastLevel
-                            _snapGrinderBrand = Settings.dyeGrinderBrand
-                            _snapGrinderModel = Settings.dyeGrinderModel
-                            _snapGrinderBurrs = Settings.dyeGrinderBurrs
-                            _snapGrinderSetting = Settings.dyeGrinderSetting
-                            _snapBarista = Settings.dyeBarista
+                            refreshSnapshot()
                             var shouldGoBack = savePresetDialog.goBackAfterSave
                             newBeanNameInput.text = ""
                             savePresetDialog.goBackAfterSave = false
