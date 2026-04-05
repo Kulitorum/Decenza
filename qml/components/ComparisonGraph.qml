@@ -228,11 +228,16 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Pressure/Flow/WeightFlow axis (left Y)
+    // Pressure/Flow/WeightFlow axis (left Y). When any advanced curve is
+    // enabled, expand the range to [-5, 20] so conductance, Darcy resistance,
+    // and dC/dt (all server-clamped to ≤19, with dC/dt ranging to -5) don't
+    // visually clip. Advanced curves share this axis, matching HistoryShotGraph.
     ValueAxis {
         id: pressureAxis
-        min: 0
-        max: 12
+        readonly property bool hasAdvancedCurve: chart.showConductance || chart.showDarcyResistance
+                                                || chart.showConductanceDerivative
+        min: chart.showConductanceDerivative ? -5 : 0
+        max: hasAdvancedCurve ? 20 : 12
         tickCount: 5
         labelFormat: "%.0f"
         labelsColor: Theme.textSecondaryColor

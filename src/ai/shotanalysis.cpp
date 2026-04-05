@@ -170,12 +170,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     // --- Flow trend during extraction ---
-    if (pourStart > 0 && flow.size() > 10) {
+    if (pourStart > 0 && pourEnd > pourStart && flow.size() > 10) {
         double flowStartSum = 0, flowEndSum = 0;
         int flowStartCount = 0, flowEndCount = 0;
+        const double pourSpan = pourEnd - pourStart;
         for (const auto& fp : flow) {
             if (fp.x() < pourStart || fp.x() > pourEnd) continue;
-            double progress = (fp.x() - pourStart) / (pourEnd - pourStart);
+            double progress = (fp.x() - pourStart) / pourSpan;
             if (progress < 0.3) { flowStartSum += fp.y(); ++flowStartCount; }
             if (progress > 0.7) { flowEndSum += fp.y(); ++flowEndCount; }
         }

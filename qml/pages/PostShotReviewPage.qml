@@ -52,7 +52,7 @@ Page {
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
-    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
+    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -60,7 +60,7 @@ Page {
         target: Settings
         function onValueChanged(key) {
             if (key === "shotReview/advancedMode")
-                postShotReviewPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
+                postShotReviewPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
         }
     }
 
@@ -384,6 +384,8 @@ Page {
                             ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
                             : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
                         accessibleItem: parent
+                        accessibleRole: Accessible.CheckBox
+                        accessibleChecked: postShotReviewPage.advancedMode
                         onAccessibleClicked: {
                             postShotReviewPage.advancedMode = !postShotReviewPage.advancedMode
                             Settings.setValue("shotReview/advancedMode", postShotReviewPage.advancedMode)

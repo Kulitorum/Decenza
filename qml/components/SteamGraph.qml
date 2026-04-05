@@ -56,13 +56,15 @@ ChartView {
         }
     }
 
-    // Sync visibility toggles from Settings (e.g., changed on another page)
+    // Sync visibility toggles from Settings (e.g., changed on another page).
+    // Uses Settings.boolValue() to coerce the QSettings INI-backend strings —
+    // see Settings.h.
     Connections {
         target: Settings
         function onValueChanged(key) {
-            if (key === "steamGraph/showPressure") chart.showPressure = Settings.value("steamGraph/showPressure", true)
-            if (key === "steamGraph/showFlow") chart.showFlow = Settings.value("steamGraph/showFlow", true)
-            if (key === "steamGraph/showTemperature") chart.showTemperature = Settings.value("steamGraph/showTemperature", true)
+            if (key === "steamGraph/showPressure") chart.showPressure = Settings.boolValue("steamGraph/showPressure", true)
+            if (key === "steamGraph/showFlow") chart.showFlow = Settings.boolValue("steamGraph/showFlow", true)
+            if (key === "steamGraph/showTemperature") chart.showTemperature = Settings.boolValue("steamGraph/showTemperature", true)
         }
     }
 

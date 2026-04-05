@@ -17,7 +17,7 @@ Page {
 
     // Basic/Advanced mode toggle, shared with Post-Shot Review + Shot Detail via
     // Settings so a user who prefers advanced curves sees them everywhere.
-    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
+    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Post-Shot Review, Shot Detail, Espresso view selector).
@@ -25,7 +25,7 @@ Page {
         target: Settings
         function onValueChanged(key) {
             if (key === "shotReview/advancedMode")
-                shotComparisonPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
+                shotComparisonPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
         }
     }
 
@@ -100,6 +100,8 @@ Page {
                             ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
                             : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
                         accessibleItem: parent
+                        accessibleRole: Accessible.CheckBox
+                        accessibleChecked: shotComparisonPage.advancedMode
                         onAccessibleClicked: {
                             shotComparisonPage.advancedMode = !shotComparisonPage.advancedMode
                             Settings.setValue("shotReview/advancedMode", shotComparisonPage.advancedMode)

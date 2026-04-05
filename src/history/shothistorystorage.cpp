@@ -668,7 +668,9 @@ bool ShotHistoryStorage::runMigrations()
     }
 
     // Migration 10: Add quality flags for shot review badges.
-    // Computed at save time from ShotSummarizer; recomputed on-the-fly for legacy shots.
+    // Computed at save time by saveShotData() using ShotAnalysis helpers directly
+    // (avoids a ShotSummarizer dependency); recomputed on-the-fly inside
+    // loadShotRecordStatic() for shots that predate this migration.
     if (currentVersion < 10) {
         qDebug() << "ShotHistoryStorage: Running migration to version 10 (quality flags)";
 

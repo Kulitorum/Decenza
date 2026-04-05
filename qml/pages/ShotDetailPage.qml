@@ -17,7 +17,7 @@ Page {
     property int currentIndex: -1  // Current position in shotIds
     // Persisted graph height (like PostShotReviewPage)
     property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
-    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
+    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Post-Shot Review, Shot Comparison, Espresso view selector).
@@ -25,7 +25,7 @@ Page {
         target: Settings
         function onValueChanged(key) {
             if (key === "shotReview/advancedMode")
-                shotDetailPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
+                shotDetailPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
         }
     }
 
@@ -201,6 +201,8 @@ Page {
                             ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
                             : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
                         accessibleItem: parent
+                        accessibleRole: Accessible.CheckBox
+                        accessibleChecked: shotDetailPage.advancedMode
                         onAccessibleClicked: {
                             shotDetailPage.advancedMode = !shotDetailPage.advancedMode
                             Settings.setValue("shotReview/advancedMode", shotDetailPage.advancedMode)

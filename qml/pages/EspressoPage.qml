@@ -330,7 +330,7 @@ Page {
         return v === true || v === "true"
     }
     // Shared with Post-Shot Review and Shot Detail pages via the same setting.
-    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
+    property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
 
     // Sync from Settings changes made elsewhere (e.g. SettingsMachineTab)
     Connections {
@@ -347,7 +347,7 @@ Page {
                 espressoPage.showStats = (vs === true || vs === "true")
             }
             else if (key === "shotReview/advancedMode") {
-                espressoPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
+                espressoPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
             }
         }
     }
