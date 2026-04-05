@@ -31,6 +31,8 @@ ChartView {
     property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
     property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
 
+    property bool advancedMode: false
+
     // Per-shot visibility (window slot 0/1/2)
     property bool showShot0: true
     property bool showShot1: true
@@ -236,9 +238,9 @@ ChartView {
     // HistoryShotGraph's dynamic pressureAxisMax.
     ValueAxis {
         id: pressureAxis
-        readonly property bool hasAdvancedCurve: chart.showResistance || chart.showConductance
-                                                || chart.showDarcyResistance || chart.showConductanceDerivative
-        min: chart.showConductanceDerivative ? -5 : 0
+        readonly property bool hasAdvancedCurve: chart.advancedMode && (chart.showResistance || chart.showConductance
+                                                || chart.showDarcyResistance || chart.showConductanceDerivative)
+        min: (chart.showConductanceDerivative && chart.advancedMode) ? -5 : 0
         max: hasAdvancedCurve ? 20 : 12
         tickCount: 5
         labelFormat: "%.0f"
@@ -270,11 +272,11 @@ ChartView {
     LineSeries { id: temp1;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot0 }
     LineSeries { id: weight1;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot0 }
     LineSeries { id: weightFlow1;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot0 }
-    LineSeries { id: resistance1;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance  && chart.showShot0 }
-    LineSeries { id: conductance1;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.showShot0 }
-    LineSeries { id: conductanceDerivative1;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.showShot0 }
-    LineSeries { id: darcyResistance1;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.showShot0 }
-    LineSeries { id: temperatureMix1;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.showShot0 }
+    LineSeries { id: resistance1;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance && chart.advancedMode && chart.showShot0 }
+    LineSeries { id: conductance1;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.advancedMode && chart.showShot0 }
+    LineSeries { id: conductanceDerivative1;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.advancedMode && chart.showShot0 }
+    LineSeries { id: darcyResistance1;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.advancedMode && chart.showShot0 }
+    LineSeries { id: temperatureMix1;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.advancedMode && chart.showShot0 }
 
     // ── Shot 2: dashed lines ─────────────────────────────────────────────────
     LineSeries { id: pressure2;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot1 }
@@ -282,11 +284,11 @@ ChartView {
     LineSeries { id: temp2;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot1 }
     LineSeries { id: weight2;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot1 }
     LineSeries { id: weightFlow2;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot1 }
-    LineSeries { id: resistance2;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance  && chart.showShot1 }
-    LineSeries { id: conductance2;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.showShot1 }
-    LineSeries { id: conductanceDerivative2;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.showShot1 }
-    LineSeries { id: darcyResistance2;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.showShot1 }
-    LineSeries { id: temperatureMix2;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.showShot1 }
+    LineSeries { id: resistance2;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance && chart.advancedMode && chart.showShot1 }
+    LineSeries { id: conductance2;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.advancedMode && chart.showShot1 }
+    LineSeries { id: conductanceDerivative2;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.advancedMode && chart.showShot1 }
+    LineSeries { id: darcyResistance2;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.advancedMode && chart.showShot1 }
+    LineSeries { id: temperatureMix2;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.advancedMode && chart.showShot1 }
 
     // ── Shot 3: dash-dot lines ───────────────────────────────────────────────
     LineSeries { id: pressure3;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot2 }
@@ -294,11 +296,11 @@ ChartView {
     LineSeries { id: temp3;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot2 }
     LineSeries { id: weight3;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot2 }
     LineSeries { id: weightFlow3;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot2 }
-    LineSeries { id: resistance3;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance  && chart.showShot2 }
-    LineSeries { id: conductance3;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.showShot2 }
-    LineSeries { id: conductanceDerivative3;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.showShot2 }
-    LineSeries { id: darcyResistance3;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.showShot2 }
-    LineSeries { id: temperatureMix3;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.showShot2 }
+    LineSeries { id: resistance3;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance && chart.advancedMode && chart.showShot2 }
+    LineSeries { id: conductance3;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.advancedMode && chart.showShot2 }
+    LineSeries { id: conductanceDerivative3;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.advancedMode && chart.showShot2 }
+    LineSeries { id: darcyResistance3;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.advancedMode && chart.showShot2 }
+    LineSeries { id: temperatureMix3;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.advancedMode && chart.showShot2 }
 
     // Phase marker lines — Canvas for proper dashed patterns per shot style
     Canvas {

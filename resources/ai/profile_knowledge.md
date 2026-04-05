@@ -74,6 +74,7 @@ Grind: Coarsest of espresso profiles
 Temperature: High — produces hottest coffee of any profile due to fast flow (puck doesn't cool water)
 Roast: Best for ultralight/light. Excellent with natural/fermented/fruity beans. Less impressive with clean washed coffees.
 DO NOT flag high ratio, low pressure, or minor channeling as problems — all are expected.
+AnalysisFlags: channeling_expected
 
 ## Default
 Category: Lever
@@ -200,6 +201,7 @@ Grind: Fine (same as Londinium)
 Flavor: Maximum mouthfeel, thick syrupy espresso. Baker's chocolate, intense. Very thick crema. "King of chocolate."
 Roast: Excellent for dark. Highest temperature of dark profiles = most extraction = most intense.
 DO NOT flag steeply declining pressure or declining flow as problems — this IS the Cremina style.
+AnalysisFlags: flow_trend_ok
 
 ## 80's Espresso
 Category: Lever at low temperature

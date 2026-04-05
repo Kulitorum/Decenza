@@ -84,6 +84,11 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary,
     if (ShotAnalysis::shouldSkipChannelingCheck(summary.beverageType, flowData, pourStart, pourEnd))
         return;
 
+    // Skip profiles where minor channeling is intentional (e.g. Allongé).
+    // Keeps the stored badge aligned with what generateSummary() shows in the popup.
+    if (getAnalysisFlags(summary.profileKbId).contains(QStringLiteral("channeling_expected")))
+        return;
+
     // Use dC/dt (conductance derivative) — the most diagnostic puck-integrity
     // signal. Only a Sustained event counts toward the stored "channeling"
     // anomaly flag; transient self-healed channels show up in the popup but
@@ -861,7 +866,7 @@ void ShotSummarizer::loadProfileKnowledge()
             keys << part.trimmed().toLower();
         }
 
-        // Check for "Also matches:" line in content
+        // Check for "Also matches:" and "AnalysisFlags:" lines in content
         for (const QString& line : currentContent.split('\n')) {
             if (line.startsWith(QStringLiteral("Also matches:"))) {
                 QString aliases = line.mid(14).trimmed();
@@ -874,7 +879,12 @@ void ShotSummarizer::loadProfileKnowledge()
                         keys << clean.toLower();
                     }
                 }
-                break;
+            } else if (line.startsWith(QStringLiteral("AnalysisFlags:"))) {
+                const QString flagStr = line.mid(14).trimmed();
+                for (const QString& f : flagStr.split(',')) {
+                    const QString flag = f.trimmed();
+                    if (!flag.isEmpty()) pk.analysisFlags << flag;
+                }
             }
         }
 
@@ -1041,6 +1051,13 @@ QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QS
         return s_profileKnowledge.value(key).content;
     }
     return QString();
+}
+
+QStringList ShotSummarizer::getAnalysisFlags(const QString& kbId)
+{
+    if (kbId.isEmpty()) return {};
+    loadProfileKnowledge();
+    return s_profileKnowledge.value(kbId).analysisFlags;
 }
 
 QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QString& editorType)

@@ -414,6 +414,7 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
+                    advancedMode: postShotReviewPage.advancedMode
                     showPhaseLabels: postShotReviewPage.advancedMode
                     pressureData: editShotData.pressure || []
                     flowData: editShotData.flow || []

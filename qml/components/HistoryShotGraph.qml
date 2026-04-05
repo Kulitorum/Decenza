@@ -26,6 +26,8 @@ ChartView {
     property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
     property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
 
+    property bool advancedMode: false
+
     // Which right-side axis labels to display (tap axis to swap)
     property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
 
@@ -238,13 +240,13 @@ ChartView {
             { name: "Pressure", series: pressureSeries, show: showPressure },
             { name: "Flow", series: flowSeries, show: showFlow },
             { name: "Temp", series: temperatureSeries, show: showTemperature },
-            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix },
+            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix && advancedMode },
             { name: "Weight", series: weightSeries, show: showWeight },
             { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow },
-            { name: "Resistance", series: resistanceSeries, show: showResistance },
-            { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance },
-            { name: "Conductance", series: conductanceSeries, show: showConductance },
-            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative }
+            { name: "Resistance", series: resistanceSeries, show: showResistance && advancedMode },
+            { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance && advancedMode },
+            { name: "Conductance", series: conductanceSeries, show: showConductance && advancedMode },
+            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative && advancedMode }
         ]
 
         var parts = []
@@ -323,7 +325,7 @@ ChartView {
     // Pressure/Flow axis (left Y)
     ValueAxis {
         id: pressureAxis
-        min: 0
+        min: (chart.showConductanceDerivative && chart.advancedMode) ? -5 : 0
         max: pressureAxisMax
         tickCount: 5
         labelFormat: "%.0f"
@@ -476,7 +478,7 @@ ChartView {
         width: Theme.scaled(2)
         axisX: timeAxis
         axisY: pressureAxis
-        visible: chart.showResistance
+        visible: chart.showResistance && chart.advancedMode
     }
 
     LineSeries {
@@ -486,7 +488,7 @@ ChartView {
         width: Theme.scaled(2)
         axisX: timeAxis
         axisY: pressureAxis
-        visible: chart.showConductance
+        visible: chart.showConductance && chart.advancedMode
     }
 
     LineSeries {
@@ -496,7 +498,7 @@ ChartView {
         width: Theme.scaled(2)
         axisX: timeAxis
         axisY: pressureAxis
-        visible: chart.showDarcyResistance
+        visible: chart.showDarcyResistance && chart.advancedMode
     }
 
     LineSeries {
@@ -506,7 +508,7 @@ ChartView {
         width: Theme.scaled(2)
         axisX: timeAxis
         axisY: pressureAxis
-        visible: chart.showConductanceDerivative
+        visible: chart.showConductanceDerivative && chart.advancedMode
     }
 
     LineSeries {
@@ -516,7 +518,7 @@ ChartView {
         width: Theme.scaled(2)
         axisX: timeAxis
         axisYRight: tempAxis
-        visible: chart.showTemperatureMix
+        visible: chart.showTemperatureMix && chart.advancedMode
     }
 
     // Phase marker vertical lines (up to 10 markers)

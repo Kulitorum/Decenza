@@ -374,7 +374,7 @@ Page {
 
     Component {
         id: shotGraphComponent
-        ShotGraph { }
+        ShotGraph { advancedMode: espressoPage.advancedMode }
     }
 
     Component {

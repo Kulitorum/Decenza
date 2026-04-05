@@ -1,5 +1,6 @@
 #include "shothistorystorage.h"
 #include "ai/shotanalysis.h"
+#include "ai/shotsummarizer.h"
 #include "core/grinderaliases.h"
 #include "models/shotdatamodel.h"
 #include "profile/profile.h"
@@ -2074,6 +2075,8 @@ QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData
     QVector<QPointF> temperature = variantToPoints(shotData["temperature"]);
     QVector<QPointF> temperatureGoal = variantToPoints(shotData["temperatureGoal"]);
     QVector<QPointF> conductanceDerivative = variantToPoints(shotData["conductanceDerivative"]);
+    QVector<QPointF> pressureGoal = variantToPoints(shotData["pressureGoal"]);
+    QVector<QPointF> flowGoal = variantToPoints(shotData["flowGoal"]);
 
     QList<HistoryPhaseMarker> phases;
     const QVariantList phaseList = shotData["phases"].toList();
@@ -2088,11 +2091,15 @@ QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData
         phases.append(marker);
     }
 
+    const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(
+        shotData["profileKbId"].toString());
+
     return ShotAnalysis::generateSummary(
         pressure, flow, weight, temperature, temperatureGoal,
         conductanceDerivative, phases,
         shotData["beverageType"].toString(),
-        shotData["duration"].toDouble());
+        shotData["duration"].toDouble(),
+        pressureGoal, flowGoal, analysisFlags);
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
