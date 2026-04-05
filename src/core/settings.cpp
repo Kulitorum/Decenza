@@ -1370,7 +1370,12 @@ QVariantList Settings::beanPresets() const {
 
     QVariantList result;
     for (const QJsonValue& v : arr) {
-        result.append(v.toObject().toVariantMap());
+        QVariantMap row = v.toObject().toVariantMap();
+        // Backfill legacy presets (no showOnIdle field) — default true to preserve behavior
+        if (!row.contains("showOnIdle")) {
+            row["showOnIdle"] = true;
+        }
+        result.append(row);
     }
     return result;
 }
@@ -1402,6 +1407,7 @@ void Settings::addBeanPreset(const QString& name, const QString& brand, const QS
     preset["grinderModel"] = grinderModel;
     preset["grinderBurrs"] = grinderBurrs;
     preset["grinderSetting"] = grinderSetting;
+    preset["showOnIdle"] = true;
     arr.append(preset);
 
     m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
@@ -1416,6 +1422,10 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
     QJsonArray arr = getBeanPresetsArray();
 
     if (index >= 0 && index < arr.size()) {
+        // Preserve showOnIdle from existing entry (default true for legacy)
+        QJsonObject existing = arr[index].toObject();
+        bool showOnIdle = existing.contains("showOnIdle") ? existing["showOnIdle"].toBool() : true;
+
         QJsonObject preset;
         preset["name"] = name;
         preset["brand"] = brand;
@@ -1426,6 +1436,7 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
         preset["grinderModel"] = grinderModel;
         preset["grinderBurrs"] = grinderBurrs;
         preset["grinderSetting"] = grinderSetting;
+        preset["showOnIdle"] = showOnIdle;
         arr[index] = preset;
 
         m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
@@ -1477,11 +1488,45 @@ void Settings::moveBeanPreset(int from, int to) {
     }
 }
 
+void Settings::setBeanPresetShowOnIdle(int index, bool show) {
+    QJsonArray arr = getBeanPresetsArray();
+
+    if (index >= 0 && index < arr.size()) {
+        QJsonObject preset = arr[index].toObject();
+        if (preset["showOnIdle"].toBool(true) != show) {
+            preset["showOnIdle"] = show;
+            arr[index] = preset;
+            m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
+            emit beanPresetsChanged();
+        }
+    }
+}
+
+QVariantList Settings::idleBeanPresets() const {
+    QJsonArray arr = getBeanPresetsArray();
+
+    QVariantList result;
+    for (qsizetype i = 0; i < arr.size(); ++i) {
+        QJsonObject obj = arr[i].toObject();
+        bool showOnIdle = obj.contains("showOnIdle") ? obj["showOnIdle"].toBool() : true;
+        if (!showOnIdle) continue;
+        QVariantMap row = obj.toVariantMap();
+        row["showOnIdle"] = true;
+        row["originalIndex"] = static_cast<int>(i);
+        result.append(row);
+    }
+    return result;
+}
+
 QVariantMap Settings::getBeanPreset(int index) const {
     QJsonArray arr = getBeanPresetsArray();
 
     if (index >= 0 && index < arr.size()) {
-        return arr[index].toObject().toVariantMap();
+        QVariantMap row = arr[index].toObject().toVariantMap();
+        if (!row.contains("showOnIdle")) {
+            row["showOnIdle"] = true;
+        }
+        return row;
     }
     return QVariantMap();
 }

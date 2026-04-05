@@ -160,13 +160,24 @@ Item {
         }
 
         contentItem: PresetPillRow {
+            id: beansPillRow
             maxWidth: Theme.scaled(600)
-            presets: Settings.beanPresets
-            selectedIndex: Settings.selectedBeanPreset
+            presets: Settings.idleBeanPresets
+            // selectedIndex refers to position within the filtered list
+            selectedIndex: {
+                var list = Settings.idleBeanPresets
+                for (var i = 0; i < list.length; ++i) {
+                    if (list[i].originalIndex === Settings.selectedBeanPreset) return i
+                }
+                return -1
+            }
 
             onPresetSelected: function(index) {
-                Settings.selectedBeanPreset = index
-                Settings.applyBeanPreset(index)
+                var row = beansPillRow.presets[index]
+                if (!row) return
+                var originalIndex = row.originalIndex !== undefined ? row.originalIndex : index
+                Settings.selectedBeanPreset = originalIndex
+                Settings.applyBeanPreset(originalIndex)
                 presetPopup.close()
             }
         }

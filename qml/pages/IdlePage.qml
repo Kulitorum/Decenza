@@ -126,9 +126,12 @@ Page {
                     }
                     break
                 case "beans":
-                    presets = Settings.beanPresets
-                    if (Settings.selectedBeanPreset >= 0 && Settings.selectedBeanPreset < presets.length) {
-                        selectedName = presets[Settings.selectedBeanPreset].name
+                    presets = Settings.idleBeanPresets
+                    for (var bi = 0; bi < presets.length; ++bi) {
+                        if (presets[bi].originalIndex === Settings.selectedBeanPreset) {
+                            selectedName = presets[bi].name
+                            break
+                        }
                     }
                     break
             }
@@ -465,13 +468,23 @@ Page {
                 active: activePresetFunction === "beans"
                 visible: active
                 sourceComponent: PresetPillRow {
+                    id: inlineBeanPresetRow
                     maxWidth: beanPresetLoader.width
-                    presets: Settings.beanPresets
-                    selectedIndex: Settings.selectedBeanPreset
+                    presets: Settings.idleBeanPresets
+                    selectedIndex: {
+                        var list = Settings.idleBeanPresets
+                        for (var i = 0; i < list.length; ++i) {
+                            if (list[i].originalIndex === Settings.selectedBeanPreset) return i
+                        }
+                        return -1
+                    }
 
                     onPresetSelected: function(index) {
-                        Settings.selectedBeanPreset = index
-                        Settings.applyBeanPreset(index)
+                        var row = inlineBeanPresetRow.presets[index]
+                        if (!row) return
+                        var originalIndex = row.originalIndex !== undefined ? row.originalIndex : index
+                        Settings.selectedBeanPreset = originalIndex
+                        Settings.applyBeanPreset(originalIndex)
                     }
                 }
             }

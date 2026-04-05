@@ -709,166 +709,77 @@ Page {
                     }
                 }
 
-                ListView {
+                FavoritesListView {
                     id: favoritesList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    clip: true
                     visible: Settings.favoriteProfiles.length > 0
                     model: Settings.favoriteProfiles
-                    spacing: Theme.scaled(8)
+                    selectedIndex: Settings.selectedFavoriteProfile
 
-                    delegate: Item {
-                        id: favoriteDelegate
-                        width: favoritesList.width
-                        height: Math.max(Theme.scaled(60), favContentRow.implicitHeight + Theme.scaled(10) * 2)
+                    displayTextFn: function(row, index) {
+                        if (!row) return ""
+                        var name = row.name
+                        if (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) {
+                            return ProfileManager.isCurrentProfileReadOnly
+                                ? name + " (modified)" : "*" + name
+                        }
+                        return name
+                    }
+                    accessibleNameFn: function(row, index) {
+                        if (!row) return ""
+                        var modified = (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified)
+                            ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+                        var status = index === Settings.selectedFavoriteProfile
+                            ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite")
+                            : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite")
+                        return root.cleanForSpeech(row.name) + modified + status
+                    }
+                    deleteAccessibleNameFn: function(row, index) {
+                        if (!row) return ""
+                        return TranslationManager.translate("profileselector.accessible.remove", "Remove") + " " +
+                               root.cleanForSpeech(row.name) + " " +
+                               TranslationManager.translate("profileselector.accessible.from_favorites", "from favorites")
+                    }
 
-                        property int favoriteIndex: index
-
-                        Rectangle {
-                            id: favoritePill
+                    trailingActionDelegate: Component {
+                        StyledIconButton {
                             anchors.fill: parent
-                            radius: Theme.scaled(8)
-                            color: index === Settings.selectedFavoriteProfile ?
-                                   Theme.primaryColor : Theme.backgroundColor
-                            border.color: Theme.textSecondaryColor
-                            border.width: 1
+                            icon.source: "qrc:/icons/edit.svg"
+                            icon.width: Theme.scaled(18)
+                            icon.height: Theme.scaled(18)
+                            icon.color: parent.selected ? "white" : Theme.textColor
+                            accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + root.cleanForSpeech(parent.row.name)) : ""
 
-                            RowLayout {
-                                id: favContentRow
-                                anchors.fill: parent
-                                anchors.margins: Theme.scaled(10)
-                                spacing: Theme.scaled(8)
-
-                                // Drag handle
-                                Image {
-                                    source: "qrc:/icons/list.svg"
-                                    sourceSize.width: Theme.scaled(18)
-                                    sourceSize.height: Theme.scaled(18)
-                                    opacity: index === Settings.selectedFavoriteProfile ? 1.0 : 0.5
-
-                                    layer.enabled: index !== Settings.selectedFavoriteProfile
-                                    layer.smooth: true
-                                    layer.effect: MultiEffect {
-                                        colorization: 1.0
-                                        colorizationColor: Theme.textSecondaryColor
-                                    }
-
-                                    MouseArea {
-                                        id: dragArea
-                                        anchors.fill: parent
-                                        preventStealing: true
-                                        drag.target: favoritePill
-                                        drag.axis: Drag.YAxis
-
-                                        property int startIndex: -1
-
-                                        onPressed: {
-                                            startIndex = favoriteDelegate.favoriteIndex
-                                            favoritePill.anchors.fill = undefined
-                                        }
-
-                                        onReleased: {
-                                            // Read position BEFORE restoring anchors (anchors.fill resets y to 0)
-                                            var contentPos = favoriteDelegate.y + favoritePill.y
-                                            var newIndex = Math.floor((contentPos + favoritePill.height/2) / (favoriteDelegate.height + favoritesList.spacing))
-                                            newIndex = Math.max(0, Math.min(newIndex, Settings.favoriteProfiles.length - 1))
-                                            favoritePill.anchors.fill = favoriteDelegate
-                                            if (newIndex !== startIndex && startIndex >= 0) {
-                                                Settings.moveFavoriteProfile(startIndex, newIndex)
-                                            }
-                                        }
-
-                                        onCanceled: {
-                                            favoritePill.anchors.fill = favoriteDelegate
-                                        }
-                                    }
-                                }
-
-                                // Profile name
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: {
-                                        var name = modelData.name
-                                        if (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) {
-                                            return ProfileManager.isCurrentProfileReadOnly
-                                                ? name + " (modified)" : "*" + name
-                                        }
-                                        return name
-                                    }
-                                    color: index === Settings.selectedFavoriteProfile ?
-                                           "white" : Theme.textColor
-                                    font: Theme.bodyFont
-                                    elide: Text.ElideRight
-                                    Accessible.ignored: true
-                                }
-
-                                // Edit button
-                                StyledIconButton {
-                                    id: editFavoriteButton
-                                    Layout.preferredWidth: Theme.scaled(36)
-                                    Layout.preferredHeight: Theme.scaled(36)
-                                    icon.source: "qrc:/icons/edit.svg"
-                                    icon.width: Theme.scaled(18)
-                                    icon.height: Theme.scaled(18)
-                                    icon.color: index === Settings.selectedFavoriteProfile ? "white" : Theme.textColor
-                                    accessibleName: modelData ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + root.cleanForSpeech(modelData.name)) : ""
-
-                                    onClicked: {
-                                        if (!modelData) return
-                                        Settings.selectedFavoriteProfile = index
-                                        ProfileManager.loadProfile(modelData.filename)
-                                        root.goToProfileEditor()
-                                    }
-                                }
-
-                                // Remove button
-                                StyledIconButton {
-                                    id: removeFavoriteButton
-                                    Layout.preferredWidth: Theme.scaled(36)
-                                    Layout.preferredHeight: Theme.scaled(36)
-                                    icon.source: "qrc:/icons/cross.svg"
-                                    inactiveColor: Theme.errorColor
-                                    accessibleName: modelData ? (TranslationManager.translate("profileselector.accessible.remove", "Remove") + " " + root.cleanForSpeech(modelData.name) + " " + TranslationManager.translate("profileselector.accessible.from_favorites", "from favorites")) : ""
-
-                                    onClicked: {
-                                        if (!modelData) return
-                                        var name = root.cleanForSpeech(modelData.name)
-                                        Settings.removeFavoriteProfile(index)
-                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                            AccessibilityManager.announce(name + " " + TranslationManager.translate("profileselector.accessible.removed_from_favorites", "removed from favorites"))
-                                        }
-                                    }
-                                }
+                            onClicked: {
+                                if (!parent.row) return
+                                Settings.selectedFavoriteProfile = parent.rowIndex
+                                ProfileManager.loadProfile(parent.row.filename)
+                                root.goToProfileEditor()
                             }
+                        }
+                    }
 
-                            // Using TapHandler for better touch responsiveness
-                            AccessibleTapHandler {
-                                anchors.fill: parent
-                                z: -1
-                                accessibleName: {
-                                    if (!modelData) return ""
-                                    var modified = (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
-                                    var status = index === Settings.selectedFavoriteProfile ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite") : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite")
-                                    return root.cleanForSpeech(modelData.name) + modified + status
-                                }
-                                accessibleItem: favoritePill
-                                onAccessibleClicked: {
-                                    if (!modelData) return
-                                    // Always load the profile when clicking
-                                    ProfileManager.loadProfile(modelData.filename)
-                                    if (index === Settings.selectedFavoriteProfile) {
-                                        // Already selected - open editor
-                                        root.goToProfileEditor()
-                                    } else {
-                                        // Select it (first click)
-                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                            AccessibilityManager.announce(root.cleanForSpeech(modelData.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
-                                        }
-                                        Settings.selectedFavoriteProfile = index
-                                    }
-                                }
+                    onRowSelected: function(index) {
+                        var fav = Settings.favoriteProfiles[index]
+                        if (!fav) return
+                        ProfileManager.loadProfile(fav.filename)
+                        if (index === Settings.selectedFavoriteProfile) {
+                            root.goToProfileEditor()
+                        } else {
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                AccessibilityManager.announce(root.cleanForSpeech(fav.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
                             }
+                            Settings.selectedFavoriteProfile = index
+                        }
+                    }
+                    onRowMoved: function(from, to) { Settings.moveFavoriteProfile(from, to) }
+                    onRowDeleted: function(index) {
+                        var fav = Settings.favoriteProfiles[index]
+                        var name = fav ? root.cleanForSpeech(fav.name) : ""
+                        Settings.removeFavoriteProfile(index)
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                            AccessibilityManager.announce(name + " " + TranslationManager.translate("profileselector.accessible.removed_from_favorites", "removed from favorites"))
                         }
                     }
                 }
