@@ -235,7 +235,9 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
         }
     }
 
-    // Build metadata and summarize shot
+    // Build metadata and summarize shot. Ensure dC/dt is available for
+    // channeling analysis (idempotent; usually already run by the save path).
+    shotData->computeConductanceDerivative();
     ShotMetadata metadata = buildMetadata(beanBrand, beanType, roastDate, roastLevel,
                                           grinderBrand, grinderModel, grinderBurrs,
                                           grinderSetting, enjoymentScore, tastingNotes);

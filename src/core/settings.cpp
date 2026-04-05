@@ -4511,6 +4511,16 @@ void Settings::setValue(const QString& key, const QVariant& value) {
     emit valueChanged(key);
 }
 
+bool Settings::boolValue(const QString& key, bool defaultValue) const {
+    const QVariant v = m_settings.value(key);
+    if (!v.isValid()) return defaultValue;
+    // QVariant::toBool() handles native bool, int, and the strings "true"/"false"/"1"/"0".
+    // We bypass the plain value() path because that returns the raw QVariant (often a
+    // QString on INI-backed QSettings) to QML, where JavaScript truthiness on "false"
+    // yields true — causing silent persistence bugs.
+    return v.toBool();
+}
+
 // Pocket app pairing
 QString Settings::pocketPairingToken() const
 {

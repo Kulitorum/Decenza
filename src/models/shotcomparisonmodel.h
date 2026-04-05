@@ -69,6 +69,13 @@ public:
                                     QObject* tSeries, QObject* wSeries,
                                     QObject* wfSeries, QObject* rSeries) const;
 
+    // Same as populateSeries but for the advanced curves (conductance, dC/dt,
+    // Darcy resistance, mix temp). Split into a separate method so Q_INVOKABLE
+    // signatures stay at a reasonable arg count.
+    Q_INVOKABLE void populateAdvancedSeries(int shotIdx,
+                                             QObject* cSeries, QObject* dcdtSeries,
+                                             QObject* drSeries, QObject* mtSeries) const;
+
     Q_INVOKABLE QVariantList getPressureData(int index) const;
     Q_INVOKABLE QVariantList getFlowData(int index) const;
     Q_INVOKABLE QVariantList getTemperatureData(int index) const;
@@ -125,6 +132,10 @@ private:
         QVector<QPointF> weight;
         QVector<QPointF> weightFlowRate;
         QVector<QPointF> resistance;
+        QVector<QPointF> conductance;
+        QVector<QPointF> conductanceDerivative;
+        QVector<QPointF> darcyResistance;
+        QVector<QPointF> temperatureMix;
 
         struct PhaseMarker {
             double time = 0;

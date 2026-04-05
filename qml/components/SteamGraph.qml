@@ -10,10 +10,11 @@ ChartView {
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
 
-    // Persisted visibility toggles (tappable legend)
-    property bool showPressure: Settings.value("steamGraph/showPressure", true)
-    property bool showFlow: Settings.value("steamGraph/showFlow", true)
-    property bool showTemperature: Settings.value("steamGraph/showTemperature", true)
+    // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
+    // QSettings' INI-backed strings to real booleans; see Settings.h.
+    property bool showPressure: Settings.boolValue("steamGraph/showPressure", true)
+    property bool showFlow: Settings.boolValue("steamGraph/showFlow", true)
+    property bool showTemperature: Settings.boolValue("steamGraph/showTemperature", true)
 
     margins.top: Theme.scaled(10)
     margins.bottom: 0

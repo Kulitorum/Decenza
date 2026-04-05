@@ -17,13 +17,19 @@ ChartView {
     // Shot comparison model
     property var comparisonModel: null
 
-    // Visibility toggles for curve types (shared with HistoryShotGraph via Settings)
-    property bool showPressure: Settings.value("graph/showPressure", true)
-    property bool showFlow: Settings.value("graph/showFlow", true)
-    property bool showTemperature: Settings.value("graph/showTemperature", true)
-    property bool showWeight: Settings.value("graph/showWeight", true)
-    property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
-    property bool showResistance: Settings.value("graph/showResistance", false)
+    // Visibility toggles for curve types (shared with HistoryShotGraph via Settings).
+    // Settings.boolValue() coerces QSettings' INI-backed strings to real booleans;
+    // see Settings.h.
+    property bool showPressure: Settings.boolValue("graph/showPressure", true)
+    property bool showFlow: Settings.boolValue("graph/showFlow", true)
+    property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
+    property bool showWeight: Settings.boolValue("graph/showWeight", true)
+    property bool showWeightFlow: Settings.boolValue("graph/showWeightFlow", true)
+    property bool showResistance: Settings.boolValue("graph/showResistance", false)
+    property bool showConductance: Settings.boolValue("graph/showConductance", false)
+    property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
+    property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
+    property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
 
     // Per-shot visibility (window slot 0/1/2)
     property bool showShot0: true
@@ -63,6 +69,9 @@ ChartView {
         comparisonModel.populateSeries(0, pressure1, flow1, temp1, weight1, weightFlow1, resistance1)
         comparisonModel.populateSeries(1, pressure2, flow2, temp2, weight2, weightFlow2, resistance2)
         comparisonModel.populateSeries(2, pressure3, flow3, temp3, weight3, weightFlow3, resistance3)
+        comparisonModel.populateAdvancedSeries(0, conductance1, conductanceDerivative1, darcyResistance1, temperatureMix1)
+        comparisonModel.populateAdvancedSeries(1, conductance2, conductanceDerivative2, darcyResistance2, temperatureMix2)
+        comparisonModel.populateAdvancedSeries(2, conductance3, conductanceDerivative3, darcyResistance3, temperatureMix3)
 
         // Fit time axis to data
         timeAxis.max = Math.max(15, comparisonModel.maxTime + 0.5)
@@ -139,23 +148,8 @@ ChartView {
 
         var shotValues = []
         for (var i = 0; i < comparisonModel.shotCount; i++) {
-            var vals = comparisonModel.getValuesAtTime(i, time)
-            var info = comparisonModel.getShotInfo(i)
-            shotValues.push({
-                dateTime:       info.dateTime,
-                hasPressure:    vals.hasPressure,
-                pressure:       vals.pressure,
-                hasFlow:        vals.hasFlow,
-                flow:           vals.flow,
-                hasTemperature: vals.hasTemperature,
-                temperature:    vals.temperature,
-                hasWeight:      vals.hasWeight,
-                weight:         vals.weight,
-                hasWeightFlow:  vals.hasWeightFlow,
-                weightFlow:     vals.weightFlow,
-                hasResistance:  vals.hasResistance,
-                resistance:     vals.resistance
-            })
+            shotValues.push(chart.buildShotValues(i, comparisonModel.getValuesAtTime(i, time),
+                                                   comparisonModel.getShotInfo(i)))
         }
         inspectShotValues = shotValues
         inspecting = true
@@ -176,23 +170,32 @@ ChartView {
             AccessibilityManager.announce(parts.join(". "), true)
     }
 
+    // Build the inspect-value record consumed by the data table + inspect bar.
+    // Kept as a function so both inspectAtPosition and inspectAtTime share one shape.
+    function buildShotValues(i, vals, info) {
+        return {
+            dateTime:       info.dateTime,
+            hasPressure:    vals.hasPressure,   pressure:       vals.pressure,
+            hasFlow:        vals.hasFlow,       flow:           vals.flow,
+            hasTemperature: vals.hasTemperature,temperature:    vals.temperature,
+            hasWeight:      vals.hasWeight,     weight:         vals.weight,
+            hasWeightFlow:  vals.hasWeightFlow, weightFlow:     vals.weightFlow,
+            hasResistance:  vals.hasResistance, resistance:     vals.resistance,
+            hasConductance: vals.hasConductance,conductance:    vals.conductance,
+            hasDarcyResistance:        vals.hasDarcyResistance,        darcyResistance:        vals.darcyResistance,
+            hasConductanceDerivative:  vals.hasConductanceDerivative,  conductanceDerivative:  vals.conductanceDerivative,
+            hasTemperatureMix:         vals.hasTemperatureMix,         temperatureMix:         vals.temperatureMix
+        }
+    }
+
     // Place crosshair at a specific time (no pixel mapping needed)
     function inspectAtTime(time) {
         if (!comparisonModel || time < 0 || time > timeAxis.max) return
         inspectTime = time
         var shotValues = []
         for (var i = 0; i < comparisonModel.shotCount; i++) {
-            var vals = comparisonModel.getValuesAtTime(i, time)
-            var info = comparisonModel.getShotInfo(i)
-            shotValues.push({
-                dateTime:       info.dateTime,
-                hasPressure:    vals.hasPressure,   pressure:    vals.pressure,
-                hasFlow:        vals.hasFlow,        flow:        vals.flow,
-                hasTemperature: vals.hasTemperature, temperature: vals.temperature,
-                hasWeight:      vals.hasWeight,      weight:      vals.weight,
-                hasWeightFlow:  vals.hasWeightFlow,  weightFlow:  vals.weightFlow,
-                hasResistance:  vals.hasResistance,  resistance:  vals.resistance
-            })
+            shotValues.push(chart.buildShotValues(i, comparisonModel.getValuesAtTime(i, time),
+                                                   comparisonModel.getShotInfo(i)))
         }
         inspectShotValues = shotValues
         inspecting = true
@@ -260,7 +263,11 @@ ChartView {
     LineSeries { id: temp1;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot0 }
     LineSeries { id: weight1;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot0 }
     LineSeries { id: weightFlow1;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot0 }
-    LineSeries { id: resistance1;  color: Theme.resistanceColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showResistance  && chart.showShot0 }
+    LineSeries { id: resistance1;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance  && chart.showShot0 }
+    LineSeries { id: conductance1;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.showShot0 }
+    LineSeries { id: conductanceDerivative1;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.showShot0 }
+    LineSeries { id: darcyResistance1;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.showShot0 }
+    LineSeries { id: temperatureMix1;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.showShot0 }
 
     // ── Shot 2: dashed lines ─────────────────────────────────────────────────
     LineSeries { id: pressure2;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot1 }
@@ -268,7 +275,11 @@ ChartView {
     LineSeries { id: temp2;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot1 }
     LineSeries { id: weight2;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot1 }
     LineSeries { id: weightFlow2;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot1 }
-    LineSeries { id: resistance2;  color: Theme.resistanceColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showResistance  && chart.showShot1 }
+    LineSeries { id: resistance2;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance  && chart.showShot1 }
+    LineSeries { id: conductance2;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.showShot1 }
+    LineSeries { id: conductanceDerivative2;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.showShot1 }
+    LineSeries { id: darcyResistance2;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.showShot1 }
+    LineSeries { id: temperatureMix2;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.showShot1 }
 
     // ── Shot 3: dash-dot lines ───────────────────────────────────────────────
     LineSeries { id: pressure3;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot2 }
@@ -276,7 +287,11 @@ ChartView {
     LineSeries { id: temp3;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot2 }
     LineSeries { id: weight3;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot2 }
     LineSeries { id: weightFlow3;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot2 }
-    LineSeries { id: resistance3;  color: Theme.resistanceColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showResistance  && chart.showShot2 }
+    LineSeries { id: resistance3;           color: Theme.resistanceColor;           width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showResistance  && chart.showShot2 }
+    LineSeries { id: conductance3;          color: Theme.conductanceColor;          width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductance && chart.showShot2 }
+    LineSeries { id: conductanceDerivative3;color: Theme.conductanceDerivativeColor;width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showConductanceDerivative && chart.showShot2 }
+    LineSeries { id: darcyResistance3;      color: Theme.darcyResistanceColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showDarcyResistance && chart.showShot2 }
+    LineSeries { id: temperatureMix3;       color: Theme.temperatureMixColor;       width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis; visible: chart.showTemperatureMix && chart.showShot2 }
 
     // Phase marker lines — Canvas for proper dashed patterns per shot style
     Canvas {

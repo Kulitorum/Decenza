@@ -85,7 +85,7 @@ struct ShotSummary {
     QString profileKbId;
 
     // Anomaly flags
-    bool channelingDetected = false;  // Sudden flow spikes
+    bool channelingDetected = false;  // Sustained dC/dt elevation (puck integrity loss)
     bool temperatureUnstable = false; // >2C variation
 
     // DYE metadata (from user input)
@@ -153,10 +153,10 @@ private:
     double calculateMin(const QVector<QPointF>& data, double startTime, double endTime) const;
     double calculateStdDev(const QVector<QPointF>& data, double startTime, double endTime) const;
     double findTimeToFirstDrip(const QVector<QPointF>& flowData) const;
-    bool detectChanneling(const QVector<QPointF>& flowData, double startTime, double endTime) const;
-
     static QString profileTypeDescription(const QString& editorType);
-    void detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const;
+    void detectChannelingInPhases(ShotSummary& summary,
+                                   const QVector<QPointF>& flowData,
+                                   const QVector<QPointF>& conductanceDerivative) const;
     void calculateTemperatureStability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 

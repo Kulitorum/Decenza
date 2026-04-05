@@ -502,8 +502,8 @@ time including:
   avgTemperature, tempStability (std deviation), weightGained
 - Sampled at: start, peak-deviation, and end of each phase
 - Target comparison: actual temps vs. `tempGoalCurve` deviation
-- Anomaly detection: `channelingDetected` (flow spikes), `temperatureUnstable`
-  (avg deviation > 2°C)
+- Anomaly detection: `channelingDetected` (sustained dC/dt elevation — puck
+  integrity loss), `temperatureUnstable` (avg deviation > 2°C)
 
 **Resistance calculation** (`src/models/shotdatamodel.cpp:233`): Already computed and
 persisted per shot using `R = P / F` (DSx2 formula), clamped to 15.0, flow-gated at
@@ -747,7 +747,7 @@ on cached system prompts; OpenAI: ~50% automatic).
 **What the in-app AI already does for dial-in:**
 - Analyzes shots with full telemetry curves (pressure, flow, temp) via `ShotSummarizer`
 - Per-phase breakdown with actual vs. target values at start/peak-deviation/end
-- Channeling detection (flow spike analysis during flow-controlled phases)
+- Channeling detection (sustained dC/dt elevation — conductance derivative)
 - Temperature stability assessment (std deviation vs. target)
 - Profile-specific knowledge injection (31 stock profiles with KB IDs)
 - Grinder/burr awareness (when user enters structured grinder data)

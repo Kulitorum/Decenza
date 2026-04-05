@@ -19,6 +19,16 @@ Page {
     property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
     property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
 
+    // Pick up toggle changes made on any other page sharing this setting
+    // (Post-Shot Review, Shot Comparison, Espresso view selector).
+    Connections {
+        target: Settings
+        function onValueChanged(key) {
+            if (key === "shotReview/advancedMode")
+                shotDetailPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
+        }
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
         // Initialize currentIndex if shotIds provided

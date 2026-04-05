@@ -837,6 +837,13 @@ public:
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);
 
+    // Coerced boolean getter. QSettings' INI backend (used on Android/Linux/iOS)
+    // round-trips booleans as the strings "true"/"false", which JavaScript then
+    // treats as truthy — so `property bool foo: Settings.value("foo", true)`
+    // returned the wrong value after the key had been written once. This helper
+    // performs the coercion in C++ so QML callers don't have to.
+    Q_INVOKABLE bool boolValue(const QString& key, bool defaultValue = false) const;
+
     // SAW convergence detection helper
     bool isSawConverged(const QString& scaleType) const;
     // Returns SAW learning entries filtered by scale type (most recent first).

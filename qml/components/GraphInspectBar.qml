@@ -23,12 +23,32 @@ Flow {
     }
 
     Repeater {
+        // Rebuild the model whenever any show* flag changes — otherwise toggling
+        // a curve on (e.g. Resistance) wouldn't update the bar until the user
+        // taps the graph again. Each flag is read so QML tracks it as a binding
+        // dependency.
         model: {
+            var g = inspectBar.graph
+            var _deps = [g.showPressure, g.showFlow, g.showTemperature, g.showWeight, g.showWeightFlow,
+                         g.showResistance, g.showConductance, g.showDarcyResistance,
+                         g.showConductanceDerivative, g.showTemperatureMix]
+            var vals = g.inspectValues
+            // Order matches the legend: basic curves first, advanced after.
+            var entries = [
+                { key: "pressure",        show: g.showPressure },
+                { key: "flow",            show: g.showFlow },
+                { key: "temperature",     show: g.showTemperature },
+                { key: "weight",          show: g.showWeight },
+                { key: "weightFlow",      show: g.showWeightFlow },
+                { key: "resistance",      show: g.showResistance },
+                { key: "conductance",     show: g.showConductance },
+                { key: "darcyResistance", show: g.showDarcyResistance },
+                { key: "dCdt",            show: g.showConductanceDerivative },
+                { key: "mixTemp",         show: g.showTemperatureMix }
+            ]
             var items = []
-            var vals = inspectBar.graph.inspectValues
-            var keys = ["pressure", "flow", "temperature", "weight", "weightFlow"]
-            for (var i = 0; i < keys.length; i++) {
-                if (vals[keys[i]]) items.push(vals[keys[i]])
+            for (var i = 0; i < entries.length; i++) {
+                if (entries[i].show && vals[entries[i].key]) items.push(vals[entries[i].key])
             }
             return items
         }
@@ -46,12 +66,19 @@ Flow {
                         case "Temp": return Theme.temperatureColor
                         case "Weight": return Theme.weightColor
                         case "Weight flow": return Theme.weightFlowColor
+                        case "Resistance": return Theme.resistanceColor
+                        case "Conductance": return Theme.conductanceColor
+                        case "Darcy R": return Theme.darcyResistanceColor
+                        case "dC/dt": return Theme.conductanceDerivativeColor
+                        case "Mix temp": return Theme.temperatureMixColor
                         default: return Theme.textColor
                     }
                 }
             }
             Text {
-                text: modelData.value.toFixed(1) + " " + modelData.unit
+                text: modelData.unit.length > 0
+                    ? modelData.value.toFixed(1) + " " + modelData.unit
+                    : modelData.value.toFixed(1)
                 font: Theme.captionFont
                 color: Theme.textColor
                 Accessible.ignored: true

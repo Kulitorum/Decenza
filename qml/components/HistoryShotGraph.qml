@@ -13,20 +13,21 @@ ChartView {
     property bool showLabels: true
     property bool showPhaseLabels: true
 
-    // Persisted visibility toggles (tappable legend)
-    property bool showPressure: Settings.value("graph/showPressure", true)
-    property bool showFlow: Settings.value("graph/showFlow", true)
-    property bool showTemperature: Settings.value("graph/showTemperature", true)
-    property bool showWeight: Settings.value("graph/showWeight", true)
-    property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
-    property bool showResistance: Settings.value("graph/showResistance", false)
-    property bool showConductance: Settings.value("graph/showConductance", false)
-    property bool showConductanceDerivative: Settings.value("graph/showConductanceDerivative", false)
-    property bool showDarcyResistance: Settings.value("graph/showDarcyResistance", false)
-    property bool showTemperatureMix: Settings.value("graph/showTemperatureMix", false)
+    // Persisted visibility toggles (tappable legend). Using Settings.boolValue()
+    // coerces QSettings' INI-backed strings to real booleans; see Settings.h.
+    property bool showPressure: Settings.boolValue("graph/showPressure", true)
+    property bool showFlow: Settings.boolValue("graph/showFlow", true)
+    property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
+    property bool showWeight: Settings.boolValue("graph/showWeight", true)
+    property bool showWeightFlow: Settings.boolValue("graph/showWeightFlow", true)
+    property bool showResistance: Settings.boolValue("graph/showResistance", false)
+    property bool showConductance: Settings.boolValue("graph/showConductance", false)
+    property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
+    property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
+    property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
 
     // Which right-side axis labels to display (tap axis to swap)
-    property bool showWeightAxis: Settings.value("graph/showWeightAxis", true)
+    property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
 
     function toggleRightAxis() {
         showWeightAxis = !showWeightAxis
@@ -174,22 +175,25 @@ ChartView {
         // Calculate pixel X from time (clamped to plot area)
         inspectPixelX = chart.plotArea.x + (time / timeAxis.max) * chart.plotArea.width
 
+        // Compute values for every curve — regardless of visibility — so the
+        // inspect bar can react live when the user toggles curves on/off without
+        // re-tapping the graph. GraphInspectBar filters by the current show*
+        // flags at display time.
         var vals = {}
         var curves = [
-            { key: "pressure", name: "Pressure", series: pressureSeries, unit: "bar", show: showPressure },
-            { key: "flow", name: "Flow", series: flowSeries, unit: "mL/s", show: showFlow },
-            { key: "temperature", name: "Temp", series: temperatureSeries, unit: "\u00B0C", show: showTemperature },
-            { key: "weight", name: "Weight", series: weightSeries, unit: "g", show: showWeight },
-            { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s", show: showWeightFlow },
-            { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "", show: showResistance },
-            { key: "conductance", name: "Conductance", series: conductanceSeries, unit: "", show: showConductance },
-            { key: "darcyResistance", name: "Darcy R", series: darcyResistanceSeries, unit: "", show: showDarcyResistance },
-            { key: "dCdt", name: "dC/dt", series: conductanceDerivativeSeries, unit: "", show: showConductanceDerivative },
-            { key: "mixTemp", name: "Mix temp", series: temperatureMixSeries, unit: "\u00B0C", show: showTemperatureMix }
+            { key: "pressure", name: "Pressure", series: pressureSeries, unit: "bar" },
+            { key: "flow", name: "Flow", series: flowSeries, unit: "mL/s" },
+            { key: "temperature", name: "Temp", series: temperatureSeries, unit: "\u00B0C" },
+            { key: "weight", name: "Weight", series: weightSeries, unit: "g" },
+            { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s" },
+            { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "" },
+            { key: "conductance", name: "Conductance", series: conductanceSeries, unit: "" },
+            { key: "darcyResistance", name: "Darcy R", series: darcyResistanceSeries, unit: "" },
+            { key: "dCdt", name: "dC/dt", series: conductanceDerivativeSeries, unit: "" },
+            { key: "mixTemp", name: "Mix temp", series: temperatureMixSeries, unit: "\u00B0C" }
         ]
 
         for (var i = 0; i < curves.length; i++) {
-            if (!curves[i].show) continue
             var v = findValueAtTime(curves[i].series, time)
             if (v !== null) {
                 vals[curves[i].key] = { name: curves[i].name, value: v, unit: curves[i].unit }

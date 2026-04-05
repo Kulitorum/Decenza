@@ -43,6 +43,14 @@ legend on both pages. The same setting syncs between pages.
 
 ### Additional Changes
 
+- **Unified channeling detection (dC/dt)**: `channelingDetected` now comes from
+  the conductance derivative, matching the Shot Summary popup's signal. Previously
+  the badge used a flow-spike heuristic (flow-mode phases only) while the popup
+  used dC/dt, so they could disagree — especially on pressure-profile shots where
+  the badge could never fire. `ShotAnalysis::detectChannelingFromDerivative()` is
+  now the single source of truth, used by the badge, the AI prompt observations,
+  and `ShotAnalysisDialog`. The badge fires on Sustained events (>10 samples with
+  `|dC/dt| > 3.0`); transient self-healed channels surface only in the popup.
 - **Detail page layout**: Bean and grinder info cards display side by side.
 - **Auto-close timer**: Only runs on post-shot auto-open. User-initiated opens
   (history E button) do not auto-close.
@@ -115,7 +123,8 @@ are only used for AI prompt generation, never displayed to the user:
 - `flowAtStart`, `flowAtMiddle`, `flowAtEnd`
 
 **Anomaly flags**:
-- `channelingDetected` --- flow spike detection during flow-controlled phases
+- `channelingDetected` --- sustained dC/dt elevation (>10 samples with
+  `|dC/dt| > 3.0`) — puck integrity loss, works across all frame modes
 - `temperatureUnstable` --- avg deviation from goal > 2°C
 
 **Stored data series not displayed**:
@@ -253,7 +262,7 @@ without needing to ask the AI or interpret raw curves.
 - Expose `ShotSummary` fields to QML (either via new Q_PROPERTY on a summary object,
   or by storing flags in shot metadata at save time)
 - Display as colored chips below the graph or in the metrics row:
-  - Red: "Channeling detected" (flow spikes in flow-controlled phases)
+  - Red: "Channeling detected" (sustained dC/dt elevation — puck integrity loss)
   - Orange: "Temp unstable" (avg deviation > 2°C from goal)
   - Green: "Clean extraction" (neither flag triggered)
 - On the shot detail page, show the same badges from stored flags

@@ -227,6 +227,10 @@ void ShotComparisonModel::scheduleLoad()
                 shot.weight = record.weight;
                 shot.weightFlowRate = record.weightFlowRate;
                 shot.resistance = record.resistance;
+                shot.conductance = record.conductance;
+                shot.conductanceDerivative = record.conductanceDerivative;
+                shot.darcyResistance = record.darcyResistance;
+                shot.temperatureMix = record.temperatureMix;
 
                 for (const auto& phase : record.phases) {
                     ComparisonShot::PhaseMarker marker;
@@ -324,6 +328,27 @@ void ShotComparisonModel::populateSeries(int shotIdx,
             scaled.append(QPointF(pt.x(), pt.y() / 5.0));
         s->replace(scaled);
     }
+}
+
+void ShotComparisonModel::populateAdvancedSeries(int shotIdx,
+                                                  QObject* cObj, QObject* dcdtObj,
+                                                  QObject* drObj, QObject* mtObj) const
+{
+    auto clearSeries = [](QObject* obj) {
+        if (auto* s = qobject_cast<QXYSeries*>(obj)) s->clear();
+    };
+
+    if (shotIdx < 0 || shotIdx >= m_displayShots.size()) {
+        clearSeries(cObj); clearSeries(dcdtObj);
+        clearSeries(drObj); clearSeries(mtObj);
+        return;
+    }
+
+    const auto& shot = m_displayShots[shotIdx];
+    if (auto* s = qobject_cast<QXYSeries*>(cObj))    s->replace(shot.conductance);
+    if (auto* s = qobject_cast<QXYSeries*>(dcdtObj)) s->replace(shot.conductanceDerivative);
+    if (auto* s = qobject_cast<QXYSeries*>(drObj))   s->replace(shot.darcyResistance);
+    if (auto* s = qobject_cast<QXYSeries*>(mtObj))   s->replace(shot.temperatureMix);
 }
 
 QVariantList ShotComparisonModel::pointsToVariant(const QVector<QPointF>& points) const
@@ -465,6 +490,25 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
     double weight      = findNearest(shot.weight, time);
     double weightFlow  = findNearest(shot.weightFlowRate, time);
     double resistance  = findNearest(shot.resistance, time);
+    double conductance = findNearest(shot.conductance, time);
+    double darcy       = findNearest(shot.darcyResistance, time);
+    double mixTemp     = findNearest(shot.temperatureMix, time);
+
+    // dC/dt uses a sentinel distinct from flow/pressure (it legitimately ranges
+    // negative). findNearest returns -1.0 for "missing", but a real dC/dt value
+    // could be -1.0, so we use a custom lookup for this series.
+    bool hasDcdt = false;
+    double dcdt = 0.0;
+    if (!shot.conductanceDerivative.isEmpty()) {
+        double best = shot.conductanceDerivative[0].y();
+        double minDist = std::abs(shot.conductanceDerivative[0].x() - time);
+        for (const auto& pt : shot.conductanceDerivative) {
+            double dist = std::abs(pt.x() - time);
+            if (dist < minDist) { minDist = dist; best = pt.y(); }
+            else if (dist > minDist) break;
+        }
+        if (minDist < 1.0) { dcdt = best; hasDcdt = true; }
+    }
 
     result["hasPressure"]    = pressure    >= 0.0;
     result["hasFlow"]        = flow        >= 0.0;
@@ -472,12 +516,20 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
     result["hasWeight"]      = weight      >= 0.0;
     result["hasWeightFlow"]  = weightFlow  >= 0.0;
     result["hasResistance"]  = resistance  >= 0.0;
+    result["hasConductance"] = conductance >= 0.0;
+    result["hasDarcyResistance"] = darcy   >= 0.0;
+    result["hasTemperatureMix"]  = mixTemp >= 0.0;
+    result["hasConductanceDerivative"] = hasDcdt;
     result["pressure"]       = pressure;
     result["flow"]           = flow;
     result["temperature"]    = temp;
     result["weight"]         = weight;
     result["weightFlow"]     = weightFlow;
     result["resistance"]     = resistance;
+    result["conductance"]    = conductance;
+    result["darcyResistance"] = darcy;
+    result["temperatureMix"]  = mixTemp;
+    result["conductanceDerivative"] = dcdt;
 
     return result;
 }

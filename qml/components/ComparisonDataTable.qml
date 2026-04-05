@@ -13,13 +13,16 @@ ColumnLayout {
 
     required property var graph
     required property var comparisonModel
+    property bool advancedMode: false
 
     Layout.fillWidth: true
     spacing: Theme.spacingSmall
 
     // Fixed width for the shot-label column; data columns are narrow fixed width.
-    readonly property real shotColW: Theme.scaled(120)
-    readonly property real dataColW: Theme.scaled(56)
+    // Advanced mode packs 4 extra columns in, so cells shrink to keep the table
+    // inside the page width on mobile.
+    readonly property real shotColW: Theme.scaled(advancedMode ? 96 : 120)
+    readonly property real dataColW: Theme.scaled(advancedMode ? 40 : 56)
 
     // Whether a shot slot is currently visible
     function shotVisible(i) {
@@ -37,13 +40,19 @@ ColumnLayout {
     function cellText(shotIdx, key) {
         if (!graph.inspecting || shotIdx >= graph.inspectShotValues.length) return "\u2014"
         var sv = graph.inspectShotValues[shotIdx]
+        // In narrow advanced mode cells we drop units to keep numbers readable.
+        var compact = root.advancedMode
         switch (key) {
-            case "pressure":    return sv.hasPressure    ? sv.pressure.toFixed(1)    + " bar"  : "\u2014"
-            case "flow":        return sv.hasFlow        ? sv.flow.toFixed(1)        + " mL/s" : "\u2014"
-            case "temp":        return sv.hasTemperature ? sv.temperature.toFixed(1) + " \u00B0C" : "\u2014"
-            case "weight":      return sv.hasWeight      ? sv.weight.toFixed(1)      + " g"    : "\u2014"
-            case "weightFlow":  return sv.hasWeightFlow  ? sv.weightFlow.toFixed(1)  + " g/s"  : "\u2014"
+            case "pressure":    return sv.hasPressure    ? sv.pressure.toFixed(1)    + (compact ? "" : " bar")  : "\u2014"
+            case "flow":        return sv.hasFlow        ? sv.flow.toFixed(1)        + (compact ? "" : " mL/s") : "\u2014"
+            case "temp":        return sv.hasTemperature ? sv.temperature.toFixed(1) + (compact ? "" : " \u00B0C") : "\u2014"
+            case "weight":      return sv.hasWeight      ? sv.weight.toFixed(1)      + (compact ? "" : " g")    : "\u2014"
+            case "weightFlow":  return sv.hasWeightFlow  ? sv.weightFlow.toFixed(1)  + (compact ? "" : " g/s")  : "\u2014"
             case "resistance":  return sv.hasResistance  ? sv.resistance.toFixed(1)           : "\u2014"
+            case "conductance": return sv.hasConductance ? sv.conductance.toFixed(1)          : "\u2014"
+            case "dCdt":        return sv.hasConductanceDerivative ? sv.conductanceDerivative.toFixed(1) : "\u2014"
+            case "darcyR":      return sv.hasDarcyResistance       ? sv.darcyResistance.toFixed(1)       : "\u2014"
+            case "mixTemp":     return sv.hasTemperatureMix        ? sv.temperatureMix.toFixed(1) + (compact ? "" : " \u00B0C") : "\u2014"
         }
         return "\u2014"
     }
@@ -55,7 +64,11 @@ ColumnLayout {
         "showTemperature": "graph/showTemperature",
         "showWeight":      "graph/showWeight",
         "showWeightFlow":  "graph/showWeightFlow",
-        "showResistance":  "graph/showResistance"
+        "showResistance":  "graph/showResistance",
+        "showConductance": "graph/showConductance",
+        "showConductanceDerivative": "graph/showConductanceDerivative",
+        "showDarcyResistance":       "graph/showDarcyResistance",
+        "showTemperatureMix":        "graph/showTemperatureMix"
     })
 
     function toggleCurve(key) {
@@ -65,15 +78,27 @@ ColumnLayout {
         if (sKey) Settings.setValue(sKey, newVal)
     }
 
-    // Column definitions (order matches data cells in each shot row)
-    readonly property var columns: [
-        { key: "showPressure",    dataKey: "pressure",   label: "P",  unit: "bar",  dotColor: Theme.pressureColor    },
-        { key: "showFlow",        dataKey: "flow",       label: "F",  unit: "mL/s", dotColor: Theme.flowColor        },
-        { key: "showTemperature", dataKey: "temp",       label: "T",  unit: "°C",   dotColor: Theme.temperatureColor },
-        { key: "showWeight",      dataKey: "weight",     label: "W",  unit: "g",    dotColor: Theme.weightColor      },
-        { key: "showWeightFlow",  dataKey: "weightFlow", label: "WF", unit: "g/s",  dotColor: Theme.weightFlowColor  },
-        { key: "showResistance",  dataKey: "resistance", label: "R",  unit: "",     dotColor: Theme.resistanceColor  }
+    // Column definitions (order matches data cells in each shot row).
+    // Columns flagged `advanced` only render when advancedMode is on.
+    readonly property var allColumns: [
+        { key: "showPressure",    dataKey: "pressure",    label: "P",    dotColor: Theme.pressureColor,             advanced: false },
+        { key: "showFlow",        dataKey: "flow",        label: "F",    dotColor: Theme.flowColor,                 advanced: false },
+        { key: "showTemperature", dataKey: "temp",        label: "T",    dotColor: Theme.temperatureColor,          advanced: false },
+        { key: "showWeight",      dataKey: "weight",      label: "W",    dotColor: Theme.weightColor,               advanced: false },
+        { key: "showWeightFlow",  dataKey: "weightFlow",  label: "WF",   dotColor: Theme.weightFlowColor,           advanced: false },
+        { key: "showResistance",  dataKey: "resistance",  label: "R",    dotColor: Theme.resistanceColor,           advanced: true  },
+        { key: "showConductance", dataKey: "conductance", label: "C",    dotColor: Theme.conductanceColor,          advanced: true  },
+        { key: "showConductanceDerivative", dataKey: "dCdt",   label: "dC/dt", dotColor: Theme.conductanceDerivativeColor, advanced: true },
+        { key: "showDarcyResistance",       dataKey: "darcyR", label: "dR",    dotColor: Theme.darcyResistanceColor,        advanced: true },
+        { key: "showTemperatureMix",        dataKey: "mixTemp",label: "Tmix",  dotColor: Theme.temperatureMixColor,         advanced: true }
     ]
+    readonly property var columns: {
+        var out = []
+        for (var i = 0; i < allColumns.length; i++) {
+            if (!allColumns[i].advanced || advancedMode) out.push(allColumns[i])
+        }
+        return out
+    }
 
     // ── Header row ─────────────────────────────────────────────────────────────
     RowLayout {
@@ -242,56 +267,21 @@ ColumnLayout {
                 }
             }
 
-            // Data cells — one per column, aligned with header
-            Text {
-                Layout.preferredWidth: root.dataColW
-                text: root.cellText(shotRow.shotIdx, "pressure")
-                horizontalAlignment: Text.AlignHCenter
-                font: Theme.captionFont
-                color: Theme.pressureColor
-                Accessible.ignored: true
+            // Data cells — one per column, driven by root.columns so basic/advanced
+            // columns stay aligned with the header Repeater above.
+            Repeater {
+                model: root.columns
+                Text {
+                    required property var modelData
+                    Layout.preferredWidth: root.dataColW
+                    text: root.cellText(shotRow.shotIdx, modelData.dataKey)
+                    horizontalAlignment: Text.AlignHCenter
+                    font: Theme.captionFont
+                    color: modelData.dotColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
             }
-            Text {
-                Layout.preferredWidth: root.dataColW
-                text: root.cellText(shotRow.shotIdx, "flow")
-                horizontalAlignment: Text.AlignHCenter
-                font: Theme.captionFont
-                color: Theme.flowColor
-                Accessible.ignored: true
-            }
-            Text {
-                Layout.preferredWidth: root.dataColW
-                text: root.cellText(shotRow.shotIdx, "temp")
-                horizontalAlignment: Text.AlignHCenter
-                font: Theme.captionFont
-                color: Theme.temperatureColor
-                Accessible.ignored: true
-            }
-            Text {
-                Layout.preferredWidth: root.dataColW
-                text: root.cellText(shotRow.shotIdx, "weight")
-                horizontalAlignment: Text.AlignHCenter
-                font: Theme.captionFont
-                color: Theme.weightColor
-                Accessible.ignored: true
-            }
-            Text {
-                Layout.preferredWidth: root.dataColW
-                text: root.cellText(shotRow.shotIdx, "weightFlow")
-                horizontalAlignment: Text.AlignHCenter
-                font: Theme.captionFont
-                color: Theme.weightFlowColor
-                Accessible.ignored: true
-            }
-            Text {
-                Layout.preferredWidth: root.dataColW
-                text: root.cellText(shotRow.shotIdx, "resistance")
-                horizontalAlignment: Text.AlignHCenter
-                font: Theme.captionFont
-                color: Theme.resistanceColor
-                Accessible.ignored: true
-            }
-
         }
     }
 }

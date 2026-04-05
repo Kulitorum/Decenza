@@ -12,9 +12,11 @@ Dialog {
     property string currentMode: "chart"
     property bool showPhaseIndicator: true
     property bool showStats: true
+    property bool advancedMode: false
     signal modeSelected(string mode)
     signal phaseIndicatorToggled(bool enabled)
     signal statsToggled(bool enabled)
+    signal advancedModeToggled(bool enabled)
 
     title: TranslationManager.translate("espresso.viewSelector.title", "Extraction View")
     modal: true
@@ -237,7 +239,6 @@ Dialog {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(48)
             Layout.topMargin: Theme.spacingSmall
-            Layout.bottomMargin: Theme.spacingMedium
             radius: Theme.cardRadius
             color: Theme.backgroundColor
             Accessible.ignored: true
@@ -292,6 +293,86 @@ Dialog {
                 accessibleRole: Accessible.CheckBox
                 accessibleChecked: statsToggleCard.isChecked
                 onAccessibleClicked: selectorDialog.statsToggled(!statsToggleCard.isChecked)
+            }
+        }
+
+        // Advanced curves toggle — reveals Resistance, Conductance, Darcy R, Mix temp
+        // in the graph legend. Shares the `shotReview/advancedMode` setting with the
+        // post-shot review and shot detail pages.
+        Rectangle {
+            id: advancedToggleCard
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(48)
+            Layout.topMargin: Theme.spacingSmall
+            Layout.bottomMargin: Theme.spacingMedium
+            radius: Theme.cardRadius
+            color: Theme.backgroundColor
+            visible: selectorDialog.currentMode === "chart"
+            Accessible.ignored: true
+
+            property bool isChecked: selectorDialog.advancedMode
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingMedium
+                anchors.rightMargin: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+
+                    Text {
+                        text: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
+                        color: Theme.textColor
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.bodyFont.pixelSize
+                        Accessible.ignored: true
+                    }
+                    Text {
+                        text: TranslationManager.translate("espresso.viewSelector.advancedCurvesDesc",
+                                                           "Resistance, Conductance, Darcy R, Mix temp")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+                }
+
+                Rectangle {
+                    width: Theme.scaled(20)
+                    height: Theme.scaled(20)
+                    radius: Theme.scaled(4)
+                    color: advancedToggleCard.isChecked ? Theme.primaryColor : "transparent"
+                    border.color: advancedToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
+                    border.width: Theme.scaled(2)
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/tick.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        visible: advancedToggleCard.isChecked
+                        Accessible.ignored: true
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.surfaceColor
+                        }
+                    }
+                }
+            }
+
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
+                accessibleItem: advancedToggleCard
+                accessibleRole: Accessible.CheckBox
+                accessibleChecked: advancedToggleCard.isChecked
+                onAccessibleClicked: selectorDialog.advancedModeToggled(!advancedToggleCard.isChecked)
             }
         }
     }

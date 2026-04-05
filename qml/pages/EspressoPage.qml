@@ -329,6 +329,8 @@ Page {
         var v = Settings.value("espresso/showStats", true)
         return v === true || v === "true"
     }
+    // Shared with Post-Shot Review and Shot Detail pages via the same setting.
+    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
 
     // Sync from Settings changes made elsewhere (e.g. SettingsMachineTab)
     Connections {
@@ -343,6 +345,9 @@ Page {
             else if (key === "espresso/showStats") {
                 var vs = Settings.value("espresso/showStats", true)
                 espressoPage.showStats = (vs === true || vs === "true")
+            }
+            else if (key === "shotReview/advancedMode") {
+                espressoPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
             }
         }
     }
@@ -431,6 +436,7 @@ Page {
         currentMode: espressoPage.extractionViewMode
         showPhaseIndicator: espressoPage.showPhaseIndicator
         showStats: espressoPage.showStats
+        advancedMode: espressoPage.advancedMode
         onModeSelected: function(mode) {
             espressoPage.extractionViewMode = mode
             Settings.setValue("espresso/extractionView", mode)
@@ -442,6 +448,10 @@ Page {
         onStatsToggled: function(enabled) {
             espressoPage.showStats = enabled
             Settings.setValue("espresso/showStats", enabled)
+        }
+        onAdvancedModeToggled: function(enabled) {
+            espressoPage.advancedMode = enabled
+            Settings.setValue("shotReview/advancedMode", enabled)
         }
     }
 
@@ -636,6 +646,7 @@ Page {
         id: graphLegend
         graph: extractionViewLoader.item || {}
         liveMode: true
+        advancedMode: espressoPage.advancedMode
         visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top

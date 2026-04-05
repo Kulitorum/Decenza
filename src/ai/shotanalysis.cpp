@@ -4,24 +4,37 @@
 #include <QVariantMap>
 #include <cmath>
 
-bool ShotAnalysis::detectChannelingInRange(const QVector<QPointF>& flowData,
-                                            double startTime, double endTime)
+ShotAnalysis::ChannelingSeverity ShotAnalysis::detectChannelingFromDerivative(
+    const QVector<QPointF>& conductanceDerivative,
+    double pourStart, double pourEnd,
+    double* outMaxSpikeTime)
 {
-    if (flowData.size() < 10) return false;
+    if (outMaxSpikeTime) *outMaxSpikeTime = 0.0;
+    if (conductanceDerivative.isEmpty()) return ChannelingSeverity::None;
 
-    for (qsizetype i = CHANNELING_SAMPLE_DISTANCE; i < flowData.size() - CHANNELING_SAMPLE_DISTANCE; ++i) {
-        double t = flowData[i].x();
-        if (t < startTime) continue;
-        if (t > endTime) break;
+    const double analysisStart = pourStart + CHANNELING_DC_POUR_SKIP_SEC;
+    double maxSpike = 0.0;
+    double maxSpikeTime = 0.0;
+    int sustainedCount = 0;
 
-        double prevFlow = flowData[i - CHANNELING_SAMPLE_DISTANCE].y();
-        double currFlow = flowData[i].y();
-
-        if (prevFlow > CHANNELING_MIN_PREV_FLOW && currFlow > prevFlow * CHANNELING_FLOW_SPIKE_RATIO) {
-            return true;
+    for (const auto& pt : conductanceDerivative) {
+        if (pt.x() < analysisStart) continue;
+        if (pt.x() > pourEnd) break;
+        const double v = std::abs(pt.y());
+        if (v > maxSpike) {
+            maxSpike = v;
+            maxSpikeTime = pt.x();
         }
+        if (v > CHANNELING_DC_ELEVATED) ++sustainedCount;
     }
-    return false;
+
+    if (outMaxSpikeTime) *outMaxSpikeTime = maxSpikeTime;
+
+    if (sustainedCount > CHANNELING_DC_SUSTAINED_COUNT)
+        return ChannelingSeverity::Sustained;
+    if (maxSpike > CHANNELING_DC_TRANSIENT_PEAK)
+        return ChannelingSeverity::Transient;
+    return ChannelingSeverity::None;
 }
 
 bool ShotAnalysis::shouldSkipChannelingCheck(const QString& beverageType,
@@ -138,24 +151,15 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     bool skipChanneling = shouldSkipChannelingCheck(beverageType, flow, pourStart, pourEnd);
 
     if (!skipChanneling && !conductanceDerivative.isEmpty()) {
-        double maxSpike = 0;
-        double spikeTime = 0;
-        int sustainedCount = 0;
-        double channelingStart = pourStart + 2.0;  // Skip transition spike
-
-        for (const auto& pt : conductanceDerivative) {
-            if (pt.x() < channelingStart) continue;
-            if (pt.x() > pourEnd) break;
-            double v = std::abs(pt.y());
-            if (v > maxSpike) { maxSpike = v; spikeTime = pt.x(); }
-            if (v > 3.0) ++sustainedCount;
-        }
+        double spikeTime = 0.0;
+        ChannelingSeverity severity = detectChannelingFromDerivative(
+            conductanceDerivative, pourStart, pourEnd, &spikeTime);
 
         QVariantMap line;
-        if (sustainedCount > 10) {
+        if (severity == ChannelingSeverity::Sustained) {
             line["text"] = QStringLiteral("Sustained channeling detected in dC/dt \u2014 puck prep issue");
             line["type"] = QStringLiteral("warning");
-        } else if (maxSpike > 5.0) {
+        } else if (severity == ChannelingSeverity::Transient) {
             line["text"] = QStringLiteral("Transient channel at %1s (self-healed)").arg(spikeTime, 0, 'f', 0);
             line["type"] = QStringLiteral("caution");
         } else {

@@ -17,20 +17,37 @@ struct HistoryPhaseMarker;
 class ShotAnalysis {
 public:
     // --- Thresholds (tune here, applies everywhere) ---
-    static constexpr double CHANNELING_FLOW_SPIKE_RATIO = 1.5;   // 50% increase = spike
-    static constexpr double CHANNELING_MIN_PREV_FLOW = 0.5;      // mL/s - ignore near-zero
-    static constexpr int    CHANNELING_SAMPLE_DISTANCE = 5;       // ~1s at 5Hz
-    static constexpr double CHANNELING_MIN_PHASE_DURATION = 3.0;  // seconds
-    static constexpr double CHANNELING_MAX_AVG_FLOW = 3.0;        // mL/s - skip turbo/filter
+    // Channeling detection via conductance derivative (dC/dt). This is the most
+    // diagnostic puck integrity signal — it catches events invisible to flow or
+    // pressure alone, and works regardless of frame mode (pressure/flow/advanced).
+    static constexpr double CHANNELING_DC_ELEVATED = 3.0;         // |dC/dt| above this counts as elevated
+    static constexpr double CHANNELING_DC_TRANSIENT_PEAK = 5.0;   // single-sample peak flagged as transient
+    static constexpr int    CHANNELING_DC_SUSTAINED_COUNT = 10;   // >this many elevated samples = sustained
+    static constexpr double CHANNELING_DC_POUR_SKIP_SEC = 2.0;    // skip first N seconds of pour (transition spike)
+    static constexpr double CHANNELING_MAX_AVG_FLOW = 3.0;        // mL/s — skip turbo/filter shots
     static constexpr double TEMP_UNSTABLE_THRESHOLD = 2.0;        // °C avg deviation from goal
     static constexpr double TEMP_STEPPING_RANGE = 5.0;            // °C goal range = intentional stepping
 
     // --- Channeling detection ---
 
-    // Check for flow spikes in a time range. Returns true if a >50% flow spike
-    // is found (at ~1s resolution).
-    static bool detectChannelingInRange(const QVector<QPointF>& flowData,
-                                        double startTime, double endTime);
+    // Severity levels reported by detectChannelingFromDerivative().
+    enum class ChannelingSeverity {
+        None,        // dC/dt stays below the transient threshold — clean puck
+        Transient,   // a single spike > CHANNELING_DC_TRANSIENT_PEAK (self-healed channel)
+        Sustained    // >CHANNELING_DC_SUSTAINED_COUNT samples above CHANNELING_DC_ELEVATED
+    };
+
+    // Analyze the conductance derivative (dC/dt) to classify puck integrity.
+    // `conductanceDerivative` is expected to be the Gaussian-smoothed dC/dt
+    // series produced by ShotDataModel::computeConductanceDerivative() or
+    // ShotHistoryStorage::computeDerivedCurves(). Samples in the first
+    // CHANNELING_DC_POUR_SKIP_SEC of pour are skipped to avoid the transition
+    // spike that happens when pressure ramps and flow catches up.
+    // outMaxSpikeTime (optional) receives the timestamp of the largest spike.
+    static ChannelingSeverity detectChannelingFromDerivative(
+        const QVector<QPointF>& conductanceDerivative,
+        double pourStart, double pourEnd,
+        double* outMaxSpikeTime = nullptr);
 
     // Check if channeling analysis should be skipped for this shot.
     // Returns true for filter beverages and turbo shots (avg flow > 3 mL/s).

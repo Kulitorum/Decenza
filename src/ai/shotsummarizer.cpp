@@ -55,28 +55,42 @@ QString ShotSummarizer::profileTypeDescription(const QString& editorType)
     return QString();
 }
 
-void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const
+void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary,
+                                                const QVector<QPointF>& flowData,
+                                                const QVector<QPointF>& conductanceDerivative) const
 {
     summary.channelingDetected = false;
 
-    // Use shared skip-check (filter/pourover/turbo)
+    // Find pour boundaries — match ShotAnalysis::generateSummary and
+    // ShotHistoryStorage save-path derivation so all three agree on the
+    // 2-second transition-skip window.
     double pourStart = 0, pourEnd = summary.totalDuration;
     for (const auto& phase : summary.phases) {
-        if (phase.startTime > 0 && pourStart == 0) pourStart = phase.startTime;
-        pourEnd = phase.endTime;
+        QString lower = phase.name.toLower();
+        if (lower.contains("pour")) pourStart = phase.startTime;
     }
+    if (pourStart == 0) {
+        for (const auto& phase : summary.phases) {
+            QString lower = phase.name.toLower();
+            if (lower.contains("infus") || lower == "start") {
+                pourStart = phase.startTime;
+                break;
+            }
+        }
+    }
+    if (!summary.phases.isEmpty()) pourEnd = summary.phases.last().endTime;
+
+    // Skip filter/turbo shots — dC/dt is noisy when flow is very high or unregulated.
     if (ShotAnalysis::shouldSkipChannelingCheck(summary.beverageType, flowData, pourStart, pourEnd))
         return;
 
-    for (const auto& phase : summary.phases) {
-        if (!phase.isFlowMode) continue;
-        if (phase.duration < ShotAnalysis::CHANNELING_MIN_PHASE_DURATION) continue;
-        if (phase.avgFlow > ShotAnalysis::CHANNELING_MAX_AVG_FLOW) continue;
-        if (ShotAnalysis::detectChannelingInRange(flowData, phase.startTime, phase.endTime)) {
-            summary.channelingDetected = true;
-            break;
-        }
-    }
+    // Use dC/dt (conductance derivative) — the most diagnostic puck-integrity
+    // signal. Only a Sustained event counts toward the stored "channeling"
+    // anomaly flag; transient self-healed channels show up in the popup but
+    // do not trip the badge or AI observation.
+    auto severity = ShotAnalysis::detectChannelingFromDerivative(
+        conductanceDerivative, pourStart, pourEnd);
+    summary.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
 }
 
 void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
@@ -280,7 +294,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     // Per-phase anomaly detection (must run after phases are populated)
     const auto& tempGoalData = shotData->temperatureGoalData();
     calculateTemperatureStability(summary, tempData, tempGoalData);
-    detectChannelingInPhases(summary, flowData);
+    detectChannelingInPhases(summary, flowData, shotData->conductanceDerivativeData());
 
     return summary;
 }
@@ -452,7 +466,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     // Per-phase anomaly detection (must run after phases are populated)
     calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
-    detectChannelingInPhases(summary, summary.flowCurve);
+    QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
+    detectChannelingInPhases(summary, summary.flowCurve, derivCurve);
 
     return summary;
 }
@@ -641,7 +656,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     if (summary.channelingDetected || summary.temperatureUnstable) {
         out << "## Observations\n\n";
         if (summary.channelingDetected)
-            out << "- **Flow instability**: Sudden flow spike during flow-controlled extraction phase — verify against profile intent before diagnosing channeling\n";
+            out << "- **Puck integrity**: Sustained channeling in the conductance derivative (dC/dt) during extraction — indicates the puck is losing integrity, not following profile intent\n";
         if (summary.temperatureUnstable)
             out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C during stable-temperature phases — this suggests the machine is not reaching or maintaining the setpoint\n";
         out << "\n";
@@ -1072,7 +1087,7 @@ The data shows actual values with targets in parentheses. Here's how to interpre
 
 **Declining pressure during flow phases is normal.** As the coffee puck erodes during extraction, resistance drops, so pressure naturally declines even at constant flow. This is especially pronounced in lever-style and D-Flow profiles that transition from pressure control to flow control (shown as "from PRESSURE X bar" in the recipe). A pressure curve that peaks early and gradually declines is the expected signature of these profiles — do NOT flag it as a problem.
 
-**Flow variation during pressure-controlled phases is normal.** When the machine controls PRESSURE, flow is just a passive result of puck resistance. As the puck saturates, compresses, and erodes, flow will naturally spike and settle. This is NOT channeling — channeling can only be diagnosed during FLOW-CONTROLLED phases where the machine is actively targeting stable flow. High flow during a pressure ramp-up (e.g., Filling at 6 bar) is simply water pushing through a dry puck.
+**Flow variation during pressure-controlled phases is normal.** When the machine controls PRESSURE, flow is just a passive result of puck resistance. As the puck saturates, compresses, and erodes, flow will naturally spike and settle. A flow spike on its own is NOT channeling — channeling is diagnosed from the conductance derivative (dC/dt), which measures how the flow↔pressure relationship changes. High flow during a pressure ramp-up (e.g., Filling at 6 bar) is simply water pushing through a dry puck and is expected.
 
 ## Reading the Recipe for Expected Behavior
 
@@ -1360,26 +1375,6 @@ double ShotSummarizer::findTimeToFirstDrip(const QVector<QPointF>& flowData) con
         }
     }
     return 0;
-}
-
-bool ShotSummarizer::detectChanneling(const QVector<QPointF>& flowData, double startTime, double endTime) const
-{
-    if (flowData.size() < 10) return false;
-
-    // Look for sudden flow spikes (>50% increase in ~1s) within a flow-controlled phase.
-    // Only meaningful during flow-controlled phases where the machine targets stable flow.
-    for (int i = 5; i < flowData.size() - 5; i++) {
-        if (flowData[i].x() < startTime) continue;
-        if (flowData[i].x() > endTime) break;
-
-        double prevFlow = flowData[i - 5].y();
-        double currFlow = flowData[i].y();
-
-        if (prevFlow > 0.5 && currFlow > prevFlow * 1.5) {
-            return true;
-        }
-    }
-    return false;
 }
 
 QString ShotSummarizer::sharedCorePhilosophy()

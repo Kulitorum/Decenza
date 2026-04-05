@@ -10,20 +10,23 @@ ChartView {
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
 
-    // Persisted visibility toggles (tappable legend)
-    property bool showPressure: Settings.value("graph/showPressure", true)
-    property bool showFlow: Settings.value("graph/showFlow", true)
-    property bool showTemperature: Settings.value("graph/showTemperature", true)
-    property bool showWeight: Settings.value("graph/showWeight", true)
-    property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
-    property bool showResistance: Settings.value("graph/showResistance", false)
-    property bool showConductance: Settings.value("graph/showConductance", false)
-    property bool showConductanceDerivative: Settings.value("graph/showConductanceDerivative", false)
-    property bool showDarcyResistance: Settings.value("graph/showDarcyResistance", false)
-    property bool showTemperatureMix: Settings.value("graph/showTemperatureMix", false)
+    // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
+    // QSettings' INI-backend strings ("true"/"false") to real booleans — plain
+    // Settings.value() returns the raw QString which JavaScript treats as truthy,
+    // so toggled-off states wouldn't survive between shots.
+    property bool showPressure: Settings.boolValue("graph/showPressure", true)
+    property bool showFlow: Settings.boolValue("graph/showFlow", true)
+    property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
+    property bool showWeight: Settings.boolValue("graph/showWeight", true)
+    property bool showWeightFlow: Settings.boolValue("graph/showWeightFlow", true)
+    property bool showResistance: Settings.boolValue("graph/showResistance", false)
+    property bool showConductance: Settings.boolValue("graph/showConductance", false)
+    property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
+    property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
+    property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
 
     // Right axis toggle (weight vs temperature)
-    property bool showWeightAxis: Settings.value("graph/showWeightAxis", true)
+    property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
     function toggleRightAxis() {
         showWeightAxis = !showWeightAxis
         Settings.setValue("graph/showWeightAxis", showWeightAxis)

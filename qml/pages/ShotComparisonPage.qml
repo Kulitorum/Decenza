@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 import "../components"
@@ -13,6 +14,20 @@ Page {
 
     // Persisted graph height
     property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(280))
+
+    // Basic/Advanced mode toggle, shared with Post-Shot Review + Shot Detail via
+    // Settings so a user who prefers advanced curves sees them everywhere.
+    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
+
+    // Pick up toggle changes made on any other page sharing this setting
+    // (Post-Shot Review, Shot Detail, Espresso view selector).
+    Connections {
+        target: Settings
+        function onValueChanged(key) {
+            if (key === "shotReview/advancedMode")
+                shotComparisonPage.advancedMode = Settings.value("shotReview/advancedMode", false) === true
+        }
+    }
 
     // Unique phase entries [{label, phaseIndex}] derived from graph data
     readonly property var phaseEntries: {
@@ -48,12 +63,56 @@ Page {
             width: parent.width
             spacing: Theme.spacingSmall
 
+            // Basic/Advanced mode toggle (matches Post-Shot Review / Shot Detail pages)
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingSmall
+                spacing: Theme.spacingSmall
+
+                Item { Layout.fillWidth: true }
+
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    radius: Theme.scaled(18)
+                    color: shotComparisonPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/settings.svg"
+                        sourceSize.width: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(18)
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: shotComparisonPage.advancedMode ? "white" : Theme.textColor
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: shotComparisonPage.advancedMode
+                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
+                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            shotComparisonPage.advancedMode = !shotComparisonPage.advancedMode
+                            Settings.setValue("shotReview/advancedMode", shotComparisonPage.advancedMode)
+                        }
+                    }
+                }
+            }
+
             // Graph with resize handle and window navigation
             Rectangle {
                 id: graphCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), shotComparisonPage.graphHeight))
-                Layout.topMargin: Theme.spacingSmall
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
                 clip: true
@@ -267,6 +326,7 @@ Page {
                     ComparisonDataTable {
                         graph: comparisonGraph
                         comparisonModel: shotComparisonPage.comparisonModel
+                        advancedMode: shotComparisonPage.advancedMode
                         Layout.fillWidth: true
                     }
 

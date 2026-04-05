@@ -208,8 +208,8 @@ The summarizer currently generates dumb flags based on simple thresholds. These 
 - Better: Check if the profile recipe has different temperatures across frames. If so, only check deviation during frames with stable temperature (same temp as previous frame). Or suppress the flag entirely and let the AI interpret using the recipe.
 
 **Channeling detection**:
-- Current: Flags sudden flow spikes during flow-controlled phases.
-- Better: Also note the pressure curve slope — Scott Rao's observation that pressure curve volatility during extraction correlates with channeling and puck prep quality is a useful diagnostic. The slope of pressure decline is characteristic of the grinder/burrs, so erratic slopes (not smooth decline) are more indicative of channeling than a specific peak value.
+- Current (April 2026): Flags sustained elevation in the conductance derivative (`|dC/dt| > 3.0` for >10 samples). The dC/dt signal tracks how the flow↔pressure relationship changes and catches channels invisible to either curve alone, so it works across pressure and flow profiles equally. Transient self-healed channels show up in the Shot Summary popup as a separate "Transient channel" line but do not trip the stored `channelingDetected` flag.
+- Further improvement: Also note the pressure curve slope — Scott Rao's observation that pressure curve volatility during extraction correlates with channeling and puck prep quality is a useful diagnostic. The slope of pressure decline is characteristic of the grinder/burrs, so erratic slopes (not smooth decline) are more indicative of channeling than a specific peak value.
 
 **Pressure behavior** (not currently flagged, but could help):
 - If the profile is flow-controlled and pressure peaks well below typical levels (< 4 bar), note this as potentially too coarse — but only as an observation, not a diagnosis.
