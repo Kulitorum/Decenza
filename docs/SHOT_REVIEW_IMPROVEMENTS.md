@@ -1,10 +1,76 @@
 # Shot Review Page Improvements
 
-## Status: Proposal
+## Status: Tier 1 Implemented
 
 This document identifies improvements to the post-shot review and shot detail pages
 that help users understand shot quality without AI interaction. Prioritized by impact
 and implementation effort.
+
+---
+
+## 0. Implementation Summary (Tier 1)
+
+All Tier 1 items (1.1--1.4) are implemented on both PostShotReviewPage and
+ShotDetailPage. A Basic/Advanced mode toggle controls information density.
+
+### Basic/Advanced Mode
+
+A pill-style toggle (persisted to `shotReview/advancedMode`) sits below the graph
+legend on both pages. The same setting syncs between pages.
+
+**Basic mode** (default):
+- Graph: pressure, flow, temperature, weight, weight flow (5 curves)
+- Quality badge (single status chip)
+- Metrics: duration, dose, output, ratio, rating
+- Notes, bean info, grinder info, barista
+
+**Advanced mode** adds:
+- Graph legend: resistance (P/F), conductance (F²/P), dC/dt, Darcy resistance
+  (P/F²), mix temperature
+- Phase marker labels on graph (frame boundary labels with transition reasons)
+- Phase summary panel (collapsible table with per-phase metrics)
+- TDS/EY fields (review page) and analysis card (detail page)
+- Debug log button (detail page)
+
+### What Was Built
+
+| Item | Status | Notes |
+|------|--------|-------|
+| 1.1 Conductance + dC/dt curves | Done | 3 new curves + existing resistance moved to advanced legend |
+| 1.2 Quality badges | Done | Single chip: green/red/orange. Both modes. |
+| 1.3 Phase summary panel | Done | Collapsible, advanced only. Computed at save, backfilled for legacy. |
+| 1.4 Mix temperature curve | Done | Already stored, now displayed. Advanced legend. |
+
+### Additional Changes
+
+- **Detail page layout**: Bean and grinder info cards display side by side.
+- **Auto-close timer**: Only runs on post-shot auto-open. User-initiated opens
+  (history E button) do not auto-close.
+- **DB migration 10**: Added `channeling_detected` and `temperature_unstable`
+  columns to `shots` table.
+- **Legacy shot backfill**: Conductance, Darcy resistance, conductance derivative,
+  phase summaries, and quality flags are computed on-the-fly when loading shots
+  saved before this feature.
+- **Theme colors**: 4 new chart colors (conductanceColor, conductanceDerivativeColor,
+  darcyResistanceColor, temperatureMixColor).
+
+### Files Changed
+
+- `src/models/shotdatamodel.h/cpp` --- conductance, Darcy resistance, dC/dt vectors
+- `src/history/shothistorystorage.h/cpp` --- migration, compress/decompress, derived
+  curve backfill, phase summary computation
+- `qml/Theme.qml` --- 4 new chart colors
+- `qml/components/GraphLegend.qml` --- Row→Flow, 4 entries, advancedMode filtering
+- `qml/components/HistoryShotGraph.qml` --- 4 new LineSeries
+- `qml/components/ShotGraph.qml` --- 3 new FastLineRenderers
+- `qml/components/QualityBadges.qml` --- new component
+- `qml/components/PhaseSummaryPanel.qml` --- new component
+- `qml/pages/PostShotReviewPage.qml` --- data bindings, badges, toggle, phase panel,
+  TDS/EY advanced-only, auto-close fix
+- `qml/pages/ShotDetailPage.qml` --- data bindings, badges, toggle, phase panel,
+  side-by-side cards, analysis/debug advanced-only
+- `qml/pages/ShotHistoryPage.qml` --- pass autoClose: false on manual open
+- `CMakeLists.txt` --- 2 new QML files
 
 ---
 
@@ -142,7 +208,7 @@ the coffee's response." The conductance derivative shows puck integrity.
 
 ### Tier 1: High Impact, Data Already Exists
 
-#### 1.1 Conductance and Conductance Derivative Curves
+#### 1.1 Conductance and Conductance Derivative Curves ✅
 
 **What**: Add three new toggleable curves to the graph legend: Conductance (`F²/P`),
 Conductance Derivative (`dC/dt`), and optionally Darcy Resistance (`P/F²`).
@@ -174,7 +240,7 @@ media). Neither is definitively "correct" --- they emphasize different aspects o
 puck behavior. Offer both as toggleable curves rather than switching, so users
 familiar with either convention can use what they know.
 
-#### 1.2 Channeling and Quality Badges
+#### 1.2 Channeling and Quality Badges ✅
 
 **What**: Show small visual indicators on the post-shot review and shot detail pages
 when `ShotSummarizer` detects issues.
@@ -200,7 +266,7 @@ make the flag recipe-aware: only flag instability when the temperature deviates 
 the *goal curve*, not from a flat average. This is listed as Phase 0 item 4 in
 `docs/AI_ADVISOR.md`.
 
-#### 1.3 Phase Summary Panel
+#### 1.3 Phase Summary Panel ✅
 
 **What**: Collapsible panel below the graph showing per-phase metrics in a compact
 table.
@@ -233,7 +299,7 @@ hidden diagnostic into an actionable metric.
 - Store as JSON in the shot record (or compute on-the-fly from phase markers + curves)
 - QML: `Repeater` over phases, collapsed by default, expandable via tap
 
-#### 1.4 Mix Temperature Curve
+#### 1.4 Mix Temperature Curve ✅
 
 **What**: Add mix temperature as a toggleable curve in the graph legend.
 

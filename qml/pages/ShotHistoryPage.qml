@@ -771,7 +771,7 @@ Page {
                             id: editArea
                             anchors.fill: parent
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: model.id })
+                                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: model.id, autoClose: false })
                             }
                         }
                     }

@@ -51,6 +51,8 @@ Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
+    property bool autoClose: true  // false when user opens manually (no auto-dismiss)
+    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
 
     // Auto-close timer: return to idle after configured timeout
     // 0 = instant (handled in main.qml, never reaches this page)
@@ -60,7 +62,8 @@ Page {
     Timer {
         id: autoCloseTimer
         interval: postShotReviewPage.autoCloseTimeout * 60000
-        running: postShotReviewPage.autoCloseTimeout > 0
+        running: postShotReviewPage.autoClose
+                 && postShotReviewPage.autoCloseTimeout > 0
                  && postShotReviewPage.autoCloseTimeout < 31
                  && postShotReviewPage.StackView.status === StackView.Active
         onTriggered: postShotReviewPage.handleBack()
@@ -323,12 +326,17 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
+                    showPhaseLabels: postShotReviewPage.advancedMode
                     pressureData: editShotData.pressure || []
                     flowData: editShotData.flow || []
                     temperatureData: editShotData.temperature || []
                     weightData: editShotData.weight || []
                     weightFlowRateData: editShotData.weightFlowRate || []
                     resistanceData: editShotData.resistance || []
+                    conductanceData: editShotData.conductance || []
+                    darcyResistanceData: editShotData.darcyResistance || []
+                    conductanceDerivativeData: editShotData.conductanceDerivative || []
+                    temperatureMixData: editShotData.temperatureMix || []
                     pressureGoalData: editShotData.pressureGoal || []
                     flowGoalData: editShotData.flowGoal || []
                     temperatureGoalData: editShotData.temperatureGoal || []
@@ -412,11 +420,75 @@ Page {
                         }
                     }
                 }
+
+                // Basic/Advanced mode toggle (top-right, matches espresso page view selector)
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
+                    z: 10
+                    width: Theme.scaled(36)
+                    height: Theme.scaled(36)
+                    radius: Theme.scaled(18)
+                    color: postShotReviewPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/settings.svg"
+                        sourceSize.width: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(18)
+
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: postShotReviewPage.advancedMode ? "white" : Theme.textColor
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: postShotReviewPage.advancedMode
+                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
+                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            postShotReviewPage.advancedMode = !postShotReviewPage.advancedMode
+                            Settings.setValue("shotReview/advancedMode", postShotReviewPage.advancedMode)
+                        }
+                    }
+                }
             }
 
             GraphLegend {
                 graph: reviewGraph
+                advancedMode: postShotReviewPage.advancedMode
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+            }
+
+            QualityBadges {
+                Layout.fillWidth: true
+                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+                channelingDetected: editShotData.channelingDetected ?? false
+                temperatureUnstable: editShotData.temperatureUnstable ?? false
+                onSummaryRequested: reviewAnalysisDialog.open()
+            }
+
+            ShotAnalysisDialog {
+                id: reviewAnalysisDialog
+                shotData: editShotData
+            }
+
+            // Phase summary panel (advanced mode only)
+            PhaseSummaryPanel {
+                Layout.fillWidth: true
+                phaseSummaries: editShotData.phaseSummaries || []
+                visible: postShotReviewPage.advancedMode && (editShotData.phaseSummaries || []).length > 0
             }
 
             // Rating (moved to top, right after graph) + Read TDS button when R2 configured
@@ -466,7 +538,7 @@ Page {
                     id: readTdsButton
                     property bool refConnected: BLEManager.refractometerConnected
                     property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
-                    visible: parent.hasRefractometer
+                    visible: parent.hasRefractometer && postShotReviewPage.advancedMode
                     anchors.right: parent.right
                     anchors.top: ratingBox.top
                     anchors.bottom: ratingBox.bottom
@@ -622,8 +694,9 @@ Page {
                         }
                     }
 
-                    // TDS
+                    // TDS (advanced mode only)
                     ColumnLayout {
+                        visible: postShotReviewPage.advancedMode
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
                         RowLayout {
@@ -673,8 +746,9 @@ Page {
                         }
                     }
 
-                    // EY
+                    // EY (advanced mode only)
                     ColumnLayout {
+                        visible: postShotReviewPage.advancedMode
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
                         Tr {

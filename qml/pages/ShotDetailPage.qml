@@ -17,6 +17,7 @@ Page {
     property int currentIndex: -1  // Current position in shotIds
     // Persisted graph height (like PostShotReviewPage)
     property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
+    property bool advancedMode: Settings.value("shotReview/advancedMode", false) === true
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
@@ -178,12 +179,17 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
+                    showPhaseLabels: shotDetailPage.advancedMode
                     pressureData: shotData.pressure || []
                     flowData: shotData.flow || []
                     temperatureData: shotData.temperature || []
                     weightData: shotData.weight || []
                     weightFlowRateData: shotData.weightFlowRate || []
                     resistanceData: shotData.resistance || []
+                    conductanceData: shotData.conductance || []
+                    darcyResistanceData: shotData.darcyResistance || []
+                    conductanceDerivativeData: shotData.conductanceDerivative || []
+                    temperatureMixData: shotData.temperatureMix || []
                     pressureGoalData: shotData.pressureGoal || []
                     flowGoalData: shotData.flowGoal || []
                     temperatureGoalData: shotData.temperatureGoal || []
@@ -272,9 +278,67 @@ Page {
                         }
                     }
                 }
+
+                // Basic/Advanced mode toggle (top-right, matches espresso page view selector)
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
+                    z: 10
+                    width: Theme.scaled(36)
+                    height: Theme.scaled(36)
+                    radius: Theme.scaled(18)
+                    color: shotDetailPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/settings.svg"
+                        sourceSize.width: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(18)
+
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: shotDetailPage.advancedMode ? "white" : Theme.textColor
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: shotDetailPage.advancedMode
+                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
+                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            shotDetailPage.advancedMode = !shotDetailPage.advancedMode
+                            Settings.setValue("shotReview/advancedMode", shotDetailPage.advancedMode)
+                        }
+                    }
+                }
             }
 
-            GraphLegend { graph: shotGraph }
+            GraphLegend {
+                graph: shotGraph
+                advancedMode: shotDetailPage.advancedMode
+            }
+
+            QualityBadges {
+                Layout.fillWidth: true
+                channelingDetected: shotData.channelingDetected ?? false
+                temperatureUnstable: shotData.temperatureUnstable ?? false
+                onSummaryRequested: detailAnalysisDialog.open()
+            }
+
+            ShotAnalysisDialog {
+                id: detailAnalysisDialog
+                shotData: shotDetailPage.shotData
+            }
 
             // Shot navigation buttons (list is newest-first, so lower index = newer)
             RowLayout {
@@ -449,6 +513,13 @@ Page {
                 }
             }
 
+            // Phase summary panel (advanced mode only)
+            PhaseSummaryPanel {
+                Layout.fillWidth: true
+                phaseSummaries: shotData.phaseSummaries || []
+                visible: shotDetailPage.advancedMode && (shotData.phaseSummaries || []).length > 0
+            }
+
             // Notes (shown first, above bean/grinder cards)
             ColumnLayout {
                 Layout.fillWidth: true
@@ -472,101 +543,113 @@ Page {
                 }
             }
 
-            // Bean info (hidden when all rows are empty)
-            Rectangle {
+            // Bean + Grinder info side by side
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
-                radius: Theme.cardRadius
-                visible: !!(shotData.beanBrand || shotData.beanType || shotData.roastDate || shotData.roastLevel)
-                Accessible.role: Accessible.Grouping
-                Accessible.name: TranslationManager.translate("shotdetail.beaninfo", "Beans")
+                spacing: Theme.spacingMedium
+                visible: !!(shotData.beanBrand || shotData.beanType || shotData.roastDate || shotData.roastLevel
+                            || shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs || shotData.grinderSetting)
 
-                ColumnLayout {
-                    id: beanColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
+                // Bean info card
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1  // Equal weight
+                    Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
+                    Layout.alignment: Qt.AlignTop
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    visible: !!(shotData.beanBrand || shotData.beanType || shotData.roastDate || shotData.roastLevel)
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: TranslationManager.translate("shotdetail.beaninfo", "Beans")
 
-                    Text {
-                        textFormat: Text.RichText
-                        text: {
-                            var title = TranslationManager.translate("shotdetail.beaninfo", "Beans")
-                            var grind = shotData.grinderSetting || ""
-                            var result = grind ? title + " (" + grind + ")" : title
-                            return Theme.replaceEmojiWithImg(result, Theme.subtitleFont.pixelSize)
+                    ColumnLayout {
+                        id: beanColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.spacingMedium
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            textFormat: Text.RichText
+                            text: {
+                                var title = TranslationManager.translate("shotdetail.beaninfo", "Beans")
+                                var grind = shotData.grinderSetting || ""
+                                var result = grind ? title + " (" + grind + ")" : title
+                                return Theme.replaceEmojiWithImg(result, Theme.subtitleFont.pixelSize)
+                            }
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
                         }
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                    }
 
-                    GridLayout {
-                        columns: 2
-                        columnSpacing: Theme.spacingLarge
-                        rowSpacing: Theme.spacingSmall
-                        Layout.fillWidth: true
+                        GridLayout {
+                            columns: 2
+                            columnSpacing: Theme.spacingLarge
+                            rowSpacing: Theme.spacingSmall
+                            Layout.fillWidth: true
 
-                        Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanBrand); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanBrand); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanType); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanType || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanType); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanType); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanType || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanType); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastDate); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastDate); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastDate); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastDate); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastLevel); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastLevel); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        }
                     }
                 }
-            }
 
-            // Grinder info (hidden when all rows are empty)
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
-                radius: Theme.cardRadius
-                visible: !!(shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs || shotData.grinderSetting)
-                Accessible.role: Accessible.Grouping
-                Accessible.name: TranslationManager.translate("shotdetail.grinder", "Grinder")
+                // Grinder info card
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1  // Equal weight
+                    Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
+                    Layout.alignment: Qt.AlignTop
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    visible: !!(shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs || shotData.grinderSetting)
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: TranslationManager.translate("shotdetail.grinder", "Grinder")
 
-                ColumnLayout {
-                    id: grinderColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
+                    ColumnLayout {
+                        id: grinderColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.spacingMedium
+                        spacing: Theme.spacingSmall
 
-                    Tr {
-                        key: "shotdetail.grinder"
-                        fallback: "Grinder"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
-                    }
+                        Tr {
+                            key: "shotdetail.grinder"
+                            fallback: "Grinder"
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                        }
 
-                    GridLayout {
-                        columns: 2
-                        columnSpacing: Theme.spacingLarge
-                        rowSpacing: Theme.spacingSmall
-                        Layout.fillWidth: true
+                        GridLayout {
+                            columns: 2
+                            columnSpacing: Theme.spacingLarge
+                            rowSpacing: Theme.spacingSmall
+                            Layout.fillWidth: true
 
-                        Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBrand); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBrand); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderModel); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderModel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderModel); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderModel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.burrs"; fallback: "Burrs:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBurrs); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBurrs || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.burrs"; fallback: "Burrs:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBurrs); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBurrs || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting); Accessible.ignored: true }
-                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderSetting || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting); Accessible.ignored: true }
+                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderSetting || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        }
                     }
                 }
             }
@@ -577,7 +660,7 @@ Page {
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: shotData.drinkTds > 0 || shotData.drinkEy > 0
+                visible: shotDetailPage.advancedMode && (shotData.drinkTds > 0 || shotData.drinkEy > 0)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.analysis", "Analysis")
 
@@ -658,6 +741,7 @@ Page {
                 spacing: Theme.spacingMedium
 
                 AccessibleButton {
+                    visible: shotDetailPage.advancedMode
                     text: TranslationManager.translate("shotdetail.viewdebuglog", "View Debug Log")
                     accessibleName: TranslationManager.translate("shotDetail.viewDebugLog", "View debug log for this shot")
                     Layout.fillWidth: true

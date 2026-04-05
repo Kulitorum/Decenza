@@ -208,6 +208,7 @@ class Settings : public QObject {
     Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
     Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged)
     Q_PROPERTY(bool hideGhcSimulator READ hideGhcSimulator WRITE setHideGhcSimulator NOTIFY hideGhcSimulatorChanged)
+    Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged)
 
     // Temperature override (persistent)
     Q_PROPERTY(double temperatureOverride READ temperatureOverride WRITE setTemperatureOverride NOTIFY temperatureOverrideChanged)
@@ -716,6 +717,9 @@ public:
     bool hideGhcSimulator() const;
     void setHideGhcSimulator(bool hide);
 
+    bool screenCaptureEnabled() const;
+    void setScreenCaptureEnabled(bool enabled);
+
     // Temperature override (persistent)
     double temperatureOverride() const;
     void setTemperatureOverride(double temp);
@@ -952,6 +956,7 @@ signals:
     void steamTwoTapStopChanged();
     void developerTranslationUploadChanged();
     void simulationModeChanged();
+    void screenCaptureEnabledChanged();
     void hideGhcSimulatorChanged();
     void temperatureOverrideChanged();
     void brewOverridesChanged();

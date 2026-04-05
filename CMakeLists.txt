@@ -270,6 +270,7 @@ set(SOURCES
     src/ai/aimanager.cpp
     src/ai/aiprovider.cpp
     src/ai/aiconversation.cpp
+    src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/history/shothistorystorage.cpp
     src/history/shotdebuglogger.cpp
@@ -410,6 +411,7 @@ set(HEADERS
     src/network/visualizerimporter.h
     src/ai/aimanager.h
     src/ai/aiprovider.h
+    src/ai/shotanalysis.h
     src/ai/shotsummarizer.h
     src/history/shothistorystorage.h
     src/history/shotdebuglogger.h
@@ -660,6 +662,9 @@ set(QML_FILES
     qml/components/ComparisonDataTable.qml
     qml/components/ComparisonShotTable.qml
     qml/components/GraphLegend.qml
+    qml/components/QualityBadges.qml
+    qml/components/PhaseSummaryPanel.qml
+    qml/components/ShotAnalysisDialog.qml
     qml/components/CupFillView.qml
     qml/components/PhaseTimelineView.qml
     qml/components/ExtractionViewSelector.qml

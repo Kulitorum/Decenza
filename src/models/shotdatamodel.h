@@ -50,7 +50,10 @@ public:
     Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                          FastLineRenderer* temperature,
                                          FastLineRenderer* weight, FastLineRenderer* weightFlow,
-                                         FastLineRenderer* resistance = nullptr);
+                                         FastLineRenderer* resistance = nullptr,
+                                         FastLineRenderer* conductance = nullptr,
+                                         FastLineRenderer* darcyResistance = nullptr,
+                                         FastLineRenderer* temperatureMix = nullptr);
 
     // Data export for visualizer upload
     const QVector<QPointF>& pressureData() const { return m_pressurePoints; }
@@ -58,6 +61,9 @@ public:
     const QVector<QPointF>& temperatureData() const { return m_temperaturePoints; }
     const QVector<QPointF>& temperatureMixData() const { return m_temperatureMixPoints; }
     const QVector<QPointF>& resistanceData() const { return m_resistancePoints; }
+    const QVector<QPointF>& conductanceData() const { return m_conductancePoints; }
+    const QVector<QPointF>& darcyResistanceData() const { return m_darcyResistancePoints; }
+    const QVector<QPointF>& conductanceDerivativeData() const { return m_conductanceDerivativePoints; }
     const QVector<QPointF>& waterDispensedData() const { return m_waterDispensedPoints; }
     QVector<QPointF> pressureGoalData() const;  // Combines all segments
     QVector<QPointF> flowGoalData() const;      // Combines all segments
@@ -84,6 +90,7 @@ public slots:
     void markExtractionStart(double time);
     void markStopAt(double time);  // Mark when SAW or user stopped the shot
     void smoothWeightFlowRate(int window = 5);  // Apply centered moving average to weight flow rate
+    void computeConductanceDerivative();  // Compute dC/dt with 9-point Gaussian smoothing (post-shot only)
     void trimSettlingData();  // Remove trailing zero-pressure samples recorded during SAW settling
     void addPhaseMarker(double time, const QString& label, int frameNumber = -1, bool isFlowMode = false, const QString& transitionReason = QString());
 
@@ -107,6 +114,9 @@ private:
     QVector<QPointF> m_temperaturePoints;
     QVector<QPointF> m_temperatureMixPoints;
     QVector<QPointF> m_resistancePoints;
+    QVector<QPointF> m_conductancePoints;          // F^2 / P (Darcy conductance)
+    QVector<QPointF> m_darcyResistancePoints;      // P / F^2 (Darcy resistance)
+    QVector<QPointF> m_conductanceDerivativePoints; // dC/dt, Gaussian smoothed (post-shot only)
     QVector<QPointF> m_waterDispensedPoints;
     QVector<QVector<QPointF>> m_pressureGoalSegments;  // Separate segments for clean breaks
     QVector<QVector<QPointF>> m_flowGoalSegments;      // Separate segments for clean breaks
@@ -123,6 +133,9 @@ private:
     QPointer<FastLineRenderer> m_fastWeight;
     QPointer<FastLineRenderer> m_fastWeightFlow;
     QPointer<FastLineRenderer> m_fastResistance;
+    QPointer<FastLineRenderer> m_fastConductance;
+    QPointer<FastLineRenderer> m_fastDarcyResistance;
+    QPointer<FastLineRenderer> m_fastTemperatureMix;
 
     // Last-flushed index per fast series (for incremental appends)
     qsizetype m_lastFlushedPressure = 0;
@@ -131,6 +144,9 @@ private:
     qsizetype m_lastFlushedWeight = 0;
     qsizetype m_lastFlushedWeightFlow = 0;
     qsizetype m_lastFlushedResistance = 0;
+    qsizetype m_lastFlushedConductance = 0;
+    qsizetype m_lastFlushedDarcyResistance = 0;
+    qsizetype m_lastFlushedTemperatureMix = 0;
 
     // Chart series for goals/markers (QPointer auto-nulls when QML destroys them)
     QList<QPointer<QLineSeries>> m_pressureGoalSeriesList;  // One per segment

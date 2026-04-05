@@ -17,6 +17,10 @@ ChartView {
     property bool showWeight: Settings.value("graph/showWeight", true)
     property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
     property bool showResistance: Settings.value("graph/showResistance", false)
+    property bool showConductance: Settings.value("graph/showConductance", false)
+    property bool showConductanceDerivative: Settings.value("graph/showConductanceDerivative", false)
+    property bool showDarcyResistance: Settings.value("graph/showDarcyResistance", false)
+    property bool showTemperatureMix: Settings.value("graph/showTemperatureMix", false)
 
     // Right axis toggle (weight vs temperature)
     property bool showWeightAxis: Settings.value("graph/showWeightAxis", true)
@@ -43,7 +47,8 @@ ChartView {
         // Register fast renderers (QSGGeometryNode, pre-allocated VBO - no rebuilds)
         ShotDataModel.registerFastSeries(
             pressureRenderer, flowRenderer, temperatureRenderer,
-            weightRenderer, weightFlowRenderer, resistanceRenderer
+            weightRenderer, weightFlowRenderer, resistanceRenderer,
+            conductanceRenderer, darcyResistanceRenderer, temperatureMixRenderer
         )
         recalcMax()
     }
@@ -258,6 +263,39 @@ ChartView {
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
         visible: chart.showResistance
+    }
+
+    FastLineRenderer {
+        id: conductanceRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.conductanceColor
+        lineWidth: Theme.scaled(2)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: pressureAxis.min; maxY: pressureAxis.max
+        visible: chart.showConductance
+    }
+
+    FastLineRenderer {
+        id: darcyResistanceRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.darcyResistanceColor
+        lineWidth: Theme.scaled(2)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: pressureAxis.min; maxY: pressureAxis.max
+        visible: chart.showDarcyResistance
+    }
+
+    FastLineRenderer {
+        id: temperatureMixRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.temperatureMixColor
+        lineWidth: Theme.scaled(2)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: tempAxis.min; maxY: tempAxis.max
+        visible: chart.showTemperatureMix
     }
 
     FastLineRenderer {

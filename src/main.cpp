@@ -1937,8 +1937,14 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &physicalScale, &engine, &weightThread]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &physicalScale, &engine, &weightThread, &relayClient]() {
         qDebug() << "Application exiting - shutting down devices";
+
+        // Stop relay client and screen capture FIRST — the capture timer grabs
+        // frames from the render thread. If it fires during the BLE drain wait
+        // loop below, grabWindow() can deadlock against a stopping render thread,
+        // freezing the app on quit (especially on Android/Samsung A8).
+        relayClient.setEnabled(false);
 
         // Set QML shuttingDown flag to prevent screensaver from activating.
         // Qt.quit() does NOT trigger ApplicationWindow.onClosing, so the QML-side

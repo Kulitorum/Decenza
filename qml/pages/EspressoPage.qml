@@ -635,6 +635,7 @@ Page {
     GraphLegend {
         id: graphLegend
         graph: extractionViewLoader.item || {}
+        liveMode: true
         visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top

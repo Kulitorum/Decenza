@@ -151,7 +151,7 @@ private slots:
     }
 
     // ==========================================
-    // Fresh DB: full schema at v9
+    // Fresh DB: full schema at v10
     // ==========================================
 
     void freshDbCreatesSchema() {
@@ -164,7 +164,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 9);
+            QCOMPARE(getSchemaVersion(db), 10);
         });
     }
 
@@ -182,6 +182,8 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "grinder_brand"));
             QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
+            QVERIFY(hasColumn(db, "shots", "channeling_detected"));
+            QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -221,13 +223,15 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 9);
+            QCOMPARE(getSchemaVersion(db), 10);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
             QVERIFY(hasColumn(db, "shots", "grinder_brand"));
             QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
+            QVERIFY(hasColumn(db, "shots", "channeling_detected"));
+            QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -328,7 +332,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 9);
+            QCOMPARE(getSchemaVersion(db), 10);
         });
     }
 
@@ -342,7 +346,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 9);
+            QCOMPARE(getSchemaVersion(db), 10);
         });
     }
 
@@ -362,7 +366,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 9);
+            QCOMPARE(getSchemaVersion(db), 10);
         });
     }
 
@@ -385,7 +389,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 9);
+            QCOMPARE(getSchemaVersion(db), 10);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());

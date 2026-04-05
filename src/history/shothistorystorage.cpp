@@ -1,4 +1,5 @@
 #include "shothistorystorage.h"
+#include "ai/shotanalysis.h"
 #include "core/grinderaliases.h"
 #include "models/shotdatamodel.h"
 #include "profile/profile.h"
@@ -666,6 +667,21 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 9;
     }
 
+    // Migration 10: Add quality flags for shot review badges.
+    // Computed at save time from ShotSummarizer; recomputed on-the-fly for legacy shots.
+    if (currentVersion < 10) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 10 (quality flags)";
+
+        if (!hasColumn("shots", "channeling_detected"))
+            query.exec("ALTER TABLE shots ADD COLUMN channeling_detected INTEGER DEFAULT 0");
+        if (!hasColumn("shots", "temperature_unstable"))
+            query.exec("ALTER TABLE shots ADD COLUMN temperature_unstable INTEGER DEFAULT 0");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (10)");
+        currentVersion = 10;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -683,7 +699,7 @@ QJsonObject ShotHistoryStorage::pointsToJsonObject(const QVector<QPointF>& point
     return obj;
 }
 
-QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData)
+QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const QString& phaseSummariesJson)
 {
     QJsonObject root;
 
@@ -696,6 +712,9 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData)
 
     root["temperatureMix"] = pointsToJsonObject(shotData->temperatureMixData());
     root["resistance"] = pointsToJsonObject(shotData->resistanceData());
+    root["conductance"] = pointsToJsonObject(shotData->conductanceData());
+    root["darcyResistance"] = pointsToJsonObject(shotData->darcyResistanceData());
+    root["conductanceDerivative"] = pointsToJsonObject(shotData->conductanceDerivativeData());
     root["waterDispensed"] = pointsToJsonObject(shotData->waterDispensedData());
 
     // Weight data - store cumulative weight for history
@@ -704,6 +723,11 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData)
     root["weightFlow"] = pointsToJsonObject(shotData->weightData());
     // Weight-based flow rate (g/s) for visualizer export
     root["weightFlowRate"] = pointsToJsonObject(shotData->weightFlowRateData());
+
+    // Phase summaries for UI display (pre-computed by ShotSummarizer)
+    if (!phaseSummariesJson.isEmpty()) {
+        root["phaseSummaries"] = QJsonDocument::fromJson(phaseSummariesJson.toUtf8()).array();
+    }
 
     QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     return qCompress(json, 9);  // Max compression
@@ -742,11 +766,23 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
         record->temperatureMix = arrayToPoints(root["temperatureMix"].toObject());
     if (root.contains("resistance"))
         record->resistance = arrayToPoints(root["resistance"].toObject());
+    if (root.contains("conductance"))
+        record->conductance = arrayToPoints(root["conductance"].toObject());
+    if (root.contains("darcyResistance"))
+        record->darcyResistance = arrayToPoints(root["darcyResistance"].toObject());
+    if (root.contains("conductanceDerivative"))
+        record->conductanceDerivative = arrayToPoints(root["conductanceDerivative"].toObject());
     if (root.contains("waterDispensed"))
         record->waterDispensed = arrayToPoints(root["waterDispensed"].toObject());
     record->weight = arrayToPoints(root["weight"].toObject());
     if (root.contains("weightFlowRate"))
         record->weightFlowRate = arrayToPoints(root["weightFlowRate"].toObject());
+
+    // Phase summaries (stored as JSON array in the compressed blob)
+    if (root.contains("phaseSummaries")) {
+        record->phaseSummariesJson = QString::fromUtf8(
+            QJsonDocument(root["phaseSummaries"].toArray()).toJson(QJsonDocument::Compact));
+    }
 }
 
 qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
@@ -798,8 +834,81 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         data.profileKbId = profile->knowledgeBaseId();
     }
 
+    // Compute conductance derivative (post-shot Gaussian smoothing) before compression
+    shotData->computeConductanceDerivative();
+
+    // Compute quality flags and phase summaries inline (avoids ShotSummarizer dependency).
+    // Build a temporary ShotRecord from the live data to reuse the static helpers.
+    {
+        ShotRecord tmpRecord;
+        tmpRecord.pressure = shotData->pressureData();
+        tmpRecord.flow = shotData->flowData();
+        tmpRecord.temperature = shotData->temperatureData();
+        tmpRecord.weight = shotData->cumulativeWeightData();
+
+        // Extract phase markers into the record
+        QVariantList tmpMarkers = shotData->phaseMarkersVariant();
+        for (const QVariant& mv : tmpMarkers) {
+            QVariantMap m = mv.toMap();
+            HistoryPhaseMarker pm;
+            pm.time = m["time"].toDouble();
+            pm.label = m["label"].toString();
+            pm.frameNumber = m["frameNumber"].toInt();
+            pm.isFlowMode = m["isFlowMode"].toBool();
+            pm.transitionReason = m["transitionReason"].toString();
+            tmpRecord.phases.append(pm);
+        }
+
+        // Compute phase summaries
+        computePhaseSummaries(tmpRecord);
+        data.phaseSummariesJson = tmpRecord.phaseSummariesJson;
+
+        // Channeling detection using shared ShotAnalysis helpers
+        const auto& flowPts = shotData->flowData();
+        double pourStart = 0, pourEnd = duration;
+        for (const auto& pm : tmpRecord.phases) {
+            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
+            if (pm.label == "End") pourEnd = pm.time;
+        }
+        if (pourStart == 0) {
+            for (const auto& pm : tmpRecord.phases) {
+                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
+            }
+        }
+
+        data.channelingDetected = false;
+        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
+            for (const auto& phase : tmpRecord.phases) {
+                if (!phase.isFlowMode || phase.label == "Start" || phase.label == "End") continue;
+                double phaseEnd = 0;
+                for (qsizetype pi = 0; pi < tmpRecord.phases.size(); ++pi) {
+                    if (tmpRecord.phases[pi].time == phase.time && pi + 1 < tmpRecord.phases.size()) {
+                        phaseEnd = tmpRecord.phases[pi + 1].time;
+                        break;
+                    }
+                }
+                if (phaseEnd - phase.time < ShotAnalysis::CHANNELING_MIN_PHASE_DURATION) continue;
+                if (ShotAnalysis::detectChannelingInRange(flowPts, phase.time, phaseEnd)) {
+                    data.channelingDetected = true;
+                    break;
+                }
+            }
+        }
+
+        // Temperature stability using shared ShotAnalysis helpers
+        data.temperatureUnstable = false;
+        const auto& tempPts = shotData->temperatureData();
+        const auto& tempGoalPts = shotData->temperatureGoalData();
+        if (tempPts.size() > 10 && tempGoalPts.size() > 10) {
+            if (!ShotAnalysis::hasIntentionalTempStepping(tempGoalPts)) {
+                double avgDev = ShotAnalysis::avgTempDeviation(tempPts, tempGoalPts, pourStart, pourEnd);
+                data.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
+            }
+        }
+    }
+
     // Compress sample data on main thread (reads QObject data vectors)
-    data.compressedSamples = compressSampleData(shotData);
+    data.compressedSamples = compressSampleData(shotData, data.phaseSummariesJson);
     data.sampleCount = static_cast<int>(shotData->pressureData().size());
 
     // Extract phase markers on main thread
@@ -884,7 +993,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
-                    temperature_override, yield_override, profile_kb_id
+                    temperature_override, yield_override, profile_kb_id,
+                    channeling_detected, temperature_unstable
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -892,7 +1002,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
-                    :temperature_override, :yield_override, :profile_kb_id
+                    :temperature_override, :yield_override, :profile_kb_id,
+                    :channeling_detected, :temperature_unstable
                 )
             )");
 
@@ -923,6 +1034,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":temperature_override", data.temperatureOverride);
             query.bindValue(":yield_override", data.yieldOverride);
             query.bindValue(":profile_kb_id", data.profileKbId.isEmpty() ? QVariant() : data.profileKbId);
+            query.bindValue(":channeling_detected", data.channelingDetected ? 1 : 0);
+            query.bindValue(":temperature_unstable", data.temperatureUnstable ? 1 : 0);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1646,12 +1759,24 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["temperature"] = pointsToVariant(record.temperature);
     result["temperatureMix"] = pointsToVariant(record.temperatureMix);
     result["resistance"] = pointsToVariant(record.resistance);
+    result["conductance"] = pointsToVariant(record.conductance);
+    result["darcyResistance"] = pointsToVariant(record.darcyResistance);
+    result["conductanceDerivative"] = pointsToVariant(record.conductanceDerivative);
     result["waterDispensed"] = pointsToVariant(record.waterDispensed);
     result["pressureGoal"] = pointsToVariant(record.pressureGoal);
     result["flowGoal"] = pointsToVariant(record.flowGoal);
     result["temperatureGoal"] = pointsToVariant(record.temperatureGoal);
     result["weight"] = pointsToVariant(record.weight);
     result["weightFlowRate"] = pointsToVariant(record.weightFlowRate);
+
+    result["channelingDetected"] = record.channelingDetected;
+    result["temperatureUnstable"] = record.temperatureUnstable;
+
+    // Phase summaries for UI (computed at save time or on-the-fly for legacy shots)
+    if (!record.phaseSummariesJson.isEmpty()) {
+        QJsonDocument phaseSummariesDoc = QJsonDocument::fromJson(record.phaseSummariesJson.toUtf8());
+        result["phaseSummaries"] = phaseSummariesDoc.toVariant();
+    }
 
     QVariantList phases;
     for (const auto& phase : record.phases) {
@@ -1671,6 +1796,139 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     return result;
 }
 
+void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
+{
+    qsizetype n = qMin(record.pressure.size(), record.flow.size());
+    if (n < 3) return;
+
+    // Compute conductance (F^2/P) and Darcy resistance (P/F^2)
+    record.conductance.reserve(n);
+    record.darcyResistance.reserve(n);
+    for (qsizetype i = 0; i < n; ++i) {
+        double p = record.pressure[i].y();
+        double f = record.flow[i].y();
+        double t = record.pressure[i].x();
+        double c = 0.0, dr = 0.0;
+        if (f > 0.05 && p > 0.05) {
+            c = qMin((f * f) / p, 19.0);
+            dr = qMin(p / (f * f), 19.0);
+        }
+        record.conductance.append(QPointF(t, c));
+        record.darcyResistance.append(QPointF(t, dr));
+    }
+
+    // Compute conductance derivative (dC/dt) with Gaussian smoothing
+    QVector<double> rawDeriv(n, 0.0);
+    for (qsizetype i = 1; i < n - 1; ++i) {
+        double dt = record.conductance[i + 1].x() - record.conductance[i - 1].x();
+        if (dt > 0.001) {
+            double dc = record.conductance[i + 1].y() - record.conductance[i - 1].y();
+            rawDeriv[i] = (dc / dt) * 10.0;
+        }
+    }
+    {
+        double dt = record.conductance[1].x() - record.conductance[0].x();
+        if (dt > 0.001)
+            rawDeriv[0] = ((record.conductance[1].y() - record.conductance[0].y()) / dt) * 10.0;
+        dt = record.conductance[n - 1].x() - record.conductance[n - 2].x();
+        if (dt > 0.001)
+            rawDeriv[n - 1] = ((record.conductance[n - 1].y() - record.conductance[n - 2].y()) / dt) * 10.0;
+    }
+
+    static constexpr double GAUSSIAN[] = {
+        0.048297, 0.08393, 0.124548, 0.157829, 0.170793,
+        0.157829, 0.124548, 0.08393, 0.048297
+    };
+    static constexpr qsizetype KERNEL_HALF = 4;
+
+    record.conductanceDerivative.reserve(n);
+    for (qsizetype i = 0; i < n; ++i) {
+        double smoothed = 0.0;
+        double wSum = 0.0;
+        for (qsizetype k = -KERNEL_HALF; k <= KERNEL_HALF; ++k) {
+            qsizetype idx = i + k;
+            if (idx >= 0 && idx < n) {
+                double w = GAUSSIAN[k + KERNEL_HALF];
+                smoothed += rawDeriv[idx] * w;
+                wSum += w;
+            }
+        }
+        if (wSum > 0.0) smoothed /= wSum;
+        record.conductanceDerivative.append(QPointF(record.conductance[i].x(), qBound(-5.0, smoothed, 19.0)));
+    }
+}
+
+void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
+{
+    // Helper: average Y values in a time range
+    auto avgInRange = [](const QVector<QPointF>& data, double t0, double t1) {
+        double sum = 0;
+        int count = 0;
+        for (const auto& p : data) {
+            if (p.x() >= t0 && p.x() <= t1) {
+                sum += p.y();
+                ++count;
+            }
+        }
+        return count > 0 ? sum / count : 0.0;
+    };
+
+    // Helper: find Y value at or near a time
+    auto valueAtTime = [](const QVector<QPointF>& data, double t) {
+        if (data.isEmpty()) return 0.0;
+        for (qsizetype i = 0; i < data.size(); ++i) {
+            if (data[i].x() >= t)
+                return data[i].y();
+        }
+        return data.last().y();
+    };
+
+    // Build phase boundaries from markers
+    struct PhaseBound { QString name; double start; double end; bool isFlowMode; };
+    QVector<PhaseBound> bounds;
+
+    for (qsizetype i = 0; i < record.phases.size(); ++i) {
+        const auto& marker = record.phases[i];
+        if (marker.label == "End") continue;
+
+        double end = (i + 1 < record.phases.size())
+            ? record.phases[i + 1].time
+            : (record.pressure.isEmpty() ? 0 : record.pressure.last().x());
+
+        QString phaseName = marker.label;
+        if (phaseName == "Start") phaseName = QStringLiteral("Preinfusion");
+
+        bounds.append({phaseName, marker.time, end, marker.isFlowMode});
+    }
+
+    // If no usable phases, create single "Extraction" phase
+    if (bounds.isEmpty() && !record.pressure.isEmpty()) {
+        bounds.append({QStringLiteral("Extraction"), record.pressure.first().x(),
+                       record.pressure.last().x(), false});
+    }
+
+    QJsonArray phasesArray;
+    for (const auto& b : bounds) {
+        if (b.end <= b.start) continue;
+
+        QJsonObject phaseObj;
+        phaseObj["name"] = b.name;
+        phaseObj["duration"] = qRound((b.end - b.start) * 10.0) / 10.0;
+        phaseObj["avgPressure"] = qRound(avgInRange(record.pressure, b.start, b.end) * 10.0) / 10.0;
+        phaseObj["avgFlow"] = qRound(avgInRange(record.flow, b.start, b.end) * 10.0) / 10.0;
+        phaseObj["avgTemperature"] = qRound(avgInRange(record.temperature, b.start, b.end) * 10.0) / 10.0;
+
+        double w0 = valueAtTime(record.weight, b.start);
+        double w1 = valueAtTime(record.weight, b.end);
+        phaseObj["weightGained"] = qRound((w1 - w0) * 10.0) / 10.0;
+        phaseObj["isFlowMode"] = b.isFlowMode;
+        phasesArray.append(phaseObj);
+    }
+
+    record.phaseSummariesJson = QString::fromUtf8(
+        QJsonDocument(phasesArray).toJson(QJsonDocument::Compact));
+}
+
 ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 shotId)
 {
     ShotRecord record;
@@ -1683,7 +1941,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
-               temperature_override, yield_override, beverage_type, profile_kb_id
+               temperature_override, yield_override, beverage_type, profile_kb_id,
+               channeling_detected, temperature_unstable
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1726,6 +1985,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.yieldOverride = query.value(27).toDouble();
     record.summary.beverageType = query.value(28).toString();
     record.profileKbId = query.value(29).toString();
+    record.channelingDetected = query.value(30).toInt() != 0;
+    record.temperatureUnstable = query.value(31).toInt() != 0;
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
@@ -1734,6 +1995,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             QByteArray blob = query.value(0).toByteArray();
             decompressSampleData(blob, &record);
         }
+    }
+
+    // On-the-fly computation of derived curves for legacy shots that lack them
+    bool needsDerivedCurves = record.conductance.isEmpty() && !record.pressure.isEmpty();
+    if (needsDerivedCurves) {
+        computeDerivedCurves(record);
     }
 
     if (query.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason "
@@ -1752,7 +2019,98 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         }
     }
 
+    // Compute phase summaries on-the-fly for legacy shots that lack them
+    if (record.phaseSummariesJson.isEmpty() && !record.pressure.isEmpty() && !record.phases.isEmpty()) {
+        computePhaseSummaries(record);
+    }
+
+    // Recompute quality flags for legacy shots (DB defaults are 0/0 which looks like "clean").
+    // Use the same trigger as derived curves: if conductance was freshly computed, the shot
+    // predates migration 10 and its quality flags are just DB defaults, not real analysis.
+    if (needsDerivedCurves && !record.pressure.isEmpty()) {
+        // Find pour boundaries for channeling/temp checks
+        double pourStart = 0, pourEnd = record.pressure.last().x();
+        for (const auto& pm : record.phases) {
+            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
+            if (pm.label == "End") pourEnd = pm.time;
+        }
+        if (pourStart == 0) {
+            for (const auto& pm : record.phases) {
+                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
+            }
+        }
+
+        // Channeling
+        record.channelingDetected = false;
+        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
+            for (const auto& phase : record.phases) {
+                if (!phase.isFlowMode || phase.label == "Start" || phase.label == "End") continue;
+                double phaseEnd = 0;
+                for (qsizetype pi = 0; pi < record.phases.size(); ++pi) {
+                    if (record.phases[pi].time == phase.time && pi + 1 < record.phases.size()) {
+                        phaseEnd = record.phases[pi + 1].time;
+                        break;
+                    }
+                }
+                if (phaseEnd - phase.time < ShotAnalysis::CHANNELING_MIN_PHASE_DURATION) continue;
+                if (ShotAnalysis::detectChannelingInRange(record.flow, phase.time, phaseEnd)) {
+                    record.channelingDetected = true;
+                    break;
+                }
+            }
+        }
+
+        // Temperature stability
+        record.temperatureUnstable = false;
+        if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10) {
+            if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
+                double avgDev = ShotAnalysis::avgTempDeviation(record.temperature, record.temperatureGoal, pourStart, pourEnd);
+                record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
+            }
+        }
+    }
+
     return record;
+}
+
+QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData) const
+{
+    auto variantToPoints = [](const QVariant& v) {
+        QVector<QPointF> pts;
+        const QVariantList list = v.toList();
+        pts.reserve(list.size());
+        for (const auto& item : list) {
+            QVariantMap m = item.toMap();
+            pts.append(QPointF(m["x"].toDouble(), m["y"].toDouble()));
+        }
+        return pts;
+    };
+
+    QVector<QPointF> pressure = variantToPoints(shotData["pressure"]);
+    QVector<QPointF> flow = variantToPoints(shotData["flow"]);
+    QVector<QPointF> weight = variantToPoints(shotData["weight"]);
+    QVector<QPointF> temperature = variantToPoints(shotData["temperature"]);
+    QVector<QPointF> temperatureGoal = variantToPoints(shotData["temperatureGoal"]);
+    QVector<QPointF> conductanceDerivative = variantToPoints(shotData["conductanceDerivative"]);
+
+    QList<HistoryPhaseMarker> phases;
+    const QVariantList phaseList = shotData["phases"].toList();
+    for (const auto& pv : phaseList) {
+        QVariantMap pm = pv.toMap();
+        HistoryPhaseMarker marker;
+        marker.time = pm["time"].toDouble();
+        marker.label = pm["label"].toString();
+        marker.frameNumber = pm["frameNumber"].toInt();
+        marker.isFlowMode = pm["isFlowMode"].toBool();
+        marker.transitionReason = pm["transitionReason"].toString();
+        phases.append(marker);
+    }
+
+    return ShotAnalysis::generateSummary(
+        pressure, flow, weight, temperature, temperatureGoal,
+        conductanceDerivative, phases,
+        shotData["beverageType"].toString(),
+        shotData["duration"].toDouble());
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
@@ -2721,8 +3079,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         drink_tds, drink_ey,
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
-                        temperature_override, yield_override, profile_kb_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        temperature_override, yield_override, profile_kb_id,
+                        channeling_detected, temperature_unstable)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2755,6 +3114,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("temperature_override"));
                 insert.addBindValue(srcShots.value("yield_override"));
                 insert.addBindValue(srcShots.value("profile_kb_id"));
+                // Quality flags — fallback to 0 for pre-migration-10 source databases
+                QVariant ch = srcShots.value("channeling_detected");
+                insert.addBindValue((ch.isValid() && !ch.isNull()) ? ch : QVariant(0));
+                QVariant tu = srcShots.value("temperature_unstable");
+                insert.addBindValue((tu.isValid() && !tu.isNull()) ? tu : QVariant(0));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -2933,7 +3297,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
-            temperature_override, yield_override, profile_kb_id
+            temperature_override, yield_override, profile_kb_id,
+            channeling_detected, temperature_unstable
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -2941,7 +3306,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
-            :temperature_override, :yield_override, :profile_kb_id
+            :temperature_override, :yield_override, :profile_kb_id,
+            :channeling_detected, :temperature_unstable
         )
     )");
 
@@ -2974,6 +3340,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":temperature_override", record.temperatureOverride);
     query.bindValue(":yield_override", record.yieldOverride);
     query.bindValue(":profile_kb_id", record.profileKbId.isEmpty() ? QVariant() : record.profileKbId);
+    query.bindValue(":channeling_detected", record.channelingDetected ? 1 : 0);
+    query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
