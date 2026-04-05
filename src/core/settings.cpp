@@ -763,7 +763,7 @@ QVariantList Settings::favoriteProfiles() const {
 }
 
 int Settings::selectedFavoriteProfile() const {
-    return m_settings.value("profile/selectedFavorite", 0).toInt();
+    return m_settings.value("profile/selectedFavorite", -1).toInt();
 }
 
 void Settings::setSelectedFavoriteProfile(int index) {
@@ -818,7 +818,7 @@ void Settings::removeFavoriteProfile(int index) {
         if (selected >= arr.size() && arr.size() > 0) {
             setSelectedFavoriteProfile(static_cast<int>(arr.size()) - 1);
         } else if (arr.size() == 0) {
-            setSelectedFavoriteProfile(0);
+            setSelectedFavoriteProfile(-1);
         }
 
         emit favoriteProfilesChanged();

@@ -34,6 +34,8 @@ Item {
     property Component trailingActionDelegate: null
     property bool showDeleteButton: true
 
+    // Note: `row` here is always a QVariantMap JS object (not a QML QObject), so `row.name`
+    // safely reads the map key — it does NOT resolve to QObject::objectName.
     property var displayTextFn: function(row, index) { return row && row.name ? row.name : "" }
     property var accessibleNameFn: function(row, index) { return row && row.name ? row.name : "" }
     property var deleteAccessibleNameFn: function(row, index) {
@@ -46,7 +48,7 @@ Item {
     // Consumers should override with context-specific text (e.g. "rename preset", "edit profile").
     property string rowAccessibleDescription: TranslationManager.translate(
         "favorites.accessible.secondary_hint",
-        "Double-tap or long-press for more options.")
+        "Double-tap or long-press to rename or reorder.")
 
     signal rowSelected(int index)
     signal rowLongPressed(int index)
@@ -119,10 +121,13 @@ Item {
                     anchors.margins: Theme.scaled(10)
                     spacing: Theme.scaled(8)
 
-                    // Drag handle (expanded touch target)
+                    // Drag handle (expanded touch target).
+                    // Drag-to-reorder is a pointer gesture with no TalkBack equivalent;
+                    // consumers expose rename/reorder via the row's long-press action instead.
                     Item {
                         Layout.preferredWidth: Theme.scaled(24)
                         Layout.preferredHeight: Theme.scaled(24)
+                        Accessible.ignored: true
 
                         Image {
                             anchors.centerIn: parent

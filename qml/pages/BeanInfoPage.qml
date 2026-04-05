@@ -49,10 +49,10 @@ Page {
                 editGrinderBurrs = editShotData.grinderBurrs || ""
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editBarista = editShotData.barista || ""
-                editDoseWeight = editShotData.doseWeight || 0
-                editDrinkWeight = editShotData.finalWeight || 0
-                editDrinkTds = editShotData.drinkTds || 0
-                editDrinkEy = editShotData.drinkEy || 0
+                editDoseWeight = editShotData.doseWeight ?? 0
+                editDrinkWeight = editShotData.finalWeight ?? 0
+                editDrinkTds = editShotData.drinkTds ?? 0
+                editDrinkEy = editShotData.drinkEy ?? 0
                 editEnjoyment = editShotData.enjoyment ?? 0
                 editNotes = editShotData.espressoNotes || ""
             }
@@ -447,7 +447,7 @@ Page {
                         Text {
                             text: "(" + Settings.beanPresets.length + ")"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(18)
+                            font.pixelSize: Theme.bodyFont.pixelSize
                         }
 
                         Item { Layout.fillWidth: true }

@@ -281,7 +281,7 @@ Page {
                                         var name = modelData.title
                                         if (isCurrentProfile && ProfileManager.profileModified) {
                                             return ProfileManager.isCurrentProfileReadOnly
-                                                ? name + " (modified)" : "*" + name
+                                                ? name + " " + TranslationManager.translate("profileselector.modified_suffix", "(modified)") : "*" + name
                                         }
                                         return name
                                     }
@@ -725,7 +725,7 @@ Page {
                         var name = row.name
                         if (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) {
                             return ProfileManager.isCurrentProfileReadOnly
-                                ? name + " (modified)" : "*" + name
+                                ? name + " " + TranslationManager.translate("profileselector.modified_suffix", "(modified)") : "*" + name
                         }
                         return name
                     }
@@ -751,7 +751,7 @@ Page {
                             icon.source: "qrc:/icons/edit.svg"
                             icon.width: Theme.scaled(18)
                             icon.height: Theme.scaled(18)
-                            icon.color: parent.selected ? "white" : Theme.textColor
+                            icon.color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
                             accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + root.cleanForSpeech(parent.row.name)) : ""
 
                             onClicked: {
@@ -763,6 +763,13 @@ Page {
                         }
                     }
 
+                    onRowLongPressed: function(index) {
+                        var fav = Settings.favoriteProfiles[index]
+                        if (!fav) return
+                        Settings.selectedFavoriteProfile = index
+                        ProfileManager.loadProfile(fav.filename)
+                        root.goToProfileEditor()
+                    }
                     onRowSelected: function(index) {
                         var fav = Settings.favoriteProfiles[index]
                         if (!fav) return
