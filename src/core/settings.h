@@ -94,6 +94,9 @@ class Settings : public QObject {
 
     // Bean presets
     Q_PROPERTY(QVariantList beanPresets READ beanPresets NOTIFY beanPresetsChanged)
+    // Filtered view of beanPresets: only rows where showOnIdle == true. Each row gains
+    // an `originalIndex` field mapping back into beanPresets for selection/apply calls.
+    Q_PROPERTY(QVariantList idleBeanPresets READ idleBeanPresets NOTIFY beanPresetsChanged)
     Q_PROPERTY(int selectedBeanPreset READ selectedBeanPreset WRITE setSelectedBeanPreset NOTIFY selectedBeanPresetChanged)
 
     // UI settings
@@ -452,6 +455,8 @@ public:
                                       const QString& grinderSetting);
     Q_INVOKABLE void removeBeanPreset(int index);
     Q_INVOKABLE void moveBeanPreset(int from, int to);
+    Q_INVOKABLE void setBeanPresetShowOnIdle(int index, bool show);
+    QVariantList idleBeanPresets() const;              // see Q_PROPERTY above
     Q_INVOKABLE QVariantMap getBeanPreset(int index) const;
     Q_INVOKABLE void applyBeanPreset(int index);       // Sets all DYE fields from preset
     Q_INVOKABLE void saveBeanPresetFromCurrent(const QString& name);  // Creates or updates preset from current DYE

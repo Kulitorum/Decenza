@@ -621,6 +621,7 @@ set(QML_FILES
 	qml/components/BrewDialog.qml
     qml/components/CircularGauge.qml
     qml/components/ConnectionIndicator.qml
+    qml/components/FavoritesListView.qml
     qml/components/PresetPillRow.qml
     qml/components/TouchSlider.qml
     qml/components/StepSlider.qml
