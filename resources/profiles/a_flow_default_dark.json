@@ -27,7 +27,6 @@
         "pourPressure": 9,
         "pourTemperature": 88,
         "rampTime": 5,
-        "editorType": "aflow",
         "targetWeight": 36,
         "rampDownEnabled": false,
         "flowExtractionUp": false

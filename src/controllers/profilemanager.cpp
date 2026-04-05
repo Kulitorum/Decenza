@@ -792,8 +792,12 @@ void ProfileManager::loadProfile(const QString& profileName) {
     QString path;
     bool found = false;
 
-    // Resolve profile name: could be title or filename (MQTT publishes titles)
+    // Normalize: strip .json extension if present (legacy settings entries may include it)
     QString resolvedName = profileName;
+    if (resolvedName.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
+        resolvedName = resolvedName.chopped(5);
+
+    // Resolve profile name: could be title or filename (MQTT publishes titles)
 
     // First, check if it's a title (most common case from MQTT)
     for (auto it = m_profileTitles.begin(); it != m_profileTitles.end(); ++it) {
@@ -847,10 +851,14 @@ void ProfileManager::loadProfile(const QString& profileName) {
         }
     }
 
-    // 5. Fall back to default
+    // 5. Fall back to real default — this should not happen in normal operation after
+    // startup validation removes stale references from favorites and currentProfile.
     if (!found) {
-        qWarning() << "ProfileManager::loadProfile: Profile not found:" << profileName << "(resolved:" << resolvedName << ") — loading default";
+        qWarning() << "ProfileManager::loadProfile: Profile not found:" << profileName
+                   << "(resolved:" << resolvedName << ")";
+        emit profileLoadFailed(resolvedName);
         loadDefaultProfile();
+        resolvedName = QStringLiteral("default");  // Track real default, not stale name
     }
 
     // Backfill empty notes from built-in profile (handles imported copies from before notes were added)
@@ -1149,6 +1157,36 @@ void ProfileManager::refreshProfiles() {
 
         m_availableProfiles.append(name);
         m_profileTitles[name] = info.title;
+    }
+
+    // Validate favorites and currentProfile against the known profile set.
+    // Removes favorites that reference profiles not found in any directory, and resets
+    // a stale currentProfile to the first remaining valid favorite (or "default").
+    // Runs every time refreshProfiles() is called so stale references are cleaned up at startup.
+    if (m_settings) {
+        QSet<QString> known(m_availableProfiles.begin(), m_availableProfiles.end());
+
+        QVariantList favorites = m_settings->favoriteProfiles();
+        for (int i = static_cast<int>(favorites.size()) - 1; i >= 0; --i) {
+            QString fn = favorites.at(i).toMap()[QStringLiteral("filename")].toString();
+            if (!known.contains(fn)) {
+                qWarning() << "refreshProfiles: removing stale favorite" << fn << "(profile not found)";
+                m_settings->removeFavoriteProfile(i);
+            }
+        }
+
+        QString cp = m_settings->currentProfile();
+        if (cp.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
+            cp = cp.chopped(5);
+        if (!cp.isEmpty() && !known.contains(cp)) {
+            QString replacement = QStringLiteral("default");
+            QVariantList updatedFavs = m_settings->favoriteProfiles();
+            if (!updatedFavs.isEmpty())
+                replacement = updatedFavs.first().toMap()[QStringLiteral("filename")].toString();
+            qWarning() << "refreshProfiles: stale currentProfile" << cp
+                       << "-> replacing with" << replacement;
+            m_settings->setCurrentProfile(replacement);
+        }
     }
 
     emit profilesChanged();
@@ -2042,38 +2080,9 @@ void ProfileManager::applyFlowCalibration() {
 // === Private helpers ===
 
 void ProfileManager::loadDefaultProfile() {
-    m_currentProfile = Profile();
-    m_currentProfile.setTitle("Default");
-    m_currentProfile.setTargetWeight(36.0);
-
-    // Create a simple default profile
-    ProfileFrame preinfusion;
-    preinfusion.name = "Preinfusion";
-    preinfusion.pump = "pressure";
-    preinfusion.pressure = 4.0;
-    preinfusion.temperature = 93.0;
-    preinfusion.seconds = 10.0;
-    preinfusion.exitIf = true;
-    preinfusion.exitType = "pressure_over";
-    preinfusion.exitPressureOver = 3.0;
-
-    ProfileFrame extraction;
-    extraction.name = "Extraction";
-    extraction.pump = "pressure";
-    extraction.pressure = 9.0;
-    extraction.temperature = 93.0;
-    extraction.seconds = 30.0;
-
-    if (!m_currentProfile.addStep(preinfusion)) {
-        qWarning() << "loadDefaultProfile: failed to add preinfusion frame";
-    }
-    if (!m_currentProfile.addStep(extraction)) {
-        qWarning() << "loadDefaultProfile: failed to add extraction frame";
-    }
-    m_currentProfile.setPreinfuseFrameCount(1);
-
+    m_currentProfile = Profile::loadFromFile(QStringLiteral(":/profiles/default.json"));
     if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);  // Default profile, not in favorites
+        m_settings->setSelectedFavoriteProfile(-1);
         if (m_startupLoadDone || !m_settings->hasBrewYieldOverride())
             m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());

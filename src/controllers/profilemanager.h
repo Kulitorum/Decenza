@@ -164,6 +164,10 @@ signals:
     // Connect to ShotDebugLogger for diagnostics.
     void profileUploadBlocked(const QString& phaseString, const QString& stackTrace);
 
+    // Emitted when loadProfile() cannot find the requested profile file.
+    // The UI should show an error and prompt the user to select another profile.
+    void profileLoadFailed(const QString& filename);
+
 private:
     void loadDefaultProfile();
     void updateProfileKnowledgeBaseId();

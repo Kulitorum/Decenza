@@ -14,7 +14,6 @@
     "target_volume": 0,
     "recipe": {
         "dose": 18,
-        "editorType": "dflow",
         "fillFlow": 8,
         "fillPressure": 1.2,
         "fillTemperature": 84,

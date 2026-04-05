@@ -253,9 +253,6 @@ QJsonObject RecipeParams::toJson() const {
     obj["tempHold"] = tempHold;
     obj["tempDecline"] = tempDecline;
 
-    // Editor type
-    obj["editorType"] = editorTypeToString(editorType);
-
     // BLE header
     if (preinfuseFrameCount >= 0)
         obj["preinfuseFrameCount"] = preinfuseFrameCount;
