@@ -184,13 +184,13 @@ ChartView {
             { key: "pressure", name: "Pressure", series: pressureSeries, unit: "bar" },
             { key: "flow", name: "Flow", series: flowSeries, unit: "mL/s" },
             { key: "temperature", name: "Temp", series: temperatureSeries, unit: "\u00B0C" },
+            { key: "mixTemp", name: "Mix temp", series: temperatureMixSeries, unit: "\u00B0C" },
             { key: "weight", name: "Weight", series: weightSeries, unit: "g" },
             { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s" },
             { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "" },
-            { key: "conductance", name: "Conductance", series: conductanceSeries, unit: "" },
             { key: "darcyResistance", name: "Darcy R", series: darcyResistanceSeries, unit: "" },
-            { key: "dCdt", name: "dC/dt", series: conductanceDerivativeSeries, unit: "" },
-            { key: "mixTemp", name: "Mix temp", series: temperatureMixSeries, unit: "\u00B0C" }
+            { key: "conductance", name: "Conductance", series: conductanceSeries, unit: "" },
+            { key: "dCdt", name: "dC/dt", series: conductanceDerivativeSeries, unit: "" }
         ]
 
         for (var i = 0; i < curves.length; i++) {
@@ -237,14 +237,14 @@ ChartView {
         var curves = [
             { name: "Pressure", series: pressureSeries, show: showPressure },
             { name: "Flow", series: flowSeries, show: showFlow },
-            { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow },
-            { name: "Weight", series: weightSeries, show: showWeight },
             { name: "Temp", series: temperatureSeries, show: showTemperature },
+            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix },
+            { name: "Weight", series: weightSeries, show: showWeight },
+            { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow },
             { name: "Resistance", series: resistanceSeries, show: showResistance },
-            { name: "Conductance", series: conductanceSeries, show: showConductance },
             { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance },
-            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative },
-            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix }
+            { name: "Conductance", series: conductanceSeries, show: showConductance },
+            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative }
         ]
 
         var parts = []

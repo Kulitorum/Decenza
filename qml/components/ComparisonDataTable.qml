@@ -84,13 +84,13 @@ ColumnLayout {
         { key: "showPressure",    dataKey: "pressure",    label: "P",    dotColor: Theme.pressureColor,             advanced: false },
         { key: "showFlow",        dataKey: "flow",        label: "F",    dotColor: Theme.flowColor,                 advanced: false },
         { key: "showTemperature", dataKey: "temp",        label: "T",    dotColor: Theme.temperatureColor,          advanced: false },
+        { key: "showTemperatureMix",        dataKey: "mixTemp",label: "Tmix", dotColor: Theme.temperatureMixColor,         advanced: true  },
         { key: "showWeight",      dataKey: "weight",      label: "W",    dotColor: Theme.weightColor,               advanced: false },
         { key: "showWeightFlow",  dataKey: "weightFlow",  label: "WF",   dotColor: Theme.weightFlowColor,           advanced: false },
         { key: "showResistance",  dataKey: "resistance",  label: "R",    dotColor: Theme.resistanceColor,           advanced: true  },
+        { key: "showDarcyResistance",       dataKey: "darcyR", label: "dR",   dotColor: Theme.darcyResistanceColor,        advanced: true  },
         { key: "showConductance", dataKey: "conductance", label: "C",    dotColor: Theme.conductanceColor,          advanced: true  },
-        { key: "showConductanceDerivative", dataKey: "dCdt",   label: "dC/dt", dotColor: Theme.conductanceDerivativeColor, advanced: true },
-        { key: "showDarcyResistance",       dataKey: "darcyR", label: "dR",    dotColor: Theme.darcyResistanceColor,        advanced: true },
-        { key: "showTemperatureMix",        dataKey: "mixTemp",label: "Tmix",  dotColor: Theme.temperatureMixColor,         advanced: true }
+        { key: "showConductanceDerivative", dataKey: "dCdt",   label: "dC/dt",dotColor: Theme.conductanceDerivativeColor,  advanced: true  }
     ]
     readonly property var columns: {
         var out = []

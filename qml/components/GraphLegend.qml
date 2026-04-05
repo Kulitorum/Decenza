@@ -28,20 +28,20 @@ Item {
                   tip: TranslationManager.translate("graph.tip.flow", "Water flow rate in mL/s. Shows the coffee's response — how easily water passes through the puck.") },
                 { label: TranslationManager.translate("graph.temp", "Temp"), sColor: Theme.temperatureColor, key: "showTemperature",
                   tip: TranslationManager.translate("graph.tip.temp", "Basket temperature in \u00B0C. The temperature at the group head thermocouple.") },
+                { label: TranslationManager.translate("graph.mixTemp", "Mix temp"), sColor: Theme.temperatureMixColor, key: "showTemperatureMix", advanced: true,
+                  tip: TranslationManager.translate("graph.tip.mixTemp", "Mix temperature in \u00B0C. The actual water temperature reaching the puck. Difference from basket temp reveals group head thermal stability.") },
                 { label: TranslationManager.translate("graph.weight", "Weight"), sColor: Theme.weightColor, key: "showWeight",
                   tip: TranslationManager.translate("graph.tip.weight", "Cumulative beverage weight in grams from the scale.") },
                 { label: TranslationManager.translate("graph.wtFlow", "Wt flow"), sColor: Theme.weightFlowColor, key: "showWeightFlow",
                   tip: TranslationManager.translate("graph.tip.wtFlow", "Weight-based flow rate in g/s from the scale. More accurate than pump flow for measuring actual output.") },
                 { label: TranslationManager.translate("graph.resistance", "Resist(P/F)"), sColor: Theme.resistanceColor, key: "showResistance", advanced: true,
                   tip: TranslationManager.translate("graph.tip.resistance", "Puck resistance (P/F). Rising = puck tightening. Falling = puck opening. Erratic = channeling.") },
+                { label: TranslationManager.translate("graph.darcyResistance", "Resist(P/F\u00B2)"), sColor: Theme.darcyResistanceColor, key: "showDarcyResistance", advanced: true,
+                  tip: TranslationManager.translate("graph.tip.darcyResistance", "Darcy resistance (P/F\u00B2). Physics-based puck resistance for laminar flow. Inverse of conductance.") },
                 { label: TranslationManager.translate("graph.conductance", "Conduct(F\u00B2/P)"), sColor: Theme.conductanceColor, key: "showConductance", advanced: true,
                   tip: TranslationManager.translate("graph.tip.conductance", "Conductance (F\u00B2/P, Darcy's law). Rising = puck opening up. Stable = consistent extraction. Spike = channeling.") },
                 { label: TranslationManager.translate("graph.dCdt", "dC/dt"), sColor: Theme.conductanceDerivativeColor, key: "showConductanceDerivative", advanced: true, postShotOnly: true,
-                  tip: TranslationManager.translate("graph.tip.dCdt", "Rate of change of conductance. The best channeling detector — spikes reveal transient channels that are invisible in other curves.") },
-                { label: TranslationManager.translate("graph.darcyResistance", "Resist(P/F\u00B2)"), sColor: Theme.darcyResistanceColor, key: "showDarcyResistance", advanced: true,
-                  tip: TranslationManager.translate("graph.tip.darcyResistance", "Darcy resistance (P/F\u00B2). Physics-based puck resistance for laminar flow. Inverse of conductance.") },
-                { label: TranslationManager.translate("graph.mixTemp", "Mix temp"), sColor: Theme.temperatureMixColor, key: "showTemperatureMix", advanced: true,
-                  tip: TranslationManager.translate("graph.tip.mixTemp", "Mix temperature in \u00B0C. The actual water temperature reaching the puck. Difference from basket temp reveals group head thermal stability.") }
+                  tip: TranslationManager.translate("graph.tip.dCdt", "Rate of change of conductance. The best channeling detector — spikes reveal transient channels that are invisible in other curves.") }
             ]
 
             delegate: Rectangle {

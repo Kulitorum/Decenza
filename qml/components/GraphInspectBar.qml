@@ -33,18 +33,19 @@ Flow {
                          g.showResistance, g.showConductance, g.showDarcyResistance,
                          g.showConductanceDerivative, g.showTemperatureMix]
             var vals = g.inspectValues
-            // Order matches the legend: basic curves first, advanced after.
+            // Order matches the legend: temperature pair, scale pair, resistance
+            // pair, conductance pair.
             var entries = [
                 { key: "pressure",        show: g.showPressure },
                 { key: "flow",            show: g.showFlow },
                 { key: "temperature",     show: g.showTemperature },
+                { key: "mixTemp",         show: g.showTemperatureMix },
                 { key: "weight",          show: g.showWeight },
                 { key: "weightFlow",      show: g.showWeightFlow },
                 { key: "resistance",      show: g.showResistance },
-                { key: "conductance",     show: g.showConductance },
                 { key: "darcyResistance", show: g.showDarcyResistance },
-                { key: "dCdt",            show: g.showConductanceDerivative },
-                { key: "mixTemp",         show: g.showTemperatureMix }
+                { key: "conductance",     show: g.showConductance },
+                { key: "dCdt",            show: g.showConductanceDerivative }
             ]
             var items = []
             for (var i = 0; i < entries.length; i++) {
