@@ -3079,8 +3079,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         drink_tds, drink_ey,
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
-                        temperature_override, yield_override, profile_kb_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        temperature_override, yield_override, profile_kb_id,
+                        channeling_detected, temperature_unstable)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -3113,6 +3114,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("temperature_override"));
                 insert.addBindValue(srcShots.value("yield_override"));
                 insert.addBindValue(srcShots.value("profile_kb_id"));
+                // Quality flags — fallback to 0 for pre-migration-10 source databases
+                QVariant ch = srcShots.value("channeling_detected");
+                insert.addBindValue((ch.isValid() && !ch.isNull()) ? ch : QVariant(0));
+                QVariant tu = srcShots.value("temperature_unstable");
+                insert.addBindValue((tu.isValid() && !tu.isNull()) ? tu : QVariant(0));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -3291,7 +3297,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
-            temperature_override, yield_override, profile_kb_id
+            temperature_override, yield_override, profile_kb_id,
+            channeling_detected, temperature_unstable
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -3299,7 +3306,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
-            :temperature_override, :yield_override, :profile_kb_id
+            :temperature_override, :yield_override, :profile_kb_id,
+            :channeling_detected, :temperature_unstable
         )
     )");
 
@@ -3332,6 +3340,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":temperature_override", record.temperatureOverride);
     query.bindValue(":yield_override", record.yieldOverride);
     query.bindValue(":profile_kb_id", record.profileKbId.isEmpty() ? QVariant() : record.profileKbId);
+    query.bindValue(":channeling_detected", record.channelingDetected ? 1 : 0);
+    query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
