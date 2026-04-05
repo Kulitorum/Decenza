@@ -306,6 +306,82 @@ Page {
             width: parent.width
             spacing: Theme.scaled(6)
 
+            // Header: Profile (Temp) + Basic/Advanced toggle
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+
+                    Text {
+                        textFormat: Text.RichText
+                        text: {
+                            var name = editShotData.profileName || ""
+                            var t = editShotData.temperatureOverride
+                            var result
+                            if (t !== undefined && t !== null && t > 0) {
+                                result = name + " (" + Math.round(t) + "\u00B0C)"
+                            } else {
+                                result = name
+                            }
+                            return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
+                        }
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        text: editShotData.dateTime || ""
+                        font: Theme.labelFont
+                        color: Theme.textSecondaryColor
+                    }
+                }
+
+                // Basic/Advanced mode toggle (matches espresso page view selector)
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: Theme.scaled(18)
+                    color: postShotReviewPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/settings.svg"
+                        sourceSize.width: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(18)
+
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: postShotReviewPage.advancedMode ? "white" : Theme.textColor
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: postShotReviewPage.advancedMode
+                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
+                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            postShotReviewPage.advancedMode = !postShotReviewPage.advancedMode
+                            Settings.setValue("shotReview/advancedMode", postShotReviewPage.advancedMode)
+                        }
+                    }
+                }
+            }
+
             GraphInspectBar { graph: reviewGraph }
 
             // Resizable Graph (visible when we have shot data)
@@ -421,48 +497,6 @@ Page {
                     }
                 }
 
-                // Basic/Advanced mode toggle (top-right, matches espresso page view selector)
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    anchors.topMargin: Theme.spacingSmall
-                    anchors.rightMargin: Theme.spacingSmall
-                    z: 10
-                    width: Theme.scaled(36)
-                    height: Theme.scaled(36)
-                    radius: Theme.scaled(18)
-                    color: postShotReviewPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
-                    border.color: Theme.borderColor
-                    border.width: Theme.scaled(1)
-
-                    Accessible.ignored: true
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/settings.svg"
-                        sourceSize.width: Theme.scaled(18)
-                        sourceSize.height: Theme.scaled(18)
-
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: postShotReviewPage.advancedMode ? "white" : Theme.textColor
-                        }
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: postShotReviewPage.advancedMode
-                            ? TranslationManager.translate("shotReview.mode.switchBasic", "Switch to basic view")
-                            : TranslationManager.translate("shotReview.mode.switchAdvanced", "Switch to advanced view")
-                        accessibleItem: parent
-                        onAccessibleClicked: {
-                            postShotReviewPage.advancedMode = !postShotReviewPage.advancedMode
-                            Settings.setValue("shotReview/advancedMode", postShotReviewPage.advancedMode)
-                        }
-                    }
-                }
             }
 
             GraphLegend {
