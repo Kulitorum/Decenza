@@ -866,19 +866,24 @@ All batch 3 profiles from the [Community Profiles Index](https://3.basecamp.com/
 
 ### 📄 Profile-notes only — search Basecamp, thread may or may not exist
 
-- [ ] **A-Flow variants** (default-dark, default-medium, default-like-dflow, default-very-dark)
+These profiles have KB entries sourced only from the built-in profile `notes` field. No Basecamp community threads or published sources have been consulted.
+
+- [ ] **A-Flow variants** (default-dark, default-medium, default-like-dflow, default-very-dark) — 4 profiles; A-Flow has no dedicated blog post or community thread found
 - [ ] **Advanced Spring Lever / Weiss Advanced Spring Lever** — search for Weiss community thread
 - [ ] **Best Practice (light roast)** — search for community discussion
-- [ ] **Classic Italian / Gentler 8.4 bar / Italian Australian** — search for community usage tips
-- [ ] **E61 variants** (rocketing, fast preinfusion, gently up to 10 bar) — variant-specific tips
-- [ ] **Espresso Forge Dark / Light** — search for community usage
-- [ ] **Filter3** — search for community discussion
-- [ ] **Gentle Flat / Long Preinfusion family** (all 4 variants) — John Weiss profiles, may have thread
-- [ ] **Preinfuse Then 45ml** — Matt Perger technique, search for community adaptation tips
-- [ ] **Pour Over Basket variants** — search for community grind/dose tips
+- [ ] **Classic Italian / Gentler 8.4 bar / Italian Australian** — 3 profiles; search for community usage tips
+- [ ] **D-Flow / La Pavoni** — Damian profile (La Pavoni machine simulation); check community index for discussion thread
+- [ ] **E61 variants** (rocketing up to 10 bar, classic gently up to 10 bar, fast preinfusion to 9 bar) — 3 variants; base E61 has `dark-video` coverage; variants may have community tips
+- [ ] **Espresso Forge Dark / Light** — 2 profiles; search for community usage
+- [ ] **Filter3** — search for community discussion (differs from Filter 2.0/2.1 in technique)
+- [ ] **Gentle Flat / Long Preinfusion family** (gentle flat 2.5, gentle preinfusion flow, hybrid pour over, innovative long preinfusion) — 4 profiles; John Weiss, may have thread
+- [ ] **GHC Manual Control** (flow + pressure variants) — 2 profiles; manual-only, may have limited community guidance
+- [ ] **7g Basket** — search for community dial-in tips (sub-14g is tricky; tips likely exist)
+- [ ] **Preinfuse Then 45ml** — Matt Perger technique; search for community adaptation tips
+- [ ] **Pour Over Basket variants** (6 profiles) — V60, Kalita, cold brew variants; search for grind/dose tips
+- [ ] **Traditional Lever / Low Pressure 6 bar / Two Spring** — 3 profiles; search for community usage
 - [ ] **Trendy 6 Bar** — search for community usage
-- [ ] **Traditional Lever / Low Pressure 6 bar / Two Spring** — search for community usage
-- [ ] **Tea portafilter variants** — search for community brewing parameters (water temp, steep time, pressure by tea type)
+- [ ] **Tea portafilter variants** (~15 profiles) — search for community brewing parameters per tea type
 
 ---
 
