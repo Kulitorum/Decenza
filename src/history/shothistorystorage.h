@@ -140,6 +140,9 @@ struct ShotFilter {
     qint64 dateTo = 0;
     QString searchText;        // FTS search in notes
     bool onlyWithVisualizer = false;
+    bool filterChanneling = false;
+    bool filterTemperatureUnstable = false;
+    bool filterGrindIssue = false;
     QString sortColumn = "timestamp";
     QString sortDirection = "DESC";
 };

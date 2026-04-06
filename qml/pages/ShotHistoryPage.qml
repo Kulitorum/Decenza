@@ -44,6 +44,11 @@ Page {
     property var initialFilter: null
     property bool _populatingSearch: false
 
+    // Quality flag filter state (ephemeral, not persisted)
+    property bool filterChanneling: false
+    property bool filterTemperatureUnstable: false
+    property bool filterGrindIssue: false
+
     // Sort settings
     property string sortField: Settings.shotHistorySortField
     property string sortDirection: Settings.shotHistorySortDirection
@@ -212,6 +217,10 @@ Page {
                     filter[field] = initialFilter[field]
             }
         }
+
+        if (filterChanneling) filter.filterChanneling = true
+        if (filterTemperatureUnstable) filter.filterTemperatureUnstable = true
+        if (filterGrindIssue) filter.filterGrindIssue = true
 
         filter.sortField = sortField
         filter.sortDirection = sortDirection
@@ -448,6 +457,81 @@ Page {
             }
         }
 
+        // Quality flag filter chips
+        Flow {
+            Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+
+            Repeater {
+                model: [
+                    { key: "channeling", labelKey: "badges.channeling", labelFallback: "Channeling detected",
+                      chipColor: Theme.errorColor, prop: "filterChanneling" },
+                    { key: "temp", labelKey: "badges.tempUnstable", labelFallback: "Temp unstable",
+                      chipColor: Theme.warningColor, prop: "filterTemperatureUnstable" },
+                    { key: "grind", labelKey: "badges.grindIssue", labelFallback: "Grind issue",
+                      chipColor: Theme.warningColor, prop: "filterGrindIssue" }
+                ]
+
+                delegate: Rectangle {
+                    id: chipDelegate
+                    required property var modelData
+                    required property int index
+
+                    property bool active: modelData.prop === "filterChanneling" ? filterChanneling
+                                        : modelData.prop === "filterTemperatureUnstable" ? filterTemperatureUnstable
+                                        : filterGrindIssue
+
+                    width: chipRow.width + Theme.spacingMedium * 2
+                    height: Theme.scaled(32)
+                    radius: Theme.scaled(16)
+                    color: active ? Qt.rgba(modelData.chipColor.r, modelData.chipColor.g, modelData.chipColor.b, 0.15)
+                                  : Theme.surfaceColor
+                    border.color: active ? modelData.chipColor : Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.role: Accessible.CheckBox
+                    Accessible.name: chipLabel.text
+                    Accessible.checked: active
+                    Accessible.focusable: true
+                    Accessible.onPressAction: chipArea.clicked(null)
+
+                    Row {
+                        id: chipRow
+                        anchors.centerIn: parent
+                        spacing: Theme.scaled(4)
+                        Rectangle {
+                            width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                            color: chipDelegate.active ? chipDelegate.modelData.chipColor : Theme.textSecondaryColor
+                            anchors.verticalCenter: parent.verticalCenter
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            id: chipLabel
+                            text: TranslationManager.translate(chipDelegate.modelData.labelKey, chipDelegate.modelData.labelFallback)
+                            font: Theme.captionFont
+                            color: chipDelegate.active ? chipDelegate.modelData.chipColor : Theme.textSecondaryColor
+                            anchors.verticalCenter: parent.verticalCenter
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    MouseArea {
+                        id: chipArea
+                        anchors.fill: parent
+                        onClicked: {
+                            if (chipDelegate.modelData.prop === "filterChanneling")
+                                filterChanneling = !filterChanneling
+                            else if (chipDelegate.modelData.prop === "filterTemperatureUnstable")
+                                filterTemperatureUnstable = !filterTemperatureUnstable
+                            else
+                                filterGrindIssue = !filterGrindIssue
+                            loadShots()
+                        }
+                    }
+                }
+            }
+        }
+
         // Filter banner (shown when initialFilter is active)
         Rectangle {
             Layout.fillWidth: true
@@ -572,6 +656,11 @@ Page {
                     if (doseVal > 0 && yieldVal > 0)
                         parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
+                    var issues = []
+                    if (model.channelingDetected) issues.push("channeling")
+                    if (model.temperatureUnstable) issues.push("temp unstable")
+                    if (model.grindIssueDetected) issues.push("grind issue")
+                    if (issues.length > 0) parts.push(issues.join(", "))
                     return parts.join(", ")
                 }
                 Accessible.focusable: true
@@ -699,6 +788,26 @@ Page {
                                 sourceSize.width: Theme.scaled(16)
                                 sourceSize.height: Theme.scaled(16)
                                 visible: model.hasVisualizerUpload
+                                Accessible.ignored: true
+                            }
+
+                            // Quality issue indicator dots
+                            Rectangle {
+                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                color: Theme.errorColor
+                                visible: model.channelingDetected ?? false
+                                Accessible.ignored: true
+                            }
+                            Rectangle {
+                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                color: Theme.warningColor
+                                visible: model.temperatureUnstable ?? false
+                                Accessible.ignored: true
+                            }
+                            Rectangle {
+                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                color: Theme.warningColor
+                                visible: model.grindIssueDetected ?? false
                                 Accessible.ignored: true
                             }
                         }

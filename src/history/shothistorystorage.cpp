@@ -1314,6 +1314,9 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.dateTo = filterMap.value("dateTo", 0).toLongLong();
     filter.searchText = filterMap.value("searchText").toString();
     filter.onlyWithVisualizer = filterMap.value("onlyWithVisualizer", false).toBool();
+    filter.filterChanneling = filterMap.value("filterChanneling", false).toBool();
+    filter.filterTemperatureUnstable = filterMap.value("filterTemperatureUnstable", false).toBool();
+    filter.filterGrindIssue = filterMap.value("filterGrindIssue", false).toBool();
     filter.sortColumn = filterMap.value("sortField", "timestamp").toString();
     filter.sortDirection = filterMap.value("sortDirection", "DESC").toString();
     return filter;
@@ -1383,6 +1386,15 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     }
     if (filter.onlyWithVisualizer) {
         conditions << "visualizer_id IS NOT NULL";
+    }
+    if (filter.filterChanneling) {
+        conditions << "channeling_detected = 1";
+    }
+    if (filter.filterTemperatureUnstable) {
+        conditions << "temperature_unstable = 1";
+    }
+    if (filter.filterGrindIssue) {
+        conditions << "grind_issue_detected = 1";
     }
 
     if (conditions.isEmpty()) {
@@ -1476,7 +1488,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    final_weight, dose_weight, bean_brand, bean_type,
                    enjoyment, visualizer_id, grinder_setting,
                    temperature_override, yield_override, beverage_type,
-                   drink_tds, drink_ey
+                   drink_tds, drink_ey,
+                   channeling_detected, temperature_unstable, grind_issue_detected
             FROM shots
             WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
             %2
@@ -1489,7 +1502,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    final_weight, dose_weight, bean_brand, bean_type,
                    enjoyment, visualizer_id, grinder_setting,
                    temperature_override, yield_override, beverage_type,
-                   drink_tds, drink_ey
+                   drink_tds, drink_ey,
+                   channeling_detected, temperature_unstable, grind_issue_detected
             FROM shots
             %1
             %2
@@ -1554,6 +1568,9 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["beverageType"] = query.value(14).toString();
                             shot["drinkTds"] = query.value(15).toDouble();
                             shot["drinkEy"] = query.value(16).toDouble();
+                            shot["channelingDetected"] = query.value(17).toInt() != 0;
+                            shot["temperatureUnstable"] = query.value(18).toInt() != 0;
+                            shot["grindIssueDetected"] = query.value(19).toInt() != 0;
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());
