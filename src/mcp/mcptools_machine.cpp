@@ -2,6 +2,7 @@
 #include "mcptoolregistry.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
+#include "../machine/steamhealthtracker.h"
 #include "../models/shotdatamodel.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
@@ -17,6 +18,53 @@
 #include <QJniObject>
 #endif
 
+// Compute steam health progress and status from tracker state
+struct SteamHealthInfo {
+    bool hasData = false;
+    int sessionCount = 0;
+    double pressureProgress = 0.0;
+    double temperatureProgress = 0.0;
+    QString status;
+    QString recommendation;
+};
+
+static SteamHealthInfo computeSteamHealth(SteamHealthTracker* tracker)
+{
+    SteamHealthInfo info;
+    if (!tracker) return info;
+
+    info.sessionCount = tracker->sessionCount();
+    info.hasData = tracker->hasData();
+
+    if (!info.hasData) {
+        info.status = QStringLiteral("insufficient_data");
+        info.recommendation = QStringLiteral("Need at least 5 steam sessions to establish baseline");
+        return info;
+    }
+
+    double pressureRange = tracker->pressureThreshold() - tracker->baselinePressure();
+    info.pressureProgress = pressureRange > 0
+        ? qBound(0.0, (tracker->currentPressure() - tracker->baselinePressure()) / pressureRange, 1.0)
+        : 0.0;
+    double tempRange = tracker->temperatureThreshold() - tracker->baselineTemperature();
+    info.temperatureProgress = tempRange > 0
+        ? qBound(0.0, (tracker->currentTemperature() - tracker->baselineTemperature()) / tempRange, 1.0)
+        : 0.0;
+
+    double maxProgress = qMax(info.pressureProgress, info.temperatureProgress);
+    if (maxProgress >= 0.6) {
+        info.status = QStringLiteral("warning");
+        info.recommendation = QStringLiteral("Significant scale buildup detected — descaling recommended soon");
+    } else if (maxProgress >= 0.3) {
+        info.status = QStringLiteral("monitor");
+        info.recommendation = QStringLiteral("Scale buildup is progressing — consider descaling in the coming weeks");
+    } else {
+        info.status = QStringLiteral("healthy");
+        info.recommendation = QStringLiteral("Steam system is clean — no scale buildup detected");
+    }
+    return info;
+}
+
 void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                           MachineState* machineState, MainController* mainController,
                           ProfileManager* profileManager)
@@ -26,7 +74,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
         "machine_get_state",
         "Get current machine state: phase, connection status, readiness, heating, water level, firmware version, and platform/OS info (Android SDK version, device model, screen size)",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [device, machineState, profileManager](const QJsonObject&) -> QJsonObject {
+        [device, machineState, profileManager, mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             auto now = QDateTime::currentDateTime();
             result["currentDateTime"] = now.toOffsetFromUtc(now.offsetFromUtc()).toString(Qt::ISODate);
@@ -95,6 +143,19 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
             result["platform"] = platform;
 
+            // Steam health — only included when there's something worth noting (progress >= 0.3)
+            if (mainController) {
+                auto info = computeSteamHealth(mainController->steamHealthTracker());
+                if (info.hasData && qMax(info.pressureProgress, info.temperatureProgress) >= 0.3) {
+                    QJsonObject sh;
+                    sh["sessionCount"] = info.sessionCount;
+                    sh["pressureScaleBuildupProgress0to1"] = info.pressureProgress;
+                    sh["temperatureScaleBuildupProgress0to1"] = info.temperatureProgress;
+                    sh["status"] = info.status;
+                    result["steamHealth"] = sh;
+                }
+            }
+
             return result;
         },
         "read");
@@ -142,6 +203,42 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                     result["weightData"] = pointsToArray(model->weightData());
                 }
             }
+            return result;
+        },
+        "read");
+
+    // steam_get_health
+    registry->registerTool(
+        "steam_get_health",
+        "Get detailed steam system health: baseline and current pressure/temperature, "
+        "scale buildup progress toward warn thresholds, status, and recommendation. "
+        "Use this when the user asks about steam health, descaling, or scale buildup.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [mainController](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            auto* tracker = mainController ? mainController->steamHealthTracker() : nullptr;
+            auto info = computeSteamHealth(tracker);
+
+            result["hasData"] = info.hasData;
+            result["sessionCount"] = info.sessionCount;
+            result["status"] = info.status;
+            result["recommendation"] = info.recommendation;
+
+            if (tracker) {
+                result["baselinePressureBar"] = tracker->baselinePressure();
+                result["currentPressureBar"] = tracker->currentPressure();
+                result["pressureThresholdBar"] = tracker->pressureThreshold();
+                result["baselineTemperatureC"] = tracker->baselineTemperature();
+                result["currentTemperatureC"] = tracker->currentTemperature();
+                result["temperatureThresholdC"] = tracker->temperatureThreshold();
+            }
+
+            if (info.hasData) {
+                result["pressureScaleBuildupProgress0to1"] = info.pressureProgress;
+                result["temperatureScaleBuildupProgress0to1"] = info.temperatureProgress;
+                result["warnThresholdProgress0to1"] = 0.6;
+            }
+
             return result;
         },
         "read");

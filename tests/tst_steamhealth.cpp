@@ -439,6 +439,130 @@ private slots:
         QCOMPARE(warnSpy.count(), 1);  // Warning fires
     }
 
+    // ==========================================
+    // MCP steam health status derivation
+    // ==========================================
+
+    void mcpStatusInsufficientDataWhenLessThan5Sessions() {
+        SteamHealthTracker tracker;
+        QVERIFY(!tracker.hasData());
+        QCOMPARE(tracker.sessionCount(), 0);
+
+        // Add 4 sessions — still not enough
+        for (int i = 0; i < 4; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+        QVERIFY(!tracker.hasData());
+        QCOMPARE(tracker.sessionCount(), 4);
+    }
+
+    void mcpStatusHealthyWhenProgressBelow30Percent() {
+        SteamHealthTracker tracker;
+
+        // 5 sessions at baseline ~2.0 bar
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+        QVERIFY(tracker.hasData());
+
+        // Add session at 2.5 bar — threshold = 6.0, progress = 0.5/4.0 = 0.125 (< 0.3 = healthy)
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.5, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        double range = tracker.pressureThreshold() - tracker.baselinePressure();
+        double progress = (tracker.currentPressure() - tracker.baselinePressure()) / range;
+        QVERIFY(progress < 0.3);
+    }
+
+    void mcpStatusMonitorWhenProgressBetween30And60Percent() {
+        SteamHealthTracker tracker;
+
+        // 5 sessions at baseline ~2.0 bar
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // Session at 3.5 bar — threshold = 6.0, progress = 1.5/4.0 = 0.375 (0.3-0.6 = monitor)
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 3.5, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        double range = tracker.pressureThreshold() - tracker.baselinePressure();
+        double progress = (tracker.currentPressure() - tracker.baselinePressure()) / range;
+        QVERIFY(progress >= 0.3);
+        QVERIFY(progress < 0.6);
+    }
+
+    void mcpStatusWarningWhenProgressAbove60Percent() {
+        SteamHealthTracker tracker;
+
+        // 5 sessions at baseline ~2.0 bar
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // Session at 5.0 bar — threshold = 6.0, progress = 3.0/4.0 = 0.75 (>= 0.6 = warning)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SteamHealth \\[warn\\].*pressure"));
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 5.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        double range = tracker.pressureThreshold() - tracker.baselinePressure();
+        double progress = (tracker.currentPressure() - tracker.baselinePressure()) / range;
+        QVERIFY(progress >= 0.6);
+    }
+
+    void mcpProgressCalculationMatchesExpected() {
+        SteamHealthTracker tracker;
+
+        // 5 sessions at baseline ~2.0 bar
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // Session at 4.0 bar
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 4.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // baseline = 2.0, threshold = min(2.0*3, 8.0) = 6.0
+        // current = 4.0, progress = (4.0-2.0)/(6.0-2.0) = 0.5
+        QCOMPARE(tracker.baselinePressure(), 2.0);
+        QCOMPARE(tracker.pressureThreshold(), 6.0);
+        QCOMPARE(tracker.currentPressure(), 4.0);
+        double range = tracker.pressureThreshold() - tracker.baselinePressure();
+        double progress = (tracker.currentPressure() - tracker.baselinePressure()) / range;
+        QCOMPARE(progress, 0.5);
+    }
+
     void highBaselineWarningStillReachable() {
         SteamHealthTracker tracker;
         QSignalSpy warnSpy(&tracker, &SteamHealthTracker::scaleBuildupWarning);
