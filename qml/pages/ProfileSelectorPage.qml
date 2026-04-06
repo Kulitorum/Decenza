@@ -261,11 +261,8 @@ Page {
                                 color: profileDelegate.sourceColor
                                 horizontalAlignment: Text.AlignHCenter
 
-                                // Accessibility
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: profileDelegate.isBuiltIn ? TranslationManager.translate("profileselector.accessible.decent_profile", "Decent profile") :
-                                                 profileDelegate.isDownloaded ? TranslationManager.translate("profileselector.accessible.downloaded_profile", "Downloaded from Visualizer") :
-                                                 TranslationManager.translate("profileselector.accessible.user_profile", "User profile")
+                                // Parent Rectangle already announces source in its Accessible.name
+                                Accessible.ignored: true
                             }
 
                             // Profile name + AI knowledge indicator
@@ -568,6 +565,7 @@ Page {
                         }
 
                         MouseArea {
+                            id: profileMouseArea
                             anchors.fill: parent
                             z: -1
                             onClicked: {
@@ -590,6 +588,8 @@ Page {
                             var current = profileDelegate.isCurrentProfile ? ", " + TranslationManager.translate("profileselector.accessible.currently_selected", "currently selected") : ""
                             return source + " " + TranslationManager.translate("profileselector.accessible.profile_label", "profile:") + " " + modelData.title + fav + modified + current
                         }
+                        Accessible.focusable: true
+                        Accessible.onPressAction: profileMouseArea.clicked(null)
                     }
                 }
             }
@@ -892,6 +892,32 @@ Page {
         property string profileTitle: ""
         property string content: ""
 
+        // Format raw KB markdown into HTML for display:
+        // - strips internal metadata lines (Also matches, AnalysisFlags)
+        // - bolds field labels ("Category:", "How it works:", etc.)
+        // - italicizes DO NOT lines
+        function formatContent(raw) {
+            var lines = raw.split('\n')
+            var parts = []
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i]
+                if (!line.trim()) continue
+                if (line.startsWith('Also matches:') || line.startsWith('AnalysisFlags:')) continue
+
+                var colonIdx = line.indexOf(': ')
+                if (colonIdx > 0 && colonIdx <= 35 && !line.startsWith('DO NOT') && !line.startsWith('-')) {
+                    var label = line.substring(0, colonIdx).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    var value = line.substring(colonIdx + 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    parts.push('<b>' + label + ':</b> ' + value)
+                } else if (line.startsWith('DO NOT')) {
+                    parts.push('<i>' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</i>')
+                } else {
+                    parts.push(line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                }
+            }
+            return parts.join('<br>')
+        }
+
         header: Item {
             implicitHeight: Theme.scaled(50)
 
@@ -943,11 +969,12 @@ Page {
                 width: parent.width - Theme.scaled(40)
                 x: Theme.scaled(20)
                 y: Theme.scaled(15)
-                text: knowledgeDialog.content
+                text: knowledgeDialog.formatContent(knowledgeDialog.content)
+                textFormat: Text.RichText
                 color: Theme.textColor
                 font: Theme.bodyFont
                 wrapMode: Text.WordWrap
-                lineHeight: 1.4
+                lineHeight: 1.5
             }
         }
 
