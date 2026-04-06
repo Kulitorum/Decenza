@@ -33,6 +33,7 @@ Flavor dial-in: Pour time controls the flavor character — a longer pour time p
 Dial-in: Start with A-Flow medium. Adjust grind to achieve target pressure curve; adjust Pour time to tune flavor character.
 Grind: Medium-fine, similar to D-Flow. Compatible with all grinder types including conical.
 Roast: All roasts. Variants optimized for medium through very dark.
+AnalysisFlags: flow_trend_ok
 DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise to 9-10 bar before flow extraction is how this profile works.
 
 ## Adaptive v2
@@ -129,6 +130,7 @@ AnalysisFlags: grind_check_skip
 ## Filter 2.0
 Also matches: "Filter 2.1"
 Category: Filter (Blooming variant)
+AnalysisFlags: flow_trend_ok
 How it works: Bloom phase then flow-controlled extraction at 3 ml/s with <3 bar pressure.
 Temperature: 92°C preinfusion, 85°C percolation (Filter 2.1 uses 98°C preinfusion declining to 84°C)
 Dose: 20-22g in 24g basket
@@ -144,6 +146,7 @@ DO NOT flag low pressure or high ratio as problems.
 ## Filter3
 Creator: Scott Rao (profile design and basket design)
 Category: Filter (no-bypass)
+AnalysisFlags: flow_trend_ok
 How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four extraction steps at three declining temperature levels (92→92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses water temperature sensor (not coffee sensor). All water passes through the coffee bed — no bypass. Scott Rao calls the DE1 with Filter3 "the world's best single-cup filter-coffee machine."
 Expected curves: Very low pressure throughout (well under 5 bar limiter on prewet, near zero during percolation). Flow flat at 1.1 ml/s during extraction. Temperature steps down across phases.
 Temperature: 94°C prewet/bloom, 92°C early extraction, declining to 88°C late extraction (water sensor). The declining temperature is intentional — it compensates for extraction efficiency increasing as the brew progresses.
@@ -235,6 +238,7 @@ Duration: ~50–70s (longer than standard espresso — lever style)
 Ratio: 1:1 to 1:2 (medium variant), 1:2 to 1:2.5 (dark variant)
 Flavor: High texture, strong flavor, rich body — optimized for milk-based drinks, especially dry cappuccino. NOT designed for clarity or flavor separation — those are not its strengths. Expect a distinctive, full-flavored cup for each bean.
 Roast: Medium to medium-light. Dark variant for slightly darker beans.
+AnalysisFlags: flow_trend_ok
 DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio as problems — all are defining characteristics of the Strega simulation. This is a milk-drink texture-first profile.
 
 ## 80's Espresso
