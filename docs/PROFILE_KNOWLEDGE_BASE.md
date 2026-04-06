@@ -116,6 +116,26 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
   - Medium: Excellent — brings out floral/fruity notes (mango) while retaining chocolate undertones `[SRC:medium]` `[SRC:medium-video]`
   - Dark: Good `[SRC:medium]`
 - **Best for**: Versatile, all roast levels; users who want forgiving puck prep. One of the three profiles most cited by users who "always make good espresso" (alongside Extractamundo Dos and Adaptive). `[SRC:medium]` `[SRC:medium-video]`
+- **D-Flow / La Pavoni variant**: Created by Damian running D-Flow and a real La Pavoni lever machine side by side. Uses an 18g VST basket; the parameters are tuned specifically for milk drinks. Part of the D-Flow family — shares the same pressurized soak → flow-controlled pour approach but mimics the La Pavoni's pressure curve and timing. `[SRC:bc-la-pavoni]`
+
+### A-Flow
+
+- **Creator**: Janek (Jan-Erling Johnsen) `[SRC:bc-aflow]`
+- **Category**: Pressure-ramp into flow extraction `[SRC:bc-aflow]`
+- **How it works**: Created as a mix of D-Flow and Adaptive. Fill and optional infuse/soak, then pressure ramps UP to target (~9–10 bar), then switches to flow-controlled extraction with a pressure limiter. The defining difference from D-Flow: pressure intentionally RISES before extraction rather than starting high and declining. Works with all grinder types including conical. `[SRC:bc-aflow]`
+- **Variants**: A-Flow / medium (default starting point), A-Flow / dark (optimized for dark roasts), A-Flow / very dark (ramp-down enabled for darkest beans), A-Flow / like D-Flow (long 60s infuse, resembles D-Flow behavior) `[SRC:bc-aflow]`
+- **Key options** `[SRC:bc-aflow]`:
+  - **Pour time**: Controls flavor character — longer pour time → more chocolatey body; shorter pour time → more caramel and bright/fruity notes. This is the primary flavor-tuning dial.
+  - **Ramp down** (rampDownEnabled): Splits the ramp phase into pressure-rise followed by pressure-decline before switching to flow extraction. Mimics lever-like pressure arc.
+  - **Flow up** (flowExtractionUp): Ramps extraction flow smoothly upward rather than holding flat. Adds progressive intensity.
+  - **Second fill** (secondFillEnabled): Adds an extra water fill before the pressure ramp — useful for better puck saturation.
+- **Grind**: Medium-fine, similar to D-Flow. Compatible with all grinder types. `[SRC:bc-aflow]`
+- **Dial-in**: Start with A-Flow medium. Adjust grind to hit the target pressure curve during extraction. Use Pour time to tune the flavor balance between chocolate and caramel/fruit. `[SRC:bc-aflow]`
+- **Roast suitability**:
+  - Medium: Good (A-Flow medium) `[SRC:bc-aflow]`
+  - Dark: Excellent (A-Flow dark / very dark) `[SRC:bc-aflow]`
+  - All roasts: Compatible `[SRC:bc-aflow]`
+- **Best for**: Users who want a flexible lever-inspired profile that works with any grinder; daily driver with tunable flavor character
 
 ### Adaptive v2
 
@@ -438,6 +458,26 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 - **Roast adjustment**: Lower temperature for darker or defective roasts `[SRC:filter-search]`
 - **Best for**: Filter-style coffee from the DE1; high extraction, clarity `[SRC:filter-blog]`
 
+### Filter3
+
+- **Creator**: Scott Rao (basket and profile design) `[SRC:bc-filter3]`
+- **Category**: Filter (no-bypass) `[SRC:bc-filter3]`
+- **How it works**: No-bypass filter coffee using the Filter3 basket — all water passes through the coffee bed, with no bypass holes. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four declining-temperature extraction steps (92→90→88°C), ending with a 10s drawdown. Scott Rao calls this "the world's best single-cup filter-coffee machine." `[SRC:bc-filter3]`
+- **Requires**: Filter3 basket and appropriate paper (Decent precut, hand-cut Chemex, or Pulsar — most espresso paper is not porous enough). Remove the portafilter spring. `[SRC:bc-filter3]`
+- **Temperature**: Declining across extraction steps — intentional to compensate for increasing extraction efficiency as the brew progresses. `[SRC:bc-filter3]`
+- **Dose**: 22g `[SRC:bc-filter3]`
+- **Grind**: As coarse as the grinder allows — target ~660–720 µm (slightly coarser than V60). Most users grind too fine. `[SRC:bc-filter3]`
+- **Dial-in check at 100s**: Unlock the portafilter, swirl, and look for 2–4 cm of water standing above the grounds. Less than 2 cm = grind finer. More than 4 cm (or pooling) = grind coarser. `[SRC:bc-filter3]`
+- **Drawdown**: After profile ends, drawdown should complete in under 60s (ideally ~30s). Longer = grind too fine. `[SRC:bc-filter3]`
+- **Flow calibration**: Run the full profile without a portafilter before first use; target ~75g at end of Prewet step and ~360 ml total. Adjust individual step flow rates (not global calibration) to hit these targets. `[SRC:bc-filter3]`
+- **Output**: 300–330g in cup. Use stop-at-weight ~30g below target to account for residual drain. `[SRC:bc-filter3]`
+- **Extraction targets**: EY 22–23%, TDS 1.4–1.5% `[SRC:bc-filter3]`
+- **Duration**: ~275s (~4.5 min) `[SRC:bc-filter3]`
+- **Roast suitability**:
+  - Light: Excellent `[SRC:bc-filter3]`
+  - Medium: Good `[SRC:bc-filter3]`
+- **Best for**: Filter coffee aficionados; users with a Niche Zero or similar grinder who want to explore the Filter3 workflow
+
 ### Sprover (Filter-Style)
 
 - **Category**: Filter `[SRC:eaf-profiling]`
@@ -480,9 +520,12 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 
 ### Advanced Spring Lever (and Weiss variant)
 
+- **Creator**: John Weiss (JW) — ASL2 is the current version `[SRC:bc-asl]`
 - **Category**: Lever with flow recovery `[SRC:profile-notes]`
 - **How it works**: Spring-lever emulation with a flow-limit safety valve. If puck erodes too fast (flow exceeds the limiter), the profile switches to 1.5 ml/s flow-controlled extraction to prevent gushing. The Weiss variant uses 90°C (vs 88°C) and is tuned slightly differently. Both variants are more tolerant of grind variation than a pure lever profile. `[SRC:profile-notes]`
 - **Pressure curve**: 9 bar peak then gradual decline. If the flow-control step activates (visible as a pressure drop and stabilization), that is the safety valve working — not a problem. `[SRC:profile-notes]`
+- **Pressure notch is GOOD**: A pressure dip/notch occurring at a consistent point during extraction is a sign the shot is dialing in correctly — not a flaw. JW and community members confirm: "I actually aim for that result." `[SRC:bc-asl]`
+- **Which variant to use**: Use **"Advanced spring lever"** — NOT "Weiss advanced spring lever." The Weiss variant has a known skip-first-step bug where the initial soak step may be bypassed under certain entry-flow conditions. `[SRC:bc-asl]`
 - **Temperature**: 88°C (Advanced), 90°C (Weiss) `[SRC:profile-notes]`
 - **Duration**: ~35–45s `[SRC:profile-notes]`
 - **Dose**: 18g → ~32g out `[SRC:profile-notes]`
@@ -492,6 +535,7 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 
 ### Best Practice (Light Roast)
 
+- **Creator**: John Buckman (Decent founder) — synthesized from what the Decent community learned over years of use; this profile subsequently evolved into what became the "Adaptive" profile `[SRC:bc-best-practice]`
 - **Category**: Adaptive/Blooming hybrid `[SRC:profile-notes]`
 - **How it works**: Unites the best practices learned from the Decent machine: Brakel's Londinium preinfusion technique, Rao's Blooming, and Gagné's Adaptive flow-locking. Designed as a single forgiving light-roast profile. `[SRC:profile-notes]`
 - **Preinfusion**: Low pressure (3 bar) until dripping, then 1.5 bar gentle soak to fully saturate the puck `[SRC:profile-notes]`
@@ -841,6 +885,11 @@ Goal: research every built-in espresso profile from community sources and enrich
 | JW Flat 9 Bar Advanced | `community-index` | John Weiss |
 | Idan's Strega Plus | `community-index` | Idan |
 | Nu Skool | `community-index` | Dan Calabro |
+| A-Flow (all variants) | `bc-aflow` | Janek |
+| Filter3 | `bc-filter3` | Scott Rao |
+| Advanced Spring Lever / ASL2 | `bc-asl` | John Weiss |
+| D-Flow / La Pavoni | `bc-la-pavoni` | Damian |
+| Best Practice (light roast) | `bc-best-practice` | John Buckman |
 
 ### 📚 Published sources only (Decent blog / videos / EAF / Scott Rao)
 
@@ -864,26 +913,21 @@ Good KB coverage from official sources. Basecamp search for community dial-in ti
 
 All batch 3 profiles from the [Community Profiles Index](https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650) have been completed. No outstanding items in this category.
 
-### 📄 Profile-notes only — search Basecamp, thread may or may not exist
+### 📄 Profile-notes only — no dedicated Basecamp thread found
 
-These profiles have KB entries sourced only from the built-in profile `notes` field. No Basecamp community threads or published sources have been consulted.
+These profiles have KB entries sourced from built-in profile `notes` and/or published sources. Basecamp was searched and no dedicated community discussion thread was found.
 
-- [ ] **A-Flow variants** (default-dark, default-medium, default-like-dflow, default-very-dark) — 4 profiles; A-Flow has no dedicated blog post or community thread found
-- [ ] **Advanced Spring Lever / Weiss Advanced Spring Lever** — search for Weiss community thread
-- [ ] **Best Practice (light roast)** — search for community discussion
-- [ ] **Classic Italian / Gentler 8.4 bar / Italian Australian** — 3 profiles; search for community usage tips
-- [ ] **D-Flow / La Pavoni** — Damian profile (La Pavoni machine simulation); check community index for discussion thread
-- [ ] **E61 variants** (rocketing up to 10 bar, classic gently up to 10 bar, fast preinfusion to 9 bar) — 3 variants; base E61 has `dark-video` coverage; variants may have community tips
-- [ ] **Espresso Forge Dark / Light** — 2 profiles; search for community usage
-- [ ] **Filter3** — search for community discussion (differs from Filter 2.0/2.1 in technique)
-- [ ] **Gentle Flat / Long Preinfusion family** (gentle flat 2.5, gentle preinfusion flow, hybrid pour over, innovative long preinfusion) — 4 profiles; John Weiss, may have thread
-- [ ] **GHC Manual Control** (flow + pressure variants) — 2 profiles; manual-only, may have limited community guidance
-- [ ] **7g Basket** — search for community dial-in tips (sub-14g is tricky; tips likely exist)
-- [ ] **Preinfuse Then 45ml** — Matt Perger technique; search for community adaptation tips
-- [ ] **Pour Over Basket variants** (6 profiles) — V60, Kalita, cold brew variants; search for grind/dose tips
-- [ ] **Traditional Lever / Low Pressure 6 bar / Two Spring** — 3 profiles; search for community usage
-- [ ] **Trendy 6 Bar** — search for community usage
-- [ ] **Tea portafilter variants** (~15 profiles) — search for community brewing parameters per tea type
+- **Classic Italian / Gentler 8.4 bar / Italian Australian** — 3 profiles; no dedicated thread; base E61 coverage from `dark-video`
+- **E61 variants** (rocketing up to 10 bar, classic gently up to 10 bar, fast preinfusion to 9 bar) — 3 variants; base E61 has `dark-video` coverage; variants share the same extraction character
+- **Traditional Lever / Low Pressure 6 bar / Two Spring** — 3 profiles; no dedicated community thread found
+- **Espresso Forge Dark / Light** — 2 profiles; no dedicated thread found
+- **Gentle Flat / Long Preinfusion family** (gentle flat 2.5, gentle preinfusion flow, hybrid pour over, innovative long preinfusion) — 4 profiles; John Weiss, no dedicated thread found
+- **GHC Manual Control** (flow + pressure variants) — 2 profiles; manual-only, limited community guidance applies
+- **7g Basket** — searched; no dedicated thread found; community tips captured from profile notes
+- **Preinfuse Then 45ml** — Matt Perger technique; no dedicated thread found
+- **Pour Over Basket variants** (6 profiles) — V60, Kalita, cold brew variants; no dedicated thread found
+- **Trendy 6 Bar** — no dedicated thread found
+- **Tea portafilter variants** (~15 profiles) — no dedicated thread found; not espresso profiles
 
 ---
 
@@ -925,4 +969,9 @@ These profiles have KB entries sourced only from the built-in profile `notes` fi
 | `dark-video` | 5 profiles for dark roasted beans (video transcript) | https://decentespresso.com/blog/5_profiles_for_dark_roasted_beans |
 | `community-index` | Community Profiles Index (Decent Diaspora Basecamp, doc 4263724650) | https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650 |
 | `bc-adaptive` | "New Adaptive Profiles for the DE1" by Jonathan Gagné (Decent Diaspora Basecamp) | https://3.basecamp.com/3671212/buckets/7351439/messages/3359060617 |
+| `bc-aflow` | "✨ A-Flow" Basecamp thread (Decent Diaspora, message 7332309713) — Janek's creator thread with dial-in guidance | https://3.basecamp.com/3671212/buckets/7351439/messages/7332309713 |
+| `bc-filter3` | Filter3 discussion threads — Scott Rao masterclass (9016801605), John Buckman step-by-step video (8836752766), Filter3 basket explained (6513118033), community reports (7394914724) | https://3.basecamp.com/3671212/buckets/7351439/messages/9016801605 |
+| `bc-asl` | "📈 Advanced Spring Lever profile discussion" Basecamp thread (message 8599531064) — JW's ASL2 post, pressure notch guidance | https://3.basecamp.com/3671212/buckets/7351439/messages/8599531064 |
+| `bc-la-pavoni` | "D-Flow / La Pavoni like profile" Basecamp thread (message 5566722756) — Damian's description of the profile creation | https://3.basecamp.com/3671212/buckets/7351439/messages/5566722756 |
+| `bc-best-practice` | "John's 'best practices' profile" Basecamp thread (message 4141416014) + "'Best Practices' renamed to 'Adaptive'" (4141406715) | https://3.basecamp.com/3671212/buckets/7351439/messages/4141416014 |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |

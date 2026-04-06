@@ -8,7 +8,7 @@ Also matches: "D-Flow / default", "D-Flow / Q", "D-Flow / La Pavoni", "Damian's 
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 How it works: All D-Flow variants and Damian's profiles share the same core: pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks then gradually declines — this is intentional lever-style behavior. Can heal uneven puck prep.
-Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian's Q") is optimized for medium-light beans with a 6 bar approach. "D-Flow / La Pavoni" emulates a La Pavoni lever. "Damian's LM Leva" is a pressure-profile recreation of a real La Marzocco Leva recording. "Damian's LRv2" and "Damian's LRv3" (also "Londonium") are pure lever-style Londinium R simulations.
+Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian's Q") is optimized for medium-light beans with a 6 bar approach. "D-Flow / La Pavoni" emulates a La Pavoni lever — created by Damian running D-Flow and a real La Pavoni side by side; uses 18g VST basket; tuned for milk drinks. "Damian's LM Leva" is a pressure-profile recreation of a real La Marzocco Leva recording. "Damian's LRv2" and "Damian's LRv3" (also "Londonium") are pure lever-style Londinium R simulations.
 Expected curves: Pressure peaks between 6 and 9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
 Damian's LM Leva: Created by recording a real La Marzocco Leva machine shot on a Smart Espresso Profiler and reverse-engineering it. Low 2.2 bar pre-infusion then rise to 8 bar then decline. Temperature 88–89°C. Dose 18g → 42g (1:2.3). Flavor: creamy body, smooth balance, highlights flavors in a gentle way — best as a straight shot. Less suited to milk drinks (flavors can get lost). Portafilter must be fully preheated — cold portafilter causes temperature crash and loss of mouthfeel.
 Damian's LRv2: Londinium R simulation with several tweaks for coarser grind and faster pour. If puck erodes too fast during extraction, switches from pressure to flow control at 2.5 ml/s (prevents gushing). Temperature 89°C. Dose 18g → 36g (1:2). Flavor: "milkshake with extra syrup," rich body, thick, chocolatey — great for milk drinks and dark roasts.
@@ -23,12 +23,15 @@ DO NOT flag declining pressure, the flow safety step switching to flow control (
 DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across all Damian variants.
 
 ## A-Flow
+Creator: Janek (Jan-Erling Johnsen)
 Category: Pressure-ramp into flow extraction
-How it works: An alternative to D-Flow. Fill and optional infuse/soak, then pressure ramps UP to target (typically 9-10 bar), followed by optional pressure decline, then switches to flow-controlled extraction with a pressure limiter. The key difference from D-Flow: pressure intentionally RISES before extraction rather than starting high and declining.
-Variants: "A-Flow / medium" is the default starter. "A-Flow / dark" optimized for dark roasts. "A-Flow / very dark" uses ramp-down for darkest beans. "A-Flow / like D-Flow" has a long 60s infuse and resembles D-Flow behavior.
+How it works: Created by Janek as a mix of D-Flow and Adaptive. Fill and optional infuse/soak, then pressure ramps UP to target (typically 9-10 bar), followed by optional pressure decline, then switches to flow-controlled extraction with a pressure limiter. The key difference from D-Flow: pressure intentionally RISES before extraction rather than starting high and declining. Works with all grinder types including conical.
+Variants: "A-Flow / medium" is the default starting point. "A-Flow / dark" optimized for dark roasts. "A-Flow / very dark" uses ramp-down for darkest beans. "A-Flow / like D-Flow" has a long 60s infuse and resembles D-Flow behavior.
 Expected curves: Pressure ramps up to 9-10 bar during the ramp phase, may decline briefly, then flow takes over for extraction. Flow during extraction is typically ~2 ml/s with pressure capped by the limiter. The pressure ramp-up is INTENTIONAL — this is not overpressure.
-Options: rampDownEnabled splits the ramp time between pressure-up and pressure-decline phases. flowExtractionUp ramps extraction flow smoothly upward (vs flat). secondFillEnabled adds an extra water fill before the pressure ramp.
-Grind: Similar to D-Flow — medium-fine
+Options: rampDownEnabled splits the ramp time between pressure-up and pressure-decline phases (pressure rises, then declines, then flow takes over). flowExtractionUp ramps extraction flow smoothly upward (vs flat). secondFillEnabled adds an extra water fill before the pressure ramp.
+Flavor dial-in: Pour time controls the flavor character — a longer pour time produces more chocolatey body; a shorter pour time produces more caramel and brighter notes.
+Dial-in: Start with A-Flow medium. Adjust grind to achieve target pressure curve; adjust Pour time to tune flavor character.
+Grind: Medium-fine, similar to D-Flow. Compatible with all grinder types including conical.
 Roast: All roasts. Variants optimized for medium through very dark.
 DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise to 9-10 bar before flow extraction is how this profile works.
 
@@ -136,18 +139,20 @@ Roast: Lower temperature for darker or defective roasts
 DO NOT flag low pressure or high ratio as problems.
 
 ## Filter3
+Creator: Scott Rao (profile design and basket design)
 Category: Filter (no-bypass)
-How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four extraction steps at three declining temperature levels (92→92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses water temperature sensor (not coffee sensor). All water passes through the coffee bed — no bypass.
+How it works: No-bypass filter coffee using the Filter3 basket. Prewet at 5 ml/s for 15s, then 30s bloom (zero flow), then slow percolation at 1.1 ml/s through four extraction steps at three declining temperature levels (92→92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses water temperature sensor (not coffee sensor). All water passes through the coffee bed — no bypass. Scott Rao calls the DE1 with Filter3 "the world's best single-cup filter-coffee machine."
 Expected curves: Very low pressure throughout (well under 5 bar limiter on prewet, near zero during percolation). Flow flat at 1.1 ml/s during extraction. Temperature steps down across phases.
-Temperature: 94°C prewet/bloom, 92°C early extraction, declining to 88°C late extraction (water sensor). The declining temperature is intentional.
+Temperature: 94°C prewet/bloom, 92°C early extraction, declining to 88°C late extraction (water sensor). The declining temperature is intentional — it compensates for extraction efficiency increasing as the brew progresses.
 Dose: 22g in Filter3 basket
-Grind: As coarse as the grinder allows (e.g. 11 o'clock setting on a Niche Zero, slightly coarser than V60). Most people grind too fine. If water comes out of the holes at the top of the basket, grind is too fine.
+Grind: As coarse as the grinder allows — target 660–720 µm particle size (slightly coarser than V60). Most people grind too fine. If water comes out of the holes at the top of the basket, grind is too fine.
 Setup: Requires Filter3 basket and appropriate paper (Decent precut, hand-cut Chemex, or Pulsar — most other espresso paper is not porous enough). Remove the portafilter spring. Center paper in the bottom of the basket, wet it with flush water. Add 22g of coffee and shake to level. Set water level refill to at least 500 ml in Settings/Machine to ensure enough water.
 Flow calibration: Before first use, run the full profile without a portafilter and weigh the output. Target ~75g at the end of the first step (Prewet) and ~360 ml total. Adjust individual step flow rates (not the global calibration) to hit these targets — changing global calibration may affect espresso profiles.
-Dialing in: 30 seconds into extraction, unlock the portafilter, swirl, and check for 2-4 cm of water on the grounds. Finer if not enough water, coarser if too much. Drawdown after the profile ends should be under 60 seconds (ideally ~30s) — if longer, grind is too fine.
+Dialing in: At ~100s into the profile, unlock the portafilter, swirl, and check. 2–4 cm of water standing above the grounds = grind is correct. If less than 2 cm, grind finer. If more than 4 cm (or pooling), grind coarser. Drawdown after the profile ends should be under 60 seconds (ideally ~30s) — if longer, grind is too fine.
 Output: 300-330g of coffee in the cup. Use stop-at-weight set ~30g below target to account for residual water draining from the basket after the profile ends.
+Extraction targets: EY 22–23%, TDS 1.4–1.5%.
 Duration: ~275s total (~4.5 minutes)
-Flavor: Filter-like clarity with no bypass dilution. Described by Scott Rao as producing results from "the world's best single-cup filter-coffee machine."
+Flavor: Filter-like clarity with no bypass dilution. Clean, bright, high-definition filter coffee.
 Roast: Good for light and medium roasts.
 DO NOT flag low pressure, long brew time, or very coarse grind as problems — this is filter-style brewing, not espresso.
 DO NOT flag declining temperature as a problem — the temperature steps are intentional for balanced extraction across the long brew time.
@@ -294,18 +299,22 @@ AnalysisFlags: flow_trend_ok
 
 ## Advanced Spring Lever
 Also matches: "Advanced spring lever", "Weiss advanced spring lever"
+Creator: John Weiss (JW)
 Category: Lever (with flow recovery)
-How it works: Spring-lever emulation with an added flow-limit safety valve: fill → rise to 9 bar → declining pressure → if puck erodes too fast (flow exceeds limiter), switches to 1.5 ml/s flow-controlled extraction to prevent gushing. The Weiss variant uses 90°C (vs 88°C) and is tuned slightly differently.
-Expected curves: 9 bar peak then gradual pressure decline. Flow stays moderate. If a flow-control step kicks in (visible as pressure drop then stabilization), that is the safety valve working — not a problem.
+How it works: Spring-lever emulation with an added flow-limit safety valve: fill → rise to 9 bar → declining pressure → if puck erodes too fast (flow exceeds limiter), switches to 1.5 ml/s flow-controlled extraction to prevent gushing. The Weiss variant uses 90°C (vs 88°C) and is tuned slightly differently. JW updated this to ASL2 (Advanced Spring Lever 2) with refined step transitions.
+Expected curves: 9 bar peak then gradual pressure decline. Flow stays moderate. If a flow-control step kicks in (visible as pressure drop then stabilization), that is the safety valve working — not a problem. A pressure notch/dip at a consistent point during extraction is a SIGN OF PROPER DIAL-IN, not a flaw — this means the puck is behaving as intended. JW: "I actually aim for that result."
 Temperature: 88°C (Advanced), 90°C (Weiss)
 Duration: ~35–45s
 Dose: 18g target → 32g out
 Grind: All roasts — the flow recovery step makes these more tolerant of grind variation.
-Roast: All roasts. Good for dials-in shots where you're not sure if the puck will channel.
+Roast: All roasts. Good for shots where you're not sure if the puck will channel.
+Note: Use "Advanced spring lever" (not "Weiss advanced spring lever") — the Weiss variant has a known skip-first-step bug where the initial soak step may be bypassed under certain flow conditions.
 DO NOT flag the flow-control recovery step as a problem — it is the profile's designed choke-rescue mechanism.
+DO NOT flag a pressure notch or dip during extraction as a problem — it is a sign the shot is dialing in correctly.
 AnalysisFlags: flow_trend_ok
 
 ## Best Practice Light Roast
+Creator: John Buckman (Decent founder) — synthesized from Brakel's preinfusion technique, Scott Rao's Blooming, and Jonathan Gagné's Adaptive flow-locking. This profile represents the distillation of what the Decent community learned was optimal for light roasts; it subsequently evolved into the "Adaptive" profile.
 Category: Adaptive/Blooming hybrid
 How it works: Unites the best practices learned from the Decent: Brakel's Londinium preinfusion technique, Rao's Blooming, and Gagné's Adaptive flow-locking. Preinfusion at low pressure (3 bar) until dripping, then a 1.5 bar gentle soak to fully saturate the puck, then pressure ramps to ~9–10.5 bar, then flow-controlled extraction at ~2.5 ml/s with a 10.5 bar pressure limiter. Canonical recipe: 18g in, 50g out, in ~60 seconds.
 Expected curves: Very low pressure during fill/soak (~1.5–3 bar), then pressure rise to ~9–10 bar, then pressure-limited flow extraction. Pressure may not reach the limiter if grind is coarse. Variable curves are expected — the profile adapts to grind.
