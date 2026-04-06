@@ -322,6 +322,7 @@ DO NOT flag a pressure notch or dip during extraction as a problem — it is a s
 AnalysisFlags: flow_trend_ok
 
 ## Best Practice Light Roast
+Also matches: "Best practice (light roast)"
 Creator: John Buckman (Decent founder) — synthesized from Brakel's preinfusion technique, Scott Rao's Blooming, and Jonathan Gagné's Adaptive flow-locking. This profile represents the distillation of what the Decent community learned was optimal for light roasts; it subsequently evolved into the "Adaptive" profile.
 Category: Adaptive/Blooming hybrid
 How it works: Unites the best practices learned from the Decent: Brakel's Londinium preinfusion technique, Rao's Blooming, and Gagné's Adaptive flow-locking. Preinfusion at low pressure (3 bar) until dripping, then a 1.5 bar gentle soak to fully saturate the puck, then pressure ramps to ~9–10.5 bar, then flow-controlled extraction at ~2.5 ml/s with a 10.5 bar pressure limiter. Canonical recipe: 18g in, 50g out, in ~60 seconds.
@@ -334,6 +335,7 @@ Roast: Light roasts primarily. Can adapt to medium with temperature adjustment.
 DO NOT flag the long low-pressure soak phase as a problem — it is the intentional bloom/preinfusion designed for light-roast pucks.
 
 ## Easy Blooming Active Pressure Decline
+Also matches: "Easy blooming - active pressure decline"
 Category: Blooming (adaptive)
 How it works: Created by Stéphane as an accessible evolution of Rao Blooming. The key innovation is a pressure-threshold bloom exit: rather than a fixed timer, the bloom phase ends when pressure declines to a threshold value. This makes bloom duration self-adjust to grind coarseness — finer grinds hold pressure longer (longer bloom), coarser grinds depressurize quickly (shorter bloom). This eliminates the need to adjust bloom time when changing grind size, making it far more forgiving than Rao Blooming. After bloom, active pressure decline reduces pressure from 7 bar toward a lower endpoint as the shot progresses, preventing over-extraction and managing increasing flow as the puck erodes.
 Expected curves: ~4 bar during fill, declining pressure during bloom (zero flow, pressure falls from 4 to threshold ~2 bar), then 6–7 bar extraction with gradual pressure decline. Zero flow during bloom is INTENTIONAL. Variable bloom duration is NORMAL and expected — it is the adaptive feature working correctly.
