@@ -8,16 +8,19 @@ Also matches: "D-Flow / default", "D-Flow / Q", "D-Flow / La Pavoni", "Damian's 
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 How it works: All D-Flow variants and Damian's profiles share the same core: pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks then gradually declines — this is intentional lever-style behavior. Can heal uneven puck prep.
-Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian's Q") is optimized for medium-light beans. "D-Flow / La Pavoni" emulates a La Pavoni lever. "Damian's LM Leva" emulates a La Marzocco Leva — more creamy than chocolatey body.
+Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian's Q") is optimized for medium-light beans with a 6 bar approach. "D-Flow / La Pavoni" emulates a La Pavoni lever. "Damian's LM Leva" is a pressure-profile recreation of a real La Marzocco Leva recording. "Damian's LRv2" and "Damian's LRv3" (also "Londonium") are pure lever-style Londinium R simulations.
 Expected curves: Pressure peaks between 6 and 9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
-Damian's LRv2: If the puck erodes too fast during extraction, switches from pressure to flow control at 1.7 ml/s. This may cause a pressure drop — intentional puck-erosion recovery.
-Damian's LRv3: Pure lever decline — does NOT switch to flow control. Simpler and preferred when dialed in well.
-Damian's LRv2/LRv3 temperatures: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than standard D-Flow variants due to different fill/soak behavior. These are standalone lever profiles that share the D-Flow family matching but behave more like the Londinium profile.
-Temperature: Fill temperature varies by variant — D-Flow/default uses 88°C (frame temperature), while D-Flow/Q, La Pavoni, and Damian's Q use 84°C with a 94°C rise target. The low fill temperature is INTENTIONAL and controls bitterness — hotter fill water produces dark spots in the crema and more bitter taste. After filling, the target rises to 94°C, but the coffee never reaches 94°C — the high setpoint just makes the heater pump hot water that mixes with the cooler water above the puck, gradually reaching ~86-90°C at the basket (varies by fill temp and ambient conditions). This is a KEY aspect of D-Flow. DO NOT flag the large gap between temperature target (94°C) and actual (~86-90°C) as a problem — it is by design.
+Damian's LM Leva: Created by recording a real La Marzocco Leva machine shot on a Smart Espresso Profiler and reverse-engineering it. Low 2.2 bar pre-infusion then rise to 8 bar then decline. Temperature 88–89°C. Dose 18g → 42g (1:2.3). Flavor: creamy body, smooth balance, highlights flavors in a gentle way — best as a straight shot. Less suited to milk drinks (flavors can get lost). Portafilter must be fully preheated — cold portafilter causes temperature crash and loss of mouthfeel.
+Damian's LRv2: Londinium R simulation with several tweaks for coarser grind and faster pour. If puck erodes too fast during extraction, switches from pressure to flow control at 2.5 ml/s (prevents gushing). Temperature 89°C. Dose 18g → 36g (1:2). Flavor: "milkshake with extra syrup," rich body, thick, chocolatey — great for milk drinks and dark roasts.
+Damian's LRv3 / Londonium: Pure lever decline with an added 9 bar hold step after pressure rise — waits until flow exceeds 1.9 ml/s before starting the decline. More sustained peak pressure phase gives richer body vs LRv2. Temperature 90°C. Does NOT switch to flow control — preferred when dialed in well. Dose 18g → 36g.
+Damian's Q: D-Flow variant with 84°C fill temperature and 6 bar pressure approach, optimized for medium-light beans. Produces brightness in milk (contrast with LRv2's thick chocolate). Dose 18–19g → 34g. The 84°C fill temperature is INTENTIONAL — low fill temp controls bitterness during saturation.
+Damian's LRv2/LRv3 temperatures: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than standard D-Flow variants due to different fill/soak behavior.
+Temperature: Fill temperature varies by variant — D-Flow/default uses 88°C, while D-Flow/Q and Damian's Q use 84°C fill with 94°C rise target. The low fill temperature is INTENTIONAL — hotter fill water produces dark spots in the crema and more bitter taste. The coffee never actually reaches 94°C; the high setpoint makes the heater pump hot water that gradually raises basket temperature to ~86–90°C. DO NOT flag the large gap between temperature target (94°C) and actual (~86-90°C) as a problem — it is by design.
 Flow calibration: If actual flow is consistently below target (e.g. 1.8 target but only 1.5 actual), the flow sensor may be over-reading by ~20%. Reducing the calibration value will show more pressure for the same grind.
-Grind: Medium-fine. Grind determines curve shape: finer grinds produce constant-pressure extraction (boiler-like), coarser grinds produce declining pressure (lever-like). Both are valid — the pressure curve shape is a function of grind, not a problem.
+Grind: Medium-fine. Grind determines curve shape: finer grinds produce constant-pressure extraction, coarser grinds produce declining pressure (lever-like). Both are valid.
 Roast: All roasts. Excellent for medium (floral/fruity + chocolate). Good for light and dark.
-DO NOT flag declining pressure as a problem — it defines this entire profile family.
+DO NOT flag declining pressure, the flow safety step switching to flow control (LRv2), or the 9-bar hold (LRv3) as problems — all are intentional profile behaviors.
+DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across all Damian variants.
 
 ## A-Flow
 Category: Pressure-ramp into flow extraction
@@ -31,13 +34,14 @@ DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise 
 
 ## Adaptive v2
 Category: Flow/adaptive
-How it works: Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists. Switches to stable flow after pressure peak. Extraction flow limiter at 9.5 bar.
+How it works: Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists. Switches to stable flow after pressure peak. Extraction flow limiter at 9.5 bar. The Low Pressure Infusion variant (by Trevor Rainey + Jonathan Gagné) modifies this with a high-flow fill (8 ml/s), 3 bar soak pressure, and 8 bar rise — targeting ~30s total shot time. Canonical recipe for LPI variant: 15g dose, ~33g out in ~30s, targeting ~4g drip-through during bloom and ~1.5 ml/s flow at pressurize step.
 Expected curves: Pressure peaks near 9 bar then gradually declines. Flow settles at 2.0-2.7 ml/s. Variable curves are expected — the profile adapts to grind size.
 Duration: 26-40s. With large flat burrs, the extraction phase may be very short (rapid high-flow extraction in 15-20s after long pre-infusion soak).
 Pre-infusion: Lots of dripping is fine with flat burr grinders (up to 17g dripping worked well in testing). Pressure drops steeply during drip phase with coarse/flat-burr grinds — this is normal.
 Ratio: Best at 1:1.8-2.3 for light roasts (fruitiness). Can extend to 1:2.5 if no off-flavors.
+Stop strategy: The LPI variant's extraction step has a 60s safety timeout — shots should be stopped manually at ~30s (or by weight/time stop condition) well before the timeout fires.
 Roast: Good for light (v2 updated for light roasts). Excellent for medium-light. Not recommended for dark.
-DO NOT flag variable pressure curves or steep pre-infusion pressure drop as problems.
+DO NOT flag variable pressure curves, steep pre-infusion pressure drop, or a slight flow jump at peak pressure as problems — all are by design.
 
 ## Blooming Espresso
 Category: Blooming
@@ -103,16 +107,18 @@ Roast: Excellent for dark (full body without harshness). Good for medium-dark. S
 DO NOT flag the 3 bar soak phase as "low pressure" — it's intentional pre-infusion.
 
 ## Turbo Shot
+Also matches: "Hendon Turbo", "Hendon Turbo 6b Pressure Decline", "Hendon Turbo Bloom", "Hendon Turbo Flow"
 Category: Flow/Pressure hybrid
-How it works: Preinfusion at 8 ml/s flow until 2 bar, then extraction at 4.5 ml/s with a 6 bar pressure limiter. Very short extraction.
-Expected curves: Fast pressure rise to ~6 bar, high flow at 4.5 ml/s. Shot finishes quickly.
-Duration: 10-20s (speed is intentional)
-Dose: 15-17g (smaller than traditional)
-Ratio: 1:2-1:3
-Temperature: 90°C default (presets range 86-92°C)
-Grind: Medium-fine (coarser than typical espresso, fine enough to spike to 6 bar)
-Roast: All coffee types
-DO NOT flag short shot time or high flow as problems — speed is the point.
+How it works: Inspired by the Hendon/Cameron 2020 paper on espresso extraction — coarser grinds with fast flow reduce channeling and can achieve equal or higher extraction yield than fine grinds, with more clarity. Preinfusion at 8 ml/s flow until ~6 bar, then extraction at 4.5 ml/s with a 6 bar pressure limiter. Very short total extraction. Jan's original Hendon Turbo variants use a declining pressure (6b Pressure Decline) or flat flow (Hendon Turbo Flow) approach; the Bloom variant adds a very short ~5s bloom before extraction.
+Expected curves: Fast pressure rise to ~6 bar, then high flow at 3–4.5 ml/s throughout extraction. Shot finishes in 20–25s total. Fast flow and short time are INTENTIONAL.
+Duration: 20-25s (Jan's preferred range; original paper suggests 16-20s)
+Dose: 15-18g (smaller than traditional)
+Ratio: 1:2.5–1:3 (higher ratio compensated by fast extraction)
+Temperature: 90–97°C — higher temperature needed to compensate for fast flow (water has less contact time to transfer heat, so higher set temperature needed to reach same extraction temp at puck). Jan uses 95–97°C for PI.
+Grind: Coarse — much coarser than traditional espresso. Best with large flat burrs (SSP HU, EK-style, EG1, MAX, Ultra). Conical grinders have less margin for error.
+Flavor: Extremely clean, high-clarity, high aroma, acidity and fruited sweetness, moderate body. EY competitive with non-blooming profiles at high temperature (~22–24%). Less suited to dark roasts.
+Roast: Light and medium primarily. High-extraction flat burr grinders excel here.
+DO NOT flag short shot time, high flow, high temperature, or high ratio as problems — these are all defining features of the Turbo approach.
 
 ## Filter 2.0
 Also matches: "Filter 2.1"
@@ -209,6 +215,19 @@ Flavor: Maximum mouthfeel, thick syrupy espresso. Baker's chocolate, intense. Ve
 Roast: Excellent for dark. Highest temperature of dark profiles = most extraction = most intense.
 DO NOT flag steeply declining pressure or declining flow as problems — this IS the Cremina style.
 AnalysisFlags: flow_trend_ok
+
+## Idan's Strega Plus
+Also matches: "Strega Plus", "Strega Plus medium", "Strega Plus dark", "Idan Strega"
+Category: Lever emulation
+Creator: Idan
+How it works: Simulates a Bezzera Strega lever machine using a technique Idan developed over years of lever manipulation. Gradual water filling combined with a blooming phase saturates the puck evenly before extraction. After the bloom, extraction proceeds at low flow (1–1.5 ml/s) with sustained pressure — passive lever resistance rather than active pump push. Two variants: medium (1:1–1:2) and dark (1:2–1:2.5).
+Expected curves: Slow fill, extended bloom (pressure rises then decays), then low-flow extraction. Flow of 1–1.5 ml/s throughout is NORMAL AND INTENTIONAL — do not flag as too slow.
+Temperature: Tested with medium to medium-light roasts on a Niche Zero; temperature, trigger pressures, and peak pressure may need adjustment for other grinders or roasts.
+Duration: ~50–70s (longer than standard espresso — lever style)
+Ratio: 1:1 to 1:2 (medium variant), 1:2 to 1:2.5 (dark variant)
+Flavor: High texture, strong flavor, rich body — optimized for milk-based drinks, especially dry cappuccino. NOT designed for clarity or flavor separation — those are not its strengths. Expect a distinctive, full-flavored cup for each bean.
+Roast: Medium to medium-light. Dark variant for slightly darker beans.
+DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio as problems — all are defining characteristics of the Strega simulation. This is a milk-drink texture-first profile.
 
 ## 80's Espresso
 Category: Lever at low temperature
@@ -357,6 +376,19 @@ Grind: Coarse (high-extraction burrs; much coarser than traditional espresso)
 Flavor: High clarity, bright. Turbo shots produce clean, high-clarity espresso by reducing extraction of bitter/astringent compounds through short contact time at high flow. Less body than lever profiles, more like a concentrated filter coffee.
 Roast: All roasts.
 DO NOT flag high flow, fast duration, high temperatures, or high ratio as problems — these are intentional design elements for high-extraction coarse-grind setups.
+
+## Nu Skool
+Also matches: "Nu Skool 14g", "Nu Skool 18g", "Nu Skool 20g", "Nu Skool large basket"
+Category: Flow/New wave light roast
+Creator: Dan Calabro
+How it works: A family of 3 flow-curve profiles (one per standard basket size) for maximally prepped light roast (or any roast) coffee. The philosophy: maximize extractability during prep (quality grinders, flat burrs, precise techniques) so you can brew with lower pressure, lower temperature, and coarser grinds while still achieving very high extraction with sweetness and clarity. Dial-in is done by adjusting three flow parameters: flow floor (minimum flow), flow plateau (target level), and flow spectrum (spread between floor and plateau). Reading Dan's user guide is essential before dialing in this profile.
+Expected curves: Low-pressure preinfusion, then moderate flow-controlled extraction. No dramatic pressure spikes. Pressure stays moderate and gradually declines. Shot is calm and controlled.
+Temperature: 82–89°C — substantially lower than standard espresso profiles. The very low temperature is INTENTIONAL; it avoids harsh extraction and only works when puck prep and grind quality are optimized.
+Duration: ~25–40s
+Grind: Coarser than most espresso profiles, similar in range to Turbo-style profiles. Flat burrs strongly preferred (SSP HU, EK-style, MAX, EG-1, etc.) — the profile was designed around high-quality flat burr grinders.
+Flavor: High clarity, sweetness, vibrancy, and flavor definition. Designed to showcase light roast terroir and aromatics with minimal harshness.
+Roast: Primarily light roast, but works with any roast. Quality of prep has a greater-than-normal impact on outcome — improving grinder and prep techniques directly improves results.
+DO NOT flag very low temperature (82–89°C) or coarser grind as problems — they are central to the Nu Skool philosophy. These parameters require dialed-in preparation to achieve the intended result.
 
 ## Gentle Flat / Long Preinfusion Family
 Also matches: "Gentle flat 2.5 ml per second", "Gentle preinfusion flow profile", "Hybrid pour over espresso", "Innovative long preinfusion"

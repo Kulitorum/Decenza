@@ -137,6 +137,16 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
   - Dark: Not recommended — letting pressure drop sacrifices mouthfeel on dark beans `[SRC:dark-video]`
 - **Best for**: Medium-light beans; users who want automated flow adjustment. One of the three profiles most cited by users who "always make good espresso." `[SRC:medium]` `[SRC:medium-video]`
 
+### Adaptive Profile — Low Pressure Infusion (LPI)
+
+- **Category**: Adaptive/Flow `[SRC:community-index]`
+- **Creators**: Trevor Rainey + Jonathan Gagné `[SRC:community-index]`
+- **How it works**: A modification of Jonathan's Adaptive v2 with a different infusion strategy. High-flow fill (8 ml/s), then a 3 bar soak (low pressure infusion), then an 8 bar rise. After the rise, the same adaptive flow-locking as Adaptive v2 takes effect. Targets ~30s total shot time. `[SRC:community-index]`
+- **Canonical recipe**: 15g dose → ~33g out in ~30s. Targeting ~4g drip-through during bloom and ~1.5 ml/s flow at pressurize step. `[SRC:community-index]`
+- **Safety timeout**: The extraction step has a 60s timeout. Shots should be stopped at ~30s (or by weight/time stop condition) well before the timeout fires. `[SRC:community-index]`
+- **Differs from Adaptive v2**: Lower soak pressure (3 bar vs higher), high-flow fill phase, faster overall target time. Produces a shorter, more concentrated shot than the standard Adaptive v2. `[SRC:community-index]`
+- **Best for**: Users who want a quick 30s adaptive shot; those who prefer lower infusion pressure for lighter roasts. `[SRC:community-index]`
+
 ### Blooming Espresso
 
 - **Category**: Blooming `[SRC:4mothers]`
@@ -224,6 +234,51 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
   - Medium-light: Good — very fruity, long aftertaste, pleasing acidity. Works well with Ethiopian beans. `[SRC:medium-video]`
   - Light: Struggles — light roasts don't have the viscosity to survive the pressurized soak; water pours through and produces sour shot `[SRC:medium]` `[SRC:medium-video]`
 - **Best for**: Darker roasts seeking full body and smoothness; quality dark beans where you want maximum extraction `[SRC:dark]` `[SRC:dark-video]`
+
+### Damian's D-Flow Family (LM Leva, LRv2, LRv3, Q)
+
+All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants sharing the same pressurized soak core. `[SRC:community-index]`
+
+#### Damian's LM Leva
+
+- **Creator**: Damian `[SRC:community-index]`
+- **How it works**: Based on a Smart Espresso Profiler recording of a real La Marzocco Leva machine shot, recreated as a DE1 pressure profile. `[SRC:community-index]`
+- **Temperature**: 88–89°C `[SRC:profile-notes]`
+- **Dose**: 18g → ~42g (1:2.3) `[SRC:profile-notes]`
+- **Flavor**: Creamy body, smooth balance, gentle flavor highlight. Best as a straight shot — flavors can get lost in milk. Comparable to Slayer-style in character. `[SRC:community-index]`
+- **Portafilter preheat**: Required. `[SRC:profile-notes]`
+- **Best for**: Straight espresso; lever machine fans wanting LM Leva character on the DE1 `[SRC:community-index]`
+
+#### Damian's LRv2
+
+- **Creator**: Damian `[SRC:community-index]`
+- **How it works**: Londinium R simulation with tweaks for coarser grind and faster pour. If the puck erodes too fast, the profile switches from pressure control to flow control at 2.5 ml/s to prevent gushing. `[SRC:community-index]`
+- **Temperature**: 89°C `[SRC:profile-notes]`
+- **Dose**: 18g → 36g (1:2) `[SRC:profile-notes]`
+- **Stop at weight**: 32g (profile default) `[SRC:community-index]`
+- **Flavor**: "Milkshake with extra syrup" — rich body, thick, chocolatey. Great for milk drinks and dark roasts. `[SRC:community-index]`
+- **Safety step**: Flow-control fallback prevents gushing when puck erodes quickly; may cause a pressure drop mid-shot. `[SRC:community-index]`
+- **Best for**: Milk-based drinks; dark roasts; users who want lever character with a coarser grind than Londinium `[SRC:community-index]`
+
+#### Damian's LRv3 / Londonium (in-profile variant)
+
+- **Creator**: Damian `[SRC:community-index]`
+- **How it works**: Pure lever decline with a 9 bar hold step added after pressure rise — waits until flow exceeds 1.9 ml/s before starting the decline. More sustained peak pressure phase than LRv2 for richer body. NO flow-control fallback — always pressure-controlled. `[SRC:community-index]` `[SRC:profile-notes]`
+- **Temperature**: 90°C `[SRC:profile-notes]`
+- **Dose**: 18g → 36g (1:2) `[SRC:profile-notes]`
+- **vs LRv2**: Richer body vs LRv2; preferred when dialed in well (LRv2 is more forgiving of puck variability due to its flow fallback). `[SRC:community-index]`
+- **Note**: The standalone built-in "Londonium" profile is a separate entry — this LRv3 variant shares the naming but is the D-Flow version with different fill/infuse behavior. `[SRC:profile-notes]`
+- **Best for**: Well-dialed puck prep; dark and medium-dark roasts; lever machine fans who want the most LR-accurate behavior `[SRC:community-index]`
+
+#### Damian's Q
+
+- **Creator**: Damian `[SRC:profile-notes]`
+- **How it works**: D-Flow variant with a 84°C fill temperature and 6 bar pressure approach, optimized for medium-light beans. The low fill temperature reduces bitterness during puck saturation. `[SRC:profile-notes]`
+- **Temperature**: 84°C fill → 94°C rise target (high setpoint drives hot water gradually into basket; actual extraction temperature ~86–90°C) `[SRC:profile-notes]`
+- **Dose**: 18–19g → ~34g `[SRC:profile-notes]`
+- **Flavor**: Bright and vibrant in milk (contrast with LRv2's thick chocolate). Good for medium-light beans where standard temperatures produce bitterness. `[SRC:profile-notes]`
+- **Low fill temperature**: INTENTIONAL — hotter fill water produces dark spots in crema and more bitter taste. `[SRC:profile-notes]`
+- **Best for**: Medium-light roasts; users who find D-Flow/default too bitter at 88°C `[SRC:profile-notes]`
 
 ### Gentle & Sweet
 
@@ -343,6 +398,30 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 - **Pressure**: Hold at ~6 bar `[SRC:eaf-profiling]`
 - **Flavor**: Good clarity, lower texture; sweeter with less bitterness `[SRC:eaf-profiling]` `[SRC:turbo-search]`
 - **Best for**: All coffee types; rapid extractions prioritizing clarity and sweetness `[SRC:eaf-profiling]`
+
+### Hendon Turbo Variants (Jan)
+
+All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon/Cameron paper on coarse-grind espresso. `[SRC:community-index]`
+
+- **Creator**: Jan `[SRC:community-index]`
+- **Science basis**: From the paper "Systematically Improving Espresso" — at very fine grinds, inhomogeneous flow (channeling) reduces extraction; coarser grinds with fast flow reduce channeling and achieve equal or higher EY. `[SRC:community-index]`
+- **Temperature**: 90–97°C (high temperatures intentional for coarse grind; coarser grounds need hotter water for equivalent extraction) `[SRC:community-index]`
+- **Duration**: 20–25s total `[SRC:community-index]`
+- **Ratio**: 1:3 (15g → ~45g) `[SRC:community-index]`
+- **Grind**: Much coarser than standard espresso. Flat burrs strongly recommended (SSP HU, EK-style, etc.) — the profile was designed with large flat burr grinders. `[SRC:community-index]`
+- **EY**: 22–24% achievable with high temperatures and large flat burrs `[SRC:community-index]`
+
+#### Hendon Turbo 6b Pressure Decline
+
+- Preinfusion at 8 ml/s until ~6 bar, then declining pressure (6 bar → lower) with a fallback flow cap of 3.3 ml/s. Jan's preferred variant. `[SRC:community-index]`
+
+#### Hendon Turbo Flow
+
+- Same as 6b Pressure Decline but flow-controlled rather than pressure-controlled extraction. Includes a pressure catch/cap step. Jan's most-used variant for daily use. `[SRC:community-index]`
+
+#### Hendon Turbo Bloom
+
+- Adds a very short (~5s) bloom step before extraction. Allows faster fill rate while keeping the beneficial qualities of slower PI. Results in a slightly cleaner, less bitter shot. 15g → 45g same as other variants. `[SRC:community-index]`
 
 ### Filter 2.0 / 2.1
 
@@ -564,6 +643,52 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
   - All roasts: Good; especially suited to light/medium roasts `[SRC:profile-notes]`
 - **Best for**: Filter coffee from the DE1 without a separate filter brewer; light roast enthusiasts; cold brew convenience
 
+### JW Spring Lever / JW Flat 9 Bar Advanced
+
+Both profiles by John Weiss; distinct from the "Gentle Flat / Long Preinfusion" family which are flow-based. These use pressure-based preinfusion. `[SRC:community-index]`
+
+- **Creator**: John Weiss `[SRC:community-index]`
+
+#### JW Spring Lever
+
+- **How it works**: Pressure-controlled profile with preinfusion for maximum flow rate, with a maintained flow step at the end to prevent premature shot termination. Emulates a spring lever machine's pressure decline. `[SRC:community-index]`
+- **Best for**: Users who want a spring-lever pressure curve without the complexity of the built-in lever profiles
+
+#### JW Flat 9 Bar Advanced
+
+- **How it works**: Pressure-based preinfusion at the highest possible flow rate, then flat 9 bar extraction. Available in scale and no-scale variants — only difference is the limits configuration. `[SRC:community-index]`
+- **Variants**: Scale version (uses weight-based stop), No-Scale version (uses time/volume stop) `[SRC:community-index]`
+- **Best for**: Users who want fast preinfusion followed by flat 9 bar; compatible with or without a scale
+
+### Idan's Strega Plus
+
+- **Category**: Lever emulation `[SRC:community-index]`
+- **Creator**: Idan `[SRC:community-index]`
+- **How it works**: Simulates a Bezzera Strega lever machine using techniques Idan developed over years of lever manipulation. Gradual water filling combined with a bloom phase saturates the puck evenly. Extraction proceeds at low flow (1–1.5 ml/s) — this is intentional, emulating the passive resistance of a lever spring. `[SRC:community-index]`
+- **Flow rate**: 1–1.5 ml/s during extraction is NORMAL — do not flag as too slow. `[SRC:community-index]`
+- **Duration**: ~50–70s (longer than standard espresso) `[SRC:community-index]`
+- **Ratio**: 1:1–1:2 (medium variant), 1:2–1:2.5 (dark variant) `[SRC:community-index]`
+- **Flavor**: High texture, strong flavor, rich body. NOT designed for clarity or flavor separation. Optimized for dry cappuccino and milk-based drinks — a distinctive, full-bodied cup. `[SRC:community-index]`
+- **Roast**: Medium to medium-light (tested with Niche Zero). Temperature, trigger pressures, and peak pressure may need adaptation for other grinders or roasts. `[SRC:community-index]`
+- **Roast suitability**:
+  - Medium/medium-light: Excellent — high texture and richness `[SRC:community-index]`
+- **Best for**: Milk-based drinks, especially dry cappuccino; lever machine fans who want Bezzera Strega character; texture-first extraction rather than clarity
+
+### Nu Skool
+
+- **Category**: Flow/New wave light roast `[SRC:community-index]`
+- **Creator**: Dan Calabro `[SRC:community-index]`
+- **How it works**: A family of 3 flow-curve profiles (one per basket size: 14g, 18g, 20g) for maximally prepped coffee. The philosophy: maximize extractability during prep (quality grinders, flat burrs, precise puck prep) so you can brew with lower pressure, lower temperature, and coarser grinds while achieving very high extraction with sweetness and clarity. Dial-in is done by adjusting three flow parameters: **flow floor** (minimum), **flow plateau** (target level), and **flow spectrum** (spread). `[SRC:community-index]`
+- **Reading the user guide is essential** before dialing in this profile. `[SRC:community-index]`
+- **Temperature**: 82–89°C — substantially lower than standard espresso. Intentional: only works when puck prep and grinder quality are optimized. `[SRC:community-index]`
+- **Duration**: ~25–40s `[SRC:community-index]`
+- **Grind**: Coarser than most espresso profiles. Flat burrs strongly preferred (SSP HU, EK-style, MAX, EG-1, etc.) — designed for high-quality flat burr grinders. `[SRC:community-index]`
+- **Flavor**: High clarity, sweetness, vibrancy, and flavor definition. Designed to showcase light roast terroir and aromatics with minimal harshness. `[SRC:community-index]`
+- **Roast suitability**:
+  - Light roast: Excellent — best results with quality prep and grinders `[SRC:community-index]`
+  - All roasts: Good — quality of prep has a greater-than-normal impact on outcome `[SRC:community-index]`
+- **Best for**: Light roast enthusiasts with high-quality flat burr grinders; users who want to explore flow-curve manipulation; those willing to invest in prep for maximum clarity and sweetness
+
 ### Trendy 6 Bar Low Pressure
 
 - **Category**: Constant pressure (light roast) `[SRC:profile-notes]`
@@ -704,6 +829,18 @@ Goal: research every built-in espresso profile from community sources and enrich
 | TurboBloom | `community-index` | Collin |
 | TurboTurbo | `community-index` | Collin + Jan |
 | I Got Your Back | `profile-notes` + confirmed | Shin |
+| Damian's LM Leva | `community-index` | Damian |
+| Damian's LRv2 | `community-index` | Damian |
+| Damian's LRv3 / Londonium | `community-index` + `profile-notes` | Damian |
+| Damian's Q | `profile-notes` | Damian |
+| Adaptive LPI | `community-index` | Trevor Rainey + Jonathan Gagné |
+| Hendon Turbo 6b Pressure Decline | `community-index` | Jan |
+| Hendon Turbo Flow | `community-index` | Jan |
+| Hendon Turbo Bloom | `community-index` | Jan |
+| JW Spring Lever | `community-index` | John Weiss |
+| JW Flat 9 Bar Advanced | `community-index` | John Weiss |
+| Idan's Strega Plus | `community-index` | Idan |
+| Nu Skool | `community-index` | Dan Calabro |
 
 ### 📚 Published sources only (Decent blog / videos / EAF / Scott Rao)
 
@@ -725,17 +862,7 @@ Good KB coverage from official sources. Basecamp search for community dial-in ti
 
 ### 🔲 Needs Basecamp research — known community thread exists
 
-All listed in the [Community Profiles Index](https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650) with creator info and discussion links.
-
-- [ ] **Damian's LM Leva** — community-index has description + discussion link
-- [ ] **Damian's LRv2** — community-index has description + discussion link
-- [ ] **Londonium** (= Damian's Londinium R) — community-index has description + discussion link
-- [ ] **Damian's Q** — community-index variant
-- [ ] **Nu Skool** — community-index: Dan's profile with full user guide; detailed description available
-- [ ] **Idan's Strega Plus** — community-index has description + discussion thread link
-- [ ] **Adaptive Profile Low Pressure Infusion** — community-index (Trevor + Jonathan)
-- [ ] **JW Flat 9 bar Advanced / JW Spring Lever** — community-index (John Weiss)
-- [ ] **Hendon Turbo variants** (Turbo Shot → maps to Jan's series) — additional detail in community-index
+All batch 3 profiles from the [Community Profiles Index](https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650) have been completed. No outstanding items in this category.
 
 ### 📄 Profile-notes only — search Basecamp, thread may or may not exist
 
@@ -763,7 +890,8 @@ All listed in the [Community Profiles Index](https://3.basecamp.com/3671212/buck
 - [x] ~~Grind size guidance relative between profiles~~ — Added relative grind ordering from dark-video (E61 coarsest > 80's > Londinium=Cremina=Best Overall finest) and light-video (Allonge coarsest > Adaptive > G&S=Extractamundo > Blooming finest)
 - [ ] Blooming Espresso temperature guidance by roast (not mentioned in transcripts)
 - [x] ~~Community favorites and real-world dial-in tips for newer profiles~~ — Added creator attributions (Stéphane/Easy Blooming, Jonathan Gagné/Gagné Adaptive, Collin/TurboBloom, Collin+Jan/TurboTurbo, Shin/I Got Your Back), sourced dial-in tips for all; profile_knowledge.md updated with creator info and dial-in guidance
-- [x] ~~Sourced profile detail sections for the ~20 profiles added in 2026~~ — Added `### ProfileName` sections for all: Classic Italian, Traditional/Spring Lever, Advanced Spring Lever, Best Practice, Easy Blooming, Gagné Adaptive, I Got Your Back, TurboBloom, TurboTurbo, Gentle Flat / Long Preinfusion family, Preinfuse Then 45ml, 7g Basket, Espresso Forge, Pour Over Basket, Trendy 6 Bar, GHC Manual. Sources: `community-index`, `bc-adaptive`, `profile-notes`. (Tea and Cleaning omitted — not espresso profiles, no dial-in guidance applicable.)
+- [x] ~~Sourced profile detail sections for the ~20 profiles added in 2026~~ — Added `### ProfileName` sections for all batch 1: Classic Italian, Traditional/Spring Lever, Advanced Spring Lever, Best Practice, Easy Blooming, Gagné Adaptive, I Got Your Back, TurboBloom, TurboTurbo, Gentle Flat / Long Preinfusion family, Preinfuse Then 45ml, 7g Basket, Espresso Forge, Pour Over Basket, Trendy 6 Bar, GHC Manual. Sources: `community-index`, `bc-adaptive`, `profile-notes`. (Tea and Cleaning omitted — not espresso profiles.)
+- [x] ~~Sourced profile detail sections for batch 3 community profiles~~ — Added `### ProfileName` sections for: Adaptive LPI, Damian's LM Leva, Damian's LRv2, Damian's LRv3/Londonium, Damian's Q, Hendon Turbo variants (6b Pressure Decline, Flow, Bloom), JW Spring Lever, JW Flat 9 Bar Advanced, Idan's Strega Plus, Nu Skool. Sources: `community-index`, `profile-notes`.
 - [ ] Video timestamps from Decent's YouTube for user reference
 
 ---
