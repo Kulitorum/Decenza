@@ -2039,9 +2039,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         computePhaseSummaries(record);
     }
 
-    // Recompute quality flags for legacy shots (DB defaults are 0/0 which looks like "clean").
-    // Use the same trigger as derived curves: if conductance was freshly computed, the shot
-    // predates migration 10 and its quality flags are just DB defaults, not real analysis.
+    // Recompute channeling/temp quality flags for pre-migration-10 shots.
+    // Trigger: conductance missing means the shot predates migration 10 and its flags
+    // are DB defaults (0), not real analysis. Channeling and temp require conductanceDerivative
+    // which was just filled by computeDerivedCurves() above.
     if (needsDerivedCurves && !record.pressure.isEmpty()) {
         // Find pour boundaries for channeling/temp checks
         double pourStart = 0, pourEnd = record.pressure.last().x();
@@ -2071,8 +2072,23 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
             }
         }
+    }
 
-        // Grind issue
+    // Grind issue: always recompute from stored curve data when flowGoal is available.
+    // Unlike channeling/temp, grind detection needs only flow + flowGoal (no derived curves),
+    // so it can cover all shot eras including v10-era shots that have conductance but predate
+    // migration 11 and thus have grind_issue_detected = 0 (DEFAULT) in the DB.
+    if (!record.flowGoal.isEmpty() && !record.pressure.isEmpty()) {
+        double pourStart = 0, pourEnd = record.pressure.last().x();
+        for (const auto& pm : record.phases) {
+            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
+            if (pm.label == "End") pourEnd = pm.time;
+        }
+        if (pourStart == 0) {
+            for (const auto& pm : record.phases) {
+                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
+            }
+        }
         record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
             record.flow, record.flowGoal, pourStart, pourEnd);
     }
