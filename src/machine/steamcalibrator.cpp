@@ -7,6 +7,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
 #include <QtMath>
 #include <algorithm>
 
@@ -343,6 +346,14 @@ void SteamCalibrator::onSteamEnded(const SteamDataModel* model)
     }
 
     m_calibrationResult.steps.append(result);
+
+    // Capture raw time-series data for detailed logging
+    CalibrationStepRawData raw;
+    raw.pressure = model->pressureData();
+    raw.flow = model->flowData();
+    raw.temperature = model->temperatureData();
+    m_calibrationResult.rawData.append(raw);
+
     emit stepAnalyzed();
 
     m_currentStep++;
@@ -398,6 +409,7 @@ void SteamCalibrator::finishCalibration()
     m_settings->setSteamTemperature(m_originalTemp);
 
     saveCalibration();
+    saveDetailedLog();
 
     setState(Results);
 
@@ -575,6 +587,77 @@ void SteamCalibrator::saveCalibration() const
 
     settings.setValue(QStringLiteral("steam/calibration"),
                       QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+}
+
+QString SteamCalibrator::logFilePath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+           + QStringLiteral("/steam_calibration_log.json");
+}
+
+QString SteamCalibrator::saveDetailedLog() const
+{
+    QString path = logFilePath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    auto pointsToArray = [](const QVector<QPointF>& points) -> QJsonArray {
+        QJsonArray arr;
+        for (const auto& p : points) {
+            QJsonArray pt;
+            pt.append(p.x());
+            pt.append(p.y());
+            arr.append(pt);
+        }
+        return arr;
+    };
+
+    QJsonObject root;
+    root[QStringLiteral("timestamp")] = m_calibrationResult.timestamp.toString(Qt::ISODate);
+    root[QStringLiteral("machineModel")] = m_calibrationResult.machineModel;
+    root[QStringLiteral("heaterVoltage")] = m_calibrationResult.heaterVoltage;
+    root[QStringLiteral("recommendedFlowMlPerSec")] = m_calibrationResult.recommendedFlow / 100.0;
+    root[QStringLiteral("recommendedTemperatureC")] = m_calibrationResult.recommendedTemp;
+    root[QStringLiteral("recommendedDilutionPct")] = m_calibrationResult.recommendedDilution;
+
+    QJsonArray stepsArr;
+    for (qsizetype i = 0; i < m_calibrationResult.steps.size(); i++) {
+        const auto& step = m_calibrationResult.steps[i];
+        QJsonObject s;
+        s[QStringLiteral("flowMlPerSec")] = step.flowRate / 100.0;
+        s[QStringLiteral("steamTemperatureC")] = step.steamTemp;
+        s[QStringLiteral("avgPressureBar")] = step.avgPressure;
+        s[QStringLiteral("pressureCV")] = step.pressureCV;
+        s[QStringLiteral("oscillationRateHz")] = step.oscillationRate;
+        s[QStringLiteral("peakToPeakRangeBar")] = step.peakToPeakRange;
+        s[QStringLiteral("pressureSlopeBarPerSec")] = step.pressureSlope;
+        s[QStringLiteral("stabilityScore")] = step.stabilityScore;
+        s[QStringLiteral("estimatedDryness")] = step.estimatedDryness;
+        s[QStringLiteral("estimatedDilutionPct")] = step.estimatedDilution;
+        s[QStringLiteral("durationSec")] = step.durationSeconds;
+        s[QStringLiteral("sampleCount")] = step.sampleCount;
+
+        // Raw time-series data
+        if (i < m_calibrationResult.rawData.size()) {
+            const auto& raw = m_calibrationResult.rawData[i];
+            s[QStringLiteral("pressureData")] = pointsToArray(raw.pressure);
+            s[QStringLiteral("flowData")] = pointsToArray(raw.flow);
+            s[QStringLiteral("temperatureData")] = pointsToArray(raw.temperature);
+        }
+
+        stepsArr.append(s);
+    }
+    root[QStringLiteral("steps")] = stepsArr;
+
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+        file.close();
+        qDebug() << "Steam calibration log saved to" << path;
+    } else {
+        qWarning() << "Failed to save steam calibration log:" << file.errorString();
+    }
+
+    return path;
 }
 
 void SteamCalibrator::loadCalibration()

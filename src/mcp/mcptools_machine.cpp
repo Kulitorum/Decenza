@@ -267,6 +267,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             const auto& cal = calibrator->calibrationResult();
             result["hasCalibration"] = calibrator->hasCalibration();
             result["state"] = calibrator->state();
+            result["logFilePath"] = SteamCalibrator::logFilePath();
 
             if (!calibrator->hasCalibration()) return result;
 

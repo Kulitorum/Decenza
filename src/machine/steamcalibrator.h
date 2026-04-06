@@ -25,6 +25,12 @@ struct CalibrationStepResult {
     double durationSeconds = 0.0;
 };
 
+struct CalibrationStepRawData {
+    QVector<QPointF> pressure;     // (time_sec, bar)
+    QVector<QPointF> flow;         // (time_sec, mL/s)
+    QVector<QPointF> temperature;  // (time_sec, °C)
+};
+
 struct CalibrationResult {
     QDateTime timestamp;
     int machineModel = 0;
@@ -33,6 +39,7 @@ struct CalibrationResult {
     int recommendedTemp = 0;    // °C
     double recommendedDilution = 0.0;  // estimated % dilution at recommended settings
     QVector<CalibrationStepResult> steps;
+    QVector<CalibrationStepRawData> rawData;  // parallel to steps, for detailed logging
 };
 
 class SteamCalibrator : public QObject {
@@ -130,6 +137,11 @@ public:
     // Persistence
     void saveCalibration() const;
     void loadCalibration();
+
+    // Save raw time-series data for the last calibration run to a JSON log file.
+    // Returns the file path. Each step includes full pressure/flow/temp arrays.
+    QString saveDetailedLog() const;
+    static QString logFilePath();
 
     // For MCP: get the full calibration result
     const CalibrationResult& calibrationResult() const { return m_calibrationResult; }
