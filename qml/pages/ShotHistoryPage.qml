@@ -1289,7 +1289,7 @@ Page {
                     Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("channeling:yes")
                     Accessible.focusable: true
                     Accessible.onPressAction: channelingArea.clicked(null)
-                    Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.errorColor; font.bold: true; Accessible.ignored: true }
+                    Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                     MouseArea { id: channelingArea; anchors.fill: parent; onClicked: insertSearchKeyword("channeling:yes") }
                 }
                 Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
@@ -1304,7 +1304,7 @@ Page {
                     Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("temp:yes")
                     Accessible.focusable: true
                     Accessible.onPressAction: tempArea.clicked(null)
-                    Text { id: tempLabel; text: "temp:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.warningColor; font.bold: true; Accessible.ignored: true }
+                    Text { id: tempLabel; text: "temp:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                     MouseArea { id: tempArea; anchors.fill: parent; onClicked: insertSearchKeyword("temp:yes") }
                 }
                 Text { text: TranslationManager.translate("shothistory.helptemp", "Temp unstable"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
@@ -1319,7 +1319,7 @@ Page {
                     Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("grind:yes")
                     Accessible.focusable: true
                     Accessible.onPressAction: grindArea.clicked(null)
-                    Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.warningColor; font.bold: true; Accessible.ignored: true }
+                    Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                     MouseArea { id: grindArea; anchors.fill: parent; onClicked: insertSearchKeyword("grind:yes") }
                 }
                 Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
