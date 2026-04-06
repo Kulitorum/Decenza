@@ -444,7 +444,7 @@ private slots:
     }
 
     // ==========================================
-    // Full chain v1->v9 preserves existing data
+    // Full chain v1->v11 preserves existing data
     // ==========================================
 
     void fullChainPreservesData() {

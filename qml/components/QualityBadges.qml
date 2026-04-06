@@ -44,6 +44,7 @@ Item {
                 Rectangle {
                     width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                     color: Theme.errorColor; anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
                 Tr {
                     id: channelingText
@@ -78,6 +79,7 @@ Item {
                 Rectangle {
                     width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                     color: Theme.warningColor; anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
                 Tr {
                     id: tempText
@@ -112,6 +114,7 @@ Item {
                 Rectangle {
                     width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                     color: Theme.warningColor; anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
                 Tr {
                     id: grindText
@@ -146,6 +149,7 @@ Item {
                 Rectangle {
                     width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                     color: Theme.successColor; anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
                 Tr {
                     id: cleanText
