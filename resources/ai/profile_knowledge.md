@@ -275,13 +275,21 @@ AnalysisFlags: flow_trend_ok
 ## Classic Italian / Traditional Flat Pressure
 Also matches: "Classic Italian espresso", "Gentler but still traditional 8.4 bar", "Italian Australian espresso"
 Category: Flat pressure
+Creator: Luca Frangella (Classic Italian Espresso profile)
 How it works: Short preinfusion (4–8s at 4 bar) then flat pressure extraction — 9 bar for Classic Italian, 8.4 bar for the gentler variant, 8.7 bar for Italian Australian. The lower pressure of the gentler variant (8.4 bar) is more forgiving of puck prep. Italian Australian uses lower temperature (88°C) to prevent overextraction of dark beans. All variants produce increasing flow as the puck erodes.
 Expected curves: Pressure holds flat throughout extraction. Flow starts moderate and increases as puck erodes. This is normal for flat-pressure profiles.
 Temperature: 94°C (Classic Italian), 89.5°C (Gentler 8.4 bar), 88°C (Italian Australian)
-Duration: ~30–40s extraction after preinfusion
+Duration: ~25–30s (intentionally shorter than typical DE1 profiles — classic Italian style)
+Ratio: ~1:1.8 (e.g. 14g in / 25g out)
 Grind: Medium-fine. Gentler 8.4 bar is the most forgiving of the three.
+Preinfusion fill: 8 ml/s (fast fill — creator confirmed; not the old 4 ml/s)
+Basket: IMS Big Bang 14–16g recommended; Decent waisted 14g also works. Waisted baskets are more forgiving. 7g basket blows the puck away — use 12g or 14g for Italian-style shots.
+Headspace: Critical — dry puck must be within 1–2mm of shower screen ("coin test"). Without correct headspace the profile does not behave as designed.
+Bean selection: Medium to dark, washed preferred. Tropical fruit-smelling beans will not produce good results regardless of roast label.
+Use case: Cappuccino, milk drinks, ristretto-style pulls, traditional café replication. 9 bar limit set deliberately — higher pressure is unpleasingly bitter for this style.
 Roast: Medium to dark. Italian Australian specifically targets dark roasts at lower temperature. Classic Italian emulates mainstream café espresso.
 DO NOT flag increasing flow as a problem — this is the expected behavior for flat-pressure profiles.
+DO NOT flag ~25s extraction as under-extracted — Classic Italian is intentionally a short, concentrated shot.
 AnalysisFlags: flow_trend_ok
 
 ## Traditional / Spring Lever Machine
@@ -413,6 +421,8 @@ Temperature: 92°C (most variants), 98°C (Innovative long preinfusion — very 
 Duration: ~50–65s total (long by design)
 Grind: Coarser to finer depending on variant — dial grind to achieve target flow during extraction.
 Roast: Light to very light aromatic roasts. These profiles are specifically designed for beans that resist extraction at normal parameters.
+Known issue (Innovative long preinfusion) — preinfusion skipping: Profile sometimes skips preinfusion entirely, producing ~25s short shots. Root cause: exit condition "move on if pressure > X bar" defaults to 1.0 bar, but machines with premium German pressure sensors register higher baseline pressure. Fix: raise the threshold to <2.0 bar.
+Known issue (Innovative long preinfusion) — early stop at low yield: If extraction ends before target weight, grind coarser. The step has a 25s timeout; too-fine grind means flow never reaches the 2.5 ml/s move-on condition and the step times out short.
 DO NOT flag the long preinfusion duration, low flow during soak, or temperature extremes as problems — these are defining features of this profile family.
 
 ## Preinfuse Then 45ml of Water
@@ -435,6 +445,7 @@ Duration: ~16–20s
 Dose: 7g → 18–28g out
 Grind: Fine (small basket rewards fine grind for extraction efficiency)
 Puck prep: Community consensus: sub-14g shots are significantly harder to dial in than standard doses. Essential practices: use a dosing funnel (small baskets spill easily), paper filter on top of the puck (improves flow evenness for small/thin pucks), level carefully. Starting profiles: Extractamundo Dos and Gentle & Sweet work well for single/small shots; both are more forgiving of thin puck issues than lever profiles.
+Classic Italian note: 7g basket blows the puck away with Classic Italian-style profiles. Community recommends 12g basket (11g dose) or 14g waisted basket for Italian-style single shots.
 Roast: All roasts.
 DO NOT flag the lower peak pressure (7.5 bar) or short duration as problems — the small basket requires gentler parameters to maintain puck integrity.
 
@@ -461,7 +472,11 @@ Expected curves: Very low to zero pressure throughout (gravity-fed, not pressure
 Temperature: ~99–100°C (standard), ~20°C (cold brew) — cold water is intentional for cold brew.
 Duration: ~70–105s (standard), ~180s (cold brew)
 Dose: 15–22g depending on variant; output is 250–375g (filter ratio, not espresso ratio)
-Grind: Coarser than espresso (filter grind). Coarsen if choking. Ethiopian/decaf beans may need Kalita profile (lower flow) to prevent choking in V60.
+Grind: Coarser than espresso (filter grind). Must grind coarser than you would for a manual V60 — the basket creates much higher turbulence than hand-pouring. Even very coarse settings may not be coarse enough for some beans. Coarsen further if basket is choking. Ethiopian/decaf beans may need Kalita profile (lower flow) to prevent choking in V60.
+Output volume: Default V60 profiles are designed to pour ~344ml total even for a 250g target — intentional, since gravity retains water after you remove the dripper. Add a SAV or delete the final step to change output.
+Preheat: Preheat water reservoir before use (default profiles include this step; allow ~2 minutes).
+Height clearance: V60 02 dripper is tall — may require removing drip tray and rotating machine 90 degrees to fit under group head.
+Community: Opinion is divided between V60 basket and Filter 2.1. V60 basket produces good pour over when dialed in; Filter 2.1 is easier and more consistent for most users. Profile stopping on first attempt is usually the "skip first step" bug — hard-reboot the machine (back switch).
 Roast: All roasts. Filter brewing is especially good for light/medium roasts.
 DO NOT flag zero or near-zero pressure, high water-to-coffee ratio, long duration, or cold water temperature (cold brew) as problems — this is filter brewing, not espresso.
 

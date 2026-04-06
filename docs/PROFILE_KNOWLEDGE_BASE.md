@@ -494,15 +494,24 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 ### Classic Italian / Gentler 8.4 Bar / Italian Australian
 
 - **Category**: Flat pressure `[SRC:profile-notes]`
+- **Creator**: Classic Italian Espresso created by **Luca Frangella** `[SRC:bc-classic-italian]`
 - **How it works**: Short preinfusion (4–8s at 4 bar) then sustained flat pressure extraction — 9 bar for Classic Italian, 8.4 bar for the gentler variant, 8.7 bar for Italian Australian. Emulates mainstream café espresso. `[SRC:profile-notes]`
 - **Pressure curve**: Flat throughout extraction. Flow increases as puck erodes — this is expected and normal for flat-pressure profiles. `[SRC:profile-notes]`
 - **Temperature**: 94°C (Classic Italian), 89.5°C (Gentler 8.4 bar), 88°C (Italian Australian) `[SRC:profile-notes]`
-- **Duration**: ~30–40s extraction after preinfusion `[SRC:profile-notes]`
+- **Duration**: ~25–30s extraction (short by design — Classic Italian) `[SRC:bc-classic-italian]`
+- **Ratio**: ~1:1.8 (14g in / 25g out); runs shorter than typical DE1 profiles `[SRC:bc-classic-italian]`
 - **Grind**: Medium-fine. The 8.4 bar variant is more forgiving of puck prep. `[SRC:profile-notes]`
+- **Preinfusion fill rate**: 8 ml/s — Luca notes this should be fast fill, not the old 4 ml/s `[SRC:bc-classic-italian]`
+- **Basket**: IMS Big Bang 14–16g recommended as best match; Decent waisted 14g also works. Waisted baskets are more forgiving. Community consensus: the 7g basket blows the puck away with this profile — use 12g or 14g instead. `[SRC:bc-classic-italian]`
+- **Headspace**: Critical — dry puck must be within 1–2mm of shower screen. Use the "coin test" to verify. Without correct headspace the profile does not work as designed. `[SRC:bc-classic-italian]`
+- **Bean selection**: Medium to dark; washed process recommended. Luca's rule: "If beans smell of tropical fruit, they won't work well regardless of the roast label." `[SRC:bc-classic-italian]`
+- **Pressure limit**: 9 bar limit set deliberately — community testing found anything above 9 bar produced unpleasingly bitter results for this style. `[SRC:bc-classic-italian]`
+- **Use case**: Cappuccino and milk drinks (Luca uses it for cappuccino), ristretto-style pulls, traditional café replication. `[SRC:bc-classic-italian]`
+- **Related profiles**: Damian created a D-Flow adaptation for 18g baskets (see D-Flow / La Pavoni); Paul Chan contributed a low-temp 80s Espresso variant as a complementary profile for the same style.  `[SRC:bc-classic-italian]`
 - **Roast suitability**:
   - Medium: Good — emulates café espresso with chocolate and body `[SRC:profile-notes]`
   - Dark: Good — Italian Australian specifically uses 88°C to prevent overextraction of dark roasts `[SRC:profile-notes]`
-- **Best for**: Traditional Italian-style espresso; users familiar with E61-style machines; milk drinks
+- **Best for**: Traditional Italian-style espresso; users familiar with E61-style machines; milk drinks; short ristretto-style shots
 
 ### Traditional Lever Machine (and Low Pressure / Two Spring variants)
 
@@ -630,6 +639,8 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
   - *Innovative long preinfusion* (Slayer-style): 1.5 ml/s for 37s to 2.0 bar, then 2.5 ml/s for 25s at 9 bar
 - **Temperature**: 92°C (most variants), 98°C (Innovative long preinfusion — intentionally high for light roasts) `[SRC:profile-notes]`
 - **Duration**: ~50–65s total `[SRC:profile-notes]`
+- **Known issue — preinfusion skipping** (Innovative long preinfusion): Profile sometimes skips the long preinfusion step, producing ~25s short shots instead of 60s+. Root cause: the exit condition "move on if pressure exceeds X bar" is set to 1.0 bar by default, but machines with premium German pressure sensors register slightly higher baseline pressure than cheaper sensors, triggering the exit condition immediately. Fix: raise the exit pressure threshold from `<1.0 bar` to `<2.0 bar`. `[SRC:bc-ilp]`
+- **Known issue — early stop at low yield** (Innovative long preinfusion): If the extraction step exits before target yield, grind coarser. The step has a 25s timeout; if flow never reaches 2.5 ml/s target (too-fine grind), the step times out and the shot ends short. `[SRC:bc-ilp]`
 - **Roast suitability**:
   - Light/ultra-light aromatic roasts: Excellent — profiles designed for beans that resist extraction at normal parameters `[SRC:profile-notes]`
 - **Best for**: Light/ultra-light aromatic roasts that resist standard extraction; users who want a gentler Slayer-style approach; the "Innovative long preinfusion" variant is the closest DE1 equivalent to a true Slayer shot
@@ -656,6 +667,7 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 - **Dose**: 7g → 18–28g out `[SRC:profile-notes]`
 - **Grind**: Fine — small basket rewards fine grind for extraction efficiency `[SRC:profile-notes]`
 - **Community tips**: Sub-14g doses are significantly harder to dial in than standard. Essential practices: use a dosing funnel (small baskets spill easily), place a paper filter on top of the puck (improves flow evenness for thin pucks), level carefully. Starting profiles: Extractamundo Dos and Gentle & Sweet work well for single shots — both are more forgiving than lever profiles for thin pucks. Some users find slightly lower temperatures (~87–88°C) reduce bitterness. `[SRC:profile-notes]`
+- **Classic Italian style note**: The 7g basket "blows the puck away" with Classic Italian-style profiles. For Italian-style single shots the community recommends the 12g basket (11g dose, finely ground — channels less, works with normal tamper) or 14g slightly waisted basket over the 7g. `[SRC:bc-classic-italian]`
 - **Roast suitability**:
   - All roasts: Good `[SRC:profile-notes]`
 - **Best for**: Single-dose shots with the Decent mini-basket; users who prefer small, concentrated espresso
@@ -682,7 +694,12 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
   - *Cold brew*: 2–2.5 ml/s flow at 20°C water → ~180s
 - **Temperature**: ~99–100°C (standard), ~20°C (cold brew) `[SRC:profile-notes]`
 - **Duration**: ~70–105s (standard); ~180s (cold brew) `[SRC:profile-notes]`
-- **Grind**: Filter grind (coarser than espresso). Coarsen if basket chokes. `[SRC:profile-notes]`
+- **Grind**: Filter grind (coarser than espresso). Must grind **coarser than you would for a manual V60** — the basket creates much more turbulence than hand-pouring, which increases extraction. Even at very coarse settings (e.g. Baratza Vario+ 8I), some users find flow too restricted. Coarsen further if basket is choking. `[SRC:bc-pour-over]`
+- **Output volume**: The default V60 profile pours ~344ml total by design, even though the target output is 250ml. This is intentional — you remove the dripper when target volume is reached (gravity retains more water). To change: add a SAV (stop-at-volume) or delete the final step. `[SRC:bc-pour-over]`
+- **Preheat**: Preheat the water reservoir before brewing (default profiles include this step); allows ~2 minutes. `[SRC:bc-pour-over]`
+- **Height clearance (V60 02)**: The V60 02 dripper is tall — many users cannot fit it under the group head without removing the drip tray and rotating the machine 90 degrees. `[SRC:bc-pour-over]`
+- **V60 basket vs Filter 2.1**: Community is mixed. Jan F-F: 9×0.5mm pour over basket "works great and produces repeatably good pour over" — finds Filter 2.1 lacks clarity. Others (Matt Leiter, Greg Swisher) find Filter 2.1 easier and more consistent. Joe D recommends Ahlstrom 9090-0550 lab filters with Filter 2.1 for best results. `[SRC:bc-pour-over]`
+- **Profile stopping bug**: If the profile fails to push water after loading, hard-reboot the machine (back switch). This is the known "skip first step" bug unrelated to the profile itself. `[SRC:bc-pour-over]`
 - **Roast suitability**:
   - All roasts: Good; especially suited to light/medium roasts `[SRC:profile-notes]`
 - **Best for**: Filter coffee from the DE1 without a separate filter brewer; light roast enthusiasts; cold brew convenience
@@ -917,15 +934,15 @@ All batch 3 profiles from the [Community Profiles Index](https://3.basecamp.com/
 
 These profiles have KB entries sourced from built-in profile `notes` and/or published sources. Basecamp was searched and no dedicated community discussion thread was found.
 
-- **Classic Italian / Gentler 8.4 bar / Italian Australian** — 3 profiles; no dedicated thread; base E61 coverage from `dark-video`
+- **Classic Italian / Gentler 8.4 bar / Italian Australian** — enriched with `bc-classic-italian` (Luca Frangella threads); Gentler 8.4 and Italian Australian have no dedicated thread but share the same technique
 - **E61 variants** (rocketing up to 10 bar, classic gently up to 10 bar, fast preinfusion to 9 bar) — 3 variants; base E61 has `dark-video` coverage; variants share the same extraction character
 - **Traditional Lever / Low Pressure 6 bar / Two Spring** — 3 profiles; no dedicated community thread found
 - **Espresso Forge Dark / Light** — 2 profiles; no dedicated thread found
-- **Gentle Flat / Long Preinfusion family** (gentle flat 2.5, gentle preinfusion flow, hybrid pour over, innovative long preinfusion) — 4 profiles; John Weiss, no dedicated thread found
+- **Gentle Flat / Long Preinfusion family** (gentle flat 2.5, gentle preinfusion flow, hybrid pour over, innovative long preinfusion) — Innovative Long Preinfusion enriched with `bc-ilp` troubleshooting threads; Gentle Flat/Preinfusion Flow/Hybrid Pour Over have no dedicated community threads
 - **GHC Manual Control** (flow + pressure variants) — 2 profiles; manual-only, limited community guidance applies
-- **7g Basket** — searched; no dedicated thread found; community tips captured from profile notes
+- **7g Basket** — enriched with `bc-classic-italian` (community preference for 12g/14g over 7g for Italian-style)
 - **Preinfuse Then 45ml** — Matt Perger technique; no dedicated thread found
-- **Pour Over Basket variants** (6 profiles) — V60, Kalita, cold brew variants; no dedicated thread found
+- **Pour Over Basket variants** (6 profiles) — V60 enriched with `bc-pour-over` (dial-in tips, height issues, output volume); Kalita and cold brew variants have no dedicated community threads
 - **Trendy 6 Bar** — no dedicated thread found
 - **Tea portafilter variants** (~15 profiles) — no dedicated thread found; not espresso profiles
 
@@ -974,4 +991,7 @@ These profiles have KB entries sourced from built-in profile `notes` and/or publ
 | `bc-asl` | "📈 Advanced Spring Lever profile discussion" Basecamp thread (message 8599531064) — JW's ASL2 post, pressure notch guidance | https://3.basecamp.com/3671212/buckets/7351439/messages/8599531064 |
 | `bc-la-pavoni` | "D-Flow / La Pavoni like profile" Basecamp thread (message 5566722756) — Damian's description of the profile creation | https://3.basecamp.com/3671212/buckets/7351439/messages/5566722756 |
 | `bc-best-practice` | "John's 'best practices' profile" Basecamp thread (message 4141416014) + "'Best Practices' renamed to 'Adaptive'" (4141406715) | https://3.basecamp.com/3671212/buckets/7351439/messages/4141416014 |
+| `bc-classic-italian` | Classic Italian community threads — "Classic Italian Style Espresso Profiles" (7987079735), "My latest achievements in Italian classic espresso" (7337357895), "D-Flow / Luca's Italian Style" (7968612029), "7g basket Italian espresso" (7394876404) | https://3.basecamp.com/3671212/buckets/7351439/messages/7987079735 |
+| `bc-ilp` | Innovative Long Preinfusion troubleshooting threads — "Innovative Long Preinfusion Profile is Skipping Preinfusion" (5902713440), "long preinfusion profile" (7219702170) | https://3.basecamp.com/3671212/buckets/7351439/messages/5902713440 |
+| `bc-pour-over` | Pour over basket community threads — John Buckman's V60 intro (6478301972), "Tips for pour over basket?" (8927624349), "Need help with pour over basket!" (8728303973), "Filter 2.1 vs Pour Over basket+V60" (5979806761), "Pour Over basket questions" (6955693508) | https://3.basecamp.com/3671212/buckets/7351439/messages/6478301972 |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
