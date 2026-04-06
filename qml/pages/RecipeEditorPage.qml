@@ -534,11 +534,11 @@ Page {
 
                             // Weight stop condition
                             Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; displayText: val(recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: val(recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
 
                             // Volume stop condition (D-Flow only)
                             Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Stop at volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipe.editorType !== "aflow" }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 1; suffix: " mL"; displayText: val(recipe.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetVolume, 0); onValueModified: function(newValue) { updateRecipe("targetVolume", Math.round(newValue)) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: recipe.editorType !== "aflow"; from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: val(recipe.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetVolume, 0); onValueModified: function(newValue) { updateRecipe("targetVolume", Math.round(newValue)) } }
                         }
 
                         // Spacer
