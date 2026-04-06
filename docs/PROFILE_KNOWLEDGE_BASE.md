@@ -907,6 +907,16 @@ Goal: research every built-in espresso profile from community sources and enrich
 | Advanced Spring Lever / ASL2 | `bc-asl` | John Weiss |
 | D-Flow / La Pavoni | `bc-la-pavoni` | Damian |
 | Best Practice (light roast) | `bc-best-practice` | John Buckman |
+| Classic Italian espresso | `bc-classic-italian` | Luca Frangella |
+
+### 🔍 Community mentions found — deeper search pending
+
+Title searches found mentions of these profiles in broader threads. Need to read full thread bodies and comments for dial-in tips.
+
+| Profile | What was found | Next step |
+|---------|----------------|-----------|
+| E61 variants (rocketing / classic gently / fast preinfusion) | 1 troubleshooting thread (skip-first-step bug, ID 6243257662); no dial-in content yet | Search thread bodies/comments for variant-specific tips |
+| Traditional Lever / Low Pressure 6 bar / Two Spring | Lever emulation threads (8467241229, 5362104423, 6673220784); 6 bar preset confirmed in café use (6207614858) | Read full threads for dial-in content |
 
 ### 📚 Published sources only (Decent blog / videos / EAF / Scott Rao)
 
@@ -930,21 +940,29 @@ Good KB coverage from official sources. Basecamp search for community dial-in ti
 
 All batch 3 profiles from the [Community Profiles Index](https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650) have been completed. No outstanding items in this category.
 
-### 📄 Profile-notes only — no dedicated Basecamp thread found
+### ✨ Enriched with community data (no dedicated thread, but mentions found)
 
-These profiles have KB entries sourced from built-in profile `notes` and/or published sources. Basecamp was searched and no dedicated community discussion thread was found.
+These profiles had no dedicated Basecamp thread but community mentions and tips were found in broader discussions.
 
-- **Classic Italian / Gentler 8.4 bar / Italian Australian** — enriched with `bc-classic-italian` (Luca Frangella threads); Gentler 8.4 and Italian Australian have no dedicated thread but share the same technique
-- **E61 variants** (rocketing up to 10 bar, classic gently up to 10 bar, fast preinfusion to 9 bar) — 3 variants; base E61 has `dark-video` coverage; variants share the same extraction character
-- **Traditional Lever / Low Pressure 6 bar / Two Spring** — 3 profiles; no dedicated community thread found
-- **Espresso Forge Dark / Light** — 2 profiles; no dedicated thread found
-- **Gentle Flat / Long Preinfusion family** (gentle flat 2.5, gentle preinfusion flow, hybrid pour over, innovative long preinfusion) — Innovative Long Preinfusion enriched with `bc-ilp` troubleshooting threads; Gentle Flat/Preinfusion Flow/Hybrid Pour Over have no dedicated community threads
-- **GHC Manual Control** (flow + pressure variants) — 2 profiles; manual-only, limited community guidance applies
-- **7g Basket** — enriched with `bc-classic-italian` (community preference for 12g/14g over 7g for Italian-style)
-- **Preinfuse Then 45ml** — Matt Perger technique; no dedicated thread found
-- **Pour Over Basket variants** (6 profiles) — V60 enriched with `bc-pour-over` (dial-in tips, height issues, output volume); Kalita and cold brew variants have no dedicated community threads
-- **Trendy 6 Bar** — no dedicated thread found
-- **Tea portafilter variants** (~15 profiles) — no dedicated thread found; not espresso profiles
+| Profile | Source | What was added |
+|---------|--------|----------------|
+| Gentler 8.4 bar / Italian Australian | `bc-classic-italian` (sibling profiles) | Shares all technique with Classic Italian; basket/headspace/ratio tips apply |
+| Innovative Long Preinfusion | `bc-ilp` | Two known bugs documented: preinfusion skipping (pressure sensor threshold fix) and early-stop (grind too fine) |
+| V60 / Pour Over Basket | `bc-pour-over` | Grind coarser than manual V60, output volume design intent, height clearance, basket vs Filter 2.1 comparison |
+| 7g Basket | `bc-classic-italian` | Community prefers 12g/14g over 7g for Italian-style shots |
+
+### ❌ Confirmed no community discussion found
+
+Broad title and keyword search completed. Zero relevant threads or mentions found for these profiles.
+
+- **Espresso Forge Dark / Light** — no threads; "forge" keyword returns only hardware threads (Forged Carbon Portafilter)
+- **Gentle Flat 2.5 / Gentle Preinfusion Flow / Hybrid Pour Over** — no threads; part of John Weiss's family but no dedicated community discussion
+- **GHC Manual Control** (flow + pressure variants) — no threads; all GHC results are Group Head Controller hardware discussion
+- **Preinfuse Then 45ml** — no threads; Matt Perger mentions are about water chemistry (Rao/Perger water recipe), not this profile
+- **Kalita pour over basket** — no dedicated threads
+- **Cold brew basket variants** — no dedicated threads; cold brew threads are about external cold brew techniques
+- **Trendy 6 Bar** — no threads by name; a 6 bar profile is confirmed in café use but no dial-in discussion
+- **Tea portafilter variants** (~15 profiles) — not espresso profiles; no search attempted
 
 ---
 
