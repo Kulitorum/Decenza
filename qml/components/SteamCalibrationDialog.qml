@@ -69,20 +69,29 @@ Dialog {
                 }
             }
 
-            // Phase label
-            Text {
+            // Beta notice
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(16)
                 Layout.rightMargin: Theme.scaled(16)
-                visible: SteamCalibrator.state > 0 && SteamCalibrator.state < 5
-                text: SteamCalibrator.phase === 0
-                    ? TranslationManager.translate("steamCal.phase1", "Phase 1: Finding optimal flow rate")
-                    : TranslationManager.translate("steamCal.phase2", "Phase 2: Optimizing temperature")
-                color: Theme.primaryColor
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Theme.scaled(13)
-                font.bold: true
-                Accessible.ignored: true
+                implicitHeight: betaText.implicitHeight + Theme.scaled(12)
+                color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
+                radius: Theme.scaled(4)
+
+                Text {
+                    id: betaText
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.margins: Theme.scaled(8)
+                    text: TranslationManager.translate("steamCal.beta",
+                        "Beta: Results may vary. Please open an issue on GitHub if you get results you don't believe.")
+                    color: Theme.warningColor
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.scaled(11)
+                    wrapMode: Text.WordWrap
+                    Accessible.ignored: true
+                }
             }
 
             // Step indicator
@@ -119,7 +128,7 @@ Dialog {
                 Accessible.ignored: true
             }
 
-            // Heater recovery indicator (visible when waiting and heater not ready)
+            // Heater recovery indicator
             RowLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(16)
@@ -147,7 +156,7 @@ Dialog {
                 }
             }
 
-            // Steaming progress (visible during Steaming state)
+            // Steaming progress
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(16)
@@ -155,7 +164,6 @@ Dialog {
                 visible: SteamCalibrator.state === 3 /* Steaming */
                 spacing: Theme.scaled(8)
 
-                // Countdown text
                 Text {
                     Layout.fillWidth: true
                     text: {
@@ -176,7 +184,6 @@ Dialog {
                     Accessible.ignored: true
                 }
 
-                // Progress bar
                 Rectangle {
                     Layout.fillWidth: true
                     height: Theme.scaled(8)
@@ -188,23 +195,21 @@ Dialog {
                         height: parent.height
                         radius: Theme.scaled(4)
                         color: SteamCalibrator.hasEnoughData ? Theme.primaryColor : Theme.warningColor
-
                         Behavior on width { NumberAnimation { duration: 200 } }
                     }
                 }
             }
 
-            // Instructions (visible during Instructions state)
+            // Instructions
             Text {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(16)
                 Layout.rightMargin: Theme.scaled(16)
                 visible: SteamCalibrator.state === 1
                 text: TranslationManager.translate("steamCal.instructions",
-                    "This tool finds the best steam flow rate and temperature for your machine by analyzing pressure stability and estimating water dilution.\n\n" +
-                    "Phase 1: Tests different flow rates at your current temperature.\n" +
-                    "Phase 2: Tests the best flow rates at different temperatures.\n\n" +
-                    "Fill a pitcher with water (any amount). For each step, start steaming for at least 15 seconds.")
+                    "This tool finds the optimal steam flow rate for your machine by measuring pressure stability at different settings.\n\n" +
+                    "Steam into the air (no water needed). Each step auto-stops after ~20 seconds. " +
+                    "The tool will wait for the heater to recover between steps.")
                 color: Theme.textSecondaryColor
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.scaled(12)
@@ -212,7 +217,7 @@ Dialog {
                 Accessible.ignored: true
             }
 
-            // Results view (visible during Results state)
+            // Results view
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(16)
@@ -237,7 +242,7 @@ Dialog {
                         spacing: Theme.scaled(4)
 
                         Text {
-                            text: TranslationManager.translate("steamCal.recommended", "Recommended Settings")
+                            text: TranslationManager.translate("steamCal.recommended", "Recommended Flow Rate")
                             color: Theme.primaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(14)
@@ -246,18 +251,19 @@ Dialog {
                         }
 
                         Text {
-                            text: (SteamCalibrator.recommendedFlow / 100).toFixed(2) + " mL/s  ·  " +
-                                  SteamCalibrator.recommendedTemp + "°C"
+                            text: (SteamCalibrator.recommendedFlow / 100).toFixed(2) + " mL/s"
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(20)
+                            font.pixelSize: Theme.scaled(24)
                             font.bold: true
                             Accessible.ignored: true
                         }
 
                         Text {
-                            text: TranslationManager.translate("steamCal.estDilution", "Estimated dilution") +
-                                  ": ~" + SteamCalibrator.recommendedDilution.toFixed(1) + "%"
+                            text: TranslationManager.translate("steamCal.recDetail",
+                                "CV: %1  ·  Est. dilution: ~%2%")
+                                .arg(SteamCalibrator.bestCV.toFixed(3))
+                                .arg(SteamCalibrator.recommendedDilution.toFixed(1))
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -281,8 +287,8 @@ Dialog {
                         Accessible.ignored: true
                     }
                     Text {
-                        Layout.preferredWidth: Theme.scaled(40)
-                        text: TranslationManager.translate("steamCal.tempHeader", "Temp")
+                        Layout.preferredWidth: Theme.scaled(55)
+                        text: TranslationManager.translate("steamCal.pressureHeader", "Pressure")
                         color: Theme.textSecondaryColor
                         font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.scaled(11)
@@ -290,8 +296,8 @@ Dialog {
                         Accessible.ignored: true
                     }
                     Text {
-                        Layout.preferredWidth: Theme.scaled(55)
-                        text: TranslationManager.translate("steamCal.dilutionHeader", "Dilution")
+                        Layout.preferredWidth: Theme.scaled(45)
+                        text: "CV"
                         color: Theme.textSecondaryColor
                         font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.scaled(11)
@@ -318,8 +324,16 @@ Dialog {
                         spacing: Theme.spacingSmall
 
                         readonly property bool isRecommended:
-                            modelData.flowRate === SteamCalibrator.recommendedFlow &&
-                            modelData.steamTemp === SteamCalibrator.recommendedTemp
+                            modelData.flowRate === SteamCalibrator.recommendedFlow
+
+                        // Find min CV for bar scaling
+                        readonly property double minCV: {
+                            var min = 999
+                            var res = SteamCalibrator.results
+                            for (var i = 0; i < res.length; i++)
+                                if (res[i].pressureCV < min) min = res[i].pressureCV
+                            return min
+                        }
 
                         Text {
                             Layout.preferredWidth: Theme.scaled(55)
@@ -331,23 +345,23 @@ Dialog {
                             Accessible.ignored: true
                         }
                         Text {
-                            Layout.preferredWidth: Theme.scaled(40)
-                            text: modelData.steamTemp + "°"
+                            Layout.preferredWidth: Theme.scaled(55)
+                            text: modelData.avgPressure.toFixed(1) + " bar"
                             color: parent.isRecommended ? Theme.primaryColor : Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             Accessible.ignored: true
                         }
                         Text {
-                            Layout.preferredWidth: Theme.scaled(55)
-                            text: "~" + modelData.estimatedDilution.toFixed(1) + "%"
+                            Layout.preferredWidth: Theme.scaled(45)
+                            text: modelData.pressureCV.toFixed(3)
                             color: parent.isRecommended ? Theme.primaryColor : Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             Accessible.ignored: true
                         }
 
-                        // Stability bar
+                        // CV bar — lower is better, so bar shows inverse
                         Rectangle {
                             Layout.fillWidth: true
                             height: Theme.scaled(16)
@@ -355,21 +369,23 @@ Dialog {
                             color: Theme.backgroundColor
 
                             Rectangle {
-                                width: parent.width * Math.min(1, modelData.stabilityScore / 100)
+                                // Scale: minCV gets full bar, 2x minCV gets half bar
+                                width: parent.width * Math.min(1, Math.max(0.1,
+                                    parent.parent.minCV / Math.max(0.001, modelData.pressureCV)))
                                 height: parent.height
                                 radius: Theme.scaled(3)
-                                color: modelData.stabilityScore >= 75 ? Theme.primaryColor
-                                     : modelData.stabilityScore >= 50 ? Theme.warningColor
+                                color: parent.parent.isRecommended ? Theme.primaryColor
+                                     : modelData.pressureCV <= parent.parent.minCV * 1.2 ? Theme.primaryColor
+                                     : modelData.pressureCV <= parent.parent.minCV * 1.5 ? Theme.warningColor
                                      : Theme.errorColor
                             }
                         }
 
-                        Text {
+                        Image {
                             visible: parent.isRecommended
-                            text: "\u2713"
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(14)
-                            font.bold: true
+                            source: "qrc:/icons/tick.svg"
+                            width: Theme.scaled(14)
+                            height: Theme.scaled(14)
                             Accessible.ignored: true
                         }
                     }
@@ -405,9 +421,9 @@ Dialog {
 
                 AccessibleButton {
                     visible: SteamCalibrator.state === 5 && SteamCalibrator.hasCalibration
-                    text: TranslationManager.translate("steamCal.apply", "Apply Settings")
+                    text: TranslationManager.translate("steamCal.apply", "Apply")
                     accessibleName: TranslationManager.translate("steamCal.applyAccessible",
-                        "Apply recommended steam settings")
+                        "Apply recommended steam flow rate")
                     primary: true
                     onClicked: {
                         SteamCalibrator.applyRecommendation()

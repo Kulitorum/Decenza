@@ -250,9 +250,9 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
     // steam_calibration_status
     registry->registerTool(
         "steam_calibration_status",
-        "Get steam calibration results: recommended flow rate and temperature, "
-        "estimated dilution percentage, and detailed per-step data including "
-        "stability scores, pressure CV, oscillation rates, and dryness estimates. "
+        "Get steam calibration results: recommended flow rate, estimated dilution percentage, "
+        "and detailed per-step data including pressure CV (coefficient of variation), "
+        "oscillation rates, and dryness estimates. "
         "Use this after running a steam calibration to review results, or to check "
         "if a calibration has been performed.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
@@ -276,8 +276,9 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             result["machineModel"] = cal.machineModel;
             result["heaterVoltage"] = cal.heaterVoltage;
             result["recommendedFlowMlPerSec"] = cal.recommendedFlow / 100.0;
-            result["recommendedTemperatureC"] = cal.recommendedTemp;
+            result["steamTemperatureC"] = cal.steamTemp;
             result["recommendedDilutionPct"] = cal.recommendedDilution;
+            result["bestCV"] = cal.bestCV;
 
             QJsonArray steps;
             for (const auto& step : cal.steps) {
@@ -289,7 +290,6 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                 s["oscillationRateHz"] = step.oscillationRate;
                 s["peakToPeakRangeBar"] = step.peakToPeakRange;
                 s["pressureSlopeBarPerSec"] = step.pressureSlope;
-                s["stabilityScore0to100"] = step.stabilityScore;
                 s["estimatedDryness0to1"] = step.estimatedDryness;
                 s["estimatedDilutionPct"] = step.estimatedDilution;
                 s["sampleCount"] = step.sampleCount;

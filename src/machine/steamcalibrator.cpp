@@ -23,21 +23,14 @@ SteamCalibrator::SteamCalibrator(Settings* settings, DE1Device* device, QObject*
 
 int SteamCalibrator::currentFlowRate() const
 {
-    if (m_currentStep >= 0 && m_currentStep < m_sweepPlan.size())
-        return m_sweepPlan[m_currentStep].flowRate;
-    return 0;
-}
-
-int SteamCalibrator::currentSteamTemp() const
-{
-    if (m_currentStep >= 0 && m_currentStep < m_sweepPlan.size())
-        return m_sweepPlan[m_currentStep].steamTemp;
+    if (m_currentStep >= 0 && m_currentStep < m_flowSteps.size())
+        return m_flowSteps[m_currentStep];
     return 0;
 }
 
 int SteamCalibrator::recommendedFlow() const { return m_calibrationResult.recommendedFlow; }
-int SteamCalibrator::recommendedTemp() const { return m_calibrationResult.recommendedTemp; }
 double SteamCalibrator::recommendedDilution() const { return m_calibrationResult.recommendedDilution; }
+double SteamCalibrator::bestCV() const { return m_calibrationResult.bestCV; }
 
 bool SteamCalibrator::hasCalibration() const
 {
@@ -56,7 +49,6 @@ QVariantList SteamCalibrator::results() const
         map[QStringLiteral("oscillationRate")] = step.oscillationRate;
         map[QStringLiteral("peakToPeakRange")] = step.peakToPeakRange;
         map[QStringLiteral("pressureSlope")] = step.pressureSlope;
-        map[QStringLiteral("stabilityScore")] = step.stabilityScore;
         map[QStringLiteral("estimatedDryness")] = step.estimatedDryness;
         map[QStringLiteral("estimatedDilution")] = step.estimatedDilution;
         map[QStringLiteral("sampleCount")] = step.sampleCount;
@@ -84,34 +76,24 @@ void SteamCalibrator::setStatusMessage(const QString& msg)
 
 double SteamCalibrator::heaterWattsForModel(int machineModel, int heaterVoltage)
 {
-    // Base wattage per model
     double watts;
     switch (machineModel) {
-    case 1: // DE1
-    case 2: // DE1+
-    case 3: // DE1PRO
-    case 4: // DE1XL
-    case 5: // DE1CAFE
+    case 1: case 2: case 3: case 4: case 5:
         watts = 1500.0;
         break;
-    case 6: // DE1XXL
+    case 6: // XXL
         watts = 2200.0;
         break;
-    case 7: // DE1XXXL / Bengle
+    case 7: // XXXL / Bengle
         watts = 3000.0;
         break;
     default:
-        watts = 1500.0;  // Conservative default
+        watts = 1500.0;
         break;
     }
 
-    // Voltage adjustment: power scales with V²/V_rated².
-    // Most DE1s are rated for their local voltage, but 110V machines
-    // on weak circuits may get less effective power.
-    if (heaterVoltage > 0 && heaterVoltage <= 120) {
-        // 110V machines get ~80% of rated power vs 220V
+    if (heaterVoltage > 0 && heaterVoltage <= 120)
         watts *= 0.80;
-    }
 
     return watts;
 }
@@ -122,48 +104,29 @@ double SteamCalibrator::estimateDryness(double heaterWatts, double flowMlPerSec,
 {
     if (flowMlPerSec <= 0.01 || heaterWatts <= 0) return 1.0;
 
-    // Energy needed per gram of water to become steam:
-    // 1. Heat from ~20°C (inlet) to 100°C: specific_heat_water * 80
-    // 2. Vaporize at 100°C: latent_heat
-    // 3. Superheat from 100°C to steamTempC: specific_heat_steam * (steamTempC - 100)
-    //    (steam specific heat ~2.0 J/(g·°C))
-    double energyToBoil = SPECIFIC_HEAT_WATER * 80.0;  // ~334 J/g
-    double superheat = qMax(0.0, steamTempC - 100.0) * 2.0;  // ~120 J/g at 160°C
+    double energyToBoil = SPECIFIC_HEAT_WATER * 80.0;
+    double superheat = qMax(0.0, steamTempC - 100.0) * 2.0;
     double totalEnergyPerGram = energyToBoil + LATENT_HEAT_VAPORIZATION + superheat;
-    // Total: ~334 + 2257 + 120 = ~2711 J/g at 160°C
 
-    // Power needed for full vaporization at this flow rate
-    // flowMlPerSec ≈ flowGramsPerSec for water
     double powerNeeded = flowMlPerSec * totalEnergyPerGram;
-
-    // Dryness = fraction of water that is fully vaporized
-    double dryness = qMin(1.0, heaterWatts / powerNeeded);
-    return dryness;
+    return qMin(1.0, heaterWatts / powerNeeded);
 }
 
 double SteamCalibrator::estimateDilution(double dryness, double milkMassG,
                                           double deltaTempC, double pitcherMassG)
 {
-    // Energy needed to heat milk and pitcher
     double energyMilk = milkMassG * SPECIFIC_HEAT_MILK * deltaTempC;
     double energyPitcher = pitcherMassG * SPECIFIC_HEAT_STEEL * deltaTempC;
     double totalEnergy = energyMilk + energyPitcher;
 
-    // Energy delivered per gram of steam condensate:
-    // Condensation releases latent heat, then the condensate cools from 100°C to final temp (~63°C)
-    double condensateCooling = SPECIFIC_HEAT_WATER * 37.0;  // 100°C → 63°C
+    double condensateCooling = SPECIFIC_HEAT_WATER * 37.0;
     double energyPerGramSteam = LATENT_HEAT_VAPORIZATION + condensateCooling;
 
-    // With dry steam, all injected water delivers full energy.
-    // With wet steam (dryness < 1), some water arrives as liquid,
-    // contributing only sensible heat (100°C → 63°C), not latent heat.
     double effectiveEnergyPerGram = dryness * energyPerGramSteam
                                    + (1.0 - dryness) * condensateCooling;
 
     double waterAddedG = totalEnergy / effectiveEnergyPerGram;
-    double dilutionPct = (waterAddedG / milkMassG) * 100.0;
-
-    return dilutionPct;
+    return (waterAddedG / milkMassG) * 100.0;
 }
 
 // --- Sweep generation ---
@@ -173,7 +136,7 @@ QVector<int> SteamCalibrator::generateFlowSweep(int machineModel, int heaterVolt
     int start, end, step;
 
     switch (machineModel) {
-    case 1: case 2: case 3: case 4: // DE1, DE1+, PRO, XL
+    case 1: case 2: case 3: case 4:
         start = 40; end = 140; step = 20;
         break;
     case 6: // XXL
@@ -196,10 +159,30 @@ QVector<int> SteamCalibrator::generateFlowSweep(int machineModel, int heaterVolt
     return steps;
 }
 
-QVector<int> SteamCalibrator::generateTempSweep()
+// --- Recommendation algorithm ---
+
+int SteamCalibrator::findRecommendedFlow(const QVector<CalibrationStepResult>& steps)
 {
-    // Test 3 temperatures: lower, mid, higher
-    return {150, 160, 170};
+    if (steps.isEmpty()) return 0;
+
+    // Find the minimum CV across all steps
+    double minCV = std::numeric_limits<double>::max();
+    for (const auto& s : steps) {
+        if (s.sampleCount >= 30 && s.pressureCV < minCV)
+            minCV = s.pressureCV;
+    }
+
+    if (minCV >= std::numeric_limits<double>::max()) return steps.first().flowRate;
+
+    // Find the highest flow rate whose CV is within CV_MARGIN (20%) of the best
+    double cvThreshold = minCV * (1.0 + CV_MARGIN);
+    int bestFlow = 0;
+    for (const auto& s : steps) {
+        if (s.sampleCount >= 30 && s.pressureCV <= cvThreshold && s.flowRate > bestFlow)
+            bestFlow = s.flowRate;
+    }
+
+    return bestFlow > 0 ? bestFlow : steps.first().flowRate;
 }
 
 // --- Calibration workflow ---
@@ -212,32 +195,25 @@ void SteamCalibrator::startCalibration()
     int voltage = m_device ? m_device->heaterVoltage() : 0;
     m_heaterWatts = heaterWattsForModel(model, voltage);
 
-    // Save original settings to restore on cancel/completion
     m_originalFlow = m_settings->steamFlow();
     m_originalTemp = static_cast<int>(m_settings->steamTemperature());
     m_originalKeepHeaterOn = m_settings->keepSteamHeaterOn();
 
-    // Enable keepSteamHeaterOn during calibration so the heater actively
-    // maintains temperature between steps instead of cooling down
     m_settings->setKeepSteamHeaterOn(true);
 
     m_calibrationResult = CalibrationResult();
     m_calibrationResult.machineModel = model;
     m_calibrationResult.heaterVoltage = voltage;
+    m_calibrationResult.steamTemp = m_originalTemp;
 
-    // Build Phase 1 plan: sweep flow rates at current temperature
-    m_phase = FlowSweep;
-    m_sweepPlan.clear();
-    int temp = m_originalTemp;
-    for (int flow : generateFlowSweep(model, voltage))
-        m_sweepPlan.append({flow, temp});
-
+    m_flowSteps = generateFlowSweep(model, voltage);
     m_currentStep = 0;
+    m_heaterReady = true;
+    emit heaterReadyChanged();
 
     setState(Instructions);
-    setStatusMessage(QStringLiteral("Fill a pitcher with water. Phase 1 tests %1 flow rates at %2°C, "
-                                    "then Phase 2 refines with different temperatures.")
-                         .arg(m_sweepPlan.size()).arg(temp));
+    setStatusMessage(QStringLiteral("Steam into air at %1 flow rates. Each step auto-stops after ~20 seconds.")
+                         .arg(m_flowSteps.size()));
     emit stepChanged();
 }
 
@@ -256,80 +232,24 @@ void SteamCalibrator::cancelCalibration()
 
 void SteamCalibrator::advanceToNextStep()
 {
-    if (m_currentStep >= m_sweepPlan.size()) {
-        if (m_phase == FlowSweep) {
-            buildPhase2Plan();
-            if (m_sweepPlan.isEmpty()) {
-                finishCalibration();
-                return;
-            }
-            m_currentStep = 0;
-        } else {
-            finishCalibration();
-            return;
-        }
+    if (m_currentStep >= m_flowSteps.size()) {
+        finishCalibration();
+        return;
     }
 
-    auto& step = m_sweepPlan[m_currentStep];
-    m_settings->setSteamFlow(step.flowRate);
-    m_settings->setSteamTemperature(step.steamTemp);
-    emit settingsApplied();  // Tell MainController to re-send to machine
+    int flow = m_flowSteps[m_currentStep];
+    m_settings->setSteamFlow(flow);
+    emit settingsApplied();
 
-    // Mark heater as not ready — updateHeaterTemp() will set it to true
-    // once the steam temp reaches the target
     m_heaterReady = false;
     emit heaterReadyChanged();
 
-    QString phaseLabel = (m_phase == FlowSweep)
-        ? QStringLiteral("Phase 1 — Flow")
-        : QStringLiteral("Phase 2 — Temperature");
-
     setState(WaitingToStart);
-    setStatusMessage(QStringLiteral("%1: Step %2 of %3\nFlow: %4 mL/s at %5°C\nWaiting for heater...")
-                         .arg(phaseLabel)
+    setStatusMessage(QStringLiteral("Step %1 of %2: Flow %3 mL/s\nWaiting for heater...")
                          .arg(m_currentStep + 1)
-                         .arg(m_sweepPlan.size())
-                         .arg(step.flowRate / 100.0, 0, 'f', 2)
-                         .arg(step.steamTemp));
+                         .arg(m_flowSteps.size())
+                         .arg(flow / 100.0, 0, 'f', 2));
     emit stepChanged();
-}
-
-void SteamCalibrator::buildPhase2Plan()
-{
-    m_phase = TempSweep;
-    m_sweepPlan.clear();
-
-    // Find the top 2 stable flow rates from Phase 1, preferring higher flow.
-    // Higher flow = stronger vortex = better microfoam, as long as the heater keeps up.
-    QVector<CalibrationStepResult> sorted = m_calibrationResult.steps;
-    std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
-        return a.flowRate > b.flowRate;  // Highest flow first
-    });
-
-    QVector<int> bestFlows;
-    for (const auto& s : sorted) {
-        if (bestFlows.size() >= 2) break;
-        if (s.stabilityScore >= GOOD_SCORE_THRESHOLD * 0.7)  // At least ~52 to be worth testing
-            bestFlows.append(s.flowRate);
-    }
-
-    if (bestFlows.isEmpty() && !sorted.isEmpty())
-        bestFlows.append(sorted.first().flowRate);
-
-    // Test each best flow at temperatures not already tested in Phase 1
-    int phase1Temp = m_calibrationResult.steps.isEmpty() ? m_originalTemp
-                                                          : m_calibrationResult.steps.first().steamTemp;
-    QVector<int> temps = generateTempSweep();
-    temps.removeAll(phase1Temp);  // Don't re-test the Phase 1 temperature
-
-    for (int flow : bestFlows) {
-        for (int temp : temps)
-            m_sweepPlan.append({flow, temp});
-    }
-
-    setStatusMessage(QStringLiteral("Phase 2: Testing %1 best flow rate(s) at %2 temperatures. "
-                                    "Change water and continue.")
-                         .arg(bestFlows.size()).arg(temps.size()));
 }
 
 void SteamCalibrator::onSteamStarted()
@@ -341,9 +261,8 @@ void SteamCalibrator::onSteamStarted()
     m_autoStopRequested = false;
 
     setState(Steaming);
-    setStatusMessage(QStringLiteral("Steaming at %1 mL/s, %2°C...")
-                         .arg(currentFlowRate() / 100.0, 0, 'f', 2)
-                         .arg(currentSteamTemp()));
+    setStatusMessage(QStringLiteral("Steaming at %1 mL/s...")
+                         .arg(currentFlowRate() / 100.0, 0, 'f', 2));
     emit steamingElapsedChanged();
     emit hasEnoughDataChanged();
 }
@@ -361,12 +280,36 @@ void SteamCalibrator::onSteamSample(double elapsed)
         emit hasEnoughDataChanged();
     }
 
-    // Auto-stop: request machine stop after TARGET_DURATION + small buffer
+    // Auto-stop after enough data + small buffer
     if (usableTime >= TARGET_DURATION + 2.0 && !m_autoStopRequested) {
         m_autoStopRequested = true;
         if (m_device && m_device->isConnected()) {
             qDebug() << "SteamCalibrator: auto-stopping steam after" << elapsed << "s";
             m_device->requestState(DE1::State::Idle);
+        }
+    }
+}
+
+void SteamCalibrator::updateHeaterTemp(double steamTempC)
+{
+    if (m_currentHeaterTemp != steamTempC) {
+        m_currentHeaterTemp = steamTempC;
+        emit currentHeaterTempChanged();
+    }
+
+    if (m_state == WaitingToStart) {
+        int targetTemp = m_originalTemp;
+        bool ready = (steamTempC >= targetTemp - 5);
+        if (ready != m_heaterReady) {
+            m_heaterReady = ready;
+            emit heaterReadyChanged();
+            if (ready) {
+                setStatusMessage(QStringLiteral("Step %1 of %2: Flow %3 mL/s — Ready (%4°C). Start steaming.")
+                                     .arg(m_currentStep + 1)
+                                     .arg(m_flowSteps.size())
+                                     .arg(currentFlowRate() / 100.0, 0, 'f', 2)
+                                     .arg(static_cast<int>(steamTempC)));
+            }
         }
     }
 }
@@ -378,7 +321,7 @@ void SteamCalibrator::onSteamEnded(const SteamDataModel* model)
     setState(Analyzing);
 
     auto result = analyzeStability(model->pressureData(), currentFlowRate(),
-                                   currentSteamTemp(), m_heaterWatts, TRIM_SECONDS);
+                                   m_originalTemp, m_heaterWatts, TRIM_SECONDS);
 
     if (result.durationSeconds < MIN_DURATION || result.sampleCount < MIN_SAMPLES) {
         setStatusMessage(QStringLiteral("Too short (%1s). Steam for at least 15 seconds. Try again.")
@@ -389,7 +332,6 @@ void SteamCalibrator::onSteamEnded(const SteamDataModel* model)
 
     m_calibrationResult.steps.append(result);
 
-    // Capture raw time-series data for detailed logging
     CalibrationStepRawData raw;
     raw.pressure = model->pressureData();
     raw.flow = model->flowData();
@@ -400,60 +342,31 @@ void SteamCalibrator::onSteamEnded(const SteamDataModel* model)
 
     m_currentStep++;
 
-    if (m_currentStep >= m_sweepPlan.size()) {
-        if (m_phase == FlowSweep) {
-            buildPhase2Plan();
-            if (m_sweepPlan.isEmpty()) {
-                finishCalibration();
-                return;
-            }
-            m_currentStep = 0;
-            advanceToNextStep();
-        } else {
-            finishCalibration();
-        }
+    if (m_currentStep >= m_flowSteps.size()) {
+        finishCalibration();
     } else {
-        setStatusMessage(QStringLiteral("Step complete — Stability: %1, Est. dilution: %2%. Change water and continue.")
-                             .arg(result.stabilityScore, 0, 'f', 0)
-                             .arg(result.estimatedDilution, 0, 'f', 1));
+        setStatusMessage(QStringLiteral("Step complete — CV: %1. Wait for heater...")
+                             .arg(result.pressureCV, 0, 'f', 3));
         advanceToNextStep();
     }
 }
 
 void SteamCalibrator::finishCalibration()
 {
-    // Find best combination: highest flow rate with good stability.
-    // Among stable steps, prefer higher flow (stronger vortex, faster steaming)
-    // while keeping estimated dilution reasonable.
-    //
-    // Why highest stable flow, not lowest dilution:
-    // - Too-low flow = weak vortex, poor microfoam texture, slow steaming
-    // - Dilution differences between stable steps are small (1-2%, negligible in the cup)
-    // - The real goal is: fastest steaming with dry, stable steam
-    const CalibrationStepResult* best = nullptr;
-    for (const auto& step : m_calibrationResult.steps) {
-        if (step.stabilityScore < GOOD_SCORE_THRESHOLD * 0.7)
-            continue;  // Skip clearly unstable
-        if (!best || step.flowRate > best->flowRate)
-            best = &step;
-    }
+    int recFlow = findRecommendedFlow(m_calibrationResult.steps);
+    m_calibrationResult.recommendedFlow = recFlow;
 
-    // Fallback: if no step is stable enough, pick the highest stability score
-    if (!best) {
-        for (const auto& step : m_calibrationResult.steps) {
-            if (!best || step.stabilityScore > best->stabilityScore)
-                best = &step;
+    // Find the step for the recommended flow to get its dilution/CV
+    for (const auto& step : m_calibrationResult.steps) {
+        if (step.flowRate == recFlow) {
+            m_calibrationResult.recommendedDilution = step.estimatedDilution;
+            m_calibrationResult.bestCV = step.pressureCV;
+            break;
         }
     }
 
-    if (best) {
-        m_calibrationResult.recommendedFlow = best->flowRate;
-        m_calibrationResult.recommendedTemp = best->steamTemp;
-        m_calibrationResult.recommendedDilution = best->estimatedDilution;
-    }
     m_calibrationResult.timestamp = QDateTime::currentDateTime();
 
-    // Restore original settings (user applies recommendation explicitly)
     m_settings->setSteamFlow(m_originalFlow);
     m_settings->setSteamTemperature(m_originalTemp);
     m_settings->setKeepSteamHeaterOn(m_originalKeepHeaterOn);
@@ -463,47 +376,19 @@ void SteamCalibrator::finishCalibration()
 
     setState(Results);
 
-    if (best && best->stabilityScore >= GOOD_SCORE_THRESHOLD) {
-        setStatusMessage(QStringLiteral("Recommended: %1 mL/s at %2°C (est. %3% dilution)")
-                             .arg(best->flowRate / 100.0, 0, 'f', 2)
-                             .arg(best->steamTemp)
-                             .arg(best->estimatedDilution, 0, 'f', 1));
-    } else if (best) {
-        setStatusMessage(QStringLiteral("Best found: %1 mL/s at %2°C (est. %3% dilution). "
-                                        "Consider checking flow calibration for better results.")
-                             .arg(best->flowRate / 100.0, 0, 'f', 2)
-                             .arg(best->steamTemp)
-                             .arg(best->estimatedDilution, 0, 'f', 1));
-    } else {
-        setStatusMessage(QStringLiteral("No valid results. Please try again with longer steam sessions."));
+    // Find the min CV for context
+    double minCV = std::numeric_limits<double>::max();
+    for (const auto& s : m_calibrationResult.steps) {
+        if (s.pressureCV < minCV) minCV = s.pressureCV;
     }
+
+    setStatusMessage(QStringLiteral("Recommended: %1 mL/s (CV %2, est. %3% dilution)\nBest CV was %4 at the most stable flow rate.")
+                         .arg(recFlow / 100.0, 0, 'f', 2)
+                         .arg(m_calibrationResult.bestCV, 0, 'f', 3)
+                         .arg(m_calibrationResult.recommendedDilution, 0, 'f', 1)
+                         .arg(minCV, 0, 'f', 3));
 
     emit calibrationComplete();
-}
-
-void SteamCalibrator::updateHeaterTemp(double steamTempC)
-{
-    if (m_currentHeaterTemp != steamTempC) {
-        m_currentHeaterTemp = steamTempC;
-        emit currentHeaterTempChanged();
-    }
-
-    // Check heater readiness when waiting between steps.
-    // keepSteamHeaterOn is enabled during calibration, so the heater actively
-    // maintains temperature. Wait until within 5°C of target — the firmware
-    // heats the steam element in Ready state when keepSteamHeaterOn is true.
-    if (m_state == WaitingToStart) {
-        int targetTemp = currentSteamTemp();
-        bool ready = (steamTempC >= targetTemp - 5);
-        if (ready != m_heaterReady) {
-            m_heaterReady = ready;
-            emit heaterReadyChanged();
-            if (ready) {
-                setStatusMessage(QStringLiteral("Ready (%1°C). Start steaming now.")
-                                     .arg(static_cast<int>(steamTempC)));
-            }
-        }
-    }
 }
 
 void SteamCalibrator::applyRecommendation()
@@ -511,9 +396,7 @@ void SteamCalibrator::applyRecommendation()
     if (!hasCalibration()) return;
 
     m_settings->setSteamFlow(m_calibrationResult.recommendedFlow);
-    m_settings->setSteamTemperature(m_calibrationResult.recommendedTemp);
     m_originalFlow = m_calibrationResult.recommendedFlow;
-    m_originalTemp = m_calibrationResult.recommendedTemp;
 
     setState(Idle);
     setStatusMessage(QString());
@@ -536,29 +419,24 @@ CalibrationStepResult SteamCalibrator::analyzeStability(
     // - Negative or discontinuous timestamps (timer wrap bug)
     // - Heater exhaustion tail (3+ consecutive samples below 0.3 bar)
     QVector<double> values;
-    QVector<double> times;   // parallel to values — for slope regression
+    QVector<double> times;
     double startTime = -1;
     double endTime = 0;
     double prevTime = -1;
     int lowPressureRun = 0;
-    constexpr double EXHAUST_THRESHOLD = 0.3;  // bar — below this = heater exhausted
-    constexpr int EXHAUST_COUNT = 3;           // consecutive samples to confirm exhaustion
+    constexpr double EXHAUST_THRESHOLD = 0.3;
+    constexpr int EXHAUST_COUNT = 3;
 
     for (const auto& pt : pressureData) {
         double t = pt.x();
-        // Skip samples before trim period
         if (t < trimSeconds) continue;
-        // Stop at negative timestamps or large time discontinuities (timer wrap bug)
         if (t < 0) break;
         if (prevTime >= 0 && ((t - prevTime) > 5.0 || t < prevTime)) break;
         prevTime = t;
 
-        // Detect heater exhaustion: 3+ consecutive samples below threshold
         if (pt.y() < EXHAUST_THRESHOLD) {
             lowPressureRun++;
             if (lowPressureRun >= EXHAUST_COUNT) {
-                // The 3rd low sample triggered this but hasn't been appended yet.
-                // Remove the (EXHAUST_COUNT - 1) already-appended low samples.
                 qsizetype trimCount = qMin(static_cast<qsizetype>(EXHAUST_COUNT - 1), values.size());
                 values.resize(values.size() - trimCount);
                 times.resize(times.size() - trimCount);
@@ -612,7 +490,7 @@ CalibrationStepResult SteamCalibrator::analyzeStability(
                                  ? crossings / result.durationSeconds
                                  : 0.0;
 
-    // Linear regression slope — uses the same filtered values/times as other stats
+    // Linear regression slope — uses filtered values/times
     double sumT = 0, sumP = 0, sumTP = 0, sumTT = 0;
     qsizetype n = values.size();
     for (qsizetype i = 0; i < n; i++) {
@@ -628,29 +506,12 @@ CalibrationStepResult SteamCalibrator::analyzeStability(
                                ? (n * sumTP - sumT * sumP) / denom
                                : 0.0;
 
-    result.stabilityScore = computeStabilityScore(result);
-
     // Thermodynamic estimates
     double flowMlPerSec = flowRate / 100.0;
     result.estimatedDryness = estimateDryness(heaterWatts, flowMlPerSec, steamTemp);
     result.estimatedDilution = estimateDilution(result.estimatedDryness);
 
     return result;
-}
-
-double SteamCalibrator::computeStabilityScore(const CalibrationStepResult& step)
-{
-    constexpr double W_CV = 4.0;
-    constexpr double W_OSC = 0.05;   // Light weight — zero-crossings are noisy even in stable signals
-    constexpr double W_RANGE = 0.4;  // Moderate — range grows with duration, not just instability
-    constexpr double W_SLOPE = 1.5;
-
-    double penalty = W_CV * step.pressureCV
-                   + W_OSC * step.oscillationRate
-                   + W_RANGE * step.peakToPeakRange
-                   + W_SLOPE * qAbs(step.pressureSlope);
-
-    return qBound(0.0, 100.0 * qMax(0.0, 1.0 - penalty), 100.0);
 }
 
 // --- Persistence ---
@@ -664,8 +525,9 @@ void SteamCalibrator::saveCalibration() const
     obj[QStringLiteral("machineModel")] = m_calibrationResult.machineModel;
     obj[QStringLiteral("heaterVoltage")] = m_calibrationResult.heaterVoltage;
     obj[QStringLiteral("recommendedFlow")] = m_calibrationResult.recommendedFlow;
-    obj[QStringLiteral("recommendedTemp")] = m_calibrationResult.recommendedTemp;
+    obj[QStringLiteral("steamTemp")] = m_calibrationResult.steamTemp;
     obj[QStringLiteral("recommendedDilution")] = m_calibrationResult.recommendedDilution;
+    obj[QStringLiteral("bestCV")] = m_calibrationResult.bestCV;
 
     QJsonArray stepsArr;
     for (const auto& step : m_calibrationResult.steps) {
@@ -677,7 +539,6 @@ void SteamCalibrator::saveCalibration() const
         s[QStringLiteral("oscillationRate")] = step.oscillationRate;
         s[QStringLiteral("peakToPeakRange")] = step.peakToPeakRange;
         s[QStringLiteral("pressureSlope")] = step.pressureSlope;
-        s[QStringLiteral("stabilityScore")] = step.stabilityScore;
         s[QStringLiteral("estimatedDryness")] = step.estimatedDryness;
         s[QStringLiteral("estimatedDilution")] = step.estimatedDilution;
         s[QStringLiteral("sampleCount")] = step.sampleCount;
@@ -689,6 +550,45 @@ void SteamCalibrator::saveCalibration() const
     settings.setValue(QStringLiteral("steam/calibration"),
                       QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
 }
+
+void SteamCalibrator::loadCalibration()
+{
+    QSettings settings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+    QString json = settings.value(QStringLiteral("steam/calibration")).toString();
+    if (json.isEmpty()) return;
+
+    QJsonObject obj = QJsonDocument::fromJson(json.toUtf8()).object();
+    if (obj.isEmpty()) return;
+
+    m_calibrationResult.timestamp = QDateTime::fromString(
+        obj[QStringLiteral("timestamp")].toString(), Qt::ISODate);
+    m_calibrationResult.machineModel = obj[QStringLiteral("machineModel")].toInt();
+    m_calibrationResult.heaterVoltage = obj[QStringLiteral("heaterVoltage")].toInt();
+    m_calibrationResult.recommendedFlow = obj[QStringLiteral("recommendedFlow")].toInt();
+    m_calibrationResult.steamTemp = obj[QStringLiteral("steamTemp")].toInt();
+    m_calibrationResult.recommendedDilution = obj[QStringLiteral("recommendedDilution")].toDouble();
+    m_calibrationResult.bestCV = obj[QStringLiteral("bestCV")].toDouble();
+
+    QJsonArray stepsArr = obj[QStringLiteral("steps")].toArray();
+    for (const auto& val : stepsArr) {
+        QJsonObject s = val.toObject();
+        CalibrationStepResult step;
+        step.flowRate = s[QStringLiteral("flowRate")].toInt();
+        step.steamTemp = s[QStringLiteral("steamTemp")].toInt();
+        step.avgPressure = s[QStringLiteral("avgPressure")].toDouble();
+        step.pressureCV = s[QStringLiteral("pressureCV")].toDouble();
+        step.oscillationRate = s[QStringLiteral("oscillationRate")].toDouble();
+        step.peakToPeakRange = s[QStringLiteral("peakToPeakRange")].toDouble();
+        step.pressureSlope = s[QStringLiteral("pressureSlope")].toDouble();
+        step.estimatedDryness = s[QStringLiteral("estimatedDryness")].toDouble();
+        step.estimatedDilution = s[QStringLiteral("estimatedDilution")].toDouble();
+        step.sampleCount = s[QStringLiteral("sampleCount")].toInt();
+        step.durationSeconds = s[QStringLiteral("durationSeconds")].toDouble();
+        m_calibrationResult.steps.append(step);
+    }
+}
+
+// --- Detailed log ---
 
 QString SteamCalibrator::logFilePath()
 {
@@ -717,8 +617,9 @@ QString SteamCalibrator::saveDetailedLog() const
     root[QStringLiteral("machineModel")] = m_calibrationResult.machineModel;
     root[QStringLiteral("heaterVoltage")] = m_calibrationResult.heaterVoltage;
     root[QStringLiteral("recommendedFlowMlPerSec")] = m_calibrationResult.recommendedFlow / 100.0;
-    root[QStringLiteral("recommendedTemperatureC")] = m_calibrationResult.recommendedTemp;
+    root[QStringLiteral("steamTemperatureC")] = m_calibrationResult.steamTemp;
     root[QStringLiteral("recommendedDilutionPct")] = m_calibrationResult.recommendedDilution;
+    root[QStringLiteral("bestCV")] = m_calibrationResult.bestCV;
 
     QJsonArray stepsArr;
     for (qsizetype i = 0; i < m_calibrationResult.steps.size(); i++) {
@@ -731,13 +632,11 @@ QString SteamCalibrator::saveDetailedLog() const
         s[QStringLiteral("oscillationRateHz")] = step.oscillationRate;
         s[QStringLiteral("peakToPeakRangeBar")] = step.peakToPeakRange;
         s[QStringLiteral("pressureSlopeBarPerSec")] = step.pressureSlope;
-        s[QStringLiteral("stabilityScore")] = step.stabilityScore;
         s[QStringLiteral("estimatedDryness")] = step.estimatedDryness;
         s[QStringLiteral("estimatedDilutionPct")] = step.estimatedDilution;
         s[QStringLiteral("durationSec")] = step.durationSeconds;
         s[QStringLiteral("sampleCount")] = step.sampleCount;
 
-        // Raw time-series data
         if (i < m_calibrationResult.rawData.size()) {
             const auto& raw = m_calibrationResult.rawData[i];
             s[QStringLiteral("pressureData")] = pointsToArray(raw.pressure);
@@ -759,41 +658,4 @@ QString SteamCalibrator::saveDetailedLog() const
     }
 
     return path;
-}
-
-void SteamCalibrator::loadCalibration()
-{
-    QSettings settings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
-    QString json = settings.value(QStringLiteral("steam/calibration")).toString();
-    if (json.isEmpty()) return;
-
-    QJsonObject obj = QJsonDocument::fromJson(json.toUtf8()).object();
-    if (obj.isEmpty()) return;
-
-    m_calibrationResult.timestamp = QDateTime::fromString(
-        obj[QStringLiteral("timestamp")].toString(), Qt::ISODate);
-    m_calibrationResult.machineModel = obj[QStringLiteral("machineModel")].toInt();
-    m_calibrationResult.heaterVoltage = obj[QStringLiteral("heaterVoltage")].toInt();
-    m_calibrationResult.recommendedFlow = obj[QStringLiteral("recommendedFlow")].toInt();
-    m_calibrationResult.recommendedTemp = obj[QStringLiteral("recommendedTemp")].toInt();
-    m_calibrationResult.recommendedDilution = obj[QStringLiteral("recommendedDilution")].toDouble();
-
-    QJsonArray stepsArr = obj[QStringLiteral("steps")].toArray();
-    for (const auto& val : stepsArr) {
-        QJsonObject s = val.toObject();
-        CalibrationStepResult step;
-        step.flowRate = s[QStringLiteral("flowRate")].toInt();
-        step.steamTemp = s[QStringLiteral("steamTemp")].toInt();
-        step.avgPressure = s[QStringLiteral("avgPressure")].toDouble();
-        step.pressureCV = s[QStringLiteral("pressureCV")].toDouble();
-        step.oscillationRate = s[QStringLiteral("oscillationRate")].toDouble();
-        step.peakToPeakRange = s[QStringLiteral("peakToPeakRange")].toDouble();
-        step.pressureSlope = s[QStringLiteral("pressureSlope")].toDouble();
-        step.stabilityScore = s[QStringLiteral("stabilityScore")].toDouble();
-        step.estimatedDryness = s[QStringLiteral("estimatedDryness")].toDouble();
-        step.estimatedDilution = s[QStringLiteral("estimatedDilution")].toDouble();
-        step.sampleCount = s[QStringLiteral("sampleCount")].toInt();
-        step.durationSeconds = s[QStringLiteral("durationSeconds")].toDouble();
-        m_calibrationResult.steps.append(step);
-    }
 }

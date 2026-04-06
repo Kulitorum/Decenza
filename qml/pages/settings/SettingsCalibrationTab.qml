@@ -586,10 +586,9 @@ Item {
                             Layout.topMargin: Theme.spacingSmall
                             text: SteamCalibrator.hasCalibration
                                   ? TranslationManager.translate("settings.calibration.steamCalRecommended",
-                                        "Calibrated: %1 mL/s at %2°C (~%3% dilution)")
+                                        "Calibrated: %1 mL/s (CV %2)")
                                         .arg((SteamCalibrator.recommendedFlow / 100).toFixed(2))
-                                        .arg(SteamCalibrator.recommendedTemp)
-                                        .arg(SteamCalibrator.recommendedDilution.toFixed(1))
+                                        .arg(SteamCalibrator.bestCV.toFixed(3))
                                   : TranslationManager.translate("settings.calibration.steamCalibrate", "Calibrate Steam")
                             accessibleName: TranslationManager.translate("settings.calibration.steamCalibrateAccessible", "Calibrate steam settings")
                             primary: !SteamCalibrator.hasCalibration
