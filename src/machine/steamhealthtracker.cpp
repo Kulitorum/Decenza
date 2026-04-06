@@ -20,9 +20,8 @@ SteamHealthTracker::SteamHealthTracker(QObject* parent)
     }
 }
 
-bool SteamHealthTracker::isComparable(const SteamSessionSummary& s, int steamFlow, int steamTemp) const {
-    return qAbs(s.steamFlow - steamFlow) <= FLOW_TOLERANCE
-        && qAbs(s.steamTemperature - steamTemp) <= TEMP_TOLERANCE;
+double SteamHealthTracker::normalizePressure(double avgPressure, int steamFlow) const {
+    return avgPressure - PRESSURE_PER_FLOW_UNIT * (steamFlow - REFERENCE_FLOW);
 }
 
 void SteamHealthTracker::onSample(double pressure, double temperature) {
@@ -142,10 +141,15 @@ void SteamHealthTracker::clearHistory() {
 
 // --- Scale buildup trend detection ---
 //
+// All sessions are used regardless of flow/temperature settings. Pressures are
+// normalized to REFERENCE_FLOW using a linear model so sessions at different
+// flow settings are directly comparable. Raw values are stored; normalization
+// is applied at read time so recalibrating the model doesn't require
+// re-collecting data.
+//
 // Baselines:
-//   Pressure: lowest recorded avgPressure across all comparable sessions.
-//   Temperature: the user's steamTemperature setting (target). If actual temp
-//     overshoots the target, that's the signal.
+//   Pressure: lowest normalized avgPressure across all sessions.
+//   Temperature: the current session's steamTemperature setting (target).
 //
 // Warning fires when current value has moved 60% of the way from baseline
 // toward the warn threshold (baseline x 3.0 for pressure, capped at 8 bar / 180°C
@@ -153,59 +157,43 @@ void SteamHealthTracker::clearHistory() {
 //
 // Auto-reset: If the newest session drops >= 30% of the range (relative to the
 // rolling average of recent sessions) toward the threshold, we assume a descale
-// happened and trim old sessions. Uses actual measured values for both pressure
-// and temperature (not the target setting).
+// happened and trim old sessions.
 
 void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
                                      int steamFlow, int steamTemp) {
-    // Filter to sessions with matching settings (within tolerance)
-    QList<const SteamSessionSummary*> comparable;
-    for (const auto& s : history) {
-        if (isComparable(s, steamFlow, steamTemp)) {
-            comparable.append(&s);
-        }
-    }
-
-    if (comparable.size() < MIN_SESSIONS_FOR_TREND) {
-        qDebug() << "SteamHealth [trend] not enough comparable sessions:"
-                 << comparable.size() << "/" << MIN_SESSIONS_FOR_TREND;
+    qsizetype n = history.size();
+    if (n < MIN_SESSIONS_FOR_TREND) {
+        qDebug() << "SteamHealth [trend] not enough sessions:"
+                 << n << "/" << MIN_SESSIONS_FOR_TREND;
         return;
     }
 
-    // Pressure baseline: lowest avgPressure across all comparable sessions
-    double baselinePressure = comparable.first()->avgPressure;
-    for (const auto* s : comparable) {
-        baselinePressure = qMin(baselinePressure, s->avgPressure);
+    // Normalize all pressures to reference flow
+    double baselinePressure = normalizePressure(history.first().avgPressure, history.first().steamFlow);
+    for (const auto& s : history) {
+        baselinePressure = qMin(baselinePressure, normalizePressure(s.avgPressure, s.steamFlow));
     }
 
-    // Temperature baseline: the user's target setting
+    // Temperature baseline: the current session's target setting
     double baselineTemp = static_cast<double>(steamTemp);
 
-    // Current: most recent session
-    double currentPressure = comparable.first()->avgPressure;
-    double currentTemp = comparable.first()->avgTemperature;
-
-    qsizetype n = comparable.size();
+    // Current: most recent session (normalized)
+    double currentPressure = normalizePressure(history.first().avgPressure, history.first().steamFlow);
+    double currentTemp = history.first().avgTemperature;
 
     // --- Auto-reset on meaningful drop (likely descale) ---
-    // Compare the newest session against a rolling average of the previous few sessions
-    // (not the all-time minimum, which would make auto-reset impossible to trigger).
-    // For temperature, compare actual measurements (not the target setting).
-    // Pressure range is flow-relative (baseline * multiplier), not a fixed threshold.
     bool autoReset = false;
     qsizetype recentCount = qMin(qsizetype(5), n - 1);
     if (recentCount > 0) {
         double recentPressureSum = 0, recentTempSum = 0;
         for (qsizetype i = 1; i <= recentCount; ++i) {
-            recentPressureSum += comparable[i]->avgPressure;
-            recentTempSum += comparable[i]->avgTemperature;
+            recentPressureSum += normalizePressure(history[i].avgPressure, history[i].steamFlow);
+            recentTempSum += history[i].avgTemperature;
         }
         double recentAvgPressure = recentPressureSum / recentCount;
         double recentAvgTemp = recentTempSum / recentCount;
 
         double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
-        // Use baseline-to-warnlevel range (not recentAvg-to-warnlevel) so auto-reset
-        // still fires when recentAvg has already exceeded the warn level (heavy buildup).
         double pressureRange = pressureWarnLevel - baselinePressure;
         if (pressureRange > 0) {
             double drop = recentAvgPressure - currentPressure;
@@ -223,11 +211,8 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     }
 
     if (autoReset) {
-        // Clear comparable list before mutating history (pointers would be invalidated)
-        comparable.clear();
-
         qDebug() << "SteamHealth [auto-reset]"
-                 << "pressure:" << currentPressure << "bar"
+                 << "normalizedP:" << currentPressure << "bar"
                  << "temp:" << currentTemp << "°C"
                  << "trimmedTo:" << AUTO_RESET_KEEP_SESSIONS << "sessions";
 
@@ -235,15 +220,12 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
             history.removeLast();
         }
         saveHistory(history);
-        m_lastWarnedSession = -99;  // Allow warnings again after reset
+        m_lastWarnedSession = -99;
         m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
         return;
     }
 
     // --- Compute progress toward thresholds ---
-    // Pressure threshold is flow-relative: baseline * multiplier (same buildup level at any flow)
-    // Temperature threshold remains fixed (overshoot from target is flow-independent)
-
     double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
     double pressureRange = pressureWarnLevel - baselinePressure;
     double tempRange = TEMPERATURE_THRESHOLD - baselineTemp;
@@ -259,9 +241,9 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     }
 
     qDebug() << "SteamHealth [trend]"
-             << "comparable:" << n
-             << "baselineP:" << baselinePressure << "bar"
-             << "currentP:" << currentPressure << "bar"
+             << "sessions:" << n
+             << "baselineP:" << baselinePressure << "bar (normalized)"
+             << "currentP:" << currentPressure << "bar (normalized)"
              << "warnLevel:" << QString::number(pressureWarnLevel, 'f', 1) << "bar"
              << "progressP:" << QString::number(progressP, 'f', 2)
              << "baselineT:" << baselineTemp << "°C (target:" << steamTemp << ")"
@@ -278,7 +260,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     // --- Emit warnings at 60% progress ---
 
     if (progressP >= TREND_PROGRESS_THRESHOLD) {
-        qWarning() << "SteamHealth [warn] pressure at" << currentPressure
+        qWarning() << "SteamHealth [warn] normalized pressure at" << currentPressure
                    << "bar, baseline" << baselinePressure
                    << "bar (" << qRound(progressP * 100) << "% toward" << pressureWarnLevel << "bar)";
         m_lastWarnedSession = m_sessionCount;
@@ -308,14 +290,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
 
 void SteamHealthTracker::updateCachedStats(const QList<SteamSessionSummary>& history,
                                             int steamFlow, int steamTemp) {
-    QList<const SteamSessionSummary*> comparable;
-    for (const auto& s : history) {
-        if (isComparable(s, steamFlow, steamTemp)) {
-            comparable.append(&s);
-        }
-    }
-
-    if (comparable.isEmpty()) {
+    if (history.isEmpty()) {
         m_baselinePressure = 0.0;
         m_baselineTemperature = 0.0;
         m_currentPressure = 0.0;
@@ -323,17 +298,17 @@ void SteamHealthTracker::updateCachedStats(const QList<SteamSessionSummary>& his
         return;
     }
 
-    // Current = most recent
-    m_currentPressure = comparable.first()->avgPressure;
-    m_currentTemperature = comparable.first()->avgTemperature;
+    // Current = most recent session (normalized to reference flow)
+    m_currentPressure = normalizePressure(history.first().avgPressure, history.first().steamFlow);
+    m_currentTemperature = history.first().avgTemperature;
 
-    // Pressure baseline = lowest recorded avgPressure
-    m_baselinePressure = comparable.first()->avgPressure;
-    for (const auto* s : comparable) {
-        m_baselinePressure = qMin(m_baselinePressure, s->avgPressure);
+    // Pressure baseline = lowest normalized pressure across all sessions
+    m_baselinePressure = m_currentPressure;
+    for (const auto& s : history) {
+        m_baselinePressure = qMin(m_baselinePressure, normalizePressure(s.avgPressure, s.steamFlow));
     }
 
-    // Temperature baseline = user's target setting
+    // Temperature baseline = current session's target setting
     m_baselineTemperature = static_cast<double>(steamTemp);
 }
 

@@ -136,54 +136,74 @@ private slots:
     }
 
     // ==========================================
-    // SteamHealthTracker: settings tolerance
+    // SteamHealthTracker: flow normalization
     // ==========================================
 
-    void settingsToleranceMatchesWithinBand() {
+    void normalizationProducesConsistentBaseline() {
         SteamHealthTracker tracker;
 
-        // Seed 5 sessions at flow=150, temp=160
-        for (int i = 0; i < 5; ++i) {
+        // Mix sessions at different flow settings — all on a clean machine.
+        // Flow 75 (0.75 mL/s): avg pressure ~1.4 bar
+        // Flow 120 (1.20 mL/s): avg pressure ~2.0 bar
+        // Flow 150 (1.50 mL/s, reference): avg pressure ~2.4 bar (extrapolated)
+        // Normalization: measuredP - 0.012 * (flow - 150)
+        //   flow 75: 1.4 - 0.012*(75-150) = 1.4 + 0.9 = 2.3 bar normalized
+        //   flow 120: 2.0 - 0.012*(120-150) = 2.0 + 0.36 = 2.36 bar normalized
+        //   flow 150: 2.4 - 0.012*(150-150) = 2.4 bar normalized
+
+        // 2 sessions at flow=75, raw pressure 1.4 bar
+        for (int i = 0; i < 2; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 1.4, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 75, 160);
+        }
+
+        // 2 sessions at flow=120, raw pressure 2.0 bar
+        for (int i = 0; i < 2; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
                 model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 120, 160);
+        }
+
+        // 1 session at flow=150, raw pressure 2.4 bar
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.4, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
 
-        QVERIFY(tracker.hasData());
+        QVERIFY(tracker.hasData());  // 5 sessions total
 
-        // Now add session at flow=155 (within ±10 tolerance) — should still be comparable
-        SteamDataModel model;
-        for (int j = 0; j < 40; ++j)
-            model.addSample(2.0 + j * 0.6, 2.5, 1.0, 161.0);
-        tracker.onSessionComplete(&model, 155, 161);
-
-        // currentPressure should reflect the new session (not 0.0 which would mean no comparable data)
-        QVERIFY(tracker.currentPressure() > 0.0);
+        // All normalized pressures should be close (~2.3-2.4 bar)
+        // Baseline = lowest normalized = 2.3 (from flow=75 sessions)
+        QCOMPARE(tracker.baselinePressure(), 2.3);
+        // Current = most recent normalized = 2.4 (flow=150 session)
+        QCOMPARE(tracker.currentPressure(), 2.4);
     }
 
-    void settingsToleranceRejectsOutOfBand() {
+    void sessionsAtDifferentFlowAllCountToward5() {
         SteamHealthTracker tracker;
 
-        // Seed 5 sessions at flow=150, temp=160
-        for (int i = 0; i < 5; ++i) {
+        // 3 sessions at flow=80, 2 at flow=150 — all should count
+        for (int i = 0; i < 3; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 1.5, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 80, 160);
+        }
+        QVERIFY(!tracker.hasData());  // Only 3
+
+        for (int i = 0; i < 2; ++i) {
             SteamDataModel model;
             for (int j = 0; j < 40; ++j)
                 model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
             tracker.onSessionComplete(&model, 150, 160);
         }
-
-        // Change to very different flow (200, well outside ±10) — should not be comparable
-        SteamDataModel model;
-        for (int j = 0; j < 40; ++j)
-            model.addSample(2.0 + j * 0.6, 5.0, 1.0, 160.0);
-        tracker.onSessionComplete(&model, 200, 160);
-
-        // The baseline/current should still reflect flow=200 sessions,
-        // but hasData should be false since there's only 1 session at flow=200
-        // Actually updateCachedStats uses the latest settings, so current will reflect 200
-        // but baseline should be 5.0 since it's the only comparable session
-        QCOMPARE(tracker.currentPressure(), 5.0);
+        QVERIFY(tracker.hasData());  // Now 5 total
+        QCOMPARE(tracker.sessionCount(), 5);
     }
 
     // ==========================================

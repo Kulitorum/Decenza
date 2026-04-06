@@ -42,6 +42,11 @@ public:
     double temperatureThreshold() const { return TEMPERATURE_THRESHOLD; }
     double trendProgressThreshold() const { return TREND_PROGRESS_THRESHOLD; }
 
+    // Normalize pressure to REFERENCE_FLOW for cross-setting comparison.
+    // Raw pressures are stored; normalization is applied at read time so
+    // recalibrating the model doesn't require re-collecting data.
+    double normalizePressure(double avgPressure, int steamFlow) const;
+
     // Called per BLE sample during steaming (live threshold checks)
     void onSample(double pressure, double temperature);
 
@@ -67,9 +72,6 @@ signals:
     void sessionHistoryChanged();
 
 private:
-    // Returns true if session matches current settings within tolerance
-    bool isComparable(const SteamSessionSummary& s, int steamFlow, int steamTemp) const;
-
     QList<SteamSessionSummary> loadHistory() const;
     void saveHistory(const QList<SteamSessionSummary>& history);
     void checkTrend(QList<SteamSessionSummary>& history, int steamFlow, int steamTemp);
@@ -104,7 +106,7 @@ private:
     static constexpr double AUTO_RESET_DROP_THRESHOLD = 0.3;  // auto-reset baseline if drop >= 30% of range (likely descale)
     static constexpr int AUTO_RESET_KEEP_SESSIONS = 3;       // sessions to keep after auto-reset
     static constexpr double TRIM_SECONDS = 2.0;              // skip first 2s of samples
-    static constexpr int FLOW_TOLERANCE = 10;                // ±0.10 mL/s for settings comparison
-    static constexpr int TEMP_TOLERANCE = 2;                 // ±2°C for settings comparison
+    static constexpr int REFERENCE_FLOW = 150;               // 1.5 mL/s — normalization reference
+    static constexpr double PRESSURE_PER_FLOW_UNIT = 0.012;  // bar per 0.01 mL/s (from RO-water baseline data)
     static constexpr int WARN_COOLDOWN_SESSIONS = 5;         // re-warn at most every N sessions
 };
