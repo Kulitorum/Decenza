@@ -57,13 +57,13 @@ AnalysisFlags: flow_trend_ok, channeling_expected
 
 | Reason | Profiles |
 |--------|---------|
-| Declining pressure → flow varies | D-Flow family, Default, Londinium, 80's Espresso, Best Overall, Cremina, Gagné Adaptive, Advanced Spring Lever, Traditional/Spring Lever, Espresso Forge |
+| Declining pressure → flow varies | D-Flow family, Default, Londinium, 80's Espresso, Best Overall, Cremina, Gagné Adaptive, Advanced Spring Lever, Traditional/Spring Lever, Espresso Forge, A-Flow, Idan's Strega Plus |
 | Constant pressure → rising flow (puck erosion) | E61 (all variants), Classic Italian / Gentler 8.4 / Italian Australian, Trendy 6 Bar, Preinfuse Then 45ml |
 | Blooming profile → ramp from ~0 at bloom exit | Blooming Espresso, Blooming Allonge, Easy Blooming, TurboBloom |
 | Turbo (no bloom) → rapid preinfusion-to-extraction transition | TurboTurbo |
 | Small basket / declining pressure | 7g Basket |
 | Gentle/Sweet constant-pressure shot | Gentle & Sweet, Extractamundo Dos |
-| Pour-over / filter — flow pulses between 0 and target | Pour Over Basket |
+| Pour-over / filter — flow pulses between 0 and target | Pour Over Basket, Filter 2.0, Filter3 |
 | Manual — operator defines the flow | GHC Manual Control |
 | Tea — not espresso | Tea (all variants) |
 
@@ -834,7 +834,7 @@ Quick reference for which profiles work across roast levels. Profiles without a 
 | Profile | Light | Medium | Dark | Category | `AnalysisFlags` |
 |---------|-------|--------|------|----------|-----------------|
 | D-Flow (all variants) | Good | Excellent | Good | Lever/Flow hybrid | `flow_trend_ok` |
-| A-Flow (all variants) | - | Good | Excellent (dark/very dark) | Pressure-ramp/Flow | - |
+| A-Flow (all variants) | - | Good | Excellent (dark/very dark) | Pressure-ramp/Flow | `flow_trend_ok` |
 | Adaptive v2 | Good | Excellent (med-light) | - | Flow/adaptive | - |
 | Blooming Espresso | Excellent (hard) | Good | - | Blooming | - |
 | Blooming Allongé | Excellent (ultralight) | - | - | Blooming/Allongé | - |
@@ -869,6 +869,7 @@ Quick reference for which profiles work across roast levels. Profiles without a 
 | Hybrid pour over espresso | Excellent (ultra-light) | - | - | Long preinfusion | - |
 | Innovative long preinfusion | Excellent (ultra-light) | - | - | Long preinfusion | - |
 | Preinfuse then 45ml of water | Good | Good | Good | Volume-based | - |
+| Idan's Strega Plus | - | Good (med-light) | Good (dark variant) | Lever emulation | `flow_trend_ok` |
 | Espresso Forge Dark | - | Good | Good | Manual emulation | `flow_trend_ok` |
 | Espresso Forge Light | Good | Good | - | Manual emulation | `flow_trend_ok` |
 | Trendy 6 bar low pressure shot | Excellent | - | - | Constant pressure | `flow_trend_ok` |
@@ -876,12 +877,12 @@ Quick reference for which profiles work across roast levels. Profiles without a 
 
 ### Filter / pour-over profiles
 
-| Profile | Notes | Category |
-|---------|-------|----------|
-| Filter 2.0 / 2.1 | All roasts; lower temp for dark | Filter (blooming) |
-| Filter3 | Light/medium; coarsest grind | Filter (no-bypass) |
-| Pour over basket (all V60/Kalita variants) | All roasts; gravity-fed | Pour over |
-| Pour over basket/Cold brew | All roasts; cold water | Cold brew |
+| Profile | Notes | Category | `AnalysisFlags` |
+|---------|-------|----------|-----------------|
+| Filter 2.0 / 2.1 | All roasts; lower temp for dark | Filter (blooming) | `flow_trend_ok` |
+| Filter3 | Light/medium; coarsest grind | Filter (no-bypass) | `flow_trend_ok` |
+| Pour over basket (all V60/Kalita variants) | All roasts; gravity-fed | Pour over | - |
+| Pour over basket/Cold brew | All roasts; cold water | Cold brew | - |
 
 ### Specialty / manual profiles
 
