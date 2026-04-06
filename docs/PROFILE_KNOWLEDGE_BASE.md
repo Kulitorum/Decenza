@@ -42,10 +42,30 @@ AnalysisFlags: channeling_expected
 AnalysisFlags: flow_trend_ok, channeling_expected
 ```
 
-| Flag | Effect |
-|------|--------|
-| `flow_trend_ok` | Suppresses "Flow rose/dropped X ml/s" cautions. Use for lever profiles (declining flow is intentional) and constant-pressure profiles (rising flow is normal puck erosion). Do NOT use for flow-controlled profiles where flow deviation is informative. |
-| `channeling_expected` | Suppresses the dC/dt channeling check entirely. Use only for profiles where channeling is inherent to the design (e.g. Allongé at 4.5 ml/s). |
+| Flag | Effect | Trigger threshold | Use when |
+|------|--------|-------------------|----------|
+| `flow_trend_ok` | Suppresses "Flow rose/dropped X ml/s" caution | Flow at end of pour differs from start of pour by >0.5 ml/s | Declining-pressure profiles (lever, Espresso Forge); constant-pressure profiles (E61, Classic Italian — rising flow is normal puck erosion); blooming profiles (flow ramps from ~0 at bloom exit to extraction rate, always exceeds threshold); pour-over profiles (flow pulses between 0 and target); manual/GHC profiles (operator-controlled, any pattern valid); tea profiles (not espresso, different flow dynamics entirely) |
+| `channeling_expected` | Suppresses dC/dt channeling detection entirely | |dC/dt| sustained above 3.0 for >10 samples during pour | Only for profiles where high-velocity channeling is inherent: Allongé at 4.5 ml/s constant flow |
+
+**Channeling check is also auto-skipped (no flag needed) when:**
+- `beverageType` is `"filter"` or `"pourover"`
+- Average flow during pour exceeds 3.0 ml/s (turbo shots)
+
+**Flow trend check is NOT auto-skipped for turbo/filter** — add `flow_trend_ok` to any profile whose pour-phase flow legitimately rises or falls >0.5 ml/s on a well-dialed shot.
+
+**Quick reference — profiles with `flow_trend_ok`:**
+
+| Reason | Profiles |
+|--------|---------|
+| Declining pressure → flow varies | D-Flow family, Default, Londinium, 80's Espresso, Best Overall, Cremina, Gagné Adaptive, Advanced Spring Lever, Traditional/Spring Lever, Espresso Forge |
+| Constant pressure → rising flow (puck erosion) | E61 (all variants), Classic Italian / Gentler 8.4 / Italian Australian, Trendy 6 Bar, Preinfuse Then 45ml |
+| Blooming profile → ramp from ~0 at bloom exit | Blooming Espresso, Blooming Allonge, Easy Blooming, TurboBloom |
+| Turbo (no bloom) → rapid preinfusion-to-extraction transition | TurboTurbo |
+| Small basket / declining pressure | 7g Basket |
+| Gentle/Sweet constant-pressure shot | Gentle & Sweet, Extractamundo Dos |
+| Pour-over / filter — flow pulses between 0 and target | Pour Over Basket |
+| Manual — operator defines the flow | GHC Manual Control |
+| Tea — not espresso | Tea (all variants) |
 
 ### Field lines
 

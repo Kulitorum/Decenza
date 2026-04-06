@@ -48,6 +48,7 @@ DO NOT flag variable pressure curves, steep pre-infusion pressure drop, or a sli
 
 ## Blooming Espresso
 Category: Blooming
+AnalysisFlags: flow_trend_ok
 How it works: Fill at ~4 ml/s until pressure peaks, close valve for 30s bloom, then ramp to 2.2 ml/s flow-controlled extraction with an 8.6 bar limiter. The 30-second pause with zero flow is INTENTIONAL.
 Expected curves: Initial pressure spike during fill, then 30s of declining/zero pressure (bloom phase), then pressure rise to 6-9 bar for extraction. Flow near zero during bloom is BY DESIGN.
 Temperature: 97.5°C preinfusion/fill, drops to 90°C during bloom, 92°C extraction. The high preinfusion temperature and the drop during bloom are intentional.
@@ -62,6 +63,7 @@ This is the hardest profile to dial in — requires lots of beans to experiment.
 ## Blooming Allonge
 Also matches: "Blooming Allongé"
 Category: Blooming/Allonge hybrid
+AnalysisFlags: flow_trend_ok
 How it works: Fast fill at 4.5 ml/s until pressure peaks, ramp down to 2.0 ml/s, then bloom (zero flow, pressure decays), then ramp up to 3.5 ml/s percolation with an 8.6 bar pressure limiter.
 Expected curves: Pressure spike, bloom decay, then low pressure (<6 bar) during percolation at 3.5 ml/s.
 Temperature: 91-95°C (declining across phases)
@@ -337,6 +339,7 @@ DO NOT flag the long low-pressure soak phase as a problem — it is the intentio
 ## Easy Blooming Active Pressure Decline
 Also matches: "Easy blooming - active pressure decline"
 Category: Blooming (adaptive)
+AnalysisFlags: flow_trend_ok
 How it works: Created by Stéphane as an accessible evolution of Rao Blooming. The key innovation is a pressure-threshold bloom exit: rather than a fixed timer, the bloom phase ends when pressure declines to a threshold value. This makes bloom duration self-adjust to grind coarseness — finer grinds hold pressure longer (longer bloom), coarser grinds depressurize quickly (shorter bloom). This eliminates the need to adjust bloom time when changing grind size, making it far more forgiving than Rao Blooming. After bloom, active pressure decline reduces pressure from 7 bar toward a lower endpoint as the shot progresses, preventing over-extraction and managing increasing flow as the puck erodes.
 Expected curves: ~4 bar during fill, declining pressure during bloom (zero flow, pressure falls from 4 to threshold ~2 bar), then 6–7 bar extraction with gradual pressure decline. Zero flow during bloom is INTENTIONAL. Variable bloom duration is NORMAL and expected — it is the adaptive feature working correctly.
 Temperature: 88°C default (adjustable 84–90°C for different roasts; flat burrs can tolerate higher temperatures)
@@ -373,6 +376,7 @@ DO NOT flag variable curves or unexpected path-switching as problems — the ada
 
 ## TurboBloom
 Category: Blooming/Turbo hybrid
+AnalysisFlags: flow_trend_ok
 How it works: Created by Collin as a companion to TurboTurbo. Dynamic bloom into high-flow pressure extraction, targeting high-extraction grinders with flat burrs. Fast fill at 8 ml/s, then dynamic bloom until pressure drops to 2.2 bar (approximately 5s — very short bloom by design), then ramps to 6 bar extraction with a 4.5 ml/s flow limiter. The short, fast bloom is intentional: the fast fill saturates the puck quickly, allowing the bloom to be brief while still achieving even extraction, which in turn permits a higher flow rate during extraction.
 Expected curves: Fill spike, then bloom decay (zero flow, declining pressure), then 6 bar extraction with high flow (3–4.5 ml/s). Zero flow during bloom is INTENTIONAL. High flow during extraction is EXPECTED.
 Temperature: 86°C fill, drops to 70°C during bloom (intentional to reduce harshness), ramps to 80°C extraction — these temperature variations are all intentional.
@@ -386,6 +390,7 @@ DO NOT flag zero flow during bloom, low bloom temperature, high extraction flow,
 ## TurboTurbo
 Also matches: "Turboturbo"
 Category: Turbo (no bloom)
+AnalysisFlags: flow_trend_ok
 How it works: Created by Collin and Jan. High-extraction turbo shot without a bloom phase. Rapid fill/preinfusion at 96°C to saturate the puck, then 6 bar extraction at 93°C with a 4.5 ml/s flow limiter. Companion to TurboBloom for when bloom-style is not wanted. The original design used 97°C/8ml/s preinfusion, refined to 96°C/4ml/s for better consistency. The high temperature is justified by the coarse grind: coarser grounds have more exposed surface area and less thermal mass to heat, so higher water temperature is needed to achieve the same extraction temperature at the puck.
 Expected curves: Fast preinfusion pressure rise, then 6 bar with high flow (3–4.5 ml/s). Shot is fast and high-flow by design.
 Temperature: 96°C preinfusion, 93°C extraction — high temperatures are intentional and appropriate for the coarse grind.
@@ -429,6 +434,7 @@ DO NOT flag the long preinfusion duration, low flow during soak, or temperature 
 
 ## Preinfuse Then 45ml of Water
 Category: Volume-based / Matt Perger technique
+AnalysisFlags: flow_trend_ok
 How it works: Matt Perger's technique: 25s preinfusion at 4 bar to fully saturate the puck, then extraction at 9 bar until a fixed 45ml of water has been delivered (not time- or weight-based). No scale required. The fixed water volume produces consistent results by bypassing scale dependency.
 Expected curves: Preinfusion at 4 bar (low flow), then 9 bar flat extraction. Shot ends by volume, not weight or time.
 Temperature: 90°C
@@ -440,6 +446,7 @@ DO NOT flag the volume-based stop condition as unusual — fixed water volume wi
 
 ## 7g Basket
 Category: Micro-espresso
+AnalysisFlags: flow_trend_ok
 How it works: Optimized for the Decent 7g mini-basket. Reduced flow rate and lower pressure (7.5 bar) protect the small, thin puck from channeling and blowthrough. Short overall duration.
 Expected curves: Low flow during preinfusion (~2.4 ml/s at 4.5 bar), then 7.5 bar declining to ~4.5 bar. Lower pressure than standard profiles is INTENTIONAL for small puck integrity.
 Temperature: 90°C (some community members find slightly lower temperatures, ~87–88°C, reduce bitterness in small doses)
@@ -468,6 +475,7 @@ AnalysisFlags: flow_trend_ok
 ## Pour Over Basket
 Also matches: "Pour over basket/Decent pour over", "Pour over basket/Kalita 20g in, 340ml out", "Pour over basket/V60 15g in, 250g out", "Pour over basket/V60 20g in, 340g out", "Pour over basket/V60 22g in, 375g out", "Pour over basket/Cold brew 22g in, 375ml out"
 Category: Pour over (filter brewing through espresso machine)
+AnalysisFlags: flow_trend_ok
 How it works: Produces filter coffee using a pour-over basket or filter cone placed under the group head. Multi-pulse brewing with a prewet, bloom pause, and several water pulses. Water temperature near 100°C. Not espresso — pressure stays very low (near 0 bar) throughout.
 Variants: V60 profiles use 8 ml/s high-turbulence flow to leverage V60's design. Kalita uses lower flow (6 ml/s) to prevent choking. Cold brew uses very low flow (2–2.5 ml/s) at 20°C water. Larger dose sizes (22g) use the same technique but take longer.
 Expected curves: Very low to zero pressure throughout (gravity-fed, not pressure-extracted). Flow pulses between ~0 and target ml/s. Zero flow during bloom and pauses is INTENTIONAL.
@@ -497,6 +505,7 @@ AnalysisFlags: flow_trend_ok
 ## GHC Manual Control
 Also matches: "GHC/manual flow control", "GHC/manual pressure control", "GHC / manual flow control", "GHC / manual pressure control"
 Category: Manual (user-controlled)
+AnalysisFlags: flow_trend_ok
 How it works: For machines with a Group Head Controller (GHC) — the user manually controls flow or pressure in real time by holding/releasing the GHC control. Not an automated profile. Used for baristas who want hands-on espresso control while logging the shot.
 Expected curves: Entirely user-defined — whatever the operator produces. No automated pressure/flow targets. Any pattern of pressure or flow is valid.
 Temperature: 88–96°C (configurable presets)
@@ -505,6 +514,7 @@ DO NOT flag any pressure or flow pattern as a problem — these profiles record 
 ## Tea
 Also matches: "Tea/in a basket", "Tea portafilter/black tea", "Tea portafilter/Japanese green", "Tea portafilter/Chinese green", "Tea portafilter/Sencha", "Tea portafilter/white tea", "Tea portafilter/tisane", "Tea portafilter/oolong", "Tea portafilter/oolong dark", "Tea portafilter/Pressurized tea", "Tea portafilter/no pressure"
 Category: Tea brewing
+AnalysisFlags: flow_trend_ok
 How it works: Brews loose-leaf tea using the portafilter basket or a dedicated tea portafilter. Water temperature and pressure are tuned per tea type — green teas use lower temperatures (~70–80°C) and near-zero pressure; black teas use higher temperatures (~90–95°C); oolongs fall in between. These are tea beverages, not espresso.
 DO NOT analyze tea profiles for espresso grind advice, extraction yield, or shot technique — tea brewing has completely different parameters and goals.
 
