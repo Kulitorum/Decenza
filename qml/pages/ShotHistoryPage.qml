@@ -44,11 +44,6 @@ Page {
     property var initialFilter: null
     property bool _populatingSearch: false
 
-    // Quality flag filter state (ephemeral, not persisted)
-    property bool filterChanneling: false
-    property bool filterTemperatureUnstable: false
-    property bool filterGrindIssue: false
-
     // Sort settings
     property string sortField: Settings.shotHistorySortField
     property string sortDirection: Settings.shotHistorySortDirection
@@ -199,8 +194,23 @@ Page {
                 }
             }
 
+            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes)
+            var flagKeywords = [
+                { pattern: /\bchanneling:yes\b/gi, filterKey: "filterChanneling" },
+                { pattern: /\btemp:yes\b/gi, filterKey: "filterTemperatureUnstable" },
+                { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" }
+            ]
+            for (var j = 0; j < flagKeywords.length; j++) {
+                var fk = flagKeywords[j]
+                if (fk.pattern.test(searchText)) {
+                    filter[fk.filterKey] = true
+                    searchText = searchText.replace(fk.pattern, "")
+                }
+            }
+
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
+            searchText = searchText.replace(/\b(channeling|temp|grind):yes\b/gi, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -217,10 +227,6 @@ Page {
                     filter[field] = initialFilter[field]
             }
         }
-
-        if (filterChanneling) filter.filterChanneling = true
-        if (filterTemperatureUnstable) filter.filterTemperatureUnstable = true
-        if (filterGrindIssue) filter.filterGrindIssue = true
 
         filter.sortField = sortField
         filter.sortDirection = sortDirection
@@ -454,81 +460,6 @@ Page {
                 id: searchTimer
                 interval: 300
                 onTriggered: loadShots()
-            }
-        }
-
-        // Quality flag filter chips
-        Flow {
-            Layout.fillWidth: true
-            spacing: Theme.spacingSmall
-
-            Repeater {
-                model: [
-                    { key: "channeling", labelKey: "badges.channeling", labelFallback: "Channeling detected",
-                      chipColor: Theme.errorColor, prop: "filterChanneling" },
-                    { key: "temp", labelKey: "badges.tempUnstable", labelFallback: "Temp unstable",
-                      chipColor: Theme.warningColor, prop: "filterTemperatureUnstable" },
-                    { key: "grind", labelKey: "badges.grindIssue", labelFallback: "Grind issue",
-                      chipColor: Theme.warningColor, prop: "filterGrindIssue" }
-                ]
-
-                delegate: Rectangle {
-                    id: chipDelegate
-                    required property var modelData
-                    required property int index
-
-                    property bool active: modelData.prop === "filterChanneling" ? filterChanneling
-                                        : modelData.prop === "filterTemperatureUnstable" ? filterTemperatureUnstable
-                                        : filterGrindIssue
-
-                    width: chipRow.width + Theme.spacingMedium * 2
-                    height: Theme.scaled(32)
-                    radius: Theme.scaled(16)
-                    color: active ? Qt.rgba(modelData.chipColor.r, modelData.chipColor.g, modelData.chipColor.b, 0.15)
-                                  : Theme.surfaceColor
-                    border.color: active ? modelData.chipColor : Theme.borderColor
-                    border.width: Theme.scaled(1)
-
-                    Accessible.role: Accessible.CheckBox
-                    Accessible.name: chipLabel.text
-                    Accessible.checked: active
-                    Accessible.focusable: true
-                    Accessible.onPressAction: chipArea.clicked(null)
-
-                    Row {
-                        id: chipRow
-                        anchors.centerIn: parent
-                        spacing: Theme.scaled(4)
-                        Rectangle {
-                            width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
-                            color: chipDelegate.active ? chipDelegate.modelData.chipColor : Theme.textSecondaryColor
-                            anchors.verticalCenter: parent.verticalCenter
-                            Accessible.ignored: true
-                        }
-                        Text {
-                            id: chipLabel
-                            text: TranslationManager.translate(chipDelegate.modelData.labelKey, chipDelegate.modelData.labelFallback)
-                            font: Theme.captionFont
-                            color: chipDelegate.active ? chipDelegate.modelData.chipColor : Theme.textSecondaryColor
-                            anchors.verticalCenter: parent.verticalCenter
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    MouseArea {
-                        id: chipArea
-                        anchors.fill: parent
-                        onClicked: {
-                            if (chipDelegate.modelData.prop === "filterChanneling")
-                                filterChanneling = !filterChanneling
-                            else if (chipDelegate.modelData.prop === "filterTemperatureUnstable")
-                                filterTemperatureUnstable = !filterTemperatureUnstable
-                            else
-                                filterGrindIssue = !filterGrindIssue
-                            loadShots()
-                        }
-                    }
-                }
             }
         }
 
@@ -1347,12 +1278,58 @@ Page {
                 }
                 Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                // Quality flag keywords
+                Rectangle {
+                    color: channelingArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: channelingLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: channelingLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("channeling:yes")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: channelingArea.clicked(null)
+                    Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.errorColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: channelingArea; anchors.fill: parent; onClicked: insertSearchKeyword("channeling:yes") }
+                }
+                Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Rectangle {
+                    color: tempArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: tempLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: tempLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("temp:yes")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: tempArea.clicked(null)
+                    Text { id: tempLabel; text: "temp:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.warningColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: tempArea; anchors.fill: parent; onClicked: insertSearchKeyword("temp:yes") }
+                }
+                Text { text: TranslationManager.translate("shothistory.helptemp", "Temp unstable"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "temp:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Rectangle {
+                    color: grindArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: grindLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: grindLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("grind:yes")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: grindArea.clicked(null)
+                    Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.warningColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: grindArea; anchors.fill: parent; onClicked: insertSearchKeyword("grind:yes") }
+                }
+                Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
             }
 
             // Syntax explanation
             Text {
                 text: TranslationManager.translate("shothistory.searchhelpsyntax",
-                    "Syntax: N (exact), N-M (range), N+ (minimum)\nCombine keywords with text: ethiopia dose:18 rating:70+")
+                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, temp:yes, grind:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
