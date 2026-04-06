@@ -107,5 +107,6 @@ private:
     static constexpr double TRIM_SECONDS = 2.0;              // skip first 2s of samples
     static constexpr int REFERENCE_FLOW = 150;               // 1.5 mL/s — normalization reference
     static constexpr double PRESSURE_PER_FLOW_UNIT = 0.012;  // bar per 0.01 mL/s (from RO-water baseline data)
+    static constexpr double CLEAN_NORMALIZED_PRESSURE = 3.0;  // bar at reference flow on a clean machine (conservative, covers 110V/220V variance)
     static constexpr int WARN_COOLDOWN_SESSIONS = 5;         // re-warn at most every N sessions
 };

@@ -207,6 +207,50 @@ private slots:
     }
 
     // ==========================================
+    // SteamHealthTracker: clean reference floor
+    // ==========================================
+
+    void cleanReferenceFloorDetectsScaledMachine() {
+        SteamHealthTracker tracker;
+        QSignalSpy warnSpy(&tracker, &SteamHealthTracker::scaleBuildupWarning);
+
+        // Simulate a machine that has never been seen clean — all sessions
+        // at high normalized pressure (5.0 bar at reference flow).
+        // Without the clean reference floor, baseline would be 5.0 and
+        // no warning would ever fire.
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 5.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        QVERIFY(tracker.hasData());
+        // Baseline should be the clean reference (3.0), not the measured 5.0
+        QCOMPARE(tracker.baselinePressure(), 3.0);
+
+        // Progress should be significant: (5.0 - 3.0) / (min(3.0*3,8.0) - 3.0) = 2.0/5.0 = 0.4
+        // That's above 0.3 (monitor) but below 0.6 (warning)
+        // The 5th session should NOT have triggered a warning (only 40% progress)
+        QCOMPARE(warnSpy.count(), 0);
+    }
+
+    void cleanMachineUsesOwnBaseline() {
+        SteamHealthTracker tracker;
+
+        // Sessions at 2.0 bar (below clean reference of 3.0) — machine is genuinely clean
+        for (int i = 0; i < 5; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 160.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // Baseline should be the measured 2.0, not the clean reference 3.0
+        QCOMPARE(tracker.baselinePressure(), 2.0);
+    }
+
+    // ==========================================
     // SteamHealthTracker: trend detection
     // ==========================================
 

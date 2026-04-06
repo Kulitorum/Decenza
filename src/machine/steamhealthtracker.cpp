@@ -170,11 +170,16 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         return;
     }
 
-    // Normalize all pressures to reference flow
-    double baselinePressure = normalizePressure(history.first().avgPressure, history.first().steamFlow);
+    // Normalize all pressures to reference flow.
+    // Use the clean machine reference as a floor — if the tracker has never
+    // seen a clean machine, the baseline would be the scaled-up pressure and
+    // buildup would be invisible. The floor ensures progress is measured from
+    // a known-clean state even on first use with an already-scaled machine.
+    double measuredBaseline = normalizePressure(history.first().avgPressure, history.first().steamFlow);
     for (const auto& s : history) {
-        baselinePressure = qMin(baselinePressure, normalizePressure(s.avgPressure, s.steamFlow));
+        measuredBaseline = qMin(measuredBaseline, normalizePressure(s.avgPressure, s.steamFlow));
     }
+    double baselinePressure = qMin(measuredBaseline, CLEAN_NORMALIZED_PRESSURE);
 
     // Temperature baseline: lowest measured temperature across all sessions.
     // This tracks real multi-session trends (scale buildup causes overshoot)
@@ -305,11 +310,14 @@ void SteamHealthTracker::updateCachedStats(const QList<SteamSessionSummary>& his
     m_currentPressure = normalizePressure(history.first().avgPressure, history.first().steamFlow);
     m_currentTemperature = history.first().avgTemperature;
 
-    // Pressure baseline = lowest normalized pressure across all sessions
+    // Pressure baseline = min of lowest normalized pressure and clean reference.
+    // The clean reference floor ensures buildup is visible even if the tracker
+    // has only seen scaled-up sessions.
     m_baselinePressure = m_currentPressure;
     for (const auto& s : history) {
         m_baselinePressure = qMin(m_baselinePressure, normalizePressure(s.avgPressure, s.steamFlow));
     }
+    m_baselinePressure = qMin(m_baselinePressure, CLEAN_NORMALIZED_PRESSURE);
 
     // Temperature baseline = lowest measured temperature across all sessions
     m_baselineTemperature = m_currentTemperature;
