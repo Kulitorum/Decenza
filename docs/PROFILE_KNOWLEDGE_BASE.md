@@ -34,7 +34,7 @@ Matching is case- and accent-insensitive (`é` → `e`, etc.). Include the exact
 
 ### AnalysisFlags:
 
-Space-separated (or comma-separated) flags consumed by `ShotAnalysis::generateLines()` and `ShotSummarizer::computeChannelingAnomaly()` to suppress false-positive warnings in the automated Shot Summary dialog:
+Comma-separated flags consumed by `ShotAnalysis::generateLines()` and `ShotSummarizer::computeChannelingAnomaly()` to suppress false-positive warnings in the automated Shot Summary dialog. The parser uses `split(',')` — space-only separators are **not** recognized:
 
 ```
 AnalysisFlags: flow_trend_ok
@@ -87,19 +87,19 @@ All other lines are free-form `Field: value` pairs consumed verbatim by the AI s
 | `Note:` | Clarifications or disambiguation |
 | `AnalysisFlags:` | Parsed by code — see above |
 
-The display renderer (`ProfileSelectorPage.qml`) bolds lines matching `Label: value` where the label is ≤35 characters, italicizes `DO NOT` lines, and hides `Also matches:` and `AnalysisFlags:` lines entirely.
+The display renderer (`ProfileSelectorPage.qml`) bolds lines matching `Label: value` where the label is ≤35 characters and the line does not start with `-` (bullet lines are never bolded), italicizes `DO NOT` lines, and hides `Also matches:` and `AnalysisFlags:` lines entirely. All KB text is HTML-escaped before rendering.
 
 ### knowledge_base_id in profile JSON
 
-Each profile JSON can include a `"knowledge_base_id"` field that caches the resolved KB key so it survives profile renames and Save As. Its value should match the normalized form of the section title **or** one of its aliases. When a profile's `knowledge_base_id` is set, the shot summarizer skips the fuzzy title match and goes directly to that key.
+Each profile JSON can include a `"knowledge_base_id"` field that caches the resolved KB key so it survives profile renames and Save As. Its value should match the normalized form of the section title **or** one of its aliases. When set, `knowledge_base_id` is looked up in `shotAnalysisSystemPrompt()` **before** `matchProfileKey()` is called — if it resolves to a known entry, `matchProfileKey()` is skipped entirely.
 
 ### Matching priority
 
 `matchProfileKey()` tries in this order:
-1. Direct key lookup on the normalized profile title (or `knowledge_base_id`)
+1. Direct key lookup on the normalized profile title
 2. Prefix match — title starts with a known key, or a known key starts with the title
 3. Substring fuzzy match — known key (≥4 chars) is contained within the normalized title
-4. Editor-type fallback — `dflow` → D-Flow entry, `aflow` → A-Flow entry
+4. Editor-type fallback — `dflow` or `D-Flow` → D-Flow entry, `aflow` or `A-Flow` → A-Flow entry
 
 ---
 
