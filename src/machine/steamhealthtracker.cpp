@@ -149,15 +149,17 @@ void SteamHealthTracker::clearHistory() {
 //
 // Baselines:
 //   Pressure: lowest normalized avgPressure across all sessions.
-//   Temperature: the current session's steamTemperature setting (target).
+//   Temperature: lowest measured avgTemperature across all sessions.
 //
 // Warning fires when current value has moved 60% of the way from baseline
 // toward the warn threshold (baseline x 3.0 for pressure, capped at 8 bar / 180°C
 // for temperature). Re-warns at most every 5 sessions.
 //
-// Auto-reset: If the newest session drops >= 30% of the range (relative to the
-// rolling average of recent sessions) toward the threshold, we assume a descale
-// happened and trim old sessions.
+// Auto-reset: Pressure only. If the newest session's normalized pressure drops
+// >= 30% of the range (relative to the rolling average of recent sessions),
+// we assume a descale happened and trim old sessions. Temperature is excluded
+// from auto-reset because temperature changes are driven by the heater setpoint,
+// not limescale — changing the steam temperature setting would spuriously trigger.
 
 void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
                                      int steamFlow, int steamTemp) {
@@ -174,37 +176,38 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         baselinePressure = qMin(baselinePressure, normalizePressure(s.avgPressure, s.steamFlow));
     }
 
-    // Temperature baseline: the current session's target setting
-    double baselineTemp = static_cast<double>(steamTemp);
+    // Temperature baseline: lowest measured temperature across all sessions.
+    // This tracks real multi-session trends (scale buildup causes overshoot)
+    // rather than comparing against the current setting (which changes when
+    // the user adjusts their steam temperature preference).
+    double baselineTemp = history.first().avgTemperature;
+    for (const auto& s : history) {
+        baselineTemp = qMin(baselineTemp, s.avgTemperature);
+    }
 
     // Current: most recent session (normalized)
     double currentPressure = normalizePressure(history.first().avgPressure, history.first().steamFlow);
     double currentTemp = history.first().avgTemperature;
 
-    // --- Auto-reset on meaningful drop (likely descale) ---
+    // --- Auto-reset on meaningful pressure drop (likely descale) ---
+    // Only pressure is used for auto-reset detection. Temperature changes are
+    // driven by the heater setpoint, not limescale — a user changing their steam
+    // temperature setting would spuriously trigger a reset.
     bool autoReset = false;
     qsizetype recentCount = qMin(qsizetype(5), n - 1);
     if (recentCount > 0) {
-        double recentPressureSum = 0, recentTempSum = 0;
+        double recentPressureSum = 0;
         for (qsizetype i = 1; i <= recentCount; ++i) {
             recentPressureSum += normalizePressure(history[i].avgPressure, history[i].steamFlow);
-            recentTempSum += history[i].avgTemperature;
         }
         double recentAvgPressure = recentPressureSum / recentCount;
-        double recentAvgTemp = recentTempSum / recentCount;
 
         double pressureWarnLevel = qMin(baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT);
+        // Use baseline range so auto-reset fires even when recentAvg exceeds warn level
         double pressureRange = pressureWarnLevel - baselinePressure;
         if (pressureRange > 0) {
             double drop = recentAvgPressure - currentPressure;
             if (drop >= pressureRange * AUTO_RESET_DROP_THRESHOLD) {
-                autoReset = true;
-            }
-        }
-        double tempRange = TEMPERATURE_THRESHOLD - recentAvgTemp;
-        if (!autoReset && tempRange > 0) {
-            double drop = recentAvgTemp - currentTemp;
-            if (drop >= tempRange * AUTO_RESET_DROP_THRESHOLD) {
                 autoReset = true;
             }
         }
@@ -308,8 +311,11 @@ void SteamHealthTracker::updateCachedStats(const QList<SteamSessionSummary>& his
         m_baselinePressure = qMin(m_baselinePressure, normalizePressure(s.avgPressure, s.steamFlow));
     }
 
-    // Temperature baseline = current session's target setting
-    m_baselineTemperature = static_cast<double>(steamTemp);
+    // Temperature baseline = lowest measured temperature across all sessions
+    m_baselineTemperature = m_currentTemperature;
+    for (const auto& s : history) {
+        m_baselineTemperature = qMin(m_baselineTemperature, s.avgTemperature);
+    }
 }
 
 // --- QSettings JSON persistence ---

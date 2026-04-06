@@ -349,21 +349,38 @@ private slots:
         QCOMPARE(tracker.currentPressure(), 3.2);
     }
 
-    void temperatureBaselineIsUserTarget() {
+    void temperatureBaselineIsLowestMeasured() {
         SteamHealthTracker tracker;
 
-        // Session with temp setting = 160
-        SteamDataModel model;
-        for (int j = 0; j < 40; ++j)
-            model.addSample(2.0 + j * 0.6, 2.0, 1.0, 165.0);  // actual 165, target 160
-
-        // Need 5 sessions for hasData
-        for (int i = 0; i < 5; ++i)
+        // Sessions with varying measured temperatures
+        // Session 1-3: measured 165°C
+        for (int i = 0; i < 3; ++i) {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 165.0);
             tracker.onSessionComplete(&model, 150, 160);
+        }
 
-        // Baseline temp should be the target setting (160), not the measured value (165)
-        QCOMPARE(tracker.baselineTemperature(), 160.0);
-        QCOMPARE(tracker.currentTemperature(), 165.0);
+        // Session 4: measured 158°C (lowest)
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 158.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        // Session 5: measured 162°C
+        {
+            SteamDataModel model;
+            for (int j = 0; j < 40; ++j)
+                model.addSample(2.0 + j * 0.6, 2.0, 1.0, 162.0);
+            tracker.onSessionComplete(&model, 150, 160);
+        }
+
+        QVERIFY(tracker.hasData());
+        // Baseline temp = lowest measured (158), not user setting (160)
+        QCOMPARE(tracker.baselineTemperature(), 158.0);
+        QCOMPARE(tracker.currentTemperature(), 162.0);
     }
 
     // ==========================================
