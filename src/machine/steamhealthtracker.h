@@ -42,11 +42,6 @@ public:
     double temperatureThreshold() const { return TEMPERATURE_THRESHOLD; }
     double trendProgressThreshold() const { return TREND_PROGRESS_THRESHOLD; }
 
-    // Normalize pressure to REFERENCE_FLOW for cross-setting comparison.
-    // Raw pressures are stored; normalization is applied at read time so
-    // recalibrating the model doesn't require re-collecting data.
-    double normalizePressure(double avgPressure, int steamFlow) const;
-
     // Called per BLE sample during steaming (live threshold checks)
     void onSample(double pressure, double temperature);
 
@@ -72,10 +67,14 @@ signals:
     void sessionHistoryChanged();
 
 private:
+    // Normalize pressure to REFERENCE_FLOW for cross-setting comparison.
+    // Clamped to 0.1 bar minimum to prevent negative baselines at extreme flows.
+    double normalizePressure(double avgPressure, int steamFlow) const;
+
     QList<SteamSessionSummary> loadHistory() const;
     void saveHistory(const QList<SteamSessionSummary>& history);
     void checkTrend(QList<SteamSessionSummary>& history, int steamFlow, int steamTemp);
-    void updateCachedStats(const QList<SteamSessionSummary>& history, int steamFlow, int steamTemp);
+    void updateCachedStats(const QList<SteamSessionSummary>& history, int steamTemp);
 
     QSettings m_settings;
     int m_sessionCount = 0;

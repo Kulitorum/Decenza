@@ -16,12 +16,12 @@ SteamHealthTracker::SteamHealthTracker(QObject* parent)
     m_lastSteamFlow = m_settings.value("steam/lastTrackedFlow", 0).toInt();
     m_lastSteamTemp = m_settings.value("steam/lastTrackedTemp", 0).toInt();
     if (!history.isEmpty()) {
-        updateCachedStats(history, m_lastSteamFlow, m_lastSteamTemp);
+        updateCachedStats(history, m_lastSteamTemp);
     }
 }
 
 double SteamHealthTracker::normalizePressure(double avgPressure, int steamFlow) const {
-    return avgPressure - PRESSURE_PER_FLOW_UNIT * (steamFlow - REFERENCE_FLOW);
+    return qMax(0.1, avgPressure - PRESSURE_PER_FLOW_UNIT * (steamFlow - REFERENCE_FLOW));
 }
 
 void SteamHealthTracker::onSample(double pressure, double temperature) {
@@ -121,7 +121,7 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     m_lastSteamTemp = steamTempSetting;
     m_settings.setValue("steam/lastTrackedFlow", steamFlowSetting);
     m_settings.setValue("steam/lastTrackedTemp", steamTempSetting);
-    updateCachedStats(history, steamFlowSetting, steamTempSetting);
+    updateCachedStats(history, steamTempSetting);
 
     emit sessionHistoryChanged();
 }
@@ -289,7 +289,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
 }
 
 void SteamHealthTracker::updateCachedStats(const QList<SteamSessionSummary>& history,
-                                            int steamFlow, int steamTemp) {
+                                            int steamTemp) {
     if (history.isEmpty()) {
         m_baselinePressure = 0.0;
         m_baselineTemperature = 0.0;
