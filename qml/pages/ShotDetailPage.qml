@@ -347,6 +347,7 @@ Page {
                 Layout.fillWidth: true
                 channelingDetected: shotData.channelingDetected ?? false
                 temperatureUnstable: shotData.temperatureUnstable ?? false
+                grindIssueDetected: shotData.grindIssueDetected ?? false
                 onSummaryRequested: detailAnalysisDialog.open()
             }
 

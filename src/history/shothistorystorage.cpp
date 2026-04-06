@@ -685,6 +685,19 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 10;
     }
 
+    // Migration 11: Add grind_issue_detected flag.
+    // Recomputed on-the-fly in loadShotRecordStatic() for shots predating this migration.
+    if (currentVersion < 11) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 11 (grind_issue_detected)";
+
+        if (!hasColumn("shots", "grind_issue_detected"))
+            query.exec("ALTER TABLE shots ADD COLUMN grind_issue_detected INTEGER DEFAULT 0");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (11)");
+        currentVersion = 11;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -900,6 +913,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                 data.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
             }
         }
+
+        // Grind issue detection: flow persistently above or below goal during pour
+        data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
+            flowPts, shotData->flowGoalData(), pourStart, pourEnd);
     }
 
     // Compress sample data on main thread (reads QObject data vectors)
@@ -989,7 +1006,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
-                    channeling_detected, temperature_unstable
+                    channeling_detected, temperature_unstable, grind_issue_detected
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -998,7 +1015,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
-                    :channeling_detected, :temperature_unstable
+                    :channeling_detected, :temperature_unstable, :grind_issue_detected
                 )
             )");
 
@@ -1031,6 +1048,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":profile_kb_id", data.profileKbId.isEmpty() ? QVariant() : data.profileKbId);
             query.bindValue(":channeling_detected", data.channelingDetected ? 1 : 0);
             query.bindValue(":temperature_unstable", data.temperatureUnstable ? 1 : 0);
+            query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1766,6 +1784,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 
     result["channelingDetected"] = record.channelingDetected;
     result["temperatureUnstable"] = record.temperatureUnstable;
+    result["grindIssueDetected"] = record.grindIssueDetected;
 
     // Phase summaries for UI (computed at save time or on-the-fly for legacy shots)
     if (!record.phaseSummariesJson.isEmpty()) {
@@ -1937,7 +1956,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
-               channeling_detected, temperature_unstable
+               channeling_detected, temperature_unstable, grind_issue_detected
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1982,6 +2001,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.profileKbId = query.value(29).toString();
     record.channelingDetected = query.value(30).toInt() != 0;
     record.temperatureUnstable = query.value(31).toInt() != 0;
+    record.grindIssueDetected = query.value(32).toInt() != 0;
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
@@ -2051,6 +2071,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
             }
         }
+
+        // Grind issue
+        record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
+            record.flow, record.flowGoal, pourStart, pourEnd);
     }
 
     return record;
@@ -3069,8 +3093,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override, profile_kb_id,
-                        channeling_detected, temperature_unstable)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        channeling_detected, temperature_unstable, grind_issue_detected)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -3103,11 +3127,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("temperature_override"));
                 insert.addBindValue(srcShots.value("yield_override"));
                 insert.addBindValue(srcShots.value("profile_kb_id"));
-                // Quality flags — fallback to 0 for pre-migration-10 source databases
+                // Quality flags — fallback to 0 for pre-migration source databases
                 QVariant ch = srcShots.value("channeling_detected");
                 insert.addBindValue((ch.isValid() && !ch.isNull()) ? ch : QVariant(0));
                 QVariant tu = srcShots.value("temperature_unstable");
                 insert.addBindValue((tu.isValid() && !tu.isNull()) ? tu : QVariant(0));
+                QVariant gi = srcShots.value("grind_issue_detected");
+                insert.addBindValue((gi.isValid() && !gi.isNull()) ? gi : QVariant(0));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -3287,7 +3313,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
-            channeling_detected, temperature_unstable
+            channeling_detected, temperature_unstable, grind_issue_detected
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -3296,7 +3322,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
-            :channeling_detected, :temperature_unstable
+            :channeling_detected, :temperature_unstable, :grind_issue_detected
         )
     )");
 
@@ -3331,6 +3357,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":profile_kb_id", record.profileKbId.isEmpty() ? QVariant() : record.profileKbId);
     query.bindValue(":channeling_detected", record.channelingDetected ? 1 : 0);
     query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);
+    query.bindValue(":grind_issue_detected", record.grindIssueDetected ? 1 : 0);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();

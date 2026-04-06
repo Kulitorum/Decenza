@@ -87,6 +87,13 @@ public:
     static constexpr double FLOW_GOAL_MIN_AVG = 0.3;    // ml/s — ignore goal periods with very low target (preinfusion)
     static constexpr double FLOW_DEVIATION_THRESHOLD = 0.4;  // ml/s avg deviation to flag grind issue
 
+    // Returns true if flow consistently deviates from goal by more than FLOW_DEVIATION_THRESHOLD
+    // during the pour phase, indicating a grind issue (too fine or too coarse).
+    // Returns false when there is insufficient flow goal data (< 5 qualifying samples).
+    static bool detectGrindIssue(const QVector<QPointF>& flow,
+                                  const QVector<QPointF>& flowGoal,
+                                  double pourStart, double pourEnd);
+
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
     // flowGoal is the profile's target flow curve and drives grind-direction analysis (may be empty).

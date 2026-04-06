@@ -10,7 +10,7 @@
 
 #include "history/shothistorystorage.h"
 
-// Test the ShotHistoryStorage schema creation and migration chain (v1->v9).
+// Test the ShotHistoryStorage schema creation and migration chain (v1->v11).
 //
 // Strategy: create a temp DB with an old schema (missing columns),
 // set schema_version to an old value, then call initialize() which runs
@@ -151,7 +151,7 @@ private slots:
     }
 
     // ==========================================
-    // Fresh DB: full schema at v10
+    // Fresh DB: full schema at v11
     // ==========================================
 
     void freshDbCreatesSchema() {
@@ -164,7 +164,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 10);
+            QCOMPARE(getSchemaVersion(db), 11);
         });
     }
 
@@ -184,6 +184,7 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
             QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
+            QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -223,7 +224,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 10);
+            QCOMPARE(getSchemaVersion(db), 11);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -232,6 +233,7 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
             QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
+            QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }

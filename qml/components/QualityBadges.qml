@@ -5,12 +5,13 @@ import Decenza
 
 // Single-line quality status chip(s) shown below the graph legend.
 // Shows the most important quality indicator: channeling (red), temp unstable (orange),
-// or clean extraction (green). If both flags are set, shows both red + orange.
+// grind issue (orange), or clean extraction (green). Multiple flags show multiple chips.
 Item {
     id: root
 
     required property bool channelingDetected
     required property bool temperatureUnstable
+    required property bool grindIssueDetected
 
     signal summaryRequested()
 
@@ -90,9 +91,43 @@ Item {
             }
         }
 
-        // Clean extraction badge (green) — only shown when neither flag is set
+        // Grind issue badge (orange)
         Rectangle {
-            visible: !root.channelingDetected && !root.temperatureUnstable
+            visible: root.grindIssueDetected
+            width: grindRow.width + Theme.spacingMedium * 2
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
+            color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
+            border.color: Theme.warningColor
+            border.width: Theme.scaled(1)
+
+            Accessible.role: Accessible.StaticText
+            Accessible.name: grindText.text
+            Accessible.focusable: true
+
+            Row {
+                id: grindRow
+                anchors.centerIn: parent
+                spacing: Theme.scaled(4)
+                Rectangle {
+                    width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                    color: Theme.warningColor; anchors.verticalCenter: parent.verticalCenter
+                }
+                Tr {
+                    id: grindText
+                    key: "badges.grindIssue"
+                    fallback: "Grind issue"
+                    font: Theme.captionFont
+                    color: Theme.warningColor
+                    anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+            }
+        }
+
+        // Clean extraction badge (green) — only shown when no flags are set
+        Rectangle {
+            visible: !root.channelingDetected && !root.temperatureUnstable && !root.grindIssueDetected
             width: cleanRow.width + Theme.spacingMedium * 2
             height: Theme.scaled(28)
             radius: Theme.scaled(14)

@@ -523,6 +523,7 @@ Page {
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
                 channelingDetected: editShotData.channelingDetected ?? false
                 temperatureUnstable: editShotData.temperatureUnstable ?? false
+                grindIssueDetected: editShotData.grindIssueDetected ?? false
                 onSummaryRequested: reviewAnalysisDialog.open()
             }
 

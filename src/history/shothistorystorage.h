@@ -97,6 +97,7 @@ struct ShotRecord {
     // Quality flags (computed at save time, recomputed on-the-fly for legacy shots)
     bool channelingDetected = false;
     bool temperatureUnstable = false;
+    bool grindIssueDetected = false;
 
     // Phase summaries JSON (per-phase metrics: duration, avgPressure, avgFlow, weightGained, etc.)
     QString phaseSummariesJson;
@@ -179,6 +180,7 @@ struct ShotSaveData {
     // Quality flags (computed at save time using ShotAnalysis helpers)
     bool channelingDetected = false;
     bool temperatureUnstable = false;
+    bool grindIssueDetected = false;
 
     // Phase summaries JSON (per-phase metrics for UI display)
     QString phaseSummariesJson;
