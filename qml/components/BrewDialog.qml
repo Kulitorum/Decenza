@@ -647,7 +647,7 @@ Dialog {
                         Layout.fillWidth: true
                         value: root.targetValue
                         from: 1
-                        to: 400
+                        to: 500
                         stepSize: 1
                         decimals: 0
                         suffix: "g"

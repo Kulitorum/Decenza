@@ -656,7 +656,7 @@ Page {
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
-                    from: 0; to: 100; stepSize: 0.1; suffix: " g"
+                    from: 0; to: 500; stepSize: 0.1; suffix: " g"
                     displayText: { stepVersion; return profile && profile.target_weight <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { stepVersion; return profile ? (profile.target_weight || 0) : 0 }
                     onValueModified: function(newValue) {
