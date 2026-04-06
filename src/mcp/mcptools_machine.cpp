@@ -51,11 +51,13 @@ static SteamHealthInfo computeSteamHealth(SteamHealthTracker* tracker)
         ? qBound(0.0, (tracker->currentTemperature() - tracker->baselineTemperature()) / tempRange, 1.0)
         : 0.0;
 
+    double warnThreshold = tracker->trendProgressThreshold();
+    double monitorThreshold = warnThreshold / 2.0;
     double maxProgress = qMax(info.pressureProgress, info.temperatureProgress);
-    if (maxProgress >= 0.6) {
+    if (maxProgress >= warnThreshold) {
         info.status = QStringLiteral("warning");
         info.recommendation = QStringLiteral("Significant scale buildup detected — descaling recommended soon");
-    } else if (maxProgress >= 0.3) {
+    } else if (maxProgress >= monitorThreshold) {
         info.status = QStringLiteral("monitor");
         info.recommendation = QStringLiteral("Scale buildup is progressing — consider descaling in the coming weeks");
     } else {
@@ -143,15 +145,16 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
             result["platform"] = platform;
 
-            // Steam health — only included when there's something worth noting (progress >= 0.3)
+            // Steam health — only included when status is "monitor" or "warning"
             if (mainController) {
                 auto info = computeSteamHealth(mainController->steamHealthTracker());
-                if (info.hasData && qMax(info.pressureProgress, info.temperatureProgress) >= 0.3) {
+                if (info.hasData && info.status != QStringLiteral("healthy")) {
                     QJsonObject sh;
                     sh["sessionCount"] = info.sessionCount;
                     sh["pressureScaleBuildupProgress0to1"] = info.pressureProgress;
                     sh["temperatureScaleBuildupProgress0to1"] = info.temperatureProgress;
                     sh["status"] = info.status;
+                    sh["recommendation"] = info.recommendation;
                     result["steamHealth"] = sh;
                 }
             }
@@ -236,7 +239,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             if (info.hasData) {
                 result["pressureScaleBuildupProgress0to1"] = info.pressureProgress;
                 result["temperatureScaleBuildupProgress0to1"] = info.temperatureProgress;
-                result["warnThresholdProgress0to1"] = 0.6;
+                result["warnThresholdProgress0to1"] = tracker->trendProgressThreshold();
             }
 
             return result;

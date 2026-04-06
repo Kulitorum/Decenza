@@ -40,6 +40,7 @@ public:
     bool hasData() const { return m_sessionCount >= MIN_SESSIONS_FOR_TREND; }
     double pressureThreshold() const { return m_baselinePressure > 0 ? qMin(m_baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT) : PRESSURE_HARD_LIMIT; }
     double temperatureThreshold() const { return TEMPERATURE_THRESHOLD; }
+    double trendProgressThreshold() const { return TREND_PROGRESS_THRESHOLD; }
 
     // Called per BLE sample during steaming (live threshold checks)
     void onSample(double pressure, double temperature);
