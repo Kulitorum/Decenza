@@ -489,10 +489,11 @@ void SteamCalibrator::updateHeaterTemp(double steamTempC)
 
     // Check heater readiness when waiting between steps.
     // keepSteamHeaterOn is enabled during calibration, so the heater actively
-    // maintains temperature between steps. Wait until within 15°C of target.
+    // maintains temperature. Wait until within 5°C of target — the firmware
+    // heats the steam element in Ready state when keepSteamHeaterOn is true.
     if (m_state == WaitingToStart) {
         int targetTemp = currentSteamTemp();
-        bool ready = (steamTempC >= targetTemp - 15);
+        bool ready = (steamTempC >= targetTemp - 5);
         if (ready != m_heaterReady) {
             m_heaterReady = ready;
             emit heaterReadyChanged();
