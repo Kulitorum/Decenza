@@ -113,6 +113,7 @@ Item {
                         translationKey: "idle.button.espresso"
                         translationFallback: "Espresso"
                         iconSource: "qrc:/icons/espresso.svg"
+                        iconSize: Theme.scaled(20)
                         backgroundColor: Theme.primaryColor
                         onClicked: DE1Device.startEspresso()
                     }
@@ -123,6 +124,7 @@ Item {
                         translationKey: "idle.button.steam"
                         translationFallback: "Steam"
                         iconSource: "qrc:/icons/steam.svg"
+                        iconSize: Theme.scaled(20)
                         backgroundColor: Theme.primaryColor
                         onClicked: DE1Device.startSteam()
                     }
@@ -139,6 +141,7 @@ Item {
                         translationKey: "idle.button.hotwater"
                         translationFallback: "Water"
                         iconSource: "qrc:/icons/water.svg"
+                        iconSize: Theme.scaled(20)
                         backgroundColor: Theme.primaryColor
                         onClicked: DE1Device.startHotWater()
                     }
@@ -149,6 +152,7 @@ Item {
                         translationKey: "idle.button.flush"
                         translationFallback: "Flush"
                         iconSource: "qrc:/icons/flush.svg"
+                        iconSize: Theme.scaled(20)
                         backgroundColor: Theme.primaryColor
                         onClicked: DE1Device.startFlush()
                     }
@@ -161,6 +165,7 @@ Item {
                     translationKey: "common.button.stop"
                     translationFallback: "Stop"
                     iconSource: "qrc:/icons/hand.svg"
+                    iconSize: Theme.scaled(20)
                     backgroundColor: Theme.errorColor
                     onClicked: DE1Device.requestIdle()
                 }
