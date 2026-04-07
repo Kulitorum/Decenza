@@ -41,6 +41,7 @@ Switch {
         color: Theme.textColor
         verticalAlignment: Text.AlignVCenter
         leftPadding: control.indicator.width + Theme.scaled(8)
+        Accessible.ignored: true
     }
 
     Accessible.role: Accessible.CheckBox
@@ -53,4 +54,5 @@ Switch {
     }
     Accessible.checked: control.checked
     Accessible.focusable: true
+    Accessible.onPressAction: control.toggle()
 }

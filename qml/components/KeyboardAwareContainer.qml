@@ -173,6 +173,7 @@ Item {
     MouseArea {
         anchors.fill: parent
         z: -1
+        Accessible.ignored: true
         onClicked: {
             var focusedField = root.getActiveFocusField()
             if (focusedField) {
