@@ -105,69 +105,85 @@ Item {
                 // Top row: Espresso, Steam
                 RowLayout {
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
                     spacing: Theme.scaled(4)
-
-                    ActionButton {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        translationKey: "idle.button.espresso"
-                        translationFallback: "Espresso"
-                        iconSource: "qrc:/icons/espresso.svg"
-                        iconSize: Theme.scaled(20)
-                        backgroundColor: Theme.primaryColor
-                        onClicked: DE1Device.startEspresso()
-                    }
-
-                    ActionButton {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        translationKey: "idle.button.steam"
-                        translationFallback: "Steam"
-                        iconSource: "qrc:/icons/steam.svg"
-                        iconSize: Theme.scaled(20)
-                        backgroundColor: Theme.primaryColor
-                        onClicked: DE1Device.startSteam()
-                    }
+                    MiniGHCButton { translationKey: "idle.button.espresso"; translationFallback: "Espresso"; iconSource: "qrc:/icons/espresso.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startEspresso() }
+                    MiniGHCButton { translationKey: "idle.button.steam";    translationFallback: "Steam";    iconSource: "qrc:/icons/steam.svg";    buttonColor: Theme.primaryColor; onTapped: DE1Device.startSteam() }
                 }
 
                 // Middle row: Hot Water, Flush
                 RowLayout {
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
                     spacing: Theme.scaled(4)
-
-                    ActionButton {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        translationKey: "idle.button.hotwater"
-                        translationFallback: "Water"
-                        iconSource: "qrc:/icons/water.svg"
-                        iconSize: Theme.scaled(20)
-                        backgroundColor: Theme.primaryColor
-                        onClicked: DE1Device.startHotWater()
-                    }
-
-                    ActionButton {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        translationKey: "idle.button.flush"
-                        translationFallback: "Flush"
-                        iconSource: "qrc:/icons/flush.svg"
-                        iconSize: Theme.scaled(20)
-                        backgroundColor: Theme.primaryColor
-                        onClicked: DE1Device.startFlush()
-                    }
+                    MiniGHCButton { translationKey: "idle.button.hotwater"; translationFallback: "Water"; iconSource: "qrc:/icons/water.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startHotWater() }
+                    MiniGHCButton { translationKey: "idle.button.flush";    translationFallback: "Flush"; iconSource: "qrc:/icons/flush.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startFlush() }
                 }
 
                 // Bottom: Stop
-                ActionButton {
+                MiniGHCButton {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     translationKey: "common.button.stop"
                     translationFallback: "Stop"
                     iconSource: "qrc:/icons/hand.svg"
-                    iconSize: Theme.scaled(20)
-                    backgroundColor: Theme.errorColor
-                    onClicked: DE1Device.requestIdle()
+                    buttonColor: Theme.errorColor
+                    onTapped: DE1Device.requestIdle()
+                }
+            }
+
+            component MiniGHCButton: Rectangle {
+                id: btn
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: Theme.buttonRadius
+                property string translationKey: ""
+                property string translationFallback: ""
+                property string iconSource: ""
+                property color buttonColor: Theme.primaryColor
+                signal tapped()
+
+                readonly property string _label: {
+                    var _ = TranslationManager.translationVersion
+                    return TranslationManager.translate(translationKey, translationFallback)
+                }
+
+                color: btnArea.isPressed ? Qt.darker(buttonColor, 1.2) : buttonColor
+                Accessible.ignored: true
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: Theme.scaled(2)
+
+                    Image {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        source: btn.iconSource
+                        height: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(36)
+                        fillMode: Image.PreserveAspectFit
+                        Accessible.ignored: true
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.actionButtonContentColor
+                        }
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: btn._label
+                        color: Theme.actionButtonContentColor
+                        font: Theme.captionFont
+                        Accessible.ignored: true
+                    }
+                }
+
+                AccessibleMouseArea {
+                    id: btnArea
+                    anchors.fill: parent
+                    accessibleName: btn._label
+                    accessibleItem: btn
+                    onAccessibleClicked: btn.tapped()
                 }
             }
         }
