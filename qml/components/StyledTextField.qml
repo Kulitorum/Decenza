@@ -27,12 +27,13 @@ TextField {
 
     // In accessibility mode, double-tap is the deliberate activation gesture.
     // Show the keyboard only then — not when TalkBack explore-by-touch gives focus.
+    // Non-accessibility mode: still activate the field so VoiceOver/switch-access work.
     Accessible.onPressAction: {
         if (_accessibilityMode) {
             _a11yActivated = true
-            control.forceActiveFocus()
-            Qt.inputMethod.show()
         }
+        control.forceActiveFocus()
+        Qt.inputMethod.show()
     }
 
     // When TalkBack cursor lands on the field, Qt gives it activeFocus and auto-shows
