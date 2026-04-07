@@ -30,6 +30,8 @@ Item {
             } else {
                 presetPopup.visible ? presetPopup.close() : presetPopup.open()
             }
+        } else if (Settings.idleBeanPresets.length === 0) {
+            goToBeanInfo()
         } else if (root.idlePage) {
             root.idlePage.activePresetFunction =
                 (root.idlePage.activePresetFunction === "beans") ? "" : "beans"

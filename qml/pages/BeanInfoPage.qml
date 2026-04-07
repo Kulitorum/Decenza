@@ -88,7 +88,7 @@ Page {
         // Snapshot current DYE values BEFORE auto-match so Discard restores the true pre-page state
         if (!isEditMode) {
             // Silently fix roast date if stored in wrong format (e.g. m/d/yyyy from old data)
-            var normalizedDate = DateUtils.normalizeDateString(Settings.dyeRoastDate)
+            var normalizedDate = DateUtils.normalizeDateString(Settings.dyeRoastDate || "")
             if (normalizedDate !== Settings.dyeRoastDate) Settings.dyeRoastDate = normalizedDate
 
             _snapBrand = Settings.dyeBeanBrand
@@ -502,6 +502,7 @@ Page {
                         Rectangle {
                             id: saveBeanButton
                             visible: _snapSelectedPreset >= 0
+                            Accessible.ignored: true
                             Layout.preferredWidth: saveBeanLabel.implicitWidth + Theme.scaled(16)
                             Layout.preferredHeight: Theme.scaled(36)
                             radius: Theme.scaled(4)
@@ -512,7 +513,7 @@ Page {
                                 anchors.centerIn: parent
                                 text: TranslationManager.translate("beaninfo.button.savepreset", "Save")
                                 color: Theme.primaryContrastColor
-                                font.pixelSize: Theme.scaled(14)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 Accessible.ignored: true
                             }
 
@@ -520,7 +521,10 @@ Page {
                                 anchors.fill: parent
                                 accessibleName: TranslationManager.translate("beaninfo.accessibility.savepreset", "Save changes to current preset")
                                 accessibleItem: saveBeanButton
-                                onAccessibleClicked: saveToCurrentPreset(-1, false)
+                                onAccessibleClicked: {
+                                    _pendingPresetIndex = -1
+                                    unsavedChangesDialog.open()
+                                }
                             }
                         }
 
@@ -656,6 +660,7 @@ Page {
                             var newLen = Settings.beanPresets.length - 1
                             if (newLen <= 0) _snapSelectedPreset = -1
                             else if (s >= newLen) _snapSelectedPreset = newLen - 1
+                            else if (s === index) _snapSelectedPreset = -1
                             else if (s > index) _snapSelectedPreset = s - 1
                             Settings.removeBeanPreset(index)
                         }
