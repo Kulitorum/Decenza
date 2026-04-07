@@ -75,6 +75,9 @@ Page {
     property int editPresetIndex: -1
     property string editPresetName: ""
 
+    // Pending preset switch (set when user taps a preset while dirty, -1 = none)
+    property int _pendingPresetIndex: -1
+
     // Keyboard offset for popups - set when popup opens, reset when it closes
     property real popupKeyboardOffset: 0
 
@@ -212,13 +215,14 @@ Page {
         flickable.forceActiveFocus()
     }
 
-    function handleBack() {
-        shotMetadataPage.forceActiveFocus()
-        if (isEditMode) {
-            root.goBack()
-            return
-        }
-        if (Settings.dyeBeanBrand !== _snapBrand
+    function applyPreset(index) {
+        Settings.selectedBeanPreset = index
+        Settings.applyBeanPreset(index)
+        refreshSnapshot()
+    }
+
+    function isDirty() {
+        return Settings.dyeBeanBrand !== _snapBrand
             || Settings.dyeBeanType !== _snapType
             || Settings.dyeRoastDate !== _snapRoastDate
             || Settings.dyeRoastLevel !== _snapRoastLevel
@@ -227,7 +231,17 @@ Page {
             || Settings.dyeGrinderBurrs !== _snapGrinderBurrs
             || Settings.dyeGrinderSetting !== _snapGrinderSetting
             || Settings.dyeBarista !== _snapBarista
-            || Settings.selectedBeanPreset !== _snapSelectedPreset) {
+            || Settings.selectedBeanPreset !== _snapSelectedPreset
+    }
+
+    function handleBack() {
+        shotMetadataPage.forceActiveFocus()
+        if (isEditMode) {
+            root.goBack()
+            return
+        }
+        if (isDirty()) {
+            _pendingPresetIndex = -1  // Back navigation, not preset switch
             unsavedChangesDialog.open()
         } else {
             root.goBack()
@@ -551,11 +565,13 @@ Page {
 
                         onRowSelected: function(index) {
                             shotMetadataPage.forceActiveFocus()
-                            Settings.selectedBeanPreset = index
-                            Settings.applyBeanPreset(index)
-                            // Picking a preset is a choice, not an edit — reset the baseline
-                            // so back-button doesn't prompt about the applied field values.
-                            refreshSnapshot()
+                            if (isDirty()) {
+                                // Defer the switch until user saves/discards/keeps
+                                _pendingPresetIndex = index
+                                unsavedChangesDialog.open()
+                            } else {
+                                applyPreset(index)
+                            }
                         }
                         onRowLongPressed: function(index) {
                             editPresetIndex = index
@@ -1082,6 +1098,7 @@ Page {
 
         property string suggestedName: ""  // Set before opening to pre-fill
         property bool goBackAfterSave: false  // Navigate back after saving (unsaved changes flow)
+        property int pendingPresetAfterSave: -1  // Apply this preset after saving (-1 = none)
 
         onOpened: {
             popupKeyboardOffset = shotMetadataPage.height * 0.25
@@ -1094,6 +1111,7 @@ Page {
         onClosed: {
             popupKeyboardOffset = 0
             goBackAfterSave = false
+            pendingPresetAfterSave = -1
         }
 
         background: Rectangle {
@@ -1174,10 +1192,16 @@ Page {
                             // Update snapshot so handleBack() doesn't show spurious unsaved changes dialog
                             refreshSnapshot()
                             var shouldGoBack = savePresetDialog.goBackAfterSave
+                            var pendingPreset = savePresetDialog.pendingPresetAfterSave
                             newBeanNameInput.text = ""
                             savePresetDialog.goBackAfterSave = false
+                            savePresetDialog.pendingPresetAfterSave = -1
                             savePresetDialog.close()
-                            if (shouldGoBack) root.goBack()
+                            if (pendingPreset >= 0) {
+                                applyPreset(pendingPreset)
+                            } else if (shouldGoBack) {
+                                root.goBack()
+                            }
                         }
                     }
                 }
@@ -1320,7 +1344,9 @@ Page {
             }
 
             Text {
-                text: TranslationManager.translate("beaninfo.unsaved.message", "Save as a favorite, keep as-is, or discard?")
+                text: _pendingPresetIndex >= 0
+                    ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes as a favorite before switching, or discard them?")
+                    : TranslationManager.translate("beaninfo.unsaved.message", "Save as a favorite, keep as-is, or discard?")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -1343,7 +1369,8 @@ Page {
                     onClicked: {
                         unsavedChangesDialog.close()
                         savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
-                        savePresetDialog.goBackAfterSave = true
+                        savePresetDialog.goBackAfterSave = _pendingPresetIndex < 0  // Only go back if not switching presets
+                        savePresetDialog.pendingPresetAfterSave = _pendingPresetIndex
                         savePresetDialog.open()
                     }
                     background: Rectangle {
@@ -1368,20 +1395,30 @@ Page {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(44)
                         text: TranslationManager.translate("beaninfo.unsaved.discard", "Discard")
-                        accessibleName: TranslationManager.translate("beaninfo.unsaved.discard.accessible", "Discard changes and go back")
+                        accessibleName: _pendingPresetIndex >= 0
+                            ? TranslationManager.translate("beaninfo.unsaved.discard.preset.accessible", "Discard changes and switch preset")
+                            : TranslationManager.translate("beaninfo.unsaved.discard.accessible", "Discard changes and go back")
                         onClicked: {
                             unsavedChangesDialog.close()
-                            Settings.dyeBeanBrand = _snapBrand
-                            Settings.dyeBeanType = _snapType
-                            Settings.dyeRoastDate = _snapRoastDate
-                            Settings.dyeRoastLevel = _snapRoastLevel
-                            Settings.dyeGrinderBrand = _snapGrinderBrand
-                            Settings.dyeGrinderModel = _snapGrinderModel
-                            Settings.dyeGrinderBurrs = _snapGrinderBurrs
-                            Settings.dyeGrinderSetting = _snapGrinderSetting
-                            Settings.dyeBarista = _snapBarista
-                            Settings.selectedBeanPreset = _snapSelectedPreset
-                            root.goBack()
+                            if (_pendingPresetIndex >= 0) {
+                                // Discard edits and switch to the tapped preset
+                                var idx = _pendingPresetIndex
+                                _pendingPresetIndex = -1
+                                applyPreset(idx)
+                            } else {
+                                // Discard edits and go back
+                                Settings.dyeBeanBrand = _snapBrand
+                                Settings.dyeBeanType = _snapType
+                                Settings.dyeRoastDate = _snapRoastDate
+                                Settings.dyeRoastLevel = _snapRoastLevel
+                                Settings.dyeGrinderBrand = _snapGrinderBrand
+                                Settings.dyeGrinderModel = _snapGrinderModel
+                                Settings.dyeGrinderBurrs = _snapGrinderBurrs
+                                Settings.dyeGrinderSetting = _snapGrinderSetting
+                                Settings.dyeBarista = _snapBarista
+                                Settings.selectedBeanPreset = _snapSelectedPreset
+                                root.goBack()
+                            }
                         }
                         background: Rectangle {
                             radius: Theme.buttonRadius
@@ -1402,6 +1439,7 @@ Page {
                     AccessibleButton {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(44)
+                        visible: _pendingPresetIndex < 0  // Hide when switching presets
                         text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
                         accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
                         onClicked: {
