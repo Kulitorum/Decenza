@@ -11,7 +11,9 @@ Item {
     property real from: 0
     property real to: 100
     property real stepSize: 1
+    property real fineStepSize: 0  // Optional lower gear (e.g., 1 when stepSize is 10). 0 = disabled.
     property int decimals: stepSize >= 1 ? 0 : (stepSize >= 0.1 ? 1 : 2)
+    readonly property bool hasFineGear: fineStepSize > 0 && fineStepSize < stepSize
 
     // Display
     property string suffix: ""
@@ -227,14 +229,22 @@ Item {
                             }
                         }
 
-                        // Vertical distance from drag-start selects gear (50 px per level)
-                        var gear = Math.min(2, Math.floor(Math.abs(mouse.y - startY) / sc(50)))
+                        // Vertical distance from drag-start selects gear (50 px per level).
+                        // Dragging down = higher gears (x10, x100).
+                        // Dragging up = fine gear (fineStepSize) when available.
+                        var vertDist = mouse.y - startY
+                        var gear
+                        if (root.hasFineGear && vertDist < -sc(50)) {
+                            gear = -1  // Fine gear (drag up)
+                        } else {
+                            gear = Math.min(2, Math.floor(Math.max(0, vertDist) / sc(50)))
+                        }
                         if (gear !== currentGear) {
                             currentGear = gear
                             announceGearChange(gear)
                         }
 
-                        var effectiveStep = root.stepSize * Math.pow(10, gear)
+                        var effectiveStep = gearToStep(gear)
                         var steps = Math.round(deltaX / sc(20))
                         if (steps !== 0) {
                             adjustValueWithStep(steps, effectiveStep)
@@ -378,13 +388,16 @@ Item {
                         spacing: sc(2)
 
                         Repeater {
-                            model: ["×1", "×10", "×100"]
+                            model: root.gearLabels()
                             Text {
+                                required property int index
+                                required property string modelData
+                                property int gear: root.labelIndexToGear(index)
                                 text: modelData
                                 font.pixelSize: sc(13)
-                                font.bold: valueDragArea.currentGear === index
-                                color: valueDragArea.currentGear === index ? Theme.primaryColor : Theme.textSecondaryColor
-                                opacity: valueDragArea.currentGear === index ? 1.0 : 0.35
+                                font.bold: valueDragArea.currentGear === gear
+                                color: valueDragArea.currentGear === gear ? Theme.primaryColor : Theme.textSecondaryColor
+                                opacity: valueDragArea.currentGear === gear ? 1.0 : 0.35
                             }
                         }
                     }
@@ -584,7 +597,8 @@ Item {
                                 var parsed = parseFloat(text)
                                 if (!isNaN(parsed)) {
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
-                                    parsed = Math.round(parsed / root.stepSize) * root.stepSize
+                                    var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
+                                    parsed = Math.round(parsed / roundTo) * roundTo
                                     if (parsed !== root.value) {
                                         root.valueModified(parsed)
                                     }
@@ -633,10 +647,13 @@ Item {
                             onPressed: function(mouse) {
                                 startX = mouse.x
                                 // Offset startY so the current gear is preserved
-                                // when drag begins. Gear = floor(|dy| / sc(50)),
-                                // so placing startY at -gear*sc(50) from mouse.y
-                                // keeps the gear at its current value.
-                                startY = mouse.y - popupContent.currentGear * sc(50)
+                                // when drag begins. For non-negative gears:
+                                // startY = mouse.y - gear*sc(50). For fine gear (-1):
+                                // startY = mouse.y + sc(50) so dragging up sc(50) gets -1.
+                                if (popupContent.currentGear >= 0)
+                                    startY = mouse.y - popupContent.currentGear * sc(50)
+                                else
+                                    startY = mouse.y - popupContent.currentGear * sc(50)  // e.g., mouse.y + sc(50)
                                 isDragging = false
 
                                 // Announce parameter name when bubble appears (accessibility)
@@ -654,14 +671,19 @@ Item {
                                 }
 
                                 if (isDragging) {
-                                    // Vertical distance from drag-start selects gear (50 px per level)
-                                    var gear = Math.min(2, Math.floor(Math.abs(mouse.y - startY) / sc(50)))
+                                    var vertDist = mouse.y - startY
+                                    var gear
+                                    if (root.hasFineGear && vertDist < -sc(50)) {
+                                        gear = -1
+                                    } else {
+                                        gear = Math.min(2, Math.floor(Math.max(0, vertDist) / sc(50)))
+                                    }
                                     if (gear !== popupContent.currentGear) {
                                         popupContent.currentGear = gear
                                         announceGearChange(gear)
                                     }
 
-                                    var effectiveStep = root.stepSize * Math.pow(10, gear)
+                                    var effectiveStep = gearToStep(gear)
                                     var steps = Math.round(deltaX / sc(20))
                                     if (steps !== 0) {
                                         adjustValueWithStep(steps, effectiveStep)
@@ -826,13 +848,16 @@ Item {
                 spacing: sc(8)
 
                 Repeater {
-                    model: ["×1", "×10", "×100"]
+                    model: root.gearLabels()
                     Text {
+                        required property int index
+                        required property string modelData
+                        property int gear: root.labelIndexToGear(index)
                         text: modelData
                         font.pixelSize: sc(16)
-                        font.bold: popupContent.currentGear === index
-                        color: popupContent.currentGear === index ? Theme.primaryColor : Theme.textSecondaryColor
-                        opacity: popupContent.currentGear === index ? 1.0 : 0.35
+                        font.bold: popupContent.currentGear === gear
+                        color: popupContent.currentGear === gear ? Theme.primaryColor : Theme.textSecondaryColor
+                        opacity: popupContent.currentGear === gear ? 1.0 : 0.35
 
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData + " " + TranslationManager.translate("valueinput.gear.label", "step multiplier")
@@ -844,8 +869,8 @@ Item {
                             anchors.fill: parent
                             anchors.margins: -sc(4)
                             onClicked: {
-                                popupContent.currentGear = index
-                                announceGearChange(index)
+                                popupContent.currentGear = gear
+                                announceGearChange(gear)
                             }
                         }
                     }
@@ -856,9 +881,9 @@ Item {
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: popupControl.y + popupControl.height + sc(20)
-                visible: popupDragArea.isDragging || popupContent.currentGear > 0
+                visible: popupDragArea.isDragging || popupContent.currentGear !== 0
                 text: {
-                    var effectiveStep = root.stepSize * Math.pow(10, popupContent.currentGear)
+                    var effectiveStep = gearToStep(popupContent.currentGear)
                     var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
                     return TranslationManager.translate("valueinput.step", "step") + ": " + effectiveStep.toFixed(d)
                 }
@@ -891,9 +916,36 @@ Item {
         }
     }
 
+    function gearToStep(gear) {
+        if (gear === -1 && root.hasFineGear)
+            return root.fineStepSize
+        return root.stepSize * Math.pow(10, Math.max(0, gear))
+    }
+
+    function gearLabels() {
+        var labels = ["×1", "×10", "×100"]
+        if (root.hasFineGear) {
+            var ratio = root.fineStepSize / root.stepSize
+            // Show as fraction: e.g., fineStepSize=1, stepSize=10 → "×0.1"
+            labels.unshift("×" + ratio.toFixed(ratio < 0.1 ? 2 : 1))
+        }
+        return labels
+    }
+
+    // Convert gear label index (from Repeater) to internal gear number.
+    // With fineGear: index 0 = gear -1, index 1 = gear 0, etc.
+    // Without fineGear: index 0 = gear 0, index 1 = gear 1, etc.
+    function labelIndexToGear(index) {
+        return root.hasFineGear ? index - 1 : index
+    }
+
+    function gearToLabelIndex(gear) {
+        return root.hasFineGear ? gear + 1 : gear
+    }
+
     function announceGearChange(gear) {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            var effectiveStep = root.stepSize * Math.pow(10, gear)
+            var effectiveStep = gearToStep(gear)
             var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
             AccessibilityManager.announce(TranslationManager.translate("valueinput.gear.step", "Step") + " " + effectiveStep.toFixed(d))
         }
@@ -905,15 +957,17 @@ Item {
 
     // Popup +/- and keyboard: honor the persisted gear
     function popupAdjust(steps) {
-        var effectiveStep = root.stepSize * Math.pow(10, popupContent.currentGear)
+        var effectiveStep = gearToStep(popupContent.currentGear)
         adjustValueWithStep(steps, effectiveStep)
     }
 
     function adjustValueWithStep(steps, effectiveStep) {
         var newVal = root.value + (steps * effectiveStep)
         newVal = Math.max(root.from, Math.min(root.to, newVal))
-        // Always round to base stepSize to maintain precision
-        newVal = Math.round(newVal / root.stepSize) * root.stepSize
+        // Round to fineStepSize if available (allows sub-stepSize precision),
+        // otherwise round to stepSize
+        var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
+        newVal = Math.round(newVal / roundTo) * roundTo
         if (newVal !== root.value) {
             root.valueModified(newVal)
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {

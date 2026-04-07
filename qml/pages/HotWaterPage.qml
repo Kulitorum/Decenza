@@ -533,7 +533,8 @@ Page {
                             value: getCurrentVesselVolume()
                             from: 10
                             to: isVolumeMode ? 255 : 500
-                            stepSize: 1
+                            stepSize: 10
+                            fineStepSize: 1
                             suffix: isVolumeMode ? " ml" : " g"
                             valueColor: Theme.primaryColor
                             accessibleName: isVolumeMode
