@@ -409,8 +409,8 @@ void MachineState::updatePhase() {
                     double triggerWeight = m_hotWaterSawTriggerWeight;
                     QTimer::singleShot(1500, this, [this, triggerWeight]() {
                         if (!m_scale || !m_settings) return;
-                        // Skip if a new pour already started (rapid repour within 1.5s)
-                        if (m_phase == Phase::HotWater) return;
+                        // Skip if a new operation started (scale weight no longer reflects the pour)
+                        if (isFlowing()) return;
                         double settledWeight = m_scale->weight();
                         double overshoot = settledWeight - triggerWeight;
 
@@ -543,7 +543,8 @@ void MachineState::onScaleWeightChanged(double weight) {
     // After the burst window, the < 3g guard protects against slow-tare scales
     // (e.g. Eureka Precisa) that process tare after water has been dispensed.
     if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0 && qAbs(weight) < 1.0) {
-        bool inTareWindow = m_hotWaterTareTimeMs > 0;
+        bool inTareWindow = m_hotWaterTareTimeMs > 0
+            && (QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs) < 2000;
         if (inTareWindow || m_hotWaterMaxEffectiveWeight < 3.0) {
             qDebug() << "=== TARE: Scale zeroed, clearing hot water baseline ===";
             m_hotWaterTareBaseline = 0.0;

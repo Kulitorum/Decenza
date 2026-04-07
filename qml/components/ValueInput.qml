@@ -646,14 +646,10 @@ Item {
 
                             onPressed: function(mouse) {
                                 startX = mouse.x
-                                // Offset startY so the current gear is preserved
-                                // when drag begins. For non-negative gears:
-                                // startY = mouse.y - gear*sc(50). For fine gear (-1):
-                                // startY = mouse.y + sc(50) so dragging up sc(50) gets -1.
-                                if (popupContent.currentGear >= 0)
-                                    startY = mouse.y - popupContent.currentGear * sc(50)
-                                else
-                                    startY = mouse.y - popupContent.currentGear * sc(50)  // e.g., mouse.y + sc(50)
+                                // Offset startY so the current gear is preserved when drag begins.
+                                // Works for all gears: gear=0 → mouse.y, gear=1 → mouse.y-50,
+                                // gear=-1 → mouse.y+50 (because -(-1)*50 = +50).
+                                startY = mouse.y - popupContent.currentGear * sc(50)
                                 isDragging = false
 
                                 // Announce parameter name when bubble appears (accessibility)
