@@ -4204,6 +4204,10 @@ void Settings::resetSawLearning() {
     m_sawHistoryCacheDirty = true;
     m_sawConvergedCache = -1;
     emit sawLearnedLagChanged();
+
+    // Also reset hot water SAW learning
+    setHotWaterSawOffset(2.0);  // Back to default
+    setHotWaterSawSampleCount(0);
 }
 
 // ============================================================

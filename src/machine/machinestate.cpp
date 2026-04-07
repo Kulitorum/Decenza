@@ -401,7 +401,7 @@ void MachineState::updatePhase() {
                 }
             }
 
-            // Hot water SAW learning + frozen weight cleanup
+            // Hot water SAW learning
             if (oldPhase == Phase::HotWater) {
                 // Learn from this pour: measure settled weight after a short delay
                 // to let final drops land, then compute overshoot vs trigger weight.
@@ -409,6 +409,8 @@ void MachineState::updatePhase() {
                     double triggerWeight = m_hotWaterSawTriggerWeight;
                     QTimer::singleShot(1500, this, [this, triggerWeight]() {
                         if (!m_scale || !m_settings) return;
+                        // Skip if a new pour already started (rapid repour within 1.5s)
+                        if (m_phase == Phase::HotWater) return;
                         double settledWeight = m_scale->weight();
                         double overshoot = settledWeight - triggerWeight;
 
@@ -438,9 +440,10 @@ void MachineState::updatePhase() {
                     });
                 }
                 m_hotWaterSawTriggerWeight = -1.0;
-
-                // Clear frozen weight so status bar shows live scale reading.
-                m_hotWaterFrozenWeight = -1.0;
+                // Note: m_hotWaterFrozenWeight is NOT cleared here — it must persist
+                // through the completion overlay (which reads scaleWeight() after phase
+                // transitions to Idle via QueuedConnection). Cleared on next flow start
+                // at line 299.
             }
         }
 
