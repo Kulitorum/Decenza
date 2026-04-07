@@ -409,7 +409,7 @@ Rectangle {
                             { type: "temperature", label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
                             { type: "batteryLevel", label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
                             { type: "scaleBattery", label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
-                            { type: "ghcSimulator", label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "GHC Simulator") },
+                            { type: "ghcSimulator", label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "Mini GHC") },
                             { type: "discuss", label: TranslationManager.translate("layoutEditor.widgetDiscuss", "Discuss") },
                             { type: "waterLevel", label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
                             // Utility (orange)
@@ -541,7 +541,7 @@ Rectangle {
             "machineStatus": TranslationManager.translate("layoutEditor.chipStatus", "Status"),
             "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
             "scaleBattery": TranslationManager.translate("layoutEditor.chipScaleBat", "Scale Bat"),
-            "ghcSimulator": TranslationManager.translate("layoutEditor.chipGHCSim", "GHC Sim"),
+            "ghcSimulator": TranslationManager.translate("layoutEditor.chipGHCSim", "Mini GHC"),
             "shotPlan": TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan"),
             "pageTitle": TranslationManager.translate("layoutEditor.chipPageTitle", "Page Title"),
             "spacer": TranslationManager.translate("layoutEditor.chipSpacer", "Spacer"),

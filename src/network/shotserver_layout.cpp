@@ -2322,7 +2322,7 @@ QString ShotServer::generateLayoutPage() const
         {type:"batteryLevel",label:"Battery Level"},
         {type:"scaleBattery",label:"Scale Battery"},
         {type:"machineStatus",label:"Machine Status"},
-        {type:"ghcSimulator",label:"GHC Simulator"},
+        {type:"ghcSimulator",label:"Mini GHC"},
         {type:"discuss",label:"Discuss"},
         {type:"waterLevel",label:"Water Level"},
         // Utility (orange)

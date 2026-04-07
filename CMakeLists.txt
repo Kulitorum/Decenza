@@ -721,7 +721,7 @@ set(QML_FILES
     qml/components/layout/items/MachineStatusItem.qml
     qml/components/layout/items/BatteryLevelItem.qml
     qml/components/layout/items/ScaleBatteryItem.qml
-    qml/components/layout/items/GHCSimulatorItem.qml
+    qml/components/layout/items/MiniGHCItem.qml
     qml/components/layout/CustomEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml

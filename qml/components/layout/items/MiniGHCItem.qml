@@ -12,8 +12,8 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
-    enabled: DE1Device.simulationMode
-    opacity: DE1Device.simulationMode ? 1.0 : 0.4
+    enabled: DE1Device.simulationMode || DE1Device.isHeadless
+    opacity: (DE1Device.simulationMode || DE1Device.isHeadless) ? 1.0 : 0.4
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -95,7 +95,7 @@ Item {
 
                 Tr {
                     key: "ghcSimulator.title"
-                    fallback: "GHC Simulator"
+                    fallback: "Mini GHC"
                     color: Theme.textColor
                     font: Theme.captionFont
                     Layout.alignment: Qt.AlignHCenter
