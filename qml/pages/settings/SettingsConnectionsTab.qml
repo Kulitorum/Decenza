@@ -222,7 +222,7 @@ Item {
                         Layout.fillWidth: true
 
                         Text {
-                            text: "DE1 Machine (USB)"
+                            text: TranslationManager.translate("connections.usb.de1Title", "DE1 Machine (USB)")
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
@@ -365,9 +365,17 @@ Item {
                         }
 
                         Tr {
-                            key: DE1Device.connected ? "settings.bluetooth.connected" : "settings.bluetooth.disconnected"
-                            fallback: DE1Device.connected ? "Connected" : "Disconnected"
-                            color: DE1Device.connected ? Theme.successColor : Theme.errorColor
+                            key: "settings.bluetooth.connected"
+                            fallback: "Connected"
+                            visible: DE1Device.connected
+                            color: Theme.successColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.disconnected"
+                            fallback: "Disconnected"
+                            visible: !DE1Device.connected
+                            color: Theme.errorColor
                         }
 
                         Item { Layout.fillWidth: true }
@@ -466,14 +474,14 @@ Item {
                         Layout.fillWidth: true
                         spacing: 0
                         Text {
-                            text: "Serial USB (DE1 USB-C)"
+                            text: TranslationManager.translate("connections.usb.serialLabel", "Serial USB (DE1 USB-C)")
                             font.pixelSize: Theme.scaled(14)
                             color: Theme.textColor
                             Accessible.ignored: true
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "Poll for USB-connected DE1. Disable to save battery."
+                            text: TranslationManager.translate("connections.usb.serialDesc", "Poll for USB-connected DE1. Disable to save battery.")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
@@ -525,7 +533,7 @@ Item {
                         Layout.fillWidth: true
 
                         Text {
-                            text: "Half Decent Scale (USB)"
+                            text: TranslationManager.translate("connections.usb.scaleTitle", "Half Decent Scale (USB)")
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
@@ -551,7 +559,7 @@ Item {
                     }
 
                     Text {
-                        text: "Transport: USB-C"
+                        text: TranslationManager.translate("connections.usb.transport", "Transport: USB-C")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                     }
@@ -664,33 +672,48 @@ Item {
                             color: Theme.textSecondaryColor
                         }
 
-                        Tr {
+                        QtObject {
+                            id: scaleStatusHelper
                             property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
                             property bool isSimulated: ScaleDevice && ScaleDevice.name === "Simulated Scale"
                             // FlowScale fallback after physical disconnect — treat as disconnected
                             property bool isDisconnectedFallback: ScaleDevice && ScaleDevice.isFlowScale && !Settings.useFlowScale
-                            key: {
-                                if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
-                                    if (isFlowScale) return "settings.bluetooth.virtualScale"
-                                    if (isSimulated) return "settings.bluetooth.simulated"
-                                    return "settings.bluetooth.connected"
-                                }
-                                return BLEManager.scaleConnectionFailed ? "settings.bluetooth.notFound" : "settings.bluetooth.disconnected"
-                            }
-                            fallback: {
-                                if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
-                                    if (isFlowScale) return "Virtual Scale"
-                                    if (isSimulated) return "Simulated"
-                                    return "Connected"
-                                }
-                                return BLEManager.scaleConnectionFailed ? "Not found" : "Disconnected"
-                            }
-                            color: {
-                                if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
-                                    return (isFlowScale || isSimulated) ? Theme.warningColor : Theme.successColor
-                                }
-                                return BLEManager.scaleConnectionFailed ? Theme.errorColor : Theme.textSecondaryColor
-                            }
+                            property bool isConnected: ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.connected"
+                            fallback: "Connected"
+                            visible: scaleStatusHelper.isConnected && !scaleStatusHelper.isFlowScale && !scaleStatusHelper.isSimulated
+                            color: Theme.successColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.virtualScale"
+                            fallback: "Virtual Scale"
+                            visible: scaleStatusHelper.isConnected && scaleStatusHelper.isFlowScale
+                            color: Theme.warningColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.simulated"
+                            fallback: "Simulated"
+                            visible: scaleStatusHelper.isConnected && scaleStatusHelper.isSimulated && !scaleStatusHelper.isFlowScale
+                            color: Theme.warningColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.notFound"
+                            fallback: "Not found"
+                            visible: !scaleStatusHelper.isConnected && BLEManager.scaleConnectionFailed
+                            color: Theme.errorColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.disconnected"
+                            fallback: "Disconnected"
+                            visible: !scaleStatusHelper.isConnected && !BLEManager.scaleConnectionFailed
+                            color: Theme.textSecondaryColor
                         }
 
                         Item { Layout.fillWidth: true }

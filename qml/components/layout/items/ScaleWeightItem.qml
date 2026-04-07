@@ -89,9 +89,20 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Tr {
-                    key: BLEManager.scaleConnectionFailed ? "statusbar.scale_not_found" : "statusbar.scale_ellipsis"
-                    fallback: BLEManager.scaleConnectionFailed ? "Scale not found" : "Scale..."
-                    color: BLEManager.scaleConnectionFailed ? "white" : Theme.textSecondaryColor
+                    key: "statusbar.scale_not_found"
+                    fallback: "Scale not found"
+                    visible: BLEManager.scaleConnectionFailed
+                    color: "white"
+                    font: Theme.bodyFont
+                    anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+
+                Tr {
+                    key: "statusbar.scale_ellipsis"
+                    fallback: "Scale..."
+                    visible: !BLEManager.scaleConnectionFailed
+                    color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true

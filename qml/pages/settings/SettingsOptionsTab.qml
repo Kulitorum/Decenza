@@ -292,7 +292,7 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(5)
 
                         Text {
-                            text: "Manual city (fallback if GPS unavailable):"
+                            text: TranslationManager.translate("settings.weather.manualCityLabel", "Manual city (fallback if GPS unavailable):")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                         }

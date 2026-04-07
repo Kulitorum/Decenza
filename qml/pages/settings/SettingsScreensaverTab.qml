@@ -363,9 +363,17 @@ Item {
 
                     Tr {
                         anchors.centerIn: parent
-                        key: ScreensaverManager.isFetchingCategories ? "settings.screensaver.loading" : "settings.screensaver.noCategories"
-                        fallback: ScreensaverManager.isFetchingCategories ? "Loading..." : "No categories"
-                        visible: parent.count === 0
+                        key: "settings.screensaver.loading"
+                        fallback: "Loading..."
+                        visible: parent.count === 0 && ScreensaverManager.isFetchingCategories
+                        color: Theme.textSecondaryColor
+                    }
+
+                    Tr {
+                        anchors.centerIn: parent
+                        key: "settings.screensaver.noCategories"
+                        fallback: "No categories"
+                        visible: parent.count === 0 && !ScreensaverManager.isFetchingCategories
                         color: Theme.textSecondaryColor
                     }
                 }

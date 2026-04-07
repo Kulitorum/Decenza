@@ -161,7 +161,7 @@ Item {
                     AccessibleButton {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
-                        text: "Add..."
+                        text: TranslationManager.translate("language.button.add", "Add...")
                         accessibleName: TranslationManager.translate("language.accessible.add", "Add language")
                         accessibleDescription: TranslationManager.translate("language.accessible.add.description", "Add a new language for translation")
                         onClicked: pageStack.push("AddLanguagePage.qml")
@@ -308,7 +308,7 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.margins: Theme.scaled(8)
-                        text: "English is the base language.\nYou can customize the default text below."
+                        text: TranslationManager.translate("language.englishBaseNote", "English is the base language.\nYou can customize the default text below.")
                         font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.scaled(12)
                         color: Theme.textSecondaryColor
@@ -673,7 +673,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "Delete Language?"
+                text: TranslationManager.translate("language.deleteConfirm.title", "Delete Language?")
                 font: Theme.subtitleFont
                 color: Theme.warningColor
                 horizontalAlignment: Text.AlignHCenter
@@ -787,7 +787,7 @@ Item {
 
             AccessibleButton {
                 width: parent.width
-                text: "OK"
+                text: TranslationManager.translate("common.button.ok", "OK")
                 accessibleName: TranslationManager.translate("settings.language.closeSubmitResult", "Close submission result dialog")
                 primary: true
                 onClicked: submitResultPopup.close()
@@ -830,7 +830,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "Please wait..."
+                text: TranslationManager.translate("common.pleaseWait", "Please wait...")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 horizontalAlignment: Text.AlignHCenter

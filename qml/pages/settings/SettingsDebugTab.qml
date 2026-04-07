@@ -205,7 +205,7 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "Convert DE1 app TCL profiles to native JSON format. Preserves all fields including popup messages, per-frame weight, etc."
+                        text: TranslationManager.translate("settings.debug.convertTclDesc", "Convert DE1 app TCL profiles to native JSON format. Preserves all fields including popup messages, per-frame weight, etc.")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap

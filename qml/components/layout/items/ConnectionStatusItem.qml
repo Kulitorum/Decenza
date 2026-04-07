@@ -47,9 +47,19 @@ Item {
             }
 
             Tr {
-                key: DE1Device.connected ? "statusbar.online" : "statusbar.offline"
-                fallback: DE1Device.connected ? "Online" : "Offline"
-                color: DE1Device.connected ? Theme.successColor : Theme.textSecondaryColor
+                key: "connection.online"
+                fallback: "Online"
+                visible: DE1Device.connected
+                color: Theme.successColor
+                font: Theme.bodyFont
+                Accessible.ignored: true
+            }
+
+            Tr {
+                key: "connection.offline"
+                fallback: "Offline"
+                visible: !DE1Device.connected
+                color: Theme.textSecondaryColor
                 font: Theme.bodyFont
                 Accessible.ignored: true
             }

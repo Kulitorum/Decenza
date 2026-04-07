@@ -163,7 +163,7 @@ ChartView {
     Text {
         x: chart.plotArea.x + chart.plotArea.width - width - Theme.spacingSmall
         y: chart.plotArea.y + chart.plotArea.height - height - Theme.scaled(12)
-        text: "Time (s)"
+        text: TranslationManager.translate("graph.axis.time", "Time (s)")
         color: Theme.textSecondaryColor
         font: Theme.captionFont
         opacity: 0.7

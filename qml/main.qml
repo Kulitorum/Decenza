@@ -2902,7 +2902,7 @@ ApplicationWindow {
             spacing: Theme.scaledBase(8)
 
             Text {
-                text: "Scale:"
+                text: TranslationManager.translate("settings.scale.label", "Scale:")
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaledBase(12)
             }
