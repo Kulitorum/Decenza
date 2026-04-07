@@ -1111,6 +1111,26 @@ void Settings::setWaterVolumeMode(const QString& mode) {
     }
 }
 
+// Hot water SAW learning
+double Settings::hotWaterSawOffset() const {
+    return m_settings.value("water/sawOffset", 2.0).toDouble();
+}
+
+void Settings::setHotWaterSawOffset(double offset) {
+    if (!qFuzzyCompare(hotWaterSawOffset(), offset)) {
+        m_settings.setValue("water/sawOffset", offset);
+        emit hotWaterSawOffsetChanged();
+    }
+}
+
+int Settings::hotWaterSawSampleCount() const {
+    return m_settings.value("water/sawSampleCount", 0).toInt();
+}
+
+void Settings::setHotWaterSawSampleCount(int count) {
+    m_settings.setValue("water/sawSampleCount", count);
+}
+
 // Hot water vessel presets
 QVariantList Settings::waterVesselPresets() const {
     QByteArray data = m_settings.value("water/vesselPresets").toByteArray();

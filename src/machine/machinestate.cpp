@@ -309,6 +309,7 @@ void MachineState::updatePhase() {
                 m_hotWaterTareBaseline = 0.0;
                 m_hotWaterTareTimeMs = 0;
                 m_hotWaterMaxEffectiveWeight = 0.0;
+                m_hotWaterSawTriggerWeight = -1.0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
@@ -398,6 +399,48 @@ void MachineState::updatePhase() {
                     m_scale->stopTimer();
                     qDebug() << "=== SCALE TIMER: Stopped (flow ended) ===";
                 }
+            }
+
+            // Hot water SAW learning + frozen weight cleanup
+            if (oldPhase == Phase::HotWater) {
+                // Learn from this pour: measure settled weight after a short delay
+                // to let final drops land, then compute overshoot vs trigger weight.
+                if (m_hotWaterSawTriggerWeight >= 0.0 && m_scale && m_settings) {
+                    double triggerWeight = m_hotWaterSawTriggerWeight;
+                    QTimer::singleShot(1500, this, [this, triggerWeight]() {
+                        if (!m_scale || !m_settings) return;
+                        double settledWeight = m_scale->weight();
+                        double overshoot = settledWeight - triggerWeight;
+
+                        // Sanity: ignore if overshoot is wildly negative (cup removed)
+                        // or extremely large (scale glitch)
+                        if (overshoot < -2.0 || overshoot > 20.0) {
+                            qDebug() << "[SAW-Learn] Ignoring outlier: overshoot=" << overshoot
+                                     << "settled=" << settledWeight << "trigger=" << triggerWeight;
+                            return;
+                        }
+
+                        // Exponential moving average, heavier weight on early samples
+                        int n = m_settings->hotWaterSawSampleCount();
+                        double oldOffset = m_settings->hotWaterSawOffset();
+                        double alpha = (n < 3) ? 0.5 : 0.3;  // Learn faster initially
+                        double newOffset = (1.0 - alpha) * oldOffset + alpha * qMax(0.0, overshoot);
+
+                        // Clamp to reasonable range
+                        newOffset = qBound(0.0, newOffset, 10.0);
+
+                        m_settings->setHotWaterSawOffset(newOffset);
+                        m_settings->setHotWaterSawSampleCount(n + 1);
+                        qDebug() << "[SAW-Learn] overshoot=" << overshoot
+                                 << "settled=" << settledWeight << "trigger=" << triggerWeight
+                                 << "offset:" << oldOffset << "->" << newOffset
+                                 << "samples=" << (n + 1);
+                    });
+                }
+                m_hotWaterSawTriggerWeight = -1.0;
+
+                // Clear frozen weight so status bar shows live scale reading.
+                m_hotWaterFrozenWeight = -1.0;
             }
         }
 
@@ -592,6 +635,15 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
         return;
     }
 
+    // Suppress SAW during the tare settling window (first 2s after tare).
+    // The scale may zero mid-window, causing a huge effective weight spike
+    // (e.g., scale=0 minus baseline=-156 = 156g) that false-triggers SAW.
+    if (m_hotWaterTareTimeMs > 0) {
+        qint64 sinceTareMs = QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs;
+        if (sinceTareMs < 2000)
+            return;
+    }
+
     // Volume mode: machine handles auto-stop via flowmeter, don't interfere
     if (m_settings && m_settings->waterVolumeMode() == "volume") return;
 
@@ -604,19 +656,24 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
     // measure only the water added since the tare was requested.
     double effectiveWeight = weight - m_hotWaterTareBaseline;
 
-    // Hot water: use fixed 5g offset (predictable, avoids scale-dependent issues)
-    double stopThreshold = target - 5.0;
+    // Learned offset: starts at 2g default, adapts from measured overshoot after each pour.
+    // After stopping, the app measures how much weight landed after the stop command and
+    // adjusts the offset so subsequent pours hit the target more accurately.
+    double sawOffset = m_settings ? m_settings->hotWaterSawOffset() : 2.0;
+    double stopThreshold = target - sawOffset;
 
     if (effectiveWeight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
-        m_hotWaterFrozenWeight = effectiveWeight;  // Freeze UI display at trigger weight
+        m_hotWaterFrozenWeight = effectiveWeight;      // Freeze UI display at trigger weight
+        m_hotWaterSawTriggerWeight = weight;            // Raw scale weight for learning overshoot
         qDebug() << "[SAW-HotWater] STOP triggered: effectiveWeight=" << effectiveWeight
                  << "scaleWeight=" << weight << "baseline=" << m_hotWaterTareBaseline
-                 << "threshold=" << stopThreshold << "target=" << target;
+                 << "threshold=" << stopThreshold << "target=" << target
+                 << "sawOffset=" << sawOffset;
         emit targetWeightReached();
 
         if (m_device) {
-            m_device->stopOperation();
+            m_device->stopOperationUrgent();  // Bypass BLE queue for immediate stop
         }
     }
 }

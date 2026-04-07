@@ -82,6 +82,9 @@ class Settings : public QObject {
     Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
     Q_PROPERTY(QString waterVolumeMode READ waterVolumeMode WRITE setWaterVolumeMode NOTIFY waterVolumeModeChanged)
 
+    // Hot water SAW learning (learned stop offset from overshoot data)
+    Q_PROPERTY(double hotWaterSawOffset READ hotWaterSawOffset WRITE setHotWaterSawOffset NOTIFY hotWaterSawOffsetChanged)
+
     // Hot water vessel presets
     Q_PROPERTY(QVariantList waterVesselPresets READ waterVesselPresets NOTIFY waterVesselPresetsChanged)
     Q_PROPERTY(int selectedWaterVessel READ selectedWaterVessel WRITE setSelectedWaterCup NOTIFY selectedWaterVesselChanged)
@@ -410,6 +413,11 @@ public:
 
     QString waterVolumeMode() const;  // "weight" or "volume"
     void setWaterVolumeMode(const QString& mode);
+
+    double hotWaterSawOffset() const;
+    void setHotWaterSawOffset(double offset);
+    int hotWaterSawSampleCount() const;
+    void setHotWaterSawSampleCount(int count);
 
     // Hot water vessel presets
     QVariantList waterVesselPresets() const;
@@ -888,6 +896,7 @@ signals:
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void waterVolumeModeChanged();
+    void hotWaterSawOffsetChanged();
     void waterVesselPresetsChanged();
     void selectedWaterVesselChanged();
     void flushPresetsChanged();
