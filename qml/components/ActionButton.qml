@@ -131,98 +131,53 @@ Button {
         }
     }
 
-    // Plain MouseArea for touch interaction (no Accessible.* properties — Button handles that)
-    MouseArea {
-        id: touchArea
-        anchors.fill: parent
+    // TapHandler for touch/mouse interaction (no Accessible.* — Button handles that)
+    TapHandler {
         enabled: control.enabled
+        longPressThreshold: 0.5
         cursorShape: Qt.PointingHandCursor
 
-        // Internal state
-        property bool _longPressTriggered: false
-        property real _lastTapTime: 0
+        onPressedChanged: control._isPressed = pressed
 
-        Timer {
-            id: longPressTimer
-            interval: 500
-            onTriggered: {
-                touchArea._longPressTriggered = true
-                var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
-                if (accessibilityMode) {
-                    // In accessibility mode, long-press triggers the secondary action (same as double-tap in normal mode)
-                    control.doubleClicked()
-                } else {
-                    control.pressAndHold()
-                }
-            }
-        }
-
-        // Timer for delayed single-tap action in normal mode (to wait for potential double-tap)
-        Timer {
-            id: singleTapTimer
-            interval: 250
-            onTriggered: {
-                if (control.enabled)
-                    control.clicked()
-            }
-        }
-
-        onPressed: function(mouse) {
-            touchArea._longPressTriggered = false
-            control._isPressed = true
-            longPressTimer.start()
-            mouse.accepted = true
-        }
-
-        onReleased: function(mouse) {
-            longPressTimer.stop()
-            control._isPressed = false
-
-            if (touchArea._longPressTriggered) {
-                return
-            }
-
-            // Only activate if released within bounds (matches AccessibleButton's onClicked behavior)
-            if (mouse.x < 0 || mouse.x > touchArea.width ||
-                mouse.y < 0 || mouse.y > touchArea.height) {
-                return
-            }
-
-            var now = Date.now()
-            var timeSinceLastTap = now - touchArea._lastTapTime
-            var isDoubleTap = timeSinceLastTap < 250 && timeSinceLastTap > 50
-            touchArea._lastTapTime = now
-
+        onLongPressed: {
             var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            if (accessibilityMode)
+                control.doubleClicked()
+            else
+                control.pressAndHold()
+        }
 
+        onTapped: function(eventPoint, button) {
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
             if (accessibilityMode) {
-                // Accessibility mode: First tap announces, second tap (same item) activates
-                // Quick double-tap detection is DISABLED in accessibility mode because
-                // TalkBack's "double-tap to activate" gesture can be misdetected.
+                // Accessibility mode: first tap announces, second tap activates.
+                // Double-tap detection is disabled — TalkBack's own double-tap gesture can be misdetected.
                 if (AccessibilityManager.lastAnnouncedItem === control) {
                     control.clicked()
                 } else {
                     AccessibilityManager.lastAnnouncedItem = control
                     AccessibilityManager.announce(control.text + ". " + control._computedAccessibleDescription)
                 }
-            } else if (control.supportDoubleClick) {
-                // Normal mode with double-click support: wait 250ms for potential double-tap
-                if (isDoubleTap) {
-                    singleTapTimer.stop()
-                    control.doubleClicked()
-                } else {
-                    singleTapTimer.restart()
-                }
-            } else {
-                // Normal mode without double-click: activate immediately
-                control.clicked()
+                return
             }
+            // Without double-click support, activate immediately on every tap.
+            // With double-click support, defer to onSingleTapped / onDoubleTapped.
+            if (!control.supportDoubleClick)
+                control.clicked()
         }
 
-        onCanceled: {
-            longPressTimer.stop()
-            singleTapTimer.stop()
-            control._isPressed = false
+        onSingleTapped: function(eventPoint, button) {
+            if (!control.supportDoubleClick) return
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            if (!accessibilityMode)
+                control.clicked()
+        }
+
+        onDoubleTapped: function(eventPoint, button) {
+            if (!control.supportDoubleClick) return
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            if (!accessibilityMode)
+                control.doubleClicked()
         }
     }
 

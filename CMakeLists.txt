@@ -625,8 +625,6 @@ set(QML_FILES
     qml/components/ConnectionIndicator.qml
     qml/components/FavoritesListView.qml
     qml/components/PresetPillRow.qml
-    qml/components/TouchSlider.qml
-    qml/components/StepSlider.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/ShotGraph.qml

@@ -14,53 +14,39 @@ Audit of QML pages and components for UI elements that could be replaced by stan
 
 ## Medium Priority
 
-### TouchSlider → SpinBox
+### ~~TouchSlider → SpinBox~~ — REMOVED
 - **File**: `qml/components/TouchSlider.qml`
-- **Current**: RowLayout + Rectangle +/- buttons + Slider
-- **Replace with**: `SpinBox` (or Slider + `Button`)
-- **Why**: SpinBox handles ±increment natively; removes custom button-press logic.
+- **Verdict**: Component was dead code (zero usages). Deleted outright.
 
-### ValueInput → SpinBox
+### ~~ValueInput → SpinBox~~ — WITHDRAWN
 - **File**: `qml/components/ValueInput.qml`
-- **Current**: Item with Rectangle +/- buttons + display Text + scrubber dialog
-- **Replace with**: `SpinBox` with custom overlay for scrub mode
-- **Why**: Shares nearly identical logic with TouchSlider. Consolidating on SpinBox removes two custom implementations.
+- **Verdict**: ValueInput is far richer than SpinBox — drag-to-scrub, multi-gear (10x/100x/fine), speech-bubble overlay, and a full-screen scrubber popup. Replacing with SpinBox would be a regression on mobile. Keep as-is.
+- **Improvement to add**: **Double-tap inline editing** — double-tap (or Enter key) activates an inline `TextInput` replacing the value display, so desktop/keyboard users can type a known value directly without opening the popup. The `TextInput` needs a `validator` to clamp to `[from, to]`; Escape cancels, Enter/Return commits. Low priority since the popup already works.
 
-### StepSlider — remove wrapper
+### ~~StepSlider — remove wrapper~~ — REMOVED
 - **File**: `qml/components/StepSlider.qml`
-- **Current**: Item wrapping `Slider` + MouseArea for step-clicks
-- **Replace with**: `Slider` with `snapMode: Slider.SnapAlways` directly
-- **Why**: Removes unnecessary wrapper; built-in snapping covers the use case.
+- **Verdict**: Component was dead code (zero usages). Deleted outright. Note: the plan entry was wrong — `snapMode: Slider.SnapAlways` does not replicate the tap-to-step behavior; `Slider` still jumps to click position on track taps. The custom MouseArea was intentional, not redundant.
 
-### RatingInput — replace Rectangle pills with Button
+### ~~RatingInput — replace Rectangle pills with Button~~ — WITHDRAWN
 - **File**: `qml/components/RatingInput.qml`
-- **Current**: FocusScope + Grid of Rectangle preset pills + Slider
-- **Replace with**: `Slider` + `Button` row for preset pills
-- **Why**: Preset pills are interactive; Button gives accessibility, keyboard nav, and enabled/checked states for free.
+- **Verdict**: Pills already have correct accessibility wiring. Custom `ratingColor()` per-pill coloring requires a fully custom `background:` on Button anyway, so the Rectangle+MouseArea approach is justified. Net gain is minimal for 2 usages. Keep as-is.
 
-### SelectionDialog → RadioButton delegates
+### ~~SelectionDialog → RadioButton delegates~~ — WITHDRAWN
 - **File**: `qml/components/SelectionDialog.qml`
-- **Current**: Dialog + ListView + custom highlight logic for single selection
-- **Replace with**: Dialog + `RadioButton` column + `ButtonGroup`
-- **Why**: RadioButton is semantic for exclusive selection; ButtonGroup handles mutual exclusion with no custom state.
+- **Verdict**: Used in 8 places. Mutual exclusion is already correct (controlled externally via `currentIndex`/`currentValue`). Delegates already use `AccessibleMouseArea` (project TalkBack pattern). RadioButton would still need a fully custom `background:` to match the visual, and a Column can't replicate the ListView scrolling + fade effects. No net gain. Keep as-is.
 
-### ExtractionViewSelector → RadioButton delegates
-- **File**: `qml/components/ExtractionViewSelector.qml` *(or similar)*
-- **Current**: Dialog + Repeater of Rectangle option cards with custom selection state
-- **Replace with**: Dialog + `RadioButton` group
-- **Why**: Same as SelectionDialog — exclusive mode selection maps directly to RadioButton.
+### ~~ExtractionViewSelector → RadioButton delegates~~ — WITHDRAWN
+- **File**: `qml/components/ExtractionViewSelector.qml`
+- **Verdict**: Option cards have icon + title + description + custom border highlight — RadioButton still needs a fully custom `background:` anyway. Already uses `AccessibleMouseArea` throughout. No net gain. Keep as-is.
+- **Improvement to add**: The 3 toggle rows (phase indicator, stats, advanced curves) are each a manually-built checkbox (~40 lines each, duplicated 3×). Replace each with `StyledSwitch` or Qt `CheckBox` to remove the custom Rectangle + tick Image + MultiEffect + AccessibleMouseArea boilerplate.
 
-### ExpandableTextArea → TextArea readOnly toggle
+### ~~ExpandableTextArea → TextArea readOnly toggle~~ — WITHDRAWN
 - **File**: `qml/components/ExpandableTextArea.qml`
-- **Current**: Rectangle + Text (display mode) + TextArea (edit mode) swapped via visibility
-- **Replace with**: Single `TextArea` toggling `readOnly` + Dialog for expanded editing
-- **Why**: Removes element-swap logic; `readOnly` toggling is the idiomatic Qt pattern.
+- **Verdict**: Already implemented as described — `TextArea` with `readOnly` + expanded `Dialog`. The separate display `Text` element exists intentionally for `Text.RichText` clickable URL rendering, which `TextArea` does not support. The element swap is load-bearing. Keep as-is.
 
-### ActionButton — use TapHandler / HoverHandler
+### ~~ActionButton — use TapHandler / HoverHandler~~ — DONE
 - **File**: `qml/components/ActionButton.qml`
-- **Current**: Button + custom MouseArea for long-press and double-tap detection
-- **Replace with**: `Button` + Qt 6 `TapHandler` / `HoverHandler`
-- **Why**: Qt 6 gesture handlers have better separation of concerns and handle multi-touch edge cases.
+- **Result**: Replaced ~90-line MouseArea (with 2 manual Timers, `_longPressTriggered` guard, `_lastTapTime` tracking, bounds check) with ~45-line `TapHandler`. Long-press uses `longPressThreshold`, double-tap uses built-in `onSingleTapped`/`onDoubleTapped`, bounds checking and long-press guard handled natively. `cursorShape` set directly on TapHandler, no separate HoverHandler needed.
 
 ### HideKeyboardButton → RoundButton / ToolButton
 - **File**: `qml/components/HideKeyboardButton.qml`
