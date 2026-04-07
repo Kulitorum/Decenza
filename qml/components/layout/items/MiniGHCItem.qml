@@ -150,15 +150,18 @@ Item {
 
                 color: btnArea.isPressed ? Qt.darker(buttonColor, 1.2) : buttonColor
                 Accessible.ignored: true
+                clip: true
 
-                Column {
-                    anchors.centerIn: parent
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(4)
                     spacing: Theme.scaled(2)
 
                     Image {
-                        anchors.horizontalCenter: parent.horizontalCenter
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillHeight: true
+                        Layout.fillWidth: true
                         source: btn.iconSource
-                        height: Theme.scaled(18)
                         sourceSize.height: Theme.scaled(36)
                         fillMode: Image.PreserveAspectFit
                         Accessible.ignored: true
@@ -170,7 +173,7 @@ Item {
                     }
 
                     Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
+                        Layout.alignment: Qt.AlignHCenter
                         text: btn._label
                         color: Theme.actionButtonContentColor
                         font: Theme.captionFont
