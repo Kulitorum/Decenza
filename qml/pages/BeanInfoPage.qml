@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 import "../components"
+import "../components/DateUtils.js" as DateUtils
 
 Page {
     id: shotMetadataPage
@@ -42,7 +43,7 @@ Page {
             if (editShotData.id) {
                 editBeanBrand = editShotData.beanBrand || ""
                 editBeanType = editShotData.beanType || ""
-                editRoastDate = editShotData.roastDate || ""
+                editRoastDate = DateUtils.normalizeDateString(editShotData.roastDate || "")
                 editRoastLevel = editShotData.roastLevel || ""
                 editGrinderBrand = editShotData.grinderBrand || ""
                 editGrinderModel = editShotData.grinderModel || ""
@@ -86,6 +87,10 @@ Page {
 
         // Snapshot current DYE values BEFORE auto-match so Discard restores the true pre-page state
         if (!isEditMode) {
+            // Silently fix roast date if stored in wrong format (e.g. m/d/yyyy from old data)
+            var normalizedDate = DateUtils.normalizeDateString(Settings.dyeRoastDate)
+            if (normalizedDate !== Settings.dyeRoastDate) Settings.dyeRoastDate = normalizedDate
+
             _snapBrand = Settings.dyeBeanBrand
             _snapType = Settings.dyeBeanType
             _snapRoastDate = Settings.dyeRoastDate

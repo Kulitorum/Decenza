@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 import "../components"
+import "../components/DateUtils.js" as DateUtils
 
 Page {
     id: postShotReviewPage
@@ -112,7 +113,7 @@ Page {
                 // Populate editing fields
                 editBeanBrand = editShotData.beanBrand || ""
                 editBeanType = editShotData.beanType || ""
-                editRoastDate = editShotData.roastDate || ""
+                editRoastDate = DateUtils.normalizeDateString(editShotData.roastDate || "")
                 editRoastLevel = editShotData.roastLevel || ""
                 editGrinderBrand = editShotData.grinderBrand || ""
                 editGrinderModel = editShotData.grinderModel || ""

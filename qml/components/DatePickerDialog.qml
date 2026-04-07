@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
+import "DateUtils.js" as DateUtils
 
 Dialog {
     id: root
@@ -29,6 +30,8 @@ Dialog {
             }
         }
         Qt.inputMethod.hide()
+
+        dateString = DateUtils.normalizeDateString(dateString || "")
 
         if (dateString && dateString.length === 10) {
             var parts = dateString.split("-")
