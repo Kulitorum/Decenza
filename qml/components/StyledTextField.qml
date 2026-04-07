@@ -39,12 +39,17 @@ TextField {
     // When TalkBack cursor lands on the field, Qt gives it activeFocus and auto-shows
     // the keyboard. In accessibility mode, suppress this so the user can hear the
     // current value first. The keyboard will appear on deliberate double-tap above.
-    onActiveFocusChanged: {
-        if (activeFocus && _accessibilityMode && !_a11yActivated) {
-            Qt.inputMethod.hide()
-        }
-        if (!activeFocus) {
-            _a11yActivated = false
+    // Uses Connections (not onActiveFocusChanged) so callers can add their own
+    // onActiveFocusChanged without silently replacing this handler.
+    Connections {
+        target: control
+        function onActiveFocusChanged() {
+            if (control.activeFocus && control._accessibilityMode && !control._a11yActivated) {
+                Qt.inputMethod.hide()
+            }
+            if (!control.activeFocus) {
+                control._a11yActivated = false
+            }
         }
     }
 
