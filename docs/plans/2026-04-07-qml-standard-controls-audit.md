@@ -2,6 +2,8 @@
 
 Audit of QML pages and components for UI elements that could be replaced by standard Qt Quick Controls 2 elements for better accessibility, maintainability, and reduced boilerplate.
 
+**PR**: Kulitorum/Decenza#681 — dead component removal + ActionButton TapHandler refactor
+
 ---
 
 ## High Priority
