@@ -126,13 +126,9 @@ Dialog {
 
                     color: _isCurrent
                         ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-                        : (optionArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
+                        : (optionArea.isPressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
 
-                    Accessible.role: Accessible.Button
-                    Accessible.name: (_displayText.length > 0 ? _displayText : TranslationManager.translate("combobox.empty", "None")) +
-                        (_isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: optionArea.clicked(null)
+                    Accessible.ignored: true
 
                     Row {
                         anchors.fill: parent
@@ -175,10 +171,13 @@ Dialog {
                         opacity: 0.3
                     }
 
-                    MouseArea {
+                    AccessibleMouseArea {
                         id: optionArea
                         anchors.fill: parent
-                        onClicked: {
+                        accessibleName: (_displayText.length > 0 ? _displayText : TranslationManager.translate("combobox.empty", "None")) +
+                            (_isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
+                        accessibleItem: optionDelegate
+                        onAccessibleClicked: {
                             root.selected(index, optionDelegate._rawText)
                             root.close()
                         }
@@ -232,12 +231,9 @@ Dialog {
         Rectangle {
             width: parent.width
             height: Theme.scaled(48)
-            color: cancelArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent"
+            color: cancelArea.isPressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent"
 
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("combobox.cancel", "Cancel")
-            Accessible.focusable: true
-            Accessible.onPressAction: cancelArea.clicked(null)
+            Accessible.ignored: true
 
             Text {
                 anchors.centerIn: parent
@@ -248,10 +244,12 @@ Dialog {
                 Accessible.ignored: true
             }
 
-            MouseArea {
+            AccessibleMouseArea {
                 id: cancelArea
                 anchors.fill: parent
-                onClicked: root.close()
+                accessibleName: TranslationManager.translate("combobox.cancel", "Cancel")
+                accessibleItem: parent
+                onAccessibleClicked: root.close()
             }
         }
     }
