@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 import "../components"
+import "../components/DateUtils.js" as DateUtils
 
 Page {
     id: postShotReviewPage
@@ -112,17 +113,17 @@ Page {
                 // Populate editing fields
                 editBeanBrand = editShotData.beanBrand || ""
                 editBeanType = editShotData.beanType || ""
-                editRoastDate = editShotData.roastDate || ""
+                editRoastDate = DateUtils.normalizeDateString(editShotData.roastDate || "")
                 editRoastLevel = editShotData.roastLevel || ""
                 editGrinderBrand = editShotData.grinderBrand || ""
                 editGrinderModel = editShotData.grinderModel || ""
                 editGrinderBurrs = editShotData.grinderBurrs || ""
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editBarista = editShotData.barista || ""
-                editDoseWeight = editShotData.doseWeight || 0
-                editDrinkWeight = editShotData.finalWeight || 0
-                editDrinkTds = editShotData.drinkTds || 0
-                editDrinkEy = editShotData.drinkEy || 0
+                editDoseWeight = editShotData.doseWeight ?? 0
+                editDrinkWeight = editShotData.finalWeight ?? 0
+                editDrinkTds = editShotData.drinkTds ?? 0
+                editDrinkEy = editShotData.drinkEy ?? 0
                 editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
@@ -199,17 +200,17 @@ Page {
     property bool hasUnsavedChanges: isEditMode && (
         editBeanBrand !== (editShotData.beanBrand || "") ||
         editBeanType !== (editShotData.beanType || "") ||
-        editRoastDate !== (editShotData.roastDate || "") ||
+        editRoastDate !== DateUtils.normalizeDateString(editShotData.roastDate || "") ||
         editRoastLevel !== (editShotData.roastLevel || "") ||
         editGrinderBrand !== (editShotData.grinderBrand || "") ||
         editGrinderModel !== (editShotData.grinderModel || "") ||
         editGrinderBurrs !== (editShotData.grinderBurrs || "") ||
         editGrinderSetting !== (editShotData.grinderSetting || "") ||
         editBarista !== (editShotData.barista || "") ||
-        editDoseWeight !== (editShotData.doseWeight || 0) ||
-        editDrinkWeight !== (editShotData.finalWeight || 0) ||
-        editDrinkTds !== (editShotData.drinkTds || 0) ||
-        editDrinkEy !== (editShotData.drinkEy || 0) ||
+        editDoseWeight !== (editShotData.doseWeight ?? 0) ||
+        editDrinkWeight !== (editShotData.finalWeight ?? 0) ||
+        editDrinkTds !== (editShotData.drinkTds ?? 0) ||
+        editDrinkEy !== (editShotData.drinkEy ?? 0) ||
         editEnjoyment !== (editShotData.enjoyment ?? 0) ||
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso")

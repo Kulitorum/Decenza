@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 import "../components"
+import "../components/DateUtils.js" as DateUtils
 
 Page {
     id: shotMetadataPage
@@ -42,7 +43,7 @@ Page {
             if (editShotData.id) {
                 editBeanBrand = editShotData.beanBrand || ""
                 editBeanType = editShotData.beanType || ""
-                editRoastDate = editShotData.roastDate || ""
+                editRoastDate = DateUtils.normalizeDateString(editShotData.roastDate || "")
                 editRoastLevel = editShotData.roastLevel || ""
                 editGrinderBrand = editShotData.grinderBrand || ""
                 editGrinderModel = editShotData.grinderModel || ""
@@ -86,6 +87,10 @@ Page {
 
         // Snapshot current DYE values BEFORE auto-match so Discard restores the true pre-page state
         if (!isEditMode) {
+            // Silently fix roast date if stored in wrong format (e.g. m/d/yyyy from old data)
+            var normalizedDate = DateUtils.normalizeDateString(Settings.dyeRoastDate || "")
+            if (normalizedDate !== Settings.dyeRoastDate) Settings.dyeRoastDate = normalizedDate
+
             _snapBrand = Settings.dyeBeanBrand
             _snapType = Settings.dyeBeanType
             _snapRoastDate = Settings.dyeRoastDate
@@ -219,6 +224,32 @@ Page {
         Settings.selectedBeanPreset = index
         Settings.applyBeanPreset(index)
         refreshSnapshot()
+    }
+
+    // Update the currently-selected preset's data with the current DYE field values.
+    // Used by "Save" (not "Save As") when a preset was selected before editing.
+    function saveToCurrentPreset(pendingPresetIndex, goBackAfter) {
+        var idx = _snapSelectedPreset
+        if (idx < 0) return
+        var preset = Settings.getBeanPreset(idx)
+        Settings.updateBeanPreset(idx,
+            preset.name,
+            Settings.dyeBeanBrand,
+            Settings.dyeBeanType,
+            Settings.dyeRoastDate,
+            Settings.dyeRoastLevel,
+            Settings.dyeGrinderBrand,
+            Settings.dyeGrinderModel,
+            Settings.dyeGrinderBurrs,
+            Settings.dyeGrinderSetting,
+            Settings.dyeBarista)
+        Settings.selectedBeanPreset = idx
+        refreshSnapshot()
+        if (pendingPresetIndex >= 0) {
+            applyPreset(pendingPresetIndex)
+        } else if (goBackAfter) {
+            root.goBack()
+        }
     }
 
     function isDirty() {
@@ -467,6 +498,36 @@ Page {
 
                         Item { Layout.fillWidth: true }
 
+                        // Save button — update current preset (visible when a preset was selected before editing)
+                        Rectangle {
+                            id: saveBeanButton
+                            visible: _snapSelectedPreset >= 0
+                            Accessible.ignored: true
+                            Layout.preferredWidth: saveBeanLabel.implicitWidth + Theme.scaled(16)
+                            Layout.preferredHeight: Theme.scaled(36)
+                            radius: Theme.scaled(4)
+                            color: Theme.primaryColor
+
+                            Text {
+                                id: saveBeanLabel
+                                anchors.centerIn: parent
+                                text: TranslationManager.translate("beaninfo.button.savepreset", "Save")
+                                color: Theme.primaryContrastColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                Accessible.ignored: true
+                            }
+
+                            AccessibleTapHandler {
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("beaninfo.accessibility.savepreset", "Save changes to current preset")
+                                accessibleItem: saveBeanButton
+                                onAccessibleClicked: {
+                                    _pendingPresetIndex = -1
+                                    unsavedChangesDialog.open()
+                                }
+                            }
+                        }
+
                         // Add button
                         Rectangle {
                             id: addBeanButton
@@ -599,6 +660,7 @@ Page {
                             var newLen = Settings.beanPresets.length - 1
                             if (newLen <= 0) _snapSelectedPreset = -1
                             else if (s >= newLen) _snapSelectedPreset = newLen - 1
+                            else if (s === index) _snapSelectedPreset = -1
                             else if (s > index) _snapSelectedPreset = s - 1
                             Settings.removeBeanPreset(index)
                         }
@@ -1345,9 +1407,16 @@ Page {
             }
 
             Text {
-                text: _pendingPresetIndex >= 0
-                    ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes as a favorite before switching, or discard them?")
-                    : TranslationManager.translate("beaninfo.unsaved.message", "Save as a favorite, keep as-is, or discard?")
+                text: {
+                    if (_snapSelectedPreset >= 0) {
+                        return _pendingPresetIndex >= 0
+                            ? TranslationManager.translate("beaninfo.unsaved.message.preset.hassaved", "Save changes to this preset before switching, save as new, or discard?")
+                            : TranslationManager.translate("beaninfo.unsaved.message.hassaved", "Save changes to this preset, save as new, keep as-is, or discard?")
+                    }
+                    return _pendingPresetIndex >= 0
+                        ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes as a favorite before switching, or discard them?")
+                        : TranslationManager.translate("beaninfo.unsaved.message", "Save as a favorite, keep as-is, or discard?")
+                }
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -1362,10 +1431,41 @@ Page {
                 Layout.bottomMargin: Theme.scaled(20)
                 spacing: Theme.scaled(10)
 
+                // "Save" — update the existing preset (only when a preset was selected before editing)
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("beaninfo.unsaved.saveFavorite", "Save Favorite")
+                    visible: _snapSelectedPreset >= 0
+                    text: TranslationManager.translate("beaninfo.unsaved.savePreset", "Save")
+                    accessibleName: _pendingPresetIndex >= 0
+                        ? TranslationManager.translate("beaninfo.unsaved.savePreset.preset.accessible", "Save changes to current preset and switch")
+                        : TranslationManager.translate("beaninfo.unsaved.savePreset.accessible", "Save changes to current preset and go back")
+                    onClicked: {
+                        unsavedChangesDialog.close()
+                        var pending = _pendingPresetIndex
+                        _pendingPresetIndex = -1
+                        saveToCurrentPreset(pending, pending < 0)
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.primaryContrastColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: _snapSelectedPreset >= 0
+                        ? TranslationManager.translate("beaninfo.unsaved.saveAsNew", "Save as New")
+                        : TranslationManager.translate("beaninfo.unsaved.saveFavorite", "Save Favorite")
                     accessibleName: _pendingPresetIndex >= 0
                         ? TranslationManager.translate("beaninfo.unsaved.saveFavorite.preset.accessible", "Save as a new bean favorite and switch preset")
                         : TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")

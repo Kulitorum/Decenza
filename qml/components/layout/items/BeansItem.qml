@@ -25,7 +25,13 @@ Item {
 
     function togglePresets() {
         if (root.isCompact) {
-            presetPopup.visible ? presetPopup.close() : presetPopup.open()
+            if (Settings.idleBeanPresets.length === 0) {
+                goToBeanInfo()
+            } else {
+                presetPopup.visible ? presetPopup.close() : presetPopup.open()
+            }
+        } else if (Settings.idleBeanPresets.length === 0) {
+            goToBeanInfo()
         } else if (root.idlePage) {
             root.idlePage.activePresetFunction =
                 (root.idlePage.activePresetFunction === "beans") ? "" : "beans"
@@ -55,7 +61,6 @@ Item {
                 source: "qrc:/icons/coffeebeans.svg"
                 sourceSize.height: Theme.scaled(20)
                 fillMode: Image.PreserveAspectFit
-                opacity: DE1Device.guiEnabled ? 1.0 : 0.5
                 Accessible.ignored: true
                 layer.enabled: true
                 layer.smooth: true
@@ -68,14 +73,13 @@ Item {
                 key: "idle.button.beaninfo"
                 fallback: "Beans"
                 font: Theme.bodyFont
-                color: DE1Device.guiEnabled ? Theme.textColor : Theme.textSecondaryColor
+                color: Theme.textColor
                 Accessible.ignored: true
             }
         }
 
         AccessibleTapHandler {
             anchors.fill: parent
-            enabled: DE1Device.guiEnabled
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.beaninfo", "Beans")
@@ -100,7 +104,6 @@ Item {
             translationFallback: "Beans"
             iconSource: "qrc:/icons/coffeebeans.svg"
             iconSize: Theme.scaled(43)
-            enabled: DE1Device.guiEnabled
             backgroundColor: Settings.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
             supportDoubleClick: true
             onClicked: root.togglePresets()

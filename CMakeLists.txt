@@ -689,6 +689,7 @@ set(QML_FILES
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml
     qml/components/QrCode.qml
+    qml/components/DateUtils.js
     qml/components/qrcode.js
     qml/components/SettingsSearchIndex.js
 
