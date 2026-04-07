@@ -160,8 +160,9 @@ Item {
                     Image {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.fillHeight: true
-                        Layout.fillWidth: true
+                        width: height
                         source: btn.iconSource
+                        sourceSize.width: Theme.scaled(36)
                         sourceSize.height: Theme.scaled(36)
                         fillMode: Image.PreserveAspectFit
                         Accessible.ignored: true
