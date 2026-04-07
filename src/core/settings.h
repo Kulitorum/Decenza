@@ -455,12 +455,13 @@ public:
     Q_INVOKABLE void addBeanPreset(const QString& name, const QString& brand, const QString& type,
                                    const QString& roastDate, const QString& roastLevel,
                                    const QString& grinderBrand, const QString& grinderModel,
-                                   const QString& grinderBurrs, const QString& grinderSetting);
+                                   const QString& grinderBurrs, const QString& grinderSetting,
+                                   const QString& barista);
     Q_INVOKABLE void updateBeanPreset(int index, const QString& name, const QString& brand,
                                       const QString& type, const QString& roastDate,
                                       const QString& roastLevel, const QString& grinderBrand,
                                       const QString& grinderModel, const QString& grinderBurrs,
-                                      const QString& grinderSetting);
+                                      const QString& grinderSetting, const QString& barista);
     Q_INVOKABLE void removeBeanPreset(int index);
     Q_INVOKABLE void moveBeanPreset(int from, int to);
     Q_INVOKABLE void setBeanPresetShowOnIdle(int index, bool show);

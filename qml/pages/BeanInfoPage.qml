@@ -1307,7 +1307,8 @@ Page {
                                 preset.grinderBrand || "",
                                 preset.grinderModel || "",
                                 preset.grinderBurrs || "",
-                                preset.grinderSetting || "")
+                                preset.grinderSetting || "",
+                                preset.barista || "")
                         }
                         editPresetDialog.close()
                     }
@@ -1365,7 +1366,9 @@ Page {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("beaninfo.unsaved.saveFavorite", "Save Favorite")
-                    accessibleName: TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")
+                    accessibleName: _pendingPresetIndex >= 0
+                        ? TranslationManager.translate("beaninfo.unsaved.saveFavorite.preset.accessible", "Save as a new bean favorite and switch preset")
+                        : TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")
                     onClicked: {
                         unsavedChangesDialog.close()
                         savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")

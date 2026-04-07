@@ -1414,7 +1414,8 @@ void Settings::setSelectedBeanPreset(int index) {
 void Settings::addBeanPreset(const QString& name, const QString& brand, const QString& type,
                              const QString& roastDate, const QString& roastLevel,
                              const QString& grinderBrand, const QString& grinderModel,
-                             const QString& grinderBurrs, const QString& grinderSetting) {
+                             const QString& grinderBurrs, const QString& grinderSetting,
+                             const QString& barista) {
     QJsonArray arr = getBeanPresetsArray();
 
     QJsonObject preset;
@@ -1427,6 +1428,7 @@ void Settings::addBeanPreset(const QString& name, const QString& brand, const QS
     preset["grinderModel"] = grinderModel;
     preset["grinderBurrs"] = grinderBurrs;
     preset["grinderSetting"] = grinderSetting;
+    preset["barista"] = barista;
     preset["showOnIdle"] = true;
     arr.append(preset);
 
@@ -1438,7 +1440,7 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
                                 const QString& type, const QString& roastDate,
                                 const QString& roastLevel, const QString& grinderBrand,
                                 const QString& grinderModel, const QString& grinderBurrs,
-                                const QString& grinderSetting) {
+                                const QString& grinderSetting, const QString& barista) {
     QJsonArray arr = getBeanPresetsArray();
 
     if (index >= 0 && index < arr.size()) {
@@ -1456,6 +1458,7 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
         preset["grinderModel"] = grinderModel;
         preset["grinderBurrs"] = grinderBurrs;
         preset["grinderSetting"] = grinderSetting;
+        preset["barista"] = barista;
         preset["showOnIdle"] = showOnIdle;
         arr[index] = preset;
 
@@ -1572,7 +1575,8 @@ void Settings::applyBeanPreset(int index) {
                              preset.value("brand").toString(), preset.value("type").toString(),
                              preset.value("roastDate").toString(), preset.value("roastLevel").toString(),
                              brand, model, burrs,
-                             preset.value("grinderSetting").toString());
+                             preset.value("grinderSetting").toString(),
+                             preset.value("barista").toString());
         }
     }
 
@@ -1585,6 +1589,7 @@ void Settings::applyBeanPreset(int index) {
     setDyeGrinderModel(model);
     setDyeGrinderBurrs(burrs);
     setDyeGrinderSetting(preset.value("grinderSetting").toString());
+    setDyeBarista(preset.value("barista").toString());
 }
 
 void Settings::saveBeanPresetFromCurrent(const QString& name) {
@@ -1601,7 +1606,8 @@ void Settings::saveBeanPresetFromCurrent(const QString& name) {
                         dyeGrinderBrand(),
                         dyeGrinderModel(),
                         dyeGrinderBurrs(),
-                        dyeGrinderSetting());
+                        dyeGrinderSetting(),
+                        dyeBarista());
     } else {
         // Add new preset
         addBeanPreset(name,
@@ -1612,7 +1618,8 @@ void Settings::saveBeanPresetFromCurrent(const QString& name) {
                      dyeGrinderBrand(),
                      dyeGrinderModel(),
                      dyeGrinderBurrs(),
-                     dyeGrinderSetting());
+                     dyeGrinderSetting(),
+                     dyeBarista());
     }
 }
 
