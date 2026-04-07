@@ -2350,7 +2350,9 @@ QString ShotServer::generateLayoutPage() const
         screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
         screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map",
         lastShot:"Last Shot",
-        discuss:"Discuss"
+        discuss:"Discuss",
+        ghcSimulator:"Mini GHC",
+        machineStatus:"Status"
     };
 
     var ACTIONS = [

@@ -4,16 +4,17 @@ import QtQuick.Effects
 import Decenza
 import "../.."
 
-// Layout widget with 5 buttons to control the DE1 simulator:
+// Layout widget with 5 buttons to control DE1 machine operations:
 // Espresso, Steam, Hot Water, Flush, and Stop.
-// Disabled when simulation mode is off to prevent sending real BLE commands.
+// Enabled in simulation mode or for headless machines (no physical GHC).
+// Dimmed and disabled when the machine has a hardware GHC or is not ready.
 Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
 
-    enabled: DE1Device.simulationMode || DE1Device.isHeadless
-    opacity: (DE1Device.simulationMode || DE1Device.isHeadless) ? 1.0 : 0.4
+    enabled: (DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady
+    opacity: ((DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady) ? 1.0 : 0.4
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -33,11 +34,11 @@ Item {
 
             Repeater {
                 model: [
-                    { icon: "qrc:/icons/espresso.svg", name: "Espresso", nameKey: "idle.button.espresso", action: function() { DE1Device.startEspresso() } },
-                    { icon: "qrc:/icons/steam.svg", name: "Steam", nameKey: "idle.button.steam", action: function() { DE1Device.startSteam() } },
-                    { icon: "qrc:/icons/water.svg", name: "Hot Water", nameKey: "idle.button.hotwater", action: function() { DE1Device.startHotWater() } },
-                    { icon: "qrc:/icons/flush.svg", name: "Flush", nameKey: "idle.button.flush", action: function() { DE1Device.startFlush() } },
-                    { icon: "qrc:/icons/hand.svg", name: "Stop", nameKey: "common.button.stop", action: function() { DE1Device.requestIdle() } }
+                    { icon: "qrc:/icons/espresso.svg", label: "Espresso", nameKey: "idle.button.espresso", action: function() { DE1Device.startEspresso() } },
+                    { icon: "qrc:/icons/steam.svg", label: "Steam", nameKey: "idle.button.steam", action: function() { DE1Device.startSteam() } },
+                    { icon: "qrc:/icons/water.svg", label: "Hot Water", nameKey: "idle.button.hotwater", action: function() { DE1Device.startHotWater() } },
+                    { icon: "qrc:/icons/flush.svg", label: "Flush", nameKey: "idle.button.flush", action: function() { DE1Device.startFlush() } },
+                    { icon: "qrc:/icons/hand.svg", label: "Stop", nameKey: "common.button.stop", action: function() { DE1Device.requestIdle() } }
                 ]
 
                 Rectangle {
@@ -64,7 +65,7 @@ Item {
                     AccessibleMouseArea {
                         id: compactArea
                         anchors.fill: parent
-                        accessibleName: TranslationManager.translate(modelData.nameKey, modelData.name)
+                        accessibleName: TranslationManager.translate(modelData.nameKey, modelData.label)
                         accessibleItem: compactBtn
                         onAccessibleClicked: modelData.action()
                     }
