@@ -41,16 +41,12 @@ Switch {
         color: Theme.textColor
         verticalAlignment: Text.AlignVCenter
         leftPadding: control.indicator.width + Theme.scaled(8)
+        Accessible.ignored: true
     }
 
     Accessible.role: Accessible.CheckBox
-    Accessible.name: {
-        var label = control.accessibleName || control.text || TranslationManager.translate("switch.accessibility.toggle", "Toggle")
-        var state = control.checked ?
-            TranslationManager.translate("accessibility.on", "On") :
-            TranslationManager.translate("accessibility.off", "Off")
-        return label + ", " + state
-    }
+    Accessible.name: control.accessibleName || control.text || TranslationManager.translate("switch.accessibility.toggle", "Toggle")
     Accessible.checked: control.checked
     Accessible.focusable: true
+    Accessible.onPressAction: control.toggle()
 }
