@@ -134,70 +134,71 @@ private slots:
 
     // --- Recommendation algorithm ---
 
-    void recommendsHighestFlowInCVBand()
+    void recommendsHighestFlowInCVAndDilutionBand()
     {
-        // Simulate U-shaped CV curve like real DE1+ data
+        // Simulate real DE1+ data: U-shaped CV, increasing dilution with flow
         QVector<CalibrationStepResult> steps;
-        auto makeStep = [](int flow, double cv) {
+        auto makeStep = [](int flow, double cv, double dilution) {
             CalibrationStepResult s;
             s.flowRate = flow;
             s.pressureCV = cv;
+            s.estimatedDilution = dilution;
             s.sampleCount = 100;
             return s;
         };
 
-        steps.append(makeStep(40, 0.30));   // worst
-        steps.append(makeStep(60, 0.23));   // good
-        steps.append(makeStep(80, 0.21));   // best CV
-        steps.append(makeStep(100, 0.24));  // good (within 20% of 0.21)
-        steps.append(makeStep(120, 0.32));  // worst
+        steps.append(makeStep(40, 0.29, 10.4));  // bad CV
+        steps.append(makeStep(60, 0.29, 13.8));  // bad CV
+        steps.append(makeStep(80, 0.19, 17.8));  // best CV
+        steps.append(makeStep(100, 0.20, 21.7)); // CV within 10%, but dilution 21.7 > 17.8*1.30=23.1 OK
+        steps.append(makeStep(120, 0.22, 25.4)); // dilution 25.4 > 23.1 — excluded
 
         int rec = SteamCalibrator::findRecommendedFlow(steps);
 
-        // 0.21 * 1.20 = 0.252 threshold. Flows 60 (0.23), 80 (0.21), 100 (0.24) all qualify.
-        // Should pick 100 — highest flow in the band.
+        // CV threshold: 0.19 * 1.10 = 0.209. Steps 80 (0.19) and 100 (0.20) qualify.
+        // Dilution threshold: 17.8 * 1.30 = 23.14. Steps 40-100 qualify, 120 excluded.
+        // Highest in both bands: 100.
         QCOMPARE(rec, 100);
     }
 
-    void recommendsOnlyFlowWhenAllSimilar()
+    void dilutionCapExcludesHighFlow()
     {
         QVector<CalibrationStepResult> steps;
-        auto makeStep = [](int flow, double cv) {
+        auto makeStep = [](int flow, double cv, double dilution) {
             CalibrationStepResult s;
             s.flowRate = flow;
             s.pressureCV = cv;
+            s.estimatedDilution = dilution;
             s.sampleCount = 100;
             return s;
         };
 
-        // All CVs similar — should pick highest
-        steps.append(makeStep(40, 0.25));
-        steps.append(makeStep(60, 0.24));
-        steps.append(makeStep(80, 0.23));
-        steps.append(makeStep(100, 0.25));
+        steps.append(makeStep(60, 0.20, 12.0));  // best CV
+        steps.append(makeStep(80, 0.21, 14.0));   // CV OK, dilution OK
+        steps.append(makeStep(100, 0.21, 20.0));  // CV OK but dilution 20.0 > 12.0*1.30=15.6
 
         int rec = SteamCalibrator::findRecommendedFlow(steps);
-        // 0.23 * 1.20 = 0.276. All qualify. Pick highest = 100.
-        QCOMPARE(rec, 100);
+        QCOMPARE(rec, 80);
     }
 
-    void recommendsLowestWhenOnlyOneGood()
+    void recommendsOnlyOptionWhenOneGood()
     {
         QVector<CalibrationStepResult> steps;
-        auto makeStep = [](int flow, double cv) {
+        auto makeStep = [](int flow, double cv, double dilution) {
             CalibrationStepResult s;
             s.flowRate = flow;
             s.pressureCV = cv;
+            s.estimatedDilution = dilution;
             s.sampleCount = 100;
             return s;
         };
 
-        steps.append(makeStep(40, 0.10));  // clear winner
-        steps.append(makeStep(60, 0.40));
-        steps.append(makeStep(80, 0.50));
+        steps.append(makeStep(40, 0.10, 10.0));  // clear winner
+        steps.append(makeStep(60, 0.40, 14.0));  // CV way outside 10%
+        steps.append(makeStep(80, 0.50, 18.0));
 
         int rec = SteamCalibrator::findRecommendedFlow(steps);
-        // 0.10 * 1.20 = 0.12 threshold. Only 40 qualifies.
+        // 0.10 * 1.10 = 0.11. Only 40 qualifies on CV.
         QCOMPARE(rec, 40);
     }
 

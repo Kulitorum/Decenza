@@ -165,20 +165,30 @@ int SteamCalibrator::findRecommendedFlow(const QVector<CalibrationStepResult>& s
 {
     if (steps.isEmpty()) return 0;
 
-    // Find the minimum CV across all steps
+    // Find the step with the minimum CV (most stable pressure)
     double minCV = std::numeric_limits<double>::max();
+    double bestCVDilution = 0;
     for (const auto& s : steps) {
-        if (s.sampleCount >= 30 && s.pressureCV < minCV)
+        if (s.sampleCount >= 30 && s.pressureCV < minCV) {
             minCV = s.pressureCV;
+            bestCVDilution = s.estimatedDilution;
+        }
     }
 
     if (minCV >= std::numeric_limits<double>::max()) return steps.first().flowRate;
 
-    // Find the highest flow rate whose CV is within CV_MARGIN (20%) of the best
+    // Find the highest flow rate that meets BOTH criteria:
+    // 1. CV within 10% of the best (pressure stability)
+    // 2. Dilution no more than 30% worse than the best-CV step's dilution
+    //    (prevents recommending a flow rate with much worse steam quality)
     double cvThreshold = minCV * (1.0 + CV_MARGIN);
+    double dilutionThreshold = bestCVDilution * 1.30;
     int bestFlow = 0;
     for (const auto& s : steps) {
-        if (s.sampleCount >= 30 && s.pressureCV <= cvThreshold && s.flowRate > bestFlow)
+        if (s.sampleCount >= 30
+            && s.pressureCV <= cvThreshold
+            && s.estimatedDilution <= dilutionThreshold
+            && s.flowRate > bestFlow)
             bestFlow = s.flowRate;
     }
 

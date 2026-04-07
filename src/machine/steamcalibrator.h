@@ -176,7 +176,7 @@ private:
     static constexpr int MIN_SAMPLES = 30;
     static constexpr double MIN_DURATION = 10.0;
     static constexpr double TARGET_DURATION = 20.0;
-    static constexpr double CV_MARGIN = 0.20;  // Pick highest flow within 20% of best CV
+    static constexpr double CV_MARGIN = 0.10;  // Pick highest flow within 10% of best CV
 
     // Thermodynamic constants
     static constexpr double SPECIFIC_HEAT_WATER = 4.18;
