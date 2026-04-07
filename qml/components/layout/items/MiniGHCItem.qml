@@ -152,34 +152,31 @@ Item {
                 Accessible.ignored: true
                 clip: true
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(4)
-                    spacing: Theme.scaled(2)
-
-                    Image {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.fillHeight: true
-                        width: height
-                        source: btn.iconSource
-                        sourceSize.width: Theme.scaled(36)
-                        sourceSize.height: Theme.scaled(36)
-                        fillMode: Image.PreserveAspectFit
-                        Accessible.ignored: true
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            colorization: 1.0
-                            colorizationColor: Theme.actionButtonContentColor
-                        }
+                Image {
+                    id: btnIcon
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: -Math.round(btnLabel.implicitHeight / 2) - Theme.scaled(1)
+                    source: btn.iconSource
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    Accessible.ignored: true
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.surfaceColor
                     }
+                }
 
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: btn._label
-                        color: Theme.actionButtonContentColor
-                        font: Theme.captionFont
-                        Accessible.ignored: true
-                    }
+                Text {
+                    id: btnLabel
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: btnIcon.bottom
+                    anchors.topMargin: Theme.scaled(2)
+                    text: btn._label
+                    color: Theme.actionButtonContentColor
+                    font: Theme.captionFont
+                    Accessible.ignored: true
                 }
 
                 AccessibleMouseArea {
