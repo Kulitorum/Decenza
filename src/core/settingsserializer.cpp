@@ -131,6 +131,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["grinderModel"] = m["grinderModel"].toString();
         p["grinderBurrs"] = m["grinderBurrs"].toString();
         p["grinderSetting"] = m["grinderSetting"].toString();
+        p["barista"] = m["barista"].toString();
         beanPresets.append(p);
     }
     QJsonObject beans;
@@ -505,7 +506,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                     p["grinderBrand"].toString(),
                     p["grinderModel"].toString(),
                     p["grinderBurrs"].toString(),
-                    p["grinderSetting"].toString()
+                    p["grinderSetting"].toString(),
+                    p["barista"].toString()
                 );
             }
         }
