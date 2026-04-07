@@ -95,8 +95,14 @@ Page {
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans"
 
-    // Announce presets when they appear (accessibility)
+    // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
+        // Auto-tare when steam pills appear so the scale starts at 0
+        // before the user places the pitcher
+        if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
+            MachineState.tareScale()
+        }
+
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && activePresetFunction !== "") {
             var presets = []
             var selectedName = ""
@@ -256,10 +262,32 @@ Page {
                 anchors.horizontalCenter: parent.horizontalCenter
                 active: activePresetFunction === "steam"
                 visible: active
+
+                // Track scale weight changes and bump version to refresh pill suffix text
+                property int steamPillSuffixVersion: 0
+                Connections {
+                    target: MachineState
+                    function onScaleWeightChanged() {
+                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
+                    }
+                }
+
                 sourceComponent: PresetPillRow {
                     maxWidth: steamPresetLoader.width
                     presets: Settings.steamPitcherPresets
                     selectedIndex: Settings.selectedSteamPitcher
+                    pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
+                    pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
+
+                    pillSuffixFn: function(index) {
+                        if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
+                        var preset = Settings.steamPitcherPresets[index]
+                        if (!preset) return ""
+                        var pitcherWeight = preset.pitcherWeightG ?? 0
+                        if (pitcherWeight <= 0) return ""
+                        var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
+                        return " (" + Math.round(milkWeight) + "g)"
+                    }
 
                     onPresetSelected: function(index) {
                         var wasAlreadySelected = (index === Settings.selectedSteamPitcher)

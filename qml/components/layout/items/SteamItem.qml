@@ -157,31 +157,58 @@ Item {
             border.width: 1
         }
 
-        contentItem: PresetPillRow {
-            maxWidth: Theme.scaled(600)
-            presets: Settings.steamPitcherPresets
-            selectedIndex: Settings.selectedSteamPitcher
+        contentItem: Item {
+            implicitWidth: popupPillRow.implicitWidth
+            implicitHeight: popupPillRow.implicitHeight
 
-            onPresetSelected: function(index) {
-                var wasAlreadySelected = (index === Settings.selectedSteamPitcher)
-                Settings.selectedSteamPitcher = index
-                var preset = Settings.getSteamPitcherPreset(index)
-                if (preset) {
-                    Settings.steamTimeout = preset.duration
-                    Settings.steamFlow = preset.flow !== undefined ? preset.flow : 150
+            // Track scale weight to refresh pill suffix
+            property int popupSuffixVersion: 0
+            Connections {
+                target: MachineState
+                function onScaleWeightChanged() {
+                    if (presetPopup.visible) popupPillRow.parent.popupSuffixVersion++
                 }
-                MainController.applySteamSettings()
+            }
 
-                if (wasAlreadySelected) {
-                    if (MachineState.isReady) {
-                        DE1Device.startSteam()
-                    } else {
-                        console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
-                            AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+            PresetPillRow {
+                id: popupPillRow
+                maxWidth: Theme.scaled(600)
+                presets: Settings.steamPitcherPresets
+                selectedIndex: Settings.selectedSteamPitcher
+                pillSuffixMaxWidth: Theme.scaled(60)
+                pillSuffixVersion: parent.popupSuffixVersion
+
+                pillSuffixFn: function(index) {
+                    if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
+                    var preset = Settings.steamPitcherPresets[index]
+                    if (!preset) return ""
+                    var pitcherWeight = preset.pitcherWeightG ?? 0
+                    if (pitcherWeight <= 0) return ""
+                    var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
+                    return " (" + Math.round(milkWeight) + "g)"
+                }
+
+                onPresetSelected: function(index) {
+                    var wasAlreadySelected = (index === Settings.selectedSteamPitcher)
+                    Settings.selectedSteamPitcher = index
+                    var preset = Settings.getSteamPitcherPreset(index)
+                    if (preset) {
+                        Settings.steamTimeout = preset.duration
+                        Settings.steamFlow = preset.flow !== undefined ? preset.flow : 150
                     }
+                    MainController.applySteamSettings()
+
+                    if (wasAlreadySelected) {
+                        if (MachineState.isReady) {
+                            DE1Device.startSteam()
+                        } else {
+                            console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+                        }
+                    }
+                    presetPopup.close()
                 }
-                presetPopup.close()
             }
         }
     }

@@ -32,8 +32,11 @@ ChartView {
     property double paddingPixels: Theme.scaled(5)
     property double cachedPlotWidth: 1
     property double _lastAxisMax: 5.0
+    property bool _recalcInProgress: false  // Re-entry guard: axis changes trigger onPlotAreaChanged
 
     function recalcMax() {
+        if (_recalcInProgress) return
+        _recalcInProgress = true
         var raw = SteamDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
         if (newMax !== _lastAxisMax) {
@@ -41,6 +44,7 @@ ChartView {
             timeAxis.max = newMax
             timeAxis.tickCount = Math.min(7, Math.max(3, Math.floor(newMax / 10) + 2))
         }
+        _recalcInProgress = false
     }
 
     Connections {

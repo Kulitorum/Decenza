@@ -10,6 +10,9 @@ FocusScope {
     property int focusedIndex: 0  // Currently focused pill for keyboard nav
     property real maxWidth: Math.min(Theme.scaled(825), parent ? parent.width - Theme.scaled(24) : Theme.scaled(825))  // Clamp to parent width with margins
     property bool supportLongPress: false  // Enable long-press on pills
+    property var pillSuffixFn: null  // Optional: function(index) => string suffix appended to pill text (e.g. " (125g)")
+    property int pillSuffixVersion: 0  // Increment from outside to force pill text refresh without full layout recalc
+    property real pillSuffixMaxWidth: 0  // Reserve extra horizontal space per pill for the suffix
 
     // Effective max width - ensures we never exceed parent width even if maxWidth is larger
     readonly property real effectiveMaxWidth: {
@@ -56,12 +59,23 @@ FocusScope {
         }
     }
 
-    // Display name for a pill, with modified indicator for selected read-only profiles
-    function pillDisplayName(index) {
+    // Base name for layout calculation (no live suffix — avoids layout recalc on every scale tick)
+    function pillLayoutName(index) {
         var name = presets[index] ? (presets[index].name || "") : ""
         if (index === selectedIndex && ProfileManager.profileModified) {
-            return ProfileManager.isCurrentProfileReadOnly
-                ? name + " (modified)" : "*" + name
+            name = ProfileManager.isCurrentProfileReadOnly ? name + " (modified)" : "*" + name
+        }
+        return name
+    }
+
+    // Display name for pill text — includes live suffix. Reads pillSuffixVersion so bindings
+    // update when the parent increments it (e.g. on scale weight change).
+    function pillDisplayName(index) {
+        var _ = pillSuffixVersion  // Track for reactivity
+        var name = pillLayoutName(index)
+        if (pillSuffixFn) {
+            var suffix = pillSuffixFn(index)
+            if (suffix) name = name + suffix
         }
         return name
     }
@@ -85,10 +99,11 @@ FocusScope {
         return textMetrics.width
     }
 
-    // Recalculate when presets, width, or profile modified state changes (deferred
+    // Recalculate when presets, width, profile modified state, or suffix changes (deferred
     // via timer to avoid destroying Repeater delegates during signal handler chains)
     onPresetsChanged: recalcTimer.restart()
     onEffectiveMaxWidthChanged: recalcTimer.restart()
+    onPillSuffixFnChanged: recalcTimer.restart()
     Connections {
         target: ProfileManager
         function onProfileModifiedChanged() { recalcTimer.restart() }
@@ -114,11 +129,12 @@ FocusScope {
             return []
         }
 
-        // First pass: calculate pill widths based on actual text width
+        // First pass: calculate pill widths based on layout name (no live suffix — avoid recalc on scale ticks)
+        // Reserve pillSuffixMaxWidth extra space per pill when a suffix function is provided
         var pillWidths = []
         var totalWidth = 0
         for (var i = 0; i < presets.length; i++) {
-            var textWidth = measureTextWidth(pillDisplayName(i))
+            var textWidth = measureTextWidth(pillLayoutName(i)) + (pillSuffixFn ? pillSuffixMaxWidth : 0)
             var pillWidth = textWidth + pillPadding
             pillWidths.push(pillWidth)
             totalWidth += pillWidth

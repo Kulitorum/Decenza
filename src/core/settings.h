@@ -356,6 +356,7 @@ public:
     Q_INVOKABLE void removeSteamPitcherPreset(int index);
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
+    Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
 
     // Headless machine settings
     bool headlessSkipPurgeConfirm() const;

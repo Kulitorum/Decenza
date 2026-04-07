@@ -738,6 +738,20 @@ void Settings::moveSteamPitcherPreset(int from, int to) {
     }
 }
 
+void Settings::setSteamPitcherWeight(int index, double weightG) {
+    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        QJsonObject preset = arr[index].toObject();
+        preset["pitcherWeightG"] = weightG;
+        arr[index] = preset;
+        m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+        emit steamPitcherPresetsChanged();
+    }
+}
+
 QVariantMap Settings::getSteamPitcherPreset(int index) const {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);

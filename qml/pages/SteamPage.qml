@@ -1012,6 +1012,125 @@ Page {
                         }
                     }
 
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
+
+                    // Weight — pitcher tare calibration per preset
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(16)
+                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+
+                        Column {
+                            spacing: Theme.scaled(4)
+                            Tr {
+                                key: "steam.label.weight"
+                                fallback: "Weight"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(24)
+                            }
+                            Text {
+                                color: Theme.textSecondaryColor
+                                font: Theme.labelFont
+                                text: {
+                                    // Read steamPitcherPresets property to track changes via steamPitcherPresetsChanged signal
+                                    var _ = Settings.steamPitcherPresets
+                                    var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+                                    var saved = preset ? (preset.pitcherWeightG ?? 0) : 0
+                                    if (saved > 0)
+                                        return TranslationManager.translate("steam.hint.pitcherWeightSaved", "Pitcher") + ": " + saved.toFixed(0) + "g"
+                                    return TranslationManager.translate("steam.hint.pitcherWeightNone", "No pitcher weight saved")
+                                }
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        RowLayout {
+                            spacing: Theme.scaled(8)
+
+                            // Live scale reading
+                            Text {
+                                text: MachineState.scaleWeight.toFixed(0) + "g"
+                                color: Theme.textSecondaryColor
+                                font: Theme.bodyFont
+                                Accessible.ignored: true
+                            }
+
+                            // Tare button
+                            Rectangle {
+                                id: tareBtn
+                                width: Theme.scaled(80)
+                                height: Theme.scaled(44)
+                                radius: Theme.cardRadius
+                                color: tareBtnMa.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+                                border.color: Theme.borderColor
+                                border.width: 1
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("steam.label.tare", "Tare scale")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: tareBtnMa.clicked(null)
+
+                                Tr {
+                                    anchors.centerIn: parent
+                                    key: "steam.label.tare"
+                                    fallback: "Tare"
+                                    color: Theme.textColor
+                                    font: Theme.bodyFont
+                                    Accessible.ignored: true
+                                }
+
+                                MouseArea {
+                                    id: tareBtnMa
+                                    anchors.fill: parent
+                                    onClicked: MachineState.tareScale()
+                                }
+                            }
+
+                            // Save/Clear pitcher weight button
+                            // Shows "Clear" when scale reads ~0 (saving 0 disables the feature)
+                            Rectangle {
+                                id: savePitcherWeightBtn
+                                readonly property bool isClear: MachineState.scaleWeight < 5.0
+                                width: Theme.scaled(80)
+                                height: Theme.scaled(44)
+                                radius: Theme.cardRadius
+                                color: {
+                                    var base = isClear ? Theme.surfaceColor : Theme.primaryColor
+                                    return savePitcherWtMa.pressed ? Qt.darker(base, 1.2) : base
+                                }
+                                border.color: isClear ? Theme.borderColor : "transparent"
+                                border.width: isClear ? 1 : 0
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: isClear
+                                    ? TranslationManager.translate("steam.label.clearPitcherWeight", "Clear pitcher weight")
+                                    : TranslationManager.translate("steam.label.savePitcherWeight", "Save pitcher weight")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: savePitcherWtMa.clicked(null)
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: savePitcherWeightBtn.isClear
+                                        ? TranslationManager.translate("steam.label.clear", "Clear")
+                                        : TranslationManager.translate("steam.label.save", "Save")
+                                    color: savePitcherWeightBtn.isClear ? Theme.textColor : Theme.primaryContrastColor
+                                    font: Theme.bodyFont
+                                    Accessible.ignored: true
+                                }
+
+                                MouseArea {
+                                    id: savePitcherWtMa
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        Settings.setSteamPitcherWeight(Settings.selectedSteamPitcher, MachineState.scaleWeight)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Item { Layout.fillHeight: true }
                 }
             }
