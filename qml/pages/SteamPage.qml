@@ -1027,6 +1027,7 @@ Page {
                                 fallback: "Weight"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(24)
+                                Accessible.ignored: true
                             }
                             Text {
                                 color: Theme.textSecondaryColor
@@ -1068,7 +1069,7 @@ Page {
                                 border.width: 1
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("steam.label.tare", "Tare scale")
+                                Accessible.name: TranslationManager.translate("steam.accessible.tare", "Tare scale")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: tareBtnMa.clicked(null)
 
@@ -1124,7 +1125,8 @@ Page {
                                     id: savePitcherWtMa
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.setSteamPitcherWeight(Settings.selectedSteamPitcher, MachineState.scaleWeight)
+                                        Settings.setSteamPitcherWeight(Settings.selectedSteamPitcher,
+                                            savePitcherWeightBtn.isClear ? 0.0 : MachineState.scaleWeight)
                                     }
                                 }
                             }

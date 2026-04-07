@@ -275,7 +275,7 @@ FocusScope {
 
                             accessibleName: {
                                 if (!modelData || !modelData.preset) return ""
-                                var name = modelData.preset.name || ""
+                                var name = pillDisplayName(modelData.index)
                                 var modified = (modelData.index === root.selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
                                 var status = modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
                                 return name + modified + status

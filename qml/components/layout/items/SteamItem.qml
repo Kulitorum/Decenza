@@ -116,6 +116,10 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        onOpened: {
+            if (typeof MachineState !== "undefined") MachineState.tareScale()
+        }
+
         width: {
             var win = root.Window.window
             var w = Theme.scaled(600) + 2 * padding
