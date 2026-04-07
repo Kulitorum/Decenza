@@ -16,6 +16,20 @@ Dialog {
     signal dateSelected(string dateString)
 
     function openWithDate(dateString) {
+        // Defocus any focused text field before the dialog opens. Qt Dialog records
+        // the active focus item when opening and restores it on close. If a text field
+        // has focus here, closing the dialog would restore focus to it and re-show
+        // the keyboard. Clearing focus first means there is nothing keyboard-triggering
+        // to restore.
+        var overlay = Overlay.overlay
+        if (overlay) {
+            var win = overlay.Window.window
+            if (win && win.activeFocusItem) {
+                win.activeFocusItem.focus = false
+            }
+        }
+        Qt.inputMethod.hide()
+
         if (dateString && dateString.length === 10) {
             var parts = dateString.split("-")
             var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
@@ -42,6 +56,12 @@ Dialog {
             )
         }
     }
+
+    // When the dialog closes, Qt restores focus to whatever was focused before it opened
+    // (e.g. the date text field the user clicked before tapping the calendar button).
+    // Restoring focus to a TextField automatically shows the keyboard. Hide it here —
+    // the user just used a picker and does not want to type.
+    onClosed: Qt.callLater(function() { Qt.inputMethod.hide() })
 
     background: Rectangle {
         color: Theme.surfaceColor

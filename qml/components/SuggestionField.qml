@@ -45,7 +45,11 @@ Item {
         // Don't set root.text directly - emit signal and let parent update via binding
         root.textEdited(selectedText)
         root.suggestionSelected(selectedText)
-        textInput.focus = false
+        // forceActiveFocus on the container rather than just setting textInput.focus = false.
+        // Setting focus = false lets QML traverse the focus chain to the next item (another
+        // text field), which shows the keyboard again. Explicitly taking focus to the
+        // non-keyboard root Item stops that traversal.
+        root.forceActiveFocus()
         Qt.inputMethod.hide()
     }
 
@@ -56,6 +60,13 @@ Item {
     function openSuggestionsDialog() {
         isActivelyTyping = false  // Show all suggestions
         suggestionPopup.close()   // Close typing popup before opening modal dialog
+        // Give focus to the non-keyboard container before the dialog opens.
+        // The Dialog saves the current activeFocusItem and restores it on close.
+        // If textInput still has focus here, the dialog would restore focus to it
+        // on close (showing the keyboard again). Moving focus to root (a plain Item)
+        // makes the dialog restore to a non-keyboard element instead.
+        root.forceActiveFocus()
+        Qt.inputMethod.hide()
         suggestionsDialog.open()
     }
 
