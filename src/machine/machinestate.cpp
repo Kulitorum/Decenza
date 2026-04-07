@@ -535,14 +535,20 @@ void MachineState::onScaleWeightChanged(double weight) {
 
     // Hot water fire-and-forget: if the BLE tare actually worked (scale zeroed),
     // clear the baseline so SAW uses absolute weight from now on.
-    // Guard: only clear if we haven't seen significant water flow yet (< 3g effective).
-    // Slow-tare scales (e.g. Eureka Precisa) may process the tare command after water
-    // has been dispensed, causing weight to drop to 0 — clearing baseline then would
-    // make the effective weight wrong.
-    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0 && m_hotWaterTareTimeMs > 0
-        && qAbs(weight) < 1.0 && m_hotWaterMaxEffectiveWeight < 3.0) {
-        qDebug() << "=== TARE: Scale zeroed, clearing hot water baseline ===";
-        m_hotWaterTareBaseline = 0.0;
+    // Guard: only clear if we haven't seen significant water flow yet (< 3g effective)
+    // OR if we're still within the tare burst window (first 2s after tare request).
+    // Within the burst window, the scale zeroing is clearly a tare response, not a
+    // coincidence — so clear baseline unconditionally and reset maxEffectiveWeight
+    // to prevent the stale baseline from causing a false SAW trigger.
+    // After the burst window, the < 3g guard protects against slow-tare scales
+    // (e.g. Eureka Precisa) that process tare after water has been dispensed.
+    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0 && qAbs(weight) < 1.0) {
+        bool inTareWindow = m_hotWaterTareTimeMs > 0;
+        if (inTareWindow || m_hotWaterMaxEffectiveWeight < 3.0) {
+            qDebug() << "=== TARE: Scale zeroed, clearing hot water baseline ===";
+            m_hotWaterTareBaseline = 0.0;
+            m_hotWaterMaxEffectiveWeight = 0.0;  // Reset so SAW uses fresh absolute weight
+        }
     }
 
     // Track peak effective weight during hot water (used to guard baseline clearing)
@@ -636,15 +642,6 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
             s_lastTareWarnMs = nowMs;
         }
         return;
-    }
-
-    // Suppress SAW during the tare settling window (first 2s after tare).
-    // The scale may zero mid-window, causing a huge effective weight spike
-    // (e.g., scale=0 minus baseline=-156 = 156g) that false-triggers SAW.
-    if (m_hotWaterTareTimeMs > 0) {
-        qint64 sinceTareMs = QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs;
-        if (sinceTareMs < 2000)
-            return;
     }
 
     // Volume mode: machine handles auto-stop via flowmeter, don't interfere
