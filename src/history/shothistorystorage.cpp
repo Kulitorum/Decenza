@@ -897,7 +897,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // and works regardless of frame mode. computeConductanceDerivative()
         // above populates the series we read here.
         data.channelingDetected = false;
-        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
+        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
+            && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("channeling_expected"))) {
             auto severity = ShotAnalysis::detectChannelingFromDerivative(
                 shotData->conductanceDerivativeData(), pourStart, pourEnd);
             data.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
@@ -2079,7 +2080,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
 
         // Channeling (dC/dt — conductanceDerivative was just filled by computeDerivedCurves)
         record.channelingDetected = false;
-        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
+        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
+            && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("channeling_expected"))) {
             auto severity = ShotAnalysis::detectChannelingFromDerivative(
                 record.conductanceDerivative, pourStart, pourEnd);
             record.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);

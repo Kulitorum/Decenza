@@ -49,7 +49,7 @@ DO NOT flag variable pressure curves, steep pre-infusion pressure drop, or a sli
 
 ## Blooming Espresso
 Category: Blooming
-AnalysisFlags: flow_trend_ok
+AnalysisFlags: flow_trend_ok, channeling_expected
 How it works: Fill at ~4 ml/s until pressure peaks, close valve for 30s bloom, then ramp to 2.2 ml/s flow-controlled extraction with an 8.6 bar limiter. The 30-second pause with zero flow is INTENTIONAL.
 Expected curves: Initial pressure spike during fill, then 30s of declining/zero pressure (bloom phase), then pressure rise to 6-9 bar for extraction. Flow near zero during bloom is BY DESIGN.
 Temperature: 97.5°C preinfusion/fill, drops to 90°C during bloom, 92°C extraction. The high preinfusion temperature and the drop during bloom are intentional.
@@ -60,11 +60,12 @@ Extraction: 23-26% typical (among the highest of espresso profiles, comparable t
 Ratio: Up to 1:3
 Roast: Excellent for light (hardest to dial in but most rewarding). Good for medium. Not ideal for dark.
 This is the hardest profile to dial in — requires lots of beans to experiment. DO NOT flag the 30s bloom pause as a problem.
+DO NOT flag channeling in dC/dt — the zero-flow bloom followed by ramp to extraction flow always produces large conductance derivative spikes. dC/dt is unreliable for any profile with a zero-flow phase before extraction.
 
 ## Blooming Allonge
 Also matches: "Blooming Allongé"
 Category: Blooming/Allonge hybrid
-AnalysisFlags: flow_trend_ok, grind_check_skip
+AnalysisFlags: flow_trend_ok, grind_check_skip, channeling_expected
 How it works: Fast fill at 4.5 ml/s until pressure peaks, ramp down to 2.0 ml/s, then bloom (zero flow, pressure decays), then ramp up to 3.5 ml/s percolation with an 8.6 bar pressure limiter.
 Expected curves: Pressure spike, bloom decay, then low pressure (<6 bar) during percolation at 3.5 ml/s.
 Temperature: 91-95°C (declining across phases)
@@ -200,7 +201,8 @@ Extraction: Slightly more than G&S due to pre-infusion/bloom
 Flavor: More acidic/sharp, fruitier, juicier than G&S. More concentrated.
 Roast: Good for light. Community favorite for consistent light roast espresso. Good for beans with slight off-flavors.
 DO NOT flag the zero-flow bloom phase or the low/varying temperatures as problems — the dynamic bloom and temperature changes are core to this profile's design.
-AnalysisFlags: flow_trend_ok
+DO NOT flag channeling in dC/dt — the zero-flow bloom followed by extraction ramp always produces large conductance derivative spikes regardless of puck quality.
+AnalysisFlags: flow_trend_ok, channeling_expected
 
 ## Flow Profile
 Also matches: "Flow profile for straight espresso", "Flow profile for milky drinks"
@@ -225,7 +227,8 @@ Grind: Fine (same as Londinium)
 Flavor: Maximum mouthfeel, thick syrupy espresso. Baker's chocolate, intense. Very thick crema. "King of chocolate."
 Roast: Excellent for dark. Highest temperature of dark profiles = most extraction = most intense.
 DO NOT flag steeply declining pressure or declining flow as problems — this IS the Cremina style.
-AnalysisFlags: flow_trend_ok
+DO NOT flag channeling in dC/dt — the soak→ramp transition (flow jumps from ~0 to 2.5 ml/s as pressure ramps 1→9 bar) always produces large conductance derivative spikes regardless of puck quality. dC/dt is only diagnostic on flat-pressure or constant-flow profiles.
+AnalysisFlags: flow_trend_ok, channeling_expected
 
 ## Idan's Strega Plus
 Also matches: "Strega Plus", "Strega Plus medium", "Strega Plus dark", "Idan Strega"
@@ -238,8 +241,9 @@ Duration: ~50–70s (longer than standard espresso — lever style)
 Ratio: 1:1 to 1:2 (medium variant), 1:2 to 1:2.5 (dark variant)
 Flavor: High texture, strong flavor, rich body — optimized for milk-based drinks, especially dry cappuccino. NOT designed for clarity or flavor separation — those are not its strengths. Expect a distinctive, full-flavored cup for each bean.
 Roast: Medium to medium-light. Dark variant for slightly darker beans.
-AnalysisFlags: flow_trend_ok
-DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio as problems — all are defining characteristics of the Strega simulation. This is a milk-drink texture-first profile.
+AnalysisFlags: flow_trend_ok, channeling_expected
+DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio as problems — all are defining characteristics of the Strega simulation.
+DO NOT flag channeling in dC/dt — the blooming phase (near-zero flow) followed by extraction onset produces conductance derivative spikes unrelated to puck quality. This is a milk-drink texture-first profile.
 
 ## 80's Espresso
 Category: Lever at low temperature
@@ -340,11 +344,13 @@ Dose: 18g → 50g out (~1:2.8)
 Grind: Coarse for light roasts (target ~2.5 ml/s extraction flow). Grind fine enough to maintain dripping during preinfusion; if dripping stops completely, grind is too coarse.
 Roast: Light roasts primarily. Can adapt to medium with temperature adjustment.
 DO NOT flag the long low-pressure soak phase as a problem — it is the intentional bloom/preinfusion designed for light-roast pucks.
+DO NOT flag channeling in dC/dt — the extended low-flow soak (1.5 bar) followed by pressure ramp to 9–10 bar produces large conductance derivative spikes regardless of puck quality.
+AnalysisFlags: flow_trend_ok, channeling_expected
 
 ## Easy Blooming Active Pressure Decline
 Also matches: "Easy blooming - active pressure decline"
 Category: Blooming (adaptive)
-AnalysisFlags: flow_trend_ok
+AnalysisFlags: flow_trend_ok, channeling_expected
 How it works: Created by Stéphane as an accessible evolution of Rao Blooming. The key innovation is a pressure-threshold bloom exit: rather than a fixed timer, the bloom phase ends when pressure declines to a threshold value. This makes bloom duration self-adjust to grind coarseness — finer grinds hold pressure longer (longer bloom), coarser grinds depressurize quickly (shorter bloom). This eliminates the need to adjust bloom time when changing grind size, making it far more forgiving than Rao Blooming. After bloom, active pressure decline reduces pressure from 7 bar toward a lower endpoint as the shot progresses, preventing over-extraction and managing increasing flow as the puck erodes.
 Expected curves: ~4 bar during fill, declining pressure during bloom (zero flow, pressure falls from 4 to threshold ~2 bar), then 6–7 bar extraction with gradual pressure decline. Zero flow during bloom is INTENTIONAL. Variable bloom duration is NORMAL and expected — it is the adaptive feature working correctly.
 Temperature: 88°C default (adjustable 84–90°C for different roasts; flat burrs can tolerate higher temperatures)
@@ -353,6 +359,7 @@ Dose: 20g → 40–50g (1:2–2.5)
 Grind: Flat burrs preferred (handle higher flow with less channeling); conical grinders compatible with higher temperature settings (raise temp by ~2°C).
 Roast: Light roasts preferred. Dark roasts work with lower temperature presets (84–86°C).
 DO NOT flag variable bloom duration or zero flow during bloom as problems — the pressure-threshold bloom exit and variable timing are the core adaptive features.
+DO NOT flag channeling in dC/dt — the zero-flow bloom followed by extraction ramp produces large conductance derivative spikes regardless of puck quality.
 
 ## Gagné Adaptive
 Also matches: "Gagné/Adaptive Shot 92C v1.0", "Gagné/Adaptive Allongé 94C v1.0", "Gagne Adaptive Shot", "Gagne Adaptive Allonge"
@@ -378,10 +385,12 @@ Grind: Any — the profile detects resistance and routes itself to the appropria
 Flavor: Reliable baseline espresso at any grind setting. The coarse-grind (low-resistance) path produces cleaner, brighter cups; the fine-grind (bloom) path adds more body and complexity. Both produce drinkable espresso.
 Roast: All roasts
 DO NOT flag variable curves or unexpected path-switching as problems — the adaptive branching is the entire purpose of this profile.
+DO NOT flag channeling in dC/dt — the bloom path (triggered by fine grinds) produces a zero-flow pause followed by extraction ramp, which always creates large conductance derivative spikes.
+AnalysisFlags: channeling_expected
 
 ## TurboBloom
 Category: Blooming/Turbo hybrid
-AnalysisFlags: flow_trend_ok, grind_check_skip
+AnalysisFlags: flow_trend_ok, grind_check_skip, channeling_expected
 How it works: Created by Collin as a companion to TurboTurbo. Dynamic bloom into high-flow pressure extraction, targeting high-extraction grinders with flat burrs. Fast fill at 8 ml/s, then dynamic bloom until pressure drops to 2.2 bar (approximately 5s — very short bloom by design), then ramps to 6 bar extraction with a 4.5 ml/s flow limiter. The short, fast bloom is intentional: the fast fill saturates the puck quickly, allowing the bloom to be brief while still achieving even extraction, which in turn permits a higher flow rate during extraction.
 Expected curves: Fill spike, then bloom decay (zero flow, declining pressure), then 6 bar extraction with high flow (3–4.5 ml/s). Zero flow during bloom is INTENTIONAL. High flow during extraction is EXPECTED.
 Temperature: 86°C fill, drops to 70°C during bloom (intentional to reduce harshness), ramps to 80°C extraction — these temperature variations are all intentional.
