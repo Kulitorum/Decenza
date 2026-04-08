@@ -5,7 +5,7 @@ Decenza is a cross-platform controller application for the Decent Espresso DE1 e
 
 ## Tech Stack
 - **Language**: C++17
-- **Framework**: Qt 6.10.2 (Core, Gui, Widgets, Qml, Quick, QuickControls2, Bluetooth, Charts, Svg, Multimedia, TextToSpeech, Network, Sql, Positioning)
+- **Framework**: Qt 6.10.3 (Core, Gui, Widgets, Qml, Quick, QuickControls2, Bluetooth, Charts, Svg, Multimedia, TextToSpeech, Network, Sql, Positioning)
 - **UI**: QML with Qt Quick Controls 2
 - **Build system**: CMake (3.21+)
 - **BLE**: Qt Bluetooth module for DE1 machine protocol and scale communication
@@ -56,7 +56,7 @@ Decenza is a cross-platform controller application for the Decent Espresso DE1 e
 
 Full build commands for all platforms are documented in `claude.md` under "Command Line Build" and "macOS/iOS Build". Key points:
 
-- **Windows**: Visual Studio 17 2022 generator, MSVC 2022, Qt at `C:/Qt/6.10.2/msvc2022_64`
+- **Windows**: Visual Studio 17 2022 generator, MSVC 2022, Qt at `C:/Qt/6.10.3/msvc2022_64`
 - **macOS**: Use Qt's `qt-cmake` wrapper with Ninja generator; requires `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` for paho_mqtt_c compatibility
 - **iOS**: GitHub Actions CI/CD (see `docs/IOS_CI_FOR_CLAUDE.md`); bundle ID `io.github.kulitorum.decenza`
 - **Android**: Built via Qt Creator's `androiddeployqt`; signed with keystore; outputs APK and AAB

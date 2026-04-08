@@ -8,7 +8,7 @@ Copy `installer/TEMPLATE_setupvars.iss` to `installer/setupvars.iss` and adjust 
 #define SourceDir "C:\CODE\de1-qt"
 #define AppBuildDir "C:\CODE\de1-qt\build\Desktop_Qt_6_10_1_MSVC2022_64bit-Release"
 #define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
-#define QtDir "C:\Qt\6.10.2\msvc2022_64"
+#define QtDir "C:\Qt\6.10.3\msvc2022_64"
 #define VcRedistDir "C:\Qt\vcredist"
 #define VcRedistFile "vc14.50.35719_VC_redist.x64.exe"
 ; Optional - not in TEMPLATE; add manually if OpenSSL is installed separately

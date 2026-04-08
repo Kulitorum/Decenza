@@ -26,8 +26,8 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 - **ADB path**: `/c/Users/Micro/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - **Uninstall app**: `adb uninstall io.github.kulitorum.decenza_de1`
 - **WiFi debugging**: `192.168.1.208:5555` (reconnect: `adb connect 192.168.1.208:5555`)
-- **Qt version**: 6.10.2
-- **Qt path**: `C:/Qt/6.10.2/msvc2022_64`
+- **Qt version**: 6.10.3
+- **Qt path**: `C:/Qt/6.10.3/msvc2022_64`
 - **C++ standard**: C++17
 - **de1app source**: `C:\code\de1app` (Windows) or `/Users/jeffreyh/Development/GitHub/de1app` (macOS) — original Tcl/Tk DE1 app for reference
 - **IMPORTANT**: Use relative paths (e.g., `src/main.cpp`) instead of absolute paths (e.g., `C:\CODE\de1-qt\src\main.cpp`) to avoid "Error: UNKNOWN: unknown error, open" when editing files
@@ -40,7 +40,7 @@ MSVC environment variables (INCLUDE, LIB) are set permanently. Use Visual Studio
 
 **Configure Release:**
 ```bash
-rm -rf build/Release && mkdir -p build/Release && cd build/Release && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.2/msvc2022_64"
+rm -rf build/Release && mkdir -p build/Release && cd build/Release && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64"
 ```
 
 **Build Release (parallel):**
@@ -50,7 +50,7 @@ cd build/Release && unset CMAKE_BUILD_PARALLEL_LEVEL && MSYS_NO_PATHCONV=1 cmake
 
 **Configure Debug:**
 ```bash
-rm -rf build/Debug && mkdir -p build/Debug && cd build/Debug && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.2/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug
+rm -rf build/Debug && mkdir -p build/Debug && cd build/Debug && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug
 ```
 
 **Build Debug (parallel):**
@@ -78,19 +78,19 @@ find ~/Qt/Tools -name "ninja"
 
 **Configure iOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_6_10_2_for_iOS && mkdir -p build/Qt_6_10_2_for_iOS && cd build/Qt_6_10_2_for_iOS && /Users/mic/Qt/6.10.2/ios/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_6_10_3_for_iOS && mkdir -p build/Qt_6_10_3_for_iOS && cd build/Qt_6_10_3_for_iOS && /Users/mic/Qt/6.10.3/ios/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Configure macOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_6_10_2_for_macOS && mkdir -p build/Qt_6_10_2_for_macOS && cd build/Qt_6_10_2_for_macOS && /Users/mic/Qt/6.10.2/macos/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_6_10_3_for_macOS && mkdir -p build/Qt_6_10_3_for_macOS && cd build/Qt_6_10_3_for_macOS && /Users/mic/Qt/6.10.3/macos/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Open in Xcode:**
 ```bash
-open build/Qt_6_10_2_for_iOS/Decenza.xcodeproj
+open build/Qt_6_10_3_for_iOS/Decenza.xcodeproj
 # or
-open build/Qt_6_10_2_for_macOS/Decenza.xcodeproj
+open build/Qt_6_10_3_for_macOS/Decenza.xcodeproj
 ```
 
 Then in Xcode: Product → Archive for App Store submission.

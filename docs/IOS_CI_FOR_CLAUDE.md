@@ -12,7 +12,7 @@ The iOS build runs entirely on GitHub's macOS servers. You don't need a Mac, Xco
 
 1. **Trigger**: You trigger the workflow via GitHub CLI or the GitHub website
 2. **GitHub spins up a macOS VM** with Xcode pre-installed
-3. **Qt 6.10.2 for iOS** is installed (cached after first run, takes ~20 seconds)
+3. **Qt 6.10.3 for iOS** is installed (cached after first run, takes ~20 seconds)
 4. **Signing credentials** are decoded from GitHub Secrets and installed
 5. **CMake configures** the project using Qt's `qt-cmake`
 6. **Xcode builds and archives** the app
@@ -179,7 +179,7 @@ These secrets are configured in the repository and should NOT be modified unless
 
 **Solution:**
 - Check https://github.com/jurplel/install-qt-action for supported versions
-- The workflow uses Qt 6.10.2 - if unavailable, update version in workflow
+- The workflow uses Qt 6.10.3 - if unavailable, update version in workflow
 
 ## Updating Credentials
 
@@ -274,7 +274,7 @@ This builds and archives but skips the upload step. You can download the IPA art
 - **Bundle ID**: `io.github.kulitorum.decenza` (Android uses `io.github.kulitorum.decenza_de1`)
 - **Team ID**: `HKHN2RK2P4`
 - **Minimum iOS**: 14.0 (set in CMakeLists.txt)
-- **Qt Version**: 6.10.2
+- **Qt Version**: 6.10.3
 - **Signing**: Manual signing with "iPhone Distribution" certificate
 - **Certificate Type**: iPhone Distribution (NOT Apple Distribution)
 - **Profile Name**: Decenza App Store
