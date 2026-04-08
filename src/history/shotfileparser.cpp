@@ -24,9 +24,6 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
         // Try to parse timestamp from filename: YYYYMMDDTHHMMSS[.shot]
         QString base = filename.section('.', 0, 0);  // strip extension
         QDateTime dt = QDateTime::fromString(base, "yyyyMMddTHHmmss");
-        if (!dt.isValid()) {
-            dt = QDateTime::fromString(base, "yyyyMMddTHHmmss");
-        }
         if (dt.isValid()) {
             dt.setTimeZone(QTimeZone::utc());
             timestamp = dt.toSecsSinceEpoch();
