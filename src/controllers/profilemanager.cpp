@@ -987,6 +987,24 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     return true;
 }
 
+bool ProfileManager::persistCurrentProfile() {
+    if (m_currentProfile.title().isEmpty() || m_currentProfile.steps().isEmpty())
+        return false;
+    // Skip if already installed — don't shadow an existing profile
+    if (!findProfileByTitle(m_currentProfile.title()).isEmpty())
+        return false;
+
+    QString filename = titleToFilename(m_currentProfile.title());
+    QString path = downloadedProfilesPath() + "/" + filename + ".json";
+    if (!m_currentProfile.saveToFile(path)) {
+        qWarning() << "ProfileManager::persistCurrentProfile: failed to save" << m_currentProfile.title();
+        return false;
+    }
+    qDebug() << "ProfileManager: persisted shot profile" << m_currentProfile.title() << "to downloaded folder";
+    refreshProfiles();
+    return true;
+}
+
 void ProfileManager::refreshProfiles() {
     m_availableProfiles.clear();
     m_profileTitles.clear();

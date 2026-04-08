@@ -52,7 +52,7 @@ Page {
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: profileData ? profileData.title : (profileName || "Profile")
+                    text: profileData?.title || profileName || "Profile"
                     font: Theme.titleFont
                     color: Theme.textColor
                     wrapMode: Text.Wrap
@@ -60,8 +60,8 @@ Page {
                 }
 
                 Text {
-                    visible: profileData && profileData.author && profileData.author.length > 0
-                    text: profileData ? TranslationManager.translate("profileinfo.by", "by") + " " + profileData.author : ""
+                    visible: (profileData?.author?.length ?? 0) > 0
+                    text: TranslationManager.translate("profileinfo.by", "by") + " " + (profileData?.author ?? "")
                     font: Theme.labelFont
                     color: Theme.textSecondaryColor
                 }

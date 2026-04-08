@@ -346,6 +346,8 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         m_profileManager->loadProfile(filename);
     } else if (!shotRecord.profileJson.isEmpty()) {
         m_profileManager->loadProfileFromJson(shotRecord.profileJson);
+        // Persist to downloaded folder so the profile is available by name on next startup
+        m_profileManager->persistCurrentProfile();
     } else {
         qWarning() << "applyLoadedShotMetadata: No profile data available for shot";
     }

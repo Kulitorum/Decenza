@@ -147,6 +147,7 @@ public:
 public slots:
     void loadProfile(const QString& profileName);
     Q_INVOKABLE bool loadProfileFromJson(const QString& jsonContent);
+    bool persistCurrentProfile();  // Save to downloaded folder if not already installed (no re-upload)
     void refreshProfiles();
     Q_INVOKABLE void uploadCurrentProfile();
     Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
