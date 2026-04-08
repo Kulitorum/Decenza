@@ -131,7 +131,7 @@ void ScreenCaptureService::sendTiles(const QVector<QPair<int,int>>& changedTiles
         msg.append(static_cast<char>(h & 0xFF));
         msg.append(static_cast<char>(kTileSize));
 
-        int countPos = msg.size();
+        qsizetype countPos = msg.size();
         msg.append(static_cast<char>(0));
 
         int tileCount = 0;

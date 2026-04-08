@@ -225,7 +225,7 @@ void UsbDecentScale::processBuffer()
     // Scan for valid packets, skipping any garbage bytes.
     while (m_buffer.size() >= 7) {
         // Find the next 0x03 marker byte
-        int startIdx = m_buffer.indexOf(static_cast<char>(0x03));
+        qsizetype startIdx = m_buffer.indexOf(static_cast<char>(0x03));
         if (startIdx == -1) {
             // No marker found — discard entire buffer
             m_buffer.clear();

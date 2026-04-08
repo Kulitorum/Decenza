@@ -307,7 +307,7 @@ void SerialTransport::processBuffer()
 {
     // Process complete lines (terminated by \n)
     while (true) {
-        int idx = m_buffer.indexOf('\n');
+        qsizetype idx = m_buffer.indexOf('\n');
         if (idx == -1) {
             break;
         }

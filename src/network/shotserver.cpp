@@ -1372,7 +1372,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             bool mcpOn = m_settings && m_settings->mcpEnabled();
             // %3 is used in the JS install script URL (the MCP endpoint URL)
             QString configJson = mcpUrl;
-            int toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
+            qsizetype toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
 
             html = html.arg(mcpOn ? "enabled" : "disabled",
                            mcpOn ? "Enabled" : "Disabled",
@@ -1388,7 +1388,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             return;
         }
         // Extract headers from the raw request
-        int headerEnd = request.indexOf("\r\n\r\n");
+        qsizetype headerEnd = request.indexOf("\r\n\r\n");
         QByteArray headers = (headerEnd > 0) ? request.left(headerEnd) : QByteArray();
         QByteArray body;
         if (headerEnd > 0 && headerEnd + 4 < request.size())

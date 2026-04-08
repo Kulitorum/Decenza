@@ -634,7 +634,7 @@ bool ProfileManager::deleteProfile(const QString& filename) {
             QVariantList favorites = m_settings->favoriteProfiles();
             for (qsizetype i = 0; i < favorites.size(); ++i) {
                 if (favorites[i].toMap()["filename"].toString() == filename) {
-                    m_settings->removeFavoriteProfile(i);
+                    m_settings->removeFavoriteProfile(static_cast<int>(i));
                     break;
                 }
             }
@@ -1171,7 +1171,7 @@ void ProfileManager::refreshProfiles() {
             QString fn = favorites.at(i).toMap()[QStringLiteral("filename")].toString();
             if (!known.contains(fn)) {
                 qWarning() << "refreshProfiles: removing stale favorite" << fn << "(profile not found)";
-                m_settings->removeFavoriteProfile(i);
+                m_settings->removeFavoriteProfile(static_cast<int>(i));
             }
         }
 
