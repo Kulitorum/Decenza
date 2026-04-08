@@ -521,9 +521,7 @@ void ProfileImporter::importAll(bool overwriteExisting)
         if (status == "new") {
             m_importQueue.append(entry["sourcePath"].toString());
         } else if (status == "different") {
-            if (overwriteExisting || entry["source"].toString() == "B") {
-                // Built-in "different" profiles are always queued — they need
-                // a rename on the way in rather than an overwrite.
+            if (overwriteExisting) {
                 m_importQueue.append(entry["sourcePath"].toString());
             }
         }
@@ -640,18 +638,6 @@ void ProfileImporter::onProcessNextImport()
     ProfileStorage* storage = m_controller ? m_controller->profileStorage() : nullptr;
     bool inStorage = storage && storage->isConfigured() && storage->profileExists(filename);
     bool inDownloaded = QFile::exists(downloadedPath);
-    bool inBuiltin = QFile::exists(":/profiles/" + filename + ".json");
-
-    // Built-in profiles are read-only. If this profile's filename matches a
-    // built-in, rename it before saving so we never write a downloaded file
-    // with the same name as a built-in.
-    if (inBuiltin && !inStorage && !inDownloaded) {
-        profile.setTitle(profile.title() + " (imported)");
-        filename = m_saveHelper->titleToFilename(profile.title());
-        downloadedPath = ProfileSaveHelper::downloadedProfilesPath() + "/" + filename + ".json";
-        inDownloaded = QFile::exists(downloadedPath);
-        qDebug() << "ProfileImporter: renaming built-in collision to" << profile.title();
-    }
 
     qDebug() << "ProfileImporter: batch processing" << profile.title()
              << "- inStorage:" << inStorage << "inDownloaded:" << inDownloaded;

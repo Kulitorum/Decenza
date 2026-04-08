@@ -15,69 +15,7 @@ ProfileSaveHelper::ProfileSaveHelper(MainController* controller, QObject* parent
 
 bool ProfileSaveHelper::compareProfiles(const Profile& a, const Profile& b)
 {
-    // Two profiles with no steps cannot be meaningfully compared
-    if (a.steps().isEmpty() || b.steps().isEmpty())
-        return false;
-
-    // Compare profile-level fields
-    if (qAbs(a.maximumPressure() - b.maximumPressure()) > 0.1) return false;
-    if (qAbs(a.maximumFlow() - b.maximumFlow()) > 0.1) return false;
-    if (qAbs(a.minimumPressure() - b.minimumPressure()) > 0.1) return false;
-    if (qAbs(a.tankDesiredWaterTemperature() - b.tankDesiredWaterTemperature()) > 0.1) return false;
-    if (qAbs(a.maximumFlowRangeAdvanced() - b.maximumFlowRangeAdvanced()) > 0.1) return false;
-    if (qAbs(a.maximumPressureRangeAdvanced() - b.maximumPressureRangeAdvanced()) > 0.1) return false;
-
-    const auto& stepsA = a.steps();
-    const auto& stepsB = b.steps();
-
-    if (stepsA.size() != stepsB.size())
-        return false;
-
-    for (int i = 0; i < stepsA.size(); i++) {
-        const ProfileFrame& fa = stepsA[i];
-        const ProfileFrame& fb = stepsB[i];
-
-        // Compare all frame parameters that affect extraction
-        if (qAbs(fa.temperature - fb.temperature) > 0.1) return false;
-        if (fa.sensor != fb.sensor) return false;
-        if (fa.pump != fb.pump) return false;
-        if (fa.transition != fb.transition) return false;
-        if (qAbs(fa.pressure - fb.pressure) > 0.1) return false;
-        if (qAbs(fa.flow - fb.flow) > 0.1) return false;
-        if (qAbs(fa.seconds - fb.seconds) > 0.1) return false;
-        if (qAbs(fa.volume - fb.volume) > 0.1) return false;
-
-        // Exit conditions
-        if (fa.exitIf != fb.exitIf) return false;
-        if (fa.exitIf) {
-            if (fa.exitType != fb.exitType) return false;
-            // Only compare the threshold field active for the exit type.
-            // de1app TCL sets exit_flow_over=6 as a universal safety cap even on
-            // pressure-type frames; the JSON writer only serializes the relevant field,
-            // so comparing all four sub-fields causes perpetual "different" mismatches.
-            if (fa.exitType == "pressure_over") {
-                if (qAbs(fa.exitPressureOver - fb.exitPressureOver) > 0.1) return false;
-            } else if (fa.exitType == "pressure_under") {
-                if (qAbs(fa.exitPressureUnder - fb.exitPressureUnder) > 0.1) return false;
-            } else if (fa.exitType == "flow_over") {
-                if (qAbs(fa.exitFlowOver - fb.exitFlowOver) > 0.1) return false;
-            } else if (fa.exitType == "flow_under") {
-                if (qAbs(fa.exitFlowUnder - fb.exitFlowUnder) > 0.1) return false;
-            }
-        }
-
-        // Weight exit (independent of exitIf)
-        if (qAbs(fa.exitWeight - fb.exitWeight) > 0.1) return false;
-
-        // Limiter
-        if (qAbs(fa.maxFlowOrPressure - fb.maxFlowOrPressure) > 0.1) return false;
-        if (qAbs(fa.maxFlowOrPressureRange - fb.maxFlowOrPressureRange) > 0.1) return false;
-
-        // Popup notification
-        if (fa.popup != fb.popup) return false;
-    }
-
-    return true;
+    return Profile::functionallyEqual(a, b);
 }
 
 QVariantMap ProfileSaveHelper::checkProfileStatus(const QString& profileTitle, const Profile* incomingProfile)

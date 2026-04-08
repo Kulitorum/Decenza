@@ -253,6 +253,10 @@ public:
     // Count consecutive leading frames with exit conditions (preinfusion frames)
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
+    // Compare two profiles for functional equality (profile-level fields + all frames).
+    // Returns false if either profile has no steps.
+    static bool functionallyEqual(const Profile& a, const Profile& b);
+
 private:
     // AI knowledge base ID — persisted in profile JSON, computed at load time if missing
     QString m_knowledgeBaseId;

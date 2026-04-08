@@ -1,43 +1,144 @@
 {
-    "title": "E61 classic gently up to 10 bar",
-    "knowledge_base_id": "e61",
     "author": "Decent",
     "beverage_type": "espresso",
-    "notes": "The E61 machine was invented by Faema in 1961 and is still the most classic and most copied espresso machine design.  It is likely what most people mean when they say Professional Italian Espresso Machine",
+    "espresso_decline_time": 20,
+    "espresso_hold_time": 5,
+    "espresso_pressure": 9,
+    "espresso_temperature": 92,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17,
+    "flow_profile_hold": 2,
+    "flow_profile_hold_time": 8,
+    "has_recommended_dose": false,
     "legacy_profile_type": "settings_2a",
-    "version": "2",
-    "number_of_preinfuse_frames": 0,
-    "maximum_pressure": 0.0,
-    "maximum_flow": 0.0,
-    "minimum_pressure": 6.0,
-    "target_weight": 36.0,
-    "target_volume": 36.0,
+    "maximum_flow": 0,
+    "maximum_flow_range_advanced": 0.6,
+    "maximum_flow_range_default": 1,
+    "maximum_pressure": 0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_pressure_range_default": 0.9,
+    "minimum_pressure": 6,
     "mode": "frame_based",
+    "notes": "This high tech variation on the classic E61 9 bar shot brings out more acidity by increasing pressure towards the end of the shot.  This makes it more appropriate to drink without milk.  It will be quite thick, so adding water to make an Americano is recommended.",
+    "number_of_preinfuse_frames": 0,
+    "preinfusion_flow_rate": 8,
+    "preinfusion_stop_pressure": 4,
+    "preinfusion_time": 10,
+    "pressure_end": 10,
+    "read_only": 1,
+    "recommended_dose": 18,
+    "steps": [
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 4
+            },
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "preinfusion temp boost",
+            "pressure": 1,
+            "pump": "flow",
+            "seconds": 2,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 4
+            },
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "preinfusion",
+            "pressure": 1,
+            "pump": "flow",
+            "seconds": 8,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "forced rise without limit",
+            "pressure": 9,
+            "pump": "pressure",
+            "seconds": 3,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "rise and hold",
+            "pressure": 9,
+            "pump": "pressure",
+            "seconds": 2,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "forced rise without limit",
+            "pressure": 9,
+            "pump": "pressure",
+            "seconds": 3,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "decline",
+            "pressure": 10,
+            "pump": "pressure",
+            "seconds": 17,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "smooth",
+            "volume": 0
+        }
+    ],
+    "tank_desired_water_temperature": 0,
+    "target_volume": 36,
+    "target_weight": 36,
+    "temp_steps_enabled": true,
     "temperature_presets": [
         92,
         92,
         92,
         92
     ],
-    "steps": [],
-    "espresso_temperature": 92.0,
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "espresso_pressure": 9.0,
-    "espresso_decline_time": 20.0,
-    "espresso_hold_time": 5.0,
-    "preinfusion_time": 10.0,
-    "preinfusion_stop_pressure": 4.0,
-    "preinfusion_flow_rate": 8.0,
-    "pressure_end": 10.0,
-    "flow_profile_preinfusion": 4.2,
-    "flow_profile_preinfusion_time": 6.0,
-    "flow_profile_hold": 1.8,
-    "flow_profile_hold_time": 0.0,
-    "flow_profile_decline": 1.0,
-    "flow_profile_decline_time": 23.0,
-    "flow_profile_minimum_pressure": 6.0,
-    "temp_steps_enabled": true,
-    "read_only": 1
+    "title": "E61 classic gently up to 10 bar",
+    "version": "2"
 }

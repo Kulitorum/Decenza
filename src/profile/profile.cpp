@@ -674,20 +674,23 @@ Profile Profile::loadFromTclString(const QString& content) {
     // Helper to extract Tcl variable value
     // Handles: varName {braced value} OR varName "quoted" OR varName simple_word
     auto extractValue = [&content](const QString& varName) -> QString {
+        // Use \b word boundary so e.g. "preinfusion_time" doesn't match
+        // "flow_profile_preinfusion_time" (substring false-positive).
+        const QString pattern = "\\b" + varName;
         // Try braced value first: varName {content}
-        QRegularExpression reBraced(varName + "\\s+\\{([^}]*)\\}");
+        QRegularExpression reBraced(pattern + "\\s+\\{([^}]*)\\}");
         QRegularExpressionMatch match = reBraced.match(content);
         if (match.hasMatch()) {
             return match.captured(1);
         }
         // Try quoted value: varName "content"
-        QRegularExpression reQuoted(varName + "\\s+\"([^\"]*)\"");
+        QRegularExpression reQuoted(pattern + "\\s+\"([^\"]*)\"");
         match = reQuoted.match(content);
         if (match.hasMatch()) {
             return match.captured(1);
         }
         // Try simple word value: varName word
-        QRegularExpression reSimple(varName + "\\s+(\\S+)");
+        QRegularExpression reSimple(pattern + "\\s+(\\S+)");
         match = reSimple.match(content);
         return match.hasMatch() ? match.captured(1) : QString();
     };
@@ -895,6 +898,63 @@ void Profile::moveStep(int from, int to) {
 
 bool Profile::isValid() const {
     return !m_steps.isEmpty() && m_steps.size() <= MAX_FRAMES;
+}
+
+bool Profile::functionallyEqual(const Profile& a, const Profile& b)
+{
+    if (a.steps().isEmpty() || b.steps().isEmpty())
+        return false;
+
+    // Profile-level limits (maximumPressure, maximumFlow, etc.) are intentionally
+    // NOT compared here. The built-in JSONs may have stale/zero values for these
+    // fields from older writes, while TCL files carry the original de1app defaults.
+    // Import identity is determined by the extraction frame sequence, not global limits.
+
+    const auto& stepsA = a.steps();
+    const auto& stepsB = b.steps();
+    if (stepsA.size() != stepsB.size()) return false;
+
+    for (int i = 0; i < stepsA.size(); i++) {
+        const ProfileFrame& fa = stepsA[i];
+        const ProfileFrame& fb = stepsB[i];
+
+        if (qAbs(fa.temperature - fb.temperature) > 0.1) return false;
+        if (fa.sensor     != fb.sensor)     return false;
+        if (fa.pump       != fb.pump)       return false;
+        if (fa.transition != fb.transition) return false;
+        // Always compare the active axis. For the inactive axis, skip comparison
+        // when either side is 0 — de1app TCL stores a default value (e.g. flow=2
+        // on pressure frames) that our JSON writer omits (stored as 0). If both
+        // sides are non-zero the value was explicitly set and must match.
+        if (fa.pump == "pressure") {
+            if (qAbs(fa.pressure - fb.pressure) > 0.1) return false;
+            if (fa.flow > 0.1 && fb.flow > 0.1 && qAbs(fa.flow - fb.flow) > 0.1) return false;
+        } else {
+            if (qAbs(fa.flow - fb.flow) > 0.1) return false;
+            if (fa.pressure > 0.1 && fb.pressure > 0.1 && qAbs(fa.pressure - fb.pressure) > 0.1) return false;
+        }
+        if (qAbs(fa.seconds  - fb.seconds)  > 0.1) return false;
+        if (qAbs(fa.volume   - fb.volume)   > 0.1) return false;
+        if (fa.popup != fb.popup) return false;
+
+        if (fa.exitIf != fb.exitIf) return false;
+        if (fa.exitIf) {
+            if (fa.exitType != fb.exitType) return false;
+            // Only compare the threshold field for the active exit type.
+            // TCL sets exit_flow_over=6 as a safety cap on pressure frames; JSON only
+            // serialises the relevant field — comparing all four causes false mismatches.
+            if (fa.exitType == "pressure_over")  { if (qAbs(fa.exitPressureOver  - fb.exitPressureOver)  > 0.1) return false; }
+            else if (fa.exitType == "pressure_under") { if (qAbs(fa.exitPressureUnder - fb.exitPressureUnder) > 0.1) return false; }
+            else if (fa.exitType == "flow_over")  { if (qAbs(fa.exitFlowOver     - fb.exitFlowOver)     > 0.1) return false; }
+            else if (fa.exitType == "flow_under") { if (qAbs(fa.exitFlowUnder    - fb.exitFlowUnder)    > 0.1) return false; }
+        }
+
+        if (qAbs(fa.exitWeight          - fb.exitWeight)          > 0.1) return false;
+        if (qAbs(fa.maxFlowOrPressure   - fb.maxFlowOrPressure)   > 0.1) return false;
+        if (qAbs(fa.maxFlowOrPressureRange - fb.maxFlowOrPressureRange) > 0.1) return false;
+    }
+
+    return true;
 }
 
 QStringList Profile::validationErrors() const {

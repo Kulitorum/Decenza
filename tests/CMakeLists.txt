@@ -267,6 +267,8 @@ target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR
 # Add built-in profiles QRC so isBuiltInFilename() works in tests
 qt_add_resources(PROFILES_QRC ${CMAKE_SOURCE_DIR}/resources/profiles.qrc)
 target_sources(tst_profilemanager PRIVATE ${PROFILES_QRC})
+# Also needed for compareWithBuiltin test (QFile::exists(":/profiles/..."))
+target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 

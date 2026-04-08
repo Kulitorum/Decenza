@@ -937,3 +937,16 @@ if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# Developer tools (always built; no GUI, no BLE deps)
+add_executable(profile_sync
+    tools/profile_sync.cpp
+    src/profile/profile.cpp
+    src/profile/profileframe.cpp
+    src/profile/recipegenerator.cpp
+    src/profile/recipeanalyzer.cpp
+    src/profile/recipeparams.cpp
+    src/ble/protocol/binarycodec.cpp
+)
+target_link_libraries(profile_sync PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
+target_include_directories(profile_sync PRIVATE ${CMAKE_SOURCE_DIR}/src)

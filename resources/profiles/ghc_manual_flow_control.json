@@ -1,41 +1,109 @@
 {
-    "title": "GHC/manual flow control",
     "author": "Decent",
     "beverage_type": "manual",
-    "notes": "For use with machines that have a group head controller (GHC).  Hold your finger on the GHC for the flow you want.",
+    "espresso_decline_time": 25,
+    "espresso_hold_time": 10,
+    "espresso_pressure": 9.2,
+    "espresso_temperature": 88,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17,
+    "flow_profile_hold": 2,
+    "flow_profile_hold_time": 8,
+    "has_recommended_dose": false,
     "legacy_profile_type": "settings_2b",
-    "version": "2",
-    "number_of_preinfuse_frames": 0,
-    "maximum_pressure": 9.0,
-    "maximum_flow": 0.0,
-    "minimum_pressure": 4.0,
-    "target_weight": 0,
-    "target_volume": 0,
+    "maximum_flow": 0,
+    "maximum_flow_range_advanced": 0.6,
+    "maximum_flow_range_default": 1,
+    "maximum_pressure": 9,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_pressure_range_default": 0.9,
+    "minimum_pressure": 4,
     "mode": "frame_based",
+    "notes": "For use with machines that have a group head controller (GHC).  Hold your finger on the GHC for the flow you want.",
+    "number_of_preinfuse_frames": 0,
+    "preinfusion_flow_rate": 4,
+    "preinfusion_stop_pressure": 4,
+    "preinfusion_time": 5,
+    "pressure_end": 4,
+    "read_only": 1,
+    "recommended_dose": 18,
+    "steps": [
+        {
+            "flow": 4,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "preinfusion",
+            "pressure": 0,
+            "pump": "pressure",
+            "seconds": 5,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 4
+            },
+            "flow": 4,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "preinfusion",
+            "pressure": 1,
+            "pump": "flow",
+            "seconds": 20,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "rise and hold",
+            "pressure": 8.6,
+            "pump": "pressure",
+            "seconds": 4,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "decline",
+            "pressure": 6,
+            "pump": "pressure",
+            "seconds": 35,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "smooth",
+            "volume": 100
+        }
+    ],
+    "tank_desired_water_temperature": 0,
+    "target_volume": 0,
+    "target_weight": 0,
+    "temp_steps_enabled": false,
     "temperature_presets": [
         88,
         88,
         88,
         88
     ],
-    "steps": [],
-    "espresso_temperature": 88.0,
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "espresso_pressure": 0.0,
-    "espresso_decline_time": 60.0,
-    "espresso_hold_time": 60.0,
-    "preinfusion_time": 0.0,
-    "preinfusion_stop_pressure": 4.0,
-    "preinfusion_flow_rate": 4.0,
-    "pressure_end": 0.0,
-    "flow_profile_preinfusion": 4.0,
-    "flow_profile_preinfusion_time": 5.0,
-    "flow_profile_hold": 0.0,
-    "flow_profile_hold_time": 8.0,
-    "flow_profile_decline": 0.0,
-    "flow_profile_decline_time": 17.0,
-    "flow_profile_minimum_pressure": 4.0,
-    "read_only": 1
+    "title": "GHC/manual flow control",
+    "version": "2"
 }
