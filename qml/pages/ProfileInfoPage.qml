@@ -52,7 +52,7 @@ Page {
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: profileData?.title || profileName || "Profile"
+                    text: profileData?.title || profileName || TranslationManager.translate("profileinfo.unknownProfile", "Profile")
                     font: Theme.titleFont
                     color: Theme.textColor
                     wrapMode: Text.Wrap

@@ -175,6 +175,7 @@ void ProfileImporter::scanProfilesFromPath(const QString& path)
     if (m_pendingFiles.isEmpty()) {
         setStatus("No profiles found");
         m_scanning = false;
+        m_autoImportAfterScan = false;  // reset — no scan will complete to clear this
         emit isScanningChanged();
         emit availableProfilesChanged();
         emit scanComplete(0);

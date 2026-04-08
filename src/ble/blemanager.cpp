@@ -33,10 +33,13 @@ BLEManager::BLEManager(QObject* parent)
     // initializing CoreBluetooth (and triggering TCC privacy checks) when
     // BLE is disabled (e.g. simulation mode on Mac debug builds).
 
-    // Track Bluetooth adapter power state
+    // Track Bluetooth adapter power state.
+    // QBluetoothLocalDevice is not available on iOS — CoreBluetooth manages state there.
+#ifndef Q_OS_IOS
     m_localDevice = new QBluetoothLocalDevice(this);
     connect(m_localDevice, &QBluetoothLocalDevice::hostModeStateChanged,
             this, &BLEManager::onHostModeStateChanged);
+#endif
 
     // Timer for scale connection timeout (20 seconds)
     m_scaleConnectionTimer = new QTimer(this);
@@ -47,7 +50,12 @@ BLEManager::BLEManager(QObject* parent)
 
 bool BLEManager::isBluetoothAvailable() const
 {
+    if (m_disabled) return true;  // simulator mode — always report available
+#ifdef Q_OS_IOS
+    return true;  // CoreBluetooth manages state; QBluetoothLocalDevice not available on iOS
+#else
     return m_localDevice->hostMode() != QBluetoothLocalDevice::HostPoweredOff;
+#endif
 }
 
 void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)

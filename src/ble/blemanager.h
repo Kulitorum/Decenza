@@ -143,7 +143,9 @@ private:
     void doStartScan();
     void ensureDiscoveryAgent();
 
+#ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
+#endif
     QBluetoothDeviceDiscoveryAgent* m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_de1Devices;
     QList<QPair<QBluetoothDeviceInfo, QString>> m_scales;  // device, type
