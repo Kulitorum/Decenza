@@ -11,7 +11,7 @@
 #define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
 
 ; Qt installation directory
-#define QtDir "C:\Qt\6.10.2\msvc2022_64"
+#define QtDir "C:\Qt\6.10.3\msvc2022_64"
 
 ; Directory for MSVC redistributable package (vcredist)
 #define VcRedistDir "C:\Qt\vcredist"
