@@ -214,7 +214,7 @@ def download_emoji(source: EmojiSource, emoji: str, cps: list[str]) -> bytes | N
 def generate_qrc(filenames: list[str], qrc_path: str):
     """Generate a Qt resource file for the emoji SVGs."""
     lines = ['<!DOCTYPE RCC>', '<RCC version="1.0">', '    <qresource prefix="/">']
-    for fn in sorted(filenames):
+    for fn in sorted(set(filenames)):
         lines.append(f'        <file>emoji/{fn}</file>')
     lines.append('    </qresource>')
     lines.append('</RCC>')

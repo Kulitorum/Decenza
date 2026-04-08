@@ -8,6 +8,7 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    visible: Settings.discussShotApp !== 6
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

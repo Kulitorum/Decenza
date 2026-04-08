@@ -406,7 +406,7 @@ Page {
                 radius: Theme.cardRadius
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
                 Accessible.role: Accessible.Graphic
-                Accessible.name: "Shot graph. Tap to inspect values"
+                Accessible.name: TranslationManager.translate("shot.graph.accessible.name", "Shot graph. Tap to inspect values")
                 Accessible.focusable: true
                 Accessible.onPressAction: reviewGraphMouseArea.clicked(null)
 
@@ -1277,10 +1277,10 @@ Page {
             font: Theme.labelFont
         }
 
-        // AI Advice button - visible when we have shot data
+        // AI Advice button - visible when AI is configured and we have shot data
         Rectangle {
             id: aiAdviceButton
-            visible: MainController.aiManager && editShotData.id > 0
+            visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.id > 0
             Layout.preferredWidth: aiAdviceContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1340,11 +1340,11 @@ Page {
         // Discuss button - opens external AI app
         Rectangle {
             id: discussButton
-            visible: editShotData.id > 0
+            visible: editShotData.id > 0 && Settings.discussShotApp !== 6
             Layout.preferredWidth: discussContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
-            color: Theme.primaryColor
+            color: discussArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
             Accessible.role: Accessible.Button
             Accessible.name: TranslationManager.translate("postshotreview.accessible.discuss", "Discuss shot with external AI app")
