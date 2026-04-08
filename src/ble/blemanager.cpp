@@ -3,6 +3,7 @@
 #include "protocol/de1characteristics.h"
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
+#include <QBluetoothLocalDevice>
 #include <QBluetoothUuid>
 #include <QCoreApplication>
 #include <QDebug>
@@ -139,6 +140,12 @@ void BLEManager::startScan() {
     }
 
     if (m_scanning) {
+        return;
+    }
+
+    QBluetoothLocalDevice localDevice;
+    if (localDevice.hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+        qDebug() << "BLEManager: Scan request ignored (Bluetooth is powered off)";
         return;
     }
 
@@ -567,6 +574,12 @@ void BLEManager::tryDirectConnectToDE1() {
         return;
     }
 
+    QBluetoothLocalDevice localDevice;
+    if (localDevice.hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+        qDebug() << "BLEManager: tryDirectConnectToDE1 - Bluetooth is powered off, skipping";
+        return;
+    }
+
     // Don't attempt if already connected or connecting
     // (the de1Discovered handler in main.cpp checks this before connecting)
 
@@ -639,6 +652,12 @@ void BLEManager::tryDirectConnectToScale() {
 
     if (m_savedScaleAddress.isEmpty() || m_savedScaleType.isEmpty()) {
         qDebug() << "BLEManager: tryDirectConnectToScale - no saved scale address/type";
+        return;
+    }
+
+    QBluetoothLocalDevice localDevice;
+    if (localDevice.hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+        qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
         return;
     }
 

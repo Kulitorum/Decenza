@@ -193,6 +193,9 @@ KeyboardAwareContainer {
                             if (MainController.shotImporter) {
                                 MainController.shotImporter.importFromDE1App(overwriteSwitch.checked)
                             }
+                            if (MainController.profileImporter) {
+                                MainController.profileImporter.importFromDE1App()
+                            }
                         }
                     }
 
