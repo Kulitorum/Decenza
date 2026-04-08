@@ -521,7 +521,7 @@ Page {
 
             QualityBadges {
                 Layout.fillWidth: true
-                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+                visible: !!(editShotData.pressure && editShotData.pressure.length > 0) && !!(editShotData.profileKbId)
                 channelingDetected: editShotData.channelingDetected ?? false
                 temperatureUnstable: editShotData.temperatureUnstable ?? false
                 grindIssueDetected: editShotData.grindIssueDetected ?? false

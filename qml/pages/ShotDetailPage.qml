@@ -345,6 +345,7 @@ Page {
 
             QualityBadges {
                 Layout.fillWidth: true
+                visible: !!(shotData.profileKbId)
                 channelingDetected: shotData.channelingDetected ?? false
                 temperatureUnstable: shotData.temperatureUnstable ?? false
                 grindIssueDetected: shotData.grindIssueDetected ?? false
