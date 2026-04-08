@@ -1090,7 +1090,7 @@ Page {
         // Discuss button - opens external AI app
         Rectangle {
             id: discussButton
-            visible: shotData.duration > 0 && Settings.discussShotApp !== 6
+            visible: shotData.duration > 0 && Settings.discussShotApp !== Settings.discussAppNone
             Layout.preferredWidth: discussContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)

@@ -1169,7 +1169,7 @@ Page {
         // Upload / Re-Upload to Visualizer button
         Rectangle {
             id: uploadButton
-            visible: editShotData.id > 0 && !MainController.visualizer.uploading
+            visible: editShotData.duration > 0 && !MainController.visualizer.uploading
             Layout.preferredWidth: uploadButtonContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1280,7 +1280,7 @@ Page {
         // AI Advice button - visible when AI is configured and we have shot data
         Rectangle {
             id: aiAdviceButton
-            visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.id > 0
+            visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.duration > 0
             Layout.preferredWidth: aiAdviceContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1340,7 +1340,7 @@ Page {
         // Discuss button - opens external AI app
         Rectangle {
             id: discussButton
-            visible: editShotData.id > 0 && Settings.discussShotApp !== 6
+            visible: editShotData.duration > 0 && Settings.discussShotApp !== Settings.discussAppNone
             Layout.preferredWidth: discussContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1401,7 +1401,7 @@ Page {
         // Email Prompt button - fallback for users without API keys
         Rectangle {
             id: emailPromptButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.id > 0
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.duration > 0
             Layout.preferredWidth: emailPromptContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)

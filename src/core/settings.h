@@ -253,6 +253,9 @@ class Settings : public QObject {
     // Discuss Shot settings
     Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged)
     Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscussShotCustomUrl NOTIFY discussShotCustomUrlChanged)
+    Q_PROPERTY(int discussAppNone READ discussAppNone CONSTANT)
+
+    int discussAppNone() const { return 6; }
 
     // MQTT settings (Home Automation)
     Q_PROPERTY(bool mqttEnabled READ mqttEnabled WRITE setMqttEnabled NOTIFY mqttEnabledChanged)

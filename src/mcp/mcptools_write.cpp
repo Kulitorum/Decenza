@@ -833,7 +833,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "mcpConfirmationLevel";
             }
             if (args.contains("discussShotApp")) {
-                int v = qBound(0, args["discussShotApp"].toInt(), 6);
+                int v = qBound(0, args["discussShotApp"].toInt(), settings->discussAppNone());
                 addSetter([settings, v]() { settings->setDiscussShotApp(v); });
                 updated << "discussShotApp";
             }
