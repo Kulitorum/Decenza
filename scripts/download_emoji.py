@@ -8,7 +8,7 @@ Usage:
     python scripts/download_emoji.py noto          # Google Noto Emoji
     python scripts/download_emoji.py fluentui      # Microsoft Fluent UI Emoji (flat)
 
-Downloads ~500 emojis used by the app + weather emojis.
+Downloads ~750 emojis used by the app + weather emojis.
 Outputs to resources/emoji/ and generates resources/emoji.qrc.
 """
 
@@ -292,11 +292,12 @@ def main():
             print(f"  {emoji} ({'-'.join(cps)})")
 
     # Generate QRC file
+    unique_filenames = sorted(set(filenames))
     generate_qrc(filenames, QRC_PATH)
-    print(f"\nGenerated: {QRC_PATH} ({len(filenames)} entries)")
+    print(f"\nGenerated: {QRC_PATH} ({len(unique_filenames)} entries)")
 
     # Calculate total size
-    total_size = sum(os.path.getsize(os.path.join(EMOJI_DIR, fn)) for fn in filenames)
+    total_size = sum(os.path.getsize(os.path.join(EMOJI_DIR, fn)) for fn in unique_filenames)
     print(f"Total size: {total_size / 1024:.0f} KB ({total_size / 1024 / 1024:.1f} MB)")
     print(f"\nRemember to add emoji.qrc to CMakeLists.txt and attribute:")
     print(f"  {source.license_info}")
