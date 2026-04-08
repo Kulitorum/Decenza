@@ -711,7 +711,7 @@ KeyboardAwareContainer {
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: aiTab.discussAppNames[Settings.discussShotApp] ?? "Claude"
+                            text: aiTab.discussAppNames[Settings.discussShotApp] ?? aiTab.discussAppNames[0]
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(13)
                             Accessible.ignored: true
@@ -719,7 +719,7 @@ KeyboardAwareContainer {
 
                         AccessibleMouseArea {
                             anchors.fill: parent
-                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[Settings.discussShotApp] ?? "Claude")
+                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[Settings.discussShotApp] ?? aiTab.discussAppNames[0])
                             accessibleItem: discussAppButton
                             onAccessibleClicked: discussAppDialog.open()
                         }
