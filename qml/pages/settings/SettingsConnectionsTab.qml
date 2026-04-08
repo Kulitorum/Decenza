@@ -394,14 +394,12 @@ Item {
 
                             AccessibleButton {
                                 text: TranslationManager.translate("settings.bluetooth.openSettings", "Open Settings")
-                                accessibleName: TranslationManager.translate("settings.bluetooth.openBtSettings", "Open Bluetooth settings")
+                                accessibleName: TranslationManager.translate("settings.bluetooth.btOff", "Bluetooth is turned off. Enable Bluetooth to connect to your DE1.") + " " + TranslationManager.translate("settings.bluetooth.openBtSettings", "Open Bluetooth settings")
                                 onClicked: BLEManager.openBluetoothSettings()
                             }
                         }
 
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("settings.bluetooth.btOff", "Bluetooth is turned off. Enable Bluetooth to connect to your DE1.")
-                        Accessible.focusable: false
+                        Accessible.ignored: true
                     }
 
                     RowLayout {
