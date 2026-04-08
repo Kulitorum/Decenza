@@ -778,7 +778,6 @@ public:
     QString discussShotCustomUrl() const;
     void setDiscussShotCustomUrl(const QString& url);
     Q_INVOKABLE QString discussShotUrl() const;
-    int discussAppNone() const { return 6; }
 
     // MQTT settings (Home Automation)
     bool mqttEnabled() const;
