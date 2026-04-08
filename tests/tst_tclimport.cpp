@@ -2,6 +2,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QRegularExpression>
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
@@ -218,6 +219,103 @@ private slots:
         Profile p = Profile::loadFromTclString(content);
         QCOMPARE(p.profileType(), QString("settings_2a"));
         QVERIFY(p.steps().size() >= 2);
+    }
+
+    // ==========================================
+    // Compare TCL test profiles against built-in JSONs
+    // Every TCL in tests/data/de1app_profiles must be identical to its built-in
+    // ==========================================
+
+    void compareWithBuiltin_data() {
+        QTest::addColumn<QString>("tclPath");
+        QTest::addColumn<QString>("fileName");
+
+        QDir dir(DE1APP_PROFILES_DIR);
+        if (!dir.exists())
+            QSKIP("de1app profiles dir not found");
+
+        for (const QString& f : dir.entryList({"*.tcl"}, QDir::Files, QDir::Name))
+            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f) << f;
+    }
+
+    void compareWithBuiltin() {
+        QFETCH(QString, tclPath);
+        QFETCH(QString, fileName);
+
+        QFile f(tclPath);
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable("Cannot read: " + tclPath));
+        Profile tcl = Profile::loadFromTclString(QTextStream(&f).readAll());
+        QVERIFY2(!tcl.title().isEmpty(), qPrintable("Empty title: " + fileName));
+
+        // Derive built-in filename from title (matches ProfileManager::titleToFilename).
+        // NFD decomposition splits accented chars (e.g. é → e + combining accent),
+        // then strip combining diacritical marks, matching the explicit accented-char
+        // replacements in ProfileManager::titleToFilename.
+        QString fn = tcl.title().normalized(QString::NormalizationForm_D);
+        fn.remove(QRegularExpression("[\\x{0300}-\\x{036f}]")); // strip combining marks
+        fn = fn.toLower();
+        fn.replace(QRegularExpression("[^a-z0-9]+"), "_");
+        fn.replace(QRegularExpression("^_+|_+$"), "");
+        fn.replace(QRegularExpression("_+"), "_");
+        if (fn.length() > 50) fn = fn.left(50);
+
+        QString builtinPath = ":/profiles/" + fn + ".json";
+        QVERIFY2(QFile::exists(builtinPath),
+                 qPrintable("No built-in JSON for '" + tcl.title() + "' (tried " + fn + ".json)"));
+
+        Profile builtin = Profile::loadFromFile(builtinPath);
+        QVERIFY2(builtin.isValid(), qPrintable("Invalid built-in JSON: " + builtinPath));
+
+        // Skip early if identical — fast path
+        if (Profile::functionallyEqual(tcl, builtin)) return;
+
+        // Build a diff report matching the same logic as functionallyEqual()
+        // (profile-level limits excluded; exit thresholds only when exitIf active)
+        QString report;
+        if (tcl.steps().size() != builtin.steps().size()) {
+            report += QString("  step count: TCL=%1 JSON=%2\n")
+                          .arg(tcl.steps().size()).arg(builtin.steps().size());
+        }
+
+        qsizetype n = qMin(tcl.steps().size(), builtin.steps().size());
+        for (qsizetype i = 0; i < n; ++i) {
+            const ProfileFrame& a = tcl.steps()[i];
+            const ProfileFrame& b = builtin.steps()[i];
+            QString p = QString("  FRAME[%1] ").arg(i);
+            if (a.pump       != b.pump)       report += p + "pump: TCL=" + a.pump + " JSON=" + b.pump + "\n";
+            if (a.sensor     != b.sensor)     report += p + "sensor: TCL=" + a.sensor + " JSON=" + b.sensor + "\n";
+            if (a.transition != b.transition) report += p + "transition: TCL=" + a.transition + " JSON=" + b.transition + "\n";
+            if (a.popup      != b.popup)      report += p + "popup: TCL='" + a.popup + "' JSON='" + b.popup + "'\n";
+            if (a.exitIf     != b.exitIf)     report += p + "exitIf: TCL=" + QString::number(a.exitIf) + " JSON=" + QString::number(b.exitIf) + "\n";
+            if (a.exitIf && a.exitType != b.exitType) report += p + "exitType: TCL=" + a.exitType + " JSON=" + b.exitType + "\n";
+            auto chkF = [&](const QString& lbl, double va, double vb) {
+                if (qAbs(va - vb) > 0.1)
+                    report += p + lbl + ": TCL=" + QString::number(va) + " JSON=" + QString::number(vb) + "\n";
+            };
+            chkF("temperature",  a.temperature,  b.temperature);
+            if (a.pump == "pressure") {
+                chkF("pressure", a.pressure, b.pressure);
+                if (a.flow > 0.1 && b.flow > 0.1) chkF("flow", a.flow, b.flow);
+            } else {
+                chkF("flow", a.flow, b.flow);
+                if (a.pressure > 0.1 && b.pressure > 0.1) chkF("pressure", a.pressure, b.pressure);
+            }
+            chkF("seconds",      a.seconds,      b.seconds);
+            chkF("volume",       a.volume,       b.volume);
+            // Only compare active exit threshold
+            if (a.exitIf) {
+                if (a.exitType == "pressure_over")  chkF("exitPressureOver",  a.exitPressureOver,  b.exitPressureOver);
+                else if (a.exitType == "flow_over")  chkF("exitFlowOver",     a.exitFlowOver,      b.exitFlowOver);
+                else if (a.exitType == "flow_under") chkF("exitFlowUnder",    a.exitFlowUnder,     b.exitFlowUnder);
+                else if (a.exitType == "pressure_under") chkF("exitPressureUnder", a.exitPressureUnder, b.exitPressureUnder);
+            }
+            chkF("exitWeight",            a.exitWeight,            b.exitWeight);
+            chkF("maxFlowOrPressure",     a.maxFlowOrPressure,     b.maxFlowOrPressure);
+            chkF("maxFlowOrPressureRange",a.maxFlowOrPressureRange,b.maxFlowOrPressureRange);
+        }
+
+        QVERIFY2(report.isEmpty(),
+                 qPrintable("\n=== compareProfiles mismatch: " + tcl.title() + " ===\n" + report));
     }
 
     void aFlowProfileOracle() {

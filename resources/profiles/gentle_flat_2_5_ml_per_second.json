@@ -1,42 +1,114 @@
 {
-    "title": "Gentle flat 2.5 ml per second",
     "author": "Decent",
     "beverage_type": "espresso",
-    "notes": "Created by French barista Adrien S\u00e9nac of Cafeism, this innovative technique allowed Adrien to produce excellent shots from very aromatic, lightly roasted beans that he had never before managed to successfully pull.",
+    "espresso_decline_time": 0,
+    "espresso_hold_time": 45,
+    "espresso_pressure": 9.2,
+    "espresso_temperature": 92,
+    "flow_profile_decline": 1,
+    "flow_profile_decline_time": 23,
+    "flow_profile_hold": 2.5,
+    "flow_profile_hold_time": 2,
+    "has_recommended_dose": false,
     "legacy_profile_type": "settings_2b",
-    "version": "2",
-    "number_of_preinfuse_frames": 0,
-    "maximum_pressure": 0.0,
-    "maximum_flow": 0.0,
-    "minimum_pressure": 6.0,
-    "target_weight": 36.0,
-    "target_volume": 0.0,
+    "maximum_flow": 0,
+    "maximum_flow_range_advanced": 0.6,
+    "maximum_flow_range_default": 1,
+    "maximum_pressure": 0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_pressure_range_default": 0.9,
+    "minimum_pressure": 6,
     "mode": "frame_based",
+    "notes": "Created by French barista Adrien Sénac of Cafeism, this innovative technique allowed Adrien to produce excellent shots from very aromatic, lightly roasted beans that he had never before managed to successfully pull.",
+    "number_of_preinfuse_frames": 0,
+    "preinfusion_flow_rate": 2.5,
+    "preinfusion_stop_pressure": 4,
+    "preinfusion_time": 10,
+    "pressure_end": 4,
+    "read_only": 1,
+    "recommended_dose": 18,
+    "steps": [
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 4
+            },
+            "flow": 2.5,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "preinfusion boost",
+            "pressure": 1,
+            "pump": "flow",
+            "seconds": 2,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 4
+            },
+            "flow": 2.5,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "preinfusion",
+            "pressure": 1,
+            "pump": "flow",
+            "seconds": 8,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 2.5,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "hold",
+            "pressure": 9,
+            "pump": "flow",
+            "seconds": 45,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 1,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "decline",
+            "pressure": 9,
+            "pump": "flow",
+            "seconds": 0,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "smooth",
+            "volume": 0
+        }
+    ],
+    "tank_desired_water_temperature": 0,
+    "target_volume": 0,
+    "target_weight": 36,
+    "temp_steps_enabled": true,
     "temperature_presets": [
         92,
         92,
         92,
         92
     ],
-    "steps": [],
-    "espresso_temperature": 92.0,
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "espresso_pressure": 6.0,
-    "espresso_decline_time": 0.0,
-    "espresso_hold_time": 45.0,
-    "preinfusion_time": 10.0,
-    "preinfusion_stop_pressure": 4.0,
-    "preinfusion_flow_rate": 2.5,
-    "pressure_end": 6.0,
-    "flow_profile_preinfusion": 4.2,
-    "flow_profile_preinfusion_time": 6.0,
-    "flow_profile_hold": 2.5,
-    "flow_profile_hold_time": 2.0,
-    "flow_profile_decline": 1.0,
-    "flow_profile_decline_time": 23.0,
-    "flow_profile_minimum_pressure": 6.0,
-    "temp_steps_enabled": true,
-    "read_only": 1
+    "title": "Gentle flat 2.5 ml per second",
+    "version": "2"
 }

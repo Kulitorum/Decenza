@@ -802,6 +802,11 @@ KeyboardAwareContainer {
             property string resultMessage: ""
             property bool isError: false
 
+            onClosed: {
+                resultMessage = ""
+                isError = false
+            }
+
             background: Rectangle {
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
@@ -855,6 +860,23 @@ KeyboardAwareContainer {
                 importResultDialog.resultMessage = TranslationManager.translate(translationKey, fallbackMessage)
                 importResultDialog.isError = true
                 importResultDialog.open()
+            }
+        }
+
+        // Profile import result handling
+        Connections {
+            target: MainController.profileImporter
+            function onBatchImportComplete(imported, skipped, failed) {
+                const profileMsg =
+                    TranslationManager.translate("profileimporter.result.imported", "Profiles imported") + ": " + imported + "\n" +
+                    TranslationManager.translate("profileimporter.result.skipped", "Profiles skipped") + ": " + skipped + "\n" +
+                    TranslationManager.translate("profileimporter.result.failed", "Profiles failed") + ": " + failed
+                importResultDialog.title = TranslationManager.translate("shotimporter.title.importComplete", "Import Complete")
+                importResultDialog.resultMessage = importResultDialog.resultMessage
+                    ? importResultDialog.resultMessage + "\n\n" + profileMsg
+                    : profileMsg
+                if (!importResultDialog.opened)
+                    importResultDialog.open()
             }
         }
 

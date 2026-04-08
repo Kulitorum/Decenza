@@ -1,41 +1,134 @@
 {
-    "title": "Preinfuse then 45ml of water",
     "author": "Decent",
     "beverage_type": "espresso",
-    "notes": "Australian barista Matt Perger suggested this technique to us. The idea is to fully saturate your puck, and then squeeze the brewed coffee out using a calculated water volume.  This results in consistently brewed espresso without needing to use a scale.",
+    "espresso_decline_time": 25,
+    "espresso_hold_time": 10,
+    "espresso_pressure": 9.2,
+    "espresso_temperature": 90,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17,
+    "flow_profile_hold": 2,
+    "flow_profile_hold_time": 8,
+    "has_recommended_dose": false,
     "legacy_profile_type": "settings_2b",
-    "version": "2",
-    "number_of_preinfuse_frames": 0,
-    "maximum_pressure": 0.0,
-    "maximum_flow": 0.0,
-    "minimum_pressure": 6.0,
-    "target_weight": 36.0,
-    "target_volume": 36.0,
+    "maximum_flow": 0,
+    "maximum_flow_range_advanced": 0.6,
+    "maximum_flow_range_default": 1,
+    "maximum_pressure": 0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_pressure_range_default": 0.9,
+    "minimum_pressure": 6,
     "mode": "frame_based",
+    "notes": "Australian barista Matt Perger suggested this technique to us. The idea is to fully saturate your puck, and then squeeze the brewed coffee out using a calculated water volume.  This results in consistently brewed espresso without needing to use a scale.",
+    "number_of_preinfuse_frames": 0,
+    "preinfusion_flow_rate": 4,
+    "preinfusion_stop_pressure": 4,
+    "preinfusion_time": 5,
+    "pressure_end": 4,
+    "read_only": 1,
+    "recommended_dose": 18,
+    "steps": [
+        {
+            "flow": 6,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Prewet",
+            "pressure": 6,
+            "pump": "flow",
+            "seconds": 4,
+            "sensor": "water",
+            "temperature": 99,
+            "transition": "fast",
+            "volume": 70
+        },
+        {
+            "flow": 0,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Pause",
+            "pressure": 6,
+            "pump": "flow",
+            "seconds": 40,
+            "sensor": "water",
+            "temperature": 97,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "flow": 6,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Main water #1",
+            "pressure": 6,
+            "pump": "flow",
+            "seconds": 14,
+            "sensor": "water",
+            "temperature": 97,
+            "transition": "fast",
+            "volume": 250
+        },
+        {
+            "flow": 0,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Pause",
+            "pressure": 6,
+            "pump": "flow",
+            "seconds": 20,
+            "sensor": "water",
+            "temperature": 95,
+            "transition": "fast",
+            "volume": 250
+        },
+        {
+            "flow": 5,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Main water #2",
+            "pressure": 6,
+            "pump": "flow",
+            "seconds": 25,
+            "sensor": "water",
+            "temperature": 95,
+            "transition": "fast",
+            "volume": 200
+        },
+        {
+            "flow": 0,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Drain",
+            "pressure": 6,
+            "pump": "flow",
+            "seconds": 20,
+            "sensor": "water",
+            "temperature": 95,
+            "transition": "fast",
+            "volume": 175
+        }
+    ],
+    "tank_desired_water_temperature": 0,
+    "target_volume": 36,
+    "target_weight": 36,
+    "temp_steps_enabled": false,
     "temperature_presets": [
         90,
         90,
         90,
         90
     ],
-    "steps": [],
-    "espresso_temperature": 90.0,
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "espresso_pressure": 9.0,
-    "espresso_decline_time": 0.0,
-    "espresso_hold_time": 20.0,
-    "preinfusion_time": 25.0,
-    "preinfusion_stop_pressure": 4.0,
-    "preinfusion_flow_rate": 8.0,
-    "pressure_end": 6.0,
-    "flow_profile_preinfusion": 4.2,
-    "flow_profile_preinfusion_time": 6.0,
-    "flow_profile_hold": 2.0,
-    "flow_profile_hold_time": 0.0,
-    "flow_profile_decline": 1.0,
-    "flow_profile_decline_time": 23.0,
-    "flow_profile_minimum_pressure": 6.0,
-    "read_only": 1
+    "title": "Preinfuse then 45ml of water",
+    "version": "2"
 }
