@@ -65,7 +65,7 @@ jobs:
           version: '6.10.2'
           target: 'android'
           arch: 'android_arm64_v8a'
-          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets'
+          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats'
           install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
           cache: true
           cache-key-prefix: 'qt-android-v1'

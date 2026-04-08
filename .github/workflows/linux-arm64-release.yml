@@ -73,7 +73,7 @@ jobs:
           version: '6.10.2'
           target: 'desktop'
           arch: 'linux_gcc_arm64'
-          modules: 'qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport'
+          modules: 'qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport qtimageformats'
           cache: true
           cache-key-prefix: 'qt-linux-arm64-v1'
 
