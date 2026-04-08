@@ -282,12 +282,12 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // Drip-still-ongoing guard: if the current weight is significantly above
             // the rolling average, the circular buffer still contains earlier (lower)
             // samples from the start of the drip — the average is lagging, not stable.
-            // A steady monotonic rise produces tiny per-sample avg drift (1/N of the
-            // per-sample weight change) that falls below SETTLING_AVG_THRESHOLD even
-            // while the scale is actively climbing. Requiring weight ≤ avg + 0.2g
+            // A slow drip (e.g. 0.15 g/sample at 4Hz) produces avg drift close to the
+            // drift rate itself — near but below SETTLING_AVG_THRESHOLD — so the drift
+            // check alone is insufficient. Requiring weight ≤ avg + SETTLING_ABOVE_AVG_MARGIN
             // ensures we don't declare stable until the current reading has caught up
             // to the window mean (i.e. the drip has effectively stopped).
-            bool weightAboveAvg = (weight > avg + 0.2);
+            bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
 
             if (avgDrift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
                 // Average is stable and current weight is within it - check how long
@@ -377,12 +377,27 @@ void ShotTimingController::onDisplayTimerTick()
     if (m_sawSettling && m_lastWeightChangeTime > 0) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
 
-        // Fast path: no weight samples at all for 1 second
+        // Fast path: no weight samples at all for 1 second — apply drip guard using
+        // the rolling average to catch BLE packet loss during an active drip.
         qint64 stableMs = now - m_lastWeightChangeTime;
         if (stableMs >= 1000) {
-            qDebug() << "[SAW] Weight stabilized at" << m_weight << "g (stable for" << stableMs << "ms, detected by timer)";
-            m_settlingTimer.stop();
-            onSettlingComplete();
+            double avg = 0;
+            for (int i = 0; i < m_settlingWindowCount; i++)
+                avg += m_settlingWindow[i];
+            if (m_settlingWindowCount > 0)
+                avg /= m_settlingWindowCount;
+            if (m_settlingWindowCount > 0 && m_weight > avg + SETTLING_ABOVE_AVG_MARGIN) {
+                // BLE silence during active drip: weight is still above rolling avg.
+                // Don't declare stable — reset stable clock and wait for more samples.
+                qDebug() << "[SAW] Timer: silent but weight" << QString::number(m_weight, 'f', 1)
+                         << "g still above avg" << QString::number(avg, 'f', 1)
+                         << "g - drip may still be ongoing";
+                m_settlingAvgStableSince = 0;
+            } else {
+                qDebug() << "[SAW] Weight stabilized at" << m_weight << "g (stable for" << stableMs << "ms, detected by timer)";
+                m_settlingTimer.stop();
+                onSettlingComplete();
+            }
         }
         // Rolling average path: check if avg has been stable long enough
         else if (m_settlingAvgStableSince > 0) {
@@ -392,8 +407,9 @@ void ShotTimingController::onDisplayTimerTick()
                 for (int i = 0; i < m_settlingWindowCount; i++)
                     avg += m_settlingWindow[i];
                 avg /= m_settlingWindowCount;
-                // Apply the same drip-still-ongoing guard as onWeightSample
-                if (m_weight > avg + 0.2) {
+                // Apply drip-still-ongoing guard (same threshold as onWeightSample,
+                // checked at settlement decision time since no new sample is available).
+                if (m_weight > avg + SETTLING_ABOVE_AVG_MARGIN) {
                     qDebug() << "[SAW] Timer: weight" << QString::number(m_weight, 'f', 1)
                              << "g still above avg" << QString::number(avg, 'f', 1)
                              << "g - resetting stable clock";

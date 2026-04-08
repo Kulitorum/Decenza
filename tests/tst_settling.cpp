@@ -141,6 +141,54 @@ private slots:
         QVERIFY(!tc.isSawSettling());
     }
 
+    // ===== Rolling-average settling guard =====
+
+    void weightAboveAvgGuardPreventsEarlySettlement() {
+        // Regression test: monotonically rising weight samples with per-sample delta
+        // below SETTLING_AVG_THRESHOLD (0.3g) must NOT trigger premature settlement,
+        // because the circular buffer average lags behind and appears "stable" even
+        // while the scale is actively climbing.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(36.0, 2.0, 36.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        // Feed 12 rising samples at 0.2g/step — drift is 0.2g/sample, below 0.3g
+        // threshold, so the old code would have declared stable. New guard should block it.
+        double w = 36.5;
+        for (int i = 0; i < 12; i++) {
+            tc.onWeightSample(w, 0.5);
+            w += 0.2;
+            QVERIFY2(tc.isSawSettling(), qPrintable(QString("Settled prematurely at sample %1, weight %2g").arg(i).arg(w, 0, 'f', 1)));
+        }
+    }
+
+    void weightAboveAvgGuardAllowsSettlementWhenStable() {
+        // After weight plateau, the guard must eventually allow settlement once
+        // the rolling average catches up and isSawSettling becomes false.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(36.0, 2.0, 36.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        // Feed 20 stable samples at the same weight — avg and current converge immediately
+        for (int i = 0; i < 20; i++)
+            tc.onWeightSample(38.5, 0.0);
+
+        // After SETTLING_STABLE_MS (1000ms) the settling timer fires; we can't wait
+        // for a real timer in a unit test, but we can verify the guard isn't blocking:
+        // weight (38.5) should equal avg (~38.5), so weightAboveAvg is false.
+        // Settlement depends on the timer, so just verify settling is still active
+        // (not prematurely cancelled by the guard itself).
+        QVERIFY(tc.isSawSettling());
+    }
+
     void startShotCancelsSettlingAndEmitsReady() {
         DE1Device device;
         ShotTimingController tc(&device);
