@@ -355,6 +355,55 @@ Item {
                         font.bold: true
                     }
 
+                    // Bluetooth off warning
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: btOffRow.implicitHeight + Theme.scaled(16)
+                        color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
+                        radius: Theme.scaled(6)
+                        border.color: Theme.errorColor
+                        border.width: 1
+                        visible: !BLEManager.bluetoothAvailable
+
+                        RowLayout {
+                            id: btOffRow
+                            anchors {
+                                left: parent.left
+                                right: parent.right
+                                verticalCenter: parent.verticalCenter
+                                margins: Theme.scaled(10)
+                            }
+                            spacing: Theme.scaled(8)
+
+                            Image {
+                                source: "qrc:/icons/bluetooth.svg"
+                                width: Theme.scaled(18)
+                                height: Theme.scaled(18)
+                                fillMode: Image.PreserveAspectFit
+                            }
+
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.bluetooth.btOff"
+                                fallback: "Bluetooth is turned off. Enable Bluetooth to connect to your DE1."
+                                color: Theme.errorColor
+                                font.pixelSize: Theme.scaled(13)
+                                wrapMode: Text.Wrap
+                                Accessible.ignored: true
+                            }
+
+                            AccessibleButton {
+                                text: TranslationManager.translate("settings.bluetooth.openSettings", "Open Settings")
+                                accessibleName: TranslationManager.translate("settings.bluetooth.openBtSettings", "Open Bluetooth settings")
+                                onClicked: BLEManager.openBluetoothSettings()
+                            }
+                        }
+
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: TranslationManager.translate("settings.bluetooth.btOff", "Bluetooth is turned off. Enable Bluetooth to connect to your DE1.")
+                        Accessible.focusable: false
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
 

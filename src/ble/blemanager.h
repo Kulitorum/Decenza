@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
+#include <QBluetoothLocalDevice>
 #include <QList>
 #include <QVariant>
 #include <QPermissions>
@@ -36,6 +37,7 @@ class BLEManager : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(bool scanning READ isScanning NOTIFY scanningChanged)
+    Q_PROPERTY(bool bluetoothAvailable READ isBluetoothAvailable NOTIFY bluetoothAvailableChanged)
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList discoveredScales READ discoveredScales NOTIFY scalesChanged)
     Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged)
@@ -49,6 +51,7 @@ public:
     ~BLEManager();
 
     bool isScanning() const;
+    bool isBluetoothAvailable() const;
     bool isScanningForScales() const { return m_scanningForScales; }
     bool isDisabled() const { return m_disabled; }
     void setDisabled(bool disabled);  // Disable all BLE operations (for simulator mode)
@@ -105,6 +108,7 @@ public slots:
 
 signals:
     void scanningChanged();
+    void bluetoothAvailableChanged();
     void devicesChanged();
     void scalesChanged();
     void scaleConnectionFailedChanged();
@@ -130,6 +134,7 @@ private slots:
     void onScanError(QBluetoothDeviceDiscoveryAgent::Error error);
     void onScaleConnectedChanged();
     void onScaleConnectionTimeout();
+    void onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode);
 
 private:
     bool isDE1Device(const QBluetoothDeviceInfo& device) const;
@@ -138,6 +143,7 @@ private:
     void doStartScan();
     void ensureDiscoveryAgent();
 
+    QBluetoothLocalDevice* m_localDevice = nullptr;
     QBluetoothDeviceDiscoveryAgent* m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_de1Devices;
     QList<QPair<QBluetoothDeviceInfo, QString>> m_scales;  // device, type

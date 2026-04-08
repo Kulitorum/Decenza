@@ -33,12 +33,28 @@ BLEManager::BLEManager(QObject* parent)
     // initializing CoreBluetooth (and triggering TCC privacy checks) when
     // BLE is disabled (e.g. simulation mode on Mac debug builds).
 
+    // Track Bluetooth adapter power state
+    m_localDevice = new QBluetoothLocalDevice(this);
+    connect(m_localDevice, &QBluetoothLocalDevice::hostModeStateChanged,
+            this, &BLEManager::onHostModeStateChanged);
+
     // Timer for scale connection timeout (20 seconds)
     m_scaleConnectionTimer = new QTimer(this);
     m_scaleConnectionTimer->setSingleShot(true);
     m_scaleConnectionTimer->setInterval(20000);
     connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
+}
 
+bool BLEManager::isBluetoothAvailable() const
+{
+    return m_localDevice->hostMode() != QBluetoothLocalDevice::HostPoweredOff;
+}
+
+void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
+{
+    Q_UNUSED(mode)
+    qDebug() << "BLEManager: Bluetooth host mode changed to" << mode;
+    emit bluetoothAvailableChanged();
 }
 
 void BLEManager::ensureDiscoveryAgent() {
@@ -143,8 +159,7 @@ void BLEManager::startScan() {
         return;
     }
 
-    QBluetoothLocalDevice localDevice;
-    if (localDevice.hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+    if (!isBluetoothAvailable()) {
         qDebug() << "BLEManager: Scan request ignored (Bluetooth is powered off)";
         return;
     }
@@ -574,8 +589,7 @@ void BLEManager::tryDirectConnectToDE1() {
         return;
     }
 
-    QBluetoothLocalDevice localDevice;
-    if (localDevice.hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+    if (!isBluetoothAvailable()) {
         qDebug() << "BLEManager: tryDirectConnectToDE1 - Bluetooth is powered off, skipping";
         return;
     }
@@ -655,8 +669,7 @@ void BLEManager::tryDirectConnectToScale() {
         return;
     }
 
-    QBluetoothLocalDevice localDevice;
-    if (localDevice.hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+    if (!isBluetoothAvailable()) {
         qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
         return;
     }
