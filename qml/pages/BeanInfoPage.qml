@@ -82,6 +82,13 @@ Page {
     // Keyboard offset for popups - set when popup opens, reset when it closes
     property real popupKeyboardOffset: 0
 
+    property bool _justSaved: false
+    Timer {
+        id: savedFlashTimer
+        interval: 1000
+        onTriggered: _justSaved = false
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
 
@@ -498,20 +505,24 @@ Page {
 
                         Item { Layout.fillWidth: true }
 
-                        // Save button — update current preset (visible when a preset is selected and there are unsaved changes)
+                        // Save button — update current preset (visible when a preset is selected and there are unsaved changes, or briefly after saving)
                         Rectangle {
                             id: saveBeanButton
-                            visible: _snapSelectedPreset >= 0 && isDirty()
+                            visible: (_snapSelectedPreset >= 0 && isDirty()) || _justSaved
                             Accessible.ignored: true
                             Layout.preferredWidth: saveBeanLabel.implicitWidth + Theme.scaled(16)
                             Layout.preferredHeight: Theme.scaled(36)
                             radius: Theme.scaled(4)
-                            color: Theme.primaryColor
+                            color: _justSaved ? Theme.successColor : Theme.primaryColor
+
+                            Behavior on color { ColorAnimation { duration: 150 } }
 
                             Text {
                                 id: saveBeanLabel
                                 anchors.centerIn: parent
-                                text: TranslationManager.translate("beaninfo.button.savepreset", "Save")
+                                text: _justSaved
+                                    ? TranslationManager.translate("beaninfo.button.savepreset.saved", "Saved")
+                                    : TranslationManager.translate("beaninfo.button.savepreset", "Save")
                                 color: Theme.primaryContrastColor
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 Accessible.ignored: true
@@ -521,7 +532,11 @@ Page {
                                 anchors.fill: parent
                                 accessibleName: TranslationManager.translate("beaninfo.accessibility.savepreset", "Save changes to current preset")
                                 accessibleItem: saveBeanButton
-                                onAccessibleClicked: saveToCurrentPreset(-1, false)
+                                onAccessibleClicked: {
+                                    saveToCurrentPreset(-1, false)
+                                    _justSaved = true
+                                    savedFlashTimer.restart()
+                                }
                             }
                         }
 
@@ -1408,7 +1423,7 @@ Page {
                     if (_snapSelectedPreset >= 0) {
                         return _pendingPresetIndex >= 0
                             ? TranslationManager.translate("beaninfo.unsaved.message.preset.hassaved", "Save changes to this preset before switching, save as new, or discard?")
-                            : TranslationManager.translate("beaninfo.unsaved.message.hassaved", "Save changes to this preset, save as new, keep as-is, or discard?")
+                            : TranslationManager.translate("beaninfo.unsaved.message.hassaved", "Save changes to this preset, save as new, keep unsaved, or discard?")
                     }
                     return _pendingPresetIndex >= 0
                         ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes before switching, save as new, or discard?")
@@ -1462,8 +1477,8 @@ Page {
                     Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("beaninfo.unsaved.saveAsNew", "Save As")
                     accessibleName: _pendingPresetIndex >= 0
-                        ? TranslationManager.translate("beaninfo.unsaved.saveFavorite.preset.accessible", "Save as a new bean favorite and switch preset")
-                        : TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")
+                        ? TranslationManager.translate("beaninfo.unsaved.saveFavorite.preset.accessible", "Save as a new bean preset and switch")
+                        : TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean preset and go back")
                     onClicked: {
                         unsavedChangesDialog.close()
                         savePresetDialog.suggestedName = [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
