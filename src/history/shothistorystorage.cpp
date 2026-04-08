@@ -853,7 +853,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     // Compute conductance derivative (post-shot Gaussian smoothing) before compression
     shotData->computeConductanceDerivative();
 
-    // Compute quality flags and phase summaries inline (avoids ShotSummarizer dependency).
+    // Compute quality flags and phase summaries. Uses ShotSummarizer::getAnalysisFlags()
+    // for KB flag lookups and ShotAnalysis helpers for detection. Runs on the main
+    // thread before data is handed to the background save thread.
     // Build a temporary ShotRecord from the live data to reuse the static helpers.
     {
         ShotRecord tmpRecord;
@@ -918,7 +920,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // Grind issue detection: flow persistently above or below goal during pour.
         // Skip for turbo/filter shots (same guard as channeling) — high-flow profiles
         // have wide natural flow variation that would cause false positives.
-        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
+        // Also skip profiles where grind detection is intentionally suppressed (e.g. Turbo Shot).
+        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
+            && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("grind_check_skip"))) {
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 flowPts, shotData->flowGoalData(), pourStart, pourEnd);
         }
@@ -2061,6 +2065,18 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         computePhaseSummaries(record);
     }
 
+    // For shots predating migration 9, profile_kb_id was not stored in the DB.
+    // Derive it from the stored profile JSON so that channeling/grind suppression
+    // flags still apply to old shots.
+    if (record.profileKbId.isEmpty() && !record.profileJson.isEmpty()) {
+        QJsonDocument kbDoc = QJsonDocument::fromJson(record.profileJson.toUtf8());
+        if (!kbDoc.isNull()) {
+            record.profileKbId = ShotSummarizer::computeProfileKbId(
+                kbDoc.object()[QStringLiteral("title")].toString(),
+                kbDoc.object()[QStringLiteral("legacy_profile_type")].toString());
+        }
+    }
+
     // Recompute channeling/temp quality flags for pre-migration-10 shots.
     // Trigger: conductance missing means the shot predates migration 10 and its flags
     // are DB defaults (0), not real analysis. Channeling and temp require conductanceDerivative
@@ -2112,7 +2128,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
             }
         }
-        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
+        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
+            && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("grind_check_skip"))) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 record.flow, record.flowGoal, pourStart, pourEnd);
         }

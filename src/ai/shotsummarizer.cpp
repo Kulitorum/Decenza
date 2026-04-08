@@ -14,6 +14,8 @@
 #include <QDebug>
 #include <QDate>
 #include <QFile>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTextStream>
 
 // Static members for profile knowledge cache
@@ -833,6 +835,9 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 void ShotSummarizer::loadProfileKnowledge()
 {
     if (s_knowledgeLoaded) return;
+    static QMutex mutex;
+    QMutexLocker locker(&mutex);
+    if (s_knowledgeLoaded) return;  // re-check after acquiring lock
 
     QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
