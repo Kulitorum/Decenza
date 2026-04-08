@@ -7,6 +7,7 @@
 #include <QUuid>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QTimeZone>
 #include <QDebug>
 
 ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents, const QString& filename)
