@@ -51,8 +51,8 @@ static QString buildDiff(const Profile& tcl, const Profile& builtin)
         report += QString("  step count: TCL=%1 JSON=%2\n")
                       .arg(tcl.steps().size()).arg(builtin.steps().size());
 
-    const int n = qMin(tcl.steps().size(), builtin.steps().size());
-    for (int i = 0; i < n; ++i) {
+    const qsizetype n = qMin(tcl.steps().size(), builtin.steps().size());
+    for (qsizetype i = 0; i < n; ++i) {
         const ProfileFrame& a = tcl.steps()[i];
         const ProfileFrame& b = builtin.steps()[i];
         const QString p = QString("  FRAME[%1] ").arg(i);

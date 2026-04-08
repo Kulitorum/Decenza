@@ -909,12 +909,16 @@ bool Profile::functionallyEqual(const Profile& a, const Profile& b)
     // NOT compared here. The built-in JSONs may have stale/zero values for these
     // fields from older writes, while TCL files carry the original de1app defaults.
     // Import identity is determined by the extraction frame sequence, not global limits.
+    //
+    // preinfuseFrameCount IS compared because it is sent to the DE1 as
+    // NumberOfPreinfuseFrames in the BLE header and directly affects machine behavior.
+    if (a.preinfuseFrameCount() != b.preinfuseFrameCount()) return false;
 
     const auto& stepsA = a.steps();
     const auto& stepsB = b.steps();
     if (stepsA.size() != stepsB.size()) return false;
 
-    for (int i = 0; i < stepsA.size(); i++) {
+    for (qsizetype i = 0; i < stepsA.size(); i++) {
         const ProfileFrame& fa = stepsA[i];
         const ProfileFrame& fb = stepsB[i];
 

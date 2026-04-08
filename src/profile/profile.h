@@ -253,7 +253,8 @@ public:
     // Count consecutive leading frames with exit conditions (preinfusion frames)
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
-    // Compare two profiles for functional equality (profile-level fields + all frames).
+    // Compare two profiles for functional equality (frame sequence only).
+    // Profile-level limits (maximumPressure, maximumFlow, etc.) are excluded.
     // Returns false if either profile has no steps.
     static bool functionallyEqual(const Profile& a, const Profile& b);
 

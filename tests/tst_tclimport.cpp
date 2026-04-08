@@ -277,8 +277,8 @@ private slots:
                           .arg(tcl.steps().size()).arg(builtin.steps().size());
         }
 
-        int n = qMin(tcl.steps().size(), builtin.steps().size());
-        for (int i = 0; i < n; ++i) {
+        qsizetype n = qMin(tcl.steps().size(), builtin.steps().size());
+        for (qsizetype i = 0; i < n; ++i) {
             const ProfileFrame& a = tcl.steps()[i];
             const ProfileFrame& b = builtin.steps()[i];
             QString p = QString("  FRAME[%1] ").arg(i);
