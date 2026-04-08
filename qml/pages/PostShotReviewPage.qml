@@ -406,7 +406,7 @@ Page {
                 radius: Theme.cardRadius
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
                 Accessible.role: Accessible.Graphic
-                Accessible.name: "Shot graph. Tap to inspect values"
+                Accessible.name: TranslationManager.translate("shot.graph.accessible.name", "Shot graph. Tap to inspect values")
                 Accessible.focusable: true
                 Accessible.onPressAction: reviewGraphMouseArea.clicked(null)
 
@@ -1344,7 +1344,7 @@ Page {
             Layout.preferredWidth: discussContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
-            color: Theme.primaryColor
+            color: discussArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
             Accessible.role: Accessible.Button
             Accessible.name: TranslationManager.translate("postshotreview.accessible.discuss", "Discuss shot with external AI app")

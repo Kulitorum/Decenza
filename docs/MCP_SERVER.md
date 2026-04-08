@@ -457,6 +457,7 @@ Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscu
 | 3 | Gemini | `https://gemini.google.com/app` | Google's AI |
 | 4 | Grok | `https://grok.com/` | xAI's assistant |
 | 5 | Custom URL | Uses `discussShotCustomUrl` value | For self-hosted models (Ollama web UI, etc.) or any other AI service |
+| 6 | None | — | Hides the Discuss button entirely |
 
 Default: `0` (Claude).
 
@@ -692,7 +693,7 @@ Before adding new tools, consolidate existing ones to reduce tool count and avoi
 ## Verification
 
 1. **UI test**: Toggle MCP on/off, change access/confirmation levels, verify controls enable/disable correctly
-2. **Discuss Shot test**: Tap Discuss on PostShotReviewPage → verify clipboard contains shot summary (when MCP off) → verify correct app opens. Test all 5 app options (Claude, ChatGPT, Gemini, Grok, Custom URL). Test with MCP enabled → verify no clipboard copy, toast says "it has access to your shot data".
+2. **Discuss Shot test**: Tap Discuss on PostShotReviewPage → verify clipboard contains shot summary (when MCP off) → verify correct app opens. Test all 6 app options (Claude, ChatGPT, Gemini, Grok, Custom URL, None). Test with MCP enabled → verify no clipboard copy, toast says "it has access to your shot data".
 3. **Discuss layout widget test**: Add DiscussItem to a layout zone. Tap from idle screen → verify it discusses the most recent shot. Verify disabled state when no shots exist.
 4. **Integration test with mcp-cli**: `npx @anthropic-ai/mcp-cli` to connect and exercise tools
 5. **Access level test**: Set monitor-only, verify control tools are rejected; set control, verify settings tools rejected

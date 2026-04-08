@@ -316,7 +316,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"mcpEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable MCP server"}}},
                 {"mcpAccessLevel", QJsonObject{{"type", "integer"}, {"description", "MCP access level: 0=monitor, 1=control, 2=full"}}},
                 {"mcpConfirmationLevel", QJsonObject{{"type", "integer"}, {"description", "MCP confirmation: 0=none, 1=dangerous, 2=all"}}},
-                {"discussShotApp", QJsonObject{{"type", "integer"}, {"description", "Discuss Shot app: 0=Claude, 1=Claude Web, 2=ChatGPT, 3=Gemini, 4=Grok, 5=Custom"}}},
+                {"discussShotApp", QJsonObject{{"type", "integer"}, {"description", "Discuss Shot app: 0=Claude, 1=Claude Web, 2=ChatGPT, 3=Gemini, 4=Grok, 5=Custom, 6=None (hides Discuss button)"}}},
                 {"discussShotCustomUrl", QJsonObject{{"type", "string"}, {"description", "Custom URL for Discuss Shot"}}},
                 {"ollamaEndpoint", QJsonObject{{"type", "string"}, {"description", "Ollama endpoint URL"}}},
                 {"ollamaModel", QJsonObject{{"type", "string"}, {"description", "Ollama model name"}}},
@@ -833,7 +833,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "mcpConfirmationLevel";
             }
             if (args.contains("discussShotApp")) {
-                int v = qBound(0, args["discussShotApp"].toInt(), 5);
+                int v = qBound(0, args["discussShotApp"].toInt(), 6);
                 addSetter([settings, v]() { settings->setDiscussShotApp(v); });
                 updated << "discussShotApp";
             }
