@@ -498,10 +498,10 @@ Page {
 
                         Item { Layout.fillWidth: true }
 
-                        // Save button — update current preset (visible when a preset was selected before editing)
+                        // Save button — update current preset (visible when a preset is selected and there are unsaved changes)
                         Rectangle {
                             id: saveBeanButton
-                            visible: _snapSelectedPreset >= 0
+                            visible: _snapSelectedPreset >= 0 && isDirty()
                             Accessible.ignored: true
                             Layout.preferredWidth: saveBeanLabel.implicitWidth + Theme.scaled(16)
                             Layout.preferredHeight: Theme.scaled(36)
@@ -521,10 +521,7 @@ Page {
                                 anchors.fill: parent
                                 accessibleName: TranslationManager.translate("beaninfo.accessibility.savepreset", "Save changes to current preset")
                                 accessibleItem: saveBeanButton
-                                onAccessibleClicked: {
-                                    _pendingPresetIndex = -1
-                                    unsavedChangesDialog.open()
-                                }
+                                onAccessibleClicked: saveToCurrentPreset(-1, false)
                             }
                         }
 
@@ -1414,8 +1411,8 @@ Page {
                             : TranslationManager.translate("beaninfo.unsaved.message.hassaved", "Save changes to this preset, save as new, keep as-is, or discard?")
                     }
                     return _pendingPresetIndex >= 0
-                        ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes as a favorite before switching, or discard them?")
-                        : TranslationManager.translate("beaninfo.unsaved.message", "Save as a favorite, keep as-is, or discard?")
+                        ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes before switching, save as new, or discard?")
+                        : TranslationManager.translate("beaninfo.unsaved.message", "Save as new preset, keep unsaved, or discard?")
                 }
                 font: Theme.bodyFont
                 color: Theme.textColor
@@ -1463,9 +1460,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    text: _snapSelectedPreset >= 0
-                        ? TranslationManager.translate("beaninfo.unsaved.saveAsNew", "Save as New")
-                        : TranslationManager.translate("beaninfo.unsaved.saveFavorite", "Save Favorite")
+                    text: TranslationManager.translate("beaninfo.unsaved.saveAsNew", "Save As")
                     accessibleName: _pendingPresetIndex >= 0
                         ? TranslationManager.translate("beaninfo.unsaved.saveFavorite.preset.accessible", "Save as a new bean favorite and switch preset")
                         : TranslationManager.translate("beaninfo.unsaved.saveFavorite.accessible", "Save as a new bean favorite and go back")
@@ -1543,8 +1538,8 @@ Page {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(44)
                         visible: _pendingPresetIndex < 0  // Hide when switching presets
-                        text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
-                        accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
+                        text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep unsaved")
+                        accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes unsaved and go back")
                         onClicked: {
                             unsavedChangesDialog.close()
                             // DYE fields now diverge from the preset — clear the association
