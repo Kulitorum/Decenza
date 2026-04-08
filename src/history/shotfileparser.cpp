@@ -25,8 +25,10 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
         QString base = filename.section('.', 0, 0);  // strip extension
         QDateTime dt = QDateTime::fromString(base, "yyyyMMddTHHmmss");
         if (dt.isValid()) {
-            dt.setTimeZone(QTimeZone::utc());
-            timestamp = dt.toSecsSinceEpoch();
+            // Interpret the parsed date+time as UTC (de1app filenames are UTC-based).
+            // setTimeZone() relabels without converting; construct explicitly as UTC instead.
+            QDateTime utcDt(dt.date(), dt.time(), QTimeZone::utc());
+            timestamp = utcDt.toSecsSinceEpoch();
             qDebug() << "ShotFileParser: no clock field in" << filename << "- derived timestamp from filename:" << timestamp;
         }
     }

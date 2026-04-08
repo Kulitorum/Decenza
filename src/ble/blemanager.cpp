@@ -60,7 +60,6 @@ bool BLEManager::isBluetoothAvailable() const
 
 void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
 {
-    Q_UNUSED(mode)
     qDebug() << "BLEManager: Bluetooth host mode changed to" << mode;
     emit bluetoothAvailableChanged();
 }
@@ -651,6 +650,11 @@ void BLEManager::scanForScales() {
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;  // User-initiated scan resets the dialog guard
     emit scaleConnectionFailedChanged();
+
+    if (!isBluetoothAvailable()) {
+        qDebug() << "BLEManager: scanForScales - Bluetooth is powered off, skipping";
+        return;
+    }
 
     // Disconnect any currently connected scale before scanning for new ones
     emit disconnectScaleRequested();

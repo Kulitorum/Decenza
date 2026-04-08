@@ -78,7 +78,7 @@ QString ProfileImporter::detectDE1AppPath() const
     return QString();
 }
 
-void ProfileImporter::importFromDE1App()
+void ProfileImporter::importFromDE1App(bool overwriteExisting)
 {
     if (m_scanning || m_importing) {
         qDebug() << "ProfileImporter: importFromDE1App - already busy";
@@ -90,8 +90,9 @@ void ProfileImporter::importFromDE1App()
         emit batchImportComplete(0, 0, 0);
         return;
     }
-    qDebug() << "ProfileImporter: importFromDE1App - scanning" << path;
+    qDebug() << "ProfileImporter: importFromDE1App - scanning" << path << "overwrite:" << overwriteExisting;
     m_autoImportAfterScan = true;
+    m_autoImportOverwrite = overwriteExisting;
     scanProfilesFromPath(path);
 }
 
@@ -208,9 +209,11 @@ void ProfileImporter::onProcessNextScan()
 
         if (m_autoImportAfterScan) {
             m_autoImportAfterScan = false;
+            bool overwrite = m_autoImportOverwrite;
+            m_autoImportOverwrite = false;
             if (!m_availableProfiles.isEmpty()) {
-                qDebug() << "ProfileImporter: auto-importing" << m_availableProfiles.size() << "new profiles";
-                importAllNew();
+                qDebug() << "ProfileImporter: auto-importing from" << m_availableProfiles.size() << "scanned profiles, overwrite:" << overwrite;
+                importAll(overwrite);
             } else {
                 qDebug() << "ProfileImporter: no new profiles to import";
             }
