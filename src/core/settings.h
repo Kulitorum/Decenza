@@ -270,6 +270,8 @@ class Settings : public QObject {
 public:
     explicit Settings(QObject* parent = nullptr);
 
+    int discussAppNone() const { return 6; }
+
     // Platform capabilities (compile-time)
     bool hasQuick3D() const {
 #ifdef HAVE_QUICK3D
