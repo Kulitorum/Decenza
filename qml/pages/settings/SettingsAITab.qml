@@ -31,7 +31,8 @@ KeyboardAwareContainer {
         TranslationManager.translate("settings.ai.discuss.app.chatgpt", "ChatGPT"),
         TranslationManager.translate("settings.ai.discuss.app.gemini", "Gemini"),
         TranslationManager.translate("settings.ai.discuss.app.grok", "Grok"),
-        TranslationManager.translate("settings.ai.discuss.customUrl", "Custom URL")
+        TranslationManager.translate("settings.ai.discuss.customUrl", "Custom URL"),
+        TranslationManager.translate("settings.ai.discuss.app.none", "None")
     ]
 
     // Full-width card

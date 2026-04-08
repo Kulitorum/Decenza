@@ -3664,6 +3664,7 @@ QString Settings::discussShotUrl() const {
     };
     int app = discussShotApp();
     if (app == 5) return discussShotCustomUrl();
+    if (app == 6) return QString(); // None
     if (app >= 0 && app < urls.size()) return urls[app];
     return urls[0];
 }
