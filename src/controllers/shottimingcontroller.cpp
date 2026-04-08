@@ -279,8 +279,18 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // still recovering from pump-vibration artifacts — don't declare stable.
             bool avgBelowStop = (m_weightAtStop > 0 && avg < m_weightAtStop - 0.5);
 
-            if (avgDrift < SETTLING_AVG_THRESHOLD && !avgBelowStop) {
-                // Average is stable - check how long
+            // Drip-still-ongoing guard: if the current weight is significantly above
+            // the rolling average, the circular buffer still contains earlier (lower)
+            // samples from the start of the drip — the average is lagging, not stable.
+            // A steady monotonic rise produces tiny per-sample avg drift (1/N of the
+            // per-sample weight change) that falls below SETTLING_AVG_THRESHOLD even
+            // while the scale is actively climbing. Requiring weight ≤ avg + 0.2g
+            // ensures we don't declare stable until the current reading has caught up
+            // to the window mean (i.e. the drip has effectively stopped).
+            bool weightAboveAvg = (weight > avg + 0.2);
+
+            if (avgDrift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
+                // Average is stable and current weight is within it - check how long
                 if (m_settlingAvgStableSince == 0)
                     m_settlingAvgStableSince = now;
 
@@ -293,11 +303,15 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                     onSettlingComplete();
                 }
             } else {
-                // Average still drifting or below stop weight - reset
+                // Average still drifting, weight still rising, or below stop weight - reset
                 if (avgBelowStop && m_settlingAvgStableSince > 0)
                     qDebug() << "[SAW] Avg" << QString::number(avg, 'f', 1)
                              << "g below stop weight" << QString::number(m_weightAtStop, 'f', 1)
                              << "g - not settling yet";
+                if (weightAboveAvg && m_settlingAvgStableSince > 0)
+                    qDebug() << "[SAW] Weight" << QString::number(weight, 'f', 1)
+                             << "g still above avg" << QString::number(avg, 'f', 1)
+                             << "g - drip still ongoing";
                 m_settlingAvgStableSince = 0;
             }
             m_lastSettlingAvg = avg;
@@ -378,10 +392,18 @@ void ShotTimingController::onDisplayTimerTick()
                 for (int i = 0; i < m_settlingWindowCount; i++)
                     avg += m_settlingWindow[i];
                 avg /= m_settlingWindowCount;
-                qDebug() << "[SAW] Weight settled by avg at" << QString::number(avg, 'f', 1) << "g (detected by timer)";
-                m_weight = avg;
-                m_settlingTimer.stop();
-                onSettlingComplete();
+                // Apply the same drip-still-ongoing guard as onWeightSample
+                if (m_weight > avg + 0.2) {
+                    qDebug() << "[SAW] Timer: weight" << QString::number(m_weight, 'f', 1)
+                             << "g still above avg" << QString::number(avg, 'f', 1)
+                             << "g - resetting stable clock";
+                    m_settlingAvgStableSince = 0;
+                } else {
+                    qDebug() << "[SAW] Weight settled by avg at" << QString::number(avg, 'f', 1) << "g (detected by timer)";
+                    m_weight = avg;
+                    m_settlingTimer.stop();
+                    onSettlingComplete();
+                }
             }
         }
     }
