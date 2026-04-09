@@ -520,12 +520,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (profile.contains("selectedFavorite")) settings->setSelectedFavoriteProfile(profile["selectedFavorite"].toInt());
 
         if (profile.contains("favorites")) {
+            QJsonArray favorites = profile["favorites"].toArray();
+            qWarning() << "SettingsSerializer: importFromJson replacing" << settings->favoriteProfiles().size()
+                       << "favorites with" << favorites.size() << "from import";
             // Remove existing favorites in reverse
             QVariantList existingFavs = settings->favoriteProfiles();
             for (qsizetype i = existingFavs.size() - 1; i >= 0; --i) {
                 settings->removeFavoriteProfile(static_cast<int>(i));
             }
-            QJsonArray favorites = profile["favorites"].toArray();
             for (const QJsonValue& v : favorites) {
                 QJsonObject f = v.toObject();
                 settings->addFavoriteProfile(f["name"].toString(), f["filename"].toString());
