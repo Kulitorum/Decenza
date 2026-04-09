@@ -1655,10 +1655,12 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         bool newChanneling = false, newTempUnstable = false, newGrindIssue = false;
+        bool recordFound = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
             ShotRecord record = loadShotRecordStatic(db, shotId);
             if (record.summary.id == 0) return;
+            recordFound = true;
 
             // Find pour boundaries
             double pourStart = 0, pourEnd = record.pressure.isEmpty() ? 0 : record.pressure.last().x();
@@ -1721,7 +1723,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             }
         });
 
-        if (*destroyed) return;
+        if (!recordFound || *destroyed) return;
         QMetaObject::invokeMethod(
             this,
             [this, shotId, newChanneling, newTempUnstable, newGrindIssue, destroyed]() {

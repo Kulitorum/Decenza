@@ -20,6 +20,7 @@ Page {
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property int swipeDirection: 0  // 1 = going older, -1 = going newer; swipeDirection: 1 exits left, enters from right; -1 exits right, enters from left
     property bool m_navigating: false  // true only during a navigateToShot transition; guards enterAnimation from firing on non-navigation loads
+    property bool m_reloadingFromVisualizer: false  // true when loadShot() was called from onVisualizerInfoUpdated; suppresses duplicate badge reanalysis
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Post-Shot Review, Shot Comparison, Espresso view selector).
@@ -63,8 +64,12 @@ Page {
                 if (wasNavigating)
                     enterAnimation.start()
             })
-            // Recompute quality badges in background (handles stale values after KB updates)
-            MainController.shotHistory.requestReanalyzeBadges(id)
+            // Recompute quality badges in background (handles stale values after KB updates).
+            // Skip when reloading after a visualizer update — badges didn't change and the
+            // visualizer path already triggers a second onShotReady via loadShot().
+            if (!shotDetailPage.m_reloadingFromVisualizer)
+                MainController.shotHistory.requestReanalyzeBadges(id)
+            shotDetailPage.m_reloadingFromVisualizer = false
         }
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
@@ -72,10 +77,12 @@ Page {
         }
         function onVisualizerInfoUpdated(id, success) {
             if (id !== shotDetailPage.shotId) return
-            if (success)
+            if (success) {
+                shotDetailPage.m_reloadingFromVisualizer = true
                 loadShot()
-            else
+            } else {
                 console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
+            }
         }
         function onShotBadgesUpdated(id, channeling, tempUnstable, grindIssue) {
             if (id !== shotDetailPage.shotId) return
