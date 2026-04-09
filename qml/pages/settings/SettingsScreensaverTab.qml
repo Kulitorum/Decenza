@@ -332,7 +332,7 @@ Item {
                                     color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
                                            isEnabled ? Theme.primaryColor :
                                            Theme.backgroundColor
-                                    border.color: isSelected ? "white" :
+                                    border.color: isSelected ? Theme.primaryContrastColor :
                                                   isEnabled ? Theme.primaryColor : Theme.borderColor
                                     border.width: isSelected ? 2 : 1
 
@@ -357,7 +357,7 @@ Item {
                                     Text {
                                         anchors.centerIn: parent
                                         text: modelData
-                                        color: parent.isSelected || parent.isEnabled ? "white" : Theme.textSecondaryColor
+                                        color: parent.isSelected || parent.isEnabled ? Theme.primaryContrastColor : Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(12)
                                         font.bold: parent.isSelected || parent.isEnabled
                                         Accessible.ignored: true
@@ -665,7 +665,7 @@ Item {
 
                             contentItem: Text {
                                 text: modelData ? modelData.name : ""
-                                color: parent.highlighted ? "white" : Theme.textColor
+                                color: parent.highlighted ? Theme.primaryContrastColor : Theme.textColor
                                 font.pixelSize: Theme.scaled(14)
                                 font.bold: parent.highlighted
                                 verticalAlignment: Text.AlignVCenter
