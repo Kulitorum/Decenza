@@ -277,24 +277,16 @@ Item {
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillWidth: false
             Layout.fillHeight: true
-            clip: true
-
-            Flickable {
-                anchors.fill: parent
-                contentWidth: width
-                contentHeight: columnContent.implicitHeight
-                clip: true
 
             ColumnLayout {
-                id: columnContent
-                width: parent.width
+                anchors.fill: parent
                 spacing: Theme.scaled(10)
 
             // Screen card (Sleep only)
             Rectangle {
                 objectName: "autoSleep"
                 Layout.fillWidth: true
-                height: timingContent.implicitHeight + Theme.scaled(32)
+                height: timingContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -303,8 +295,8 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: Theme.scaled(12)
-                    spacing: Theme.scaled(10)
+                    anchors.margins: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
 
                     Text {
                         text: TranslationManager.translate("settings.screensaver.screen", "Screen")
@@ -352,7 +344,7 @@ Item {
                 objectName: "screensaverDim"
                 Layout.fillWidth: true
                 visible: ScreensaverManager.screensaverType !== "disabled"
-                height: dimContent.implicitHeight + Theme.scaled(32)
+                height: dimContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -361,8 +353,8 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: Theme.scaled(12)
-                    spacing: Theme.scaled(10)
+                    anchors.margins: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
 
                     Text {
                         text: TranslationManager.translate("settings.screensaver.screensaver", "Screensaver")
@@ -434,7 +426,7 @@ Item {
             Rectangle {
                 objectName: "autoWake"
                 Layout.fillWidth: true
-                height: autoWakeContent.implicitHeight + Theme.scaled(44)
+                height: autoWakeContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -443,7 +435,7 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: Theme.scaled(12)
+                        anchors.margins: Theme.scaled(10)
                         spacing: Theme.scaled(8)
 
                         property int selectedDay: 0
@@ -628,8 +620,8 @@ Item {
                     }
                 }
 
+            Item { Layout.fillHeight: true }
             } // ColumnLayout
-            } // Flickable
         }
 
         // Column 2: Video Category (videos mode only, full height)
