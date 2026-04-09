@@ -233,6 +233,102 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Steam Heater Settings
+                Rectangle {
+                    objectName: "steamHeater"
+                    Layout.fillWidth: true
+                    implicitHeight: steamContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: steamContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.steamHeater", "Steam Heater")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Text {
+                            property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
+                            text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                id: steamHeaterSwitch
+                                checked: Settings.keepSteamHeaterOn
+                                accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
+                                onClicked: {
+                                    Settings.keepSteamHeaterOn = checked
+                                    MainController.applySteamSettings()
+                                }
+                            }
+                        }
+
+                        // Auto flush steam wand setting
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(4)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.autoFlushAfter", "Auto flush wand after")
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            ValueInput {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 60
+                                stepSize: 1
+                                decimals: 0
+                                value: Settings.steamAutoFlushSeconds
+                                valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
+                                displayText: value === 0 ? TranslationManager.translate("common.off", "Off") : value + TranslationManager.translate("common.unit.seconds", "s")
+                                accessibleName: TranslationManager.translate("settings.preferences.autoFlushDuration", "Auto flush duration")
+                                onValueModified: function(newValue) {
+                                    Settings.steamAutoFlushSeconds = newValue
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Shot Map Settings
                 Rectangle {
                     objectName: "shotMap"
@@ -1173,24 +1269,24 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Steam Heater Settings
+                // Pocket Integration (remote control via Pocket app)
                 Rectangle {
-                    objectName: "steamHeater"
+                    objectName: "pocketIntegration"
                     Layout.fillWidth: true
-                    implicitHeight: steamContent.implicitHeight + Theme.scaled(30)
+                    implicitHeight: pocketContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
-                        id: steamContent
+                        id: pocketContent
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
+                        spacing: Theme.scaled(8)
 
                         Text {
-                            text: TranslationManager.translate("settings.preferences.steamHeater", "Steam Heater")
+                            text: TranslationManager.translate("settings.machine.pocketIntegrationTitle", "Pocket Integration")
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
@@ -1199,70 +1295,30 @@ KeyboardAwareContainer {
 
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
+                            text: TranslationManager.translate("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
 
-                        Text {
-                            property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                            text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
                         RowLayout {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
+                                text: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
-
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: text
                             }
 
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                id: steamHeaterSwitch
-                                checked: Settings.keepSteamHeaterOn
-                                accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
-                                onClicked: {
-                                    Settings.keepSteamHeaterOn = checked
-                                    MainController.applySteamSettings()
-                                }
-                            }
-                        }
-
-                        // Auto flush steam wand setting
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(4)
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.autoFlushAfter", "Auto flush wand after")
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            ValueInput {
-                                Layout.fillWidth: true
-                                from: 0
-                                to: 60
-                                stepSize: 1
-                                decimals: 0
-                                value: Settings.steamAutoFlushSeconds
-                                valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
-                                displayText: value === 0 ? TranslationManager.translate("common.off", "Off") : value + TranslationManager.translate("common.unit.seconds", "s")
-                                accessibleName: TranslationManager.translate("settings.preferences.autoFlushDuration", "Auto flush duration")
-                                onValueModified: function(newValue) {
-                                    Settings.steamAutoFlushSeconds = newValue
+                                checked: Settings.screenCaptureEnabled
+                                accessibleName: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
+                                onToggled: {
+                                    Settings.screenCaptureEnabled = checked
                                 }
                             }
                         }
@@ -1358,62 +1414,6 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(12)
                             Layout.leftMargin: Theme.scaled(15)
                             Layout.bottomMargin: Theme.scaled(5)
-                        }
-                    }
-                }
-
-                // Pocket Integration (remote control via Pocket app)
-                Rectangle {
-                    objectName: "pocketIntegration"
-                    Layout.fillWidth: true
-                    implicitHeight: pocketContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: pocketContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(8)
-
-                        Text {
-                            text: TranslationManager.translate("settings.machine.pocketIntegrationTitle", "Pocket Integration")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                checked: Settings.screenCaptureEnabled
-                                accessibleName: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
-                                onToggled: {
-                                    Settings.screenCaptureEnabled = checked
-                                }
-                            }
                         }
                     }
                 }
