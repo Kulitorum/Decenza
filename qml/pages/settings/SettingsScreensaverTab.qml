@@ -338,7 +338,15 @@ Item {
 
                                     Accessible.role: Accessible.Button
                                     Accessible.name: {
-                                        var dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                                        var dayNames = [
+                                        TranslationManager.translate("common.day.monday", "Monday"),
+                                        TranslationManager.translate("common.day.tuesday", "Tuesday"),
+                                        TranslationManager.translate("common.day.wednesday", "Wednesday"),
+                                        TranslationManager.translate("common.day.thursday", "Thursday"),
+                                        TranslationManager.translate("common.day.friday", "Friday"),
+                                        TranslationManager.translate("common.day.saturday", "Saturday"),
+                                        TranslationManager.translate("common.day.sunday", "Sunday")
+                                    ]
                                         return dayNames[index] +
                                                (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
                                                (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
@@ -474,6 +482,7 @@ Item {
 
             // Screen Timing card (Dim + Sleep)
             Rectangle {
+                objectName: "autoSleep"
                 Layout.fillWidth: true
                 height: timingContent.implicitHeight + Theme.scaled(32)
                 color: Theme.surfaceColor
@@ -628,16 +637,14 @@ Item {
 
                         property var categoryModelCopy: []
 
-                        Timer {
-                            id: categoryUpdateTimer
-                            interval: 50
-                            onTriggered: categoryList.categoryModelCopy = ScreensaverManager.categories
-                        }
-
                         Connections {
                             target: ScreensaverManager
                             function onCategoriesChanged() {
-                                categoryUpdateTimer.restart()
+                                // Defer one event loop tick so any in-progress delegate
+                                // layout completes before the model is replaced.
+                                Qt.callLater(function() {
+                                    categoryList.categoryModelCopy = ScreensaverManager.categories
+                                })
                             }
                         }
 

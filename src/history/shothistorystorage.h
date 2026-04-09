@@ -326,7 +326,8 @@ public:
     Q_INVOKABLE void requestImportDatabase(const QString& filePath, bool merge);
 
     // Async: recomputes all quality badge flags for a shot and updates the DB if changed.
-    // Emits shotBadgesUpdated() with the (possibly unchanged) flag values.
+    // Emits shotBadgesUpdated() only when at least one flag changed. No signal is emitted
+    // if the shot ID is not in the database or if all flags are already up to date.
     Q_INVOKABLE void requestReanalyzeBadges(qint64 shotId);
 
     // Import a shot record directly (for .shot file import)
