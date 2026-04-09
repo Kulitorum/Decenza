@@ -16,11 +16,11 @@ Item {
     signal summaryRequested()
 
     Layout.fillWidth: true
-    implicitHeight: badgeRow.height
+    implicitWidth: badgeRow.implicitWidth
+    implicitHeight: badgeRow.implicitHeight
 
     Flow {
         id: badgeRow
-        anchors.horizontalCenter: parent.horizontalCenter
         spacing: Theme.spacingSmall
 
         // Channeling badge (red)

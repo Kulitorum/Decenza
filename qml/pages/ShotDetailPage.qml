@@ -216,6 +216,20 @@ Page {
                             elide: Text.ElideRight
                             Layout.maximumWidth: shotDetailPage.width * 0.35
                         }
+
+                        QualityBadges {
+                            visible: !!(shotData.profileKbId)
+                            Layout.fillWidth: false
+                            channelingDetected: shotData.channelingDetected ?? false
+                            temperatureUnstable: shotData.temperatureUnstable ?? false
+                            grindIssueDetected: shotData.grindIssueDetected ?? false
+                            onSummaryRequested: detailAnalysisDialog.open()
+                        }
+
+                        ShotAnalysisDialog {
+                            id: detailAnalysisDialog
+                            shotData: shotDetailPage.shotData
+                        }
                     }
                 }
 
@@ -296,20 +310,6 @@ Page {
                         }
                     }
                 }
-            }
-
-            QualityBadges {
-                Layout.fillWidth: true
-                visible: !!(shotData.profileKbId)
-                channelingDetected: shotData.channelingDetected ?? false
-                temperatureUnstable: shotData.temperatureUnstable ?? false
-                grindIssueDetected: shotData.grindIssueDetected ?? false
-                onSummaryRequested: detailAnalysisDialog.open()
-            }
-
-            ShotAnalysisDialog {
-                id: detailAnalysisDialog
-                shotData: shotDetailPage.shotData
             }
 
             GraphInspectBar { graph: shotGraph }
