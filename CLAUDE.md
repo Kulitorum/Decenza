@@ -468,7 +468,7 @@ See `docs/CLAUDE_MD/CI_CD.md` for the full release process, updating pre-release
 - **StackView**: `pageStack` manages page navigation
 - **Auto-navigation**: `MachineState.phaseChanged` signal triggers automatic page transitions
 - **Operation pages**: SteamPage, HotWaterPage, FlushPage, EspressoPage
-- **Completion flow**: When operations end, show 3-second completion overlay, then navigate to IdlePage
+- **Completion flow**: When operations end, show 1.5-second completion overlay, then navigate to IdlePage
 
 ### Phase Change Handler Pattern
 ```qml

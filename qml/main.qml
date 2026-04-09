@@ -1590,7 +1590,7 @@ ApplicationWindow {
 
     Timer {
         id: completionTimer
-        interval: 1500
+        interval: 1500  // 1.5s: short enough not to feel slow (reduced from 3s per user feedback)
         onTriggered: {
             completionPending = false
             completionOverlay.opacity = 0
@@ -1804,7 +1804,8 @@ ApplicationWindow {
                     goToIdle()
                 }
             } else {
-                // Post-shot review disabled — navigate to idle after stop overlay dismisses
+                // pendingMetadataNavigation is only set by onShotEndedShowMetadata (Edit After
+                // Shot ON). If false here, post-shot review is disabled — go straight to idle.
                 goToIdle()
             }
         }
