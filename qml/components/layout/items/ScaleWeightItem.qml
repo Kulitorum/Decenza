@@ -12,9 +12,9 @@ Item {
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
-    // Scale warning: saved BLE scale not connected or connection failed
+    // Scale warning: saved BLE scale not connected or connection failed, or app fell back to simulated scale
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
-    property bool showScaleWarning: !root.scaleConnected
+    property bool showScaleWarning: (!root.scaleConnected || root.isFlowScale)
         && (BLEManager.scaleConnectionFailed || Settings.primaryScaleAddress !== "")
         && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
 
@@ -24,7 +24,7 @@ Item {
     // Accessibility: expose weight/status to screen readers
     // Reactive computed property so TalkBack re-announces when scale state or weight changes.
     readonly property string _accessibleName: {
-        if (root.showScaleWarning && !root.scaleConnected)
+        if (root.showScaleWarning)
             return BLEManager.scaleConnectionFailed
                 ? TranslationManager.translate("statusbar.scale_not_found_tap", "Scale not found. Tap to scan")
                 : TranslationManager.translate("statusbar.scale_connecting", "Scale connecting")
@@ -42,10 +42,10 @@ Item {
         : ""
     Accessible.focusable: true
     Accessible.onPressAction: {
-        if (root.scaleConnected)
-            MachineState.tareScale()
-        else if (root.showScaleWarning)
+        if (root.showScaleWarning)
             BLEManager.scanForScales()
+        else if (root.scaleConnected)
+            MachineState.tareScale()
     }
 
     // Shared color logic
@@ -73,10 +73,10 @@ Item {
         implicitWidth: compactWarning.visible ? compactWarning.width : compactScaleRow.implicitWidth
         implicitHeight: compactWarning.visible ? compactWarning.implicitHeight : compactScaleRow.implicitHeight
 
-        // Scale warning (connecting / not found) - tap to scan
+        // Scale warning (connecting / not found / simulated fallback) - tap to scan
         Rectangle {
             id: compactWarning
-            visible: root.showScaleWarning && !root.scaleConnected
+            visible: root.showScaleWarning
             anchors.centerIn: parent
             width: compactWarningRow.implicitWidth + Theme.spacingMedium
             height: Theme.touchTargetMin
@@ -121,7 +121,7 @@ Item {
             id: compactScaleRow
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
-            visible: root.scaleConnected
+            visible: root.scaleConnected && !root.showScaleWarning
 
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
@@ -142,7 +142,7 @@ Item {
         // Disconnected (no saved scale)
         Text {
             anchors.centerIn: parent
-            visible: !root.scaleConnected && !root.showScaleWarning
+            visible: !root.scaleConnected && !root.showScaleWarning && !root.isFlowScale
             text: "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
@@ -154,7 +154,7 @@ Item {
             id: scaleMouseArea
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
-            visible: root.scaleConnected
+            visible: root.scaleConnected && !root.showScaleWarning
             cursorShape: Qt.PointingHandCursor
 
             property int tapCount: 0
@@ -245,19 +245,29 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: root.scaleConnected
+                visible: root.scaleConnected && !root.showScaleWarning
                 text: root.weightText()
-                color: root.scaleColor(false)
+                color: root.scaleColor(fullTapArea.pressed)
                 font: Theme.valueFont
                 Accessible.ignored: true
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: !root.scaleConnected
+                visible: !root.scaleConnected && !root.showScaleWarning
                 text: "--"
                 color: Theme.textSecondaryColor
                 font: Theme.valueFont
+                Accessible.ignored: true
+            }
+
+            Tr {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.showScaleWarning
+                key: "statusbar.scale_not_found_tap"
+                fallback: "Scale not found. Tap to scan"
+                color: BLEManager.scaleConnectionFailed ? Theme.errorColor : Theme.textSecondaryColor
+                font: Theme.labelFont
                 Accessible.ignored: true
             }
 
@@ -268,6 +278,18 @@ Item {
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
                 Accessible.ignored: true
+            }
+        }
+
+        MouseArea {
+            id: fullTapArea
+            anchors.fill: parent
+            cursorShape: root.showScaleWarning ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+                if (root.showScaleWarning)
+                    BLEManager.scanForScales()
+                else if (root.scaleConnected)
+                    MachineState.tareScale()
             }
         }
     }
