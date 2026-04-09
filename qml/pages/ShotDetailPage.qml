@@ -199,6 +199,7 @@ Page {
         anchors.rightMargin: Theme.standardMargin
         contentWidth: availableWidth
         transform: Translate { id: contentSlide; x: 0 }
+        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
             width: parent.width
