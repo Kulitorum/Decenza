@@ -286,7 +286,7 @@ Item {
             Rectangle {
                 objectName: "autoWake"
                 Layout.fillWidth: true
-                height: autoWakeContent.implicitHeight + Theme.scaled(24)
+                height: autoWakeContent.implicitHeight + Theme.scaled(32)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -475,7 +475,7 @@ Item {
             // Screen Timing card (Dim + Sleep)
             Rectangle {
                 Layout.fillWidth: true
-                height: timingContent.implicitHeight + Theme.scaled(24)
+                height: timingContent.implicitHeight + Theme.scaled(32)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
