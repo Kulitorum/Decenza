@@ -689,13 +689,15 @@ void MachineState::checkStopAtVolume() {
     if (m_settings && m_settings->ignoreVolumeWithScale()
         && !m_settings->scaleAddress().isEmpty()) return;
 
-    // Skip SAV for basic profiles when a physical scale is configured (matches de1app's
-    // skip_sav_check / expecting_present). Beta testing in de1app revealed basic profiles
-    // have unrealistically low volume targets that trigger early stops. Uses "configured"
-    // not "connected" so a momentary BLE disconnect doesn't re-enable SAV mid-session.
+    // Skip SAV for basic profiles when a weight target is set. The volume value in
+    // settings_2a/2b profiles (e.g. 36ml in Default) is invisible to users — the Insight
+    // skin has no volume editor — and fires far too early (~15g in cup when 36ml is pumped).
+    // De1app skips SAV for basic profiles when a physical BLE scale is configured, but that
+    // misses the simulated/flow scale case. Checking target_weight > 0 is more correct:
+    // if the user has a weight target, SAV should never be the primary stop mechanism.
     bool isBasicProfile = (m_profileType == QLatin1String("settings_2a")
                         || m_profileType == QLatin1String("settings_2b"));
-    if (isBasicProfile && m_settings && !m_settings->scaleAddress().isEmpty()) return;
+    if (isBasicProfile && m_targetWeight > 0) return;
 
     double target = m_targetVolume;
     if (target <= 0) return;
