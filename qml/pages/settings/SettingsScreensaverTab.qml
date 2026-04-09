@@ -272,18 +272,20 @@ Item {
         anchors.fill: parent
         spacing: Theme.scaled(15)
 
-        // Column 1: Auto-Wake Timer (always visible)
+        // Column 1: Auto-Wake + Screen Timing (always visible)
         Item {
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillWidth: false
             Layout.fillHeight: true
 
-            // Auto-Wake Timer card (compact, anchored to top)
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Theme.scaled(10)
+
+            // Auto-Wake Timer card
             Rectangle {
                 objectName: "autoWake"
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
+                Layout.fillWidth: true
                 height: autoWakeContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
@@ -469,6 +471,120 @@ Item {
                         }
                     }
                 }
+
+            // Screen Timing card (Dim + Sleep)
+            Rectangle {
+                Layout.fillWidth: true
+                height: timingContent.implicitHeight + Theme.scaled(24)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: timingContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(10)
+
+                    Text {
+                        text: TranslationManager.translate("settings.screensaver.screen", "Screen")
+                        color: Theme.textColor
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    // Dim after
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+                        visible: ScreensaverManager.screensaverType !== "disabled"
+
+                        Tr {
+                            key: "settings.screensaver.dimAfter"
+                            fallback: "Dim after"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            value: ScreensaverManager.dimDelayMinutes
+                            suffix: " min"
+                            from: 0
+                            to: 45
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : ""
+                            accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
+                            onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
+                        }
+                    }
+
+                    // Dim amount
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+                        visible: ScreensaverManager.screensaverType !== "disabled"
+
+                        Tr {
+                            key: "settings.screensaver.dimAmount"
+                            fallback: "Dim amount"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            value: ScreensaverManager.dimPercent
+                            suffix: "%"
+                            from: 0
+                            to: 100
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
+                            accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
+                            onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
+                        }
+                    }
+
+                    // Sleep after
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        Tr {
+                            key: "settings.screensaver.sleepAfter"
+                            fallback: "Sleep after"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            value: screensaverTab.autoSleepMinutes
+                            from: 0
+                            to: 240
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
+                                                       (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
+                            accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
+                            onValueModified: function(newValue) {
+                                screensaverTab.autoSleepMinutes = newValue
+                                Settings.setValue("autoSleepMinutes", newValue)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item { Layout.fillHeight: true }
+            } // ColumnLayout
         }
 
         // Column 2: Video Category (videos mode only, full height)
@@ -1055,91 +1171,6 @@ Item {
                             checked: ScreensaverManager.showDateOnPersonal
                             accessibleName: TranslationManager.translate("settings.screensaver.showDate", "Show Date")
                             onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                // Screen timing: dim + sleep (all on one row)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-
-                    // Dim after (non-disabled modes only)
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-                        visible: ScreensaverManager.screensaverType !== "disabled"
-
-                        Tr {
-                            key: "settings.screensaver.dimAfter"
-                            fallback: "Dim after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            value: ScreensaverManager.dimDelayMinutes
-                            suffix: " min"
-                            from: 0
-                            to: 45
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : ""
-                            accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
-                            onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
-                        }
-                    }
-
-                    // Dim amount (non-disabled modes only)
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-                        visible: ScreensaverManager.screensaverType !== "disabled"
-
-                        Tr {
-                            key: "settings.screensaver.dimAmount"
-                            fallback: "Dim amount"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            value: ScreensaverManager.dimPercent
-                            suffix: "%"
-                            from: 0
-                            to: 100
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
-                            accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
-                            onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
-                        }
-                    }
-
-                    // Sleep after (always visible — applies regardless of screensaver type)
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.sleepAfter"
-                            fallback: "Sleep after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            value: screensaverTab.autoSleepMinutes
-                            from: 0
-                            to: 240
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
-                                                       (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
-                            accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
-                            onValueModified: function(newValue) {
-                                screensaverTab.autoSleepMinutes = newValue
-                                Settings.setValue("autoSleepMinutes", newValue)
-                            }
                         }
                     }
 
