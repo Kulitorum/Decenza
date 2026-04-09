@@ -272,24 +272,21 @@ Item {
         anchors.fill: parent
         spacing: Theme.scaled(15)
 
-        // Left column: Auto-Wake Timer + Category selector (videos mode only)
-        // Use Item wrapper (not ColumnLayout) so Layout.preferredWidth is respected
+        // Column 1: Auto-Wake Timer (always visible)
         Item {
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillWidth: false
             Layout.fillHeight: true
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: Theme.scaled(15)
-
-                // Auto-Wake Timer card (compact)
-                Rectangle {
-                    objectName: "autoWake"
-                    Layout.fillWidth: true
-                    implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(24)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
+            // Auto-Wake Timer card (compact, anchored to top)
+            Rectangle {
+                objectName: "autoWake"
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: autoWakeContent.implicitHeight + Theme.scaled(24)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
 
                     ColumnLayout {
                         id: autoWakeContent
@@ -472,120 +469,114 @@ Item {
                         }
                     }
                 }
+            }
+        }
 
-                // Category selector (videos mode only, fills remaining height)
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-                    visible: ScreensaverManager.screensaverType === "videos"
+        // Column 2: Video Category (videos mode only, full height)
+        Item {
+            Layout.preferredWidth: Theme.scaled(220)
+            Layout.fillWidth: false
+            Layout.fillHeight: true
+            visible: ScreensaverManager.screensaverType === "videos"
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
 
-                        Tr {
-                            key: "settings.screensaver.videoCategory"
-                            fallback: "Video Category"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.screensaver.videoCategory"
+                        fallback: "Video Category"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    // Category list
+                    // Use local model copy to avoid delegate crash during rapid updates
+                    ListView {
+                        id: categoryList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: categoryModelCopy
+                        spacing: Theme.scaled(2)
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                        property var categoryModelCopy: []
+
+                        Timer {
+                            id: categoryUpdateTimer
+                            interval: 50
+                            onTriggered: categoryList.categoryModelCopy = ScreensaverManager.categories
+                        }
+
+                        Connections {
+                            target: ScreensaverManager
+                            function onCategoriesChanged() {
+                                categoryUpdateTimer.restart()
+                            }
+                        }
+
+                        Component.onCompleted: {
+                            categoryModelCopy = ScreensaverManager.categories
+                        }
+
+                        delegate: ItemDelegate {
+                            width: ListView.view ? ListView.view.width : 0
+                            height: Theme.scaled(36)
+                            highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
+
+                            background: Rectangle {
+                                color: parent.highlighted ? Theme.primaryColor :
+                                       parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
+                                radius: Theme.scaled(6)
+                            }
+
+                            contentItem: Text {
+                                text: modelData ? modelData.name : ""
+                                color: parent.highlighted ? "white" : Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: parent.highlighted
+                                verticalAlignment: Text.AlignVCenter
+                                leftPadding: Theme.scaled(10)
+                            }
+
+                            onClicked: {
+                                if (modelData) {
+                                    ScreensaverManager.selectedCategoryId = modelData.id
+                                }
+                            }
                         }
 
                         Tr {
-                            Layout.fillWidth: true
-                            key: "settings.screensaver.videoCategoryDesc"
-                            fallback: "Choose a theme for screensaver videos"
+                            anchors.centerIn: parent
+                            key: "settings.screensaver.loading"
+                            fallback: "Loading..."
+                            visible: parent.count === 0 && ScreensaverManager.isFetchingCategories
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
                         }
 
-                        Item { height: 10 }
-
-                        // Category list
-                        // Use local model copy to avoid delegate crash during rapid updates
-                        ListView {
-                            id: categoryList
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
-                            model: categoryModelCopy
-                            spacing: Theme.scaled(2)
-                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                            property var categoryModelCopy: []
-
-                            Timer {
-                                id: categoryUpdateTimer
-                                interval: 50
-                                onTriggered: categoryList.categoryModelCopy = ScreensaverManager.categories
-                            }
-
-                            Connections {
-                                target: ScreensaverManager
-                                function onCategoriesChanged() {
-                                    categoryUpdateTimer.restart()
-                                }
-                            }
-
-                            Component.onCompleted: {
-                                categoryModelCopy = ScreensaverManager.categories
-                            }
-
-                            delegate: ItemDelegate {
-                                width: ListView.view ? ListView.view.width : 0
-                                height: Theme.scaled(36)
-                                highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
-
-                                background: Rectangle {
-                                    color: parent.highlighted ? Theme.primaryColor :
-                                           parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
-                                    radius: Theme.scaled(6)
-                                }
-
-                                contentItem: Text {
-                                    text: modelData ? modelData.name : ""
-                                    color: parent.highlighted ? "white" : Theme.textColor
-                                    font.pixelSize: Theme.scaled(14)
-                                    font.bold: parent.highlighted
-                                    verticalAlignment: Text.AlignVCenter
-                                    leftPadding: Theme.scaled(10)
-                                }
-
-                                onClicked: {
-                                    if (modelData) {
-                                        ScreensaverManager.selectedCategoryId = modelData.id
-                                    }
-                                }
-                            }
-
-                            Tr {
-                                anchors.centerIn: parent
-                                key: "settings.screensaver.loading"
-                                fallback: "Loading..."
-                                visible: parent.count === 0 && ScreensaverManager.isFetchingCategories
-                                color: Theme.textSecondaryColor
-                            }
-
-                            Tr {
-                                anchors.centerIn: parent
-                                key: "settings.screensaver.noCategories"
-                                fallback: "No categories"
-                                visible: parent.count === 0 && !ScreensaverManager.isFetchingCategories
-                                color: Theme.textSecondaryColor
-                            }
+                        Tr {
+                            anchors.centerIn: parent
+                            key: "settings.screensaver.noCategories"
+                            fallback: "No categories"
+                            visible: parent.count === 0 && !ScreensaverManager.isFetchingCategories
+                            color: Theme.textSecondaryColor
                         }
+                    }
 
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
-                            accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
-                            Layout.fillWidth: true
-                            enabled: !ScreensaverManager.isFetchingCategories
-                            onClicked: ScreensaverManager.refreshCategories()
-                        }
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
+                        accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
+                        Layout.fillWidth: true
+                        enabled: !ScreensaverManager.isFetchingCategories
+                        onClicked: ScreensaverManager.refreshCategories()
                     }
                 }
             }
