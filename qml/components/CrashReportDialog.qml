@@ -40,7 +40,7 @@ Dialog {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
         border.width: 1
-        border.color: "white"
+        border.color: Theme.primaryContrastColor
     }
 
     contentItem: ColumnLayout {
@@ -75,7 +75,7 @@ Dialog {
                             text: "!"
                             font.pixelSize: Theme.scaled(20)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                         }
                     }
 
@@ -275,7 +275,7 @@ Dialog {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -399,7 +399,7 @@ Dialog {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -436,7 +436,7 @@ Dialog {
                             text: "X"
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                         }
                     }
 
@@ -520,7 +520,7 @@ Dialog {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }

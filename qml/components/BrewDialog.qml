@@ -903,7 +903,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

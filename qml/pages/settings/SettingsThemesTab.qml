@@ -345,7 +345,7 @@ KeyboardAwareContainer {
                                     width: presetRow.width + (modelData.isBuiltIn ? 0 : deleteBtn.width + 4)
                                     color: modelData.primaryColor
                                     radius: Theme.buttonRadius
-                                    border.color: Settings.activeThemeName === modelData.name ? "white" : "transparent"
+                                    border.color: Settings.activeThemeName === modelData.name ? Theme.primaryContrastColor : "transparent"
                                     border.width: 2
 
                                     Row {
@@ -357,7 +357,7 @@ KeyboardAwareContainer {
 
                                         Text {
                                             text: modelData.name
-                                            color: "white"
+                                            color: Theme.primaryContrastColor
                                             font: Theme.labelFont
                                             anchors.verticalCenter: parent.verticalCenter
 
@@ -388,7 +388,7 @@ KeyboardAwareContainer {
 
                                         Text {
                                             text: "x"
-                                            color: "white"
+                                            color: Theme.primaryContrastColor
                                             font.pixelSize: Theme.scaled(12)
                                             font.bold: true
                                             anchors.centerIn: parent
@@ -466,7 +466,7 @@ KeyboardAwareContainer {
                             }
                             contentItem: Text {
                                 text: randomThemeBtn.text
-                                color: "white"
+                                color: Theme.primaryContrastColor
                                 font.pixelSize: Theme.bodyFont.pixelSize
                                 font.bold: true
                                 horizontalAlignment: Text.AlignHCenter

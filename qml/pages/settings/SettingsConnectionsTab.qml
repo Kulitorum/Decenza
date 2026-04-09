@@ -22,7 +22,7 @@ Item {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
             border.width: 1
         }
 
@@ -173,7 +173,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("settings.bluetooth.shareNow", "Share Log File")
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         font.pixelSize: Theme.scaled(13)
                         font.bold: true
                         Accessible.ignored: true

@@ -214,7 +214,7 @@ Item {
                         id: nonFavText
                         anchors.centerIn: parent
                         text: ProfileManager.currentProfileName || ""
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
                         Accessible.ignored: true

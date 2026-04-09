@@ -142,7 +142,7 @@ Page {
                             font.pixelSize: Theme.scaled(22)
                             font.bold: true
                             font.family: Theme.bodyFont.family
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                             Accessible.ignored: true
@@ -673,7 +673,7 @@ Page {
                         Text {
                             Layout.fillWidth: true
                             text: ProfileManager.currentProfileName || "Loaded Profile"
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.bodyFont.pixelSize
                             font.bold: true
@@ -688,7 +688,7 @@ Page {
                             icon.source: "qrc:/icons/edit.svg"
                             icon.width: Theme.scaled(18)
                             icon.height: Theme.scaled(18)
-                            icon.color: "white"
+                            icon.color: Theme.primaryContrastColor
                             accessibleName: TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
 
                             onClicked: {

@@ -265,7 +265,7 @@ Page {
                 contentItem: Tr {
                     key: "dialingassistant.button.done"
                     fallback: "Done"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -297,7 +297,7 @@ Page {
             anchors.centerIn: parent
             key: "dialingassistant.toast.copied"
             fallback: "Copied to clipboard"
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
 

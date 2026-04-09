@@ -37,7 +37,7 @@ Dialog {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
         border.width: 1
-        border.color: "white"
+        border.color: Theme.primaryContrastColor
     }
 
     contentItem: ColumnLayout {
@@ -109,7 +109,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -187,7 +187,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

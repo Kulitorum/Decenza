@@ -177,7 +177,7 @@ Page {
                             anchors.centerIn: parent
                             text: TranslationManager.translate("stringBrowser.clearAiButton", "Clear AI")
                             font: Theme.bodyFont
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -208,7 +208,7 @@ Page {
                             anchors.centerIn: parent
                             text: TranslationManager.autoTranslating ? TranslationManager.translate("stringBrowser.translating", "Translating...") : TranslationManager.translate("stringBrowser.aiTranslateButton", "AI Translate")
                             font: Theme.bodyFont
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -340,7 +340,7 @@ Page {
                                 anchors.centerIn: parent
                                 text: modelData.text
                                 font: Theme.labelFont
-                                color: stringModel.filterMode === modelData.mode ? "white" : Theme.textColor
+                                color: stringModel.filterMode === modelData.mode ? Theme.primaryContrastColor : Theme.textColor
                                 Accessible.ignored: true
                             }
 
@@ -707,7 +707,7 @@ Page {
                                 text: "AI"
                                 font.pixelSize: Theme.scaled(8)
                                 font.bold: true
-                                color: "white"
+                                color: Theme.primaryContrastColor
                             }
                         }
 
@@ -826,7 +826,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
 
             Column {
                 id: progressContent
@@ -896,7 +896,7 @@ Page {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("common.button.cancel", "Cancel")
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         Accessible.ignored: true
                     }
 
@@ -994,7 +994,7 @@ Page {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("stringBrowser.goToAiSettings", "Go to AI Settings")
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         Accessible.ignored: true
                     }
 
@@ -1066,7 +1066,7 @@ Page {
                     anchors.centerIn: parent
                     text: TranslationManager.translate("common.button.ok", "OK")
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     Accessible.ignored: true
                 }
 
@@ -1163,7 +1163,7 @@ Page {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("stringBrowser.clearAllButton", "Clear All")
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         Accessible.ignored: true
                     }
 

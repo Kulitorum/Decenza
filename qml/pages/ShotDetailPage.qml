@@ -355,7 +355,7 @@ Page {
                         layer.smooth: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: shotDetailPage.advancedMode ? "white" : Theme.textColor
+                            colorizationColor: shotDetailPage.advancedMode ? Theme.primaryContrastColor : Theme.textColor
                         }
                     }
 
@@ -1306,7 +1306,7 @@ Page {
                     fallback: shotData.visualizerId
                               ? "Re-Upload"
                               : "Upload"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
@@ -1369,7 +1369,7 @@ Page {
                 Tr {
                     key: "shotdetail.aiadvice"
                     fallback: "AI Advice"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
@@ -1416,7 +1416,7 @@ Page {
                 Tr {
                     key: "shotdetail.discuss"
                     fallback: "Discuss"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true

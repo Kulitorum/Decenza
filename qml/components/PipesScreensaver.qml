@@ -41,7 +41,7 @@ Item {
 
     // Tip sphere position (animated separately)
     property vector3d tipPosition: Qt.vector3d(0, 0, 0)
-    property color tipColor: "white"
+    property color tipColor: Theme.primaryContrastColor
     property bool showTip: false
 
     Component.onCompleted: {
@@ -421,7 +421,7 @@ Item {
                 eulerRotation.y: 10
                 brightness: 1.0
                 ambientColor: Qt.rgba(0.3, 0.3, 0.3, 1.0)
-                color: "white"
+                color: Theme.primaryContrastColor
             }
         }
 
@@ -439,7 +439,7 @@ Item {
                     id: cylinderInstanceList
                 }
                 materials: DefaultMaterial {
-                    diffuseColor: "white"
+                    diffuseColor: Theme.primaryContrastColor
                     specularAmount: 0.3
                     specularRoughness: 0.5
                 }
@@ -455,7 +455,7 @@ Item {
                     id: sphereInstanceList
                 }
                 materials: DefaultMaterial {
-                    diffuseColor: "white"
+                    diffuseColor: Theme.primaryContrastColor
                     specularAmount: 0.4
                     specularRoughness: 0.4
                 }

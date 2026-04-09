@@ -86,7 +86,7 @@ Dialog {
                     text: TranslationManager.translate("profilepreview.moreInfo", "More Info")
                     font.pixelSize: Theme.scaled(13)
                     font.bold: true
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     Accessible.ignored: true
                 }
 

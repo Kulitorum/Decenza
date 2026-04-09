@@ -239,7 +239,7 @@ Page {
                         text: TranslationManager.untranslatedCount > 99 ? "99+" : TranslationManager.untranslatedCount
                         font.pixelSize: Theme.scaled(10)
                         font.bold: true
-                        color: "white"
+                        color: Theme.primaryContrastColor
                     }
                 }
             }

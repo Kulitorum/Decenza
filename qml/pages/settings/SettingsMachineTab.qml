@@ -153,7 +153,7 @@ KeyboardAwareContainer {
                                         Text {
                                             text: modelData.label
                                             color: BatteryManager.chargingMode === modelData.value ?
-                                                   "white" : Theme.textColor
+                                                   Theme.primaryContrastColor : Theme.textColor
                                             font.pixelSize: Theme.scaled(14)
                                             font.bold: true
                                             Layout.alignment: Qt.AlignHCenter
@@ -1096,7 +1096,7 @@ KeyboardAwareContainer {
                                         Text {
                                             text: modelData.label
                                             color: Settings.refillKitOverride === modelData.value ?
-                                                   "white" : Theme.textColor
+                                                   Theme.primaryContrastColor : Theme.textColor
                                             font.pixelSize: Theme.scaled(14)
                                             font.bold: true
                                             Layout.alignment: Qt.AlignHCenter
@@ -1435,7 +1435,7 @@ KeyboardAwareContainer {
         height: Theme.scaled(28)
         radius: Theme.scaled(14)
         color: Theme.primaryColor
-        border.color: "white"
+        border.color: Theme.primaryContrastColor
         border.width: 2
         opacity: 0.9
         visible: contentFlickable.contentHeight > contentFlickable.height &&
@@ -1449,7 +1449,7 @@ KeyboardAwareContainer {
         Text {
             anchors.centerIn: parent
             text: "\u2193"
-            color: "white"
+            color: Theme.primaryContrastColor
             font.pixelSize: Theme.scaled(16)
             font.bold: true
             Accessible.ignored: true

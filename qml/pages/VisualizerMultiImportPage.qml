@@ -429,7 +429,7 @@ Page {
                                             Text {
                                                 anchors.centerIn: parent
                                                 text: "✕"
-                                                color: "white"
+                                                color: Theme.primaryContrastColor
                                                 font.pixelSize: Theme.scaled(14)
                                                 font.bold: true
                                             }
@@ -515,7 +515,7 @@ Page {
                                         Text {
                                             anchors.centerIn: parent
                                             text: sourceLetter(modelData.source)
-                                            color: "white"
+                                            color: Theme.primaryContrastColor
                                             font.pixelSize: Theme.scaled(12)
                                             font.bold: true
                                         }
@@ -710,7 +710,7 @@ Page {
                                     Text {
                                         anchors.centerIn: parent
                                         text: "D"
-                                        color: "white"
+                                        color: Theme.primaryContrastColor
                                         font.pixelSize: Theme.scaled(12)
                                         font.bold: true
                                     }
@@ -733,7 +733,7 @@ Page {
                                     Text {
                                         anchors.centerIn: parent
                                         text: "V"
-                                        color: "white"
+                                        color: Theme.primaryContrastColor
                                         font.pixelSize: Theme.scaled(12)
                                         font.bold: true
                                     }
@@ -792,7 +792,7 @@ Page {
                                     Text {
                                         anchors.centerIn: parent
                                         text: "✕"
-                                        color: "white"
+                                        color: Theme.primaryContrastColor
                                         font.pixelSize: Theme.scaled(14)
                                         font.bold: true
                                     }

@@ -92,7 +92,7 @@ Item {
                     key: "statusbar.scale_not_found"
                     fallback: "Scale not found"
                     visible: BLEManager.scaleConnectionFailed
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true

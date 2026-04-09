@@ -200,7 +200,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.report", "Report")
                             font.pixelSize: Theme.scaled(12)
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -229,7 +229,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.clear", "Clear")
                             font.pixelSize: Theme.scaled(12)
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -565,7 +565,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.send", "Send")
                             font: Theme.bodyFont
-                            color: conversationInput.text.length > 0 ? "white" : Theme.textSecondaryColor
+                            color: conversationInput.text.length > 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
                             Accessible.ignored: true
                         }
 
@@ -853,7 +853,7 @@ Rectangle {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }

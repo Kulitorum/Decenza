@@ -550,7 +550,7 @@ Page {
                            .arg(author)
                 }
             }
-            color: "white"
+            color: Theme.primaryContrastColor
             opacity: 0.7
             font.pixelSize: Theme.scaled(14)
         }
@@ -570,7 +570,7 @@ Page {
         anchors.margins: Theme.scaled(50)
         anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20)  // Above credits bar
         text: Qt.formatTime(currentTime, Settings.use12HourTime ? "h:mmap" : "HH:mm")
-        color: "white"
+        color: Theme.primaryContrastColor
         opacity: 0.8
         font.pixelSize: Theme.scaled(80)
         font.weight: Font.Light
@@ -641,7 +641,7 @@ Page {
         anchors.centerIn: parent
         key: "screensaver.touch_to_wake"
         fallback: "Touch to wake"
-        color: "white"
+        color: Theme.primaryContrastColor
         opacity: 0.5
         font.pixelSize: Theme.scaled(24)
 

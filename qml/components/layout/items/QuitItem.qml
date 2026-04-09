@@ -49,7 +49,7 @@ Item {
                 key: "idle.button.quit"
                 fallback: "Quit"
                 font: Theme.bodyFont
-                color: "white"
+                color: Theme.primaryContrastColor
                 verticalAlignment: Text.AlignVCenter
                 Accessible.ignored: true
             }

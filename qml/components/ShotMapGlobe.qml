@@ -59,7 +59,7 @@ Item {
             eulerRotation.y: 30
             brightness: 0.8
             ambientColor: Qt.rgba(0.4, 0.4, 0.4, 1.0)
-            color: "white"
+            color: Theme.primaryContrastColor
         }
 
         DirectionalLight {
