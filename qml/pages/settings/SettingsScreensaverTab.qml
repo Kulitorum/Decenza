@@ -495,6 +495,36 @@ Item {
                         font.bold: true
                     }
 
+                    // Sleep after
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        Tr {
+                            key: "settings.screensaver.sleepAfter"
+                            fallback: "Sleep after"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            value: screensaverTab.autoSleepMinutes
+                            from: 0
+                            to: 240
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
+                                                       (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
+                            accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
+                            onValueModified: function(newValue) {
+                                screensaverTab.autoSleepMinutes = newValue
+                                Settings.setValue("autoSleepMinutes", newValue)
+                            }
+                        }
+                    }
+
                     // Dim after
                     RowLayout {
                         Layout.fillWidth: true
@@ -548,36 +578,6 @@ Item {
                             displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
                             accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
                             onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
-                        }
-                    }
-
-                    // Sleep after
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.sleepAfter"
-                            fallback: "Sleep after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ValueInput {
-                            value: screensaverTab.autoSleepMinutes
-                            from: 0
-                            to: 240
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
-                                                       (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
-                            accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
-                            onValueModified: function(newValue) {
-                                screensaverTab.autoSleepMinutes = newValue
-                                Settings.setValue("autoSleepMinutes", newValue)
-                            }
                         }
                     }
                 }
