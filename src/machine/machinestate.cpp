@@ -689,14 +689,14 @@ void MachineState::checkStopAtVolume() {
     if (m_settings && m_settings->ignoreVolumeWithScale()
         && !m_settings->scaleAddress().isEmpty()) return;
 
-    // Skip SAV for basic profiles when a scale is active (physical BLE or simulated/flow).
-    // The volume value in settings_2a/2b profiles (e.g. 36ml in Default) is invisible to
-    // users — the Insight skin has no volume editor — and fires far too early (~15g in cup
-    // when 36ml is pumped). De1app skips when a physical BLE scale is configured; we extend
-    // that to include the flow/simulated scale so simulator sessions behave the same way.
+    // Skip SAV for basic profiles when a scale is configured (physical BLE connected, or
+    // flow/simulated scale enabled). The volume value in settings_2a/2b profiles (e.g. 36ml
+    // in Default) is invisible to users — the Insight skin has no volume editor — and fires
+    // far too early (~15g in cup when 36ml is pumped). Matches de1app's skip_sav_check logic.
     bool isBasicProfile = (m_profileType == QLatin1String("settings_2a")
                         || m_profileType == QLatin1String("settings_2b"));
-    bool scaleActive = m_scale && (m_scale->isConnected() || m_scale->isFlowScale());
+    bool scaleActive = (m_scale && m_scale->isConnected() && !m_scale->isFlowScale())
+                    || (m_settings && m_settings->useFlowScale());
     if (isBasicProfile && scaleActive) return;
 
     double target = m_targetVolume;
@@ -724,11 +724,13 @@ void MachineState::checkStopAtVolumeHotWater() {
     if (!m_tareCompleted) return;  // Don't check until tare has happened
 
     // Hot water SAV logic (based on de1app but improved):
-    // - Scale configured: safety net above the user's target so SAW stops first.
-    //   Uses max(waterVolume + 50, 250) to handle large volumes (de1app hardcodes 250).
+    // - Scale active (physical BLE connected, or flow scale enabled): safety net above the
+    //   user's target so SAW stops first. Uses max(waterVolume + 50, 250) to handle large
+    //   volumes (de1app hardcodes 250).
     // - No scale: target = waterVolume setting (app-side volume stop is primary)
     double target;
-    bool scaleActive = m_scale && (m_scale->isConnected() || m_scale->isFlowScale());
+    bool scaleActive = (m_scale && m_scale->isConnected() && !m_scale->isFlowScale())
+                    || (m_settings && m_settings->useFlowScale());
     if (scaleActive) {
         target = qMax(static_cast<double>(m_settings->waterVolume()) + 50.0, 250.0);
     } else {
