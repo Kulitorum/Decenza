@@ -510,6 +510,7 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         ValueInput {
+                            Layout.preferredWidth: Theme.scaled(120)
                             value: screensaverTab.autoSleepMinutes
                             from: 0
                             to: 240
@@ -541,6 +542,7 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         ValueInput {
+                            Layout.preferredWidth: Theme.scaled(120)
                             value: ScreensaverManager.dimDelayMinutes
                             suffix: " min"
                             from: 0
@@ -569,6 +571,7 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         ValueInput {
+                            Layout.preferredWidth: Theme.scaled(120)
                             value: ScreensaverManager.dimPercent
                             suffix: "%"
                             from: 0
