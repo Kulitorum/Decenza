@@ -325,6 +325,10 @@ public:
     // Async: runs import on background thread, emits importDatabaseFinished()
     Q_INVOKABLE void requestImportDatabase(const QString& filePath, bool merge);
 
+    // Async: recomputes all quality badge flags for a shot and updates the DB if changed.
+    // Emits shotBadgesUpdated() with the (possibly unchanged) flag values.
+    Q_INVOKABLE void requestReanalyzeBadges(qint64 shotId);
+
     // Import a shot record directly (for .shot file import)
     // Returns: shot ID on success, 0 if duplicate (skipped), -1 on error
     // If overwriteExisting is true, duplicates will be replaced instead of skipped
@@ -381,6 +385,7 @@ signals:
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
     void grinderFieldsUpdated(int updatedCount);
+    void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool temperatureUnstable, bool grindIssueDetected);
 
 private:
     bool createTables();

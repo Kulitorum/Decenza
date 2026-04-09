@@ -63,6 +63,8 @@ Page {
                 if (wasNavigating)
                     enterAnimation.start()
             })
+            // Recompute quality badges in background (handles stale values after KB updates)
+            MainController.shotHistory.requestReanalyzeBadges(id)
         }
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
@@ -74,6 +76,14 @@ Page {
                 loadShot()
             else
                 console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
+        }
+        function onShotBadgesUpdated(id, channeling, tempUnstable, grindIssue) {
+            if (id !== shotDetailPage.shotId) return
+            var updated = Object.assign({}, shotData)
+            updated.channelingDetected = channeling
+            updated.temperatureUnstable = tempUnstable
+            updated.grindIssueDetected = grindIssue
+            shotData = updated
         }
     }
 

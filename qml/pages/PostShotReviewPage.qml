@@ -127,7 +127,17 @@ Page {
                 editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
+                // Recompute quality badges in background (handles stale values after KB updates)
+                MainController.shotHistory.requestReanalyzeBadges(shotId)
             }
+        }
+        function onShotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            var updated = Object.assign({}, editShotData)
+            updated.channelingDetected = channeling
+            updated.temperatureUnstable = tempUnstable
+            updated.grindIssueDetected = grindIssue
+            editShotData = updated
         }
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return

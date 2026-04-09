@@ -1647,6 +1647,94 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
     thread->start();
 }
 
+void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
+{
+    if (!m_ready) return;
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
+        bool newChanneling = false, newTempUnstable = false, newGrindIssue = false;
+
+        withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
+            ShotRecord record = loadShotRecordStatic(db, shotId);
+            if (record.summary.id == 0) return;
+
+            // Find pour boundaries
+            double pourStart = 0, pourEnd = record.pressure.isEmpty() ? 0 : record.pressure.last().x();
+            for (const auto& pm : record.phases) {
+                if (pm.label.toLower().contains("pour")) pourStart = pm.time;
+                if (pm.label == "End") pourEnd = pm.time;
+            }
+            if (pourStart == 0) {
+                for (const auto& pm : record.phases) {
+                    if (pm.label.toLower().contains("infus") || pm.label == "Start") {
+                        pourStart = pm.time;
+                        break;
+                    }
+                }
+            }
+
+            // Channeling
+            if (!ShotAnalysis::shouldSkipChannelingCheck(
+                    record.summary.beverageType, record.flow, pourStart, pourEnd)
+                && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
+                        .contains(QStringLiteral("channeling_expected"))) {
+                auto severity = ShotAnalysis::detectChannelingFromDerivative(
+                    record.conductanceDerivative, pourStart, pourEnd);
+                newChanneling = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
+            }
+
+            // Temperature stability
+            if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10) {
+                if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
+                    double avgDev = ShotAnalysis::avgTempDeviation(
+                        record.temperature, record.temperatureGoal, pourStart, pourEnd);
+                    newTempUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
+                }
+            }
+
+            // Grind issue
+            if (!record.flowGoal.isEmpty()
+                && !ShotAnalysis::shouldSkipChannelingCheck(
+                        record.summary.beverageType, record.flow, pourStart, pourEnd)
+                && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
+                        .contains(QStringLiteral("grind_check_skip"))) {
+                newGrindIssue = ShotAnalysis::detectGrindIssue(
+                    record.flow, record.flowGoal, pourStart, pourEnd);
+            }
+
+            // Update DB only if any flag changed
+            if (newChanneling != record.channelingDetected
+                || newTempUnstable != record.temperatureUnstable
+                || newGrindIssue != record.grindIssueDetected) {
+                QSqlQuery q(db);
+                q.prepare("UPDATE shots SET channeling_detected=:c,"
+                          " temperature_unstable=:t, grind_issue_detected=:g WHERE id=:id");
+                q.bindValue(":c", newChanneling ? 1 : 0);
+                q.bindValue(":t", newTempUnstable ? 1 : 0);
+                q.bindValue(":g", newGrindIssue ? 1 : 0);
+                q.bindValue(":id", shotId);
+                if (!q.exec())
+                    qWarning() << "ShotHistoryStorage: badge update failed for shot"
+                               << shotId << q.lastError();
+            }
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(
+            this,
+            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, destroyed]() {
+                if (*destroyed) return;
+                emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue);
+            },
+            Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit)
 {
     if (!m_ready || kbId.isEmpty()) {
