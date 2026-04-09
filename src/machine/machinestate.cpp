@@ -728,7 +728,8 @@ void MachineState::checkStopAtVolumeHotWater() {
     //   Uses max(waterVolume + 50, 250) to handle large volumes (de1app hardcodes 250).
     // - No scale: target = waterVolume setting (app-side volume stop is primary)
     double target;
-    if (!m_settings->scaleAddress().isEmpty()) {
+    bool scaleActive = m_scale && (m_scale->isConnected() || m_scale->isFlowScale());
+    if (scaleActive) {
         target = qMax(static_cast<double>(m_settings->waterVolume()) + 50.0, 250.0);
     } else {
         target = m_settings->waterVolume();
@@ -741,7 +742,7 @@ void MachineState::checkStopAtVolumeHotWater() {
 
         qDebug() << "MachineState: Hot water volume stop -" << m_pourVolume
                  << "ml /" << target << "ml"
-                 << (m_settings->scaleAddress().isEmpty() ? "(no scale)" : "(safety net)");
+                 << (scaleActive ? "(safety net)" : "(no scale)");
 
         if (m_device) {
             m_device->stopOperation();
