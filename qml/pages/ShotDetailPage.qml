@@ -18,7 +18,8 @@ Page {
     // Persisted graph height (like PostShotReviewPage)
     property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
-    property int swipeDirection: 0  // 1 = going older, -1 = going newer
+    property int swipeDirection: 0  // 1 = going older, -1 = going newer; swipeDirection: 1 exits left, enters from right; -1 exits right, enters from left
+    property bool m_navigating: false  // true only during a navigateToShot transition; guards enterAnimation from firing on non-navigation loads
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Post-Shot Review, Shot Comparison, Espresso view selector).
@@ -53,9 +54,14 @@ Page {
         function onShotReady(id, shot) {
             if (id !== shotDetailPage.shotId) return
             shotData = shot
+            var wasNavigating = shotDetailPage.m_navigating
+            shotDetailPage.m_navigating = false
+            // Defer both calls until after layout has updated: returnToBounds() needs
+            // final content bounds, and enterAnimation must start after new content is laid out.
             Qt.callLater(function() {
                 scrollView.contentItem.returnToBounds()
-                enterAnimation.start()
+                if (wasNavigating)
+                    enterAnimation.start()
             })
         }
         function onShotDeleted(deletedId) {
@@ -73,6 +79,7 @@ Page {
 
     function navigateToShot(index) {
         if (index >= 0 && index < shotIds.length) {
+            enterAnimation.stop()
             exitAnimation.stop()
             swipeDirection = index > currentIndex ? 1 : -1
             exitAnimation.targetIndex = index
@@ -144,6 +151,7 @@ Page {
                 currentIndex = exitAnimation.targetIndex
                 shotId = shotIds[currentIndex]
                 contentSlide.x = shotDetailPage.swipeDirection * Theme.scaled(50)
+                shotDetailPage.m_navigating = true
                 loadShot()
             }
         }
@@ -193,7 +201,7 @@ Page {
                         Text {
                             textFormat: Text.RichText
                             text: {
-                                var name = shotData.profileName || "Shot Detail"
+                                var name = shotData.profileName || TranslationManager.translate("shotdetail.title", "Shot Detail")
                                 var t = shotData.temperatureOverride
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
@@ -220,6 +228,7 @@ Page {
                         QualityBadges {
                             visible: !!(shotData.profileKbId)
                             Layout.fillWidth: false
+                            Layout.maximumWidth: shotDetailPage.width * 0.5
                             channelingDetected: shotData.channelingDetected ?? false
                             temperatureUnstable: shotData.temperatureUnstable ?? false
                             grindIssueDetected: shotData.grindIssueDetected ?? false
@@ -229,6 +238,40 @@ Page {
                         ShotAnalysisDialog {
                             id: detailAnalysisDialog
                             shotData: shotDetailPage.shotData
+                        }
+                    }
+                }
+
+                // KB sparkle button — opens the profile knowledge base
+                Image {
+                    id: headerSparkle
+                    visible: !!(shotData.profileKbId)
+                    source: "qrc:/icons/sparkle.svg"
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    Layout.alignment: Qt.AlignVCenter
+                    opacity: headerSparkleArea.containsMouse ? 1.0 : 0.6
+                    Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
+
+                    AccessibleMouseArea {
+                        id: headerSparkleArea
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(-8)
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
+                        accessibleItem: headerSparkle
+                        onAccessibleClicked: {
+                            shotKnowledgeDialog.profileTitle = shotData.profileName || ""
+                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(shotData.profileName)
+                            shotKnowledgeDialog.open()
                         }
                     }
                 }
@@ -250,6 +293,7 @@ Page {
                         source: "qrc:/icons/edit.svg"
                         sourceSize.width: Theme.scaled(18)
                         sourceSize.height: Theme.scaled(18)
+                        Accessible.ignored: true
 
                         layer.enabled: true
                         layer.smooth: true
@@ -1048,6 +1092,124 @@ Page {
         }
     }
 
+    // Profile AI knowledge base dialog
+    Dialog {
+        id: shotKnowledgeDialog
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
+        height: Math.min(shotKbContent.implicitHeight + Theme.scaled(120), parent.height - Theme.scaled(80))
+        padding: 0
+        modal: true
+
+        property string profileTitle: ""
+        property string content: ""
+
+        function formatContent(raw) {
+            var lines = raw.split('\n')
+            var parts = []
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i]
+                if (!line.trim()) continue
+                if (line.startsWith('Also matches:') || line.startsWith('AnalysisFlags:')) continue
+                var colonIdx = line.indexOf(': ')
+                if (colonIdx > 0 && colonIdx <= 35 && !line.startsWith('DO NOT') && !line.startsWith('-')) {
+                    var label = line.substring(0, colonIdx).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    var value = line.substring(colonIdx + 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    parts.push('<b>' + label + ':</b> ' + value)
+                } else if (line.startsWith('DO NOT')) {
+                    parts.push('<i>' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</i>')
+                } else {
+                    parts.push(line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                }
+            }
+            return parts.join('<br>')
+        }
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.scaled(8)
+
+                Image {
+                    source: "qrc:/icons/sparkle.svg"
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    anchors.verticalCenter: parent.verticalCenter
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.primaryColor
+                    }
+                }
+
+                Text {
+                    text: shotKnowledgeDialog.profileTitle
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
+
+        contentItem: Flickable {
+            clip: true
+            contentHeight: shotKbContent.implicitHeight + Theme.scaled(30)
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+
+            Text {
+                id: shotKbContent
+                width: parent.width - Theme.scaled(40)
+                x: Theme.scaled(20)
+                y: Theme.scaled(15)
+                text: shotKnowledgeDialog.formatContent(shotKnowledgeDialog.content)
+                textFormat: Text.RichText
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+                lineHeight: 1.5
+            }
+        }
+
+        footer: Item {
+            implicitHeight: Theme.scaled(55)
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+
+            AccessibleButton {
+                anchors.centerIn: parent
+                width: Theme.scaled(100)
+                text: TranslationManager.translate("common.button.ok", "OK")
+                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
+                onClicked: shotKnowledgeDialog.close()
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+        }
+    }
+
     ConversationOverlay {
         id: conversationOverlay
         anchors.fill: parent
@@ -1060,11 +1222,15 @@ Page {
         title: TranslationManager.translate("shotdetail.title", "Shot Detail")
         onBackClicked: root.goBack()
 
-        // Profile name + date summary (to the left of action buttons)
+        // Profile name + date in the bottom bar remain visible while the user scrolls,
+        // providing context when the header is off-screen.
         ColumnLayout {
             visible: !!(shotData.profileName)
             spacing: 0
             Layout.alignment: Qt.AlignVCenter
+            Accessible.role: Accessible.StaticText
+            Accessible.name: (shotData.profileName || "") + (shotData.dateTime ? ", " + shotData.dateTime : "")
+            Accessible.focusable: true
 
             Text {
                 text: shotData.profileName || ""

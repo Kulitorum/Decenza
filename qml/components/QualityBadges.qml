@@ -3,7 +3,8 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
-// Single-line quality status chip(s) shown below the graph legend.
+// Compact quality status chip(s) for a shot. Sized to its content (shrink-wraps).
+// Note: always shows at least one chip when visible — either a flag or "Clean extraction".
 // Shows the most important quality indicator: channeling (red), temp unstable (orange),
 // grind issue (orange), or clean extraction (green). Multiple flags show multiple chips.
 Item {
