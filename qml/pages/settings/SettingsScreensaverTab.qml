@@ -469,7 +469,6 @@ Item {
                         }
                     }
                 }
-            }
         }
 
         // Column 2: Video Category (videos mode only, full height)
