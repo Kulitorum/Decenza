@@ -277,9 +277,17 @@ Item {
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillWidth: false
             Layout.fillHeight: true
+            clip: true
+
+            Flickable {
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: columnContent.implicitHeight
+                clip: true
 
             ColumnLayout {
-                anchors.fill: parent
+                id: columnContent
+                width: parent.width
                 spacing: Theme.scaled(10)
 
             // Screen card (Sleep only)
@@ -620,8 +628,8 @@ Item {
                     }
                 }
 
-            Item { Layout.fillHeight: true }
             } // ColumnLayout
+            } // Flickable
         }
 
         // Column 2: Video Category (videos mode only, full height)
