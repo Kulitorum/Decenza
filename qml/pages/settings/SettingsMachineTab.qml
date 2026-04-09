@@ -283,8 +283,7 @@ KeyboardAwareContainer {
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
 
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: text
+                                Accessible.ignored: true
                             }
 
                             Item { Layout.fillWidth: true }

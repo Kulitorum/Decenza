@@ -286,7 +286,7 @@ Item {
             Rectangle {
                 objectName: "autoSleep"
                 Layout.fillWidth: true
-                height: timingContent.implicitHeight + Theme.scaled(24)
+                implicitHeight: timingContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -344,7 +344,7 @@ Item {
                 objectName: "screensaverDim"
                 Layout.fillWidth: true
                 visible: ScreensaverManager.screensaverType !== "disabled"
-                height: dimContent.implicitHeight + Theme.scaled(24)
+                implicitHeight: dimContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -381,12 +381,11 @@ Item {
                         ValueInput {
                             Layout.preferredWidth: Theme.scaled(120)
                             value: ScreensaverManager.dimDelayMinutes
-                            suffix: " min"
                             from: 0
                             to: 45
                             stepSize: 5
                             decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : ""
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : value + " " + TranslationManager.translate("settings.preferences.min", "min")
                             accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
                             onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
                         }
@@ -409,12 +408,11 @@ Item {
                         ValueInput {
                             Layout.preferredWidth: Theme.scaled(120)
                             value: ScreensaverManager.dimPercent
-                            suffix: "%"
                             from: 0
                             to: 100
                             stepSize: 5
                             decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : value + "%"
                             accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
                             onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
                         }
@@ -426,7 +424,7 @@ Item {
             Rectangle {
                 objectName: "autoWake"
                 Layout.fillWidth: true
-                height: autoWakeContent.implicitHeight + Theme.scaled(24)
+                implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
