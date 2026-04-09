@@ -64,7 +64,7 @@ Item {
         height: root.ringWidth + 8
         radius: height / 2
         color: "transparent"
-        border.color: "white"
+        border.color: Theme.primaryContrastColor
         border.width: 3
 
         // Position on the ring based on hue

@@ -121,7 +121,7 @@ Page {
                             font.pixelSize: Theme.scaled(14)
                             font.family: "monospace"
                             font.bold: true
-                            color: langMouseArea.pressed ? "white" : Theme.primaryColor
+                            color: langMouseArea.pressed ? Theme.primaryContrastColor : Theme.primaryColor
                             Layout.preferredWidth: Theme.scaled(30)
                         }
 
@@ -132,7 +132,7 @@ Page {
                             Text {
                                 text: modelData.name
                                 font: Theme.bodyFont
-                                color: langMouseArea.pressed ? "white" : Theme.textColor
+                                color: langMouseArea.pressed ? Theme.primaryContrastColor : Theme.textColor
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }

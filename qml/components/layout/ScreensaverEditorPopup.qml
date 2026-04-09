@@ -250,7 +250,7 @@ Dialog {
                             text: modelData.label
                             font: Theme.captionFont
                             color: popup.mapTexture === modelData.value
-                                ? "white"
+                                ? Theme.primaryContrastColor
                                 : Theme.textColor
                             Accessible.ignored: true
                         }
@@ -414,7 +414,7 @@ Dialog {
                     anchors.centerIn: parent
                     text: TranslationManager.translate("common.button.save", "Save")
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     Accessible.ignored: true
                 }
                 MouseArea {

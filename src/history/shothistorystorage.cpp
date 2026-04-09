@@ -1707,9 +1707,10 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             }
 
             // Update DB only if any flag changed
-            if (newChanneling != record.channelingDetected
+            bool flagsChanged = (newChanneling != record.channelingDetected
                 || newTempUnstable != record.temperatureUnstable
-                || newGrindIssue != record.grindIssueDetected) {
+                || newGrindIssue != record.grindIssueDetected);
+            if (flagsChanged) {
                 QSqlQuery q(db);
                 q.prepare("UPDATE shots SET channeling_detected=:c,"
                           " temperature_unstable=:t, grind_issue_detected=:g WHERE id=:id");
@@ -1726,8 +1727,9 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
         if (!recordFound || *destroyed) return;
         QMetaObject::invokeMethod(
             this,
-            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, destroyed]() {
+            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, flagsChanged, destroyed]() {
                 if (*destroyed) return;
+                if (!flagsChanged) return;
                 emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue);
             },
             Qt::QueuedConnection);

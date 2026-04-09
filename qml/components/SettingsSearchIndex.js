@@ -43,12 +43,12 @@ function getSearchEntries(tr) {
           description: tr("settings.search.scaleConnectionDesc", "Pair a Bluetooth scale or refractometer"),
           keywords: ["scale", "acaia", "decent", "felicita", "weight", "pair", "tds", "refractometer", "atago"] },
 
-        // Tab 1: Machine
-        { tabIndex: 1, cardId: "autoSleep",
+        // Tab 6: Screensaver (auto-sleep and auto-wake moved from Machine tab)
+        { tabIndex: 6, cardId: "autoSleep",
           title: tr("settings.preferences.autoSleep", "Auto-Sleep"),
           description: tr("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity"),
           keywords: ["sleep", "timeout", "power", "idle", "standby"] },
-        { tabIndex: 1, cardId: "autoWake",
+        { tabIndex: 6, cardId: "autoWake",
           title: tr("settings.options.autoWake", "Auto-Wake Timer"),
           description: tr("settings.search.autoWakeDesc", "Schedule automatic wake-up times"),
           keywords: ["wake", "schedule", "alarm", "morning", "timer", "power"] },

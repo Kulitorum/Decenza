@@ -773,7 +773,7 @@ Page {
                             text: TranslationManager.translate("shotHistory.button.load", "Load")
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -803,7 +803,7 @@ Page {
                             text: "E"
                             font.pixelSize: Theme.scaled(18)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -832,7 +832,7 @@ Page {
                             text: ">"
                             font.pixelSize: Theme.scaled(20)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 

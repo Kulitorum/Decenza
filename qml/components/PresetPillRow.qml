@@ -261,7 +261,7 @@ FocusScope {
                             id: pillText
                             anchors.centerIn: parent
                             text: pillDisplayName(modelData.index)
-                            color: pill.isSelected ? "white" : Theme.textColor
+                            color: pill.isSelected ? Theme.primaryContrastColor : Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                             // Decorative - accessibility handled by AccessibleTapHandler

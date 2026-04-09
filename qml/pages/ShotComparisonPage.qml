@@ -90,7 +90,7 @@ Page {
                         layer.smooth: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: shotComparisonPage.advancedMode ? "white" : Theme.textColor
+                            colorizationColor: shotComparisonPage.advancedMode ? Theme.primaryContrastColor : Theme.textColor
                         }
                     }
 
@@ -197,7 +197,7 @@ Page {
                             anchors.centerIn: parent
                             text: "\u25C0"
                             font.pixelSize: Theme.captionFont.pixelSize
-                            color: comparisonModel.canShiftLeft ? "white" : Qt.rgba(1, 1, 1, 0.4)
+                            color: comparisonModel.canShiftLeft ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
                             Accessible.ignored: true
                         }
                         MouseArea {
@@ -220,7 +220,7 @@ Page {
                                   Math.min(comparisonModel.windowStart + 3, comparisonModel.totalShots) +
                                   " / " + comparisonModel.totalShots
                             font: Theme.captionFont
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
                     }
@@ -239,7 +239,7 @@ Page {
                             anchors.centerIn: parent
                             text: "\u25B6"
                             font.pixelSize: Theme.captionFont.pixelSize
-                            color: comparisonModel.canShiftRight ? "white" : Qt.rgba(1, 1, 1, 0.4)
+                            color: comparisonModel.canShiftRight ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
                             Accessible.ignored: true
                         }
                         MouseArea {

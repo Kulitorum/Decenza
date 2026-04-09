@@ -321,7 +321,7 @@ Page {
                             text: TranslationManager.translate("autofavorites.info", "Info")
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -361,7 +361,7 @@ Page {
                             text: TranslationManager.translate("autofavorites.show", "Show")
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
@@ -408,7 +408,7 @@ Page {
                             text: TranslationManager.translate("autofavorites.load", "Load")
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 

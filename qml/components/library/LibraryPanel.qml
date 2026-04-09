@@ -94,7 +94,7 @@ Rectangle {
                 Text {
                     anchors.centerIn: parent
                     text: "\u25A3"  // Grid icon
-                    color: displayMode === 0 ? "white" : Theme.textSecondaryColor
+                    color: displayMode === 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(14)
                     Accessible.ignored: true
                 }
@@ -464,7 +464,7 @@ Rectangle {
                 Accessible.onPressAction: filterItemsMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "I"
-                    color: showItems ? "white" : Theme.textSecondaryColor
+                    color: showItems ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
@@ -485,7 +485,7 @@ Rectangle {
                 Accessible.onPressAction: filterZonesMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "Z"
-                    color: showZones ? "white" : Theme.textSecondaryColor
+                    color: showZones ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
@@ -506,7 +506,7 @@ Rectangle {
                 Accessible.onPressAction: filterLayoutsMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "L"
-                    color: showLayouts ? "white" : Theme.textSecondaryColor
+                    color: showLayouts ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
@@ -527,7 +527,7 @@ Rectangle {
                 Accessible.onPressAction: filterThemesMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "T"
-                    color: showThemes ? "white" : Theme.textSecondaryColor
+                    color: showThemes ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true

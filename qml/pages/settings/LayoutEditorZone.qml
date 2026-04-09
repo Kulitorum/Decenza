@@ -238,7 +238,7 @@ Rectangle {
                         Text {
                             visible: itemChip.isSelected && index > 0
                             text: "\u25C0"
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             font.pixelSize: Theme.scaled(24)
 
                             Accessible.role: Accessible.Button
@@ -258,7 +258,7 @@ Rectangle {
                             visible: modelData.type !== "custom"
                             text: getItemDisplayName(modelData.type)
                             color: modelData.id === root.selectedItemId
-                                ? "white"
+                                ? Theme.primaryContrastColor
                                 : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "weather") ? "orange"
                                 : ((modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
                             font: Theme.bodyFont
@@ -280,7 +280,7 @@ Rectangle {
 
                             Text {
                                 text: root.getTextChipLabel(modelData)
-                                color: modelData.id === root.selectedItemId ? "white" : "orange"
+                                color: modelData.id === root.selectedItemId ? Theme.primaryContrastColor : "orange"
                                 font: Theme.captionFont
                                 anchors.verticalCenter: parent.verticalCenter
                             }
@@ -290,7 +290,7 @@ Rectangle {
                         Text {
                             visible: itemChip.isSelected && index < root.items.length - 1
                             text: "\u25B6"
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             font.pixelSize: Theme.scaled(24)
 
                             Accessible.role: Accessible.Button

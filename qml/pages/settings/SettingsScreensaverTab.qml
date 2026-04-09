@@ -9,6 +9,7 @@ Item {
 
     // Track pending screensaver type change for dialog flow
     property string pendingScreensaverType: ""
+    property int autoSleepMinutes: Settings.value("autoSleepMinutes", 60)
 
     // Dialog to offer clearing video cache when switching away from videos
     Dialog {
@@ -271,119 +272,437 @@ Item {
         anchors.fill: parent
         spacing: Theme.scaled(15)
 
-        // Category selector (videos mode only)
-        Rectangle {
-            Layout.preferredWidth: Theme.scaled(250)
+        // Column 1: Auto-Wake + Screen Timing (always visible)
+        Item {
+            Layout.preferredWidth: Theme.scaled(280)
+            Layout.fillWidth: false
             Layout.fillHeight: true
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            visible: ScreensaverManager.screensaverType === "videos"
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
-                Tr {
-                    key: "settings.screensaver.videoCategory"
-                    fallback: "Video Category"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
+            // Auto-Wake Timer card
+            Rectangle {
+                objectName: "autoWake"
+                Layout.fillWidth: true
+                height: autoWakeContent.implicitHeight + Theme.scaled(32)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
 
-                Tr {
-                    Layout.fillWidth: true
-                    key: "settings.screensaver.videoCategoryDesc"
-                    fallback: "Choose a theme for screensaver videos"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
-                }
+                    ColumnLayout {
+                        id: autoWakeContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(8)
 
-                Item { height: 10 }
+                        property int selectedDay: 0
+                        property var schedule: Settings.autoWakeSchedule
+                        property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
 
-                // Category list
-                // Use local model copy to avoid delegate crash during rapid updates
-                ListView {
-                    id: categoryList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: categoryModelCopy
-                    spacing: Theme.scaled(2)
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                    // Local copy of categories - updated via timer to avoid delegate model crash
-                    property var categoryModelCopy: []
-
-                    Timer {
-                        id: categoryUpdateTimer
-                        interval: 50
-                        onTriggered: categoryList.categoryModelCopy = ScreensaverManager.categories
-                    }
-
-                    Connections {
-                        target: ScreensaverManager
-                        function onCategoriesChanged() {
-                            categoryUpdateTimer.restart()
-                        }
-                    }
-
-                    Component.onCompleted: {
-                        categoryModelCopy = ScreensaverManager.categories
-                    }
-
-                    delegate: ItemDelegate {
-                        width: ListView.view ? ListView.view.width : 0
-                        height: Theme.scaled(36)
-                        highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
-
-                        background: Rectangle {
-                            color: parent.highlighted ? Theme.primaryColor :
-                                   parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
-                            radius: Theme.scaled(6)
+                        Text {
+                            text: TranslationManager.translate("settings.options.autoWake", "Auto-Wake")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
                         }
 
-                        contentItem: Text {
-                            text: modelData ? modelData.name : ""
-                            color: parent.highlighted ? "white" : Theme.textColor
+                        // Day buttons
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(3)
+
+                            Repeater {
+                                model: ["M", "T", "W", "T", "F", "S", "S"]
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Theme.scaled(28)
+                                    radius: Theme.scaled(5)
+
+                                    property bool isSelected: autoWakeContent.selectedDay === index
+                                    property bool isEnabled: {
+                                        var sched = Settings.autoWakeSchedule
+                                        return sched[index] ? sched[index].enabled : false
+                                    }
+
+                                    color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
+                                           isEnabled ? Theme.primaryColor :
+                                           Theme.backgroundColor
+                                    border.color: isSelected ? Theme.primaryContrastColor :
+                                                  isEnabled ? Theme.primaryColor : Theme.borderColor
+                                    border.width: isSelected ? 2 : 1
+
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: {
+                                        var dayNames = [
+                                        TranslationManager.translate("common.day.monday", "Monday"),
+                                        TranslationManager.translate("common.day.tuesday", "Tuesday"),
+                                        TranslationManager.translate("common.day.wednesday", "Wednesday"),
+                                        TranslationManager.translate("common.day.thursday", "Thursday"),
+                                        TranslationManager.translate("common.day.friday", "Friday"),
+                                        TranslationManager.translate("common.day.saturday", "Saturday"),
+                                        TranslationManager.translate("common.day.sunday", "Sunday")
+                                    ]
+                                        return dayNames[index] +
+                                               (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
+                                               (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    }
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: dayArea.clicked(null)
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData
+                                        color: parent.isSelected || parent.isEnabled ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                                        font.pixelSize: Theme.scaled(12)
+                                        font.bold: parent.isSelected || parent.isEnabled
+                                        Accessible.ignored: true
+                                    }
+
+                                    MouseArea {
+                                        id: dayArea
+                                        anchors.fill: parent
+                                        onClicked: autoWakeContent.selectedDay = index
+                                    }
+                                }
+                            }
+                        }
+
+                        // Wake toggle + time on one compact row
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(6)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.wake", "Wake")
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            StyledSwitch {
+                                checked: autoWakeContent.selectedDayData.enabled || false
+                                accessibleName: TranslationManager.translate("settings.preferences.wakeEnabledForDay", "Wake enabled for selected day")
+                                onToggled: Settings.setAutoWakeDayEnabled(autoWakeContent.selectedDay, checked)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            ValueInput {
+                                Layout.preferredWidth: Theme.scaled(54)
+                                Layout.preferredHeight: Theme.scaled(34)
+                                from: 0
+                                to: 23
+                                stepSize: 1
+                                decimals: 0
+                                value: autoWakeContent.selectedDayData.hour ?? 7
+                                enabled: autoWakeContent.selectedDayData.enabled ?? false
+                                valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
+                                displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
+                                accessibleName: TranslationManager.translate("settings.options.wakeHour", "Wake hour")
+                                onValueModified: function(newValue) {
+                                    Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, newValue, autoWakeContent.selectedDayData.minute ?? 0)
+                                }
+                            }
+
+                            Text {
+                                text: ":"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(16)
+                                font.bold: true
+                            }
+
+                            ValueInput {
+                                Layout.preferredWidth: Theme.scaled(54)
+                                Layout.preferredHeight: Theme.scaled(34)
+                                from: 0
+                                to: 59
+                                stepSize: 1
+                                decimals: 0
+                                value: autoWakeContent.selectedDayData.minute ?? 0
+                                enabled: autoWakeContent.selectedDayData.enabled ?? false
+                                valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
+                                displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
+                                accessibleName: TranslationManager.translate("settings.options.wakeMinute", "Wake minute")
+                                onValueModified: function(newValue) {
+                                    Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, autoWakeContent.selectedDayData.hour ?? 7, newValue)
+                                }
+                            }
+                        }
+
+                        // Stay awake toggle + duration on one compact row
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(6)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.stayAwakeFor", "Stay awake")
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            StyledSwitch {
+                                id: stayAwakeSwitch
+                                checked: Settings.autoWakeStayAwakeEnabled
+                                accessibleName: TranslationManager.translate("settings.preferences.stayAwakeAfterWake", "Stay awake after auto-wake")
+                                onToggled: Settings.autoWakeStayAwakeEnabled = checked
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            ValueInput {
+                                visible: Settings.autoWakeStayAwakeEnabled
+                                Layout.preferredWidth: Theme.scaled(80)
+                                Layout.preferredHeight: Theme.scaled(34)
+                                from: 15
+                                to: 480
+                                stepSize: 15
+                                decimals: 0
+                                value: Settings.autoWakeStayAwakeMinutes
+                                valueColor: Theme.primaryColor
+                                displayText: {
+                                    var mins = value
+                                    if (mins >= 60) {
+                                        var hours = Math.floor(mins / 60)
+                                        var rem = mins % 60
+                                        if (rem === 0) return hours + TranslationManager.translate("common.unit.h", "h")
+                                        return hours + TranslationManager.translate("common.unit.h", "h") + " " + rem + TranslationManager.translate("common.unit.m", "m")
+                                    }
+                                    return mins + " " + TranslationManager.translate("common.unit.min", "min")
+                                }
+                                accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
+                                onValueModified: function(newValue) { Settings.autoWakeStayAwakeMinutes = newValue }
+                            }
+                        }
+                    }
+                }
+
+            // Screen Timing card (Dim + Sleep)
+            Rectangle {
+                objectName: "autoSleep"
+                Layout.fillWidth: true
+                height: timingContent.implicitHeight + Theme.scaled(32)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: timingContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(10)
+
+                    Text {
+                        text: TranslationManager.translate("settings.screensaver.screen", "Screen")
+                        color: Theme.textColor
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    // Sleep after
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        Tr {
+                            key: "settings.screensaver.sleepAfter"
+                            fallback: "Sleep after"
+                            color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
-                            font.bold: parent.highlighted
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.scaled(10)
                         }
 
-                        onClicked: {
-                            if (modelData) {
-                                ScreensaverManager.selectedCategoryId = modelData.id
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            Layout.preferredWidth: Theme.scaled(120)
+                            value: screensaverTab.autoSleepMinutes
+                            from: 0
+                            to: 240
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
+                                                       (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
+                            accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
+                            onValueModified: function(newValue) {
+                                screensaverTab.autoSleepMinutes = newValue
+                                Settings.setValue("autoSleepMinutes", newValue)
                             }
                         }
                     }
 
-                    Tr {
-                        anchors.centerIn: parent
-                        key: "settings.screensaver.loading"
-                        fallback: "Loading..."
-                        visible: parent.count === 0 && ScreensaverManager.isFetchingCategories
-                        color: Theme.textSecondaryColor
+                    // Dim after
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+                        visible: ScreensaverManager.screensaverType !== "disabled"
+
+                        Tr {
+                            key: "settings.screensaver.dimAfter"
+                            fallback: "Dim after"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            Layout.preferredWidth: Theme.scaled(120)
+                            value: ScreensaverManager.dimDelayMinutes
+                            suffix: " min"
+                            from: 0
+                            to: 45
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : ""
+                            accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
+                            onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
+                        }
                     }
 
-                    Tr {
-                        anchors.centerIn: parent
-                        key: "settings.screensaver.noCategories"
-                        fallback: "No categories"
-                        visible: parent.count === 0 && !ScreensaverManager.isFetchingCategories
-                        color: Theme.textSecondaryColor
+                    // Dim amount
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+                        visible: ScreensaverManager.screensaverType !== "disabled"
+
+                        Tr {
+                            key: "settings.screensaver.dimAmount"
+                            fallback: "Dim amount"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            Layout.preferredWidth: Theme.scaled(120)
+                            value: ScreensaverManager.dimPercent
+                            suffix: "%"
+                            from: 0
+                            to: 100
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
+                            accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
+                            onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
+                        }
                     }
                 }
+            }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
-                    accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
-                    Layout.fillWidth: true
-                    enabled: !ScreensaverManager.isFetchingCategories
-                    onClicked: ScreensaverManager.refreshCategories()
+            Item { Layout.fillHeight: true }
+            } // ColumnLayout
+        }
+
+        // Column 2: Video Category (videos mode only, full height)
+        Item {
+            Layout.preferredWidth: Theme.scaled(220)
+            Layout.fillWidth: false
+            Layout.fillHeight: true
+            visible: ScreensaverManager.screensaverType === "videos"
+
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.screensaver.videoCategory"
+                        fallback: "Video Category"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    // Category list
+                    // Use local model copy to avoid delegate crash during rapid updates
+                    ListView {
+                        id: categoryList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: categoryModelCopy
+                        spacing: Theme.scaled(2)
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                        property var categoryModelCopy: []
+
+                        Connections {
+                            target: ScreensaverManager
+                            function onCategoriesChanged() {
+                                // Defer one event loop tick so any in-progress delegate
+                                // layout completes before the model is replaced.
+                                Qt.callLater(function() {
+                                    categoryList.categoryModelCopy = ScreensaverManager.categories
+                                })
+                            }
+                        }
+
+                        Component.onCompleted: {
+                            categoryModelCopy = ScreensaverManager.categories
+                        }
+
+                        delegate: ItemDelegate {
+                            width: ListView.view ? ListView.view.width : 0
+                            height: Theme.scaled(36)
+                            highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
+
+                            background: Rectangle {
+                                color: parent.highlighted ? Theme.primaryColor :
+                                       parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
+                                radius: Theme.scaled(6)
+                            }
+
+                            contentItem: Text {
+                                text: modelData ? modelData.name : ""
+                                color: parent.highlighted ? Theme.primaryContrastColor : Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: parent.highlighted
+                                verticalAlignment: Text.AlignVCenter
+                                leftPadding: Theme.scaled(10)
+                            }
+
+                            onClicked: {
+                                if (modelData) {
+                                    ScreensaverManager.selectedCategoryId = modelData.id
+                                }
+                            }
+                        }
+
+                        Tr {
+                            anchors.centerIn: parent
+                            key: "settings.screensaver.loading"
+                            fallback: "Loading..."
+                            visible: parent.count === 0 && ScreensaverManager.isFetchingCategories
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Tr {
+                            anchors.centerIn: parent
+                            key: "settings.screensaver.noCategories"
+                            fallback: "No categories"
+                            visible: parent.count === 0 && !ScreensaverManager.isFetchingCategories
+                            color: Theme.textSecondaryColor
+                        }
+                    }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
+                        accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
+                        Layout.fillWidth: true
+                        enabled: !ScreensaverManager.isFetchingCategories
+                        onClicked: ScreensaverManager.refreshCategories()
+                    }
                 }
             }
         }
@@ -402,8 +721,8 @@ Item {
                 spacing: Theme.scaled(15)
 
                 Tr {
-                    key: "settings.screensaver.settings"
-                    fallback: "Screensaver Settings"
+                    key: "settings.screensaver.display"
+                    fallback: "Display"
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(16)
                     font.bold: true
@@ -862,61 +1181,6 @@ Item {
                             checked: ScreensaverManager.showDateOnPersonal
                             accessibleName: TranslationManager.translate("settings.screensaver.showDate", "Show Date")
                             onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                // Screen dimming settings (all modes except disabled)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType !== "disabled"
-
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.dimAfter"
-                            fallback: "Dim after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            value: ScreensaverManager.dimDelayMinutes
-                            suffix: " min"
-                            from: 0
-                            to: 45
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : ""
-                            accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
-                            onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
-                        }
-                    }
-
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.dimAmount"
-                            fallback: "Dim amount"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            value: ScreensaverManager.dimPercent
-                            suffix: "%"
-                            from: 0
-                            to: 100
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
-                            accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
-                            onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
                         }
                     }
 

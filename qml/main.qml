@@ -567,7 +567,7 @@ ApplicationWindow {
                 key: "main.doneediting"
                 fallback: "Done Editing"
                 font: Theme.bodyFont
-                color: "white"
+                color: Theme.primaryContrastColor
                 Accessible.ignored: true
             }
 
@@ -585,7 +585,7 @@ ApplicationWindow {
                     text: TranslationManager.untranslatedCount
                     font.pixelSize: Theme.scaled(12)
                     font.bold: true
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     Accessible.ignored: true
                 }
             }
@@ -1015,7 +1015,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trEnableLocation; key: "main.dialog.enableLocation.title"; fallback: "Enable Location"; visible: false }
@@ -1129,7 +1129,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trNoScaleFoundTitle; key: "main.dialog.noScaleFound.title"; fallback: "No Scale Found"; visible: false }
@@ -1183,7 +1183,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trScaleDisconnectedTitle; key: "main.dialog.scaleDisconnected.title"; fallback: "Scale Disconnected"; visible: false }
@@ -1300,7 +1300,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trChargingMismatchTitle; key: "main.dialog.chargingMismatch.title"; fallback: "Charging Not Detected"; visible: false }
@@ -1373,7 +1373,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trRefillTitle; key: "main.dialog.refillWater.title"; fallback: "Refill Water Tank"; visible: false }
@@ -1913,7 +1913,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trWelcomeTitle; key: "main.dialog.welcome.title"; fallback: "Welcome to Decenza"; visible: false }
@@ -1965,7 +1965,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         Tr { id: trStorageTitle; key: "main.dialog.storage.title"; fallback: "Save profiles to Documents?"; visible: false }
@@ -3081,7 +3081,7 @@ ApplicationWindow {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 2
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         contentItem: Column {

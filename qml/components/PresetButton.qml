@@ -32,7 +32,7 @@ Button {
     contentItem: Text {
         text: root.text
         font: Theme.captionFont
-        color: root.selected ? "white" : Theme.textColor
+        color: root.selected ? Theme.primaryContrastColor : Theme.textColor
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }

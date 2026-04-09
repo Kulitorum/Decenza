@@ -290,7 +290,7 @@ Rectangle {
                 id: badgeText
                 anchors.centerIn: parent
                 text: typeBadgeLabel(entryType)
-                color: "white"
+                color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(8)
                 font.bold: true
@@ -323,7 +323,7 @@ Rectangle {
                 anchors.centerIn: parent
                 width: parent.width - Theme.scaled(8)
                 text: entryThemeName
-                color: "white"
+                color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(10)
                 font.bold: true
@@ -520,7 +520,7 @@ Rectangle {
                 id: compactItemBadgeText
                 anchors.centerIn: parent
                 text: typeBadgeLabel(entryType)
-                color: "white"
+                color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(8)
                 font.bold: true
@@ -573,7 +573,7 @@ Rectangle {
                 id: compactBadgeText
                 anchors.centerIn: parent
                 text: typeBadgeLabel(entryType)
-                color: "white"
+                color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(8)
                 font.bold: true

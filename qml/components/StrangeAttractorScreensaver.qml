@@ -28,7 +28,7 @@ Item {
         anchors.left: parent.left
         anchors.margins: Theme.scaled(20)
         text: renderer.attractorName
-        color: "white"
+        color: Theme.primaryContrastColor
         opacity: 0.4
         font.pixelSize: Theme.scaled(14)
         font.weight: Font.Light

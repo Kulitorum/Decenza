@@ -126,7 +126,7 @@ KeyboardAwareContainer {
                                         text: modelData.name
                                         font.pixelSize: Theme.scaled(13)
                                         font.bold: isSelected
-                                        color: isSelected ? "white" : Theme.textColor
+                                        color: isSelected ? Theme.primaryContrastColor : Theme.textColor
                                         Accessible.ignored: true
                                     }
                                     Text {

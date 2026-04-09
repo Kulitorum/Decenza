@@ -271,7 +271,7 @@ Rectangle {
             color: Theme.surfaceColor
             radius: root.isMobile ? 0 : Theme.cardRadius
             border.width: root.isMobile ? 0 : 1
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         contentItem: ColumnLayout {

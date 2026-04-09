@@ -177,7 +177,7 @@ Item {
                         height: Theme.scaled(22)
                         radius: Theme.scaled(11)
                         color: root.color
-                        border.color: "white"
+                        border.color: Theme.primaryContrastColor
                         border.width: 2
                         x: (currentVal / maxVal) * (parent.width - width)
                         y: (parent.height - height) / 2

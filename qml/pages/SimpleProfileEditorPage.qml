@@ -209,7 +209,7 @@ Page {
                 font.family: Theme.titleFont.family
                 font.pixelSize: Theme.titleFont.pixelSize
                 font.bold: true
-                color: "white"
+                color: Theme.primaryContrastColor
                 Accessible.role: Accessible.Heading
                 Accessible.name: text
                 Accessible.focusable: true
@@ -656,7 +656,7 @@ Page {
                 implicitWidth: Math.max(Theme.scaled(80), doneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
-                color: parent.down ? Qt.darker("white", 1.1) : "white"
+                color: parent.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
                 id: doneText
@@ -684,7 +684,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         contentItem: ColumnLayout {
@@ -813,7 +813,7 @@ Page {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -834,7 +834,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         contentItem: ColumnLayout {
@@ -888,7 +888,7 @@ Page {
                 contentItem: Text {
                     text: parent.text
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -938,7 +938,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         contentItem: ColumnLayout {
@@ -1037,7 +1037,7 @@ Page {
                         contentItem: Text {
                             text: parent.text
                             font: Theme.bodyFont
-                            color: "white"
+                            color: Theme.primaryContrastColor
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1087,7 +1087,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1
-            border.color: "white"
+            border.color: Theme.primaryContrastColor
         }
 
         contentItem: ColumnLayout {
@@ -1173,7 +1173,7 @@ Page {
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }

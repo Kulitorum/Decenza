@@ -616,13 +616,13 @@ Page {
         visible: DE1Device.isHeadless
         radius: Theme.cardRadius
         color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
-        border.color: "white"
+        border.color: Theme.primaryContrastColor
         border.width: Theme.scaled(2)
 
         Text {
             anchors.centerIn: parent
             text: TranslationManager.translate("espresso.button.stop", "STOP")
-            color: "white"
+            color: Theme.primaryContrastColor
             font.pixelSize: Theme.scaled(24)
             font.weight: Font.Bold
             Accessible.ignored: true

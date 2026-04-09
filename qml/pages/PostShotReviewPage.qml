@@ -385,7 +385,7 @@ Page {
                         layer.smooth: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: postShotReviewPage.advancedMode ? "white" : Theme.textColor
+                            colorizationColor: postShotReviewPage.advancedMode ? Theme.primaryContrastColor : Theme.textColor
                         }
                     }
 
@@ -1162,7 +1162,7 @@ Page {
                 Tr {
                     key: "postshotreview.button.save"
                     fallback: "Save Changes"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
@@ -1212,7 +1212,7 @@ Page {
                     fallback: editShotData.visualizerId
                               ? "Re-Upload to Visualizer"
                               : "Upload to Visualizer"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
@@ -1330,7 +1330,7 @@ Page {
                     fallback: MainController.aiManager && MainController.aiManager.isAnalyzing
                           ? "Analyzing..." : "AI Advice"
                     color: MainController.aiManager && MainController.aiManager.isConfigured
-                           ? "white" : Theme.textColor
+                           ? Theme.primaryContrastColor : Theme.textColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
@@ -1378,14 +1378,14 @@ Page {
                     layer.smooth: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: "white"
+                        colorizationColor: Theme.primaryContrastColor
                     }
                 }
 
                 Tr {
                     key: "postshotreview.button.discuss"
                     fallback: "Discuss"
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true

@@ -288,7 +288,7 @@ Dialog {
                         id: pickText
                         anchors.centerIn: parent
                         text: popup.showEmojiPicker ? TranslationManager.translate("customeditor.button.hidePicker", "Hide Picker") : TranslationManager.translate("customeditor.button.pickIcon", "Pick Icon")
-                        color: pickMa.pressed ? "white" : Theme.primaryColor
+                        color: pickMa.pressed ? Theme.primaryContrastColor : Theme.primaryColor
                         font: Theme.captionFont
                         Accessible.ignored: true
                     }
@@ -316,7 +316,7 @@ Dialog {
                         id: clearEmojiText
                         anchors.centerIn: parent
                         text: TranslationManager.translate("common.button.clear", "Clear")
-                        color: clearEmojiMa.pressed ? "white" : Theme.errorColor
+                        color: clearEmojiMa.pressed ? Theme.primaryContrastColor : Theme.errorColor
                         font: Theme.captionFont
                         Accessible.ignored: true
                     }
@@ -561,7 +561,7 @@ Dialog {
                             Accessible.onPressAction: boldMa.clicked(null)
                             Text {
                                 anchors.centerIn: parent; text: "B"
-                                color: formatter.bold ? "white" : Theme.textColor; font.bold: true
+                                color: formatter.bold ? Theme.primaryContrastColor : Theme.textColor; font.bold: true
                                 font.pixelSize: Theme.captionFont.pixelSize
                                 Accessible.ignored: true
                             }
@@ -580,7 +580,7 @@ Dialog {
                             Accessible.onPressAction: italicMa.clicked(null)
                             Text {
                                 anchors.centerIn: parent; text: "I"
-                                color: formatter.italic ? "white" : Theme.textColor; font.italic: true
+                                color: formatter.italic ? Theme.primaryContrastColor : Theme.textColor; font.italic: true
                                 font.pixelSize: Theme.captionFont.pixelSize
                                 Accessible.ignored: true
                             }
@@ -609,7 +609,7 @@ Dialog {
                                 Accessible.onPressAction: sizeMa.clicked(null)
                                 Text {
                                     anchors.centerIn: parent; text: modelData.label
-                                    color: parent.isActive ? "white" : Theme.textColor; font: Theme.captionFont
+                                    color: parent.isActive ? Theme.primaryContrastColor : Theme.textColor; font: Theme.captionFont
                                     Accessible.ignored: true
                                 }
                                 MouseArea { id: sizeMa; anchors.fill: parent; onClicked: formatter.setFontSize(modelData.size) }
@@ -638,7 +638,7 @@ Dialog {
                                 Accessible.onPressAction: alignMa.clicked(null)
                                 Text {
                                     anchors.centerIn: parent; text: modelData.label
-                                    color: popup.textAlign === modelData.align ? "white" : Theme.textColor
+                                    color: popup.textAlign === modelData.align ? Theme.primaryContrastColor : Theme.textColor
                                     font.pixelSize: Theme.scaled(10)
                                     Accessible.ignored: true
                                 }
@@ -691,7 +691,7 @@ Dialog {
                             Text {
                                 anchors.centerIn: parent
                                 text: "\u00D7"
-                                color: clearFgMa.pressed ? "white" : Theme.errorColor
+                                color: clearFgMa.pressed ? Theme.primaryContrastColor : Theme.errorColor
                                 font.pixelSize: Theme.scaled(12)
                                 Accessible.ignored: true
                             }
@@ -712,7 +712,7 @@ Dialog {
                             width: Theme.scaled(26); height: Theme.scaled(26)
                             radius: Theme.scaled(13)
                             color: popup.textBackgroundColor || Theme.backgroundColor
-                            border.color: popup.textBackgroundColor ? "white" : Theme.borderColor
+                            border.color: popup.textBackgroundColor ? Theme.primaryContrastColor : Theme.borderColor
                             border.width: popup.textBackgroundColor ? 2 : 1
                             Accessible.role: Accessible.Button
                             Accessible.name: TranslationManager.translate("customeditor.label.backgroundColor", "Background color")
@@ -754,7 +754,7 @@ Dialog {
                             Text {
                                 anchors.centerIn: parent
                                 text: "\u00D7"
-                                color: clearBgMa.pressed ? "white" : Theme.errorColor
+                                color: clearBgMa.pressed ? Theme.primaryContrastColor : Theme.errorColor
                                 font.pixelSize: Theme.scaled(12)
                                 Accessible.ignored: true
                             }
@@ -781,7 +781,7 @@ Dialog {
                                 id: noBgText
                                 anchors.centerIn: parent
                                 text: TranslationManager.translate("customeditor.button.noBg", "No Bg")
-                                color: popup.textHideBackground ? "white" : Theme.textSecondaryColor
+                                color: popup.textHideBackground ? Theme.primaryContrastColor : Theme.textSecondaryColor
                                 font: Theme.captionFont
                                 Accessible.ignored: true
                             }
@@ -1022,7 +1022,7 @@ Dialog {
                 Text {
                     anchors.centerIn: parent
                     text: TranslationManager.translate("common.button.save", "Save")
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font: Theme.captionFont
                     Accessible.ignored: true
                 }
@@ -1088,7 +1088,7 @@ Dialog {
                             width: Theme.scaled(48); height: Theme.scaled(48)
                             radius: Theme.scaled(8)
                             color: cpEditorInner.color
-                            border.color: "white"; border.width: 2
+                            border.color: Theme.primaryContrastColor; border.width: 2
                             Layout.alignment: Qt.AlignHCenter
                         }
 
@@ -1108,7 +1108,7 @@ Dialog {
                             Accessible.name: TranslationManager.translate("common.button.apply", "Apply")
                             Accessible.focusable: true
                             Accessible.onPressAction: cpApplyMa.clicked(null)
-                            Text { anchors.centerIn: parent; text: TranslationManager.translate("common.button.apply", "Apply"); color: "white"; font: Theme.captionFont; Accessible.ignored: true }
+                            Text { anchors.centerIn: parent; text: TranslationManager.translate("common.button.apply", "Apply"); color: Theme.primaryContrastColor; font: Theme.captionFont; Accessible.ignored: true }
                             MouseArea {
                                 id: cpApplyMa
                                 anchors.fill: parent
@@ -1164,7 +1164,7 @@ Dialog {
                             width: Theme.scaled(22); height: Theme.scaled(22)
                             radius: width / 2
                             color: modelData.color
-                            border.color: swatchMa.containsMouse ? "white" : Theme.borderColor
+                            border.color: swatchMa.containsMouse ? Theme.primaryContrastColor : Theme.borderColor
                             border.width: swatchMa.containsMouse ? 2 : 1
                             Accessible.role: Accessible.Button
                             Accessible.name: modelData.label + " " + TranslationManager.translate("customeditor.accessible.colorSwatch", "color swatch")

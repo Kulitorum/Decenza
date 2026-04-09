@@ -100,7 +100,7 @@ Item {
                             id: tabLabel
                             anchors.centerIn: parent
                             text: modelData.name
-                            color: root._activeCategory === index ? "white" : Theme.textColor
+                            color: root._activeCategory === index ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.captionFont
                             Accessible.ignored: true
                         }
@@ -130,7 +130,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: "\u00D7"
-                        color: clearMa.pressed ? "white" : Theme.errorColor
+                        color: clearMa.pressed ? Theme.primaryContrastColor : Theme.errorColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
                         Accessible.ignored: true

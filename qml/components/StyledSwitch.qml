@@ -27,7 +27,7 @@ Switch {
             width: Theme.scaled(18)
             height: Theme.scaled(18)
             radius: height / 2
-            color: control.checked ? "white" : Theme.textSecondaryColor
+            color: control.checked ? Theme.primaryContrastColor : Theme.textSecondaryColor
 
             Behavior on x {
                 NumberAnimation { duration: 100; easing.type: Easing.OutQuad }

@@ -93,7 +93,7 @@ Page {
                             id: livePresetText
                             anchors.centerIn: parent
                             text: modelData.name
-                            color: index === Settings.selectedFlushPreset ? "white" : Theme.textColor
+                            color: index === Settings.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.bodyFont
                             Accessible.ignored: true
                         }
@@ -160,13 +160,13 @@ Page {
                 visible: DE1Device.isHeadless
                 radius: Theme.cardRadius
                 color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
-                border.color: "white"
+                border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
                 Text {
                     anchors.centerIn: parent
                     text: TranslationManager.translate("flush.button.stop", "STOP")
-                    color: "white"
+                    color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
                 }
@@ -270,7 +270,7 @@ Page {
                                         id: presetText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? "white" : Theme.textColor
+                                        color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                     }
 
@@ -489,13 +489,13 @@ Page {
 
         Text {
             text: secondsInput.value.toFixed(1) + "s"
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
         Text {
             text: flowInput.value.toFixed(1) + " mL/s"
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
     }

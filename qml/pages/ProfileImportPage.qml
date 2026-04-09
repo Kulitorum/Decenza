@@ -261,7 +261,7 @@ Page {
                                 text: profileData.format || "?"
                                 font.pixelSize: Theme.scaled(10)
                                 font.bold: true
-                                color: "white"
+                                color: Theme.primaryContrastColor
                             }
                         }
 
