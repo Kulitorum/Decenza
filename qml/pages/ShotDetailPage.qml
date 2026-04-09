@@ -18,6 +18,7 @@ Page {
     // Persisted graph height (like PostShotReviewPage)
     property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
+    property int swipeDirection: 0  // 1 = going older, -1 = going newer
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Post-Shot Review, Shot Comparison, Espresso view selector).
@@ -52,8 +53,10 @@ Page {
         function onShotReady(id, shot) {
             if (id !== shotDetailPage.shotId) return
             shotData = shot
-            // Force ScrollView coordinate recalculation after data populates layout
-            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
+            Qt.callLater(function() {
+                scrollView.contentItem.returnToBounds()
+                enterAnimation.start()
+            })
         }
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
@@ -70,9 +73,10 @@ Page {
 
     function navigateToShot(index) {
         if (index >= 0 && index < shotIds.length) {
-            currentIndex = index
-            shotId = shotIds[index]
-            loadShot()
+            exitAnimation.stop()
+            swipeDirection = index > currentIndex ? 1 : -1
+            exitAnimation.targetIndex = index
+            exitAnimation.start()
         }
     }
 
@@ -119,6 +123,44 @@ Page {
         }
     }
 
+    // Exit: slide + fade out, then load new shot; Enter: slide + fade in on data ready
+    SequentialAnimation {
+        id: exitAnimation
+        property int targetIndex: 0
+
+        ParallelAnimation {
+            NumberAnimation {
+                target: scrollView; property: "opacity"
+                to: 0; duration: 140; easing.type: Easing.InQuad
+            }
+            NumberAnimation {
+                target: contentSlide; property: "x"
+                to: shotDetailPage.swipeDirection * -Theme.scaled(50)
+                duration: 140; easing.type: Easing.InQuad
+            }
+        }
+        ScriptAction {
+            script: {
+                currentIndex = exitAnimation.targetIndex
+                shotId = shotIds[currentIndex]
+                contentSlide.x = shotDetailPage.swipeDirection * Theme.scaled(50)
+                loadShot()
+            }
+        }
+    }
+
+    ParallelAnimation {
+        id: enterAnimation
+        NumberAnimation {
+            target: scrollView; property: "opacity"
+            from: 0; to: 1; duration: 180; easing.type: Easing.OutQuad
+        }
+        NumberAnimation {
+            target: contentSlide; property: "x"
+            to: 0; duration: 180; easing.type: Easing.OutQuad
+        }
+    }
+
     ScrollView {
         id: scrollView
         anchors.left: parent.left
@@ -129,6 +171,7 @@ Page {
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         contentWidth: availableWidth
+        transform: Translate { id: contentSlide; x: 0 }
 
         ColumnLayout {
             width: parent.width
@@ -143,29 +186,73 @@ Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
 
-                    Text {
-                        textFormat: Text.RichText
-                        text: {
-                            var name = shotData.profileName || "Shot Detail"
-                            var t = shotData.temperatureOverride
-                            var result
-                            if (t !== undefined && t !== null && t > 0) {
-                                result = name + " (" + Math.round(t) + "\u00B0C)"
-                            } else {
-                                result = name
-                            }
-                            return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
-                        }
-                        font: Theme.titleFont
-                        color: Theme.textColor
+                    RowLayout {
                         Layout.fillWidth: true
-                        elide: Text.ElideRight
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            textFormat: Text.RichText
+                            text: {
+                                var name = shotData.profileName || "Shot Detail"
+                                var t = shotData.temperatureOverride
+                                var result
+                                if (t !== undefined && t !== null && t > 0) {
+                                    result = name + " (" + Math.round(t) + "\u00B0C)"
+                                } else {
+                                    result = name
+                                }
+                                return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
+                            }
+                            font: Theme.titleFont
+                            color: Theme.textColor
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        Text {
+                            text: shotData.dateTime || ""
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
+                            elide: Text.ElideRight
+                            Layout.maximumWidth: shotDetailPage.width * 0.35
+                        }
+                    }
+                }
+
+                // Edit shot button
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: Theme.scaled(18)
+                    color: Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/edit.svg"
+                        sourceSize.width: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(18)
+
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.textColor
+                        }
                     }
 
-                    Text {
-                        text: shotData.dateTime || ""
-                        font: Theme.labelFont
-                        color: Theme.textSecondaryColor
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("shotdetail.button.edit", "Edit shot")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"),
+                                { editShotId: shotDetailPage.shotId, autoClose: false })
+                        }
                     }
                 }
 
@@ -209,6 +296,20 @@ Page {
                         }
                     }
                 }
+            }
+
+            QualityBadges {
+                Layout.fillWidth: true
+                visible: !!(shotData.profileKbId)
+                channelingDetected: shotData.channelingDetected ?? false
+                temperatureUnstable: shotData.temperatureUnstable ?? false
+                grindIssueDetected: shotData.grindIssueDetected ?? false
+                onSummaryRequested: detailAnalysisDialog.open()
+            }
+
+            ShotAnalysisDialog {
+                id: detailAnalysisDialog
+                shotData: shotDetailPage.shotData
             }
 
             GraphInspectBar { graph: shotGraph }
@@ -341,20 +442,6 @@ Page {
             GraphLegend {
                 graph: shotGraph
                 advancedMode: shotDetailPage.advancedMode
-            }
-
-            QualityBadges {
-                Layout.fillWidth: true
-                visible: !!(shotData.profileKbId)
-                channelingDetected: shotData.channelingDetected ?? false
-                temperatureUnstable: shotData.temperatureUnstable ?? false
-                grindIssueDetected: shotData.grindIssueDetected ?? false
-                onSummaryRequested: detailAnalysisDialog.open()
-            }
-
-            ShotAnalysisDialog {
-                id: detailAnalysisDialog
-                shotData: shotDetailPage.shotData
             }
 
             // Shot navigation buttons (list is newest-first, so lower index = newer)
@@ -972,6 +1059,31 @@ Page {
         id: bottomBar
         title: TranslationManager.translate("shotdetail.title", "Shot Detail")
         onBackClicked: root.goBack()
+
+        // Profile name + date summary (to the left of action buttons)
+        ColumnLayout {
+            visible: !!(shotData.profileName)
+            spacing: 0
+            Layout.alignment: Qt.AlignVCenter
+
+            Text {
+                text: shotData.profileName || ""
+                font: Theme.labelFont
+                color: Theme.textColor
+                elide: Text.ElideRight
+                Layout.maximumWidth: shotDetailPage.width * 0.3
+                Accessible.ignored: true
+            }
+
+            Text {
+                text: shotData.dateTime || ""
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                elide: Text.ElideRight
+                Layout.maximumWidth: shotDetailPage.width * 0.3
+                Accessible.ignored: true
+            }
+        }
 
         // Upload / Re-Upload to Visualizer button
         Rectangle {
