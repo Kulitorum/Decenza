@@ -1590,7 +1590,7 @@ ApplicationWindow {
 
     Timer {
         id: completionTimer
-        interval: 3000
+        interval: 1500
         onTriggered: {
             completionPending = false
             completionOverlay.opacity = 0
@@ -1803,6 +1803,9 @@ ApplicationWindow {
                     console.warn("Post-shot navigation: no valid pendingShotId, going to idle")
                     goToIdle()
                 }
+            } else {
+                // Post-shot review disabled — navigate to idle after stop overlay dismisses
+                goToIdle()
             }
         }
     }
