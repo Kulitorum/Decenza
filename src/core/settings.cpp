@@ -32,6 +32,13 @@ Settings::Settings(QObject* parent)
     qDebug() << "Settings: system time format =" << QLocale::system().timeFormat(QLocale::ShortFormat)
              << "-> use12HourTime =" << m_use12HourTime;
 
+    // Force a fresh read from persistent storage before checking for missing keys.
+    // On macOS, NSUserDefaults can return stale (empty) data if another instance of
+    // the app just wrote to the same plist — sync() forces re-read from disk and
+    // prevents the defaults-initialization code from overwriting existing settings.
+    m_settings.sync();
+    qDebug() << "Settings: sync() done, contains profile/favorites:" << m_settings.contains("profile/favorites");
+
     // Initialize default pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {
         QJsonArray defaultPresets;
