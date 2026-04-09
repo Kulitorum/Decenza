@@ -1554,7 +1554,7 @@ Page {
                         Layout.preferredHeight: Theme.scaled(44)
                         visible: _pendingPresetIndex < 0  // Hide when switching presets
                         text: TranslationManager.translate("beaninfo.unsaved.keep", "Use as Entered")
-                        accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes unsaved and go back")
+                        accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Use values as entered without saving to a preset")
                         onClicked: {
                             unsavedChangesDialog.close()
                             // DYE fields now diverge from the preset — clear the association
