@@ -1655,7 +1655,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         bool newChanneling = false, newTempUnstable = false, newGrindIssue = false;
-        bool recordFound = false;
+        bool recordFound = false, flagsChanged = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
             ShotRecord record = loadShotRecordStatic(db, shotId);
@@ -1707,7 +1707,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             }
 
             // Update DB only if any flag changed
-            bool flagsChanged = (newChanneling != record.channelingDetected
+            flagsChanged = (newChanneling != record.channelingDetected
                 || newTempUnstable != record.temperatureUnstable
                 || newGrindIssue != record.grindIssueDetected);
             if (flagsChanged) {
