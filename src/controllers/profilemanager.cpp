@@ -871,7 +871,6 @@ void ProfileManager::loadProfile(const QString& profileName) {
         }
     }
 
-
     // Save current profile as previous before switching (only if new profile was found)
     if (found && !m_baseProfileName.isEmpty() && m_baseProfileName != resolvedName)
         m_previousProfileName = m_baseProfileName;
@@ -2099,7 +2098,6 @@ void ProfileManager::loadDefaultProfile() {
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
 }
-
 
 QString ProfileManager::profilesPath() const {
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);

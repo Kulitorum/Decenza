@@ -538,8 +538,6 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // Read-only flag (de1app compatibility: integer 0/1/2)
     profile.m_readOnly = obj["read_only"].toInt(0);
 
-    // AI knowledge base ID (Decenza extension)
-
     // Load recipe params if present
     if (obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());

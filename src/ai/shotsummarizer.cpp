@@ -805,8 +805,8 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         }
     }
 
-    // Look up profile-specific knowledge
-    // Try direct KB ID first (from database), then fall back to fuzzy title/editorType matching
+    // Look up profile-specific knowledge by KB ID (computed from title/alias matching),
+    // falling back to fuzzy title/editorType matching for shots without a stored KB ID
     QString profileSection;
     if (!profileKbId.isEmpty()) {
         loadProfileKnowledge();
