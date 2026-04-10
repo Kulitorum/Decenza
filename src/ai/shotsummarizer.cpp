@@ -156,12 +156,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
         }
 
-        // Use pre-computed knowledge base ID (set when profile was loaded, survives Save As).
-        // Fall back to computing it here if not set (e.g. profiles loaded outside MainController).
-        summary.profileKbId = profile->knowledgeBaseId();
-        if (summary.profileKbId.isEmpty()) {
-            summary.profileKbId = computeProfileKbId(profile->title(), editorStr);
-        }
+        summary.profileKbId = computeProfileKbId(profile->title(), editorStr);
     }
 
     // Get the data vectors

@@ -171,7 +171,6 @@ signals:
 
 private:
     void loadDefaultProfile();
-    void updateProfileKnowledgeBaseId();
     void migrateProfileFolders();
     void migrateProfileFormat();
     void migrateRecipeFrames();

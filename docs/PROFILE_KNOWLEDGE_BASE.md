@@ -89,10 +89,6 @@ All other lines are free-form `Field: value` pairs consumed verbatim by the AI s
 
 The display renderer (`ProfileSelectorPage.qml`) bolds lines matching `Label: value` where the label is ≤35 characters and the line does not start with `-` (bullet lines are never bolded), italicizes `DO NOT` lines, and hides `Also matches:` and `AnalysisFlags:` lines entirely. All KB text is HTML-escaped before rendering.
 
-### knowledge_base_id in profile JSON
-
-Each profile JSON can include a `"knowledge_base_id"` field that caches the resolved KB key so it survives profile renames and Save As. Its value should match the normalized form of the section title **or** one of its aliases. When set, `knowledge_base_id` is looked up in `shotAnalysisSystemPrompt()` **before** `matchProfileKey()` is called — if it resolves to a known entry, `matchProfileKey()` is skipped entirely.
-
 ### Matching priority
 
 `matchProfileKey()` tries in this order:
@@ -827,7 +823,7 @@ Both profiles by John Weiss; distinct from the "Gentle Flat / Long Preinfusion" 
 
 ## Cross-Roast Profile Summary
 
-Quick reference for which profiles work across roast levels. Profiles without a `knowledge_base_id` in their JSON are matched by fuzzy title.
+Quick reference for which profiles work across roast levels. All profiles are matched by fuzzy title/alias lookup.
 
 ### Espresso profiles
 

@@ -1,6 +1,5 @@
 {
     "title": "D-Flow / default",
-    "knowledge_base_id": "d-flow / default",
     "author": "Damian",
     "beverage_type": "espresso",
     "notes": "A simple to use profiling system By Damian Brakel\n        D-Flow's Default profile is provided as an example profile for you to get started in creating your own",

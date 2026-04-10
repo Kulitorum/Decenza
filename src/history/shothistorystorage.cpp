@@ -845,9 +845,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.profileNotes = profile ? profile->profileNotes() : QString();
     data.debugLog = debugLog;
 
-    // Use pre-computed AI knowledge base ID (set when profile was loaded, survives Save As)
     if (profile) {
-        data.profileKbId = profile->knowledgeBaseId();
+        data.profileKbId = ShotSummarizer::computeProfileKbId(profile->title(), profile->editorType());
     }
 
     // Compute conductance derivative (post-shot Gaussian smoothing) before compression
