@@ -427,11 +427,6 @@ QJsonDocument Profile::toJson() const {
         obj["read_only"] = m_readOnly;
     }
 
-    // AI knowledge base ID (Decenza extension — de1app ignores unknown keys)
-    if (!m_knowledgeBaseId.isEmpty()) {
-        obj["knowledge_base_id"] = m_knowledgeBaseId;
-    }
-
     return QJsonDocument(obj);
 }
 
@@ -542,9 +537,6 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     // Read-only flag (de1app compatibility: integer 0/1/2)
     profile.m_readOnly = obj["read_only"].toInt(0);
-
-    // AI knowledge base ID (Decenza extension)
-    profile.m_knowledgeBaseId = obj["knowledge_base_id"].toString();
 
     // Load recipe params if present
     if (obj.contains("recipe")) {

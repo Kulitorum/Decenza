@@ -110,7 +110,6 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     if (QFile::exists(tempPath)) {
         qDebug() << "Loading modified profile from temp file:" << tempPath;
         m_currentProfile = Profile::loadFromFile(tempPath);
-        updateProfileKnowledgeBaseId();
         m_profileModified = true;
         // Get the base profile name from settings
         if (m_settings) {
@@ -872,8 +871,6 @@ void ProfileManager::loadProfile(const QString& profileName) {
         }
     }
 
-    updateProfileKnowledgeBaseId();
-
     // Save current profile as previous before switching (only if new profile was found)
     if (found && !m_baseProfileName.isEmpty() && m_baseProfileName != resolvedName)
         m_previousProfileName = m_baseProfileName;
@@ -947,7 +944,6 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     }
 
     m_currentProfile = Profile::loadFromJsonString(jsonContent);
-    updateProfileKnowledgeBaseId();
 
     if (m_currentProfile.title().isEmpty() || m_currentProfile.steps().isEmpty()) {
         qWarning() << "loadProfileFromJson: Failed to parse profile JSON";
@@ -1034,10 +1030,7 @@ void ProfileManager::refreshProfiles() {
                 editorType = QStringLiteral("advanced");
         }
 
-        bool hasKb = obj.contains("knowledge_base_id");
-        if (!hasKb) {
-            hasKb = !ShotSummarizer::computeProfileKbId(title, editorType).isEmpty();
-        }
+        bool hasKb = !ShotSummarizer::computeProfileKbId(title, editorType).isEmpty();
         bool readOnly = (obj["read_only"].toInt(0) == 1);
         return {title, obj["beverage_type"].toString(), hasKb, editorType, readOnly};
     };
@@ -1745,7 +1738,6 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
     recipe.clamp();  // Ensure values are within hardware limits
 
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
-    updateProfileKnowledgeBaseId();
     m_baseProfileName = "";
     m_profileModified = true;
 
@@ -2105,15 +2097,6 @@ void ProfileManager::loadDefaultProfile() {
             m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
-}
-
-void ProfileManager::updateProfileKnowledgeBaseId()
-{
-    // If already set (persisted in profile JSON from a previous Save As), keep it
-    if (!m_currentProfile.knowledgeBaseId().isEmpty()) return;
-
-    m_currentProfile.setKnowledgeBaseId(
-        ShotSummarizer::computeProfileKbId(m_currentProfile.title(), m_currentProfile.editorType()));
 }
 
 QString ProfileManager::profilesPath() const {

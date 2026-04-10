@@ -26,9 +26,9 @@ preferred architecture.
    existing Profile Knowledge Base (what "dialed in" looks like per profile) combined with live
    shot telemetry to give immediate, zero-friction guidance. The infrastructure is mostly
    already built: `dialing_get_context` MCP tool, `ShotSummarizer`, phase markers, and
-   39 KB sections covering the major profile families (23 of 93 profiles have
-   `knowledge_base_id` explicitly wired up; the rest match by title). The LLM interprets
-   qualitative KB guidance in context — better than rigid JSON thresholds.
+   39 KB sections covering the major profile families; all built-in profiles match by
+   title/alias. The LLM interprets qualitative KB guidance in context — better than
+   rigid JSON thresholds.
 
 3. **UGS's most valuable artifact is its grind ordering table** (16 profiles on a 0--8 scale),
    not its calibration method. This table seeds cross-profile direction hints ("grind much
@@ -216,7 +216,7 @@ appropriate profiles before grind adjustment is even needed.
 | `ShotSummarizer` | `src/ai/shotsummarizer.h/cpp` | Per-phase metrics (avg/max/min pressure, flow, temp, weight), channeling detection, temp stability |
 | Resistance metrics | `src/models/shotdatamodel.cpp` | `P/F`, `F²/P`, `P/F²`, and `dC/dt` (9-point Gaussian smoothed, matching Visualizer.coffee) — all computed and exposed |
 | Phase detection | `src/controllers/maincontroller.cpp:1758` | Phase markers with transition reasons stored in `shot_phases` |
-| Profile KB system | `docs/PROFILE_KNOWLEDGE_BASE.md` | 39 KB sections covering all major profile families (batches 1--5 complete); 23 of 93 profiles have `knowledge_base_id` wired up; three-tier matching |
+| Profile KB system | `docs/PROFILE_KNOWLEDGE_BASE.md` | 39 KB sections covering all major profile families (batches 1--5 complete); all built-in profiles match by title/alias; three-tier matching |
 | Profile catalog | `src/ai/shotsummarizer.cpp` | `buildProfileCatalog()` — compact one-liner per KB profile in system prompt for cross-profile awareness (PR #635/#647) |
 | Cross-profile guidance | `shotAnalysisSystemPrompt()` | "When to Suggest a Different Profile" section; guards against premature switching (April 2026) |
 | Dial-in reference tables | `espresso_dial_in_reference.md` (Qt resource) | Loaded into system prompt (PR #635) |
@@ -242,7 +242,7 @@ appropriate profiles before grind adjustment is even needed.
 
 All 93 built-in profiles match a KB section — the 39 sections cover complete families (D-Flow
 covers 7 Damian variants, Pour Over Basket covers 6 profiles, Tea covers 16 profiles, etc.).
-23 profiles have `knowledge_base_id` explicitly wired up; the rest match by title prefix/fuzzy
+all built-in profiles match by title prefix/fuzzy
 matching. Three community profiles (Nu Skool, Idan's Strega Plus, Hendon Turbo variants) have
 KB entries but are not shipped as built-ins — entries are ready for when users load them.
 
