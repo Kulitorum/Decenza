@@ -233,7 +233,17 @@ void BLEManager::requestBluetoothPermission() {
 }
 
 void BLEManager::doStartScan() {
-    clearDevices();
+    // Always clear the DE1 device list for a fresh scan
+    m_de1Devices.clear();
+    emit devicesChanged();
+    // Only clear scales/refractometers when the user explicitly asked to scan for them;
+    // a DE1-only scan must not wipe the discovered scale list.
+    if (m_scanningForScales) {
+        m_scales.clear();
+        m_refractometerDevices.clear();
+        emit scalesChanged();
+        emit refractometersChanged();
+    }
     m_scanning = true;
     emit scanningChanged();
     emit scanStarted();  // Notify that scan has actually started
@@ -640,7 +650,7 @@ void BLEManager::tryDirectConnectToDE1() {
 #endif
 }
 
-void BLEManager::scanForScales() {
+void BLEManager::scanForDevices() {
     if (m_disabled) {
         qDebug() << "BLEManager: Scale scan request ignored (simulator mode)";
         return;
@@ -652,12 +662,9 @@ void BLEManager::scanForScales() {
     emit scaleConnectionFailedChanged();
 
     if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: scanForScales - Bluetooth is powered off, skipping";
+        qDebug() << "BLEManager: scanForDevices - Bluetooth is powered off, skipping";
         return;
     }
-
-    // Disconnect any currently connected scale before scanning for new ones
-    emit disconnectScaleRequested();
 
     // If already scanning, we need to restart to include scales
     if (m_scanning) {

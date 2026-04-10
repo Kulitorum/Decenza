@@ -101,7 +101,7 @@ public:
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
     Q_INVOKABLE void tryDirectConnectToScale();
-    Q_INVOKABLE void scanForScales();  // User-initiated scale scan
+    Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
     void clearDevices();

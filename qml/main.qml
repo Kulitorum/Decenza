@@ -2090,7 +2090,7 @@ ApplicationWindow {
             BLEManager.tryDirectConnectToScale()
         } else {
             // First run or no saved scale - scan for scales so user can pair one
-            BLEManager.scanForScales()
+            BLEManager.scanForDevices()
         }
         // Always start scanning after a delay (startScan is safe to call multiple times)
         scanDelayTimer.start()

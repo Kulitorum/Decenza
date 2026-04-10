@@ -43,7 +43,7 @@ Item {
     Accessible.focusable: true
     Accessible.onPressAction: {
         if (root.showScaleWarning)
-            BLEManager.scanForScales()
+            BLEManager.scanForDevices()
         else if (root.scaleConnected)
             MachineState.tareScale()
     }
@@ -112,7 +112,7 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: BLEManager.scanForScales()
+                onClicked: BLEManager.scanForDevices()
             }
         }
 
@@ -297,7 +297,7 @@ Item {
             cursorShape: root.showScaleWarning ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: {
                 if (root.showScaleWarning)
-                    BLEManager.scanForScales()
+                    BLEManager.scanForDevices()
                 else if (root.scaleConnected)
                     MachineState.tareScale()
             }
