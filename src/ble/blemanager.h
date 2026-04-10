@@ -121,7 +121,7 @@ signals:
     void scaleDisconnected();  // Emitted when physical scale disconnects
     void scanStarted();  // Emitted when BLE scan actually begins
     void disabledChanged();
-    void disconnectScaleRequested();  // Emitted when starting scan, scale should disconnect
+    void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
     void refractometerConnectedChanged();
     void refractometerDiscovered(const QBluetoothDeviceInfo& device);

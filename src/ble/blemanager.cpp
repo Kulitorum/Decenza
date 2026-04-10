@@ -149,6 +149,12 @@ void BLEManager::connectToScale(const QString& address) {
     for (const auto& pair : m_scales) {
         if (deviceIdentifiersMatch(pair.first, address)) {
             appendScaleLog(QString("Connecting to %1...").arg(pair.first.name()));
+            // If already connected to a different scale, disconnect it first so
+            // the scaleDiscovered handler can connect to the new one.
+            if (m_scaleDevice && m_scaleDevice->isConnected()
+                    && address != m_savedScaleAddress) {
+                emit disconnectScaleRequested();
+            }
             emit scaleDiscovered(pair.first, pair.second);
             return;
         }
@@ -656,7 +662,7 @@ void BLEManager::scanForDevices() {
         return;
     }
 
-    appendScaleLog("Starting scale scan...");
+    appendScaleLog("Starting device scan...");
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;  // User-initiated scan resets the dialog guard
     emit scaleConnectionFailedChanged();

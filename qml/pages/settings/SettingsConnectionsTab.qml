@@ -753,7 +753,7 @@ Item {
 
                         AccessibleButton {
                             text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
-                            accessibleName: BLEManager.scanning ? "Scanning for devices" : "Scan for Bluetooth scales and refractometers"
+                            accessibleName: BLEManager.scanning ? "Scanning for devices" : "Scan for Bluetooth DE1, scales, and refractometers"
                             enabled: !BLEManager.scanning
                             onClicked: BLEManager.scanForDevices()
                         }

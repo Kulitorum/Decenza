@@ -1275,7 +1275,10 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered,
                      [&refractometer, &mainController, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
         if (refractometer && refractometer->isConnected()) {
-            return;  // Already connected
+            if (getDeviceIdentifier(device) == settings.savedRefractometerAddress()) {
+                return;  // Same device already connected — nothing to do
+            }
+            // Different device selected — fall through to cleanup + create
         }
 
         // Clean up old refractometer before replacing — disconnect first (emits

@@ -313,7 +313,7 @@ Item {
                     break
                 case "scanDE1":
                     if (typeof BLEManager !== "undefined")
-                        BLEManager.startScan()
+                        BLEManager.scanForDevices()
                     break
                 case "scanScale":
                     if (typeof BLEManager !== "undefined")

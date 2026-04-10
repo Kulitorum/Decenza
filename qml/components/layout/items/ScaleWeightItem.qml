@@ -77,6 +77,7 @@ Item {
         Rectangle {
             id: compactWarning
             visible: root.showScaleWarning
+            Accessible.ignored: true
             anchors.centerIn: parent
             width: compactWarningRow.implicitWidth + Theme.spacingMedium
             height: Theme.touchTargetMin
