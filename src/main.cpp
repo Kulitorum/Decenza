@@ -1246,7 +1246,12 @@ int main(int argc, char *argv[])
             machineState.setScale(&flowScale);
             timingController.setScale(&flowScale);
             engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
-            // Reconnect FlowScale to graph and weight processor (physical scale is being destroyed)
+            // Reconnect FlowScale to graph and weight processor (physical scale is being destroyed).
+            // Disconnect first to avoid duplicate connections if connectedChanged fires during reset().
+            QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                                &mainController, &MainController::onScaleWeightChanged);
+            QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                                &weightProcessor, &WeightProcessor::processWeight);
             QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                              &mainController, &MainController::onScaleWeightChanged);
             QObject::connect(&flowScale, &ScaleDevice::weightChanged,
@@ -1278,7 +1283,7 @@ int main(int argc, char *argv[])
             if (getDeviceIdentifier(device) == settings.savedRefractometerAddress()) {
                 return;  // Same device already connected — nothing to do
             }
-            // Different device selected — fall through to cleanup + create
+            // Different device selected — continue to cleanup + create
         }
 
         // Clean up old refractometer before replacing — disconnect first (emits

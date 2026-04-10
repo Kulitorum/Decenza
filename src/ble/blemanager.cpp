@@ -152,7 +152,7 @@ void BLEManager::connectToScale(const QString& address) {
             // If already connected to a different scale, disconnect it first so
             // the scaleDiscovered handler can connect to the new one.
             if (m_scaleDevice && m_scaleDevice->isConnected()
-                    && address != m_savedScaleAddress) {
+                    && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) != 0) {
                 emit disconnectScaleRequested();
             }
             emit scaleDiscovered(pair.first, pair.second);
