@@ -214,6 +214,7 @@ class Settings : public QObject {
     Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
     Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged)
     Q_PROPERTY(bool hideGhcSimulator READ hideGhcSimulator WRITE setHideGhcSimulator NOTIFY hideGhcSimulatorChanged)
+    Q_PROPERTY(bool simulatedScaleEnabled READ simulatedScaleEnabled WRITE setSimulatedScaleEnabled NOTIFY simulatedScaleEnabledChanged)
     Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged)
 
     // Temperature override (persistent)
@@ -735,6 +736,9 @@ public:
     bool hideGhcSimulator() const;
     void setHideGhcSimulator(bool hide);
 
+    bool simulatedScaleEnabled() const;
+    void setSimulatedScaleEnabled(bool enabled);
+
     bool screenCaptureEnabled() const;
     void setScreenCaptureEnabled(bool enabled);
 
@@ -984,6 +988,7 @@ signals:
     void simulationModeChanged();
     void screenCaptureEnabledChanged();
     void hideGhcSimulatorChanged();
+    void simulatedScaleEnabledChanged();
     void temperatureOverrideChanged();
     void brewOverridesChanged();
     void autoWakeEnabledChanged();

@@ -177,6 +177,28 @@ Item {
                             onToggled: Settings.hideGhcSimulator = checked
                         }
                     }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(20)
+                        visible: Settings.simulationMode
+
+                        Tr {
+                            key: "debug.simulatedScaleEnabled"
+                            fallback: "Simulated Scale"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            Accessible.ignored: true
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: Settings.simulatedScaleEnabled
+                            accessibleName: TranslationManager.translate("debug.simulatedScaleEnabled", "Simulated Scale")
+                            onToggled: Settings.simulatedScaleEnabled = checked
+                        }
+                    }
                 }
             }
 

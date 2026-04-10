@@ -699,9 +699,12 @@ void MachineState::checkStopAtVolume() {
     // third condition covers it: isConnected() && !isFlowScale().
     bool isBasicProfile = (m_profileType == QLatin1String("settings_2a")
                         || m_profileType == QLatin1String("settings_2b"));
+    bool simulatedScaleActive = m_scale && m_scale->isConnected() && !m_scale->isFlowScale()
+                             && m_scale->type() == QLatin1String("simulated");
     bool scaleConfigured = (m_settings && !m_settings->scaleAddress().isEmpty())
                         || (m_settings && m_settings->useFlowScale())
-                        || (m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
+                        || (simulatedScaleActive && m_settings && m_settings->simulatedScaleEnabled())
+                        || (!simulatedScaleActive && m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
     if (isBasicProfile && scaleConfigured) return;
 
     double target = m_targetVolume;
@@ -735,9 +738,12 @@ void MachineState::checkStopAtVolumeHotWater() {
     //   as the espresso SAV skip above.
     // - No scale: target = waterVolume setting (app-side volume stop is primary)
     double target;
+    bool simulatedScaleActive = m_scale && m_scale->isConnected() && !m_scale->isFlowScale()
+                             && m_scale->type() == QLatin1String("simulated");
     bool scaleConfigured = (m_settings && !m_settings->scaleAddress().isEmpty())
                         || (m_settings && m_settings->useFlowScale())
-                        || (m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
+                        || (simulatedScaleActive && m_settings && m_settings->simulatedScaleEnabled())
+                        || (!simulatedScaleActive && m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
     if (scaleConfigured) {
         target = qMax(static_cast<double>(m_settings->waterVolume()) + 50.0, 250.0);
     } else {

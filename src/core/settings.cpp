@@ -3414,6 +3414,17 @@ void Settings::setHideGhcSimulator(bool hide) {
     }
 }
 
+bool Settings::simulatedScaleEnabled() const {
+    return m_settings.value("developer/simulatedScaleEnabled", true).toBool();
+}
+
+void Settings::setSimulatedScaleEnabled(bool enabled) {
+    if (simulatedScaleEnabled() != enabled) {
+        m_settings.setValue("developer/simulatedScaleEnabled", enabled);
+        emit simulatedScaleEnabledChanged();
+    }
+}
+
 // Temperature override (persistent)
 double Settings::temperatureOverride() const {
     return m_temperatureOverride;
