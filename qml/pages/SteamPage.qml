@@ -381,7 +381,8 @@ Page {
                             onClicked: {
                                 var newTime = Math.max(5, Settings.steamTimeout - 5)
                                 Settings.steamTimeout = newTime
-                                MainController.startSteamHeating()
+                                if (!root.isSteaming)
+                                    MainController.startSteamHeating()
                             }
                         }
                     }
@@ -433,7 +434,8 @@ Page {
                             onClicked: {
                                 var newTime = Math.min(120, Settings.steamTimeout + 5)
                                 Settings.steamTimeout = newTime
-                                MainController.startSteamHeating()
+                                if (!root.isSteaming)
+                                    MainController.startSteamHeating()
                             }
                         }
                     }

@@ -115,7 +115,8 @@ Page {
                                 Settings.waterVolume = modelData.volume
                                 Settings.waterVolumeMode = (modelData.mode || "weight")
                                 Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                MainController.applyHotWaterSettings()
+                                if (!isDispensing)
+                                    MainController.applyHotWaterSettings()
                             }
                         }
                     }

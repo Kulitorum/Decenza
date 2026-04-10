@@ -105,7 +105,8 @@ Page {
                                 Settings.selectedFlushPreset = index
                                 Settings.flushFlow = modelData.flow
                                 Settings.flushSeconds = modelData.seconds
-                                MainController.applyFlushSettings()
+                                if (!isFlushing)
+                                    MainController.applyFlushSettings()
                             }
                         }
                     }
