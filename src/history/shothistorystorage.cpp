@@ -698,6 +698,19 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 11;
     }
 
+    // Migration 12: Add skip_first_frame_detected flag.
+    // Detects DE1 firmware bug where the machine skips profile frame 0.
+    if (currentVersion < 12) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 12 (skip_first_frame_detected)";
+
+        if (!hasColumn("shots", "skip_first_frame_detected"))
+            query.exec("ALTER TABLE shots ADD COLUMN skip_first_frame_detected INTEGER DEFAULT 0");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (12)");
+        currentVersion = 12;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -925,6 +938,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 flowPts, shotData->flowGoalData(), pourStart, pourEnd);
         }
+
+        // Skip-first-frame detection: check whether frame 0 was absent or very short,
+        // indicating a known DE1 firmware bug or a misconfigured profile first step.
+        data.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(tmpRecord.phases);
     }
 
     // Compress sample data on main thread (reads QObject data vectors)
@@ -1014,7 +1031,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
-                    channeling_detected, temperature_unstable, grind_issue_detected
+                    channeling_detected, temperature_unstable, grind_issue_detected,
+                    skip_first_frame_detected
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1023,7 +1041,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
-                    :channeling_detected, :temperature_unstable, :grind_issue_detected
+                    :channeling_detected, :temperature_unstable, :grind_issue_detected,
+                    :skip_first_frame_detected
                 )
             )");
 
@@ -1057,6 +1076,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":channeling_detected", data.channelingDetected ? 1 : 0);
             query.bindValue(":temperature_unstable", data.temperatureUnstable ? 1 : 0);
             query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
+            query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1321,6 +1341,7 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.filterChanneling = filterMap.value("filterChanneling", false).toBool();
     filter.filterTemperatureUnstable = filterMap.value("filterTemperatureUnstable", false).toBool();
     filter.filterGrindIssue = filterMap.value("filterGrindIssue", false).toBool();
+    filter.filterSkipFirstFrame = filterMap.value("filterSkipFirstFrame", false).toBool();
     filter.sortColumn = filterMap.value("sortField", "timestamp").toString();
     filter.sortDirection = filterMap.value("sortDirection", "DESC").toString();
     return filter;
@@ -1399,6 +1420,9 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     }
     if (filter.filterGrindIssue) {
         conditions << "grind_issue_detected = 1";
+    }
+    if (filter.filterSkipFirstFrame) {
+        conditions << "skip_first_frame_detected = 1";
     }
 
     if (conditions.isEmpty()) {
@@ -1493,7 +1517,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    enjoyment, visualizer_id, grinder_setting,
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
-                   channeling_detected, temperature_unstable, grind_issue_detected
+                   channeling_detected, temperature_unstable, grind_issue_detected,
+                   skip_first_frame_detected
             FROM shots
             WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
             %2
@@ -1507,7 +1532,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    enjoyment, visualizer_id, grinder_setting,
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
-                   channeling_detected, temperature_unstable, grind_issue_detected
+                   channeling_detected, temperature_unstable, grind_issue_detected,
+                   skip_first_frame_detected
             FROM shots
             %1
             %2
@@ -1575,6 +1601,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["channelingDetected"] = query.value(17).toInt() != 0;
                             shot["temperatureUnstable"] = query.value(18).toInt() != 0;
                             shot["grindIssueDetected"] = query.value(19).toInt() != 0;
+                            shot["skipFirstFrameDetected"] = query.value(20).toInt() != 0;
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());
@@ -1654,6 +1681,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         bool newChanneling = false, newTempUnstable = false, newGrindIssue = false;
+        bool newSkipFirstFrame = false;
         bool recordFound = false, flagsChanged = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
@@ -1705,17 +1733,23 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                     record.flow, record.flowGoal, pourStart, pourEnd);
             }
 
+            // Skip-first-frame detection from phase markers
+            newSkipFirstFrame = ShotAnalysis::detectSkipFirstFrame(record.phases);
+
             // Update DB only if any flag changed
             flagsChanged = (newChanneling != record.channelingDetected
                 || newTempUnstable != record.temperatureUnstable
-                || newGrindIssue != record.grindIssueDetected);
+                || newGrindIssue != record.grindIssueDetected
+                || newSkipFirstFrame != record.skipFirstFrameDetected);
             if (flagsChanged) {
                 QSqlQuery q(db);
                 q.prepare("UPDATE shots SET channeling_detected=:c,"
-                          " temperature_unstable=:t, grind_issue_detected=:g WHERE id=:id");
+                          " temperature_unstable=:t, grind_issue_detected=:g,"
+                          " skip_first_frame_detected=:s WHERE id=:id");
                 q.bindValue(":c", newChanneling ? 1 : 0);
                 q.bindValue(":t", newTempUnstable ? 1 : 0);
                 q.bindValue(":g", newGrindIssue ? 1 : 0);
+                q.bindValue(":s", newSkipFirstFrame ? 1 : 0);
                 q.bindValue(":id", shotId);
                 if (!q.exec())
                     qWarning() << "ShotHistoryStorage: badge update failed for shot"
@@ -1726,10 +1760,10 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
         if (!recordFound || *destroyed) return;
         QMetaObject::invokeMethod(
             this,
-            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, flagsChanged, destroyed]() {
+            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, flagsChanged, destroyed]() {
                 if (*destroyed) return;
                 if (!flagsChanged) return;
-                emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue);
+                emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame);
             },
             Qt::QueuedConnection);
     });
@@ -1902,6 +1936,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["channelingDetected"] = record.channelingDetected;
     result["temperatureUnstable"] = record.temperatureUnstable;
     result["grindIssueDetected"] = record.grindIssueDetected;
+    result["skipFirstFrameDetected"] = record.skipFirstFrameDetected;
 
     // Phase summaries for UI (computed at save time or on-the-fly for legacy shots)
     if (!record.phaseSummariesJson.isEmpty()) {
@@ -2073,7 +2108,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
-               channeling_detected, temperature_unstable, grind_issue_detected
+               channeling_detected, temperature_unstable, grind_issue_detected,
+               skip_first_frame_detected
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -2119,6 +2155,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.channelingDetected = query.value(30).toInt() != 0;
     record.temperatureUnstable = query.value(31).toInt() != 0;
     record.grindIssueDetected = query.value(32).toInt() != 0;
+    record.skipFirstFrameDetected = query.value(33).toInt() != 0;
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
@@ -3242,8 +3279,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override, profile_kb_id,
-                        channeling_detected, temperature_unstable, grind_issue_detected)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        channeling_detected, temperature_unstable, grind_issue_detected,
+                        skip_first_frame_detected)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -3283,6 +3321,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue((tu.isValid() && !tu.isNull()) ? tu : QVariant(0));
                 QVariant gi = srcShots.value("grind_issue_detected");
                 insert.addBindValue((gi.isValid() && !gi.isNull()) ? gi : QVariant(0));
+                QVariant sf = srcShots.value("skip_first_frame_detected");
+                insert.addBindValue((sf.isValid() && !sf.isNull()) ? sf : QVariant(0));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -3462,7 +3502,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
-            channeling_detected, temperature_unstable, grind_issue_detected
+            channeling_detected, temperature_unstable, grind_issue_detected,
+            skip_first_frame_detected
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -3471,7 +3512,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
-            :channeling_detected, :temperature_unstable, :grind_issue_detected
+            :channeling_detected, :temperature_unstable, :grind_issue_detected,
+            :skip_first_frame_detected
         )
     )");
 
@@ -3507,6 +3549,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":channeling_detected", record.channelingDetected ? 1 : 0);
     query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);
     query.bindValue(":grind_issue_detected", record.grindIssueDetected ? 1 : 0);
+    query.bindValue(":skip_first_frame_detected", record.skipFirstFrameDetected ? 1 : 0);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();

@@ -139,6 +139,16 @@ bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
     return std::abs(delta) > FLOW_DEVIATION_THRESHOLD;
 }
 
+bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases)
+{
+    if (phases.isEmpty()) return false;
+    // FW bug: machine never executed frame 0 — jumped directly to frame 1 or higher
+    if (phases[0].frameNumber != 0) return true;
+    // Profile issue: frame 0 executed but transitioned in under 2 seconds
+    if (phases.size() > 1 && phases[1].time < 2.0) return true;
+    return false;
+}
+
 QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              const QVector<QPointF>& flow,
                                              const QVector<QPointF>& weight,

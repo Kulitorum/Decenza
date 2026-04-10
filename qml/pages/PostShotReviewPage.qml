@@ -131,12 +131,13 @@ Page {
                 MainController.shotHistory.requestReanalyzeBadges(shotId)
             }
         }
-        function onShotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue) {
+        function onShotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue, skipFirstFrame) {
             if (shotId !== postShotReviewPage.editShotId) return
             var updated = Object.assign({}, editShotData)
             updated.channelingDetected = channeling
             updated.temperatureUnstable = tempUnstable
             updated.grindIssueDetected = grindIssue
+            updated.skipFirstFrameDetected = skipFirstFrame
             editShotData = updated
         }
         function onShotMetadataUpdated(shotId, success) {
@@ -327,7 +328,7 @@ Page {
             width: parent.width
             spacing: Theme.scaled(6)
 
-            // Header: Profile (Temp) + Basic/Advanced toggle
+            // Header: Profile (Temp) + date + quality badges + sparkle + Read TDS + Basic/Advanced toggle
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
@@ -337,29 +338,132 @@ Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
 
-                    Text {
-                        textFormat: Text.RichText
-                        text: {
-                            var name = editShotData.profileName || ""
-                            var t = editShotData.temperatureOverride
-                            var result
-                            if (t !== undefined && t !== null && t > 0) {
-                                result = name + " (" + Math.round(t) + "\u00B0C)"
-                            } else {
-                                result = name
-                            }
-                            return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
-                        }
-                        font: Theme.titleFont
-                        color: Theme.textColor
+                    RowLayout {
                         Layout.fillWidth: true
-                        elide: Text.ElideRight
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            textFormat: Text.RichText
+                            text: {
+                                var name = editShotData.profileName || ""
+                                var t = editShotData.temperatureOverride
+                                var result
+                                if (t !== undefined && t !== null && t > 0) {
+                                    result = name + " (" + Math.round(t) + "\u00B0C)"
+                                } else {
+                                    result = name
+                                }
+                                return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
+                            }
+                            font: Theme.titleFont
+                            color: Theme.textColor
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        Text {
+                            text: editShotData.dateTime || ""
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
+                            elide: Text.ElideRight
+                            Layout.maximumWidth: postShotReviewPage.width * 0.35
+                        }
+
+                        QualityBadges {
+                            visible: !!(editShotData.profileKbId)
+                            Layout.fillWidth: false
+                            Layout.maximumWidth: postShotReviewPage.width * 0.5
+                            channelingDetected: editShotData.channelingDetected ?? false
+                            temperatureUnstable: editShotData.temperatureUnstable ?? false
+                            grindIssueDetected: editShotData.grindIssueDetected ?? false
+                            skipFirstFrameDetected: editShotData.skipFirstFrameDetected ?? false
+                            onSummaryRequested: reviewAnalysisDialog.open()
+                        }
+
+                        ShotAnalysisDialog {
+                            id: reviewAnalysisDialog
+                            shotData: editShotData
+                        }
+                    }
+                }
+
+                // KB sparkle button — opens the profile knowledge base
+                Image {
+                    id: headerSparkle
+                    visible: !!(editShotData.profileKbId)
+                    source: "qrc:/icons/sparkle.svg"
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    Layout.alignment: Qt.AlignVCenter
+                    opacity: headerSparkleArea.containsMouse ? 1.0 : 0.6
+                    Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
                     }
 
+                    AccessibleMouseArea {
+                        id: headerSparkleArea
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(-8)
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
+                        accessibleItem: headerSparkle
+                        onAccessibleClicked: {
+                            shotKnowledgeDialog.profileTitle = editShotData.profileName || ""
+                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(editShotData.profileName)
+                            shotKnowledgeDialog.open()
+                        }
+                    }
+                }
+
+                // Read TDS button (R2 refractometer)
+                Rectangle {
+                    id: readTdsButton
+                    property bool refConnected: BLEManager.refractometerConnected
+                    property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
+                    visible: Settings.savedRefractometerAddress !== ""
+                    Layout.preferredWidth: Theme.scaled(80)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: Theme.scaled(12)
+                    color: Theme.surfaceColor
+                    border.width: 1
+                    border.color: Theme.textSecondaryColor
+                    opacity: refMeasuring ? 0.5 : 1.0
+                    Accessible.ignored: true
+
                     Text {
-                        text: editShotData.dateTime || ""
-                        font: Theme.labelFont
-                        color: Theme.textSecondaryColor
+                        anchors.centerIn: parent
+                        text: {
+                            if (!readTdsButton.refConnected) return TranslationManager.translate("postshotreview.refractometer.off", "R2 Off")
+                            if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
+                            return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
+                        }
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(13)
+                        Accessible.ignored: true
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: readTdsButton.refConnected
+                            ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
+                            : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
+                        accessibleItem: readTdsButton
+                        enabled: !readTdsButton.refMeasuring
+                        onAccessibleClicked: {
+                            if (readTdsButton.refConnected) {
+                                if (typeof Refractometer !== "undefined" && Refractometer)
+                                    Refractometer.requestMeasurement()
+                            } else {
+                                BLEManager.tryDirectConnectToRefractometer()
+                            }
+                        }
                     }
                 }
 
@@ -529,20 +633,6 @@ Page {
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
             }
 
-            QualityBadges {
-                Layout.fillWidth: true
-                visible: !!(editShotData.pressure && editShotData.pressure.length > 0) && !!(editShotData.profileKbId)
-                channelingDetected: editShotData.channelingDetected ?? false
-                temperatureUnstable: editShotData.temperatureUnstable ?? false
-                grindIssueDetected: editShotData.grindIssueDetected ?? false
-                onSummaryRequested: reviewAnalysisDialog.open()
-            }
-
-            ShotAnalysisDialog {
-                id: reviewAnalysisDialog
-                shotData: editShotData
-            }
-
             // Phase summary panel (advanced mode only)
             PhaseSummaryPanel {
                 Layout.fillWidth: true
@@ -550,12 +640,10 @@ Page {
                 visible: postShotReviewPage.advancedMode && (editShotData.phaseSummaries || []).length > 0
             }
 
-            // Rating (moved to top, right after graph) + Read TDS button when R2 configured
+            // Rating (moved to top, right after graph)
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
-
-                property bool hasRefractometer: Settings.savedRefractometerAddress !== ""
 
                 Tr {
                     id: ratingLabel
@@ -571,8 +659,7 @@ Page {
                 Rectangle {
                     id: ratingBox
                     anchors.left: parent.left
-                    anchors.right: readTdsButton.visible ? readTdsButton.left : parent.right
-                    anchors.rightMargin: readTdsButton.visible ? Theme.scaled(8) : 0
+                    anchors.right: parent.right
                     anchors.top: ratingLabel.bottom
                     anchors.topMargin: Theme.scaled(2)
                     height: Theme.scaled(44)
@@ -589,52 +676,6 @@ Page {
                         accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                         onValueModified: function(newValue) {
                             editEnjoyment = newValue
-                        }
-                    }
-                }
-
-                Rectangle {
-                    id: readTdsButton
-                    property bool refConnected: BLEManager.refractometerConnected
-                    property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
-                    visible: parent.hasRefractometer && postShotReviewPage.advancedMode
-                    anchors.right: parent.right
-                    anchors.top: ratingBox.top
-                    anchors.bottom: ratingBox.bottom
-                    width: Theme.scaled(80)
-                    radius: Theme.scaled(12)
-                    color: Theme.surfaceColor
-                    border.width: 1
-                    border.color: Theme.textSecondaryColor
-                    opacity: refMeasuring ? 0.5 : 1.0
-                    Accessible.ignored: true
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: {
-                            if (!readTdsButton.refConnected) return TranslationManager.translate("postshotreview.refractometer.off", "R2 Off")
-                            if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
-                            return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
-                        }
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
-                        Accessible.ignored: true
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: readTdsButton.refConnected
-                            ? TranslationManager.translate("postshotreview.readTdsFromRefractometer", "Read TDS from refractometer")
-                            : TranslationManager.translate("postshotreview.reconnectRefractometer", "Reconnect refractometer")
-                        accessibleItem: readTdsButton
-                        enabled: !readTdsButton.refMeasuring
-                        onAccessibleClicked: {
-                            if (readTdsButton.refConnected) {
-                                if (typeof Refractometer !== "undefined" && Refractometer)
-                                    Refractometer.requestMeasurement()
-                            } else {
-                                BLEManager.tryDirectConnectToRefractometer()
-                            }
                         }
                     }
                 }
@@ -1132,6 +1173,34 @@ Page {
     BottomBar {
         onBackClicked: handleBack()
 
+        // Profile name + date remain visible while the user scrolls,
+        // providing context when the header is off-screen.
+        ColumnLayout {
+            visible: !!(editShotData.profileName)
+            spacing: 0
+            Layout.alignment: Qt.AlignVCenter
+            Accessible.role: Accessible.StaticText
+            Accessible.name: (editShotData.profileName || "") + (editShotData.dateTime ? ", " + editShotData.dateTime : "")
+            Accessible.focusable: true
+
+            Text {
+                text: editShotData.profileName || ""
+                font: Theme.labelFont
+                color: Theme.textColor
+                elide: Text.ElideRight
+                Layout.maximumWidth: postShotReviewPage.width * 0.3
+                Accessible.ignored: true
+            }
+            Text {
+                text: editShotData.dateTime || ""
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                elide: Text.ElideRight
+                Layout.maximumWidth: postShotReviewPage.width * 0.3
+                Accessible.ignored: true
+            }
+        }
+
         // Save button - only visible when there are unsaved changes
         Rectangle {
             id: saveButton
@@ -1582,6 +1651,124 @@ Page {
             }
 
             onActivated: function(index) { parent.valueChanged(currentText) }
+        }
+    }
+
+    // Profile AI knowledge base dialog
+    Dialog {
+        id: shotKnowledgeDialog
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
+        height: Math.min(shotKbContent.implicitHeight + Theme.scaled(120), parent.height - Theme.scaled(80))
+        padding: 0
+        modal: true
+
+        property string profileTitle: ""
+        property string content: ""
+
+        function formatContent(raw) {
+            var lines = raw.split('\n')
+            var parts = []
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i]
+                if (!line.trim()) continue
+                if (line.startsWith('Also matches:') || line.startsWith('AnalysisFlags:')) continue
+                var colonIdx = line.indexOf(': ')
+                if (colonIdx > 0 && colonIdx <= 35 && !line.startsWith('DO NOT') && !line.startsWith('-')) {
+                    var label = line.substring(0, colonIdx).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    var value = line.substring(colonIdx + 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    parts.push('<b>' + label + ':</b> ' + value)
+                } else if (line.startsWith('DO NOT')) {
+                    parts.push('<i>' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</i>')
+                } else {
+                    parts.push(line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                }
+            }
+            return parts.join('<br>')
+        }
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.scaled(8)
+
+                Image {
+                    source: "qrc:/icons/sparkle.svg"
+                    sourceSize.width: Theme.scaled(18)
+                    sourceSize.height: Theme.scaled(18)
+                    anchors.verticalCenter: parent.verticalCenter
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.primaryColor
+                    }
+                }
+
+                Text {
+                    text: shotKnowledgeDialog.profileTitle
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
+
+        contentItem: Flickable {
+            clip: true
+            contentHeight: shotKbContent.implicitHeight + Theme.scaled(30)
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+
+            Text {
+                id: shotKbContent
+                width: parent.width - Theme.scaled(40)
+                x: Theme.scaled(20)
+                y: Theme.scaled(15)
+                text: shotKnowledgeDialog.formatContent(shotKnowledgeDialog.content)
+                textFormat: Text.RichText
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+                lineHeight: 1.5
+            }
+        }
+
+        footer: Item {
+            implicitHeight: Theme.scaled(55)
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+
+            AccessibleButton {
+                anchors.centerIn: parent
+                width: Theme.scaled(100)
+                text: TranslationManager.translate("common.button.ok", "OK")
+                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
+                onClicked: shotKnowledgeDialog.close()
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
         }
     }
 

@@ -194,11 +194,12 @@ Page {
                 }
             }
 
-            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes)
+            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes, skipframe:yes)
             var flagKeywords = [
                 { pattern: /\bchanneling:yes\b/gi, filterKey: "filterChanneling" },
                 { pattern: /\btemp:yes\b/gi, filterKey: "filterTemperatureUnstable" },
-                { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" }
+                { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" },
+                { pattern: /\bskipframe:yes\b/gi, filterKey: "filterSkipFirstFrame" }
             ]
             for (var j = 0; j < flagKeywords.length; j++) {
                 var fk = flagKeywords[j]
@@ -210,7 +211,7 @@ Page {
 
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
-            searchText = searchText.replace(/\b(channeling|temp|grind):yes\b/gi, "")
+            searchText = searchText.replace(/\b(channeling|temp|grind|skipframe):yes\b/gi, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -591,6 +592,7 @@ Page {
                     if (model.channelingDetected) issues.push("channeling")
                     if (model.temperatureUnstable) issues.push("temp unstable")
                     if (model.grindIssueDetected) issues.push("grind issue")
+                    if (model.skipFirstFrameDetected) issues.push("first step skipped")
                     if (issues.length > 0) parts.push(issues.join(", "))
                     return parts.join(", ")
                 }
@@ -739,6 +741,12 @@ Page {
                                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.warningColor
                                 visible: model.grindIssueDetected ?? false
+                                Accessible.ignored: true
+                            }
+                            Rectangle {
+                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                color: Theme.errorColor
+                                visible: model.skipFirstFrameDetected ?? false
                                 Accessible.ignored: true
                             }
                         }

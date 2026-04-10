@@ -98,6 +98,7 @@ struct ShotRecord {
     bool channelingDetected = false;
     bool temperatureUnstable = false;
     bool grindIssueDetected = false;
+    bool skipFirstFrameDetected = false;
 
     // Phase summaries JSON (per-phase metrics: duration, avgPressure, avgFlow, weightGained, etc.)
     QString phaseSummariesJson;
@@ -143,6 +144,7 @@ struct ShotFilter {
     bool filterChanneling = false;
     bool filterTemperatureUnstable = false;
     bool filterGrindIssue = false;
+    bool filterSkipFirstFrame = false;
     QString sortColumn = "timestamp";
     QString sortDirection = "DESC";
 };
@@ -184,6 +186,7 @@ struct ShotSaveData {
     bool channelingDetected = false;
     bool temperatureUnstable = false;
     bool grindIssueDetected = false;
+    bool skipFirstFrameDetected = false;
 
     // Phase summaries JSON (per-phase metrics for UI display)
     QString phaseSummariesJson;
@@ -386,7 +389,7 @@ signals:
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
     void grinderFieldsUpdated(int updatedCount);
-    void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool temperatureUnstable, bool grindIssueDetected);
+    void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool temperatureUnstable, bool grindIssueDetected, bool skipFirstFrameDetected);
 
 private:
     bool createTables();

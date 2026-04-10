@@ -94,6 +94,13 @@ public:
                                   const QVector<QPointF>& flowGoal,
                                   double pourStart, double pourEnd);
 
+    // Returns true if the shot appears to have skipped profile frame 0, indicating
+    // either a known DE1 firmware bug (machine started at frame 1+) or a profile
+    // whose first step is so short (< 2 s) it was never meaningfully executed.
+    // The firmware bug requires a full power-cycle of the machine to fix.
+    // Returns false when phases is empty (insufficient data).
+    static bool detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases);
+
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
     // flowGoal is the profile's target flow curve and drives grind-direction analysis (may be empty).

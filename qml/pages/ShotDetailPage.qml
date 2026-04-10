@@ -84,12 +84,13 @@ Page {
                 console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
             }
         }
-        function onShotBadgesUpdated(id, channeling, tempUnstable, grindIssue) {
+        function onShotBadgesUpdated(id, channeling, tempUnstable, grindIssue, skipFirstFrame) {
             if (id !== shotDetailPage.shotId) return
             var updated = Object.assign({}, shotData)
             updated.channelingDetected = channeling
             updated.temperatureUnstable = tempUnstable
             updated.grindIssueDetected = grindIssue
+            updated.skipFirstFrameDetected = skipFirstFrame
             shotData = updated
         }
     }
@@ -252,6 +253,7 @@ Page {
                             channelingDetected: shotData.channelingDetected ?? false
                             temperatureUnstable: shotData.temperatureUnstable ?? false
                             grindIssueDetected: shotData.grindIssueDetected ?? false
+                            skipFirstFrameDetected: shotData.skipFirstFrameDetected ?? false
                             onSummaryRequested: detailAnalysisDialog.open()
                         }
 
