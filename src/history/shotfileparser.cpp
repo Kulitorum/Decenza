@@ -79,8 +79,13 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
         result.record.temperatureMix = toPointVector(elapsed, tempMix);
     if (!resistance.isEmpty())
         result.record.resistance = toPointVector(elapsed, resistance);
-    if (!waterDispensed.isEmpty())
+    if (!waterDispensed.isEmpty()) {
+        // de1app stores espresso_water_dispensed at 0.1× scale (tenths of ml); normalize to actual ml
+        // so that all shots in the DB use the same unit regardless of import source.
+        for (auto& v : waterDispensed)
+            v *= 10.0;
         result.record.waterDispensed = toPointVector(elapsed, waterDispensed);
+    }
     if (!flowWeight.isEmpty())
         result.record.weightFlowRate = toPointVector(elapsed, flowWeight);
 

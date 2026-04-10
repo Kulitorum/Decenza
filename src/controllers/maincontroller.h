@@ -260,6 +260,7 @@ private:
     double m_pendingShotDuration = 0;
     double m_pendingShotFinalWeight = 0;
     double m_pendingShotDoseWeight = 0;
+    qint64 m_pendingShotEpoch = 0;
     QString m_pendingDebugLog;
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
     bool m_savingShot = false;     // Guard against overlapping async saves

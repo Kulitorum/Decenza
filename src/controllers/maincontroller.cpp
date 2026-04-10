@@ -1261,6 +1261,9 @@ void MainController::onShotEnded() {
     // Must run before stopCapture() so its debug output is included in the shot log.
     computeAutoFlowCalibration();
 
+    // Capture shot-end epoch now so uploads (including deferred pending uploads) use consistent time
+    m_pendingShotEpoch = QDateTime::currentSecsSinceEpoch();
+
     // Stop debug logging and get the captured log
     QString debugLog;
     if (m_shotDebugLogger) {
@@ -1390,7 +1393,7 @@ void MainController::onShotEnded() {
     // Auto-upload if enabled (do this first, before showing metadata page)
     if (m_settings->visualizerAutoUpload() && m_visualizer) {
         qDebug() << "  -> Auto-uploading to visualizer";
-        m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata, debugLog);
+        m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata, debugLog, m_pendingShotEpoch);
     }
 
     // Store pending shot data for later upload (user can re-upload with updated metadata)
@@ -1457,9 +1460,10 @@ void MainController::uploadPendingShot() {
 
     m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(),
                              m_pendingShotDuration, m_pendingShotFinalWeight,
-                             m_pendingShotDoseWeight, metadata, m_pendingDebugLog);
+                             m_pendingShotDoseWeight, metadata, m_pendingDebugLog, m_pendingShotEpoch);
 
     m_hasPendingShot = false;
+    m_pendingDebugLog.clear();
 }
 
 void MainController::generateFakeShotData() {
