@@ -31,6 +31,20 @@ static bool use12h() {
     return val;
 }
 
+static int expectedFrameCountFromProfileJson(const QString& profileJson)
+{
+    if (profileJson.isEmpty())
+        return -1;
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+        return -1;
+
+    const Profile profile = Profile::fromJson(doc);
+    return static_cast<int>(profile.steps().size());
+}
+
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
 ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
@@ -941,7 +955,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
         // Skip-first-frame detection: check whether frame 0 was absent or very short,
         // indicating a known DE1 firmware bug or a misconfigured profile first step.
-        data.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(tmpRecord.phases);
+        data.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
+            tmpRecord.phases,
+            profile ? static_cast<int>(profile->steps().size()) : -1);
     }
 
     // Compress sample data on main thread (reads QObject data vectors)
@@ -1734,7 +1750,9 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             }
 
             // Skip-first-frame detection from phase markers
-            newSkipFirstFrame = ShotAnalysis::detectSkipFirstFrame(record.phases);
+            newSkipFirstFrame = ShotAnalysis::detectSkipFirstFrame(
+                record.phases,
+                expectedFrameCountFromProfileJson(record.profileJson));
 
             // Update DB only if any flag changed
             flagsChanged = (newChanneling != record.channelingDetected

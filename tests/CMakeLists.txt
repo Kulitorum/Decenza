@@ -119,6 +119,12 @@ add_decenza_test(tst_recipegenerator
     ${CODEC_SOURCES}
 )
 
+# --- tst_shotanalysis: ShotAnalysis quality heuristics ---
+add_decenza_test(tst_shotanalysis
+    tst_shotanalysis.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+)
+
 # --- tst_shotsettings: ShotSettings BLE wire format ---
 add_decenza_test(tst_shotsettings
     tst_shotsettings.cpp

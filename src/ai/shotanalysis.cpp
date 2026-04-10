@@ -139,13 +139,48 @@ bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
     return std::abs(delta) > FLOW_DEVIATION_THRESHOLD;
 }
 
-bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases)
+bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
+                                        int expectedFrameCount)
 {
-    if (phases.isEmpty()) return false;
-    // FW bug: machine never executed frame 0 — jumped directly to frame 1 or higher
-    if (phases[0].frameNumber != 0) return true;
-    // Profile issue: frame 0 executed but transitioned in under 2 seconds
-    if (phases.size() > 1 && phases[1].time < 2.0) return true;
+    if (phases.isEmpty())
+        return false;
+
+    if (expectedFrameCount >= 0 && expectedFrameCount < 2)
+        return false;
+
+    // Decenza inserts a synthetic "Start" marker at extraction start before any
+    // real frame-change markers. Ignore it so we can mirror the de1app plugin's
+    // "did we ever see frame 0 before a non-zero frame in the first 2 seconds?"
+    // behavior against saved history.
+    qsizetype firstRealMarker = 0;
+    if (phases.first().label == QStringLiteral("Start") && phases.first().frameNumber == 0)
+        firstRealMarker = 1;
+
+    bool sawRealFrameZero = false;
+    for (qsizetype i = firstRealMarker; i < phases.size(); ++i) {
+        const HistoryPhaseMarker& phase = phases[i];
+        if (phase.frameNumber < 0)
+            continue;
+        if (expectedFrameCount >= 0 && phase.frameNumber >= expectedFrameCount)
+            continue;
+
+        if (phase.frameNumber == 0) {
+            sawRealFrameZero = true;
+            continue;
+        }
+
+        // Match the Tcl plugin's detection window: only classify transitions that
+        // happen in the first 2 seconds of extraction.
+        if (phase.time >= 2.0)
+            return false;
+
+        // At this point we've seen a real non-zero frame inside the 2-second
+        // window. If frame 0 was never observed first, it's the firmware bug;
+        // otherwise it's the "first step too short" profile case. The badge is
+        // intentionally shared for both conditions.
+        return true;
+    }
+
     return false;
 }
 
