@@ -19,6 +19,7 @@ void SimulatedScale::simulateConnection() {
 
 void SimulatedScale::simulateDisconnection() {
     qDebug() << "SimulatedScale: Disconnected";
+    m_lastTime = 0;
     setConnected(false);
 }
 
