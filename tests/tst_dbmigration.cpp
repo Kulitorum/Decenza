@@ -10,7 +10,7 @@
 
 #include "history/shothistorystorage.h"
 
-// Test the ShotHistoryStorage schema creation and migration chain (v1->v11).
+// Test the ShotHistoryStorage schema creation and migration chain (v1->v12).
 //
 // Strategy: create a temp DB with an old schema (missing columns),
 // set schema_version to an old value, then call initialize() which runs
@@ -151,7 +151,7 @@ private slots:
     }
 
     // ==========================================
-    // Fresh DB: full schema at v11
+    // Fresh DB: full schema at v12
     // ==========================================
 
     void freshDbCreatesSchema() {
@@ -164,7 +164,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 11);
+            QCOMPARE(getSchemaVersion(db), 12);
         });
     }
 
@@ -185,6 +185,7 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
             QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
             QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
+            QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -224,7 +225,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 11);
+            QCOMPARE(getSchemaVersion(db), 12);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -234,6 +235,7 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
             QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
             QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
+            QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -334,7 +336,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 11);
+            QCOMPARE(getSchemaVersion(db), 12);
         });
     }
 
@@ -348,7 +350,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 11);
+            QCOMPARE(getSchemaVersion(db), 12);
         });
     }
 
@@ -368,7 +370,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 11);
+            QCOMPARE(getSchemaVersion(db), 12);
         });
     }
 
@@ -391,7 +393,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 11);
+            QCOMPARE(getSchemaVersion(db), 12);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
@@ -444,7 +446,7 @@ private slots:
     }
 
     // ==========================================
-    // Full chain v1->v11 preserves existing data
+    // Full chain v1->v12 preserves existing data
     // ==========================================
 
     void fullChainPreservesData() {
