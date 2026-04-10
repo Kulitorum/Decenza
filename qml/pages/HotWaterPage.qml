@@ -113,10 +113,9 @@ Page {
                             onClicked: {
                                 Settings.selectedWaterVessel = index
                                 Settings.waterVolume = modelData.volume
-                                Settings.waterVolumeMode = (modelData.mode || "weight")
+                                Settings.waterVolumeMode = (modelData.mode ?? "weight")
                                 Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                if (!isDispensing)
-                                    MainController.applyHotWaterSettings()
+                                MainController.applyHotWaterSettings()
                             }
                         }
                     }

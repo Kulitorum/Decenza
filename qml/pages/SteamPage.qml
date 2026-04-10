@@ -260,7 +260,8 @@ Page {
                                     var flow = modelData.flow !== undefined ? modelData.flow : 150
                                     Settings.steamTimeout = modelData.duration
                                     Settings.steamFlow = flow
-                                    MainController.startSteamHeating()
+                                    if (!isSteaming)
+                                        MainController.startSteamHeating()
                                 }
                             }
                         }
@@ -381,7 +382,7 @@ Page {
                             onClicked: {
                                 var newTime = Math.max(5, Settings.steamTimeout - 5)
                                 Settings.steamTimeout = newTime
-                                if (!root.isSteaming)
+                                if (!isSteaming)
                                     MainController.startSteamHeating()
                             }
                         }
@@ -434,7 +435,7 @@ Page {
                             onClicked: {
                                 var newTime = Math.min(120, Settings.steamTimeout + 5)
                                 Settings.steamTimeout = newTime
-                                if (!root.isSteaming)
+                                if (!isSteaming)
                                     MainController.startSteamHeating()
                             }
                         }
