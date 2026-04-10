@@ -163,8 +163,10 @@ void BLEManager::connectToScale(const QString& address) {
 }
 
 void BLEManager::startScan() {
-    if (m_disabled) {
-        qDebug() << "BLEManager: Scan request ignored (simulator mode)";
+    if (m_disabled && !m_scanningForScales) {
+        // In simulator mode, suppress DE1 scanning but allow scale/refractometer scans
+        // (m_scanningForScales is set by scanForDevices() before calling here).
+        qDebug() << "BLEManager: DE1 scan request ignored (simulator mode)";
         return;
     }
 
@@ -657,11 +659,9 @@ void BLEManager::tryDirectConnectToDE1() {
 }
 
 void BLEManager::scanForDevices() {
-    if (m_disabled) {
-        qDebug() << "BLEManager: Scale scan request ignored (simulator mode)";
-        return;
-    }
-
+    // Note: m_disabled is intentionally not checked here — scale and refractometer
+    // scanning is allowed in simulator mode so real hardware can be tested against
+    // a simulated DE1. Only DE1 BLE (startScan without m_scanningForScales) is suppressed.
     appendScaleLog("Starting device scan...");
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;  // User-initiated scan resets the dialog guard
