@@ -689,15 +689,16 @@ void MachineState::checkStopAtVolume() {
     if (m_settings && m_settings->ignoreVolumeWithScale()
         && !m_settings->scaleAddress().isEmpty()) return;
 
-    // Skip SAV for basic profiles when a scale is configured (physical BLE connected, or
+    // Skip SAV for basic profiles when a scale is configured (physical BLE address set, or
     // flow/simulated scale enabled). The volume value in settings_2a/2b profiles (e.g. 36ml
     // in Default) is invisible to users — the Insight skin has no volume editor — and fires
     // far too early (~15g in cup when 36ml is pumped). Matches de1app's skip_sav_check logic.
+    // Uses "configured" (scaleAddress non-empty) not "connected" — same reasoning as above.
     bool isBasicProfile = (m_profileType == QLatin1String("settings_2a")
                         || m_profileType == QLatin1String("settings_2b"));
-    bool scaleActive = (m_scale && m_scale->isConnected() && !m_scale->isFlowScale())
-                    || (m_settings && m_settings->useFlowScale());
-    if (isBasicProfile && scaleActive) return;
+    bool scaleConfigured = (m_settings && !m_settings->scaleAddress().isEmpty())
+                        || (m_settings && m_settings->useFlowScale());
+    if (isBasicProfile && scaleConfigured) return;
 
     double target = m_targetVolume;
     if (target <= 0) return;
@@ -724,14 +725,15 @@ void MachineState::checkStopAtVolumeHotWater() {
     if (!m_tareCompleted) return;  // Don't check until tare has happened
 
     // Hot water SAV logic (based on de1app but improved):
-    // - Scale active (physical BLE connected, or flow scale enabled): safety net above the
-    //   user's target so SAW stops first. Uses max(waterVolume + 50, 250) to handle large
-    //   volumes (de1app hardcodes 250).
+    // - Scale configured (physical BLE address set, or flow scale enabled): safety net above
+    //   the user's target so SAW stops first. Uses max(waterVolume + 50, 250) to handle large
+    //   volumes (de1app hardcodes 250). Uses "configured" not "connected" — same reasoning
+    //   as the espresso SAV skip above.
     // - No scale: target = waterVolume setting (app-side volume stop is primary)
     double target;
-    bool scaleActive = (m_scale && m_scale->isConnected() && !m_scale->isFlowScale())
-                    || (m_settings && m_settings->useFlowScale());
-    if (scaleActive) {
+    bool scaleConfigured = (m_settings && !m_settings->scaleAddress().isEmpty())
+                        || (m_settings && m_settings->useFlowScale());
+    if (scaleConfigured) {
         target = qMax(static_cast<double>(m_settings->waterVolume()) + 50.0, 250.0);
     } else {
         target = m_settings->waterVolume();
@@ -744,7 +746,7 @@ void MachineState::checkStopAtVolumeHotWater() {
 
         qDebug() << "MachineState: Hot water volume stop -" << m_pourVolume
                  << "ml /" << target << "ml"
-                 << (scaleActive ? "(safety net)" : "(no scale)");
+                 << (scaleConfigured ? "(safety net)" : "(no scale)");
 
         if (m_device) {
             m_device->stopOperation();
