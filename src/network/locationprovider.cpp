@@ -186,7 +186,6 @@ void LocationProvider::onPositionUpdated(const QGeoPositionInfo& info)
     } else {
         // Position hasn't changed much, just update coordinates
         m_currentLocation.valid = true;
-        qDebug() << "LocationProvider: Position unchanged, emitting locationChanged directly (synchronous)";
         emit locationChanged();
     }
 }

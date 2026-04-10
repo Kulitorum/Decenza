@@ -1617,7 +1617,6 @@ int main(int argc, char *argv[])
         // Create SimulatedScale and connect it like a real scale
         simulatedScalePtr = std::make_unique<SimulatedScale>();
         auto& simulatedScale = *simulatedScalePtr;
-        simulatedScale.simulateConnection();
 
         // Replace FlowScale with SimulatedScale for graph data
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
@@ -1630,15 +1629,36 @@ int main(int argc, char *argv[])
         timingController.setScale(&simulatedScale);
         context->setContextProperty("ScaleDevice", &simulatedScale);
 
-        // Reconnect WeightProcessor from FlowScale to SimulatedScale for espresso SOW
+        // Reconnect WeightProcessor from FlowScale to SimulatedScale for espresso SAW
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                             &weightProcessor, &WeightProcessor::processWeight);
-        QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
-                         &weightProcessor, &WeightProcessor::processWeight);
 
-        // Connect simulator scale weight to SimulatedScale
-        QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
-                         &simulatedScale, &SimulatedScale::setSimulatedWeight);
+        // Helper: apply current simulatedScaleEnabled state.
+        // Enabled  → scale connected, simulator drives weight, WeightProcessor gets weight.
+        // Disabled → scale disconnected (isConnected()=false suppresses SAV skip naturally),
+        //            weight signals cut so SAW doesn't fire either.
+        auto applySimulatedScaleEnabled = [&de1Simulator, &simulatedScale, &weightProcessor, &settings]() {
+            if (settings.simulatedScaleEnabled()) {
+                simulatedScale.simulateConnection();
+                QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
+                                 &simulatedScale, &SimulatedScale::setSimulatedWeight,
+                                 Qt::UniqueConnection);
+                QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
+                                 &weightProcessor, &WeightProcessor::processWeight,
+                                 Qt::UniqueConnection);
+            } else {
+                simulatedScale.simulateDisconnection();
+                QObject::disconnect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
+                                    &simulatedScale, &SimulatedScale::setSimulatedWeight);
+                QObject::disconnect(&simulatedScale, &ScaleDevice::weightChanged,
+                                    &weightProcessor, &WeightProcessor::processWeight);
+            }
+        };
+        QObject::connect(&settings, &Settings::simulatedScaleEnabledChanged,
+                         &simulatedScale, [applySimulatedScaleEnabled]() {
+            applySimulatedScaleEnabled();
+        });
+        applySimulatedScaleEnabled();
 
         // GHC Simulator window (desktop debug only — other platforms use the layout widget)
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)

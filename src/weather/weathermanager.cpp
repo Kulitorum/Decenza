@@ -179,7 +179,9 @@ void WeatherManager::setQmlReady()
     if (m_pendingFetch) {
         m_pendingFetch = false;
         qDebug() << "WeatherManager: QML ready, running deferred fetch";
-        fetchWeather();
+        // Use QueuedConnection so the fetch runs after the current event (engine.load()
+        // aftermath) completes — async sub-component incubation may still be in-flight.
+        QMetaObject::invokeMethod(this, &WeatherManager::fetchWeather, Qt::QueuedConnection);
     }
 }
 
@@ -243,7 +245,6 @@ void WeatherManager::setLoading(bool loading)
     if (m_loading == loading)
         return;
     m_loading = loading;
-    qDebug() << "WeatherManager: loading =" << loading;
     emit loadingChanged();
 }
 

@@ -689,22 +689,18 @@ void MachineState::checkStopAtVolume() {
     if (m_settings && m_settings->ignoreVolumeWithScale()
         && !m_settings->scaleAddress().isEmpty()) return;
 
-    // Skip SAV for basic profiles when a scale is configured (physical BLE address set,
-    // flow/simulated scale enabled, or a non-flow scale is actively connected — covers
-    // SimulatedScale in simulator mode). The volume value in settings_2a/2b profiles (e.g.
-    // 36ml in Default) is invisible to users — the Insight skin has no volume editor — and
-    // fires far too early (~15g in cup when 36ml is pumped). Matches de1app's skip_sav_check.
-    // Uses "configured" (scaleAddress non-empty) not "connected" for BLE scales so a momentary
-    // disconnect mid-shot doesn't re-enable SAV. SimulatedScale has no saved address so the
-    // third condition covers it: isConnected() && !isFlowScale().
+    // Skip SAV for basic profiles when a scale is configured. The volume value in
+    // settings_2a/2b profiles (e.g. 36ml in Default) is invisible to users and fires far
+    // too early (~15g in cup when 36ml is pumped). Matches de1app's skip_sav_check logic.
+    // Uses "configured" (scaleAddress non-empty) not "connected" for saved BLE scales so a
+    // momentary BLE disconnect mid-shot doesn't re-enable SAV. SimulatedScale and USB scales
+    // have no saved address so the third condition covers them via isConnected(); the
+    // SimulatedScale debug toggle calls simulateDisconnection() which clears isConnected().
     bool isBasicProfile = (m_profileType == QLatin1String("settings_2a")
                         || m_profileType == QLatin1String("settings_2b"));
-    bool simulatedScaleActive = m_scale && m_scale->isConnected() && !m_scale->isFlowScale()
-                             && m_scale->type() == QLatin1String("simulated");
     bool scaleConfigured = (m_settings && !m_settings->scaleAddress().isEmpty())
                         || (m_settings && m_settings->useFlowScale())
-                        || (simulatedScaleActive && m_settings && m_settings->simulatedScaleEnabled())
-                        || (!simulatedScaleActive && m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
+                        || (m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
     if (isBasicProfile && scaleConfigured) return;
 
     double target = m_targetVolume;
@@ -738,12 +734,9 @@ void MachineState::checkStopAtVolumeHotWater() {
     //   as the espresso SAV skip above.
     // - No scale: target = waterVolume setting (app-side volume stop is primary)
     double target;
-    bool simulatedScaleActive = m_scale && m_scale->isConnected() && !m_scale->isFlowScale()
-                             && m_scale->type() == QLatin1String("simulated");
     bool scaleConfigured = (m_settings && !m_settings->scaleAddress().isEmpty())
                         || (m_settings && m_settings->useFlowScale())
-                        || (simulatedScaleActive && m_settings && m_settings->simulatedScaleEnabled())
-                        || (!simulatedScaleActive && m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
+                        || (m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
     if (scaleConfigured) {
         target = qMax(static_cast<double>(m_settings->waterVolume()) + 50.0, 250.0);
     } else {
