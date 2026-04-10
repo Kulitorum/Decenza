@@ -59,8 +59,14 @@ void WeatherManager::setLocationProvider(LocationProvider* provider)
     m_locationProvider = provider;
 
     if (m_locationProvider) {
+        // Use QueuedConnection to prevent re-entrant QML binding evaluation:
+        // locationChanged can fire during QML incubation (e.g. GPS update at startup),
+        // which synchronously triggers fetchWeather() → setLoading() → loadingChanged().
+        // If loadingChanged fires while a Connections element is being set up in
+        // connectSignalsToMethods, the V4 SharedArrayBuffer is not yet ready → SIGSEGV.
+        // Queuing ensures onLocationChanged runs after the current event (and incubation) completes.
         connect(m_locationProvider, &LocationProvider::locationChanged,
-                this, &WeatherManager::onLocationChanged);
+                this, &WeatherManager::onLocationChanged, Qt::QueuedConnection);
 
         // If location is already available (cached from previous session), fetch on next event loop tick
         if (m_locationProvider->hasLocation()) {
