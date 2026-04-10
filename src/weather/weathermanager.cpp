@@ -173,8 +173,24 @@ WeatherProvider WeatherManager::selectProvider() const
 
 // ─── Fetch orchestration ─────────────────────────────────────────────────────
 
+void WeatherManager::setQmlReady()
+{
+    m_qmlReady = true;
+    if (m_pendingFetch) {
+        m_pendingFetch = false;
+        qDebug() << "WeatherManager: QML ready, running deferred fetch";
+        fetchWeather();
+    }
+}
+
 void WeatherManager::fetchWeather()
 {
+    if (!m_qmlReady) {
+        qDebug() << "WeatherManager: QML not ready, deferring fetch";
+        m_pendingFetch = true;
+        return;
+    }
+
     if (!m_locationProvider || !m_locationProvider->hasLocation()) {
         qDebug() << "WeatherManager: No location available, skipping fetch";
         return;
@@ -227,6 +243,7 @@ void WeatherManager::setLoading(bool loading)
     if (m_loading == loading)
         return;
     m_loading = loading;
+    qDebug() << "WeatherManager: loading =" << loading;
     emit loadingChanged();
 }
 

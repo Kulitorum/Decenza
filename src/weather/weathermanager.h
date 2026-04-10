@@ -52,6 +52,10 @@ public:
 
     void setLocationProvider(LocationProvider* provider);
 
+    // Call after engine.load() returns to unblock the first weather fetch.
+    // Any fetchWeather() calls before this point are queued and run when ready.
+    void setQmlReady();
+
     // Property getters
     bool valid() const { return m_valid; }
     bool loading() const { return m_loading; }
@@ -139,6 +143,11 @@ private:
 
     // Prevent concurrent fetches
     bool m_fetchInProgress = false;
+
+    // Set to true after engine.load() to unblock fetches; prevents loadingChanged()
+    // from firing during QML incubation which can crash connectSignalsToMethods (#718)
+    bool m_qmlReady = false;
+    bool m_pendingFetch = false;
 
     static constexpr int REFRESH_INTERVAL_MS = 60 * 60 * 1000;  // 1 hour
     static constexpr double LOCATION_CHANGE_THRESHOLD = 0.1;     // ~11km

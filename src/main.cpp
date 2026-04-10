@@ -1549,6 +1549,7 @@ int main(int argc, char *argv[])
 
     engine.load(url);
     checkpoint("engine.load(main.qml) returned");
+    weatherManager.setQmlReady();  // Unblock weather fetch; guards against #718 (crash during QML incubation)
 
     // Give RelayClient a handle to the main window for screen capture
     if (!engine.rootObjects().isEmpty()) {
