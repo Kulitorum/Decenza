@@ -101,7 +101,7 @@ public:
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
     Q_INVOKABLE void tryDirectConnectToScale();
-    Q_INVOKABLE void scanForScales();  // User-initiated scale scan
+    Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
     void clearDevices();
@@ -121,7 +121,7 @@ signals:
     void scaleDisconnected();  // Emitted when physical scale disconnects
     void scanStarted();  // Emitted when BLE scan actually begins
     void disabledChanged();
-    void disconnectScaleRequested();  // Emitted when starting scan, scale should disconnect
+    void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
     void refractometerConnectedChanged();
     void refractometerDiscovered(const QBluetoothDeviceInfo& device);

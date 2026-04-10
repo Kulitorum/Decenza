@@ -425,20 +425,6 @@ Item {
                             color: Theme.errorColor
                         }
 
-                        Item { Layout.fillWidth: true }
-
-                        AccessibleButton {
-                            text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.stopScan", "Stop Scan") : TranslationManager.translate("settings.bluetooth.scanForDE1", "Scan for DE1")
-                            accessibleName: BLEManager.scanning ? "Stop scanning for DE1" : "Scan for DE1 machine"
-                            onClicked: {
-                                console.log("DE1 scan button clicked, scanning=" + BLEManager.scanning)
-                                if (BLEManager.scanning) {
-                                    BLEManager.stopScan()
-                                } else {
-                                    BLEManager.startScan()
-                                }
-                            }
-                        }
                     }
 
                     Text {
@@ -767,9 +753,9 @@ Item {
 
                         AccessibleButton {
                             text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
-                            accessibleName: BLEManager.scanning ? "Scanning for devices" : "Scan for Bluetooth scales and refractometers"
+                            accessibleName: BLEManager.scanning ? "Scanning for devices" : "Scan for Bluetooth DE1, scales, and refractometers"
                             enabled: !BLEManager.scanning
-                            onClicked: BLEManager.scanForScales()
+                            onClicked: BLEManager.scanForDevices()
                         }
                     }
 

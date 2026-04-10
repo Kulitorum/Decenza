@@ -313,11 +313,11 @@ Item {
                     break
                 case "scanDE1":
                     if (typeof BLEManager !== "undefined")
-                        BLEManager.startScan()
+                        BLEManager.scanForDevices()
                     break
                 case "scanScale":
                     if (typeof BLEManager !== "undefined")
-                        BLEManager.scanForScales()
+                        BLEManager.scanForDevices()
                     break
                 case "brewSettings":
                     var bp = root.parent

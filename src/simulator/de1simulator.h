@@ -170,7 +170,7 @@ private:
     static constexpr double BASELINE_RESISTANCE = 2.5;    // Fresh dry puck at reference dose/grind
     static constexpr double PEAK_RESISTANCE = 3.5;        // After coffee swells (~40% increase)
     static constexpr double MIN_RESISTANCE = 0.0;         // No minimum - test mode
-    static constexpr double PUCK_FILL_VOLUME = 8.0;       // ml to saturate puck before dripping
+    static constexpr double PUCK_FILL_VOLUME = 5.0;       // ml to saturate puck before dripping (18g dose fills ~5ml void space)
 
     // Resistance dynamics
     static constexpr double SWELLING_TIME = 5.0;          // Seconds for puck to fully swell
@@ -191,9 +191,11 @@ private:
     static constexpr double DARCY_K = 1.8;
 
     // Yield curve (output vs input)
-    static constexpr double DRIP_START_EFFICIENCY = 0.4;  // Initial output/input ratio
+    // Once the puck is saturated, most water flows through as coffee — real espresso
+    // extraction is ~85-90% efficient. 36ml SAV should produce ~30g in cup, not ~15g.
+    static constexpr double DRIP_START_EFFICIENCY = 0.82; // Initial output/input ratio (puck already saturated)
     static constexpr double DRIP_MAX_EFFICIENCY = 0.92;   // Maximum efficiency
-    static constexpr double EFFICIENCY_RAMP_ML = 25.0;    // ml output to reach max efficiency
+    static constexpr double EFFICIENCY_RAMP_ML = 8.0;     // ml output to reach max efficiency (fast — puck is already wet)
 
     // Noise characteristics - subtle for well-prepared puck
     static constexpr double NOISE_PRESSURE_AMP = 0.08;    // ±0.08 bar random variation
