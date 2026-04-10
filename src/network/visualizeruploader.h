@@ -52,7 +52,8 @@ public:
                                  double duration,
                                  double finalWeight = 0,
                                  double doseWeight = 0,
-                                 const ShotMetadata& metadata = ShotMetadata());
+                                 const ShotMetadata& metadata = ShotMetadata(),
+                                 const QString& debugLog = QString());
 
     // Upload a shot from history (takes QVariantMap from ShotHistoryStorage::getShot())
     Q_INVOKABLE void uploadShotFromHistory(const QVariantMap& shotData);
@@ -82,7 +83,8 @@ private:
                              const Profile* profile,
                              double finalWeight,
                              double doseWeight,
-                             const ShotMetadata& metadata);
+                             const ShotMetadata& metadata,
+                             const QString& debugLog);
 
     QJsonObject buildVisualizerProfileJson(const Profile* profile);
     QByteArray buildMultipartData(const QByteArray& jsonData, const QString& boundary);

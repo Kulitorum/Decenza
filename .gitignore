@@ -49,3 +49,4 @@ logcat_*.txt
 -.zip
 .claude/
 .DS_Store
+/.codex_tmp

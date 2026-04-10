@@ -1267,6 +1267,7 @@ void MainController::onShotEnded() {
         m_shotDebugLogger->stopCapture();
         debugLog = m_shotDebugLogger->getCapturedLog();
     }
+    m_pendingDebugLog = debugLog;
 
     // Build metadata for history
     ShotMetadata metadata;
@@ -1389,7 +1390,7 @@ void MainController::onShotEnded() {
     // Auto-upload if enabled (do this first, before showing metadata page)
     if (m_settings->visualizerAutoUpload() && m_visualizer) {
         qDebug() << "  -> Auto-uploading to visualizer";
-        m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata);
+        m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata, debugLog);
     }
 
     // Store pending shot data for later upload (user can re-upload with updated metadata)
@@ -1456,7 +1457,7 @@ void MainController::uploadPendingShot() {
 
     m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(),
                              m_pendingShotDuration, m_pendingShotFinalWeight,
-                             m_pendingShotDoseWeight, metadata);
+                             m_pendingShotDoseWeight, metadata, m_pendingDebugLog);
 
     m_hasPendingShot = false;
 }
