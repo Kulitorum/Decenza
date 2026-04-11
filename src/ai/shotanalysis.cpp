@@ -156,7 +156,6 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
     if (phases.first().label == QStringLiteral("Start") && phases.first().frameNumber == 0)
         firstRealMarker = 1;
 
-    bool sawRealFrameZero = false;
     for (qsizetype i = firstRealMarker; i < phases.size(); ++i) {
         const HistoryPhaseMarker& phase = phases[i];
         if (phase.frameNumber < 0)
@@ -164,20 +163,17 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
         if (expectedFrameCount >= 0 && phase.frameNumber >= expectedFrameCount)
             continue;
 
-        if (phase.frameNumber == 0) {
-            sawRealFrameZero = true;
+        if (phase.frameNumber == 0)
             continue;
-        }
 
         // Match the Tcl plugin's detection window: only classify transitions that
         // happen in the first 2 seconds of extraction.
         if (phase.time >= 2.0)
             return false;
 
-        // At this point we've seen a real non-zero frame inside the 2-second
-        // window. If frame 0 was never observed first, it's the firmware bug;
-        // otherwise it's the "first step too short" profile case. The badge is
-        // intentionally shared for both conditions.
+        // Non-zero frame inside the 2-second window — flag the shot. Both the
+        // firmware bug (frame 0 never seen) and the short-first-step case
+        // (frame 0 briefly seen, then jumped away) share this badge intentionally.
         return true;
     }
 

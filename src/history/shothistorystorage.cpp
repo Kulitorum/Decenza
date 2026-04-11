@@ -2281,6 +2281,13 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         }
     }
 
+    // Skip-first-frame: always recompute from phase markers when available.
+    // Like grind detection, this needs no derived curves, so it covers all shot
+    // eras including shots predating migration 12 that have skip_first_frame_detected = 0 (DEFAULT).
+    if (!record.phases.isEmpty()) {
+        record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(record.phases);
+    }
+
     return record;
 }
 

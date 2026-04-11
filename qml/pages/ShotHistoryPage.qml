@@ -1332,12 +1332,27 @@ Page {
                 }
                 Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Rectangle {
+                    color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: skipFrameLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: skipFrameLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("skipframe:yes")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: skipFrameArea.clicked(null)
+                    Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: insertSearchKeyword("skipframe:yes") }
+                }
+                Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
             }
 
             // Syntax explanation
             Text {
                 text: TranslationManager.translate("shothistory.searchhelpsyntax",
-                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, temp:yes, grind:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
+                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, temp:yes, grind:yes, skipframe:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
