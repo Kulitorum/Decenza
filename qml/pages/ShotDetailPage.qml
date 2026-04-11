@@ -247,7 +247,11 @@ Page {
                         }
 
                         QualityBadges {
-                            visible: !!(shotData.profileKbId)
+                            visible: !!(shotData.profileKbId
+                                        || shotData.channelingDetected
+                                        || shotData.temperatureUnstable
+                                        || shotData.grindIssueDetected
+                                        || shotData.skipFirstFrameDetected)
                             Layout.fillWidth: false
                             Layout.maximumWidth: shotDetailPage.width * 0.5
                             channelingDetected: shotData.channelingDetected ?? false

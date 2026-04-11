@@ -370,7 +370,11 @@ Page {
                         }
 
                         QualityBadges {
-                            visible: !!(editShotData.profileKbId)
+                            visible: !!(editShotData.profileKbId
+                                        || editShotData.channelingDetected
+                                        || editShotData.temperatureUnstable
+                                        || editShotData.grindIssueDetected
+                                        || editShotData.skipFirstFrameDetected)
                             Layout.fillWidth: false
                             Layout.maximumWidth: postShotReviewPage.width * 0.5
                             channelingDetected: editShotData.channelingDetected ?? false
