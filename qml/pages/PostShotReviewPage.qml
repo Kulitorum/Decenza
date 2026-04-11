@@ -270,10 +270,10 @@ Page {
         Settings.dyeGrinderBurrs = editGrinderBurrs
         Settings.dyeGrinderSetting = editGrinderSetting
         Settings.dyeBarista = editBarista
-        Settings.dyeBeanWeight = editDoseWeight
-        Settings.dyeDrinkWeight = editDrinkWeight
-        Settings.dyeDrinkTds = editDrinkTds
-        Settings.dyeDrinkEy = editDrinkEy
+        if (editDoseWeight > 0) Settings.dyeBeanWeight = editDoseWeight
+        if (editDrinkWeight > 0) Settings.dyeDrinkWeight = editDrinkWeight
+        if (editDrinkTds > 0) Settings.dyeDrinkTds = editDrinkTds
+        if (editDrinkEy > 0) Settings.dyeDrinkEy = editDrinkEy
         // Note: enjoyment and notes are NOT synced back - they're shot-specific
         // Note: reload deferred to onShotMetadataUpdated to avoid race with async write
     }
