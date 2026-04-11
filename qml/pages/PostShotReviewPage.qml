@@ -120,7 +120,9 @@ Page {
                 editGrinderBurrs = editShotData.grinderBurrs || ""
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editBarista = editShotData.barista || ""
-                editDoseWeight = editShotData.doseWeight ?? 0
+                // Fall back to last-used DYE dose when the shot has no stored dose,
+                // so EY can be computed immediately when TDS arrives.
+                editDoseWeight = (editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dyeBeanWeight
                 editDrinkWeight = editShotData.finalWeight ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
