@@ -335,6 +335,20 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         }
     }
 
+    // --- Skip-first-frame ---
+    // Re-derive from phase markers (already available) so generateSummary() does not
+    // need a separate skipFirstFrameDetected parameter. Mirrors the Tcl plugin: FW bug
+    // (machine never executed frame 0) or profile first step too short (< 2 s).
+    const bool skipFirstFrame = detectSkipFirstFrame(phases);
+    if (skipFirstFrame) {
+        QVariantMap line;
+        line["text"] = QStringLiteral("First profile step skipped \u2014 "
+            "likely a DE1 firmware bug (power-cycle machine to fix) "
+            "or first step too short (check profile settings)");
+        line["type"] = QStringLiteral("warning");
+        lines.append(line);
+    }
+
     // --- Verdict ---
     bool hasWarning = false, hasCaution = false;
     for (const auto& lineVar : lines) {
@@ -344,7 +358,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     QVariantMap verdict;
-    if (hasWarning) {
+    if (skipFirstFrame) {
+        // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice
+        // so the user isn't told to adjust grind when the real fix is a power-cycle.
+        verdict["text"] = QStringLiteral("Verdict: First profile step was skipped \u2014 "
+            "power-cycle the machine to fix a firmware bug, "
+            "or review the profile's first step settings.");
+    } else if (hasWarning) {
         // Channeling detected — direction depends on whether flow was running slow or fast.
         // Too-fine grind can cause puck collapse and channeling just as much as too-coarse.
         if (hasFlowGoalData && flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {

@@ -2285,7 +2285,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // Like grind detection, this needs no derived curves, so it covers all shot
     // eras including shots predating migration 12 that have skip_first_frame_detected = 0 (DEFAULT).
     if (!record.phases.isEmpty()) {
-        record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(record.phases);
+        record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
+            record.phases,
+            expectedFrameCountFromProfileJson(record.profileJson));
     }
 
     return record;

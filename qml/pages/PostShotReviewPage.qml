@@ -227,7 +227,7 @@ Page {
         editGrinderBurrs !== (editShotData.grinderBurrs || "") ||
         editGrinderSetting !== (editShotData.grinderSetting || "") ||
         editBarista !== (editShotData.barista || "") ||
-        editDoseWeight !== (editShotData.doseWeight ?? 0) ||
+        editDoseWeight !== ((editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dyeBeanWeight) ||
         editDrinkWeight !== (editShotData.finalWeight ?? 0) ||
         editDrinkTds !== (editShotData.drinkTds ?? 0) ||
         editDrinkEy !== (editShotData.drinkEy ?? 0) ||
