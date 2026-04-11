@@ -465,7 +465,7 @@ Page {
                                 if (typeof Refractometer !== "undefined" && Refractometer)
                                     Refractometer.requestMeasurement()
                             } else {
-                                BLEManager.tryDirectConnectToRefractometer()
+                                BLEManager.scanForDevices()
                             }
                         }
                     }
