@@ -122,11 +122,18 @@ Page {
                 editBarista = editShotData.barista || ""
                 editDoseWeight = editShotData.doseWeight ?? 0
                 editDrinkWeight = editShotData.finalWeight ?? 0
-                editDrinkTds = editShotData.drinkTds ?? 0
+                // Preserve any live R2 reading that arrived before the async DB load;
+                // only take the DB value when no measurement has been received yet.
+                if (editDrinkTds === 0)
+                    editDrinkTds = editShotData.drinkTds ?? 0
                 editDrinkEy = editShotData.drinkEy ?? 0
                 editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
+                // Recompute EY now that dose/weight are loaded (covers the case where TDS
+                // arrived via R2 before the shot data was ready, or where the DB already
+                // has a non-zero TDS from a previous session).
+                calculateEy()
                 // Recompute quality badges in background (handles stale values after KB updates)
                 MainController.shotHistory.requestReanalyzeBadges(shotId)
             }
