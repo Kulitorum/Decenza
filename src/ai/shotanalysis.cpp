@@ -139,6 +139,47 @@ bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
     return std::abs(delta) > FLOW_DEVIATION_THRESHOLD;
 }
 
+bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
+                                        int expectedFrameCount)
+{
+    if (phases.isEmpty())
+        return false;
+
+    if (expectedFrameCount >= 0 && expectedFrameCount < 2)
+        return false;
+
+    // Decenza inserts a synthetic "Start" marker at extraction start before any
+    // real frame-change markers. Ignore it so we can mirror the de1app plugin's
+    // "did we ever see frame 0 before a non-zero frame in the first 2 seconds?"
+    // behavior against saved history.
+    qsizetype firstRealMarker = 0;
+    if (phases.first().label == QStringLiteral("Start") && phases.first().frameNumber == 0)
+        firstRealMarker = 1;
+
+    for (qsizetype i = firstRealMarker; i < phases.size(); ++i) {
+        const HistoryPhaseMarker& phase = phases[i];
+        if (phase.frameNumber < 0)
+            continue;
+        if (expectedFrameCount >= 0 && phase.frameNumber >= expectedFrameCount)
+            continue;
+
+        if (phase.frameNumber == 0)
+            continue;
+
+        // Match the Tcl plugin's detection window: only classify transitions that
+        // happen in the first 2 seconds of extraction.
+        if (phase.time >= 2.0)
+            return false;
+
+        // Non-zero frame inside the 2-second window — flag the shot. Both the
+        // firmware bug (frame 0 never seen) and the short-first-step case
+        // (frame 0 briefly seen, then jumped away) share this badge intentionally.
+        return true;
+    }
+
+    return false;
+}
+
 QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              const QVector<QPointF>& flow,
                                              const QVector<QPointF>& weight,
@@ -294,6 +335,20 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         }
     }
 
+    // --- Skip-first-frame ---
+    // Re-derive from phase markers (already available) so generateSummary() does not
+    // need a separate skipFirstFrameDetected parameter. Mirrors the Tcl plugin: FW bug
+    // (machine never executed frame 0) or profile first step too short (< 2 s).
+    const bool skipFirstFrame = detectSkipFirstFrame(phases);
+    if (skipFirstFrame) {
+        QVariantMap line;
+        line["text"] = QStringLiteral("First profile step skipped \u2014 "
+            "likely a DE1 firmware bug (power-cycle machine to fix) "
+            "or first step too short (check profile settings)");
+        line["type"] = QStringLiteral("warning");
+        lines.append(line);
+    }
+
     // --- Verdict ---
     bool hasWarning = false, hasCaution = false;
     for (const auto& lineVar : lines) {
@@ -303,7 +358,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     QVariantMap verdict;
-    if (hasWarning) {
+    if (skipFirstFrame) {
+        // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice
+        // so the user isn't told to adjust grind when the real fix is a power-cycle.
+        verdict["text"] = QStringLiteral("Verdict: First profile step was skipped \u2014 "
+            "power-cycle the machine to fix a firmware bug, "
+            "or review the profile's first step settings.");
+    } else if (hasWarning) {
         // Channeling detected — direction depends on whether flow was running slow or fast.
         // Too-fine grind can cause puck collapse and channeling just as much as too-coarse.
         if (hasFlowGoalData && flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {

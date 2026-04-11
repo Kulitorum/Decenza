@@ -194,11 +194,12 @@ Page {
                 }
             }
 
-            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes)
+            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes, skipframe:yes)
             var flagKeywords = [
                 { pattern: /\bchanneling:yes\b/gi, filterKey: "filterChanneling" },
                 { pattern: /\btemp:yes\b/gi, filterKey: "filterTemperatureUnstable" },
-                { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" }
+                { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" },
+                { pattern: /\bskipframe:yes\b/gi, filterKey: "filterSkipFirstFrame" }
             ]
             for (var j = 0; j < flagKeywords.length; j++) {
                 var fk = flagKeywords[j]
@@ -210,7 +211,7 @@ Page {
 
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
-            searchText = searchText.replace(/\b(channeling|temp|grind):yes\b/gi, "")
+            searchText = searchText.replace(/\b(channeling|temp|grind|skipframe):yes\b/gi, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -591,6 +592,7 @@ Page {
                     if (model.channelingDetected) issues.push("channeling")
                     if (model.temperatureUnstable) issues.push("temp unstable")
                     if (model.grindIssueDetected) issues.push("grind issue")
+                    if (model.skipFirstFrameDetected) issues.push("first step skipped")
                     if (issues.length > 0) parts.push(issues.join(", "))
                     return parts.join(", ")
                 }
@@ -739,6 +741,12 @@ Page {
                                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.warningColor
                                 visible: model.grindIssueDetected ?? false
+                                Accessible.ignored: true
+                            }
+                            Rectangle {
+                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                color: Theme.errorColor
+                                visible: model.skipFirstFrameDetected ?? false
                                 Accessible.ignored: true
                             }
                         }
@@ -1324,12 +1332,27 @@ Page {
                 }
                 Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Rectangle {
+                    color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: skipFrameLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: skipFrameLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("skipframe:yes")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: skipFrameArea.clicked(null)
+                    Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: insertSearchKeyword("skipframe:yes") }
+                }
+                Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
             }
 
             // Syntax explanation
             Text {
                 text: TranslationManager.translate("shothistory.searchhelpsyntax",
-                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, temp:yes, grind:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
+                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, temp:yes, grind:yes, skipframe:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap

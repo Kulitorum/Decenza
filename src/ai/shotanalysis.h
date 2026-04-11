@@ -94,6 +94,19 @@ public:
                                   const QVector<QPointF>& flowGoal,
                                   double pourStart, double pourEnd);
 
+    // Returns true if the shot appears to have skipped profile frame 0, indicating
+    // either a known DE1 firmware bug (machine started at frame 1+) or a profile
+    // whose first step is so short (< 2 s) it was never meaningfully executed.
+    // Mirrors the de1app plugin semantics against Decenza's saved phase markers:
+    // ignore the synthetic "Start" marker, then inspect real frame markers only
+    // within the first 2 seconds of extraction. expectedFrameCount is optional;
+    // when known, values less than 2 suppress detection (there is no second frame
+    // to skip to), and out-of-range frame numbers are ignored as malformed data.
+    // The firmware bug requires a full power-cycle of the machine to fix.
+    // Returns false when phases is empty (insufficient data).
+    static bool detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
+                                     int expectedFrameCount = -1);
+
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
     // flowGoal is the profile's target flow curve and drives grind-direction analysis (may be empty).

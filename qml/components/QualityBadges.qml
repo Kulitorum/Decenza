@@ -13,6 +13,7 @@ Item {
     required property bool channelingDetected
     required property bool temperatureUnstable
     required property bool grindIssueDetected
+    required property bool skipFirstFrameDetected
 
     signal summaryRequested()
 
@@ -129,9 +130,44 @@ Item {
             }
         }
 
+        // Skip-first-frame badge (red) — DE1 firmware bug or very short first step
+        Rectangle {
+            visible: root.skipFirstFrameDetected
+            width: skipFrameRow.width + Theme.spacingMedium * 2
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
+            color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
+            border.color: Theme.errorColor
+            border.width: Theme.scaled(1)
+
+            Accessible.role: Accessible.StaticText
+            Accessible.name: skipFrameText.text
+            Accessible.focusable: true
+
+            Row {
+                id: skipFrameRow
+                anchors.centerIn: parent
+                spacing: Theme.scaled(4)
+                Rectangle {
+                    width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                    color: Theme.errorColor; anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+                Tr {
+                    id: skipFrameText
+                    key: "badges.skipFirstFrame"
+                    fallback: "First step skipped"
+                    font: Theme.captionFont
+                    color: Theme.errorColor
+                    anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+            }
+        }
+
         // Clean extraction badge (green) — only shown when no flags are set
         Rectangle {
-            visible: !root.channelingDetected && !root.temperatureUnstable && !root.grindIssueDetected
+            visible: !root.channelingDetected && !root.temperatureUnstable && !root.grindIssueDetected && !root.skipFirstFrameDetected
             width: cleanRow.width + Theme.spacingMedium * 2
             height: Theme.scaled(28)
             radius: Theme.scaled(14)
