@@ -16,3 +16,5 @@ Use `@/openspec/AGENTS.md` to learn:
 Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
+
+Also read `@/CLAUDE.md` at the start of work in this repository, in addition to `@/AGENTS.md`.
