@@ -2490,6 +2490,10 @@ ApplicationWindow {
             }
         }
 
+        // Dismiss any in-app Safari view (iOS Claude Desktop discuss overlay)
+        // so the screensaver can render without being covered by a modal.
+        Settings.dismissDiscussOverlay()
+
         // Navigate to screensaver page for all modes (including "disabled")
         // For "disabled" mode, ScreensaverPage dims the backlight to minimum
         // and shows a black overlay. We keep FLAG_KEEP_SCREEN_ON set to avoid

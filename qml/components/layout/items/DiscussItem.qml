@@ -8,14 +8,22 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
-    visible: Settings.discussShotApp !== 6
+    visible: Settings.discussShotApp !== Settings.discussAppNone
+
+    // Claude Desktop mode needs a session URL pasted from `claude remote-control`.
+    // Keep the button visible but disabled until the URL is set, so the user sees
+    // where to tap after completing setup.
+    readonly property bool isClaudeDesktopReady:
+        Settings.discussShotApp !== Settings.discussAppClaudeDesktop
+        || Settings.claudeRcSessionUrl.length > 0
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function openDiscuss() {
+        if (!root.isClaudeDesktopReady) return
         var url = Settings.discussShotUrl()
-        if (url.length > 0) Qt.openUrlExternally(url)
+        if (url.length > 0) Settings.openDiscussUrl(url)
     }
 
     // --- COMPACT MODE ---
@@ -75,6 +83,7 @@ Item {
             iconSource: "qrc:/icons/discuss.svg"
             iconSize: Theme.scaled(43)
             backgroundColor: Theme.primaryColor
+            enabled: root.isClaudeDesktopReady
             onClicked: root.openDiscuss()
         }
     }

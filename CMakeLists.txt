@@ -299,6 +299,7 @@ set(SOURCES
     src/mcp/mcptools_scale.cpp
     src/mcp/mcptools_devices.cpp
     src/mcp/mcptools_write.cpp
+    src/mcp/mcptools_agent.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
@@ -347,6 +348,11 @@ if(APPLE)
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm
         src/screensaver/iosbrightness.mm
     )
+endif()
+
+# iOS-only: SFSafariViewController bridge for opening URLs without universal-link interception
+if(IOS)
+    list(APPEND SOURCES ios/SafariViewHelper.mm)
 endif()
 
 set(HEADERS
@@ -564,6 +570,9 @@ target_include_directories(Decenza PRIVATE
 )
 if(ANDROID)
     target_include_directories(Decenza PRIVATE ${mdns_lib_SOURCE_DIR})
+endif()
+if(IOS)
+    target_include_directories(Decenza PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ios)
 endif()
 
 # QML module - mark Theme.qml as singleton
@@ -886,6 +895,10 @@ if(IOS)
     # Link Security.framework for self-signed TLS certificate generation
     target_link_libraries(Decenza PRIVATE
         "-framework Security"
+    )
+    # SFSafariViewController for opening URLs without universal-link interception
+    target_link_libraries(Decenza PRIVATE
+        "-framework SafariServices"
     )
 endif()
 

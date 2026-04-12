@@ -254,7 +254,9 @@ class Settings : public QObject {
     // Discuss Shot settings
     Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged)
     Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscussShotCustomUrl NOTIFY discussShotCustomUrlChanged)
+    Q_PROPERTY(QString claudeRcSessionUrl READ claudeRcSessionUrl WRITE setClaudeRcSessionUrl NOTIFY claudeRcSessionUrlChanged)
     Q_PROPERTY(int discussAppNone READ discussAppNone CONSTANT)
+    Q_PROPERTY(int discussAppClaudeDesktop READ discussAppClaudeDesktop CONSTANT)
 
     // MQTT settings (Home Automation)
     Q_PROPERTY(bool mqttEnabled READ mqttEnabled WRITE setMqttEnabled NOTIFY mqttEnabledChanged)
@@ -272,6 +274,7 @@ public:
     explicit Settings(QObject* parent = nullptr);
 
     int discussAppNone() const { return 6; }
+    int discussAppClaudeDesktop() const { return 7; }
 
     // Platform capabilities (compile-time)
     bool hasQuick3D() const {
@@ -781,7 +784,11 @@ public:
     void setDiscussShotApp(int app);
     QString discussShotCustomUrl() const;
     void setDiscussShotCustomUrl(const QString& url);
+    QString claudeRcSessionUrl() const;
+    void setClaudeRcSessionUrl(const QString& url);
     Q_INVOKABLE QString discussShotUrl() const;
+    Q_INVOKABLE void openDiscussUrl(const QString& url);
+    Q_INVOKABLE void dismissDiscussOverlay();
 
     // MQTT settings (Home Automation)
     bool mqttEnabled() const;
@@ -1001,6 +1008,7 @@ signals:
     void mcpApiKeyChanged();
     void discussShotAppChanged();
     void discussShotCustomUrlChanged();
+    void claudeRcSessionUrlChanged();
     void mqttEnabledChanged();
     void mqttBrokerHostChanged();
     void mqttBrokerPortChanged();

@@ -49,9 +49,11 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState);
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device);
 class MemoryMonitor;
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor);
+void registerAgentTools(McpToolRegistry* registry);
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, ProfileManager* profileManager,
-                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor);
+                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor,
+                          Settings* settings);
 
 McpServer::McpServer(QObject* parent)
     : QObject(parent)
@@ -90,12 +92,13 @@ void McpServer::registerAllTools()
     registerScaleTools(m_toolRegistry, m_machineState);
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);
+    registerAgentTools(m_toolRegistry);
     qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
 }
 
 void McpServer::registerAllResources()
 {
-    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_profileManager, m_shotHistory, m_memoryMonitor);
+    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_profileManager, m_shotHistory, m_memoryMonitor, m_settings);
     qDebug() << "McpServer: Registered" << m_resourceRegistry->listResources().size() << "resources";
 }
 

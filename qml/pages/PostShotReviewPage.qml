@@ -1485,7 +1485,7 @@ Page {
                     }
                     // Open configured AI app
                     var url = Settings.discussShotUrl()
-                    if (url.length > 0) Qt.openUrlExternally(url)
+                    if (url.length > 0) Settings.openDiscussUrl(url)
                 }
             }
         }

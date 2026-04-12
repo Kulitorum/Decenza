@@ -6,6 +6,7 @@
 #include "../controllers/profilemanager.h"
 #include "../history/shothistorystorage.h"
 #include "../core/memorymonitor.h"
+#include "../core/settings.h"
 #include "../network/webdebuglogger.h"
 
 #include <QDateTime>
@@ -21,7 +22,8 @@
 
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, ProfileManager* profileManager,
-                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor)
+                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor,
+                          Settings* settings)
 {
     // decenza://machine/state
     registry->registerResource(
@@ -128,6 +130,88 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
 
                 result["shots"] = shots;
                 result["count"] = shots.size();
+
+                QMetaObject::invokeMethod(qApp, [respond, result]() {
+                    respond(result);
+                }, Qt::QueuedConnection);
+            });
+
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        });
+
+    // decenza://dialing/current_context
+    // Compact snapshot of the active bean, grinder, last 3 shots, active profile, and machine
+    // phase — intended for a Claude Code Remote Control session to read at turn start.
+    registry->registerAsyncResource(
+        "decenza://dialing/current_context",
+        "Current Dialing Context",
+        "Live bean/grinder/profile/machine snapshot plus the last 3 shots, for AI dialing sessions",
+        "application/json",
+        [settings, profileManager, machineState, shotHistory](std::function<void(QJsonObject)> respond) {
+            QJsonObject bean;
+            QJsonObject grinder;
+            if (settings) {
+                bean["brand"] = settings->dyeBeanBrand();
+                bean["type"] = settings->dyeBeanType();
+                bean["roastDate"] = settings->dyeRoastDate();
+                bean["doseWeightG"] = settings->dyeBeanWeight();
+                grinder["brand"] = settings->dyeGrinderBrand();
+                grinder["model"] = settings->dyeGrinderModel();
+                grinder["setting"] = settings->dyeGrinderSetting();
+            }
+
+            QJsonObject activeProfile;
+            if (profileManager) {
+                activeProfile["name"] = profileManager->currentProfileName();
+                activeProfile["editorType"] = profileManager->currentEditorType();
+            }
+
+            QString machinePhase = machineState ? machineState->phaseString() : QString();
+
+            if (!shotHistory || !shotHistory->isReady()) {
+                QJsonObject result;
+                result["bean"] = bean;
+                result["grinder"] = grinder;
+                result["activeProfile"] = activeProfile;
+                result["machinePhase"] = machinePhase;
+                result["recentShots"] = QJsonArray();
+                respond(result);
+                return;
+            }
+
+            const QString dbPath = shotHistory->databasePath();
+
+            QThread* thread = QThread::create([dbPath, bean, grinder, activeProfile, machinePhase, respond]() {
+                QJsonObject result;
+                QJsonArray shots;
+
+                withTempDb(dbPath, "mcp_res_dialing_ctx", [&](QSqlDatabase& db) {
+                    QSqlQuery query(db);
+                    if (query.exec("SELECT id, timestamp, profile_name, dose_weight, final_weight, "
+                                   "duration_seconds, drink_tds, drink_ey "
+                                   "FROM shots ORDER BY timestamp DESC LIMIT 3")) {
+                        while (query.next()) {
+                            QJsonObject shot;
+                            shot["id"] = query.value("id").toLongLong();
+                            auto dt = QDateTime::fromSecsSinceEpoch(query.value("timestamp").toLongLong());
+                            shot["timestamp"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+                            shot["profileName"] = query.value("profile_name").toString();
+                            shot["doseG"] = query.value("dose_weight").toDouble();
+                            shot["yieldG"] = query.value("final_weight").toDouble();
+                            shot["durationSec"] = query.value("duration_seconds").toDouble();
+                            shot["tdsPercent"] = query.value("drink_tds").toDouble();
+                            shot["extractionYieldPercent"] = query.value("drink_ey").toDouble();
+                            shots.append(shot);
+                        }
+                    }
+                });
+
+                result["bean"] = bean;
+                result["grinder"] = grinder;
+                result["activeProfile"] = activeProfile;
+                result["machinePhase"] = machinePhase;
+                result["recentShots"] = shots;
 
                 QMetaObject::invokeMethod(qApp, [respond, result]() {
                     respond(result);

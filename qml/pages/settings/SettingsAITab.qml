@@ -32,7 +32,8 @@ KeyboardAwareContainer {
         TranslationManager.translate("settings.ai.discuss.app.gemini", "Gemini"),
         TranslationManager.translate("settings.ai.discuss.app.grok", "Grok"),
         TranslationManager.translate("settings.ai.discuss.customUrl", "Custom URL"),
-        TranslationManager.translate("settings.ai.discuss.app.none", "None")
+        TranslationManager.translate("settings.ai.discuss.app.none", "None"),
+        TranslationManager.translate("settings.ai.discuss.app.claudeDesktop", "Claude Desktop")
     ]
 
     // Full-width card
@@ -739,6 +740,32 @@ KeyboardAwareContainer {
                         text: Settings.discussShotCustomUrl
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
                         onTextChanged: Settings.discussShotCustomUrl = text
+                    }
+                }
+
+                // Claude Desktop (Remote Control) setup — visible when Claude Desktop is selected
+                ColumnLayout {
+                    visible: Settings.discussShotApp === Settings.discussAppClaudeDesktop
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate(
+                            "settings.ai.discuss.claudeDesktop.help",
+                            "Paste the session URL printed by `claude remote-control`. See the MCP Setup page for step-by-step instructions.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    StyledTextField {
+                        id: claudeRcUrlField
+                        Layout.fillWidth: true
+                        placeholder: "https://claude.ai/..."
+                        text: Settings.claudeRcSessionUrl
+                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+                        onTextChanged: Settings.claudeRcSessionUrl = text
                     }
                 }
 

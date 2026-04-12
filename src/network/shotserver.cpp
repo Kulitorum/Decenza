@@ -1297,9 +1297,21 @@ a{color:#6c8cff}
 <table style="width:100%%;border-collapse:collapse;margin:12px 0">
 <tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Decenza runs on</strong></td><td style="padding:8px">Any platform &mdash; tablet, phone, or desktop</td></tr>
 <tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Claude Desktop connects from</strong></td><td style="padding:8px">macOS or Windows (same WiFi network)</td></tr>
+)HTML"
+#ifdef QT_DEBUG
+R"HTML(
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Claude iOS/Android apps</strong></td><td style="padding:8px">Connect via Claude Code Remote Control &mdash; see <em>AI Chat</em> section below</td></tr>
+</table>
+<p><strong>Tip:</strong> You can also use the <em>Discuss</em> button on any shot review page to open any AI (Claude Web, ChatGPT, Gemini, Grok, or a persistent Claude Code Remote Control session) with your shot data &mdash; this works on all platforms.</p>
+)HTML"
+#else
+R"HTML(
 <tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Does NOT work with</strong></td><td style="padding:8px">claude.ai web, Claude iOS/Android apps</td></tr>
 </table>
 <p><strong>Tip:</strong> You can also use the <em>Discuss</em> button on any shot review page to open any AI (Claude Web, ChatGPT, Gemini, Grok) with your shot data copied to clipboard &mdash; this works on all platforms without MCP.</p>
+)HTML"
+#endif
+R"HTML(
 
 <h2>Available Tools (%4)</h2>
 <p>At <strong>Full Automation</strong> access level, Claude can:</p>
@@ -1334,6 +1346,42 @@ a{color:#6c8cff}
 <pre id="uninstallCmd"><code id="uninstallCmdText">Loading...</code><button class="copy-btn" onclick="copyCmd('uninstallCmdText',this)">Copy</button></pre>
 <p style="color:#999;font-size:13px">Then restart Claude Desktop.</p>
 
+)HTML"
+#ifdef QT_DEBUG
+R"HTML(
+<h2>AI Chat (Claude Code Remote Control)</h2>
+<p>Start a persistent Decenza dialing-journal session you can talk to from the Claude iOS, Android, or desktop app. Claude reads live bean and shot data from MCP and maintains a per-bean log file on your computer across sessions.</p>
+
+<div class="step"><span class="step-num">1.</span> Install <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code CLI</a> on your Mac, Windows, or Linux computer</div>
+
+<div class="step"><span class="step-num">2.</span> Create a working directory (Claude uses this for <code>CLAUDE.md</code> and the <code>dialing/</code> log folder):
+<pre><code>mkdir ~/Decenza-AI &amp;&amp; cd ~/Decenza-AI</code></pre></div>
+
+<div class="step"><span class="step-num">3.</span> Create a <code>.mcp.json</code> file in that directory &mdash; Claude Code auto-loads MCP servers from this file in the current working directory:
+<pre id="rcMcpJson"><code id="rcMcpJsonText">Loading...</code><button class="copy-btn" onclick="copyCmd('rcMcpJsonText',this)">Copy</button></pre></div>
+
+<div class="step"><span class="step-num">4.</span> Run <code>claude</code> once in that directory to accept two first-time prompts &mdash; Claude Code blocks <code>remote-control</code> until both are answered:
+<pre><code>claude</code></pre>
+<ol style="margin:8px 0 0 20px;padding:0;color:#c0c0c0;font-size:13px">
+<li><strong>Workspace trust dialog</strong> &mdash; accept that you trust this folder</li>
+<li><strong>MCP server approval</strong> (<em>"New MCP server found in .mcp.json: decenza"</em>) &mdash; select <strong>"1. Use this and all future MCP servers in this project"</strong> so Decenza is enabled for all future sessions in this directory</li>
+</ol>
+<p style="margin:8px 0 0 0;color:#999;font-size:13px">Then type <code>/exit</code> or press Ctrl+C to return to your shell.</p></div>
+
+<div class="step"><span class="step-num">5.</span> Start the Remote Control session:
+<pre><code>claude remote-control --name "Decenza_REMOTE" --spawn=session</code></pre>
+<p style="margin:8px 0 0 0;color:#c0c0c0;font-size:13px"><code>--spawn=session</code> keeps it to one persistent session named <strong>Decenza_REMOTE</strong> in your Claude session list &mdash; without this flag the default server mode spawns sessions on demand and names them after your hostname.</p>
+<p style="margin:4px 0 0 0;color:#c0c0c0;font-size:13px">Claude Code prints a session URL to the terminal &mdash; keep this terminal open so the session stays alive.</p></div>
+
+<div class="step"><span class="step-num">6.</span> In Decenza: Settings &rarr; AI &rarr; Discuss app &rarr; <strong>Claude Desktop</strong>, then paste the session URL into the field</div>
+
+<div class="step"><span class="step-num">7.</span> Open the session from any Claude client (iOS, Android, desktop app, or browser) and ask: <em>"Set up Decenza AI chat"</em> &mdash; Claude will call <code>get_agent_file</code>, write <code>CLAUDE.md</code>, and create the <code>dialing/</code> folder automatically.</div>
+
+<p style="color:#999;font-size:13px">After setup, tapping <em>Discuss</em> on any shot review page opens the same session directly, with live bean and shot context already available.</p>
+)HTML"
+#endif
+R"HTML(
+
 <script>
 (function(){
 var p=navigator.platform||navigator.userAgent||'';
@@ -1352,6 +1400,24 @@ document.getElementById('installCmdText').textContent=
 document.getElementById('uninstallCmdText').textContent=
 'curl -fsSL '+o+'/mcp/uninstall.sh | bash';
 }
+
+)HTML"
+#ifdef QT_DEBUG
+R"HTML(
+// .mcp.json payload for `claude remote-control`
+var rcMcpJson =
+'{\n' +
+'  "mcpServers": {\n' +
+'    "decenza": {\n' +
+'      "type": "http",\n' +
+'      "url": "'+o+'/mcp"\n' +
+'    }\n' +
+'  }\n' +
+'}';
+document.getElementById('rcMcpJsonText').textContent = rcMcpJson;
+)HTML"
+#endif
+R"HTML(
 })();
 </script>
 

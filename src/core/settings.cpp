@@ -13,9 +13,11 @@
 #include <QLocale>
 #include <QGuiApplication>
 #include <QStyleHints>
+#include <QDesktopServices>
 
 #ifdef Q_OS_IOS
 #include "screensaver/iosbrightness.h"
+#include "SafariViewHelper.h"
 #endif
 
 #ifdef Q_OS_ANDROID
@@ -3675,6 +3677,17 @@ void Settings::setDiscussShotCustomUrl(const QString& url) {
     }
 }
 
+QString Settings::claudeRcSessionUrl() const {
+    return m_settings.value("ai/claudeRcSessionUrl").toString();
+}
+
+void Settings::setClaudeRcSessionUrl(const QString& url) {
+    if (claudeRcSessionUrl() != url) {
+        m_settings.setValue("ai/claudeRcSessionUrl", url);
+        emit claudeRcSessionUrlChanged();
+    }
+}
+
 QString Settings::discussShotUrl() const {
     static const QStringList urls = {
         "claude://",
@@ -3686,8 +3699,27 @@ QString Settings::discussShotUrl() const {
     int app = discussShotApp();
     if (app == 5) return discussShotCustomUrl();
     if (app == discussAppNone()) return QString();
+    if (app == discussAppClaudeDesktop()) return claudeRcSessionUrl();
     if (app >= 0 && app < urls.size()) return urls[app];
     return urls[0];
+}
+
+void Settings::openDiscussUrl(const QString& url) {
+    if (url.isEmpty()) return;
+
+#ifdef Q_OS_IOS
+    if (discussShotApp() == discussAppClaudeDesktop()) {
+        if (openInSafariView(url)) return;
+    }
+#endif
+
+    QDesktopServices::openUrl(QUrl(url));
+}
+
+void Settings::dismissDiscussOverlay() {
+#ifdef Q_OS_IOS
+    dismissSafariView();
+#endif
 }
 
 // MQTT settings (Home Automation)

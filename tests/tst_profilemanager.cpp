@@ -23,9 +23,11 @@ using namespace DE1::Characteristic;
 // Forward declaration — implemented in mcpresources.cpp
 class MemoryMonitor;
 class ShotHistoryStorage;
+class Settings;
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, ProfileManager* profileManager,
-                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor);
+                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor,
+                          Settings* settings);
 
 // Direct tests for ProfileManager — the core class extracted in the refactor.
 // Verifies the profile lifecycle (load, state, save, upload, signals) works
@@ -481,7 +483,7 @@ private slots:
 
         McpResourceRegistry resources;
         registerMcpResources(&resources, &f.device, &f.machineState,
-                             &f.profileManager, nullptr, nullptr);
+                             &f.profileManager, nullptr, nullptr, nullptr);
 
         QString error;
         QJsonObject result = resources.readResource("decenza://profiles/active", error);
@@ -503,7 +505,7 @@ private slots:
 
         McpResourceRegistry resources;
         registerMcpResources(&resources, &f.device, &f.machineState,
-                             &f.profileManager, nullptr, nullptr);
+                             &f.profileManager, nullptr, nullptr, nullptr);
 
         QString error;
         QJsonObject result = resources.readResource("decenza://profiles/active", error);

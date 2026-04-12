@@ -1439,7 +1439,7 @@ Page {
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }
                     var url = Settings.discussShotUrl()
-                    if (url.length > 0) Qt.openUrlExternally(url)
+                    if (url.length > 0) Settings.openDiscussUrl(url)
                 }
             }
         }
