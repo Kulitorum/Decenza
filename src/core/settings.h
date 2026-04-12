@@ -101,6 +101,9 @@ class Settings : public QObject {
     // an `originalIndex` field mapping back into beanPresets for selection/apply calls.
     Q_PROPERTY(QVariantList idleBeanPresets READ idleBeanPresets NOTIFY beanPresetsChanged)
     Q_PROPERTY(int selectedBeanPreset READ selectedBeanPreset WRITE setSelectedBeanPreset NOTIFY selectedBeanPresetChanged)
+    // True when selectedBeanPreset >= 0 AND any DYE bean/grinder field diverges from the preset's stored value.
+    // Mirrors the ProfileManager.profileModified concept so the beans pill can show an "unsaved" indicator.
+    Q_PROPERTY(bool beansModified READ beansModified NOTIFY beansModifiedChanged)
 
     // UI settings
     Q_PROPERTY(QString skin READ skin WRITE setSkin NOTIFY skinChanged)
@@ -479,6 +482,8 @@ public:
     Q_INVOKABLE void saveBeanPresetFromCurrent(const QString& name);  // Creates or updates preset from current DYE
     Q_INVOKABLE int findBeanPresetByContent(const QString& brand, const QString& type) const;  // Returns index or -1 (simple match)
     Q_INVOKABLE int findBeanPresetByName(const QString& name) const;  // Returns index or -1
+
+    bool beansModified() const { return m_beansModified; }
 
     // UI settings
     QString skin() const;
@@ -921,6 +926,7 @@ signals:
     void flushSecondsChanged();
     void beanPresetsChanged();
     void selectedBeanPresetChanged();
+    void beansModifiedChanged();
     void skinChanged();
     void currentProfileChanged();
     void customThemeColorsChanged();
@@ -1039,6 +1045,12 @@ private:
 
     void ensureSawCacheLoaded() const;
     void writeKnownScales(const QVariantList& scales);
+
+    // Recompute m_beansModified from current DYE values vs the selected preset and emit
+    // beansModifiedChanged() if the cached state flipped. Wired to the relevant NOTIFY
+    // signals in the constructor.
+    void recomputeBeansModified();
+    bool m_beansModified = false;
 
     mutable QSettings m_settings;
     bool m_use12HourTime = false;

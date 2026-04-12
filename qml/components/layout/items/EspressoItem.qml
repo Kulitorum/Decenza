@@ -170,6 +170,8 @@ Item {
                 presets: Settings.favoriteProfiles
                 selectedIndex: Settings.selectedFavoriteProfile
                 supportLongPress: true
+                modified: ProfileManager.profileModified
+                modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
 
                 onPresetSelected: function(index) {
                     var wasAlreadySelected = (index === Settings.selectedFavoriteProfile)

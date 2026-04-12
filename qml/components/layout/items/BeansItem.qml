@@ -121,6 +121,26 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Full-mode beans path runs IdlePage.onActivePresetFunctionChanged which announces
+        // the preset list to TalkBack. The compact-mode popup bypasses that path, so
+        // announce here directly to keep feature parity for screen-reader users.
+        onOpened: {
+            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            var presets = Settings.idleBeanPresets
+            if (presets.length === 0) return
+            var names = []
+            var selectedName = ""
+            for (var i = 0; i < presets.length; ++i) {
+                names.push(presets[i].name)
+                if (presets[i].originalIndex === Settings.selectedBeanPreset) selectedName = presets[i].name
+            }
+            var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
+            if (selectedName !== "") {
+                announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
+            }
+            AccessibilityManager.announce(announcement)
+        }
+
         width: {
             var win = root.Window.window
             var w = Theme.scaled(600) + 2 * padding
@@ -166,6 +186,7 @@ Item {
             id: beansPillRow
             maxWidth: Theme.scaled(600)
             presets: Settings.idleBeanPresets
+            modified: Settings.beansModified
             // selectedIndex refers to position within the filtered list
             selectedIndex: {
                 var list = Settings.idleBeanPresets

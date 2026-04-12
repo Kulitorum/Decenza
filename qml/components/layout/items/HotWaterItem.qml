@@ -116,6 +116,28 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Full-mode hot-water path runs IdlePage.onActivePresetFunctionChanged which
+        // announces the preset list to TalkBack. The compact-mode popup bypasses that
+        // path, so announce here directly to keep feature parity for screen-reader users.
+        onOpened: {
+            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            var presets = Settings.waterVesselPresets
+            if (presets.length === 0) return
+            var names = []
+            var selectedName = ""
+            for (var i = 0; i < presets.length; ++i) {
+                names.push(presets[i].name)
+            }
+            if (Settings.selectedWaterVessel >= 0 && Settings.selectedWaterVessel < presets.length) {
+                selectedName = presets[Settings.selectedWaterVessel].name
+            }
+            var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
+            if (selectedName !== "") {
+                announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
+            }
+            AccessibilityManager.announce(announcement)
+        }
+
         width: {
             var win = root.Window.window
             var w = Theme.scaled(600) + 2 * padding
