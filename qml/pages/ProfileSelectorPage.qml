@@ -773,14 +773,12 @@ Page {
                     onRowSelected: function(index) {
                         var fav = Settings.favoriteProfiles[index]
                         if (!fav) return
-                        ProfileManager.loadProfile(fav.filename)
-                        if (index === Settings.selectedFavoriteProfile) {
-                            root.goToProfileEditor()
-                        } else {
+                        if (index !== Settings.selectedFavoriteProfile) {
+                            ProfileManager.loadProfile(fav.filename)
+                            Settings.selectedFavoriteProfile = index
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                                 AccessibilityManager.announce(root.cleanForSpeech(fav.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
                             }
-                            Settings.selectedFavoriteProfile = index
                         }
                     }
                     onRowMoved: function(from, to) { Settings.moveFavoriteProfile(from, to) }
