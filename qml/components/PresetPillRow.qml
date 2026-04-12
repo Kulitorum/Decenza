@@ -13,6 +13,9 @@ FocusScope {
     property var pillSuffixFn: null  // Optional: function(index) => string suffix appended to pill text (e.g. " (125g)")
     property int pillSuffixVersion: 0  // Increment from outside to force pill text refresh without full layout recalc
     property real pillSuffixMaxWidth: 0  // Reserve extra horizontal space per pill for the suffix
+    property bool showProfileModified: false  // Only the espresso row reflects ProfileManager.profileModified;
+                                               // steam/flush/hot-water/bean rows share this component but are
+                                               // unrelated to the espresso profile's dirty state.
 
     // Effective max width - ensures we never exceed parent width even if maxWidth is larger
     readonly property real effectiveMaxWidth: {
@@ -53,7 +56,7 @@ FocusScope {
     function announceCurrentPill() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && presets.length > 0) {
             var name = presets[focusedIndex].name || ""
-            var modified = (focusedIndex === selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+            var modified = (showProfileModified && focusedIndex === selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
             var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
             AccessibilityManager.announce(name + modified + status)
         }
@@ -62,7 +65,7 @@ FocusScope {
     // Base name for layout calculation (no live suffix — avoids layout recalc on every scale tick)
     function pillLayoutName(index) {
         var name = presets[index] ? (presets[index].name || "") : ""
-        if (index === selectedIndex && ProfileManager.profileModified) {
+        if (showProfileModified && index === selectedIndex && ProfileManager.profileModified) {
             name = ProfileManager.isCurrentProfileReadOnly ? name + " (modified)" : "*" + name
         }
         return name
@@ -106,6 +109,7 @@ FocusScope {
     onPillSuffixFnChanged: recalcTimer.restart()
     Connections {
         target: ProfileManager
+        enabled: root.showProfileModified
         function onProfileModifiedChanged() { recalcTimer.restart() }
     }
 
@@ -276,7 +280,7 @@ FocusScope {
                             accessibleName: {
                                 if (!modelData || !modelData.preset) return ""
                                 var name = pillDisplayName(modelData.index)
-                                var modified = (modelData.index === root.selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+                                var modified = (root.showProfileModified && modelData.index === root.selectedIndex && ProfileManager.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
                                 var status = modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
                                 return name + modified + status
                             }

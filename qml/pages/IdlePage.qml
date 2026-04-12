@@ -329,6 +329,7 @@ Page {
                         presets: Settings.favoriteProfiles
                         selectedIndex: Settings.selectedFavoriteProfile
                         supportLongPress: true
+                        showProfileModified: true
 
                         onPresetSelected: function(index) {
                             var wasAlreadySelected = (index === Settings.selectedFavoriteProfile)
