@@ -64,6 +64,7 @@ Page {
         if (isSteaming) {
             wasSteaming = true
             steamSoftStopped = false
+            _lastAnnouncedSteamWeight = 0
             // Reset to preset value (discard any +5s/-5s adjustments from previous session)
             Settings.steamTimeout = getCurrentPitcherDuration()
             Settings.steamFlow = getCurrentPitcherFlow()
@@ -239,7 +240,15 @@ Page {
                             border.width: 1
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: modelData.name + (index === Settings.selectedSteamPitcher ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                            Accessible.name: {
+                                var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                var pitcherWt = modelData.pitcherWeightG ?? 0
+                                if (pitcherWt > 0)
+                                    label += ", " + TranslationManager.translate("steam.accessibility.pitcherWeight", "pitcher") + " " + pitcherWt.toFixed(0) + "g"
+                                if (index === Settings.selectedSteamPitcher)
+                                    label += ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                return label
+                            }
                             Accessible.focusable: true
                             Accessible.onPressAction: livePitcherMa.clicked(null)
 
@@ -382,7 +391,9 @@ Page {
                             onClicked: {
                                 var newTime = Math.max(5, Settings.steamTimeout - 5)
                                 Settings.steamTimeout = newTime
-                                if (!isSteaming)
+                                if (isSteaming)
+                                    MainController.setSteamTimeoutImmediate(newTime)
+                                else
                                     MainController.startSteamHeating()
                             }
                         }
@@ -435,7 +446,9 @@ Page {
                             onClicked: {
                                 var newTime = Math.min(120, Settings.steamTimeout + 5)
                                 Settings.steamTimeout = newTime
-                                if (!isSteaming)
+                                if (isSteaming)
+                                    MainController.setSteamTimeoutImmediate(newTime)
+                                else
                                     MainController.startSteamHeating()
                             }
                         }
@@ -739,9 +752,16 @@ Page {
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset") +
-                                                     (pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ?
-                                                      ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.name: {
+                                        var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                        var pitcherWt = modelData.pitcherWeightG ?? 0
+                                        if (pitcherWt > 0)
+                                            label += ", " + TranslationManager.translate("steam.accessibility.pitcherWeight", "pitcher") + " " + pitcherWt.toFixed(0) + "g"
+                                        if (pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher)
+                                            label += ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                        return label
+                                    }
+                                    Accessible.description: TranslationManager.translate("steam.accessibility.pitcherEditHint", "Double-tap or long-press to edit preset.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
                                         Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
@@ -1142,6 +1162,49 @@ Page {
         }
 
         Item { Layout.fillHeight: true; visible: isSteaming || steamSoftStopped }
+    }
+
+    // Accessibility: announce scale weight at intervals while weighing milk (settings view, not steaming)
+    property real _lastAnnouncedSteamWeight: 0
+
+    Connections {
+        target: MachineState
+        enabled: !isSteaming && !steamSoftStopped
+                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                 && AccessibilityManager.extractionAnnouncementsEnabled
+        function onScaleWeightChanged() {
+            var w = MachineState.scaleWeight
+            // Reset milestone tracker after taring
+            if (w < 1.0) { _lastAnnouncedSteamWeight = 0; return }
+            var mode = AccessibilityManager.extractionAnnouncementMode
+            if (mode !== "milestones_only" && mode !== "both") return
+            // Announce every 10g milestone while weighing milk
+            if (Math.floor(w / 10) > Math.floor(_lastAnnouncedSteamWeight / 10)) {
+                AccessibilityManager.announce(Math.floor(w) + " " +
+                    TranslationManager.translate("espresso.accessibility.grams", "grams"))
+                _lastAnnouncedSteamWeight = w
+            }
+        }
+    }
+
+    Timer {
+        id: steamWeightAnnounceTimer
+        interval: AccessibilityManager.extractionAnnouncementInterval * 1000
+        repeat: true
+        running: !isSteaming && !steamSoftStopped
+                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                 && AccessibilityManager.extractionAnnouncementsEnabled
+                 && (AccessibilityManager.extractionAnnouncementMode === "timed" ||
+                     AccessibilityManager.extractionAnnouncementMode === "both")
+        onTriggered: {
+            if (MachineState.scaleWeight < 1.0) return
+            var weight = MachineState.scaleWeight.toFixed(0)
+            AccessibilityManager.announce(
+                TranslationManager.translate("espresso.accessibility.weight", "weight") + " " + weight + " " +
+                TranslationManager.translate("espresso.accessibility.grams", "grams"))
+        }
     }
 
     // Hidden translation helper for "No pitcher"
