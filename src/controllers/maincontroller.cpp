@@ -618,11 +618,11 @@ void MainController::computeAutoFlowCalibration() {
     // We track the best (longest) qualifying window found across the entire shot.
     double bestStart = -1, bestEnd = -1;
     double bestSumMF = 0, bestSumWF = 0;
-    int bestCount = 0;
+    qsizetype bestCount = 0;
 
     double winStart = -1;
     double winSumMF = 0, winSumWF = 0;
-    int winCount = 0;
+    qsizetype winCount = 0;
     double winLastT = -1;
 
     // Finish the current window: save as best if longest, then reset for next window
@@ -641,11 +641,11 @@ void MainController::computeAutoFlowCalibration() {
     };
 
     // Cursors for nearest-point/interpolation search (both arrays are time-sorted)
-    int wfCursor = 0;
-    int mfCursor = 1;
+    qsizetype wfCursor = 0;
+    qsizetype mfCursor = 1;
     int mfMissCount = 0;  // Tracks flow interpolation misses for diagnostics
 
-    for (int i = 1; i < pressureData.size(); ++i) {
+    for (qsizetype i = 1; i < pressureData.size(); ++i) {
         double dt = pressureData[i].x() - pressureData[i - 1].x();
         if (dt <= 0) continue;
         double dpdt = qAbs(pressureData[i].y() - pressureData[i - 1].y()) / dt;
@@ -670,7 +670,7 @@ void MainController::computeAutoFlowCalibration() {
         // Find weight flow at this time (nearest point, using cursor since t increases monotonically)
         double wf = 0;
         double nearestDist = 1e9;
-        for (int k = wfCursor; k < weightFlowData.size(); ++k) {
+        for (qsizetype k = wfCursor; k < weightFlowData.size(); ++k) {
             double dist = qAbs(weightFlowData[k].x() - t);
             if (dist < nearestDist) {
                 nearestDist = dist;
@@ -688,7 +688,7 @@ void MainController::computeAutoFlowCalibration() {
 
         // Find machine flow at this time (linear interpolation, using cursor)
         double mf = 0;
-        for (int j = mfCursor; j < flowData.size(); ++j) {
+        for (qsizetype j = mfCursor; j < flowData.size(); ++j) {
             if (flowData[j].x() >= t) {
                 double t0 = flowData[j - 1].x();
                 double t1 = flowData[j].x();
@@ -878,6 +878,13 @@ void MainController::computeAutoFlowCalibration() {
     double computed = m_settings->hasProfileFlowCalibration(m_profileManager->baseProfileName())
         ? kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective
         : ideal;
+
+    // Re-clamp after EMA. When the user has manually set the global multiplier above
+    // kCalibrationMax (e.g. 3.0 via the manual UI vs. kCalibrationMax=2.7), currentEffective
+    // falls back to that global for profiles without a per-profile value, and EMA can then
+    // land outside [kCalibrationMin, kCalibrationMax]. Without this, setProfileFlowCalibration
+    // would silently reject the write and auto-cal would stop converging for that profile.
+    computed = qBound(kCalibrationMin, computed, kCalibrationMax);
 
     double oldValue = currentEffective;
     if (!m_settings->setProfileFlowCalibration(m_profileManager->baseProfileName(), computed)) {
