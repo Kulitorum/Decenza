@@ -1,6 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
-#include "../version.h"
+#include "version.h"
 
 #include <QFile>
 #include <QJsonObject>
