@@ -391,7 +391,9 @@ Page {
                             onClicked: {
                                 var newTime = Math.max(5, Settings.steamTimeout - 5)
                                 Settings.steamTimeout = newTime
-                                if (!isSteaming)
+                                if (isSteaming)
+                                    MainController.setSteamTimeoutImmediate(newTime)
+                                else
                                     MainController.startSteamHeating()
                             }
                         }
@@ -444,7 +446,9 @@ Page {
                             onClicked: {
                                 var newTime = Math.min(120, Settings.steamTimeout + 5)
                                 Settings.steamTimeout = newTime
-                                if (!isSteaming)
+                                if (isSteaming)
+                                    MainController.setSteamTimeoutImmediate(newTime)
+                                else
                                     MainController.startSteamHeating()
                             }
                         }
