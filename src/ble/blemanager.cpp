@@ -7,6 +7,7 @@
 #include <QBluetoothUuid>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QBluetoothPermission>
 #include <QLocationPermission>
 #include <QStandardPaths>
 #include <QDir>
@@ -54,6 +55,19 @@ bool BLEManager::isBluetoothAvailable() const
 #ifdef Q_OS_IOS
     return true;  // CoreBluetooth manages state; QBluetoothLocalDevice not available on iOS
 #else
+#ifdef Q_OS_ANDROID
+    // On Android, QBluetoothLocalDevice::hostMode() returns HostPoweredOff until the
+    // BLUETOOTH_CONNECT runtime permission has been granted (Android 12+). On a fresh
+    // install, permission is Undetermined — if we bail out here, the scan flow never
+    // gets a chance to call requestBluetoothPermission(), and the user is stuck with
+    // "Bluetooth is powered off" even though the adapter is fine. Report available
+    // while permission is unknown so the scan proceeds and prompts the user.
+    QBluetoothPermission perm;
+    perm.setCommunicationModes(QBluetoothPermission::Access);
+    if (qApp->checkPermission(perm) != Qt::PermissionStatus::Granted) {
+        return true;
+    }
+#endif
     return m_localDevice->hostMode() != QBluetoothLocalDevice::HostPoweredOff;
 #endif
 }
