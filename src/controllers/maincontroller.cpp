@@ -597,7 +597,15 @@ void MainController::computeAutoFlowCalibration() {
     constexpr int    kMinWindowSamples = 7;          // ~1.5s at 5Hz pressure sampling
     constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
     constexpr double kCalibrationMin = 0.5;          // sanity lower bound
-    constexpr double kCalibrationMax = 1.8;          // sanity upper bound
+    // Sanity upper bound. Keeps auto-cal ~10% below the firmware-side cap so the algorithm
+    // has headroom before hitting the hard firmware limit:
+    //   - Pre-v1337 firmware: 1.8 (firmware cap 2.0 × 0.9)
+    //   - v1337+ firmware:    2.7 (firmware cap 3.0 × 0.9, newer pump hardware)
+    // Values above the old 1.8 ceiling are legitimate on newer firmware but worth flagging
+    // to the user; on older firmware they almost always indicate scale artefacts.
+    const int kFirmwareCapBumped = 1337;
+    const int fwBuild = m_device ? m_device->firmwareBuildNumber() : 0;
+    const double kCalibrationMax = (fwBuild >= kFirmwareCapBumped) ? 2.7 : 1.8;
     constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
     constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
     constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
@@ -842,6 +850,17 @@ void MainController::computeAutoFlowCalibration() {
     }
 
     ideal = qBound(kCalibrationMin, ideal, kCalibrationMax);
+
+    // On v1337+ firmware, legitimate multipliers can exceed the classic 1.8 ceiling
+    // (better pumps → higher genuine ratios). Warn so telemetry / user-visible UI can
+    // flag shots where the computed value looks unusually high — helps catch scale bias
+    // before it walks the calibration to absurd values.
+    constexpr double kClassicCeiling = 1.8;
+    if (ideal > kClassicCeiling) {
+        qWarning() << "Auto flow cal: computed multiplier" << ideal
+                   << "exceeds classic ceiling" << kClassicCeiling
+                   << "— verify scale accuracy (firmware build:" << fwBuild << ")";
+    }
 
     // Only update if the ideal itself differs enough from current. Checking ideal (not the
     // EMA output) preserves the original 2% deadband regardless of alpha. The > 0.01 guard

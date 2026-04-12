@@ -207,12 +207,23 @@ Page {
                                 void(Settings.flowCalibrationMultiplier);
                                 return profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false;
                             }
+                            // Multipliers above this were historically out-of-range; on newer firmware
+                            // they can be legitimate but are worth flagging so the user can sanity-check
+                            // scale accuracy before trusting them.
+                            readonly property double classicCeiling: 1.8
+                            property bool isUnusuallyHigh: effectiveCal > classicCeiling
                             property string calLabel: isAuto
                                 ? TranslationManager.translate("profileinfo.flowCalAuto", "(auto)")
                                 : TranslationManager.translate("profileinfo.flowCalGlobal", "(global)")
                             text: effectiveCal.toFixed(2) + " " + calLabel
                             font: Theme.bodyFont
-                            color: Theme.textColor
+                            // Amber when above the classic 1.8 ceiling — genuine on newer firmware but
+                            // worth a visual nudge so the user double-checks scale accuracy.
+                            color: isUnusuallyHigh ? Theme.warningColor : Theme.textColor
+                            Accessible.description: isUnusuallyHigh
+                                ? TranslationManager.translate("profileinfo.flowCalHigh",
+                                    "Unusually high — verify scale accuracy")
+                                : ""
                         }
                     }
                 }

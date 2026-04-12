@@ -24,7 +24,7 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
 5. **Compute calibration** (formula depends on profile type):
    - **Flow profiles**: `mean(weight_flow) / (target_flow * 0.963)` — uses the profile's known target flow, independent of current calibration
    - **Pressure profiles**: `current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)` — divides out current calibration from reported flow
-6. **Sanity check**: Clamp to [0.5, 1.8] — cap extreme values that likely indicate measurement errors
+6. **Sanity check**: Clamp to `[0.5, kCalibrationMax]` — cap extreme values that likely indicate measurement errors. The upper bound tracks DE1 firmware (1.8 on pre-v1337 firmware, 2.7 on v1337+)
 7. **Store & apply**: If the computed value differs from current by > 2%, EMA-smooth toward it (alpha=0.3) and send to the machine
 
 ## Algorithm Details
@@ -79,7 +79,14 @@ The multiplier is only updated when the computed value differs from the current 
 
 ### Sanity Bounds
 
-The computed multiplier is clamped to [0.5, 1.8]. Values outside this range indicate measurement errors (e.g., scale drift, splash, evaporation) rather than genuine calibration offsets.
+The computed multiplier is clamped to `[0.5, kCalibrationMax]`, where `kCalibrationMax` is firmware-dependent:
+
+- **Pre-v1337 firmware** (classic pumps): 1.8 — matches the historical upper bound; values this high on older pumps almost always indicate measurement errors (scale drift, splash, evaporation) rather than genuine offsets.
+- **v1337+ firmware** (newer pump hardware): 2.7 — the firmware-side cap was raised from 2.0 to 3.0, and auto-cal keeps ~10% headroom below that (same 0.9× ratio the old pair used).
+
+Values above the classic 1.8 ceiling (but under the new 2.7 one) are legitimate on v1337+ firmware but are logged via `qWarning` and surfaced in the Profile Info page with an amber color and an "unusually high — verify scale accuracy" screen-reader description, so the user can sanity-check their scale before trusting the new value.
+
+Per-profile persistence (`Settings::setProfileFlowCalibration`) and the settings importer (`SettingsSerializer`) both accept `[0.5, 2.7]` regardless of the currently-connected firmware — the runtime compute-time gate is what enforces the stricter 1.8 cap on older firmware, so stored values from a v1337+ session remain readable if the user later downgrades firmware. The window-ratio guard `[0.75, 1.35]` (see above) remains the primary protection against bad scale data across both firmware ranges.
 
 ## User Experience
 
