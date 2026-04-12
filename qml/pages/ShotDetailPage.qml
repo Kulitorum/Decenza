@@ -1395,7 +1395,12 @@ Page {
         // Discuss button - opens external AI app
         Rectangle {
             id: discussButton
+            readonly property bool isClaudeDesktopReady:
+                Settings.discussShotApp !== Settings.discussAppClaudeDesktop
+                || Settings.claudeRcSessionUrl.length > 0
             visible: shotData.duration > 0 && Settings.discussShotApp !== Settings.discussAppNone
+            enabled: isClaudeDesktopReady
+            opacity: enabled ? 1.0 : 0.5
             Layout.preferredWidth: discussContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1433,6 +1438,7 @@ Page {
             MouseArea {
                 id: discussArea
                 anchors.fill: parent
+                enabled: discussButton.isClaudeDesktopReady
                 onClicked: {
                     if (!Settings.mcpEnabled && MainController.aiManager) {
                         var summary = MainController.aiManager.generateHistoryShotSummary(shotData)

@@ -30,6 +30,7 @@ Item {
     Item {
         id: compactContent
         visible: root.isCompact
+        opacity: root.isClaudeDesktopReady ? 1.0 : 0.5
         anchors.fill: parent
         implicitWidth: compactRow.implicitWidth + Theme.scaled(16)
         implicitHeight: Theme.bottomBarHeight
@@ -63,7 +64,9 @@ Item {
 
         AccessibleTapHandler {
             anchors.fill: parent
-            accessibleName: TranslationManager.translate("idle.accessible.discuss.description", "Open AI app to discuss your last shot")
+            accessibleName: root.isClaudeDesktopReady
+                ? TranslationManager.translate("idle.accessible.discuss.description", "Open AI app to discuss your last shot")
+                : TranslationManager.translate("idle.accessible.discuss.disabled", "Discuss — requires session URL. Open AI Settings to configure.")
             onAccessibleClicked: root.openDiscuss()
         }
     }

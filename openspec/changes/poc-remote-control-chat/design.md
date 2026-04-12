@@ -1,6 +1,6 @@
 ## Context
 
-Decenza already has a Discuss button on PostShotReviewPage and ShotDetailPage. It currently opens a configured AI app (Claude App, Claude Web, ChatGPT, Gemini, Grok, or custom URL) via `Qt.openUrlExternally()`. The URL is generic — it opens the app home, not a specific conversation.
+Decenza already has a Discuss button on PostShotReviewPage and ShotDetailPage. It currently opens a configured AI app (Claude App, Claude Web, ChatGPT, Gemini, Grok, or custom URL) via `Settings.openDiscussUrl()` (which uses `QDesktopServices::openUrl()` on most platforms, and `SFSafariViewController` on iOS for Claude Desktop mode to avoid universal-link interception). The URL is generic — it opens the app home, not a specific conversation.
 
 Claude Code Remote Control runs a persistent session on the user's desktop, accessible from the Claude iOS/Android app, Claude desktop app, or claude.ai in a browser. The MCP server in Decenza already provides live espresso context.
 
@@ -125,7 +125,7 @@ This means agent instructions evolve with Decenza app updates without any user i
 
 The existing `discussShotApp` enum had indexes 0–5 for specific apps and 6 for "None". Adding "Claude Desktop" at index 7 (rather than inserting before "None") avoids a migration: users who had `discussShotApp = 6` (None) keep that setting unchanged. The dropdown UX has "None" in the middle of the list, which is acceptable for a POC.
 
-`discussShotUrl()` now returns `claudeRcSessionUrl` when `discussShotApp == 7`. The existing `Qt.openUrlExternally()` path in `DiscussItem.qml` works unchanged — only the URL source changes. `DiscussItem.qml` gates its `enabled` state on `claudeRcSessionUrl` being non-empty so the button is disabled (but visible) until the user pastes a URL.
+`discussShotUrl()` now returns `claudeRcSessionUrl` when `discussShotApp == 7`. All Discuss call sites route through `Settings.openDiscussUrl()`, which on iOS uses `SFSafariViewController` for Claude Desktop mode (to bypass universal-link interception on older iPads) and `QDesktopServices::openUrl()` everywhere else. `DiscussItem.qml`, `PostShotReviewPage.qml`, and `ShotDetailPage.qml` all gate their `enabled` state on `isClaudeDesktopReady` so the button is disabled (but visible) until the user pastes a URL.
 
 Two new constants are exposed via `Q_PROPERTY`:
 - `discussAppNone` (unchanged, = 6) — already used in QML visibility checks
@@ -133,8 +133,8 @@ Two new constants are exposed via `Q_PROPERTY`:
 
 ## Verified Findings (April 2026)
 
-- **iOS connection works** — Claude iOS app connects to a Remote Control session successfully
-- **Desktop Claude app connects too** — so Remote Control clients include iOS, Android, Claude desktop app (Mac/Win), and claude.ai in a browser. The Discuss button's `Qt.openUrlExternally()` path deep-links into whichever client the user's device has installed.
+- **iOS connection works** — Claude iOS app connects to a Remote Control session successfully. On iOS, the session URL opens in an in-app `SFSafariViewController` (to avoid universal-link interception on iPads running iOS 17 where the Claude app lacks the Code tab); on all other platforms, it opens via the system URL handler.
+- **Desktop Claude app connects too** — so Remote Control clients include iOS, Android, Claude desktop app (Mac/Win), and claude.ai in a browser. Non-iOS platforms deep-link into whichever client the user's device has installed via `QDesktopServices::openUrl()`.
 - **`/rename` via stdin does not work** — session name is fixed at launch; must use `--name "Decenza_REMOTE"` at startup
 
 ## Open Questions (Deferred to POC Evaluation)

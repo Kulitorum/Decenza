@@ -154,7 +154,13 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
             if (settings) {
                 bean["brand"] = settings->dyeBeanBrand();
                 bean["type"] = settings->dyeBeanType();
-                bean["roastDate"] = settings->dyeRoastDate();
+                // Normalize roast date to ISO 8601 if parseable, otherwise pass through as user text
+                QString rawDate = settings->dyeRoastDate();
+                QDate parsed = QDate::fromString(rawDate, Qt::ISODate);
+                if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "yyyy-MM-dd");
+                if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "MM/dd/yyyy");
+                if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "dd/MM/yyyy");
+                bean["roastDate"] = parsed.isValid() ? parsed.toString(Qt::ISODate) : rawDate;
                 bean["doseWeightG"] = settings->dyeBeanWeight();
                 grinder["brand"] = settings->dyeGrinderBrand();
                 grinder["model"] = settings->dyeGrinderModel();

@@ -1306,9 +1306,9 @@ R"HTML(
 )HTML"
 #else
 R"HTML(
-<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Does NOT work with</strong></td><td style="padding:8px">claude.ai web, Claude iOS/Android apps</td></tr>
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Claude iOS/Android apps</strong></td><td style="padding:8px">Connect via Claude Code Remote Control &mdash; see <a href="https://docs.anthropic.com/en/docs/claude-code/remote-control">Remote Control docs</a></td></tr>
 </table>
-<p><strong>Tip:</strong> You can also use the <em>Discuss</em> button on any shot review page to open any AI (Claude Web, ChatGPT, Gemini, Grok) with your shot data copied to clipboard &mdash; this works on all platforms without MCP.</p>
+<p><strong>Tip:</strong> You can also use the <em>Discuss</em> button on any shot review page to open any AI (Claude Web, ChatGPT, Gemini, Grok, or a persistent Claude Code Remote Control session) with your shot data &mdash; this works on all platforms.</p>
 )HTML"
 #endif
 R"HTML(

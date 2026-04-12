@@ -458,6 +458,7 @@ Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscu
 | 4 | Grok | `https://grok.com/` | xAI's assistant |
 | 5 | Custom URL | Uses `discussShotCustomUrl` value | For self-hosted models (Ollama web UI, etc.) or any other AI service |
 | 6 | None | — | Hides the Discuss button entirely |
+| 7 | Claude Desktop | Uses `claudeRcSessionUrl` value | Opens a persistent Claude Code Remote Control session — requires session URL from `claude remote-control` |
 
 Default: `0` (Claude).
 

@@ -10,8 +10,8 @@ The app SHALL provide a "Claude Desktop" option in the Discuss app selector that
 
 #### Scenario: User taps Discuss in Claude Desktop mode with a stored URL
 - **WHEN** Claude Desktop mode is configured with a non-empty `claudeRcSessionUrl` and the user taps the Discuss button
-- **THEN** Decenza opens the stored session URL via `Qt.openUrlExternally()`
-- **AND** the URL deep-links into whichever Claude client is installed on the device (iOS, Android, desktop app, or browser)
+- **THEN** Decenza opens the stored session URL via `Settings.openDiscussUrl()`
+- **AND** on iOS, the URL opens in an in-app Safari view (`SFSafariViewController`) to avoid universal-link interception on older iPads; on all other platforms, it opens via the system URL handler which deep-links into whichever Claude client is installed
 
 #### Scenario: User taps Discuss in Claude Desktop mode without a URL
 - **WHEN** Claude Desktop mode is selected but `claudeRcSessionUrl` is empty

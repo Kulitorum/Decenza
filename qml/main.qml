@@ -2492,7 +2492,7 @@ ApplicationWindow {
 
         // Dismiss any in-app Safari view (iOS Claude Desktop discuss overlay)
         // so the screensaver can render without being covered by a modal.
-        Settings.dismissDiscussOverlay()
+        if (Qt.platform.os === "ios") Settings.dismissDiscussOverlay()
 
         // Navigate to screensaver page for all modes (including "disabled")
         // For "disabled" mode, ScreensaverPage dims the backlight to minimum

@@ -6,7 +6,7 @@ import "../../components"
 
 KeyboardAwareContainer {
     id: aiTab
-    textFields: [apiKeyField, ollamaEndpointField, openrouterModelField, customUrlField]
+    textFields: [apiKeyField, ollamaEndpointField, openrouterModelField, customUrlField, claudeRcUrlField]
     targetFlickable: aiFlickable
 
     property string testResultMessage: ""
