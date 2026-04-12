@@ -7,6 +7,7 @@
 #include <QBluetoothUuid>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QBluetoothPermission>
 #include <QLocationPermission>
 #include <QStandardPaths>
 #include <QDir>
@@ -54,6 +55,22 @@ bool BLEManager::isBluetoothAvailable() const
 #ifdef Q_OS_IOS
     return true;  // CoreBluetooth manages state; QBluetoothLocalDevice not available on iOS
 #else
+#ifdef Q_OS_ANDROID
+    // On Android, QBluetoothLocalDevice::hostMode() returns HostPoweredOff until the
+    // BLUETOOTH_CONNECT runtime permission has been granted (Android 12+). On a fresh
+    // install, permission is Undetermined — if we bail out here, the scan flow never
+    // gets a chance to call requestBluetoothPermission(), and the user is stuck with
+    // "Bluetooth is powered off" even though the adapter is fine. Report available
+    // only while the status is Undetermined so the scan proceeds and prompts the
+    // user. If the user has explicitly denied, fall through to the real hostMode()
+    // check (which will report PoweredOff) so bluetoothAvailable accurately reflects
+    // that BLE is unusable.
+    QBluetoothPermission perm;
+    perm.setCommunicationModes(QBluetoothPermission::Access);
+    if (qApp->checkPermission(perm) == Qt::PermissionStatus::Undetermined) {
+        return true;
+    }
+#endif
     return m_localDevice->hostMode() != QBluetoothLocalDevice::HostPoweredOff;
 #endif
 }
@@ -221,9 +238,16 @@ void BLEManager::requestBluetoothPermission() {
         qApp->requestPermission(bluetoothPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 emit de1LogMessage("Bluetooth permission granted");
+                // isBluetoothAvailable() now switches from the Undetermined bypass
+                // to the real hostMode() check. Notify QML bindings so any "Bluetooth
+                // unavailable" UI re-evaluates immediately.
+                emit bluetoothAvailableChanged();
                 doStartScan();
             } else {
                 emit de1LogMessage("Bluetooth permission denied");
+                // Transition Undetermined → Denied also flips isBluetoothAvailable()
+                // from true to false (via the hostMode() fall-through).
+                emit bluetoothAvailableChanged();
                 emit errorOccurred("Bluetooth permission denied");
             }
         });
