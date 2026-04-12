@@ -51,13 +51,19 @@ public class BleConnectionService extends Service {
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, foregroundServiceType);
 
         // Acquire a partial wake lock to keep the CPU alive while the screen is off.
-        // Without this, Android suspends the Qt event loop when the display sleeps,
-        // freezing all QTimers — including BatteryManager's 60-second USB charger
-        // keepalive. The DE1 has a 10-minute timeout that re-enables/resets its USB
-        // port if it receives no BLE writes. On battery-free tablets (Teclast P85Pro
-        // etc.) this causes an instant power cut and the tablet dies. The wake lock
-        // ensures BatteryManager keeps sending "charger ON" every 60s, matching
-        // de1app's behavior where Tcl timers never pause.
+        // This complements the android.app.background_running=true manifest flag:
+        //   - background_running keeps the Qt event loop alive when the activity is
+        //     backgrounded (screen on, another app in front).
+        //   - This wake lock keeps the CPU from suspending when the display turns
+        //     off entirely. Without it, Android suspends the Qt event loop,
+        //     freezing all QTimers — including BatteryManager's 60-second USB
+        //     charger keepalive.
+        // Both are required for the DE1's 10-minute USB port reset timeout: if the
+        // tablet misses the keepalive, the DE1 re-enables/resets its USB port, and
+        // on battery-free tablets (Teclast P85Pro etc.) this causes an instant
+        // power cut and the tablet dies. The wake lock ensures BatteryManager
+        // keeps sending "charger ON" every 60s, matching de1app's behavior where
+        // Tcl timers never pause.
         //
         // The wake lock is held only while the DE1 is connected (service lifecycle),
         // so it has zero impact when the machine is off or disconnected.
