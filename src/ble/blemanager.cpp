@@ -61,10 +61,13 @@ bool BLEManager::isBluetoothAvailable() const
     // install, permission is Undetermined — if we bail out here, the scan flow never
     // gets a chance to call requestBluetoothPermission(), and the user is stuck with
     // "Bluetooth is powered off" even though the adapter is fine. Report available
-    // while permission is unknown so the scan proceeds and prompts the user.
+    // only while the status is Undetermined so the scan proceeds and prompts the
+    // user. If the user has explicitly denied, fall through to the real hostMode()
+    // check (which will report PoweredOff) so bluetoothAvailable accurately reflects
+    // that BLE is unusable.
     QBluetoothPermission perm;
     perm.setCommunicationModes(QBluetoothPermission::Access);
-    if (qApp->checkPermission(perm) != Qt::PermissionStatus::Granted) {
+    if (qApp->checkPermission(perm) == Qt::PermissionStatus::Undetermined) {
         return true;
     }
 #endif
@@ -235,9 +238,16 @@ void BLEManager::requestBluetoothPermission() {
         qApp->requestPermission(bluetoothPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
                 emit de1LogMessage("Bluetooth permission granted");
+                // isBluetoothAvailable() now switches from the Undetermined bypass
+                // to the real hostMode() check. Notify QML bindings so any "Bluetooth
+                // unavailable" UI re-evaluates immediately.
+                emit bluetoothAvailableChanged();
                 doStartScan();
             } else {
                 emit de1LogMessage("Bluetooth permission denied");
+                // Transition Undetermined → Denied also flips isBluetoothAvailable()
+                // from true to false (via the hostMode() fall-through).
+                emit bluetoothAvailableChanged();
                 emit errorOccurred("Bluetooth permission denied");
             }
         });
