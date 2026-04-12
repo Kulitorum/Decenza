@@ -64,6 +64,7 @@ Page {
         if (isSteaming) {
             wasSteaming = true
             steamSoftStopped = false
+            _lastAnnouncedSteamWeight = 0
             // Reset to preset value (discard any +5s/-5s adjustments from previous session)
             Settings.steamTimeout = getCurrentPitcherDuration()
             Settings.steamFlow = getCurrentPitcherFlow()
@@ -239,7 +240,15 @@ Page {
                             border.width: 1
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: modelData.name + (index === Settings.selectedSteamPitcher ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                            Accessible.name: {
+                                var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                var pitcherWt = modelData.pitcherWeightG ?? 0
+                                if (pitcherWt > 0)
+                                    label += ", " + TranslationManager.translate("steam.accessibility.pitcherWeight", "pitcher") + " " + pitcherWt.toFixed(0) + "g"
+                                if (index === Settings.selectedSteamPitcher)
+                                    label += ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                return label
+                            }
                             Accessible.focusable: true
                             Accessible.onPressAction: livePitcherMa.clicked(null)
 
@@ -748,6 +757,7 @@ Page {
                                             label += ", " + TranslationManager.translate("accessibility.selected", "selected")
                                         return label
                                     }
+                                    Accessible.description: TranslationManager.translate("steam.accessibility.pitcherEditHint", "Double-tap or long-press to edit preset.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
                                         Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
@@ -1151,7 +1161,7 @@ Page {
     }
 
     // Accessibility: announce scale weight at intervals while weighing milk (settings view, not steaming)
-    property real _lastAnnouncedSteamWeight: -1
+    property real _lastAnnouncedSteamWeight: 0
 
     Connections {
         target: MachineState
@@ -1162,7 +1172,7 @@ Page {
         function onScaleWeightChanged() {
             var w = MachineState.scaleWeight
             // Reset milestone tracker after taring
-            if (w < 1.0) { _lastAnnouncedSteamWeight = -1; return }
+            if (w < 1.0) { _lastAnnouncedSteamWeight = 0; return }
             var mode = AccessibilityManager.extractionAnnouncementMode
             if (mode !== "milestones_only" && mode !== "both") return
             // Announce every 10g milestone while weighing milk
@@ -1184,8 +1194,8 @@ Page {
                  && AccessibilityManager.extractionAnnouncementsEnabled
                  && (AccessibilityManager.extractionAnnouncementMode === "timed" ||
                      AccessibilityManager.extractionAnnouncementMode === "both")
-                 && MachineState.scaleWeight > 0
         onTriggered: {
+            if (MachineState.scaleWeight < 1.0) return
             var weight = MachineState.scaleWeight.toFixed(0)
             AccessibilityManager.announce(
                 TranslationManager.translate("espresso.accessibility.weight", "weight") + " " + weight + " " +
