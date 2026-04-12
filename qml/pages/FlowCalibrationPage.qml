@@ -179,8 +179,8 @@ Page {
                     AccessibleButton {
                         text: "+0.01"
                         accessibleName: TranslationManager.translate("flowCalibration.increase", "Increase multiplier")
-                        enabled: FlowCalibrationModel.hasData && FlowCalibrationModel.multiplier < 1.99
-                        onClicked: FlowCalibrationModel.multiplier = Math.min(2.0, FlowCalibrationModel.multiplier + 0.01)
+                        enabled: FlowCalibrationModel.hasData && FlowCalibrationModel.multiplier < 2.99
+                        onClicked: FlowCalibrationModel.multiplier = Math.min(3.0, FlowCalibrationModel.multiplier + 0.01)
                     }
                 }
 
@@ -189,7 +189,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(40)
                     from: 0.35
-                    to: 2.0
+                    to: 3.0
                     stepSize: 0.01
                     value: FlowCalibrationModel.multiplier
                     enabled: FlowCalibrationModel.hasData

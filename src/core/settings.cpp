@@ -3895,7 +3895,8 @@ double Settings::flowCalibrationMultiplier() const {
 }
 
 void Settings::setFlowCalibrationMultiplier(double multiplier) {
-    multiplier = qBound(0.35, multiplier, 2.0);
+    // Upper bound bumped 2.0 → 3.0 to match DE1 firmware v1337 (de1app parity).
+    multiplier = qBound(0.35, multiplier, 3.0);
     if (qAbs(flowCalibrationMultiplier() - multiplier) > 0.001) {
         m_settings.setValue("calibration/flowMultiplier", multiplier);
         emit flowCalibrationMultiplierChanged();
@@ -3939,11 +3940,14 @@ bool Settings::setProfileFlowCalibration(const QString& profileFilename, double 
         qWarning() << "Settings: setProfileFlowCalibration called with empty profile filename";
         return false;
     }
-    // Sanity bounds — same range [0.5, 1.8] as computeAutoFlowCalibration(),
-    // but we reject (don't clamp) to prevent stale/corrupt values from persisting
-    if (multiplier < 0.5 || multiplier > 1.8) {
+    // Sanity bounds — persistence accepts [0.5, 2.7] to match the highest value the
+    // runtime auto-cal algorithm can produce (kCalibrationMax on v1337+ firmware).
+    // MainController::computeAutoFlowCalibration applies a tighter firmware-version-
+    // dependent ceiling (1.8 on older firmware, 2.7 on v1337+). Persistence just
+    // prevents obviously-corrupt values.
+    if (multiplier < 0.5 || multiplier > 2.7) {
         qWarning() << "Settings: rejecting per-profile flow calibration"
-                   << multiplier << "for" << profileFilename << "(outside [0.5, 1.8])";
+                   << multiplier << "for" << profileFilename << "(outside [0.5, 2.7])";
         return false;
     }
     QJsonObject map = allProfileFlowCalibrations();

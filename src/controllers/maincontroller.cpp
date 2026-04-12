@@ -597,7 +597,15 @@ void MainController::computeAutoFlowCalibration() {
     constexpr int    kMinWindowSamples = 7;          // ~1.5s at 5Hz pressure sampling
     constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
     constexpr double kCalibrationMin = 0.5;          // sanity lower bound
-    constexpr double kCalibrationMax = 1.8;          // sanity upper bound
+    // Sanity upper bound. Keeps auto-cal ~10% below the firmware-side cap so the algorithm
+    // has headroom before hitting the hard firmware limit:
+    //   - Pre-v1337 firmware: 1.8 (firmware cap 2.0 × 0.9)
+    //   - v1337+ firmware:    2.7 (firmware cap 3.0 × 0.9, newer pump hardware)
+    // Values above the old 1.8 ceiling are legitimate on newer firmware but worth flagging
+    // to the user; on older firmware they almost always indicate scale artefacts.
+    const int kFirmwareCapBumped = 1337;
+    const int fwBuild = m_device ? m_device->firmwareBuildNumber() : 0;
+    const double kCalibrationMax = (fwBuild >= kFirmwareCapBumped) ? 2.7 : 1.8;
     constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
     constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
     constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
@@ -610,11 +618,11 @@ void MainController::computeAutoFlowCalibration() {
     // We track the best (longest) qualifying window found across the entire shot.
     double bestStart = -1, bestEnd = -1;
     double bestSumMF = 0, bestSumWF = 0;
-    int bestCount = 0;
+    qsizetype bestCount = 0;
 
     double winStart = -1;
     double winSumMF = 0, winSumWF = 0;
-    int winCount = 0;
+    qsizetype winCount = 0;
     double winLastT = -1;
 
     // Finish the current window: save as best if longest, then reset for next window
@@ -633,11 +641,11 @@ void MainController::computeAutoFlowCalibration() {
     };
 
     // Cursors for nearest-point/interpolation search (both arrays are time-sorted)
-    int wfCursor = 0;
-    int mfCursor = 1;
+    qsizetype wfCursor = 0;
+    qsizetype mfCursor = 1;
     int mfMissCount = 0;  // Tracks flow interpolation misses for diagnostics
 
-    for (int i = 1; i < pressureData.size(); ++i) {
+    for (qsizetype i = 1; i < pressureData.size(); ++i) {
         double dt = pressureData[i].x() - pressureData[i - 1].x();
         if (dt <= 0) continue;
         double dpdt = qAbs(pressureData[i].y() - pressureData[i - 1].y()) / dt;
@@ -662,7 +670,7 @@ void MainController::computeAutoFlowCalibration() {
         // Find weight flow at this time (nearest point, using cursor since t increases monotonically)
         double wf = 0;
         double nearestDist = 1e9;
-        for (int k = wfCursor; k < weightFlowData.size(); ++k) {
+        for (qsizetype k = wfCursor; k < weightFlowData.size(); ++k) {
             double dist = qAbs(weightFlowData[k].x() - t);
             if (dist < nearestDist) {
                 nearestDist = dist;
@@ -680,7 +688,7 @@ void MainController::computeAutoFlowCalibration() {
 
         // Find machine flow at this time (linear interpolation, using cursor)
         double mf = 0;
-        for (int j = mfCursor; j < flowData.size(); ++j) {
+        for (qsizetype j = mfCursor; j < flowData.size(); ++j) {
             if (flowData[j].x() >= t) {
                 double t0 = flowData[j - 1].x();
                 double t1 = flowData[j].x();
@@ -843,6 +851,17 @@ void MainController::computeAutoFlowCalibration() {
 
     ideal = qBound(kCalibrationMin, ideal, kCalibrationMax);
 
+    // On v1337+ firmware, legitimate multipliers can exceed the classic 1.8 ceiling
+    // (better pumps → higher genuine ratios). Warn so telemetry / user-visible UI can
+    // flag shots where the computed value looks unusually high — helps catch scale bias
+    // before it walks the calibration to absurd values.
+    constexpr double kClassicCeiling = 1.8;
+    if (ideal > kClassicCeiling) {
+        qWarning() << "Auto flow cal: computed multiplier" << ideal
+                   << "exceeds classic ceiling" << kClassicCeiling
+                   << "— verify scale accuracy (firmware build:" << fwBuild << ")";
+    }
+
     // Only update if the ideal itself differs enough from current. Checking ideal (not the
     // EMA output) preserves the original 2% deadband regardless of alpha. The > 0.01 guard
     // avoids division by zero on first use (before any calibration is set).
@@ -859,6 +878,13 @@ void MainController::computeAutoFlowCalibration() {
     double computed = m_settings->hasProfileFlowCalibration(m_profileManager->baseProfileName())
         ? kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective
         : ideal;
+
+    // Re-clamp after EMA. When the user has manually set the global multiplier above
+    // kCalibrationMax (e.g. 3.0 via the manual UI vs. kCalibrationMax=2.7), currentEffective
+    // falls back to that global for profiles without a per-profile value, and EMA can then
+    // land outside [kCalibrationMin, kCalibrationMax]. Without this, setProfileFlowCalibration
+    // would silently reject the write and auto-cal would stop converging for that profile.
+    computed = qBound(kCalibrationMin, computed, kCalibrationMax);
 
     double oldValue = currentEffective;
     if (!m_settings->setProfileFlowCalibration(m_profileManager->baseProfileName(), computed)) {

@@ -207,12 +207,31 @@ Page {
                                 void(Settings.flowCalibrationMultiplier);
                                 return profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false;
                             }
+                            // Multipliers above this were historically out-of-range; on newer firmware
+                            // they can be legitimate but are worth flagging so the user can sanity-check
+                            // scale accuracy before trusting them.
+                            readonly property double classicCeiling: 1.8
+                            property bool isUnusuallyHigh: effectiveCal > classicCeiling
                             property string calLabel: isAuto
                                 ? TranslationManager.translate("profileinfo.flowCalAuto", "(auto)")
                                 : TranslationManager.translate("profileinfo.flowCalGlobal", "(global)")
                             text: effectiveCal.toFixed(2) + " " + calLabel
                             font: Theme.bodyFont
-                            color: Theme.textColor
+                            // Amber when above the classic 1.8 ceiling — genuine on newer firmware but
+                            // worth a visual nudge so the user double-checks scale accuracy.
+                            color: isUnusuallyHigh ? Theme.warningColor : Theme.textColor
+                            // Make the value discoverable by TalkBack/VoiceOver. The warning is folded
+                            // into Accessible.name (not Accessible.description) because a bare Text
+                            // element without a role is invisible to the accessibility tree — the
+                            // description would be silently dropped. Name covers both the value and
+                            // the warning so the entire piece of information reaches screen-reader
+                            // users in one announcement.
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: isUnusuallyHigh
+                                ? text + " — " + TranslationManager.translate(
+                                    "profileinfo.flowCalHigh",
+                                    "Unusually high, verify scale accuracy")
+                                : text
                         }
                     }
                 }
