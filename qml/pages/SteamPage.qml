@@ -391,9 +391,10 @@ Page {
                             onClicked: {
                                 var newTime = Math.max(5, Settings.steamTimeout - 5)
                                 Settings.steamTimeout = newTime
-                                if (isSteaming)
-                                    MainController.setSteamTimeoutImmediate(newTime)
-                                else
+                                // During steaming: Settings update is enough — app-side
+                                // checkStopAtTime() reads steamTimeout each tick.
+                                // No BLE write needed (avoids iPadOS UI freeze, see #715).
+                                if (!isSteaming)
                                     MainController.startSteamHeating()
                             }
                         }
@@ -446,9 +447,10 @@ Page {
                             onClicked: {
                                 var newTime = Math.min(120, Settings.steamTimeout + 5)
                                 Settings.steamTimeout = newTime
-                                if (isSteaming)
-                                    MainController.setSteamTimeoutImmediate(newTime)
-                                else
+                                // During steaming: Settings update is enough — app-side
+                                // checkStopAtTime() reads steamTimeout each tick.
+                                // No BLE write needed (avoids iPadOS UI freeze, see #715).
+                                if (!isSteaming)
                                     MainController.startSteamHeating()
                             }
                         }
