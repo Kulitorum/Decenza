@@ -34,7 +34,7 @@ void FlowCalibrationModel::setDevice(DE1Device* device) {
 }
 
 void FlowCalibrationModel::setMultiplier(double m) {
-    m = qBound(0.35, m, 2.0);
+    m = qBound(0.35, m, 3.0);
     if (qAbs(m_multiplier - m) > 0.001) {
         m_multiplier = m;
         recalculateFlow();

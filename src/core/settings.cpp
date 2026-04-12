@@ -3895,7 +3895,8 @@ double Settings::flowCalibrationMultiplier() const {
 }
 
 void Settings::setFlowCalibrationMultiplier(double multiplier) {
-    multiplier = qBound(0.35, multiplier, 2.0);
+    // Upper bound bumped 2.0 → 3.0 to match DE1 firmware v1337 (de1app parity).
+    multiplier = qBound(0.35, multiplier, 3.0);
     if (qAbs(flowCalibrationMultiplier() - multiplier) > 0.001) {
         m_settings.setValue("calibration/flowMultiplier", multiplier);
         emit flowCalibrationMultiplierChanged();
