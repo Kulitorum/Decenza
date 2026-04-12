@@ -118,6 +118,26 @@ Item {
 
         onOpened: {
             if (typeof MachineState !== "undefined") MachineState.tareScale()
+
+            // Full-mode steam path runs IdlePage.onActivePresetFunctionChanged which
+            // announces the preset list to TalkBack. The compact-mode popup bypasses
+            // that path, so announce here directly to keep feature parity.
+            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            var presets = Settings.steamPitcherPresets
+            if (presets.length === 0) return
+            var names = []
+            var selectedName = ""
+            for (var i = 0; i < presets.length; ++i) {
+                names.push(presets[i].name)
+            }
+            if (Settings.selectedSteamPitcher >= 0 && Settings.selectedSteamPitcher < presets.length) {
+                selectedName = presets[Settings.selectedSteamPitcher].name
+            }
+            var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
+            if (selectedName !== "") {
+                announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
+            }
+            AccessibilityManager.announce(announcement)
         }
 
         width: {
