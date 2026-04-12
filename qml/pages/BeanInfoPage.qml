@@ -1423,11 +1423,11 @@ Page {
                     if (_snapSelectedPreset >= 0) {
                         return _pendingPresetIndex >= 0
                             ? TranslationManager.translate("beaninfo.unsaved.message.preset.hassaved", "Save changes to this preset before switching, save as new, or discard?")
-                            : TranslationManager.translate("beaninfo.unsaved.message.hassaved", "Save changes to this preset, save as new, use as entered, or discard?")
+                            : TranslationManager.translate("beaninfo.unsaved.message.hassaved", "Save changes to this preset, save as new, use unsaved, or discard?")
                     }
                     return _pendingPresetIndex >= 0
                         ? TranslationManager.translate("beaninfo.unsaved.message.preset", "Save your changes before switching, save as new, or discard?")
-                        : TranslationManager.translate("beaninfo.unsaved.message", "Save as new preset, use as entered, or discard?")
+                        : TranslationManager.translate("beaninfo.unsaved.message", "Save as new preset, use unsaved, or discard?")
                 }
                 font: Theme.bodyFont
                 color: Theme.textColor
@@ -1553,8 +1553,8 @@ Page {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(44)
                         visible: _pendingPresetIndex < 0  // Hide when switching presets
-                        text: TranslationManager.translate("beaninfo.unsaved.keep", "Use as Entered")
-                        accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Use values as entered without saving to a preset")
+                        text: TranslationManager.translate("unsavedChanges.useUnsaved", "Use Unsaved")
+                        accessibleName: TranslationManager.translate("unsavedChanges.useUnsavedChanges", "Use unsaved changes without saving")
                         onClicked: {
                             unsavedChangesDialog.close()
                             // DYE fields now diverge from the preset — clear the association
