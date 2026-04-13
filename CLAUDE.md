@@ -1,25 +1,152 @@
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
 
-These instructions are for AI assistants working in this project.
+Instructions for AI coding assistants using OpenSpec for spec-driven development.
 
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
+## TL;DR Quick Checklist
 
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
+- Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
+- Decide scope: new capability vs modify existing capability
+- Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
+- Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
+- Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
+- Validate: `openspec validate [change-id] --strict --no-interactive` and fix issues
+- Request approval: Do not start implementation until proposal is approved
 
-Keep this managed block so 'openspec update' can refresh the instructions.
+## When to Create a Proposal
+
+**Create a proposal for:**
+- New features or capabilities
+- Breaking changes (API, schema)
+- Architecture or pattern changes
+- Security or significant performance changes
+
+**Skip proposal for:**
+- Bug fixes (restoring intended behavior)
+- Typos, formatting, comments
+- Dependency updates (non-breaking)
+- Tests for existing behavior
+
+## Three-Stage Workflow
+
+### Stage 1: Creating Changes
+
+1. Review `openspec/project.md`, `openspec list`, and `openspec list --specs`
+2. Choose a unique verb-led `change-id`, scaffold `proposal.md`, `tasks.md`, optional `design.md`, and spec deltas under `openspec/changes/<id>/`
+3. Write spec deltas using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement
+4. Run `openspec validate <id> --strict --no-interactive` and resolve issues
+
+### Stage 2: Implementing Changes
+
+1. Read `proposal.md` — understand what's being built
+2. Read `design.md` (if exists) — review technical decisions
+3. Read `tasks.md` — get implementation checklist
+4. Implement tasks sequentially; confirm every item is done before updating statuses
+5. Set every task to `- [x]` after all work is complete
+6. **Do not start implementation until the proposal is reviewed and approved**
+
+### Stage 3: Archiving Changes
+
+After deployment, create a separate PR to:
+- Move `changes/[name]/` → `changes/archive/YYYY-MM-DD-[name]/`
+- Update `specs/` if capabilities changed
+- Use `openspec archive <change-id> --skip-specs --yes` for tooling-only changes
+- Run `openspec validate --strict --no-interactive` to confirm archived change passes
+
+## Directory Structure
+
+```
+openspec/
+├── project.md              # Project conventions
+├── specs/                  # Current truth — what IS built
+│   └── [capability]/
+│       ├── spec.md         # Requirements and scenarios
+│       └── design.md       # Technical patterns
+├── changes/                # Proposals — what SHOULD change
+│   ├── [change-name]/
+│   │   ├── proposal.md     # Why, what, impact
+│   │   ├── tasks.md        # Implementation checklist
+│   │   ├── design.md       # Technical decisions (optional)
+│   │   └── specs/[capability]/spec.md  # ADDED/MODIFIED/REMOVED deltas
+│   └── archive/            # Completed changes
+```
+
+## Proposal Structure
+
+**proposal.md:**
+```markdown
+# Change: [Brief description]
+## Why
+[1-2 sentences on problem/opportunity]
+## What Changes
+- [Bullet list; mark breaking changes with **BREAKING**]
+## Impact
+- Affected specs: [capabilities]
+- Affected code: [key files/systems]
+```
+
+**spec delta format:**
+```markdown
+## ADDED Requirements
+### Requirement: New Feature
+The system SHALL provide...
+
+#### Scenario: Success case
+- **WHEN** user performs action
+- **THEN** expected result
+
+## MODIFIED Requirements
+### Requirement: Existing Feature
+[Full updated requirement — paste entire block from existing spec and edit]
+```
+
+**Critical**: Every requirement needs `#### Scenario:` (4 hashtags). MODIFIED must include the full existing requirement text, not just the changed parts.
+
+**design.md** — create only when: cross-cutting change, new external dependency, significant data model change, security/migration complexity, or ambiguity requiring technical decisions before coding.
+
+## Key CLI Commands
+
+```bash
+openspec list                    # Active changes
+openspec list --specs            # Existing capabilities
+openspec show [item]             # View change or spec details
+openspec validate [item] --strict --no-interactive  # Validate
+openspec archive <change-id> --yes  # Archive after deployment
+```
+
+## Delta Operations
+
+- `## ADDED Requirements` — new capabilities
+- `## MODIFIED Requirements` — changed behavior (always include full requirement text)
+- `## REMOVED Requirements` — deprecated features (include reason + migration)
+- `## RENAMED Requirements` — name-only changes; use with MODIFIED if behavior also changes
 
 <!-- OPENSPEC:END -->
 
 # Decenza
 
 Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE connectivity.
+
+## Reference Documents
+
+Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in the relevant domain:
+
+| Document | When to read |
+|----------|-------------|
+| `CI_CD.md` | Release process, GitHub Actions workflows, version bumping |
+| `RECIPE_PROFILES.md` | Recipe Editor, D-Flow/A-Flow/Pressure/Flow types, frame generation |
+| `TESTING.md` | Test framework, mock strategy, adding new tests |
+| `BLE_PROTOCOL.md` | BLE UUIDs, retry mechanism, shot debug logging, battery/steam control |
+| `VISUALIZER.md` | DYE metadata, profile import/export, ProfileSaveHelper, filename generation |
+| `DATA_MIGRATION.md` | Device-to-device transfer architecture and REST endpoints |
+| `PLATFORM_BUILD.md` | Windows installer, Android signing, Decent tablet quirks |
+| `STEAM_CALIBRATION.md` | Steam health tracking, calibration procedure |
+| `CUP_FILL_VIEW.md` | CupFillView layer stack, GPU shaders, updating cup images |
+| `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets |
+
+Also in `docs/`:
+- `MCP_SERVER.md` — full MCP tool list, access levels, architecture
+- `AI_ADVISOR.md` — AI dialing assistant design
 
 ## Development Environment
 
@@ -104,6 +231,11 @@ See `docs/CLAUDE_MD/CI_CD.md` for workflows, secrets, quick commands, and platfo
 ```
 src/
 ├── ai/                     # AI assistant integration
+│   ├── aimanager.*         # Provider config, test connection, conversation lifecycle
+│   ├── aiprovider.*        # HTTP calls to OpenAI/Anthropic/Ollama/OpenRouter
+│   ├── aiconversation.*    # Multi-turn conversation state + history persistence
+│   ├── shotanalysis.*      # Shot analysis prompts and structured response parsing
+│   └── shotsummarizer.*    # Summarise shot data into AI-readable text
 ├── ble/                    # Bluetooth LE layer
 │   ├── de1device.*         # DE1 machine protocol
 │   ├── blemanager.*        # Device discovery
@@ -113,15 +245,57 @@ src/
 │   └── transport/          # BLE transport abstraction
 ├── controllers/
 │   ├── maincontroller.*    # App logic, profiles, shot processing
-│   └── directcontroller.*  # Direct frame control mode
+│   ├── directcontroller.*  # Direct frame control mode
+│   ├── profilemanager.*    # Profile CRUD, activation, built-in management
+│   └── shottimingcontroller.* # Shot timing, tare management, weight processing
 ├── core/
 │   ├── settings.*          # QSettings persistence
-│   └── batterymanager.*    # Smart charging control
+│   ├── batterymanager.*    # Smart charging control
+│   ├── accessibilitymanager.* # TTS announcements, tick sounds, a11y settings
+│   ├── asynclogger.*       # Background-thread file logger
+│   ├── autowakemanager.*   # Scheduled DE1 auto-wake (time-based)
+│   ├── crashhandler.*      # Signal handler → writes crash log on crash
+│   ├── databasebackupmanager.* # Daily automatic backup of shots/settings/profiles
+│   ├── datamigrationclient.*   # Device-to-device data transfer (REST client)
+│   ├── dbutils.h           # withTempDb() helper for background-thread DB connections
+│   ├── documentformatter.* # Formats shot/profile data as Markdown for AI context
+│   ├── grinderaliases.h    # Grinder brand/model normalisation table
+│   ├── memorymonitor.*     # RSS/heap tracking, low-memory warnings
+│   ├── profilestorage.*    # Low-level profile file I/O (JSON read/write, enumeration)
+│   ├── settingsserializer.* # Export/import settings as JSON
+│   ├── translationmanager.* # Runtime i18n — loads locale JSON, exposes translate()
+│   ├── updatechecker.*     # GitHub Releases polling for app updates
+│   └── widgetlibrary.*     # Local library for layout items, zones, layouts, themes
 ├── history/                # Shot history storage and queries
+│   ├── shothistorystorage.* # SQLite CRUD, background-thread query helpers
+│   ├── shotimporter.*      # Import shots from JSON files / migration
+│   ├── shotdebuglogger.*   # Per-shot BLE frame debug log writer
+│   └── shotfileparser.*    # Parse legacy shot file formats
 ├── machine/
-│   └── machinestate.*      # Phase tracking, stop-at-weight
+│   ├── machinestate.*      # Phase tracking, stop-at-weight, stop-at-volume
+│   ├── steamcalibrator.*   # Steam flow calibration procedure
+│   ├── steamhealthtracker.* # Tracks steam health metrics over time
+│   └── weightprocessor.*   # Centralised weight filtering and smoothing
+├── mcp/                    # Model Context Protocol server (AI agent tools)
+│   ├── mcpserver.*         # WebSocket server, session management
+│   ├── mcpsession.h        # Per-connection session state
+│   ├── mcptoolregistry.h   # Tool registration and dispatch
+│   ├── mcpresourceregistry.h # Resource registration
+│   ├── mcptools_shots.*    # Shot history tools
+│   ├── mcptools_profiles.* # Profile read/write tools
+│   ├── mcptools_machine.*  # Machine state tools
+│   ├── mcptools_control.*  # Shot control tools
+│   ├── mcptools_devices.*  # BLE device tools
+│   ├── mcptools_scale.*    # Scale tools
+│   ├── mcptools_settings.* # Settings tools
+│   ├── mcptools_dialing.*  # Dialing assistant tools
+│   ├── mcptools_write.*    # Write/update tools
+│   └── mcptools_agent.*    # Agent coordination tools
 ├── models/
-│   └── shotdatamodel.*     # Shot data for graphing
+│   ├── shotdatamodel.*     # Shot data for graphing (live + history)
+│   ├── shotcomparisonmodel.* # Side-by-side shot comparison data
+│   ├── flowcalibrationmodel.* # Flow calibration data model
+│   └── steamdatamodel.*    # Steam session data for graphing
 ├── network/
 │   ├── shotserver.cpp      # HTTP server core + route dispatch
 │   ├── shotserver_backup.cpp   # Backup/restore endpoints
@@ -133,21 +307,36 @@ src/
 │   ├── shotserver_theme.cpp    # Theme endpoints
 │   ├── shotserver_upload.cpp   # File upload handling
 │   ├── visualizeruploader.*    # Upload shots to visualizer.coffee
-│   └── visualizerimporter.*    # Import profiles from visualizer.coffee
+│   ├── visualizerimporter.*    # Import profiles from visualizer.coffee
+│   ├── librarysharing.*    # Community profile library (browse/download/upload)
+│   ├── mqttclient.*        # MQTT connectivity for remote monitoring
+│   ├── relayclient.*       # WebSocket relay for remote DE1 control
+│   ├── crashreporter.*     # Crash report submission to backend
+│   ├── shotreporter.*      # Automatic shot reporting / webhooks
+│   ├── locationprovider.*  # City + coordinates for shot metadata
+│   ├── screencaptureservice.* # Screenshot capture for sharing
+│   └── webdebuglogger.*    # Web-accessible debug log endpoint
 ├── profile/
 │   ├── profile.*           # Profile container, JSON/TCL formats
 │   ├── profileframe.*      # Single extraction step
-│   └── profilesavehelper.* # Shared save/compare/deduplicate logic for importers
+│   ├── profilesavehelper.* # Shared save/compare/deduplicate logic for importers
+│   ├── profileconverter.*  # Convert between profile formats
+│   ├── profileimporter.*   # Import profiles from files / visualizer
+│   ├── recipeanalyzer.*    # Extract RecipeParams from frame-based profiles
+│   ├── recipegenerator.*   # Generate frame profiles from RecipeParams
+│   └── recipeparams.*      # Typed recipe parameter container
 ├── rendering/              # Custom rendering (shot graphs, etc.)
 ├── screensaver/            # Screensaver implementation
 ├── simulator/              # DE1 machine simulator
-├── usb/                    # USB scale connectivity
+├── usb/                    # USB scale connectivity (Decent USB scale, serial)
 ├── weather/                # Weather data for shot metadata
 └── main.cpp                # Entry point, object wiring
 
 qml/
-├── pages/                  # EspressoPage, SettingsPage, etc.
-├── components/             # ShotGraph, StatusBar, etc.
+├── pages/                  # Full-screen pages (EspressoPage, ShotDetailPage, etc.)
+│   └── settings/           # Settings tab pages
+├── components/             # Reusable components (ShotGraph, StatusBar, etc.)
+├── simulator/              # Simulator UI (GHCSimulatorWindow)
 └── Theme.qml               # Singleton styling (+ emojiToImage())
 
 resources/
@@ -174,8 +363,14 @@ scripts/
 ### Signal/Slot Flow
 ```
 DE1Device (BLE) → signals → MainController → ShotDataModel → QML graphs
+                          → ShotTimingController (timing, tare, weight)
 ScaleDevice     → signals → MachineState (stop-at-weight)
                           → MainController (graph data)
+MachineState    → signals → MainController → QML page navigation
+AIManager       → signals → QML AI panels (conversation responses)
+MqttClient      → signals → MainController (remote monitoring)
+RelayClient     ←→ DE1Device (remote control over WebSocket relay)
+MCPServer       → tool calls → MainController / ProfileManager / ShotHistoryStorage
 ```
 
 ### Scale System
@@ -188,6 +383,20 @@ ScaleDevice     → signals → MachineState (stop-at-weight)
 Disconnected → Sleep → Idle → Heating → Ready
 Ready → EspressoPreheating → Preinfusion → Pouring → Ending
 Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
+```
+
+### AI & MCP
+- **AIManager**: Manages provider config and conversation lifecycle; exposes `conversation` to QML
+- **AIConversation**: Multi-turn conversation with history; used by AI panels across the app
+- **MCPServer**: WebSocket server exposing machine control and data as MCP tools for external AI agents
+- **ShotAnalysis / ShotSummarizer**: Format shot data as text context for AI prompts
+
+### Profile Pipeline
+```
+TCL/JSON file → ProfileImporter → ProfileConverter → Profile (in memory)
+RecipeParams  → RecipeGenerator → Profile frames → DE1 upload
+Profile frames ← RecipeAnalyzer ← existing frame-based profile (reverse)
+ProfileManager: CRUD, activation, built-in management, ProfileStorage I/O
 ```
 
 ## Conventions
@@ -372,59 +581,11 @@ See `docs/MCP_SERVER.md` for the full data conventions section.
 
 ## Emoji System
 
-Emojis are rendered as pre-rendered SVG images (Twemoji), not via a color font. This avoids D3D12/GPU crashes caused by CBDT/CBLC bitmap fonts (NotoColorEmoji.ttf) being incompatible with Qt's scene graph glyph cache across all platforms.
-
-### How It Works
-- Emoji characters are stored as Unicode strings in settings/layout data (e.g., `"☕"`, `"😀"`)
-- Decenza SVG icons are stored as `qrc:/icons/...` paths (e.g., `"qrc:/icons/espresso.svg"`)
-- At display time, `Theme.emojiToImage(emoji)` converts to an image path:
-  - `qrc:/icons/*` paths pass through unchanged
-  - Unicode emoji → codepoints → `qrc:/emoji/<hex>.svg` (e.g., `"☕"` → `"qrc:/emoji/2615.svg"`)
-- All QML components use `Image { source: Theme.emojiToImage(value) }` — never Text for emojis
-
-### Switching Emoji Sets
-```bash
-# Download from a different source (twemoji, openmoji, noto, fluentui)
-python scripts/download_emoji.py openmoji
-# Regenerates resources/emoji/ and resources/emoji.qrc
-```
-
-### Adding New Emojis
-1. Add the emoji character to the relevant category in `qml/components/layout/EmojiData.js`
-2. Re-run `python scripts/download_emoji.py twemoji` to download the new SVG
-3. Rebuild (the script regenerates `emoji.qrc`)
-
-### Attribution
-Twemoji by Twitter/X (CC-BY 4.0): https://github.com/twitter/twemoji
+See `docs/CLAUDE_MD/EMOJI_SYSTEM.md`. Key rule: always use `Image { source: Theme.emojiToImage(value) }` — never `Text` for emojis.
 
 ## Cup Fill View
 
-The espresso extraction cup visualization (`qml/components/CupFillView.qml`) uses a hybrid image+procedural approach:
-
-### Layer Stack
-```
-1. BackGround.png (Image)     — cup back, interior, handle
-2. Coffee Canvas (masked)     — liquid fill, crema, waves, ripples
-3. Effects Canvas (unmasked)  — stream, steam wisps, completion glow
-4. Overlay.png (lighten blend) — rim, front wall highlights
-5. Weight text overlay
-```
-
-### GPU Shaders (require Qt6 ShaderTools)
-- **cup_mask.frag**: Masks coffee to cup interior using Mask.png (black = coffee visible, inverted in shader)
-- **cup_lighten.frag**: MAX blend per channel with brightness-to-alpha (black areas become transparent)
-- Compiled via `qt_add_shaders()` in CMakeLists.txt to `.qsb` format
-
-### Updating Cup Images
-1. Edit `resources/CoffeeCup/FullRes.7z` (contains source PSD)
-2. Export three layers as 701x432 RGBA PNGs:
-   - `BackGround.png` — everything behind the coffee (on transparent/black)
-   - `Mask.png` — black silhouette of cup interior, white elsewhere
-   - `Overlay.png` — everything in front of coffee (on black, for lighten blend)
-3. Rebuild (images are in `resources.qrc`)
-
-### Coffee Geometry
-The procedural coffee rendering uses proportional coordinates relative to the cup image dimensions. Key geometry is defined in `cupGeometry()`: cup center at 44% width, rim at 6% height, bottom at 92% height. Adjust these if the cup shape changes.
+See `docs/CLAUDE_MD/CUP_FILL_VIEW.md` for layer stack, GPU shaders, and how to update cup images.
 
 ## Profile System
 
@@ -556,53 +717,4 @@ When touching existing code, **fix pre-existing bugs and violations in the file 
 
 ### TODO: Focus Order Improvements
 
-**Problem:** Screen reader users report unpredictable navigation order when swiping through elements. Focus jumps unexpectedly and some elements are skipped.
-
-**Root Cause:** Many interactive elements lack proper focus configuration:
-1. Missing `Accessible.focusable: true` on interactive items
-2. No logical `KeyNavigation.tab` / `KeyNavigation.backtab` chains
-3. Missing `FocusScope` wrappers for grouped controls
-4. No `focus: true` on first focusable element in pages
-
-**Fix Required:** Go through each page and ensure:
-```qml
-// 1. All interactive elements are focusable
-Rectangle {
-    Accessible.role: Accessible.Button
-    Accessible.name: "My Button"
-    Accessible.focusable: true  // ADD THIS
-}
-
-// 2. Logical tab order with KeyNavigation
-Item {
-    id: firstControl
-    KeyNavigation.tab: secondControl
-    KeyNavigation.backtab: lastControl
-}
-
-// 3. Group related controls
-FocusScope {
-    // Controls inside share focus context
-}
-
-// 4. Set initial focus
-Page {
-    Component.onCompleted: firstControl.forceActiveFocus()
-}
-```
-
-**Pages to Review:**
-- `qml/pages/IdlePage.qml`
-- `qml/pages/EspressoPage.qml`
-- `qml/pages/SteamPage.qml`
-- `qml/pages/HotWaterPage.qml`
-- `qml/pages/FlushPage.qml`
-- `qml/pages/SettingsPage.qml` (and all settings tabs)
-- `qml/pages/RecipeEditorPage.qml`
-- `qml/pages/ProfileEditorPage.qml`
-
-**Testing:** Enable TalkBack on Android, then:
-1. Swipe right repeatedly - should move through all controls in logical order
-2. No elements should be skipped
-3. Focus should not jump unexpectedly
-4. First element on each page should receive focus when page opens
+Tracked in https://github.com/Kulitorum/Decenza/issues/736 — KeyNavigation chains, FocusScope wrappers, and initial focus are missing from most pages.
