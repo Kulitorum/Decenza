@@ -306,7 +306,18 @@ The three things that have direct, immediate impact on tablet TalkBack users:
 | `SettingsCalibrationTab.qml` | **Done** (prior wave) |
 
 ### Wave 5 — Secondary pages
-`CommunityBrowserPage`, `VisualizerBrowserPage`, `VisualizerMultiImportPage`, `ProfileImportPage`, `ShotComparisonPage`, `AutoFavoriteInfoPage`, `AutoFavoritesPage`, `DialingAssistantPage`, `FlowCalibrationPage`, `DescalingPage`
+| Page | Status |
+|------|--------|
+| `CommunityBrowserPage.qml` | **Done** (was already correct) |
+| `VisualizerBrowserPage.qml` | **Done** (was already correct) |
+| `VisualizerMultiImportPage.qml` | **Done** |
+| `ProfileImportPage.qml` | **Done** (was already correct) |
+| `ShotComparisonPage.qml` | **Done** (was already correct) |
+| `AutoFavoriteInfoPage.qml` | **Done** (was already correct) |
+| `AutoFavoritesPage.qml` | **Done** (was already correct) |
+| `DialingAssistantPage.qml` | **Done** (was already correct) |
+| `FlowCalibrationPage.qml` | **Done** (was already correct) |
+| `DescalingPage.qml` | **Done** (was already correct) |
 
 ### Definition of "done" for a page
 - All interactive elements have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, `Accessible.onPressAction`

@@ -426,6 +426,7 @@ Page {
                                             radius: Theme.scaled(12)
                                             color: Theme.errorColor
                                             visible: parent.isInvalid
+                                            Accessible.ignored: true
 
                                             Text {
                                                 anchors.centerIn: parent
@@ -433,6 +434,7 @@ Page {
                                                 color: Theme.primaryContrastColor
                                                 font.pixelSize: Theme.scaled(14)
                                                 font.bold: true
+                                                Accessible.ignored: true
                                             }
                                         }
 
