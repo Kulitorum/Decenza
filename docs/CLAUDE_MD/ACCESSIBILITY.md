@@ -192,10 +192,9 @@ Repeater {
 
 **Canonical references**: `qml/pages/settings/SettingsCalibrationTab.qml` lines 710–783 (Dialog — uses `onOpened: heaterIdleTempSlider.forceActiveFocus()`, not `Component.onCompleted`). For Repeater-based pill rows, see `qml/pages/FlushPage.qml` (settings preset section).
 
-**Status**: Focus chains are missing from most pages. Work is tracked in
-[Kulitorum/Decenza#736](https://github.com/Kulitorum/Decenza/issues/736).
+**Canonical references**: `qml/pages/settings/SettingsCalibrationTab.qml` (Dialog focus — uses `onOpened`, not `Component.onCompleted`). For Repeater pill rows, see `qml/pages/FlushPage.qml`.
 
-> **Note on priority**: Decenza runs primarily on an Android tablet where users navigate by touch and TalkBack swipe. `KeyNavigation` and `activeFocusOnTab` have no effect on TalkBack — they only benefit desktop or physical-keyboard users. Keyboard chains are correct to add when already touching a page, but they are **low priority** compared to screen reader (Pass 1) work, which directly affects the tablet user base. See the [implementation plan](#screen-reader-audit-implementation-plan) below.
+> **Priority note**: Decenza runs primarily on an Android tablet. `KeyNavigation` and `activeFocusOnTab` have no effect on TalkBack — they only benefit desktop/physical-keyboard users. Keyboard chains are **low priority** relative to TalkBack screen reader fixes, which directly impact the tablet user base.
 
 ---
 
@@ -251,97 +250,6 @@ When touching existing code, **fix pre-existing violations in the file you're mo
 
 ---
 
-## Screen Reader Audit Implementation Plan
+## Audit Status
 
-### Why screen reader only
-
-Decenza runs primarily on an Android tablet. Users with accessibility needs use TalkBack swipe navigation — `KeyNavigation`, `activeFocusOnTab`, and `forceActiveFocus` have no effect on TalkBack. The keyboard navigation work added to Wave 1 pages (FlushPage, HotWaterPage, SteamPage, IdlePage, EspressoPage) is harmless and correct for desktop users, but it is **not the focus of ongoing accessibility work**. Remaining waves audit screen reader properties only.
-
-The three things that have direct, immediate impact on tablet TalkBack users:
-1. **Missing `Accessible.onPressAction`** — element is announced but double-tap does nothing
-2. **Missing `Accessible.description`** — secondary actions (long-press, drag) are invisible
-3. **Missing `Accessible.ignored: true`** on child Text — element name is announced twice
-
-### Wave 1 — Core operation pages
-| Page | Status |
-|------|--------|
-| `FlushPage.qml` | **Done** |
-| `HotWaterPage.qml` | **Done** |
-| `SteamPage.qml` | **Done** |
-| `IdlePage.qml` | **Done** |
-| `EspressoPage.qml` | **Done** |
-
-### Wave 2 — Post-shot and review pages
-| Page | Status |
-|------|--------|
-| `PostShotReviewPage.qml` | **Done** |
-| `ShotDetailPage.qml` | **Done** |
-| `ShotHistoryPage.qml` | **Done** (was already correct) |
-| `BeanInfoPage.qml` | **Done** (was already correct) |
-
-### Wave 3 — Profile management pages
-| Page | Status |
-|------|--------|
-| `ProfileSelectorPage.qml` | **Done** |
-| `RecipeEditorPage.qml` | **Done** |
-| `SimpleProfileEditorPage.qml` | **Done** |
-| `ProfileEditorPage.qml` | **Done** |
-| `ProfileInfoPage.qml` | **Done** (was already correct) |
-
-### Wave 4 — Settings tabs
-| Tab | Status |
-|-----|--------|
-| `SettingsConnectionsTab.qml` | **Done** (was already correct) |
-| `SettingsMachineTab.qml` | **Done** (was already correct) |
-| `SettingsAITab.qml` | **Done** (was already correct) |
-| `SettingsLanguageTab.qml` | **Done** |
-| `SettingsHistoryDataTab.qml` | **Done** (was already correct) |
-| `SettingsThemesTab.qml` | **Done** |
-| `SettingsScreensaverTab.qml` | **Done** (was already correct) |
-| `SettingsVisualizerTab.qml` | **Done** (was already correct) |
-| `SettingsHomeAutomationTab.qml` | **Done** (was already correct) |
-| `SettingsDebugTab.qml` | **Done** (was already correct) |
-| `SettingsLayoutTab.qml` | **Done** (was already correct) |
-| `SettingsUpdateTab.qml` | **Done** (was already correct) |
-| `SettingsCalibrationTab.qml` | **Done** (prior wave) |
-
-### Wave 5 — Secondary pages
-| Page | Status |
-|------|--------|
-| `CommunityBrowserPage.qml` | **Done** (was already correct) |
-| `VisualizerBrowserPage.qml` | **Done** (was already correct) |
-| `VisualizerMultiImportPage.qml` | **Done** |
-| `ProfileImportPage.qml` | **Done** (was already correct) |
-| `ShotComparisonPage.qml` | **Done** (was already correct) |
-| `AutoFavoriteInfoPage.qml` | **Done** (was already correct) |
-| `AutoFavoritesPage.qml` | **Done** (was already correct) |
-| `DialingAssistantPage.qml` | **Done** (was already correct) |
-| `FlowCalibrationPage.qml` | **Done** (was already correct) |
-| `DescalingPage.qml` | **Done** (was already correct) |
-
-### Wave 6 — Rule 2: secondary action description hints
-Audit every place with `onDoubleClicked`, `onLongPressed`, or `onPressAndHold` and confirm a matching `Accessible.description` hint exists. All layout items (EspressoItem, SteamItem, FlushItem, HotWaterItem, BeansItem, SleepItem) and GraphLegend already have descriptions — skip them.
-
-| File | Secondary action | Status |
-|------|-----------------|--------|
-| `CommunityBrowserPage.qml` | `onDoubleClicked` downloads — accessible alternative exists (select card → "Add to Library" button appears); sighted shortcut only | **Skip** |
-| `LibraryItemCard.qml` | `onDoubleClicked` in `LibraryPanel` is an unimplemented TODO; accessible path exists in all real usages | **Skip** |
-| `ProfileImportPage.qml` | `TapHandler.onLongPressed` force re-import — added `Accessible.description` hint on the Import/Update `AccessibleButton` | **Done** |
-| `HotWaterPage.qml` | preset pill `onDoubleClicked` — already had `Accessible.description: "Double-tap or long-press to rename."` | **Done** (was already correct) |
-| `FlushPage.qml` | preset pill `onDoubleClicked` — already had `Accessible.description: "Double-tap or long-press to rename."` | **Done** (was already correct) |
-| `ProfileGraph.qml` | `frameDoubleClicked` signal is emitted but never connected by any caller — no-op | **Skip** |
-
-### Wave 7 — Popup anti-pattern: selection lists inside `Popup`
-No real work needed. All identified Popups have an accessible alternative path:
-
-- **Layout item `presetPopup`** (`EspressoItem`, `SteamItem`, `FlushItem`, `HotWaterItem`, `BeansItem`): the Popup is only opened when `isCompact: true`, which is set exclusively in the layout editor's card preview (`LibraryItemCard.qml`). On the live tablet UI, `AccessibleTapHandler.onAccessibleClicked` calls `togglePresets()` which takes the `idlePage.activePresetFunction` branch — showing presets inline on the page, fully accessible.
-- **`SuggestionField.qml` `suggestionPopup`**: already has a modal `SelectionDialog` as the TalkBack path (triggered by the arrow button); the typing Popup is sighted-user only.
-- **`SettingsLanguageTab.qml` `retryStatusPopup`**: informational only, no interactive children.
-
-**Wave 7 is complete — no changes needed.**
-
-### Definition of "done" for a page
-- All interactive elements have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, `Accessible.onPressAction`
-- All secondary actions (long-press, drag, double-tap) have `Accessible.description` hints
-- All decorative `Text`/icons inside accessible parents have `Accessible.ignored: true`
-- No bare `Rectangle+MouseArea` without accessibility properties
+A full screen reader audit covering all pages and components was completed in [Kulitorum/Decenza#737](https://github.com/Kulitorum/Decenza/pull/737) and [Kulitorum/Decenza#738](https://github.com/Kulitorum/Decenza/pull/738). All pages are compliant as of those PRs. Follow the rules above when adding or modifying any page.
