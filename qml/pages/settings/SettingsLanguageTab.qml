@@ -110,6 +110,7 @@ Item {
                                     return Theme.successColor
                                 }
                                 elide: Text.ElideRight
+                                Accessible.ignored: true
                             }
 
                             Text {
@@ -123,6 +124,7 @@ Item {
                                 }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
+                                Accessible.ignored: true
                             }
                         }
 

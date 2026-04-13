@@ -288,9 +288,22 @@ The three things that have direct, immediate impact on tablet TalkBack users:
 | `ProfileEditorPage.qml` | **Done** |
 | `ProfileInfoPage.qml` | **Done** (was already correct) |
 
-### Wave 4 — Settings tabs (one PR per tab)
-Priority: `SettingsMachineTab` → `SettingsConnectionsTab` → `SettingsPreferencesTab` → `SettingsAITab` → `SettingsAccessibilityTab` → remaining tabs.
-(`SettingsCalibrationTab` is already done — skip.)
+### Wave 4 — Settings tabs
+| Tab | Status |
+|-----|--------|
+| `SettingsConnectionsTab.qml` | **Done** (was already correct) |
+| `SettingsMachineTab.qml` | **Done** (was already correct) |
+| `SettingsAITab.qml` | **Done** (was already correct) |
+| `SettingsLanguageTab.qml` | **Done** |
+| `SettingsHistoryDataTab.qml` | **Done** (was already correct) |
+| `SettingsThemesTab.qml` | **Done** |
+| `SettingsScreensaverTab.qml` | **Done** (was already correct) |
+| `SettingsVisualizerTab.qml` | **Done** (was already correct) |
+| `SettingsHomeAutomationTab.qml` | **Done** (was already correct) |
+| `SettingsDebugTab.qml` | **Done** (was already correct) |
+| `SettingsLayoutTab.qml` | **Done** (was already correct) |
+| `SettingsUpdateTab.qml` | **Done** (was already correct) |
+| `SettingsCalibrationTab.qml` | **Done** (prior wave) |
 
 ### Wave 5 — Secondary pages
 `CommunityBrowserPage`, `VisualizerBrowserPage`, `VisualizerMultiImportPage`, `ProfileImportPage`, `ShotComparisonPage`, `AutoFavoriteInfoPage`, `AutoFavoritesPage`, `DialingAssistantPage`, `FlowCalibrationPage`, `DescalingPage`
