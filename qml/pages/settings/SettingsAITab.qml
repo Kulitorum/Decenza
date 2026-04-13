@@ -1149,6 +1149,7 @@ KeyboardAwareContainer {
                         Keys.onEnterPressed: sendMsg()
 
                         function sendMsg() {
+                            Qt.inputMethod.commit()
                             if (text.length === 0) return
                             MainController.aiManager?.conversation?.followUp(text)
                             text = ""

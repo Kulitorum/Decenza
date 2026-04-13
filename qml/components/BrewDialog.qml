@@ -878,6 +878,7 @@ Dialog {
                 text: TranslationManager.translate("brewDialog.ok", "OK")
                 accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
                 onClicked: {
+                    Qt.inputMethod.commit()
                     Settings.lastUsedRatio = root.ratio
                     Settings.dyeBeanBrand = root.beanBrand
                     Settings.dyeBeanType = root.beanType
