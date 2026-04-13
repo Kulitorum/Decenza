@@ -192,10 +192,9 @@ Repeater {
 
 **Canonical references**: `qml/pages/settings/SettingsCalibrationTab.qml` lines 710–783 (Dialog — uses `onOpened: heaterIdleTempSlider.forceActiveFocus()`, not `Component.onCompleted`). For Repeater-based pill rows, see `qml/pages/FlushPage.qml` (settings preset section).
 
-**Status**: Focus chains are missing from most pages. Work is tracked in
-[Kulitorum/Decenza#736](https://github.com/Kulitorum/Decenza/issues/736).
+**Canonical references**: `qml/pages/settings/SettingsCalibrationTab.qml` (Dialog focus — uses `onOpened`, not `Component.onCompleted`). For Repeater pill rows, see `qml/pages/FlushPage.qml`.
 
-> **Note on priority**: Decenza runs primarily on an Android tablet where users navigate by touch and TalkBack swipe. `KeyNavigation` and `activeFocusOnTab` have no effect on TalkBack — they only benefit desktop or physical-keyboard users. Keyboard chains are correct to add when already touching a page, but they are **low priority** compared to screen reader (Pass 1) work, which directly affects the tablet user base. See the [implementation plan](#screen-reader-audit-implementation-plan) below.
+> **Priority note**: Decenza runs primarily on an Android tablet. `KeyNavigation` and `activeFocusOnTab` have no effect on TalkBack — they only benefit desktop/physical-keyboard users. Keyboard chains are **low priority** relative to TalkBack screen reader fixes, which directly impact the tablet user base.
 
 ---
 
@@ -251,46 +250,6 @@ When touching existing code, **fix pre-existing violations in the file you're mo
 
 ---
 
-## Screen Reader Audit Implementation Plan
+## Audit Status
 
-### Why screen reader only
-
-Decenza runs primarily on an Android tablet. Users with accessibility needs use TalkBack swipe navigation — `KeyNavigation`, `activeFocusOnTab`, and `forceActiveFocus` have no effect on TalkBack. The keyboard navigation work added to Wave 1 pages (FlushPage, HotWaterPage, SteamPage, IdlePage, EspressoPage) is harmless and correct for desktop users, but it is **not the focus of ongoing accessibility work**. Remaining waves audit screen reader properties only.
-
-The three things that have direct, immediate impact on tablet TalkBack users:
-1. **Missing `Accessible.onPressAction`** — element is announced but double-tap does nothing
-2. **Missing `Accessible.description`** — secondary actions (long-press, drag) are invisible
-3. **Missing `Accessible.ignored: true`** on child Text — element name is announced twice
-
-### Wave 1 — Core operation pages
-| Page | Status |
-|------|--------|
-| `FlushPage.qml` | **Done** |
-| `HotWaterPage.qml` | **Done** |
-| `SteamPage.qml` | **Done** |
-| `IdlePage.qml` | **Done** |
-| `EspressoPage.qml` | **Done** |
-
-### Wave 2 — Post-shot and review pages
-| Page | Status |
-|------|--------|
-| `PostShotReviewPage.qml` | **Done** |
-| `ShotDetailPage.qml` | **Done** |
-| `ShotHistoryPage.qml` | **Done** (was already correct) |
-| `BeanInfoPage.qml` | **Done** (was already correct) |
-
-### Wave 3 — Profile management pages
-`ProfileSelectorPage`, `RecipeEditorPage`, `SimpleProfileEditorPage`, `ProfileEditorPage`, `ProfileInfoPage`
-
-### Wave 4 — Settings tabs (one PR per tab)
-Priority: `SettingsMachineTab` → `SettingsConnectionsTab` → `SettingsPreferencesTab` → `SettingsAITab` → `SettingsAccessibilityTab` → remaining tabs.
-(`SettingsCalibrationTab` is already done — skip.)
-
-### Wave 5 — Secondary pages
-`CommunityBrowserPage`, `VisualizerBrowserPage`, `VisualizerMultiImportPage`, `ProfileImportPage`, `ShotComparisonPage`, `AutoFavoriteInfoPage`, `AutoFavoritesPage`, `DialingAssistantPage`, `FlowCalibrationPage`, `DescalingPage`
-
-### Definition of "done" for a page
-- All interactive elements have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, `Accessible.onPressAction`
-- All secondary actions (long-press, drag, double-tap) have `Accessible.description` hints
-- All decorative `Text`/icons inside accessible parents have `Accessible.ignored: true`
-- No bare `Rectangle+MouseArea` without accessibility properties
+A full screen reader audit covering all pages and components was completed in [Kulitorum/Decenza#737](https://github.com/Kulitorum/Decenza/pull/737) and [Kulitorum/Decenza#738](https://github.com/Kulitorum/Decenza/pull/738). All pages are compliant as of those PRs. Follow the rules above when adding or modifying any page.

@@ -306,6 +306,8 @@ Page {
                             accessibleName: profileDelegate.isDifferent ?
                                   TranslationManager.translate("profileImport.updateProfileVersion", "Update profile %1 with newer version").arg(profileData.title) :
                                   TranslationManager.translate("profileImport.importProfile", "Import profile %1").arg(profileData.title)
+                            Accessible.description: profileDelegate.isDifferent ?
+                                TranslationManager.translate("profileimport.accessible.forceHint", "Long-press the row to force overwrite without prompting.") : ""
                             warning: profileDelegate.isDifferent
                             primary: !profileDelegate.isDifferent
                             enabled: !MainController.profileImporter.isImporting

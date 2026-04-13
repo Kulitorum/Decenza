@@ -48,6 +48,9 @@ Item {
             width: visible ? implicitWidth : 0
             anchors.verticalCenter: parent.verticalCenter
             padding: 0
+            Accessible.name: root.title
+            Accessible.checked: checked
+            Accessible.focusable: true
             indicator: Rectangle {
                 implicitWidth: Theme.scaled(16)
                 implicitHeight: Theme.scaled(16)
@@ -67,7 +70,7 @@ Item {
             }
         }
 
-        // Title text
+        // Title text — decorative; the parent Item already has Accessible.name: root.title
         Text {
             id: titleText
             text: root.title
@@ -76,6 +79,7 @@ Item {
             font.bold: true
             color: (root.canEnable && !root.sectionEnabled) ? Theme.textSecondaryColor : Theme.textColor
             anchors.verticalCenter: parent.verticalCenter
+            Accessible.ignored: true
         }
 
         // Right line (fills remaining space)

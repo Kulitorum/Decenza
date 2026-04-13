@@ -348,6 +348,22 @@ KeyboardAwareContainer {
                                     border.color: Settings.activeThemeName === modelData.name ? Theme.primaryContrastColor : "transparent"
                                     border.width: 2
 
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: Settings.activeThemeName === modelData.name
+                                        ? modelData.name + ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                        : modelData.name
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: applyThemeArea.clicked(null)
+
+                                    MouseArea {
+                                        id: applyThemeArea
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        anchors.right: deleteBtn.visible ? deleteBtn.left : parent.right
+                                        onClicked: Settings.applyPresetTheme(modelData.name)
+                                    }
+
                                     Row {
                                         id: presetRow
                                         anchors.left: parent.left
@@ -360,12 +376,7 @@ KeyboardAwareContainer {
                                             color: Theme.primaryContrastColor
                                             font: Theme.labelFont
                                             anchors.verticalCenter: parent.verticalCenter
-
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                anchors.margins: -8
-                                                onClicked: Settings.applyPresetTheme(modelData.name)
-                                            }
+                                            Accessible.ignored: true
                                         }
                                     }
 

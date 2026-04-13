@@ -426,13 +426,15 @@ Page {
                                             radius: Theme.scaled(12)
                                             color: Theme.errorColor
                                             visible: parent.isInvalid
+                                            Accessible.ignored: true
 
-                                            Text {
+                                            ColoredIcon {
                                                 anchors.centerIn: parent
-                                                text: "✕"
-                                                color: Theme.primaryContrastColor
-                                                font.pixelSize: Theme.scaled(14)
-                                                font.bold: true
+                                                source: "qrc:/icons/cross.svg"
+                                                iconWidth: Theme.scaled(12)
+                                                iconHeight: Theme.scaled(12)
+                                                iconColor: Theme.primaryContrastColor
+                                                Accessible.ignored: true
                                             }
                                         }
 
@@ -790,12 +792,14 @@ Page {
                                     height: Theme.scaled(24)
                                     radius: Theme.scaled(12)
                                     color: Theme.errorColor
-                                    Text {
+                                    Accessible.ignored: true
+                                    ColoredIcon {
                                         anchors.centerIn: parent
-                                        text: "✕"
-                                        color: Theme.primaryContrastColor
-                                        font.pixelSize: Theme.scaled(14)
-                                        font.bold: true
+                                        source: "qrc:/icons/cross.svg"
+                                        iconWidth: Theme.scaled(12)
+                                        iconHeight: Theme.scaled(12)
+                                        iconColor: Theme.primaryContrastColor
+                                        Accessible.ignored: true
                                     }
                                 }
                                 Text {
