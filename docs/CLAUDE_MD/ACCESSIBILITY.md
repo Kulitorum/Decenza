@@ -343,7 +343,7 @@ Audit every place with `onDoubleClicked`, `onLongPressed`, or `onPressAndHold` a
 | `FlushItem.qml` | `presetPopup` | Selectable flush preset buttons | Pending |
 | `HotWaterItem.qml` | `presetPopup` | Selectable hot water preset buttons | Pending |
 | `BeansItem.qml` | `presetPopup` | Selectable bean/grinder preset buttons | Pending |
-| `SuggestionField.qml` | `suggestionPopup` | `ListView` of autocomplete `ItemDelegate` — TalkBack cannot reach suggestions | Pending |
+| `SuggestionField.qml` | `suggestionPopup` | **Skip** — already has a `SelectionDialog` (modal) that opens via the arrow button and is the TalkBack path; typing `Popup` is sighted-user only | N/A |
 
 ### Definition of "done" for a page
 - All interactive elements have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, `Accessible.onPressAction`
