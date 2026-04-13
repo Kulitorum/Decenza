@@ -72,18 +72,7 @@ Item {
                         property string displayName: TranslationManager.getLanguageDisplayName(modelData)
                         property string nativeName: TranslationManager.getLanguageNativeName(modelData)
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: {
-                            var code = modelData  // Force binding to modelData
-                            var display = TranslationManager.getLanguageDisplayName(code)
-                            var native_ = TranslationManager.getLanguageNativeName(code)
-                            var name = native_ !== display ? display + ", " + native_ : display
-                            if (code === TranslationManager.currentLanguage) {
-                                name += ", " + TranslationManager.translate("language.accessible.selected", "selected")
-                            }
-                            return name
-                        }
-                        Accessible.focusable: true
+                        Accessible.ignored: true
 
                         Rectangle {
                             anchors.fill: parent

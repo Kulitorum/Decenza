@@ -50,6 +50,7 @@ Item {
             padding: 0
             Accessible.name: root.title
             Accessible.checked: checked
+            Accessible.focusable: true
             indicator: Rectangle {
                 implicitWidth: Theme.scaled(16)
                 implicitHeight: Theme.scaled(16)
