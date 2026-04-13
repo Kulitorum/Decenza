@@ -319,6 +319,32 @@ The three things that have direct, immediate impact on tablet TalkBack users:
 | `FlowCalibrationPage.qml` | **Done** (was already correct) |
 | `DescalingPage.qml` | **Done** (was already correct) |
 
+### Wave 6 — Rule 2: secondary action description hints
+Audit every place with `onDoubleClicked`, `onLongPressed`, or `onPressAndHold` and confirm a matching `Accessible.description` hint exists. All layout items (EspressoItem, SteamItem, FlushItem, HotWaterItem, BeansItem, SleepItem) and GraphLegend already have descriptions — skip them.
+
+| File | Secondary action | Status |
+|------|-----------------|--------|
+| `CommunityBrowserPage.qml` | `onDoubleClicked` downloads entry (single-tap selects, double-tap downloads — hidden from TalkBack) | Pending |
+| `LibraryItemCard.qml` | `onDoubleClicked: card.doubleClicked()` — no `Accessible.description` | Pending |
+| `ProfileImportPage.qml` | `TapHandler.onLongPressed` force re-import — no accessibility handling at all | Pending |
+| `HotWaterPage.qml` | preset pill `onDoubleClicked` — verify description hint exists | Pending |
+| `FlushPage.qml` | preset pill `onDoubleClicked` — verify description hint exists | Pending |
+| `ProfileGraph.qml` | frame `onDoubleClicked: frameDoubleClicked(index)` — frame items are `Accessible.ignored: true`; evaluate if graph editing needs TalkBack path | Pending |
+
+### Wave 7 — Popup anti-pattern: selection lists inside `Popup`
+`Popup` (non-modal) traps no focus — TalkBack cannot reach content inside. Any `Popup` that contains interactive elements a user must select is inaccessible. Convert to `Dialog { modal: true }` with `AccessibleButton` delegates, or find an equivalent accessible alternative.
+
+`SettingsLanguageTab.qml` `retryStatusPopup` is informational only (no interactive children) — skip.
+
+| File | Popup | Contents | Status |
+|------|-------|----------|--------|
+| `EspressoItem.qml` | `presetPopup` | Selectable profile preset buttons | Pending |
+| `SteamItem.qml` | `presetPopup` | Selectable steam preset buttons | Pending |
+| `FlushItem.qml` | `presetPopup` | Selectable flush preset buttons | Pending |
+| `HotWaterItem.qml` | `presetPopup` | Selectable hot water preset buttons | Pending |
+| `BeansItem.qml` | `presetPopup` | Selectable bean/grinder preset buttons | Pending |
+| `SuggestionField.qml` | `suggestionPopup` | `ListView` of autocomplete `ItemDelegate` — TalkBack cannot reach suggestions | Pending |
+
 ### Definition of "done" for a page
 - All interactive elements have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, `Accessible.onPressAction`
 - All secondary actions (long-press, drag, double-tap) have `Accessible.description` hints
