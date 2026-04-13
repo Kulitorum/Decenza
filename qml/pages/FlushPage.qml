@@ -303,8 +303,24 @@ Page {
                                         MainController.applyFlushSettings()
                                     }
 
-                                    Keys.onReturnPressed: { Accessible.onPressAction(); event.accepted = true }
-                                    Keys.onSpacePressed:  { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onReturnPressed: {
+                                        Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                        flowInput.value = modelData.flow
+                                        secondsInput.value = modelData.seconds
+                                        Settings.flushFlow = modelData.flow
+                                        Settings.flushSeconds = modelData.seconds
+                                        MainController.applyFlushSettings()
+                                        event.accepted = true
+                                    }
+                                    Keys.onSpacePressed: {
+                                        Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                        flowInput.value = modelData.flow
+                                        secondsInput.value = modelData.seconds
+                                        Settings.flushFlow = modelData.flow
+                                        Settings.flushSeconds = modelData.seconds
+                                        MainController.applyFlushSettings()
+                                        event.accepted = true
+                                    }
                                     Keys.onLeftPressed: {
                                         if (index > 0) presetRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
                                         event.accepted = true

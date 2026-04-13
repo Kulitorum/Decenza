@@ -190,7 +190,7 @@ Repeater {
 }
 ```
 
-**Canonical reference**: `qml/pages/settings/SettingsCalibrationTab.qml` lines 710–783 — the only fully-implemented example. Note it is a `Dialog`, so initial focus uses `onOpened: heaterIdleTempSlider.forceActiveFocus()` (line 678), not `Component.onCompleted`.
+**Canonical references**: `qml/pages/settings/SettingsCalibrationTab.qml` lines 710–783 (Dialog — uses `onOpened: heaterIdleTempSlider.forceActiveFocus()`, not `Component.onCompleted`). For Repeater-based pill rows, see `qml/pages/FlushPage.qml` (settings preset section).
 
 **Status**: Focus chains are missing from most pages. Work is tracked in
 [Kulitorum/Decenza#736](https://github.com/Kulitorum/Decenza/issues/736).
@@ -210,7 +210,7 @@ Never set `Accessible.ignored: true` on a parent and put `Accessible.role` on a 
 Never use `Popup` for lists users must navigate. TalkBack can't trap focus inside Qt `Popup` elements. Use `Dialog { modal: true }` with `AccessibleButton` delegates instead.
 
 ### 3. Overlapping accessible elements
-Never position accessible buttons inside another accessible element's bounds (e.g., buttons inside a TextField's padding area). TalkBack will only discover one element. Use conditional layout to show buttons in separate bounds when accessibility is enabled. See `ShotHistoryPage.qml` for a real example: it checks `AccessibilityManager.accessibilityEnabled` to conditionally reposition elements that would otherwise overlap.
+Never position accessible buttons inside another accessible element's bounds (e.g., buttons inside a TextField's padding area). TalkBack will only discover one element. Use conditional layout to show buttons in separate bounds when accessibility is enabled. See `ShotHistoryPage.qml` for a real example: it checks `AccessibilityManager.enabled` to conditionally reposition elements that would otherwise overlap.
 
 ---
 
@@ -241,7 +241,7 @@ Never position accessible buttons inside another accessible element's bounds (e.
 1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction` **on itself** (not on a child). Exception: `AccessibleMouseArea` with `accessibleItem`.
 2. Every interactive element with secondary actions must set `Accessible.description` describing those actions.
 3. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates.
-4. Never overlap accessible elements — separate bounds or check `AccessibilityManager.accessibilityEnabled` to conditionally reposition elements (see `ShotHistoryPage.qml` for an example).
+4. Never overlap accessible elements — separate bounds or check `AccessibilityManager.enabled` to conditionally reposition elements (see `ShotHistoryPage.qml` for an example).
 5. Test with TalkBack: double-tap to activate, swipe to navigate.
 6. *(Low priority for this tablet app)* Every focusable control should also set `activeFocusOnTab: true` for desktop/physical-keyboard users.
 
@@ -272,7 +272,12 @@ The three things that have direct, immediate impact on tablet TalkBack users:
 | `EspressoPage.qml` | **Done** |
 
 ### Wave 2 — Post-shot and review pages
-`PostShotReviewPage`, `ShotDetailPage`, `ShotHistoryPage`, `BeanInfoPage`
+| Page | Status |
+|------|--------|
+| `PostShotReviewPage.qml` | **Done** |
+| `ShotDetailPage.qml` | **Done** |
+| `ShotHistoryPage.qml` | **Done** (was already correct) |
+| `BeanInfoPage.qml` | **Done** (was already correct) |
 
 ### Wave 3 — Profile management pages
 `ProfileSelectorPage`, `RecipeEditorPage`, `SimpleProfileEditorPage`, `ProfileEditorPage`, `ProfileInfoPage`

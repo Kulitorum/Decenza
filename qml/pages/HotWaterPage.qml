@@ -356,8 +356,26 @@ Page {
                                         MainController.applyHotWaterSettings()
                                     }
 
-                                    Keys.onReturnPressed: { Accessible.onPressAction(); event.accepted = true }
-                                    Keys.onSpacePressed:  { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onReturnPressed: {
+                                        Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                        volumeInput.value = modelData.volume
+                                        flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        Settings.waterVolume = modelData.volume
+                                        Settings.waterVolumeMode = (modelData.mode || "weight")
+                                        Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        MainController.applyHotWaterSettings()
+                                        event.accepted = true
+                                    }
+                                    Keys.onSpacePressed: {
+                                        Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                        volumeInput.value = modelData.volume
+                                        flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        Settings.waterVolume = modelData.volume
+                                        Settings.waterVolumeMode = (modelData.mode || "weight")
+                                        Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        MainController.applyHotWaterSettings()
+                                        event.accepted = true
+                                    }
                                     Keys.onLeftPressed: {
                                         if (index > 0) vesselRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
                                         event.accepted = true

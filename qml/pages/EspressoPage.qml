@@ -28,9 +28,10 @@ Page {
 
     Component.onCompleted: {
         // Only set title if this page is actually in the StackView (not during preload)
-        if (StackView.status === StackView.Active)
+        if (StackView.status === StackView.Active) {
             root.currentPageTitle = ProfileManager.currentProfileName
-        viewModeMouseArea.forceActiveFocus()
+            viewModeMouseArea.forceActiveFocus()
+        }
     }
     StackView.onActivated: {
         root.currentPageTitle = ProfileManager.currentProfileName

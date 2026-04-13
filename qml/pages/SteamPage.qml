@@ -324,6 +324,8 @@ Page {
 
                     activeFocusOnTab: true
                     Accessible.ignored: true
+                    Keys.onReturnPressed: { viewToggleMa.accessibleClicked(); event.accepted = true }
+                    Keys.onSpacePressed:  { viewToggleMa.accessibleClicked(); event.accepted = true }
                     Keys.onTabPressed: {
                         if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
                         else if (steamStopButton.visible) steamStopButton.forceActiveFocus()
@@ -678,7 +680,7 @@ Page {
                 AccessibleTapHandler {
                     id: stopTapHandler
                     anchors.fill: parent
-                    accessibleName: steamSoftStopped ? "Purge steam wand" : "Stop steaming"
+                    accessibleName: steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
                     accessibleItem: steamStopButton
                     onAccessibleClicked: {
                         if (Settings.headlessSkipPurgeConfirm) {
@@ -847,8 +849,26 @@ Page {
                                         MainController.startSteamHeating()
                                     }
 
-                                    Keys.onReturnPressed: { Accessible.onPressAction(); event.accepted = true }
-                                    Keys.onSpacePressed:  { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onReturnPressed: {
+                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
+                                        var flow = modelData.flow !== undefined ? modelData.flow : 150
+                                        durationSlider.value = modelData.duration
+                                        flowSlider.value = flow
+                                        Settings.steamTimeout = modelData.duration
+                                        Settings.steamFlow = flow
+                                        MainController.startSteamHeating()
+                                        event.accepted = true
+                                    }
+                                    Keys.onSpacePressed: {
+                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
+                                        var flow = modelData.flow !== undefined ? modelData.flow : 150
+                                        durationSlider.value = modelData.duration
+                                        flowSlider.value = flow
+                                        Settings.steamTimeout = modelData.duration
+                                        Settings.steamFlow = flow
+                                        MainController.startSteamHeating()
+                                        event.accepted = true
+                                    }
                                     Keys.onLeftPressed: {
                                         if (index > 0) pitcherRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
                                         event.accepted = true

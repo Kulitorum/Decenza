@@ -494,7 +494,7 @@ KeyboardAwareContainer {
 }
 ```
 
-**Accessibility on interactive elements**: See `docs/CLAUDE_MD/ACCESSIBILITY.md` for the full rules, component table, common mistakes checklist, focus-order requirements, and anti-patterns. The short version: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `activeFocusOnTab: true`. Prefer `AccessibleButton` or `AccessibleMouseArea` over raw `Rectangle+MouseArea`.
+**Accessibility on interactive elements**: See `docs/CLAUDE_MD/ACCESSIBILITY.md` for the full rules, component table, common mistakes checklist, focus-order requirements, and anti-patterns. The short version: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` or `AccessibleMouseArea` over raw `Rectangle+MouseArea`. (`activeFocusOnTab: true` is keyboard-only and low priority for this tablet app — see ACCESSIBILITY.md.)
 
 ### ShotServer Web UI (split across shotserver_*.cpp files)
 
