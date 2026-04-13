@@ -324,12 +324,12 @@ Audit every place with `onDoubleClicked`, `onLongPressed`, or `onPressAndHold` a
 
 | File | Secondary action | Status |
 |------|-----------------|--------|
-| `CommunityBrowserPage.qml` | `onDoubleClicked` downloads entry (single-tap selects, double-tap downloads — hidden from TalkBack) | Pending |
-| `LibraryItemCard.qml` | `onDoubleClicked: card.doubleClicked()` — no `Accessible.description` | Pending |
-| `ProfileImportPage.qml` | `TapHandler.onLongPressed` force re-import — no accessibility handling at all | Pending |
-| `HotWaterPage.qml` | preset pill `onDoubleClicked` — verify description hint exists | Pending |
-| `FlushPage.qml` | preset pill `onDoubleClicked` — verify description hint exists | Pending |
-| `ProfileGraph.qml` | frame `onDoubleClicked: frameDoubleClicked(index)` — frame items are `Accessible.ignored: true`; evaluate if graph editing needs TalkBack path | Pending |
+| `CommunityBrowserPage.qml` | `onDoubleClicked` downloads — accessible alternative exists (select card → "Add to Library" button appears); sighted shortcut only | **Skip** |
+| `LibraryItemCard.qml` | `onDoubleClicked` in `LibraryPanel` is an unimplemented TODO; accessible path exists in all real usages | **Skip** |
+| `ProfileImportPage.qml` | `TapHandler.onLongPressed` force re-import — added `Accessible.description` hint on the Import/Update `AccessibleButton` | **Done** |
+| `HotWaterPage.qml` | preset pill `onDoubleClicked` — already had `Accessible.description: "Double-tap or long-press to rename."` | **Done** (was already correct) |
+| `FlushPage.qml` | preset pill `onDoubleClicked` — already had `Accessible.description: "Double-tap or long-press to rename."` | **Done** (was already correct) |
+| `ProfileGraph.qml` | `frameDoubleClicked` signal is emitted but never connected by any caller — no-op | **Skip** |
 
 ### Wave 7 — Popup anti-pattern: selection lists inside `Popup`
 No real work needed. All identified Popups have an accessible alternative path:
