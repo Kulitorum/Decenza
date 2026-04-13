@@ -280,7 +280,13 @@ The three things that have direct, immediate impact on tablet TalkBack users:
 | `BeanInfoPage.qml` | **Done** (was already correct) |
 
 ### Wave 3 — Profile management pages
-`ProfileSelectorPage`, `RecipeEditorPage`, `SimpleProfileEditorPage`, `ProfileEditorPage`, `ProfileInfoPage`
+| Page | Status |
+|------|--------|
+| `ProfileSelectorPage.qml` | **Done** |
+| `RecipeEditorPage.qml` | **Done** |
+| `SimpleProfileEditorPage.qml` | **Done** |
+| `ProfileEditorPage.qml` | **Done** |
+| `ProfileInfoPage.qml` | **Done** (was already correct) |
 
 ### Wave 4 — Settings tabs (one PR per tab)
 Priority: `SettingsMachineTab` → `SettingsConnectionsTab` → `SettingsPreferencesTab` → `SettingsAITab` → `SettingsAccessibilityTab` → remaining tabs.
