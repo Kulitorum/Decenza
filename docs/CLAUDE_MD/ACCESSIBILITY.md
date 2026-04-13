@@ -332,18 +332,13 @@ Audit every place with `onDoubleClicked`, `onLongPressed`, or `onPressAndHold` a
 | `ProfileGraph.qml` | frame `onDoubleClicked: frameDoubleClicked(index)` — frame items are `Accessible.ignored: true`; evaluate if graph editing needs TalkBack path | Pending |
 
 ### Wave 7 — Popup anti-pattern: selection lists inside `Popup`
-`Popup` (non-modal) traps no focus — TalkBack cannot reach content inside. Any `Popup` that contains interactive elements a user must select is inaccessible. Convert to `Dialog { modal: true }` with `AccessibleButton` delegates, or find an equivalent accessible alternative.
+No real work needed. All identified Popups have an accessible alternative path:
 
-`SettingsLanguageTab.qml` `retryStatusPopup` is informational only (no interactive children) — skip.
+- **Layout item `presetPopup`** (`EspressoItem`, `SteamItem`, `FlushItem`, `HotWaterItem`, `BeansItem`): the Popup is only opened when `isCompact: true`, which is set exclusively in the layout editor's card preview (`LibraryItemCard.qml`). On the live tablet UI, `AccessibleTapHandler.onAccessibleClicked` calls `togglePresets()` which takes the `idlePage.activePresetFunction` branch — showing presets inline on the page, fully accessible.
+- **`SuggestionField.qml` `suggestionPopup`**: already has a modal `SelectionDialog` as the TalkBack path (triggered by the arrow button); the typing Popup is sighted-user only.
+- **`SettingsLanguageTab.qml` `retryStatusPopup`**: informational only, no interactive children.
 
-| File | Popup | Contents | Status |
-|------|-------|----------|--------|
-| `EspressoItem.qml` | `presetPopup` | Selectable profile preset buttons | Pending |
-| `SteamItem.qml` | `presetPopup` | Selectable steam preset buttons | Pending |
-| `FlushItem.qml` | `presetPopup` | Selectable flush preset buttons | Pending |
-| `HotWaterItem.qml` | `presetPopup` | Selectable hot water preset buttons | Pending |
-| `BeansItem.qml` | `presetPopup` | Selectable bean/grinder preset buttons | Pending |
-| `SuggestionField.qml` | `suggestionPopup` | **Skip** — already has a `SelectionDialog` (modal) that opens via the arrow button and is the TalkBack path; typing `Popup` is sighted-user only | N/A |
+**Wave 7 is complete — no changes needed.**
 
 ### Definition of "done" for a page
 - All interactive elements have `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, `Accessible.onPressAction`
