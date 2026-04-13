@@ -16,6 +16,7 @@ Page {
         Settings.flushFlow = getCurrentPresetFlow()
         Settings.flushSeconds = getCurrentPresetSeconds()
         MainController.applyFlushSettings()
+        if (!isFlushing) secondsInput.forceActiveFocus()
     }
     StackView.onActivated: root.currentPageTitle = pageTitle
 
@@ -73,6 +74,7 @@ Page {
                 spacing: Theme.scaled(8)
 
                 Repeater {
+                    id: livePresetRepeater
                     model: Settings.flushPresets
 
                     Rectangle {
@@ -83,11 +85,41 @@ Page {
                         border.color: index === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
+                        activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
                                          (index === Settings.selectedFlushPreset ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: livePresetArea.clicked(null)
+
+                        Keys.onReturnPressed: { livePresetArea.clicked(null); event.accepted = true }
+                        Keys.onSpacePressed:  { livePresetArea.clicked(null); event.accepted = true }
+                        Keys.onLeftPressed: {
+                            if (index > 0) livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: {
+                            if (index < livePresetRepeater.count - 1) livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onTabPressed: {
+                            if (index < livePresetRepeater.count - 1)
+                                livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                            else if (flushStopButton.visible)
+                                flushStopButton.forceActiveFocus()
+                            else
+                                livePresetRepeater.itemAt(0).forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onBacktabPressed: {
+                            if (index > 0)
+                                livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                            else if (flushStopButton.visible)
+                                flushStopButton.forceActiveFocus()
+                            else
+                                livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                            event.accepted = true
+                        }
 
                         Text {
                             id: livePresetText
@@ -163,12 +195,25 @@ Page {
                 border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
+                activeFocusOnTab: true
+                Keys.onReturnPressed: { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onSpacePressed:  { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onTabPressed: {
+                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onBacktabPressed: {
+                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                    event.accepted = true
+                }
+
                 Text {
                     anchors.centerIn: parent
                     text: TranslationManager.translate("flush.button.stop", "STOP")
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
+                    Accessible.ignored: true
                 }
 
                 // Using TapHandler for better touch responsiveness
@@ -230,6 +275,7 @@ Page {
                                 height: Theme.scaled(36)
 
                                 property int presetIndex: index
+                                property Item focusTarget: presetPill
 
                                 Rectangle {
                                     id: presetPill
@@ -241,10 +287,12 @@ Page {
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
+                                    activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
                                                      (presetDelegate.presetIndex === Settings.selectedFlushPreset ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.description: TranslationManager.translate("flush.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
                                         Settings.selectedFlushPreset = presetDelegate.presetIndex
@@ -253,6 +301,31 @@ Page {
                                         Settings.flushFlow = modelData.flow
                                         Settings.flushSeconds = modelData.seconds
                                         MainController.applyFlushSettings()
+                                    }
+
+                                    Keys.onReturnPressed: { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onSpacePressed:  { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onLeftPressed: {
+                                        if (index > 0) presetRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onRightPressed: {
+                                        if (index < presetRepeater.count - 1) presetRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onTabPressed: {
+                                        if (index < presetRepeater.count - 1)
+                                            presetRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                        else
+                                            addPresetButton.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onBacktabPressed: {
+                                        if (index > 0)
+                                            presetRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                        else
+                                            flowInput.forceActiveFocus()
+                                        event.accepted = true
                                     }
 
                                     Drag.active: dragArea.drag.active
@@ -272,6 +345,7 @@ Page {
                                         text: modelData.name
                                         color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
+                                        Accessible.ignored: true
                                     }
 
                                     MouseArea {
@@ -357,11 +431,20 @@ Page {
                             border.color: Theme.textSecondaryColor
                             border.width: 1
 
+                            activeFocusOnTab: true
+                            KeyNavigation.tab: secondsInput
+                            KeyNavigation.backtab: presetRepeater.count > 0
+                                ? presetRepeater.itemAt(presetRepeater.count - 1).focusTarget
+                                : secondsInput
+                            Keys.onReturnPressed: { addPresetDialog.open(); event.accepted = true }
+                            Keys.onSpacePressed:  { addPresetDialog.open(); event.accepted = true }
+
                             Text {
                                 anchors.centerIn: parent
                                 text: "+"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(20)
+                                Accessible.ignored: true
                             }
 
                             // Using TapHandler for better touch responsiveness
@@ -421,6 +504,8 @@ Page {
                             suffix: " s"
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("flush.label.duration", "Duration")
+                            KeyNavigation.tab: flowInput
+                            KeyNavigation.backtab: addPresetButton
 
                             onValueModified: function(newValue) {
                                 secondsInput.value = newValue
@@ -457,6 +542,10 @@ Page {
                             suffix: " mL/s"
                             valueColor: Theme.flowColor
                             accessibleName: TranslationManager.translate("flush.label.flowRate", "Flow Rate")
+                            KeyNavigation.tab: presetRepeater.count > 0
+                                ? presetRepeater.itemAt(0).focusTarget
+                                : addPresetButton
+                            KeyNavigation.backtab: secondsInput
 
                             onValueModified: function(newValue) {
                                 flowInput.value = newValue
@@ -560,10 +649,13 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("flush.accessible.renamePreset", "Rename flush preset")
                     Accessible.description: text
                     Accessible.focusable: true
+                    KeyNavigation.tab: deleteButton
+                    KeyNavigation.backtab: saveButton
 
                     Tr {
                         anchors.fill: parent
@@ -582,9 +674,12 @@ Page {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
+                    id: deleteButton
                     text: TranslationManager.translate("flush.button.delete", "Delete")
                     accessibleName: TranslationManager.translate("flush.deletePreset", "Delete this flush preset")
                     destructive: true
+                    KeyNavigation.tab: cancelEditButton
+                    KeyNavigation.backtab: editPresetNameInput
                     onClicked: {
                         Settings.removeFlushPreset(editingPresetIndex)
                         editPresetPopup.close()
@@ -594,15 +689,21 @@ Page {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
+                    id: cancelEditButton
                     text: TranslationManager.translate("flush.button.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("flush.cancelEditingPreset", "Cancel editing flush preset")
+                    KeyNavigation.tab: saveButton
+                    KeyNavigation.backtab: deleteButton
                     onClicked: editPresetPopup.close()
                 }
 
                 AccessibleButton {
+                    id: saveButton
                     primary: true
                     text: TranslationManager.translate("flush.button.save", "Save")
                     accessibleName: TranslationManager.translate("flush.savePresetChanges", "Save changes to flush preset")
+                    KeyNavigation.tab: editPresetNameInput
+                    KeyNavigation.backtab: cancelEditButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         var preset = Settings.getFlushPreset(editingPresetIndex)
@@ -674,10 +775,13 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("flush.accessible.newPresetName", "New flush preset name")
                     Accessible.description: text
                     Accessible.focusable: true
+                    KeyNavigation.tab: cancelAddButton
+                    KeyNavigation.backtab: addButton
 
                     Tr {
                         anchors.fill: parent
@@ -698,15 +802,21 @@ Page {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
+                    id: cancelAddButton
                     text: TranslationManager.translate("flush.button.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("flush.cancelAddingPreset", "Cancel adding new flush preset")
+                    KeyNavigation.tab: addButton
+                    KeyNavigation.backtab: newPresetNameInput
                     onClicked: addPresetDialog.close()
                 }
 
                 AccessibleButton {
+                    id: addButton
                     primary: true
                     text: TranslationManager.translate("flush.button.add", "Add")
                     accessibleName: TranslationManager.translate("flush.addNewPreset", "Add new flush preset with entered name")
+                    KeyNavigation.tab: newPresetNameInput
+                    KeyNavigation.backtab: cancelAddButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newPresetNameInput.text.length > 0) {

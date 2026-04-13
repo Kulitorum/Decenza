@@ -143,6 +143,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `STEAM_CALIBRATION.md` | Steam health tracking, calibration procedure |
 | `CUP_FILL_VIEW.md` | CupFillView layer stack, GPU shaders, updating cup images |
 | `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets |
+| `ACCESSIBILITY.md` | TalkBack/VoiceOver rules, focus order, anti-patterns, implementation plan |
 
 Also in `docs/`:
 - `MCP_SERVER.md` — full MCP tool list, access levels, architecture
@@ -493,64 +494,7 @@ KeyboardAwareContainer {
 }
 ```
 
-**Accessibility on interactive elements**: Every interactive element must have `Accessible.role`, `Accessible.name`, and `Accessible.focusable: true`. Without these, TalkBack/VoiceOver cannot discover or activate the element. Use the table below:
-
-| Element | Use instead | If raw, must set |
-|---------|-------------|------------------|
-| Button (Rectangle+MouseArea) | `AccessibleButton` or `AccessibleMouseArea` | `Accessible.role: Accessible.Button` + `name` + `focusable` + `onPressAction` |
-| Text input | `StyledTextField` | `Accessible.role: Accessible.EditableText` + `name` + `description: text` + `focusable` |
-| Autocomplete field | `SuggestionField` | (same as text input) |
-| Checkbox | Qt `CheckBox` | `Accessible.name` + `Accessible.checked: checked` + `focusable` |
-| Dropdown | `StyledComboBox` | `Accessible.role: Accessible.ComboBox` + `name` (use label, not displayText) + `focusable` |
-| List delegate | — | `Accessible.role: Accessible.Button` + `name` (summarize row content) + `focusable` + `onPressAction` |
-
-Common mistakes:
-- **Multi-action element missing `Accessible.description` hint**: Any interactive element with secondary actions (long-press, double-tap) **must** set `Accessible.description` (or `accessibleDescription` on `AccessibleTapHandler`) to announce those actions. TalkBack/VoiceOver reads this as a hint after the element name. Without it, blind users cannot discover secondary actions. Format: `"Double-tap or long-press to <action>."` For `AccessibleTapHandler` use the `accessibleDescription` property; for `ActionButton` and raw `Rectangle` use `Accessible.description` directly.
-- **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton`, `AccessibleMouseArea`, or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
-- **Accessibility on raw MouseArea instead of Rectangle**: Never put `Accessible.role`/`name`/`focusable` on a raw `MouseArea` child — put them on the parent Rectangle. MouseArea should only have an `id` so the Rectangle's `Accessible.onPressAction` can route to it. This does **not** apply to `AccessibleMouseArea`, which is a project component designed to handle accessibility on behalf of the parent via `accessibleItem`.
-- **Missing `Accessible.onPressAction`**: Every raw Rectangle+MouseArea button **must** have `Accessible.onPressAction: mouseAreaId.clicked(null)` (or `.tapped()` for TapHandler). Without it, TalkBack/VoiceOver double-tap does nothing. This applies even when the other three properties (`role`, `name`, `focusable`) are present. Not needed when using `AccessibleMouseArea` or `AccessibleButton`.
-- **Child Text inside accessible button missing `Accessible.ignored: true`**: When a Rectangle has `Accessible.name`, all child Text elements must set `Accessible.ignored: true`. Otherwise TalkBack announces the button name AND the text content, doubling the announcement.
-- **Text input missing `Accessible.description: text`**: Field sounds "Empty" even when it contains text. `StyledTextField` and `SuggestionField` set this automatically. Note: `Accessible.value` does not exist in Qt QML — use `Accessible.description` instead.
-- **ComboBox `Accessible.name` set to `displayText`**: Announces the selected value instead of the field label. Override with the label text.
-- **List row with no accessibility**: Only child elements (e.g. CheckBox) are discoverable; the row itself and its primary action are invisible.
-- **Decorative text without `Accessible.ignored: true`**: When a list delegate summarizes its content in `Accessible.name`, all child Text elements must set `Accessible.ignored: true`. Otherwise TalkBack announces the summary AND each text line individually, doubling every piece of information. Same applies to icon/label text inside buttons that already have `Accessible.name`.
-
-```qml
-// BAD - TalkBack can't see this button
-Rectangle {
-    MouseArea { onClicked: doSomething() }
-}
-
-// GOOD - use AccessibleButton (preferred for standard buttons)
-AccessibleButton {
-    text: "Save"
-    accessibleName: "Save changes"
-    onClicked: doSomething()
-}
-
-// GOOD - use AccessibleMouseArea (for custom-styled buttons, provides announce-first TalkBack behavior)
-Rectangle {
-    id: myButton
-    color: Theme.primaryColor
-    Accessible.ignored: true
-    Text { text: "Save"; Accessible.ignored: true }
-    AccessibleMouseArea {
-        anchors.fill: parent
-        accessibleName: "Save changes"
-        accessibleItem: myButton
-        onAccessibleClicked: doSomething()
-    }
-}
-
-// OK - add accessibility to Rectangle manually (last resort, loses announce-first behavior)
-Rectangle {
-    Accessible.role: Accessible.Button
-    Accessible.name: "Save changes"
-    Accessible.focusable: true
-    Accessible.onPressAction: area.clicked(null)
-    MouseArea { id: area; onClicked: doSomething() }
-}
-```
+**Accessibility on interactive elements**: See `docs/CLAUDE_MD/ACCESSIBILITY.md` for the full rules, component table, common mistakes checklist, focus-order requirements, and anti-patterns. The short version: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `activeFocusOnTab: true`. Prefer `AccessibleButton` or `AccessibleMouseArea` over raw `Rectangle+MouseArea`.
 
 ### ShotServer Web UI (split across shotserver_*.cpp files)
 
@@ -682,39 +626,6 @@ Each operation page (Steam, HotWater, Flush) has:
 
 ## Accessibility (TalkBack/VoiceOver)
 
-### Current Implementation
-The app has accessibility support via `AccessibilityManager` (C++) with:
-- Text-to-speech announcements via `AccessibilityManager.announce()`
-- Tick sounds for frame changes
-- `AccessibleTapHandler` and `AccessibleMouseArea` for touch handling
-- Extraction announcements (phase changes, weight milestones, periodic updates)
-- User-configurable settings in Settings → Accessibility
+See `docs/CLAUDE_MD/ACCESSIBILITY.md` for the full reference: component rules, focus-order requirements, anti-patterns, common mistakes checklist, and the page-by-page implementation plan for [Kulitorum/Decenza#736](https://github.com/Kulitorum/Decenza/issues/736).
 
-### Key Components
-- `src/core/accessibilitymanager.h/cpp` - TTS, tick sounds, settings persistence
-- `qml/components/AccessibleTapHandler.qml` - Touch handler that works with TalkBack
-- `qml/components/AccessibleMouseArea.qml` - Alternative touch handler with announce-first TalkBack behavior
-- `qml/components/AccessibleButton.qml` - Button with required accessibleName
-- `qml/components/AccessibleLabel.qml` - Tap-to-announce text
-
-### Accessibility Anti-patterns (Do NOT Use)
-
-1. **Parent-ignored / child-accessible**: Never set `Accessible.ignored: true` on a parent and put `Accessible.role` on a child occupying the same bounds. TalkBack can't reliably route activation to the child. Put accessibility properties on the interactive element itself. **Exception**: `AccessibleMouseArea` with `accessibleItem` is designed for this pattern — the parent Rectangle has `Accessible.ignored: true` and `AccessibleMouseArea` carries the accessibility properties. This is the established pattern for custom-styled buttons throughout the codebase.
-2. **Popup for selection lists**: Never use `Popup` for lists users must navigate. TalkBack can't trap focus inside Qt `Popup` elements. Use `Dialog { modal: true }` with `AccessibleButton` delegates instead.
-3. **Overlapping accessible elements**: Never position accessible buttons inside another accessible element's bounds (e.g., buttons inside a TextField's padding area). TalkBack will only discover one element. Use conditional layout to show buttons in separate bounds when accessibility is enabled.
-
-### Rules for New Components
-
-1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` **on itself** (not on a child). Exception: `AccessibleMouseArea` with `accessibleItem` carries accessibility for its parent — see anti-pattern #1 exception above.
-2. Every interactive element with secondary actions (long-press, double-tap) **must** also set `Accessible.description` (or `accessibleDescription` on `AccessibleTapHandler`) describing those actions. Format: `"Double-tap or long-press to <action>."` This is how TalkBack/VoiceOver announces hints — without it, blind users cannot discover secondary workflows.
-3. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
-4. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
-5. Test with TalkBack: double-tap to activate, swipe to navigate
-
-### Rules for Modifying Existing Components
-
-When touching existing code, **fix pre-existing bugs and violations in the file you're modifying** — do not dismiss them as "pre-existing". A bad bug is a bad bug regardless of when it was introduced. This applies to all issue types: real bugs, data loss, accessibility violations, missing i18n, incorrect MCP field names, etc. In code review, score pre-existing issues on the same scale as new issues. If you add properties to a Text element inside an `Accessible.name`-bearing parent and that Text is missing `Accessible.ignored: true`, add it. Issues compound over time and each modification is an opportunity to fix them.
-
-### TODO: Focus Order Improvements
-
-Tracked in https://github.com/Kulitorum/Decenza/issues/736 — KeyNavigation chains, FocusScope wrappers, and initial focus are missing from most pages.
+**Key rule for modifying existing components**: Fix pre-existing violations in any file you touch — do not dismiss them as "pre-existing". Issues compound over time and each change is an opportunity to fix them.

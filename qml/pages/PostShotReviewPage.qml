@@ -1124,6 +1124,7 @@ Page {
                             font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
+                            Accessible.ignored: true
                         }
 
                         Accessible.role: Accessible.StaticText
@@ -1167,6 +1168,7 @@ Page {
                             font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
+                            Accessible.ignored: true
                         }
 
                         Accessible.role: Accessible.StaticText

@@ -373,15 +373,19 @@ Page {
                         spacing: Theme.scaled(8)
 
                         Rectangle {
+                            id: nonFavoriteProfilePill
                             width: nonFavoriteProfileText.implicitWidth + Theme.scaled(40)
                             height: Theme.scaled(50)
                             radius: Theme.scaled(10)
                             color: Theme.successColor
 
+                            activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: (ProfileManager.currentProfileName || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
                             Accessible.focusable: true
                             Accessible.onPressAction: idleNonFavMouseArea.clicked(null)
+                            Keys.onReturnPressed: { idleNonFavMouseArea.clicked(null); event.accepted = true }
+                            Keys.onSpacePressed:  { idleNonFavMouseArea.clicked(null); event.accepted = true }
 
                             Text {
                                 id: nonFavoriteProfileText

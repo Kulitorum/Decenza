@@ -395,6 +395,7 @@ Page {
 
                 Accessible.role: Accessible.Graphic
                 Accessible.name: graphAccessibleDescription()
+                Accessible.description: TranslationManager.translate("shotdetail.accessible.graph.swipe", "Swipe left for older shot, swipe right for newer shot.")
                 Accessible.focusable: true
                 focus: true
 
@@ -537,8 +538,7 @@ Page {
                     font: Theme.labelFont
                     color: Theme.textSecondaryColor
                     horizontalAlignment: Text.AlignHCenter
-                    Accessible.name: TranslationManager.translate("shotdetail.accessible.position",
-                        "Shot %1 of %2").arg(currentIndex + 1).arg(shotIds.length)
+                    Accessible.ignored: true
                 }
 
                 AccessibleButton {
@@ -756,6 +756,7 @@ Page {
                             color: Theme.textColor
                             Layout.fillWidth: true
                             elide: Text.ElideRight
+                            Accessible.ignored: true
                         }
 
                         GridLayout {
@@ -804,6 +805,7 @@ Page {
                             fallback: "Grinder"
                             font: Theme.subtitleFont
                             color: Theme.textColor
+                            Accessible.ignored: true
                         }
 
                         GridLayout {
@@ -851,6 +853,7 @@ Page {
                         fallback: "Analysis"
                         font: Theme.subtitleFont
                         color: Theme.textColor
+                        Accessible.ignored: true
                     }
 
                     RowLayout {
@@ -858,14 +861,14 @@ Page {
 
                         ColumnLayout {
                             spacing: Theme.scaled(2)
-                            Tr { key: "shotdetail.tds"; fallback: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                            Text { text: (shotData.drinkTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
+                            Tr { key: "shotdetail.tds"; fallback: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                            Text { text: (shotData.drinkTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor; Accessible.ignored: true }
                         }
 
                         ColumnLayout {
                             spacing: Theme.scaled(2)
-                            Tr { key: "shotdetail.ey"; fallback: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                            Text { text: (shotData.drinkEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
+                            Tr { key: "shotdetail.ey"; fallback: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                            Text { text: (shotData.drinkEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor; Accessible.ignored: true }
                         }
                     }
                 }
@@ -953,6 +956,7 @@ Page {
                             sourceSize.width: Theme.labelFont.pixelSize
                             sourceSize.height: Theme.labelFont.pixelSize
                             anchors.verticalCenter: parent.verticalCenter
+                            Accessible.ignored: true
                         }
                         Tr {
                             key: "shotdetail.uploadedtovisualizer"

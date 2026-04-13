@@ -30,6 +30,7 @@ Page {
         // Only set title if this page is actually in the StackView (not during preload)
         if (StackView.status === StackView.Active)
             root.currentPageTitle = ProfileManager.currentProfileName
+        viewModeMouseArea.forceActiveFocus()
     }
     StackView.onActivated: {
         root.currentPageTitle = ProfileManager.currentProfileName
@@ -413,6 +414,7 @@ Page {
             source: "qrc:/icons/Graph.svg"
             sourceSize.width: Theme.scaled(22)
             sourceSize.height: Theme.scaled(22)
+            Accessible.ignored: true
 
             layer.enabled: true
             layer.smooth: true
@@ -423,9 +425,15 @@ Page {
         }
 
         AccessibleMouseArea {
+            id: viewModeMouseArea
             anchors.fill: parent
             accessibleName: TranslationManager.translate("espresso.viewMode.button", "Change extraction view")
             accessibleItem: viewModeButton
+            activeFocusOnTab: true
+            KeyNavigation.tab: espressoBackButton
+            KeyNavigation.backtab: skipFrameButton.visible ? skipFrameButton : espressoBackButton
+            Keys.onReturnPressed: { viewSelectorDialog.open(); event.accepted = true }
+            Keys.onSpacePressed:  { viewSelectorDialog.open(); event.accepted = true }
             onAccessibleClicked: viewSelectorDialog.open()
         }
     }
@@ -619,6 +627,20 @@ Page {
         border.color: Theme.primaryContrastColor
         border.width: Theme.scaled(2)
 
+        activeFocusOnTab: true
+        Keys.onReturnPressed: {
+            root.stopReason = "manual"
+            DE1Device.stopOperation()
+            root.goToIdle()
+            event.accepted = true
+        }
+        Keys.onSpacePressed: {
+            root.stopReason = "manual"
+            DE1Device.stopOperation()
+            root.goToIdle()
+            event.accepted = true
+        }
+
         Text {
             anchors.centerIn: parent
             text: TranslationManager.translate("espresso.button.stop", "STOP")
@@ -673,15 +695,36 @@ Page {
                 Layout.fillHeight: true
                 Layout.preferredWidth: height
 
+                activeFocusOnTab: true
+                KeyNavigation.tab: skipFrameButton.visible ? skipFrameButton : viewModeMouseArea
+                KeyNavigation.backtab: viewModeMouseArea
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("espresso.accessible.stop", "Stop and go back")
                 Accessible.focusable: true
+                Accessible.onPressAction: {
+                    root.stopReason = "manual"
+                    DE1Device.stopOperation()
+                    root.goToIdle()
+                }
+                Keys.onReturnPressed: {
+                    root.stopReason = "manual"
+                    DE1Device.stopOperation()
+                    root.goToIdle()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: {
+                    root.stopReason = "manual"
+                    DE1Device.stopOperation()
+                    root.goToIdle()
+                    event.accepted = true
+                }
 
                 Image {
                     anchors.centerIn: parent
                     source: "qrc:/icons/back.svg"
                     sourceSize.width: Theme.scaled(28)
                     sourceSize.height: Theme.scaled(28)
+                    Accessible.ignored: true
 
                     layer.enabled: true
                     layer.smooth: true
@@ -974,10 +1017,15 @@ Page {
                 visible: MachineState.phase === MachineStateType.Phase.Preinfusion ||
                          MachineState.phase === MachineStateType.Phase.Pouring
 
+                activeFocusOnTab: true
+                KeyNavigation.tab: viewModeMouseArea
+                KeyNavigation.backtab: espressoBackButton
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
                 Accessible.focusable: true
                 Accessible.onPressAction: skipFrameTapHandler.tapped(null)
+                Keys.onReturnPressed: { DE1Device.skipToNextFrame(); event.accepted = true }
+                Keys.onSpacePressed:  { DE1Device.skipToNextFrame(); event.accepted = true }
 
                 Text {
                     anchors.centerIn: parent

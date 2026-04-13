@@ -20,6 +20,7 @@ Page {
         // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
         // startSteamHeating clears steamDisabled flag automatically
         MainController.startSteamHeating()
+        if (!isSteaming) durationSlider.forceActiveFocus()
     }
     StackView.onActivated: root.currentPageTitle = pageTitle
 
@@ -169,9 +170,11 @@ Page {
         property string warningMessage: ""
         title: TranslationManager.translate("steam.warning.title", "Steam Warning")
         modal: true
+        focus: true
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.85, Theme.scaled(360))
         padding: Theme.spacingMedium
+        onOpened: warningOkButton.forceActiveFocus()
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -193,6 +196,7 @@ Page {
             }
 
             AccessibleButton {
+                id: warningOkButton
                 text: TranslationManager.translate("common.button.ok", "OK")
                 accessibleName: TranslationManager.translate("common.button.ok", "OK")
                 Layout.alignment: Qt.AlignRight
@@ -229,6 +233,7 @@ Page {
                     spacing: Theme.scaled(8)
 
                     Repeater {
+                        id: livePresetRepeater
                         model: Settings.steamPitcherPresets
 
                         Rectangle {
@@ -239,6 +244,7 @@ Page {
                             border.color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
                             border.width: 1
 
+                            activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: {
                                 var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
@@ -251,6 +257,35 @@ Page {
                             }
                             Accessible.focusable: true
                             Accessible.onPressAction: livePitcherMa.clicked(null)
+
+                            Keys.onReturnPressed: { livePitcherMa.clicked(null); event.accepted = true }
+                            Keys.onSpacePressed:  { livePitcherMa.clicked(null); event.accepted = true }
+                            Keys.onLeftPressed: {
+                                if (index > 0) livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onRightPressed: {
+                                if (index < livePresetRepeater.count - 1) livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onTabPressed: {
+                                if (index < livePresetRepeater.count - 1)
+                                    livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                                else if (steamStopButton.visible)
+                                    steamStopButton.forceActiveFocus()
+                                else
+                                    livePresetRepeater.itemAt(0).forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onBacktabPressed: {
+                                if (index > 0)
+                                    livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                                else if (steamStopButton.visible)
+                                    steamStopButton.forceActiveFocus()
+                                else
+                                    livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                                event.accepted = true
+                            }
 
                             Text {
                                 id: livePitcherText
@@ -281,12 +316,24 @@ Page {
 
                 // View toggle button (graph/timer)
                 Rectangle {
+                    id: viewToggleBtn
                     width: Theme.scaled(44)
                     height: Theme.scaled(44)
                     radius: Theme.cardRadius
                     color: viewToggleMa.containsMouse ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
 
+                    activeFocusOnTab: true
                     Accessible.ignored: true
+                    Keys.onTabPressed: {
+                        if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
+                        else if (steamStopButton.visible) steamStopButton.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onBacktabPressed: {
+                        if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                        else if (steamStopButton.visible) steamStopButton.forceActiveFocus()
+                        event.accepted = true
+                    }
 
                     Image {
                         anchors.centerIn: parent
@@ -372,10 +419,15 @@ Page {
                         border.color: Theme.borderColor
                         border.width: 1
 
+                        activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("steam.decreaseTime", "Decrease steam time by 5 seconds")
                         Accessible.focusable: true
                         Accessible.onPressAction: decreaseMouseArea.clicked(null)
+                        Keys.onReturnPressed: { decreaseMouseArea.clicked(null); event.accepted = true }
+                        Keys.onSpacePressed:  { decreaseMouseArea.clicked(null); event.accepted = true }
+                        KeyNavigation.tab: increaseTimeBtn
+                        KeyNavigation.backtab: steamingFlowSlider
 
                         Text {
                             anchors.centerIn: parent
@@ -427,10 +479,15 @@ Page {
                         border.color: Theme.borderColor
                         border.width: 1
 
+                        activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("steam.increaseTime", "Increase steam time by 5 seconds")
                         Accessible.focusable: true
                         Accessible.onPressAction: increaseMouseArea.clicked(null)
+                        Keys.onReturnPressed: { increaseMouseArea.clicked(null); event.accepted = true }
+                        Keys.onSpacePressed:  { increaseMouseArea.clicked(null); event.accepted = true }
+                        KeyNavigation.tab: steamingFlowSlider
+                        KeyNavigation.backtab: decreaseTimeBtn
 
                         Text {
                             anchors.centerIn: parent
@@ -510,6 +567,8 @@ Page {
                     value: Settings.steamFlow
                     displayText: flowToDisplay(value)
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
+                    KeyNavigation.tab: steamStopButton.visible ? steamStopButton : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider)
+                    KeyNavigation.backtab: increaseTimeBtn
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
                         MainController.setSteamFlowImmediate(newValue)
@@ -593,6 +652,18 @@ Page {
                 border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
+                activeFocusOnTab: true
+                Keys.onReturnPressed: { stopTapHandler.accessibleClicked(); event.accepted = true }
+                Keys.onSpacePressed:  { stopTapHandler.accessibleClicked(); event.accepted = true }
+                Keys.onTabPressed: {
+                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onBacktabPressed: {
+                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                    event.accepted = true
+                }
+
                 Text {
                     id: stopButtonText
                     anchors.centerIn: parent
@@ -600,6 +671,7 @@ Page {
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
+                    Accessible.ignored: true
                 }
 
                 // Using TapHandler for better touch responsiveness
@@ -740,6 +812,7 @@ Page {
                                 height: Theme.scaled(36)
 
                                 property int pitcherIndex: index
+                                property Item focusTarget: pitcherPill
 
                                 Rectangle {
                                     id: pitcherPill
@@ -751,6 +824,7 @@ Page {
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
+                                    activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: {
                                         var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
@@ -771,6 +845,33 @@ Page {
                                         Settings.steamTimeout = modelData.duration
                                         Settings.steamFlow = flow
                                         MainController.startSteamHeating()
+                                    }
+
+                                    Keys.onReturnPressed: { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onSpacePressed:  { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onLeftPressed: {
+                                        if (index > 0) pitcherRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onRightPressed: {
+                                        if (index < pitcherRepeater.count - 1) pitcherRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onTabPressed: {
+                                        if (index < pitcherRepeater.count - 1)
+                                            pitcherRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                        else
+                                            addPitcherButton.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onBacktabPressed: {
+                                        if (index > 0)
+                                            pitcherRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                        else if (ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                                            savePitcherWeightBtn.forceActiveFocus()
+                                        else
+                                            steamTempSlider.forceActiveFocus()
+                                        event.accepted = true
                                     }
 
                                     Drag.active: dragArea.drag.active
@@ -877,11 +978,20 @@ Page {
                             border.color: Theme.textSecondaryColor
                             border.width: 1
 
+                            activeFocusOnTab: true
+                            KeyNavigation.tab: durationSlider
+                            KeyNavigation.backtab: pitcherRepeater.count > 0
+                                ? pitcherRepeater.itemAt(pitcherRepeater.count - 1).focusTarget
+                                : durationSlider
+                            Keys.onReturnPressed: { addPitcherDialog.open(); event.accepted = true }
+                            Keys.onSpacePressed:  { addPitcherDialog.open(); event.accepted = true }
+
                             Text {
                                 anchors.centerIn: parent
                                 text: "+"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(20)
+                                Accessible.ignored: true
                             }
 
                             // Using TapHandler for better touch responsiveness
@@ -942,6 +1052,8 @@ Page {
                             value: getCurrentPitcherDuration()
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
+                            KeyNavigation.tab: flowSlider
+                            KeyNavigation.backtab: addPitcherButton
                             onValueModified: function(newValue) {
                                 durationSlider.value = newValue
                                 Settings.steamTimeout = newValue
@@ -985,6 +1097,8 @@ Page {
                             displayText: flowToDisplay(value)
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
+                            KeyNavigation.tab: steamTempSlider
+                            KeyNavigation.backtab: durationSlider
                             onValueModified: function(newValue) {
                                 flowSlider.value = newValue
                                 MainController.setSteamFlowImmediate(newValue)
@@ -1028,6 +1142,8 @@ Page {
                             value: Settings.steamTemperature
                             valueColor: Theme.temperatureColor
                             accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
+                            KeyNavigation.tab: ScaleDevice.connected && !ScaleDevice.isFlowScale ? tareBtn : (pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton)
+                            KeyNavigation.backtab: flowSlider
                             onValueModified: function(newValue) {
                                 steamTempSlider.value = newValue
                                 MainController.setSteamTemperatureImmediate(newValue)
@@ -1091,10 +1207,15 @@ Page {
                                 border.color: Theme.borderColor
                                 border.width: 1
 
+                                activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("steam.accessible.tare", "Tare scale")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: tareBtnMa.clicked(null)
+                                Keys.onReturnPressed: { tareBtnMa.clicked(null); event.accepted = true }
+                                Keys.onSpacePressed:  { tareBtnMa.clicked(null); event.accepted = true }
+                                KeyNavigation.tab: savePitcherWeightBtn
+                                KeyNavigation.backtab: steamTempSlider
 
                                 Tr {
                                     anchors.centerIn: parent
@@ -1127,12 +1248,17 @@ Page {
                                 border.color: isClear ? Theme.borderColor : "transparent"
                                 border.width: isClear ? 1 : 0
 
+                                activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: isClear
                                     ? TranslationManager.translate("steam.label.clearPitcherWeight", "Clear pitcher weight")
                                     : TranslationManager.translate("steam.label.savePitcherWeight", "Save pitcher weight")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: savePitcherWtMa.clicked(null)
+                                Keys.onReturnPressed: { savePitcherWtMa.clicked(null); event.accepted = true }
+                                Keys.onSpacePressed:  { savePitcherWtMa.clicked(null); event.accepted = true }
+                                KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
+                                KeyNavigation.backtab: tareBtn
 
                                 Text {
                                     anchors.centerIn: parent
@@ -1311,10 +1437,13 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("steam.accessible.renamePitcher", "Rename pitcher preset")
                     Accessible.description: text
                     Accessible.focusable: true
+                    KeyNavigation.tab: editDeleteButton
+                    KeyNavigation.backtab: editSaveButton
 
                     Text {
                         anchors.fill: parent
@@ -1336,9 +1465,12 @@ Page {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
+                    id: editDeleteButton
                     text: deleteButtonText.text
                     accessibleName: TranslationManager.translate("steam.deletePitcherPreset", "Delete this pitcher preset")
                     destructive: true
+                    KeyNavigation.tab: editCancelButton
+                    KeyNavigation.backtab: editPitcherNameInput
                     onClicked: {
                         Settings.removeSteamPitcherPreset(editingPitcherIndex)
                         editPitcherPopup.close()
@@ -1348,15 +1480,21 @@ Page {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
+                    id: editCancelButton
                     text: cancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelEditingPitcher", "Cancel editing pitcher preset")
+                    KeyNavigation.tab: editSaveButton
+                    KeyNavigation.backtab: editDeleteButton
                     onClicked: editPitcherPopup.close()
                 }
 
                 AccessibleButton {
+                    id: editSaveButton
                     primary: true
                     text: saveButtonText.text
                     accessibleName: TranslationManager.translate("steam.savePitcherChanges", "Save changes to pitcher preset")
+                    KeyNavigation.tab: editPitcherNameInput
+                    KeyNavigation.backtab: editCancelButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         var preset = Settings.getSteamPitcherPreset(editingPitcherIndex)
@@ -1432,10 +1570,13 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("steam.accessible.newPitcherName", "New pitcher preset name")
                     Accessible.description: text
                     Accessible.focusable: true
+                    KeyNavigation.tab: addCancelPitcherButton
+                    KeyNavigation.backtab: addPitcherConfirmButton
 
                     Text {
                         anchors.fill: parent
@@ -1455,15 +1596,21 @@ Page {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
+                    id: addCancelPitcherButton
                     text: addCancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
+                    KeyNavigation.tab: addPitcherConfirmButton
+                    KeyNavigation.backtab: newPitcherName
                     onClicked: addPitcherDialog.close()
                 }
 
                 AccessibleButton {
+                    id: addPitcherConfirmButton
                     primary: true
                     text: addButtonText.text
                     accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
+                    KeyNavigation.tab: newPitcherName
+                    KeyNavigation.backtab: addCancelPitcherButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newPitcherName.text.trim() !== "") {

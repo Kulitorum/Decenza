@@ -22,6 +22,7 @@ Page {
         if (!isVolumeMode && !isDispensing) {
             MachineState.tareScale()
         }
+        if (!isDispensing) volumeInput.forceActiveFocus()
     }
     StackView.onActivated: root.currentPageTitle = pageTitleText.text
 
@@ -82,6 +83,7 @@ Page {
                 spacing: Theme.scaled(8)
 
                 Repeater {
+                    id: liveVesselRepeater
                     model: Settings.waterVesselPresets
 
                     Rectangle {
@@ -92,11 +94,41 @@ Page {
                         border.color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
+                        activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.vessel", "vessel") +
                                          (index === Settings.selectedWaterVessel ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: liveVesselArea.clicked(null)
+
+                        Keys.onReturnPressed: { liveVesselArea.clicked(null); event.accepted = true }
+                        Keys.onSpacePressed:  { liveVesselArea.clicked(null); event.accepted = true }
+                        Keys.onLeftPressed: {
+                            if (index > 0) liveVesselRepeater.itemAt(index - 1).forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: {
+                            if (index < liveVesselRepeater.count - 1) liveVesselRepeater.itemAt(index + 1).forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onTabPressed: {
+                            if (index < liveVesselRepeater.count - 1)
+                                liveVesselRepeater.itemAt(index + 1).forceActiveFocus()
+                            else if (hotWaterStopButton.visible)
+                                hotWaterStopButton.forceActiveFocus()
+                            else
+                                liveVesselRepeater.itemAt(0).forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onBacktabPressed: {
+                            if (index > 0)
+                                liveVesselRepeater.itemAt(index - 1).forceActiveFocus()
+                            else if (hotWaterStopButton.visible)
+                                hotWaterStopButton.forceActiveFocus()
+                            else
+                                liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus()
+                            event.accepted = true
+                        }
 
                         Text {
                             id: liveVesselText
@@ -193,6 +225,8 @@ Page {
                 displayText: (value / 10).toFixed(1) + " mL/s"
                 valueColor: Theme.flowColor
                 accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
+                KeyNavigation.tab: hotWaterStopButton.visible ? hotWaterStopButton : (liveVesselRepeater.count > 0 ? liveVesselRepeater.itemAt(0) : liveFlowRateInput)
+                KeyNavigation.backtab: liveVesselRepeater.count > 0 ? liveVesselRepeater.itemAt(liveVesselRepeater.count - 1) : liveFlowRateInput
 
                 onValueModified: function(newValue) {
                     MainController.setHotWaterFlowRateImmediate(Math.round(newValue))
@@ -213,12 +247,25 @@ Page {
                 border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
+                activeFocusOnTab: true
+                Keys.onReturnPressed: { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onSpacePressed:  { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onTabPressed: {
+                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onBacktabPressed: {
+                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus()
+                    event.accepted = true
+                }
+
                 Text {
                     anchors.centerIn: parent
                     text: TranslationManager.translate("hotwater.button.stop", "STOP")
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
+                    Accessible.ignored: true
                 }
 
                 // Using TapHandler for better touch responsiveness
@@ -280,6 +327,7 @@ Page {
                                 height: Theme.scaled(36)
 
                                 property int vesselIndex: index
+                                property Item focusTarget: vesselPill
 
                                 Rectangle {
                                     id: vesselPill
@@ -291,11 +339,47 @@ Page {
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
+                                    activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.preset", "preset") +
                                                      (vesselDelegate.vesselIndex === Settings.selectedWaterVessel ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.description: TranslationManager.translate("hotwater.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
+                                    Accessible.onPressAction: {
+                                        Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                        volumeInput.value = modelData.volume
+                                        flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        Settings.waterVolume = modelData.volume
+                                        Settings.waterVolumeMode = (modelData.mode || "weight")
+                                        Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        MainController.applyHotWaterSettings()
+                                    }
+
+                                    Keys.onReturnPressed: { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onSpacePressed:  { Accessible.onPressAction(); event.accepted = true }
+                                    Keys.onLeftPressed: {
+                                        if (index > 0) vesselRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onRightPressed: {
+                                        if (index < vesselRepeater.count - 1) vesselRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onTabPressed: {
+                                        if (index < vesselRepeater.count - 1)
+                                            vesselRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                        else
+                                            addVesselButton.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                    Keys.onBacktabPressed: {
+                                        if (index > 0)
+                                            vesselRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                        else
+                                            flowRateInput.forceActiveFocus()
+                                        event.accepted = true
+                                    }
 
                                     Drag.active: dragArea.drag.active
                                     Drag.source: vesselDelegate
@@ -314,6 +398,7 @@ Page {
                                         text: modelData.name
                                         color: vesselDelegate.vesselIndex === Settings.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
+                                        Accessible.ignored: true
                                     }
 
                                     MouseArea {
@@ -400,11 +485,20 @@ Page {
                             border.color: Theme.textSecondaryColor
                             border.width: 1
 
+                            activeFocusOnTab: true
+                            KeyNavigation.tab: volumeInput
+                            KeyNavigation.backtab: vesselRepeater.count > 0
+                                ? vesselRepeater.itemAt(vesselRepeater.count - 1).focusTarget
+                                : volumeInput
+                            Keys.onReturnPressed: { addVesselDialog.open(); event.accepted = true }
+                            Keys.onSpacePressed:  { addVesselDialog.open(); event.accepted = true }
+
                             Text {
                                 anchors.centerIn: parent
                                 text: "+"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(20)
+                                Accessible.ignored: true
                             }
 
                             // Using TapHandler for better touch responsiveness
@@ -450,6 +544,7 @@ Page {
                             spacing: Theme.scaled(4)
 
                             Rectangle {
+                                id: weightModeButton
                                 width: weightModeText.implicitWidth + Theme.scaled(20)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(18)
@@ -457,11 +552,16 @@ Page {
                                 border.color: !isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
+                                activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("hotwater.mode.weight", "Weight (g)") +
                                                  (!isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: weightModeArea.clicked(null)
+                                Keys.onReturnPressed: { weightModeArea.clicked(null); event.accepted = true }
+                                Keys.onSpacePressed:  { weightModeArea.clicked(null); event.accepted = true }
+                                KeyNavigation.tab: volumeModeButton
+                                KeyNavigation.backtab: temperatureInput
 
                                 Text {
                                     id: weightModeText
@@ -484,6 +584,7 @@ Page {
                             }
 
                             Rectangle {
+                                id: volumeModeButton
                                 width: volumeModeText.implicitWidth + Theme.scaled(20)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(18)
@@ -491,11 +592,16 @@ Page {
                                 border.color: isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
+                                activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("hotwater.mode.volume", "Volume (ml)") +
                                                  (isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: volumeModeArea.clicked(null)
+                                Keys.onReturnPressed: { volumeModeArea.clicked(null); event.accepted = true }
+                                Keys.onSpacePressed:  { volumeModeArea.clicked(null); event.accepted = true }
+                                KeyNavigation.tab: volumeInput
+                                KeyNavigation.backtab: weightModeButton
 
                                 Text {
                                     id: volumeModeText
@@ -540,6 +646,8 @@ Page {
                             accessibleName: isVolumeMode
                                 ? TranslationManager.translate("hotwater.label.volume", "Volume")
                                 : TranslationManager.translate("hotwater.label.weight", "Weight")
+                            KeyNavigation.tab: temperatureInput
+                            KeyNavigation.backtab: volumeModeButton
 
                             onValueModified: function(newValue) {
                                 volumeInput.value = newValue
@@ -576,6 +684,8 @@ Page {
                             suffix: "°C"
                             valueColor: Theme.temperatureColor
                             accessibleName: TranslationManager.translate("hotwater.label.temperature", "Temperature")
+                            KeyNavigation.tab: flowRateInput
+                            KeyNavigation.backtab: volumeInput
 
                             onValueModified: function(newValue) {
                                 temperatureInput.value = newValue
@@ -611,6 +721,10 @@ Page {
                             displayText: (value / 10).toFixed(1) + " mL/s"
                             valueColor: Theme.flowColor
                             accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
+                            KeyNavigation.tab: vesselRepeater.count > 0
+                                ? vesselRepeater.itemAt(0).focusTarget
+                                : addVesselButton
+                            KeyNavigation.backtab: temperatureInput
 
                             onValueModified: function(newValue) {
                                 flowRateInput.value = Math.round(newValue)
@@ -718,10 +832,13 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("hotwater.accessible.renameVessel", "Rename water vessel")
                     Accessible.description: text
                     Accessible.focusable: true
+                    KeyNavigation.tab: deleteVesselButton
+                    KeyNavigation.backtab: saveVesselButton
 
                     Tr {
                         anchors.fill: parent
@@ -740,9 +857,12 @@ Page {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
+                    id: deleteVesselButton
                     text: TranslationManager.translate("hotwater.button.delete", "Delete")
                     accessibleName: TranslationManager.translate("hotWater.deleteVesselPreset", "Delete this water vessel preset")
                     destructive: true
+                    KeyNavigation.tab: cancelEditVesselButton
+                    KeyNavigation.backtab: editVesselNameInput
                     onClicked: {
                         Settings.removeWaterVesselPreset(editingVesselIndex)
                         editVesselPopup.close()
@@ -752,15 +872,21 @@ Page {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
+                    id: cancelEditVesselButton
                     text: TranslationManager.translate("hotwater.button.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("hotWater.cancelEditingVessel", "Cancel editing water vessel")
+                    KeyNavigation.tab: saveVesselButton
+                    KeyNavigation.backtab: deleteVesselButton
                     onClicked: editVesselPopup.close()
                 }
 
                 AccessibleButton {
+                    id: saveVesselButton
                     primary: true
                     text: TranslationManager.translate("hotwater.button.save", "Save")
                     accessibleName: TranslationManager.translate("hotWater.saveVesselChanges", "Save changes to water vessel preset")
+                    KeyNavigation.tab: editVesselNameInput
+                    KeyNavigation.backtab: cancelEditVesselButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         var preset = Settings.getWaterVesselPreset(editingVesselIndex)
@@ -832,10 +958,13 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("hotwater.accessible.newVesselName", "New water vessel name")
                     Accessible.description: text
                     Accessible.focusable: true
+                    KeyNavigation.tab: cancelAddVesselButton
+                    KeyNavigation.backtab: addVesselConfirmButton
 
                     Tr {
                         anchors.fill: parent
@@ -856,15 +985,21 @@ Page {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
+                    id: cancelAddVesselButton
                     text: TranslationManager.translate("hotwater.button.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("hotWater.cancelAddingVessel", "Cancel adding new water vessel")
+                    KeyNavigation.tab: addVesselConfirmButton
+                    KeyNavigation.backtab: newVesselNameInput
                     onClicked: addVesselDialog.close()
                 }
 
                 AccessibleButton {
+                    id: addVesselConfirmButton
                     primary: true
                     text: TranslationManager.translate("hotwater.button.add", "Add")
                     accessibleName: TranslationManager.translate("hotWater.addNewVessel", "Add new water vessel with entered name")
+                    KeyNavigation.tab: newVesselNameInput
+                    KeyNavigation.backtab: cancelAddVesselButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newVesselNameInput.text.length > 0) {
