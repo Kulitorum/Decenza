@@ -373,7 +373,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.calibration.steamHealthDesc",
-                                "Rising pressure or temperature over time can indicate scale buildup. The bars show how far your latest session has drifted from your clean-machine baseline toward the warning level.")
+                                "Rising pressure or temperature over time can indicate milk residue or scale buildup. Try cleaning your steam wand with a milk cleaner first; descale if the issue persists. The bars show drift from your clean-machine baseline toward the warning level.")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
