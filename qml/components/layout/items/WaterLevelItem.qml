@@ -21,27 +21,29 @@ Item {
         // falsely trigger "critical" on every startup until the first BLE update arrives.
         if (!DE1Device.connected) return "ok"
         if (margin > 7) return "ok"
-        if (margin > 5) return "low"
-        if (margin > 3) return "warning"
+        if (margin > 5) return "caution"
+        if (margin > 3) return "low"
         return "critical"
     }
     readonly property bool isPulsing: warningState !== "ok"
     readonly property real pulseMinOpacity: {
-        if (warningState === "low") return 0.4
-        if (warningState === "warning") return 0.3
+        if (warningState === "caution") return 0.4
+        if (warningState === "low") return 0.3
         return 0.2  // critical
     }
     readonly property int pulseDuration: {
-        if (warningState === "low") return 2000
-        if (warningState === "warning") return 1000
+        if (warningState === "caution") return 2000
+        if (warningState === "low") return 1000
         return 500  // critical
     }
     readonly property string displayText: {
         if (warningState === "critical")
             return TranslationManager.translate("waterlevel.warning.refill", "Refill")
-        if (warningState === "warning")
+        if (warningState === "low")
             return TranslationManager.translate("waterlevel.warning.low", "Low")
-        return root.showMl ? DE1Device.waterLevelMl + " ml" : DE1Device.waterLevel.toFixed(0) + "%"
+        return root.showMl
+            ? DE1Device.waterLevelMl + " " + TranslationManager.translate("waterlevel.unit.ml", "ml")
+            : DE1Device.waterLevel.toFixed(0) + TranslationManager.translate("waterlevel.unit.percent", "%")
     }
 
     // Smooth sine-wave opacity pulse — rate and depth increase with urgency
@@ -65,20 +67,30 @@ Item {
         onRunningChanged: if (!running) root.pulseOpacity = 1.0
     }
 
+    onWarningStateChanged: {
+        if (isPulsing) {
+            pulseAnimation.stop()
+            pulseOpacity = 1.0
+            pulseAnimation.start()
+        }
+    }
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     Accessible.role: Accessible.StaticText
     Accessible.name: {
-        var level = root.showMl
+        var label = TranslationManager.translate("waterlevel.accessible.label", "Water level:")
+        var numericLevel = root.showMl
             ? DE1Device.waterLevelMl + " " + TranslationManager.translate("waterlevel.accessible.milliliters", "milliliters")
             : DE1Device.waterLevel.toFixed(0) + " " + TranslationManager.translate("waterlevel.accessible.percent", "percent")
-        var warning = root.warningState === "critical"
-            ? ". " + TranslationManager.translate("waterlevel.accessible.warning.critical", "Warning: water level critically low, refill soon")
-            : root.warningState !== "ok"
-            ? ". " + TranslationManager.translate("waterlevel.accessible.warning.low", "Warning: water level is low")
-            : ""
-        return TranslationManager.translate("waterlevel.accessible.label", "Water level:") + " " + level + warning
+        if (root.warningState === "critical")
+            return label + " " + root.displayText + ", " + numericLevel + ". " + TranslationManager.translate("waterlevel.accessible.warning.critical", "Warning: water level critically low, refill soon")
+        if (root.warningState === "low")
+            return label + " " + root.displayText + ", " + numericLevel + ". " + TranslationManager.translate("waterlevel.accessible.warning.low", "Warning: water level is low")
+        if (root.warningState === "caution")
+            return label + " " + numericLevel + ". " + TranslationManager.translate("waterlevel.accessible.warning.low", "Warning: water level is low")
+        return label + " " + numericLevel
     }
     Accessible.focusable: true
     Accessible.onPressAction: fullMouseArea.clicked(null)
@@ -138,17 +150,7 @@ Item {
             anchors.fill: parent
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var warning = root.warningState === "critical"
-                        ? ". " + TranslationManager.translate("waterlevel.accessible.warning.critical", "Warning: water level critically low, refill soon")
-                        : root.warningState !== "ok"
-                        ? ". " + TranslationManager.translate("waterlevel.accessible.warning.low", "Warning: water level is low")
-                        : ""
-                    var label = TranslationManager.translate("waterlevel.accessible.label", "Water level:")
-                    if (root.showMl) {
-                        AccessibilityManager.announceLabel(label + " " + DE1Device.waterLevelMl + " " + TranslationManager.translate("waterlevel.accessible.milliliters", "milliliters") + warning)
-                    } else {
-                        AccessibilityManager.announceLabel(label + " " + DE1Device.waterLevel.toFixed(0) + " " + TranslationManager.translate("waterlevel.accessible.percent", "percent") + warning)
-                    }
+                    AccessibilityManager.announceLabel(root.Accessible.name)
                 }
             }
         }
