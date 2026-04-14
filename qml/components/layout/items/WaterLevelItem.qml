@@ -25,26 +25,45 @@ Item {
         if (margin > 3) return "warning"
         return "critical"
     }
-    readonly property bool isBlinking: warningState !== "ok"
-    readonly property color stateWarningColor: warningState === "critical" ? Theme.errorColor : Theme.warningColor
-    readonly property color displayColor: {
-        if (!isBlinking) return Theme.waterLevelColor
-        return blinkTimer.blinkOn ? stateWarningColor : Theme.waterLevelColor
+    readonly property bool isPulsing: warningState !== "ok"
+    readonly property real pulseMinOpacity: {
+        if (warningState === "low") return 0.4
+        if (warningState === "warning") return 0.3
+        return 0.2  // critical
+    }
+    readonly property int pulseDuration: {
+        if (warningState === "low") return 2000
+        if (warningState === "warning") return 1000
+        return 500  // critical
+    }
+    readonly property string displayText: {
+        if (warningState === "critical")
+            return TranslationManager.translate("waterlevel.warning.refill", "Refill")
+        if (warningState === "warning")
+            return TranslationManager.translate("waterlevel.warning.low", "Low")
+        return root.showMl ? DE1Device.waterLevelMl + " ml" : DE1Device.waterLevel.toFixed(0) + "%"
     }
 
-    // Progressive blink animation — rate increases as water approaches halt threshold
-    Timer {
-        id: blinkTimer
-        running: root.isBlinking && root.visible
-        repeat: true
-        interval: root.warningState === "low" ? 2000
-                : root.warningState === "warning" ? 1000 : 500  // critical
-        property bool blinkOn: true
-        onTriggered: blinkOn = !blinkOn
-        onRunningChanged: if (!running) blinkOn = true
+    // Smooth sine-wave opacity pulse — rate and depth increase with urgency
+    property real pulseOpacity: 1.0
+    SequentialAnimation {
+        id: pulseAnimation
+        running: root.isPulsing && root.visible
+        loops: Animation.Infinite
+        NumberAnimation {
+            target: root; property: "pulseOpacity"
+            from: 1.0; to: root.pulseMinOpacity
+            duration: root.pulseDuration / 2
+            easing.type: Easing.InOutSine
+        }
+        NumberAnimation {
+            target: root; property: "pulseOpacity"
+            from: root.pulseMinOpacity; to: 1.0
+            duration: root.pulseDuration / 2
+            easing.type: Easing.InOutSine
+        }
+        onRunningChanged: if (!running) root.pulseOpacity = 1.0
     }
-
-    onWarningStateChanged: if (isBlinking) blinkTimer.blinkOn = true
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -75,8 +94,9 @@ Item {
         Text {
             id: compactWater
             anchors.centerIn: parent
-            text: root.showMl ? DE1Device.waterLevelMl + " ml" : DE1Device.waterLevel.toFixed(0) + "%"
-            color: root.displayColor
+            text: root.displayText
+            color: Theme.waterLevelColor
+            opacity: root.pulseOpacity
             font: Theme.bodyFont
             Accessible.ignored: true
         }
@@ -97,10 +117,9 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: root.showMl
-                    ? DE1Device.waterLevelMl + " ml"
-                    : DE1Device.waterLevel.toFixed(0) + "%"
-                color: root.displayColor
+                text: root.displayText
+                color: Theme.waterLevelColor
+                opacity: root.pulseOpacity
                 font: Theme.valueFont
                 Accessible.ignored: true
             }
