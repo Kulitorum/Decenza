@@ -4018,9 +4018,21 @@ void Settings::savePerProfileFlowCalMap(const QJsonObject& map) {
 
 // Auto flow calibration batch accumulator
 
-QVector<double> Settings::flowCalPendingIdeals(const QString& profileFilename) const {
+static QJsonObject parseFlowCalBatch(const QSettings& settings) {
+    QJsonParseError parseError;
     QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("calibration/flowCalBatch", "{}").toByteArray()).object();
+        settings.value("calibration/flowCalBatch", "{}").toByteArray(),
+        &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "Settings: corrupt flowCalBatch JSON:" << parseError.errorString();
+        const_cast<QSettings&>(settings).setValue("calibration/flowCalBatch", "{}");
+        return QJsonObject();
+    }
+    return map;
+}
+
+QVector<double> Settings::flowCalPendingIdeals(const QString& profileFilename) const {
+    QJsonObject map = parseFlowCalBatch(m_settings);
     QVector<double> result;
     QJsonArray arr = map.value(profileFilename).toArray();
     for (const auto& v : arr)
@@ -4029,8 +4041,7 @@ QVector<double> Settings::flowCalPendingIdeals(const QString& profileFilename) c
 }
 
 void Settings::appendFlowCalPendingIdeal(const QString& profileFilename, double ideal) {
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("calibration/flowCalBatch", "{}").toByteArray()).object();
+    QJsonObject map = parseFlowCalBatch(m_settings);
     QJsonArray arr = map.value(profileFilename).toArray();
     arr.append(ideal);
     map[profileFilename] = arr;
@@ -4038,8 +4049,7 @@ void Settings::appendFlowCalPendingIdeal(const QString& profileFilename, double 
 }
 
 void Settings::clearFlowCalPendingIdeals(const QString& profileFilename) {
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("calibration/flowCalBatch", "{}").toByteArray()).object();
+    QJsonObject map = parseFlowCalBatch(m_settings);
     map.remove(profileFilename);
     m_settings.setValue("calibration/flowCalBatch", QJsonDocument(map).toJson(QJsonDocument::Compact));
 }

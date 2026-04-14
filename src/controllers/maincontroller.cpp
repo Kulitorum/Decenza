@@ -885,7 +885,7 @@ void MainController::computeAutoFlowCalibration() {
     // C update changes pump behavior, which changes puck dynamics, which changes the next
     // ideal — producing oscillation instead of convergence. The median also provides
     // natural outlier rejection (runaway shots, channeling anomalies).
-    constexpr int kBatchSize = 5;
+    constexpr qsizetype kBatchSize = 5;
     constexpr double kBatchEmaAlpha = 0.5;  // Higher alpha is safe because median of N shots is more reliable
 
     QString profileName = m_profileManager->baseProfileName();
@@ -911,10 +911,7 @@ void MainController::computeAutoFlowCalibration() {
     // Clear the batch now that we've consumed it
     m_settings->clearFlowCalPendingIdeals(profileName);
 
-    // Scale alpha proportionally for remainder batches (< kBatchSize shots).
-    // For full batches this gives kBatchEmaAlpha; for a batch of 1 it gives
-    // kBatchEmaAlpha / kBatchSize (very conservative single-shot update).
-    double alpha = kBatchEmaAlpha * qMin(1.0, static_cast<double>(n) / kBatchSize);
+    double alpha = kBatchEmaAlpha;
 
     // On first calibration for this profile, use median directly (no history to blend with)
     double computed = m_settings->hasProfileFlowCalibration(profileName)
@@ -928,7 +925,7 @@ void MainController::computeAutoFlowCalibration() {
     // would silently reject the write and auto-cal would stop converging for that profile.
     computed = qBound(kCalibrationMin, computed, kCalibrationMax);
 
-    // Only update if meaningfully different (> 2% change)
+    // Only update if meaningfully different (> 3% change)
     if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
         qDebug() << "Auto flow cal: batch median" << median << "≈ current" << currentEffective
                  << "(computed" << computed << "< 3% change, skipping)";
