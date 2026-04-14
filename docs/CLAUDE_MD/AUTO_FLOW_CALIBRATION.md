@@ -12,7 +12,7 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
 
 1. **Shot completes** with a Bluetooth scale connected
 2. **Steady-state detection**: The algorithm scans the shot data for a window where:
-   - Pressure is stable (change <= 0.5 bar/sec)
+   - Pressure is stable (3-sample smoothed change <= 0.5 bar/sec)
    - Pressure is above 1.5 bar (rejects empty-portafilter shots)
    - Weight flow is meaningful (> 0.5 g/s)
    - Machine flow is meaningful (> 0.1 ml/s)
@@ -25,19 +25,21 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
    - **Flow profiles**: `mean(weight_flow) / (target_flow * 0.963)` — uses the profile's known target flow, independent of current calibration
    - **Pressure profiles**: `current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)` — divides out current calibration from reported flow
 6. **Sanity check**: Clamp to `[0.5, kCalibrationMax]` — cap extreme values that likely indicate measurement errors. The upper bound tracks DE1 firmware (1.8 on pre-v1337 firmware, 2.7 on v1337+)
-7. **Store & apply**: If the computed value differs from current by > 2%, EMA-smooth toward it (alpha=0.3) and send to the machine
+7. **Batch accumulate**: Add the ideal to a per-profile batch (persisted in settings). After 5 shots, compute the batch median and update C using `0.5 * median + 0.5 * current`. Only apply if the change exceeds 3%.
 
 ## Algorithm Details
 
 ### Steady-State Window Detection
 
 The algorithm iterates through the shot's pressure data looking for the longest contiguous segment where:
-- Pressure is stable (change <= 0.5 bar/sec)
+- Pressure is stable (3-sample moving average change <= 0.5 bar/sec — smoothing filters PID jitter on flow profiles)
 - Pressure is above 1.5 bar (rejects no-coffee/empty-portafilter shots where water flows freely with near-zero back-pressure)
 - Weight flow > 0.5 g/s (excludes dripping/dead time)
 - Machine flow > 0.1 ml/s (excludes stalled flow)
 - Nearest scale data point within 1 second (ensures weight flow data alignment)
 - Per-sample machine/weight flow ratio within [0.4, 2.5] (rejects individual scale data glitches — generous bounds since single samples are noisy)
+
+Pressure is smoothed with a 3-sample centered moving average before computing dpdt. This filters the DE1's PID pressure corrections (~0.1-0.2 bar every ~0.2s) that would otherwise break the window on flow profiles. The original (unsmoothed) pressure is used for the minimum pressure check. Analysis of 13 D-Flow shots showed this increases average window duration from 10.7s to 16.3s.
 
 Any sample that fails these criteria breaks the current window, and the algorithm picks the longest qualifying window from the entire shot. The window must span at least 1.5 seconds with at least 7 samples to provide a reliable average.
 
@@ -73,9 +75,22 @@ calibration = current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.9
 
 The machine flow sensor measures volumetric flow (ml/s), while the scale measures mass (g/s). Water at ~93°C has a density of ~0.963 g/ml, so the correction factor accounts for this difference.
 
-### Convergence
+### Batched Median Updates
 
-The multiplier is only updated when the computed value differs from the current effective multiplier by more than 2%. This prevents unnecessary writes and oscillation from measurement noise.
+Instead of updating the calibration factor after every shot (which changes pump behavior and creates a feedback loop), the algorithm accumulates ideal values across 5 shots at a constant calibration, then updates once using the batch median.
+
+**Why batching?** Each calibration update changes the pump's flow setpoint, which changes puck extraction dynamics. Two identical pucks pulled at different C values produce different weight flows. Per-shot updates cause the algorithm to partially chase its own tail — each update changes the conditions for the next shot. Batching ensures 5 shots are pulled under identical pump conditions, producing truly comparable data.
+
+**Why median?** The median provides natural outlier rejection. Runaway shots, channeling anomalies, and other one-off events are automatically ignored without needing explicit detection logic.
+
+**Update rule:**
+- Accumulate 5 ideals per profile (persisted in settings across app restarts)
+- Compute median of the batch
+- Blend: `new_C = 0.5 * median + 0.5 * current_C` (alpha=0.5 is safe because the median of 5 shots is more reliable than a single ideal)
+- First calibration for a profile uses the median directly (no history to blend with)
+- Only apply if the change exceeds 3% — prevents unnecessary pump changes when the factor is already close
+
+After the update, the batch resets and accumulation begins again at the new C value. The algorithm continues monitoring indefinitely but only changes C when the shift is meaningful.
 
 ### Sanity Bounds
 
@@ -104,8 +119,10 @@ Per-profile persistence (`Settings::setProfileFlowCalibration`) and the settings
 
 - `autoFlowCalibration` (bool, default `true`): Master toggle
 - `calibration/perProfileFlow` (JSON object): Maps profile filename → multiplier
+- `calibration/flowCalBatch` (JSON object): Maps profile filename → array of pending ideal values (accumulator for batched updates)
 - `flowCalibrationMultiplier` (double, default 1.0): Global multiplier, auto-updated to espresso median
 - Effective multiplier: per-profile if auto-cal is on and one exists, otherwise falls back to global `flowCalibrationMultiplier`
+- Clearing a profile's calibration (via MCP or settings UI) also clears its pending batch
 
 ### Profile Load Hook
 
@@ -140,3 +157,5 @@ A one-time migration resets all per-profile flow calibrations and the global mul
 - **Density is approximated**: Uses a fixed 0.963 factor; actual density varies slightly with temperature
 - **One multiplier per profile**: Does not calibrate different flow rate ranges within a single profile
 - **Not retroactive**: Only applies to shots made after enabling the feature
+- **5-shot batch delay**: First calibration update requires 5 qualifying shots on a profile. The pump runs at the global multiplier (or 1.0 on fresh install) until then.
+- **Bean/grind changes within a batch**: If beans or grinder setting change within a 5-shot batch, the median blends data from different conditions. The median's outlier rejection mitigates this for small numbers of changed shots.

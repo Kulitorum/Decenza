@@ -3964,6 +3964,8 @@ void Settings::clearProfileFlowCalibration(const QString& profileFilename) {
     QJsonObject map = allProfileFlowCalibrations();
     map.remove(profileFilename);
     savePerProfileFlowCalMap(map);
+    // Clear any pending batch ideals — they were computed at the old C value
+    clearFlowCalPendingIdeals(profileFilename);
 }
 
 double Settings::effectiveFlowCalibration(const QString& profileFilename) const {
@@ -4012,6 +4014,34 @@ void Settings::savePerProfileFlowCalMap(const QJsonObject& map) {
     m_perProfileFlowCalCacheValid = true;
     m_perProfileFlowCalVersion++;
     emit perProfileFlowCalibrationChanged();
+}
+
+// Auto flow calibration batch accumulator
+
+QVector<double> Settings::flowCalPendingIdeals(const QString& profileFilename) const {
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/flowCalBatch", "{}").toByteArray()).object();
+    QVector<double> result;
+    QJsonArray arr = map.value(profileFilename).toArray();
+    for (const auto& v : arr)
+        result.append(v.toDouble());
+    return result;
+}
+
+void Settings::appendFlowCalPendingIdeal(const QString& profileFilename, double ideal) {
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/flowCalBatch", "{}").toByteArray()).object();
+    QJsonArray arr = map.value(profileFilename).toArray();
+    arr.append(ideal);
+    map[profileFilename] = arr;
+    m_settings.setValue("calibration/flowCalBatch", QJsonDocument(map).toJson(QJsonDocument::Compact));
+}
+
+void Settings::clearFlowCalPendingIdeals(const QString& profileFilename) {
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/flowCalBatch", "{}").toByteArray()).object();
+    map.remove(profileFilename);
+    m_settings.setValue("calibration/flowCalBatch", QJsonDocument(map).toJson(QJsonDocument::Compact));
 }
 
 // SAW (Stop-at-Weight) learning

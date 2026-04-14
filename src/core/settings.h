@@ -832,6 +832,12 @@ public:
     QJsonObject allProfileFlowCalibrations() const;
     int perProfileFlowCalVersion() const { return m_perProfileFlowCalVersion; }
 
+    // Auto flow calibration batch accumulator: stores pending ideal values per profile
+    // until a full batch (5 shots) is collected, then the median is used to update C.
+    QVector<double> flowCalPendingIdeals(const QString& profileFilename) const;
+    void appendFlowCalPendingIdeal(const QString& profileFilename, double ideal);
+    void clearFlowCalPendingIdeals(const QString& profileFilename);
+
     // SAW (Stop-at-Weight) learning
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
     double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history

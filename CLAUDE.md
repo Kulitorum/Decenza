@@ -144,6 +144,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `CUP_FILL_VIEW.md` | CupFillView layer stack, GPU shaders, updating cup images |
 | `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets |
 | `ACCESSIBILITY.md` | TalkBack/VoiceOver rules, focus order, anti-patterns, implementation plan |
+| `AUTO_FLOW_CALIBRATION.md` | Auto flow calibration algorithm, batched median updates, windowing, convergence |
 
 Also in `docs/`:
 - `MCP_SERVER.md` — full MCP tool list, access levels, architecture

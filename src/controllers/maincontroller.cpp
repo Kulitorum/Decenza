@@ -606,13 +606,29 @@ void MainController::computeAutoFlowCalibration() {
     const int kFirmwareCapBumped = 1337;
     const int fwBuild = m_device ? m_device->firmwareBuildNumber() : 0;
     const double kCalibrationMax = (fwBuild >= kFirmwareCapBumped) ? 2.7 : 1.8;
-    constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
+    constexpr double kChangeThreshold = 0.03;        // 3% relative change required to update
     constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
     constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
     constexpr double kMaxWindowRatio = 1.35;         // window-mean machine/weight ratio — reject if scale data is suspect
     constexpr double kMinWindowRatio = 0.75;         // (de1app GFC users get ~0.9-1.1 ratios on good data)
     constexpr double kMinWindowStartTime = 10.0;     // seconds — skip early extraction where LSLR weight flow
                                                      // lags behind actual flow, producing inflated ratios
+
+    // 3-sample centered moving average on pressure for dpdt computation.
+    // The DE1's PID causes rapid small pressure corrections (~0.1-0.2 bar per sample)
+    // that exceed the dpdt threshold on flow profiles, producing artificially short
+    // steady windows. Smoothing filters this PID jitter while preserving genuine
+    // pressure transitions (frame changes, preinfusion→pour).
+    QVector<double> smoothedPressure(pressureData.size());
+    for (qsizetype i = 0; i < pressureData.size(); ++i) {
+        if (i == 0 || i == pressureData.size() - 1) {
+            smoothedPressure[i] = pressureData[i].y();
+        } else {
+            smoothedPressure[i] = (pressureData[i - 1].y()
+                                   + pressureData[i].y()
+                                   + pressureData[i + 1].y()) / 3.0;
+        }
+    }
 
     // Find the best steady-pour window: stable pressure above minimum + meaningful weight flow.
     // We track the best (longest) qualifying window found across the entire shot.
@@ -648,7 +664,9 @@ void MainController::computeAutoFlowCalibration() {
     for (qsizetype i = 1; i < pressureData.size(); ++i) {
         double dt = pressureData[i].x() - pressureData[i - 1].x();
         if (dt <= 0) continue;
-        double dpdt = qAbs(pressureData[i].y() - pressureData[i - 1].y()) / dt;
+        // Use smoothed pressure for dpdt to filter PID jitter
+        double dpdt = qAbs(smoothedPressure[i] - smoothedPressure[i - 1]) / dt;
+        // Use original pressure for minimum pressure check (smoothing could mask real drops)
         double pressure = pressureData[i].y();
         double t = pressureData[i].x();
 
@@ -862,22 +880,46 @@ void MainController::computeAutoFlowCalibration() {
                    << "— verify scale accuracy (firmware build:" << fwBuild << ")";
     }
 
-    // Only update if the ideal itself differs enough from current. Checking ideal (not the
-    // EMA output) preserves the original 2% deadband regardless of alpha. The > 0.01 guard
-    // avoids division by zero on first use (before any calibration is set).
-    if (currentEffective > 0.01 && qAbs(ideal - currentEffective) / currentEffective < kChangeThreshold) {
-        qDebug() << "Auto flow cal: ideal" << ideal << "≈ current" << currentEffective << "(< 2% change, skipping)";
-        return;
+    // Batched median accumulator: collect ideals across multiple shots at a constant C,
+    // then update C using the batch median. This prevents the feedback loop where each
+    // C update changes pump behavior, which changes puck dynamics, which changes the next
+    // ideal — producing oscillation instead of convergence. The median also provides
+    // natural outlier rejection (runaway shots, channeling anomalies).
+    constexpr int kBatchSize = 5;
+    constexpr double kBatchEmaAlpha = 0.5;  // Higher alpha is safe because median of N shots is more reliable
+
+    QString profileName = m_profileManager->baseProfileName();
+    m_settings->appendFlowCalPendingIdeal(profileName, ideal);
+    QVector<double> pending = m_settings->flowCalPendingIdeals(profileName);
+
+    qDebug() << "Auto flow cal: accumulated ideal" << ideal
+             << "for" << profileName << "(" << pending.size() << "/" << kBatchSize << ")"
+             << "window:" << windowDuration << "s," << bestCount << "samples"
+             << "mode:" << (isFlowProfile ? "flow" : "pressure");
+
+    if (pending.size() < kBatchSize) {
+        return;  // Keep accumulating — don't update C yet
     }
 
-    // EMA smoothing: blend current toward ideal to dampen shot-to-shot oscillation.
-    // alpha=0.3 moves 30% toward the ideal each shot, converging in ~5-7 shots while
-    // preventing a single noisy shot from dominating (vs. jumping straight to ideal).
-    // Skip EMA on the first shot for this profile — no oscillation history to dampen yet.
-    constexpr double kEmaAlpha = 0.3;
-    double computed = m_settings->hasProfileFlowCalibration(m_profileManager->baseProfileName())
-        ? kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective
-        : ideal;
+    // Batch complete — compute median
+    std::sort(pending.begin(), pending.end());
+    qsizetype n = pending.size();
+    double median = (n % 2 == 0)
+        ? (pending[n / 2 - 1] + pending[n / 2]) / 2.0
+        : pending[n / 2];
+
+    // Clear the batch now that we've consumed it
+    m_settings->clearFlowCalPendingIdeals(profileName);
+
+    // Scale alpha proportionally for remainder batches (< kBatchSize shots).
+    // For full batches this gives kBatchEmaAlpha; for a batch of 1 it gives
+    // kBatchEmaAlpha / kBatchSize (very conservative single-shot update).
+    double alpha = kBatchEmaAlpha * qMin(1.0, static_cast<double>(n) / kBatchSize);
+
+    // On first calibration for this profile, use median directly (no history to blend with)
+    double computed = m_settings->hasProfileFlowCalibration(profileName)
+        ? alpha * median + (1.0 - alpha) * currentEffective
+        : median;
 
     // Re-clamp after EMA. When the user has manually set the global multiplier above
     // kCalibrationMax (e.g. 3.0 via the manual UI vs. kCalibrationMax=2.7), currentEffective
@@ -886,18 +928,25 @@ void MainController::computeAutoFlowCalibration() {
     // would silently reject the write and auto-cal would stop converging for that profile.
     computed = qBound(kCalibrationMin, computed, kCalibrationMax);
 
+    // Only update if meaningfully different (> 2% change)
+    if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
+        qDebug() << "Auto flow cal: batch median" << median << "≈ current" << currentEffective
+                 << "(computed" << computed << "< 3% change, skipping)";
+        return;
+    }
+
     double oldValue = currentEffective;
-    if (!m_settings->setProfileFlowCalibration(m_profileManager->baseProfileName(), computed)) {
+    if (!m_settings->setProfileFlowCalibration(profileName, computed)) {
         qWarning() << "Auto flow cal: computed value" << computed
-                   << "was rejected by settings for" << m_profileManager->baseProfileName();
+                   << "was rejected by settings for" << profileName;
         return;
     }
     applyFlowCalibration();
 
-    qDebug() << "Auto flow cal: updated" << m_profileManager->baseProfileName()
+    qDebug() << "Auto flow cal: updated" << profileName
              << "from" << oldValue << "to" << computed
-             << "(ideal:" << ideal << "EMA alpha:" << kEmaAlpha
-             << "window:" << windowDuration << "s," << bestCount << "samples"
+             << "(batch median:" << median << "from" << n << "ideals"
+             << "alpha:" << alpha
              << "mode:" << (isFlowProfile ? "flow" : "pressure") << ")";
 
     emit flowCalibrationAutoUpdated(m_profileManager->currentProfile().title(), oldValue, computed);
