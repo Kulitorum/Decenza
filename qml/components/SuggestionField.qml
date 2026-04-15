@@ -73,13 +73,18 @@ Item {
     // Track if user is actively typing (vs just focusing with existing text)
     property bool isActivelyTyping: false
 
-    // Filter suggestions based on current input
+    // Filter suggestions based on current input.
+    // Uses displayText (not text) so the filter reflects the IME's preedit / composing
+    // text on Android. While the virtual keyboard is composing a word, `text` is not
+    // updated until commit (space/punctuation/backspace), but `displayText` is — so
+    // filtering by `displayText` keeps suggestions in sync with what the user sees.
     function getFilteredSuggestions() {
+        var query = textInput.displayText
         // Show all suggestions when not actively typing (just focused with existing text)
-        if (!isActivelyTyping || !textInput.text || textInput.text.length === 0) {
+        if (!isActivelyTyping || !query || query.length === 0) {
             return suggestions
         }
-        var filter = textInput.text.toLowerCase()
+        var filter = query.toLowerCase()
         var filtered = []
         for (var i = 0; i < suggestions.length; i++) {
             if (suggestions[i].toLowerCase().indexOf(filter) !== -1) {
@@ -110,28 +115,42 @@ Item {
         text: root.text
         placeholder: root.label
         EnterKey.type: Qt.EnterKeyDone
-        // Disable predictive text / autocorrect on virtual keyboards (Android) so each
-        // keystroke commits to `text` immediately. Without this, the IME holds composing
-        // text and `onTextEdited` only fires on space/punctuation/backspace, so the
-        // filter-as-you-type dropdown appears to lag behind the user's typing.
+        // Hint the Android IME away from autocorrect so user-entered names (roasters,
+        // grinders, baristas) aren't silently "fixed". This alone is NOT enough to
+        // make filter-as-you-type react per keystroke — some IMEs (notably Gboard)
+        // ignore this hint. The real driver is `onDisplayTextChanged` below, which
+        // fires on every preedit change.
         inputMethodHints: Qt.ImhNoPredictiveText
 
         // Make room for buttons on the right (only in normal mode)
         rightPadding: root._accessibilityMode ? Theme.scaled(12) : Theme.scaled(84)
 
         onTextEdited: {
-            // User is actively typing (not just focusing)
+            // Committed text reached `text` (desktop keystroke, or IME commit on
+            // space/punctuation/backspace). Propagate to the parent binding so the
+            // persisted value stays in sync. Popup open/close is handled by
+            // onDisplayTextChanged instead, because on Android `text` doesn't
+            // update during composition and this signal wouldn't fire per keystroke.
             isActivelyTyping = true
             // Don't set root.text here - that breaks the parent binding!
             // Just emit the signal and let parent update via its binding
             root.textEdited(text)
-            // Show dropdown when typing if we have matching suggestions (but not after selection).
-            // Close it when the field is empty — the popup is a filter-as-you-type affordance,
-            // not a browse-all list (that's what the arrow button's dialog is for).
-            if (text.length === 0) {
+        }
+
+        // Drive the filter-as-you-type popup from displayText, which includes the
+        // IME's preedit (composing) text and fires on every keystroke. On desktop
+        // displayText == text, so this behaves the same as the old onTextEdited path.
+        // On Android this is what makes suggestions appear immediately instead of
+        // waiting for a space or delete to commit the composition.
+        onDisplayTextChanged: {
+            if (!activeFocus || justSelected) return
+            if (displayText.length === 0) {
                 suggestionPopup.close()
-            } else if (!justSelected && getFilteredSuggestions().length > 0) {
-                suggestionPopup.open()
+            } else {
+                isActivelyTyping = true
+                if (getFilteredSuggestions().length > 0) {
+                    suggestionPopup.open()
+                }
             }
         }
 
@@ -384,7 +403,7 @@ Item {
                 text: TranslationManager.translate("suggestionfield.nomatches", "No matches - press Enter to add")
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(14)
-                visible: suggestionList.count === 0 && textInput.text.length > 0
+                visible: suggestionList.count === 0 && textInput.displayText.length > 0
             }
         }
     }
