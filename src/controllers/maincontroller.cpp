@@ -1,5 +1,6 @@
 #include "maincontroller.h"
 #include "shottimingcontroller.h"
+#include "autoflowcalclassifier.h"
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
 #include "../ble/de1device.h"
@@ -947,31 +948,55 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
-    // Check if the profile's extraction frames are flow-controlled.
-    // For flow profiles the DE1's PID locks reported flow to the target regardless
-    // of the calibration factor, which creates a feedback loop if we use reported
-    // flow in the calibration formula (each adjustment changes how much the machine
-    // pumps, but the reported flow stays the same → factor keeps drifting down).
-    // For these profiles, use the profile's target flow directly.
+    // Classify the pump-control mode active during the steady window.
+    // For flow frames, the DE1's PID locks reported flow to the target
+    // regardless of the calibration factor, which creates a feedback loop
+    // if we use reported flow in the formula (factor drifts down over time).
+    // For pressure frames, reported flow IS the sensor reading and is the
+    // right anchor. Hybrid profiles (e.g. ASL9-3 — pressure declines + a
+    // flow-controlled tail) need window-level classification: the steady
+    // window almost always lands in the pressure declines, so anchoring to
+    // the tail's flow target produces false rejections and spurious
+    // multiplier jumps.
+    //
+    // classifyAutoFlowCalWindow() uses the shot's PhaseMarker stream to
+    // determine which frames the window actually touched. If no markers are
+    // available (very short shots, legacy data), it reports fallback and we
+    // reuse the old profile-level scan so calibration still runs.
+    const auto& steps = m_profileManager->currentProfile().steps();
+    QList<FrameTransition> transitions;
+    {
+        const auto& markers = m_shotDataModel->phaseMarkersList();
+        transitions.reserve(markers.size());
+        for (const auto& m : markers) {
+            transitions.append({m.time, m.frameNumber});
+        }
+    }
+    AutoFlowCalClassification cls = classifyAutoFlowCalWindow(
+        steps, transitions, bestStart, bestEnd, meanMachineFlow);
+
+    if (cls.mixedMode) {
+        qDebug() << "Auto flow cal: window spans mixed flow/pressure frames"
+                 << "[" << cls.firstFrameInWindow << ".." << cls.lastFrameInWindow << "]"
+                 << "— skipping (ambiguous target)";
+        return;
+    }
+
     double profileTargetFlow = 0;
     bool isFlowProfile = false;
-    {
-        const auto& steps = m_profileManager->currentProfile().steps();
-        int preinfuseCount = m_profileManager->currentProfile().preinfuseFrameCount();
 
-        // Only check extraction frames (skip preinfusion). Preinfusion frames
-        // are almost always flow-controlled even in pressure profiles, and the
-        // steady window (t > 10s) is always past preinfusion anyway.
+    if (cls.fallbackToProfileScan) {
+        // No phase markers — fall back to the historical profile-level scan.
+        // Skips preinfusion frames because those are almost always flow-
+        // controlled even on pressure profiles.
+        int preinfuseCount = m_profileManager->currentProfile().preinfuseFrameCount();
         int flowFrameCount = 0;
         for (qsizetype i = preinfuseCount; i < steps.size(); ++i) {
             if (steps[i].isFlowControl() && steps[i].flow > 0.1)
                 flowFrameCount++;
         }
-        // Consider it a flow profile if any extraction frame uses flow control
         if (flowFrameCount > 0) {
             isFlowProfile = true;
-            // Use the flow target closest to what the machine reported during
-            // the window — this handles profiles with multiple flow targets
             double bestDist = 1e9;
             for (qsizetype i = preinfuseCount; i < steps.size(); ++i) {
                 const auto& frame = steps[i];
@@ -984,6 +1009,17 @@ void MainController::computeAutoFlowCalibration() {
                 }
             }
         }
+        qDebug() << "Auto flow cal: no phase markers — profile-level scan"
+                 << "mode:" << (isFlowProfile ? "flow" : "pressure");
+    } else {
+        isFlowProfile = cls.isFlowProfile;
+        profileTargetFlow = cls.targetFlow;
+        qDebug() << "Auto flow cal: window mode="
+                 << (isFlowProfile ? "flow" : "pressure")
+                 << "frames=[" << cls.firstFrameInWindow
+                 << ".." << cls.lastFrameInWindow << "]"
+                 << (isFlowProfile ? QString("target=%1 ml/s").arg(profileTargetFlow)
+                                   : QString());
     }
 
     // Window-level ratio sanity check. For flow profiles, compare weight flow

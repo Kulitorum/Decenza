@@ -260,6 +260,7 @@ set(SOURCES
     src/machine/steamhealthtracker.cpp
     src/machine/steamcalibrator.cpp
     src/controllers/maincontroller.cpp
+    src/controllers/autoflowcalclassifier.cpp
     src/controllers/profilemanager.cpp
     src/controllers/directcontroller.cpp
     src/controllers/shottimingcontroller.cpp

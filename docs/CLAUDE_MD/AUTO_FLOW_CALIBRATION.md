@@ -19,7 +19,7 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
    - Scale data is recent (nearest weight flow point within 1 second)
    - Per-sample machine/weight flow ratio is within [0.4, 2.5] (rejects scale data glitches)
    - Window lasts at least 1.5 seconds with at least 7 samples
-3. **Profile classification**: Checks whether the profile's extraction frames (post-preinfusion) use flow control or pressure control — this determines which formula is used
+3. **Window classification**: Checks which profile frames were actually active during the steady window (using the shot's `PhaseMarker` stream) to decide whether to use the flow or pressure formula — see "Window-level Classification" below
 4. **Ratio guard**: Rejects windows where flow and weight diverge too much ([0.75, 1.35]). For flow profiles, compares `(target_flow * 0.963) / weight_flow`. For pressure profiles, compares `machine_flow / weight_flow`.
 5. **Compute calibration** (formula depends on profile type):
    - **Flow profiles**: `mean(weight_flow) / (target_flow * 0.963)` — uses the profile's known target flow, independent of current calibration
@@ -53,11 +53,18 @@ Without this guard, shots with poor scale data quality can produce calibration v
 
 Before running calibration, the algorithm checks whether the settled weight dropped significantly below the weight at pump stop (> 3g drop). This indicates the stream of water hitting the cup was adding downward force to the scale during extraction, inflating the weight readings. Calibrating against these inflated readings would produce a multiplier that's too high, so the shot is skipped. This typically occurs with high-flow profiles where the stream has significant momentum.
 
-### Flow Profile vs Pressure Profile
+### Window-level Classification
 
-The calibration formula depends on whether the profile's extraction frames use flow control or pressure control. Only extraction frames are considered (preinfusion frames are skipped, since they are almost always flow-controlled even in pressure profiles, and the steady window at t > 10s is always past preinfusion).
+The calibration formula depends on whether the DE1 was holding flow or pressure **during the steady window** — not on the profile as a whole. The classifier lives in `src/controllers/autoflowcalclassifier.cpp` and inspects the `PhaseMarker` stream recorded during the shot to find every frame touched by `[windowStart, windowEnd]`, then:
 
-**Flow profiles** (e.g., D-Flow, Filter): The DE1's PID servo holds the reported flow at the profile's target flow regardless of the calibration factor. Using the reported flow in the formula creates a feedback loop: lowering the factor → less pumping → lower weight flow → factor keeps drifting down, never converging. Instead, the formula uses the profile's target flow directly:
+- If every touched frame is flow-controlled (`pump == "flow"`, flow > 0.1) → use the **flow** formula. The target is the flow of the touched frame closest to the observed mean machine flow (handles multi-target profiles).
+- If every touched frame is pressure-controlled → use the **pressure** formula.
+- If touched frames are mixed (window straddles a flow↔pressure transition) → skip; logged as `"window spans mixed flow/pressure frames — skipping (ambiguous target)"`.
+- If phase-marker data is missing (e.g. legacy shot or very short capture) → fall back to the historical profile-level scan so calibration still runs.
+
+**Why window-level matters.** Hybrid profiles like ASL9-3 have both pressure decline frames and a flow-controlled tail. A profile-level scan classifies the whole profile as "flow" because any flow frame is present, even when every observed steady window lands in the pressure declines. Under v3's flow formula this produced false `"flow profile ratio … outside bounds"` rejections and occasional 20%+ single-shot jumps when a short window slipped through. Window-level classification routes those same windows to the pressure branch instead — see issue #739 for the full analysis.
+
+**Flow profiles** (e.g., D-Flow, Filter) or **flow-controlled windows**: The DE1's PID servo holds the reported flow at the target flow regardless of the calibration factor. Using the reported flow in the formula creates a feedback loop: lowering the factor → less pumping → lower weight flow → factor keeps drifting down, never converging. Instead, the formula uses the target flow directly:
 
 ```
 calibration = mean(weight_flow) / (target_flow * 0.963)
@@ -65,7 +72,7 @@ calibration = mean(weight_flow) / (target_flow * 0.963)
 
 This is independent of the current calibration factor and converges correctly.
 
-**Pressure profiles** (e.g., Classic Italian): The machine controls pressure, not flow, so the reported flow reflects actual sensor readings (already multiplied by the calibration factor). The formula divides out the current factor to recover raw sensor flow:
+**Pressure profiles** (e.g., Classic Italian) or **pressure-controlled windows**: The machine controls pressure, not flow, so the reported flow reflects actual sensor readings (already multiplied by the calibration factor). The formula divides out the current factor to recover raw sensor flow:
 
 ```
 calibration = current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)
