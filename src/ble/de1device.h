@@ -3,7 +3,11 @@
 #include <QObject>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
+#include <QByteArray>
 #include <QEvent>
+#include <QList>
+#include <QString>
+#include <QTimer>
 
 #include "protocol/de1characteristics.h"
 
@@ -232,6 +236,17 @@ private:
 
     void sendInitialSettings();
 
+    // Profile upload tracking (frame-ACK verification, modeled on de1app's
+    // confirm_de1_send_shot_frames_worked). startProfileUploadTracking() must
+    // be called BEFORE queuing the header/frame writes so the listener is
+    // attached in time to observe every writeComplete.
+    void startProfileUploadTracking(const QString& profileTitle,
+                                    const QList<QByteArray>& frames,
+                                    bool expectEspressoStart);
+    void onProfileUploadWriteComplete(const QBluetoothUuid& uuid,
+                                      const QByteArray& data);
+    void finishProfileUpload(bool success, const QString& reason = QString());
+
     // Owned when created internally via connectToDevice(); set externally via setTransport() for USB
     DE1Transport* m_transport = nullptr;
     bool m_ownsTransport = false;  // True when DE1Device created the transport (connectToDevice)
@@ -265,6 +280,20 @@ private:
     Settings* m_settings = nullptr;       // For water level calibration persistence
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
+
+    // Frame-ACK verification state for the in-flight profile upload (cleared
+    // by finishProfileUpload()). m_uploadExpectedFrameBytes is the leading
+    // byte of every frame we queued to FRAME_WRITE, in queue order; each
+    // FRAME_WRITE ACK appends its leading byte to m_uploadSeenFrameBytes, and
+    // we compare the two sequences when all expected ACKs have arrived.
+    QString m_uploadProfileTitle;
+    QList<uint8_t> m_uploadExpectedFrameBytes;
+    QList<uint8_t> m_uploadSeenFrameBytes;
+    bool m_uploadHeaderAcked = false;
+    bool m_uploadEspressoStartAcked = false;
+    bool m_uploadExpectEspressoStart = false;
+    QMetaObject::Connection m_uploadConnection;
+    QTimer m_uploadTimeoutTimer;
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)
     bool m_isHeadless = false;   // True if app can start operations (GHC not installed or inactive)
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected

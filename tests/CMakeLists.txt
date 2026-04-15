@@ -137,6 +137,18 @@ add_decenza_test(tst_shotsettings
     ${SIMULATOR_SOURCES}
 )
 
+# --- tst_profileupload: Profile upload frame-ACK verification ---
+add_decenza_test(tst_profileupload
+    tst_profileupload.cpp
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
 # --- tst_blefidelity: BLE encode round-trip for all built-in profiles ---
 add_decenza_test(tst_blefidelity
     tst_blefidelity.cpp

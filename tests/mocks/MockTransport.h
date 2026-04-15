@@ -31,4 +31,14 @@ public:
     // Test helpers
     QByteArray lastWriteData() const { return writes.isEmpty() ? QByteArray() : writes.last().second; }
     void clearWrites() { writes.clear(); }
+
+    // Simulate the BLE stack ACKing every captured write in order, mirroring
+    // what BleTransport::onCharacteristicWritten does on the real device.
+    // Tests that need to simulate dropped, reordered, or partial ACKs should
+    // emit writeComplete() directly instead.
+    void ackAllWritesInOrder() {
+        for (const auto& w : writes) {
+            emit writeComplete(w.first, w.second);
+        }
+    }
 };
