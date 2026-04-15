@@ -56,6 +56,20 @@ struct McpTestFixture {
     QTemporaryDir tempDir;   // isolated profile storage
     Settings settings;
     MockTransport transport;
+    // Profile upload verification (DE1Device::finishProfileUpload) emits qWarning
+    // when an upload doesn't complete cleanly. In tests, MockTransport never ACKs
+    // writes, so every uploadProfile() call that's followed by fixture teardown
+    // (BLE disconnect — fires from ~DE1Device), a rapid second uploadProfile()
+    // (supersede), or an explicit clearCommandQueue() ends up as a "FAILED"
+    // verdict. These are expected test-harness artifacts, not real failures —
+    // silence them. Unexpected reasons (frame sequence mismatch, ACK timeout)
+    // are intentionally NOT suppressed so they still surface if a test exposes
+    // one. tst_profileupload.cpp exercises the verification path directly and
+    // doesn't use this fixture, so its assertions are unaffected.
+    //
+    // Declared before `device` so the filter outlives ~DE1Device (members are
+    // destroyed in reverse declaration order).
+    ScopedWarningFilter uploadFilter{"profile upload FAILED — (BLE disconnect during upload|superseded by a new upload|command queue cleared during upload)"};
     DE1Device device;
     MachineState machineState;
     // Suppress expected warnings during ProfileManager construction — test env has

@@ -11,6 +11,7 @@
 #include <QBluetoothAddress>
 #include <QDateTime>
 #include <QDebug>
+#include <QStringList>
 #include <chrono>
 #include <memory>
 
@@ -25,6 +26,14 @@ qint64 monotonicMsNow()
 DE1Device::DE1Device(QObject* parent)
     : QObject(parent)
 {
+    // 10 s is plenty: a full upload is header + ~5–10 frames, each a single
+    // write-with-response. If we pass this cap, the BLE link is almost
+    // certainly wedged and we should surface a failure rather than hang.
+    m_uploadTimeoutTimer.setSingleShot(true);
+    m_uploadTimeoutTimer.setInterval(10000);
+    connect(&m_uploadTimeoutTimer, &QTimer::timeout, this, [this]() {
+        finishProfileUpload(false, QStringLiteral("timeout waiting for write ACKs"));
+    });
 }
 
 DE1Device::~DE1Device() {
@@ -250,7 +259,12 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void DE1Device::disconnect() {
-    m_profileUploadInProgress = false;
+    // Surface any in-flight profile upload as a failure before we tear down
+    // the transport — otherwise listeners (ProfileManager, QML) would never
+    // see a resolution for this attempt.
+    if (m_profileUploadInProgress) {
+        finishProfileUpload(false, QStringLiteral("BLE disconnect during upload"));
+    }
     m_sleepPendingAfterUpload = false;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
@@ -747,7 +761,9 @@ void DE1Device::wakeUp() {
 }
 
 void DE1Device::clearCommandQueue() {
-    m_profileUploadInProgress = false;
+    if (m_profileUploadInProgress) {
+        finishProfileUpload(false, QStringLiteral("command queue cleared during upload"));
+    }
     m_sleepPendingAfterUpload = false;
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
@@ -766,41 +782,15 @@ void DE1Device::uploadProfile(const Profile& profile) {
 
     if (!m_transport) return;
 
-    m_profileUploadInProgress = true;
-
-    // Queue header write
-    QByteArray header = profile.toHeaderBytes();
-    m_transport->write(DE1::Characteristic::HEADER_WRITE, header);
-
-    // Queue each frame
+    // Attach the ACK listener BEFORE queuing writes so we observe every
+    // writeComplete for this upload.
     QList<QByteArray> frames = profile.toFrameBytes();
+    startProfileUploadTracking(profile.title(), frames, /*expectEspressoStart=*/false);
+
+    m_transport->write(DE1::Characteristic::HEADER_WRITE, profile.toHeaderBytes());
     for (const QByteArray& frame : frames) {
         m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
     }
-
-    // Track completion by counting writeComplete signals for profile-related UUIDs.
-    // Only count HEADER_WRITE and FRAME_WRITE completions to avoid interference
-    // from concurrent writes (e.g., MMR writes from other code paths).
-    qsizetype totalWrites = 1 + frames.size();  // header + frames
-    auto* counter = new qsizetype(0);
-    auto conn = std::make_shared<QMetaObject::Connection>();
-    *conn = connect(m_transport, &DE1Transport::writeComplete, this,
-        [this, totalWrites, counter, conn](const QBluetoothUuid& uuid, const QByteArray& /*data*/) {
-            if (uuid == DE1::Characteristic::HEADER_WRITE || uuid == DE1::Characteristic::FRAME_WRITE) {
-                (*counter)++;
-                if (*counter >= totalWrites) {
-                    QObject::disconnect(*conn);
-                    delete counter;
-                    m_profileUploadInProgress = false;
-                    emit profileUploaded(true);
-                    if (m_sleepPendingAfterUpload) {
-                        m_sleepPendingAfterUpload = false;
-                        qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
-                        goToSleep();
-                    }
-                }
-            }
-        });
 }
 
 void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
@@ -812,46 +802,170 @@ void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
 
     if (!m_transport) return;
 
-    m_profileUploadInProgress = true;
-
-    // Queue header write
-    QByteArray header = profile.toHeaderBytes();
-    m_transport->write(DE1::Characteristic::HEADER_WRITE, header);
-
-    // Queue each frame
     QList<QByteArray> frames = profile.toFrameBytes();
+    startProfileUploadTracking(profile.title(), frames, /*expectEspressoStart=*/true);
+
+    m_transport->write(DE1::Characteristic::HEADER_WRITE, profile.toHeaderBytes());
     for (const QByteArray& frame : frames) {
         m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
     }
-
     // Queue espresso start AFTER all profile frames
     m_transport->write(DE1::Characteristic::REQUESTED_STATE,
                        QByteArray(1, static_cast<char>(DE1::State::Espresso)));
+}
 
-    // Track completion: header + frames + espresso start command.
-    // Count only profile-related UUIDs and the REQUESTED_STATE for espresso start.
-    qsizetype totalWrites = 1 + frames.size() + 1;
-    auto* counter = new qsizetype(0);
-    auto conn = std::make_shared<QMetaObject::Connection>();
-    *conn = connect(m_transport, &DE1Transport::writeComplete, this,
-        [this, totalWrites, counter, conn](const QBluetoothUuid& uuid, const QByteArray& /*data*/) {
-            if (uuid == DE1::Characteristic::HEADER_WRITE ||
-                uuid == DE1::Characteristic::FRAME_WRITE ||
-                uuid == DE1::Characteristic::REQUESTED_STATE) {
-                (*counter)++;
-                if (*counter >= totalWrites) {
-                    QObject::disconnect(*conn);
-                    delete counter;
-                    m_profileUploadInProgress = false;
-                    emit profileUploaded(true);
-                    if (m_sleepPendingAfterUpload) {
-                        m_sleepPendingAfterUpload = false;
-                        qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
-                        goToSleep();
-                    }
-                }
+// -- Profile upload frame-ACK verification --
+//
+// The DE1's write-with-response ACK for FRAME_WRITE echoes the leading byte
+// (FrameToWrite) of the frame that was accepted. de1app uses that echo to
+// verify frames were not silently dropped or reordered — see
+// confirm_de1_send_shot_frames_worked in de1app's de1_comms.tcl. We mirror
+// that here: record the expected leading bytes, collect them from each ACK,
+// and on completion verify the two lists match exactly.
+
+void DE1Device::startProfileUploadTracking(const QString& profileTitle,
+                                           const QList<QByteArray>& frames,
+                                           bool expectEspressoStart)
+{
+    // Cancel any still-in-flight tracker. This should be rare (the guard is
+    // primarily for defensive coding against callers that re-issue an upload
+    // before the previous one drained), but if it happens we want to surface
+    // the earlier attempt as a failure rather than silently drop it.
+    if (m_profileUploadInProgress) {
+        finishProfileUpload(false, QStringLiteral("superseded by a new upload"));
+    }
+
+    m_uploadProfileTitle = profileTitle;
+    m_uploadExpectedFrameBytes.clear();
+    m_uploadExpectedFrameBytes.reserve(frames.size());
+    for (const QByteArray& frame : frames) {
+        m_uploadExpectedFrameBytes.append(frame.isEmpty()
+                                              ? 0
+                                              : static_cast<uint8_t>(frame.at(0)));
+    }
+    m_uploadSeenFrameBytes.clear();
+    m_uploadSeenFrameBytes.reserve(frames.size());
+    m_uploadHeaderAcked = false;
+    m_uploadEspressoStartAcked = false;
+    m_uploadExpectEspressoStart = expectEspressoStart;
+
+    m_profileUploadInProgress = true;
+
+    m_uploadConnection = connect(m_transport, &DE1Transport::writeComplete, this,
+                                 &DE1Device::onProfileUploadWriteComplete);
+
+    m_uploadTimeoutTimer.start();
+}
+
+void DE1Device::onProfileUploadWriteComplete(const QBluetoothUuid& uuid,
+                                             const QByteArray& data)
+{
+    if (uuid == DE1::Characteristic::HEADER_WRITE) {
+        m_uploadHeaderAcked = true;
+    } else if (uuid == DE1::Characteristic::FRAME_WRITE) {
+        m_uploadSeenFrameBytes.append(data.isEmpty()
+                                          ? 0
+                                          : static_cast<uint8_t>(data.at(0)));
+    } else if (m_uploadExpectEspressoStart
+               && uuid == DE1::Characteristic::REQUESTED_STATE) {
+        // Only count the Espresso-start write; other REQUESTED_STATE writes
+        // (e.g. a concurrent sleep request) must not satisfy this slot.
+        if (data.size() == 1
+            && static_cast<uint8_t>(data.at(0))
+                   == static_cast<uint8_t>(DE1::State::Espresso)) {
+            m_uploadEspressoStartAcked = true;
+        }
+    } else {
+        return;  // Unrelated write (MMR, ShotSettings, etc.)
+    }
+
+    const bool allFrames =
+        m_uploadSeenFrameBytes.size() >= m_uploadExpectedFrameBytes.size();
+    const bool allRequired = m_uploadHeaderAcked && allFrames
+                             && (!m_uploadExpectEspressoStart
+                                 || m_uploadEspressoStartAcked);
+    if (!allRequired) return;
+
+    // All the writes we expected have been ACKed by the BLE stack — now
+    // verify the frame sequence came back in order.
+    bool sequenceMatches =
+        (m_uploadSeenFrameBytes.size() == m_uploadExpectedFrameBytes.size());
+    if (sequenceMatches) {
+        for (qsizetype i = 0; i < m_uploadExpectedFrameBytes.size(); ++i) {
+            if (m_uploadSeenFrameBytes[i] != m_uploadExpectedFrameBytes[i]) {
+                sequenceMatches = false;
+                break;
             }
-        });
+        }
+    }
+
+    if (!sequenceMatches) {
+        auto formatSeq = [](const QList<uint8_t>& seq) {
+            QStringList parts;
+            parts.reserve(seq.size());
+            for (uint8_t b : seq) {
+                parts.append(QString::asprintf("0x%02X", b));
+            }
+            return QStringLiteral("[") + parts.join(QStringLiteral(", "))
+                   + QStringLiteral("]");
+        };
+        finishProfileUpload(
+            false,
+            QStringLiteral(
+                "frame sequence mismatch (expected %1, got %2). Profile \"%3\" "
+                "was likely NOT correctly loaded on the DE1.")
+                .arg(formatSeq(m_uploadExpectedFrameBytes))
+                .arg(formatSeq(m_uploadSeenFrameBytes))
+                .arg(m_uploadProfileTitle));
+        return;
+    }
+
+    finishProfileUpload(true);
+}
+
+void DE1Device::finishProfileUpload(bool success, const QString& reason)
+{
+    if (!m_profileUploadInProgress) return;
+
+    m_uploadTimeoutTimer.stop();
+    if (m_uploadConnection) {
+        QObject::disconnect(m_uploadConnection);
+        m_uploadConnection = {};
+    }
+    m_profileUploadInProgress = false;
+
+    // Use .noquote() so QString reasons/titles land as plain text (no
+    // surrounding quotes), making the messages scannable in the debug log
+    // and stable for test-harness filters to match against.
+    if (success) {
+        qDebug().noquote() << QStringLiteral("DE1Device: profile upload verified — %1 frame(s) ACKed in order for profile %2")
+                                 .arg(m_uploadExpectedFrameBytes.size())
+                                 .arg(m_uploadProfileTitle);
+    } else {
+        qWarning().noquote() << QStringLiteral("DE1Device: profile upload FAILED — %1")
+                                    .arg(reason.isEmpty() ? QStringLiteral("unknown reason") : reason);
+    }
+
+    // Clear accumulated tracking state so a subsequent upload starts clean.
+    m_uploadExpectedFrameBytes.clear();
+    m_uploadSeenFrameBytes.clear();
+    m_uploadHeaderAcked = false;
+    m_uploadEspressoStartAcked = false;
+    m_uploadExpectEspressoStart = false;
+    m_uploadProfileTitle.clear();
+
+    emit profileUploaded(success);
+
+    // Deferred sleep only applies on a successful upload; on failure we drop
+    // the pending sleep instead of trying to put a DE1 to sleep whose profile
+    // state we can't vouch for. The caller can re-issue goToSleep() if needed.
+    if (m_sleepPendingAfterUpload) {
+        m_sleepPendingAfterUpload = false;
+        if (success) {
+            qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
+            goToSleep();
+        }
+    }
 }
 
 void DE1Device::writeHeader(const QByteArray& headerData) {

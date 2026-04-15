@@ -208,6 +208,64 @@ Run this after any changes to `src/mcp/`, `src/controllers/profilemanager.cpp`, 
 3. If accessing private members, add `friend class tst_YourTest;` behind `#ifdef DECENZA_TESTING` in the production header
 4. Run `ctest` to verify
 
+## Handling Warnings
+
+**Every `qWarning()` emitted during a test run must either be fixed at the source or explicitly marked as expected.** A noisy test suite hides real regressions: once you get used to seeing 50 WARN lines in green output, the 51st one — which is actually a new bug — blends in. Treat warnings as failures-in-waiting.
+
+There are three legitimate outcomes for any warning fired during a test:
+
+### 1. It's the behaviour under test — mark it expected per-test
+
+Use `QTest::ignoreMessage()` at the top of the test function, **before** the action that triggers the warning. The test fails if the warning doesn't fire or if any other warning fires.
+
+```cpp
+void uploadFailsWhenFrameAckIsDropped() {
+    // ... setup ...
+
+    // The failure path emits a qWarning describing the mismatch — that's the
+    // behaviour we want to verify is still happening, so mark it as expected
+    // rather than letting it show up as noise.
+    QTest::ignoreMessage(QtWarningMsg,
+        QRegularExpression("profile upload FAILED — frame sequence mismatch"));
+
+    device.uploadProfile(makeSimpleProfile());
+    // ... rest of test ...
+}
+```
+
+Prefer `QRegularExpression` over exact-match strings so the test isn't brittle against formatting tweaks.
+
+### 2. It's a test-harness artifact across many tests — filter at fixture scope
+
+Use the `ScopedWarningFilter` RAII guard declared in `tests/mocks/McpTestFixture.h` for warnings that fire during fixture construction/destruction (e.g. `~DE1Device` surfacing an in-flight upload as failed when `MockTransport` never ACKed the writes). Declare the filter **before** the member whose destructor emits the warning so the filter outlives it:
+
+```cpp
+struct McpTestFixture {
+    // ... earlier members ...
+    // Declared before `device` so the filter outlives ~DE1Device.
+    ScopedWarningFilter uploadFilter{"profile upload FAILED — (BLE disconnect during upload|superseded by a new upload|command queue cleared during upload)"};
+    DE1Device device;
+    // ... later members ...
+};
+```
+
+Keep the regex **narrow** — list only the specific reasons that are expected. If the pattern is too broad, it will swallow genuinely unexpected warnings too. Add a comment explaining why each suppressed variant is expected.
+
+### 3. It's a real bug in the code or test — fix it
+
+Examples of "fix it" outcomes:
+- The code emits a warning for a state the test didn't intend to exercise → fix the test setup
+- The warning reveals a real race/order-of-operations bug in production code → fix the production code
+- The warning message is wrong or misleading → fix the log text
+
+When in doubt, fix it rather than suppress it. The goal of a passing test run is silence on stderr.
+
+### What not to do
+
+- **Do not globally suppress warnings** (e.g. a `qInstallMessageHandler` that drops everything at `QtWarningMsg`). That defeats the purpose.
+- **Do not suppress by substring-matching `"failed"` or `"error"`** — that's too broad and will hide genuine regressions.
+- **Do not amend an existing `ScopedWarningFilter` regex to make a new warning go away without adding a comment explaining the scenario.**
+
 ## Conventions
 
 - Test class names: `tst_FeatureName` (Qt convention)

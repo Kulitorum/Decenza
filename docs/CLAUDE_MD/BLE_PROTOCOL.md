@@ -48,6 +48,36 @@ Qt's `QLowEnergyController::disconnected()` signal only fires on a Connected→D
 
 Symptom if this is broken: DE1 reboot drops BLE, app attempts one reconnect, the attempt fails, then app stays silent forever until restarted. The Scan Devices button also appears dead because the `de1Discovered` handler's `!isConnecting()` guard never clears.
 
+### Profile Upload Frame-ACK Verification
+
+`DE1Device::uploadProfile()` and `uploadProfileAndStartEspresso()` don't just count write completions — they verify that each `FRAME_WRITE` ACK's leading byte (the `FrameToWrite` field) matches the sequence we queued, in order. Modeled on de1app's `confirm_de1_send_shot_frames_worked` in `de1_comms.tcl`.
+
+**Why:** Counting `characteristicWritten` signals alone can falsely report success when frames are silently dropped, reordered, or a stale profile remains loaded on the DE1 (e.g., if the original upload was never re-sent after a connection hiccup). Verifying the frame-number sequence surfaces these cases as real failures instead of mysterious early shot endings.
+
+**Tracked state (per in-flight upload):**
+- `m_uploadProfileTitle` — echoed into success/failure logs so operators can tell which profile the verdict refers to
+- `m_uploadExpectedFrameBytes` — leading byte of every frame we queued (regular: `0..N-1`, extension: `i+32`, tail: `N`)
+- `m_uploadSeenFrameBytes` — leading byte captured from each `FRAME_WRITE` ACK
+- `m_uploadHeaderAcked` / `m_uploadEspressoStartAcked` — one-shot flags
+- `m_uploadExpectEspressoStart` — set true by `uploadProfileAndStartEspresso()` so the tracker also waits for the `REQUESTED_STATE(Espresso)` ACK before calling the upload complete
+- `m_uploadConnection` — stored `QMetaObject::Connection` for the `writeComplete` listener so `finishProfileUpload()` can disconnect it deterministically
+- `m_uploadTimeoutTimer` — 10-second single-shot timer that surfaces stuck uploads as failures instead of hanging forever
+
+**Failure paths all emit `profileUploaded(false)` with a `qWarning()` whose reason text matches exactly what appears in the log:**
+- `frame sequence mismatch (expected vs seen byte list printed in hex)`
+- `timeout waiting for write ACKs`
+- `BLE disconnect during upload`
+- `command queue cleared during upload`
+- `superseded by a new upload`
+
+**Log format** (both paths emit via `.noquote()`, so the profile title appears without surrounding quotes; the failure message's own inline `"%3"` quoting of the title is preserved because it's part of the reason string):
+```
+DE1Device: profile upload verified — 5 frame(s) ACKed in order for profile D-Flow / Q
+DE1Device: profile upload FAILED — frame sequence mismatch (expected [0x00, 0x01, 0x02, 0x22, 0x03], got [0x00, 0x01, 0x02]). Profile "D-Flow / Q" was likely NOT correctly loaded on the DE1.
+```
+
+Regression coverage lives in `tests/tst_profileupload.cpp` (uses `MockTransport::ackAllWritesInOrder()` to simulate ACK sequences).
+
 ### Shot Debug Logging
 
 `ShotDebugLogger` captures all `qDebug()`/`qWarning()` messages during shots:
