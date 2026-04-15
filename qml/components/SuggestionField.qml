@@ -120,8 +120,12 @@ Item {
             // Don't set root.text here - that breaks the parent binding!
             // Just emit the signal and let parent update via its binding
             root.textEdited(text)
-            // Show dropdown when typing if we have matching suggestions (but not after selection)
-            if (!justSelected && text.length > 0 && getFilteredSuggestions().length > 0) {
+            // Show dropdown when typing if we have matching suggestions (but not after selection).
+            // Close it when the field is empty — the popup is a filter-as-you-type affordance,
+            // not a browse-all list (that's what the arrow button's dialog is for).
+            if (text.length === 0) {
+                suggestionPopup.close()
+            } else if (!justSelected && getFilteredSuggestions().length > 0) {
                 suggestionPopup.open()
             }
         }
@@ -131,10 +135,10 @@ Item {
                 justSelected = false  // Reset so typing works again
                 isActivelyTyping = false  // Reset - show all suggestions initially
                 root.inputFocused(textInput)
-                // Show suggestions when focused (popup for typing, not dialog)
-                if (suggestions.length > 0 && !root._accessibilityMode) {
-                    suggestionPopup.open()
-                }
+                // Intentionally do NOT auto-open the popup on focus. The popup is a
+                // filter-as-you-type dropdown; it appears once the user starts typing.
+                // To browse all suggestions, the user taps the arrow button which opens
+                // the SelectionDialog.
             } else {
                 // Emit textEdited to ensure value is committed when losing focus
                 // Don't set root.text here - that breaks the parent binding!
@@ -212,9 +216,9 @@ Item {
                     isActivelyTyping = false
                     textInput.text = ""
                     root.textEdited("")
-                    if (suggestions.length > 0) {
-                        suggestionPopup.open()
-                    }
+                    // Don't re-open the popup — it's a type-to-filter dropdown,
+                    // and there's nothing to filter after clearing.
+                    suggestionPopup.close()
                 }
             }
         }
