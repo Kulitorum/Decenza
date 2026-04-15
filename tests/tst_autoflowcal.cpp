@@ -84,9 +84,9 @@ private slots:
     void flowOnlyProfile_windowInFlowFrame() {
         auto steps = buildFlowOnlyProfile();
         QList<FrameTransition> transitions = {
-            {0.0, 0},   // 2s infuse
-            {2.1, 1},   // infuse
-            {7.5, 2},   // pouring starts
+            {0.0, 0},   // Filling
+            {2.1, 1},   // Infusing
+            {7.5, 2},   // Pouring
         };
 
         auto cls = classifyAutoFlowCalWindow(steps, transitions,

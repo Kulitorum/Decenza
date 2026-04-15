@@ -70,7 +70,7 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
     // Classify every frame touched by the window.
     bool anyFlow = false;
     bool anyPressure = false;
-    for (int idx : framesInWindow) {
+    for (qsizetype idx : framesInWindow) {
         if (idx < 0 || idx >= steps.size()) {
             // An out-of-range frame index from the transition stream means
             // the marker data doesn't match the current profile (e.g. profile
@@ -98,7 +98,7 @@ AutoFlowCalClassification classifyAutoFlowCalWindow(
         // Preserves the historical multi-target handling (e.g. profiles that
         // step between two flow rates) without extra bookkeeping.
         double bestDist = 1e9;
-        for (int idx : framesInWindow) {
+        for (qsizetype idx : framesInWindow) {
             const auto& frame = steps[idx];
             if (frame.isFlowControl() && frame.flow > kMinFlowTarget) {
                 double dist = qAbs(frame.flow - meanMachineFlow);
