@@ -221,6 +221,99 @@ private slots:
         QCOMPARE(spy.takeFirst().at(0).toBool(), true);
     }
 
+    // ===== Regression: leftover FRAME_WRITE acks from a prior batch ignored =====
+    //
+    // Reproduces the first-connect profile-upload failure documented in the
+    // logs: sendInitialSettings() writes a basic profile (1 HEADER + 2 FRAMEs)
+    // to the DE1 before the user profile is uploaded. Those writes sit in the
+    // transport's queue when startProfileUploadTracking() attaches to
+    // writeComplete. As they drain, their FRAME_WRITE acks leak into the new
+    // tracker, so the first three "seen" frame bytes are [0x00, 0x01, ...]
+    // from the basic frames instead of the user profile's real frames, and
+    // the sequence check fails. The retry fires 1s later, by which time the
+    // queue is drained, and succeeds.
+    //
+    // Fix: treat HEADER_WRITE completion as a barrier — clear any frame bytes
+    // accumulated before our header lands, and ignore FRAME_WRITE acks that
+    // arrive before the header. This test asserts both behaviours.
+
+    void leakedFrameAcksBeforeOurHeaderAreIgnored() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        QSignalSpy spy(&device, &DE1Device::profileUploaded);
+
+        device.uploadProfile(makeSimpleProfile());
+
+        // Simulate the two basic-profile FRAME_WRITE acks from a prior
+        // (non-tracked) batch landing AFTER our tracker attaches but BEFORE
+        // our own HEADER_WRITE is acked. Our gate should drop them.
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     QByteArray(1, char(0x00)));  // basic frame 0
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     QByteArray(1, char(0x01)));  // basic tail frame
+
+        // No verdict yet — leaked frames are ignored, header still pending.
+        QCOMPARE(spy.count(), 0);
+
+        // Now our actual acks flow through in order.
+        emit transport.writeComplete(DE1::Characteristic::HEADER_WRITE,
+                                     transport.writes.at(0).second);
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     transport.writes.at(1).second);
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     transport.writes.at(2).second);
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     transport.writes.at(3).second);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(0).toBool(), true);
+    }
+
+    // Variant of the above: the prior batch's HEADER_WRITE ack ALSO arrives
+    // after tracker attach (plausible when the tracker attaches between the
+    // prior header's queueing and its completion). That header would flip
+    // m_uploadHeaderAcked = true and the subsequent leaked frame acks would
+    // pass the gate. The fix additionally clears accumulated frame bytes on
+    // every HEADER_WRITE — so when our own header lands, the leaked frames
+    // are wiped out before our real frames accumulate.
+
+    void leakedHeaderAndFrameAcksAreWipedByOurHeader() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        QSignalSpy spy(&device, &DE1Device::profileUploaded);
+
+        device.uploadProfile(makeSimpleProfile());
+
+        // Simulate the full prior batch (HEADER + 2 FRAMEs) landing after
+        // tracker attach. The leaked frames would be appended, but our own
+        // HEADER_WRITE ack must wipe them.
+        emit transport.writeComplete(DE1::Characteristic::HEADER_WRITE,
+                                     QByteArray(5, 0));           // prior header
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     QByteArray(1, char(0x00)));  // prior frame 0
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     QByteArray(1, char(0x01)));  // prior tail frame
+
+        QCOMPARE(spy.count(), 0);
+
+        // Our own header lands — wipes the leaked frames.
+        emit transport.writeComplete(DE1::Characteristic::HEADER_WRITE,
+                                     transport.writes.at(0).second);
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     transport.writes.at(1).second);
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     transport.writes.at(2).second);
+        emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
+                                     transport.writes.at(3).second);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(0).toBool(), true);
+    }
+
     // ===== Disconnect mid-upload surfaces a failure =====
 
     void disconnectMidUploadReportsFailure() {

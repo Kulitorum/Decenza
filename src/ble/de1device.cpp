@@ -893,8 +893,19 @@ void DE1Device::onProfileUploadWriteComplete(const QBluetoothUuid& uuid,
                                              const QByteArray& data)
 {
     if (uuid == DE1::Characteristic::HEADER_WRITE) {
+        // Treat every HEADER_WRITE completion as a barrier. Any FRAME_WRITE
+        // acks observed before this point were leftovers from a write batch
+        // queued before our upload (notably the basic-profile header+frames
+        // in sendInitialSettings(), which run on every BLE (re)connect and
+        // drain between when our tracker attaches and when our own header
+        // is ACKed). Clearing on the header ensures the seen-sequence only
+        // reflects frames that followed our own header.
+        m_uploadSeenFrameBytes.clear();
         m_uploadHeaderAcked = true;
     } else if (uuid == DE1::Characteristic::FRAME_WRITE) {
+        // Ignore any FRAME_WRITE acks that arrive before the header barrier —
+        // those belong to a prior (non-tracked) write batch.
+        if (!m_uploadHeaderAcked) return;
         m_uploadSeenFrameBytes.append(data.isEmpty()
                                           ? 0
                                           : static_cast<uint8_t>(data.at(0)));
