@@ -201,7 +201,12 @@ signals:
     void shotSampleReceived(const ShotSample& sample);
     void waterLevelChanged();
     void firmwareVersionChanged();
-    void profileUploaded(bool success);
+    // Emitted when a profile upload attempt completes. On failure, `reason`
+    // carries a short human-readable string explaining why (matching the text
+    // in the qWarning log line) so listeners can distinguish retryable
+    // transients (frame sequence mismatch, ACK timeout) from non-retryable
+    // events (supersede, queue clear, BLE disconnect). Empty on success.
+    void profileUploaded(bool success, const QString& reason = QString());
     void initialSettingsComplete();
     void errorOccurred(const QString& error);
     void simulationModeChanged();

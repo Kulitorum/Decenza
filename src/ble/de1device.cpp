@@ -95,6 +95,20 @@ void DE1Device::onTransportDisconnected() {
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
 
+    // If an upload was in flight when the transport dropped, surface it as
+    // a non-retryable "BLE disconnect during upload" failure *now* rather
+    // than letting the 10 s m_uploadTimeoutTimer eventually fire with a
+    // "timeout waiting for write ACKs" reason. The timeout path is
+    // classified retryable, which would incorrectly bump ProfileManager's
+    // retry counter after the disconnect has already reset it — leading to
+    // the communication-failure dialog appearing after 4 post-reconnect
+    // failures instead of 5. The reconnect path (initialSettingsComplete
+    // -> applyAllSettings -> uploadCurrentProfile) re-uploads on its own,
+    // so we don't need to retry from here.
+    if (m_profileUploadInProgress) {
+        finishProfileUpload(false, QStringLiteral("BLE disconnect during upload"));
+    }
+
     m_connecting = false;
     emit connectingChanged();
     emit connectedChanged();
@@ -954,7 +968,7 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
     m_uploadExpectEspressoStart = false;
     m_uploadProfileTitle.clear();
 
-    emit profileUploaded(success);
+    emit profileUploaded(success, reason);
 
     // Deferred sleep only applies on a successful upload; on failure we drop
     // the pending sleep instead of trying to put a DE1 to sleep whose profile

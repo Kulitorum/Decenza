@@ -1773,6 +1773,251 @@ private slots:
         f.profileManager.createNewProfile("Advanced");
         QVERIFY(!f.profileManager.isCurrentProfileRecipe());
     }
+
+    // =========================================================================
+    // Auto-retry on failed profile uploads
+    // =========================================================================
+    //
+    // Covers the retry state machine added to ProfileManager: a failed
+    // DE1Device::profileUploaded(false, reason) signal arms
+    // m_profileUploadRetryTimer with exponential backoff (1s, 2s, 4s, 8s),
+    // gives up after 5 consecutive failures, and sets the
+    // de1CommunicationFailure flag so QML can surface the
+    // power-cycle-the-DE1 dialog. See profilemanager.cpp kMax*Retry constants.
+    //
+    // Tests drive the state machine by calling uploadCurrentProfile() (which
+    // emits the BLE writes through MockTransport) and then synthesising the
+    // failure outcome via `emit f.device.profileUploaded(false, reason)` —
+    // we don't need to plumb through the real DE1Device::finishProfileUpload
+    // path because it's exercised in tst_profileupload.
+    //
+    // The retry timer is inspected via friend access rather than waiting for
+    // real elapsed time (which would be 15s of dead air to exercise all 4
+    // retries).
+
+    void failedUploadWithRetryableReasonArmsTimer() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+
+        f.profileManager.uploadCurrentProfile();
+
+        // First failure with a retryable reason.
+        emit f.device.profileUploaded(false,
+            QStringLiteral("frame sequence mismatch (expected [0x00], got [0x01])"));
+
+        QVERIFY(f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 1);
+        QCOMPARE(f.profileManager.m_profileUploadRetryTimer.interval(), 1000);
+        QVERIFY(!f.profileManager.de1CommunicationFailure());
+    }
+
+    void retryBacksOffExponentiallyCappedAt8s() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        const QString reason =
+            QStringLiteral("timeout waiting for write ACKs");
+
+        // Attempts 1..4 arm the timer with delays 1s, 2s, 4s, 8s.
+        const int expectedDelays[4] = {1000, 2000, 4000, 8000};
+        for (int i = 0; i < 4; ++i) {
+            emit f.device.profileUploaded(false, reason);
+            QVERIFY2(f.profileManager.m_profileUploadRetryTimer.isActive(),
+                qPrintable(QString("timer must be armed after failure %1").arg(i + 1)));
+            QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, i + 1);
+            QCOMPARE(f.profileManager.m_profileUploadRetryTimer.interval(), expectedDelays[i]);
+        }
+    }
+
+    void retryResetsOnSuccess() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        emit f.device.profileUploaded(false,
+            QStringLiteral("frame sequence mismatch (expected [0x00], got [0x01])"));
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 1);
+        QVERIFY(f.profileManager.m_profileUploadRetryTimer.isActive());
+
+        emit f.device.profileUploaded(true, QString());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QVERIFY(f.profileManager.m_lastUploadFailureReason.isEmpty());
+    }
+
+    void fiveConsecutiveFailuresSetCommunicationFailureFlag() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        // The 5th failure logs a qWarning — expected in this test.
+        ScopedWarningFilter filter(
+            "profile upload failed .* consecutive times");
+        f.profileManager.uploadCurrentProfile();
+
+        QSignalSpy flagSpy(&f.profileManager,
+            &ProfileManager::de1CommunicationFailureChanged);
+
+        const QString reason = QStringLiteral("timeout waiting for write ACKs");
+        for (int i = 0; i < 5; ++i) {
+            emit f.device.profileUploaded(false, reason);
+        }
+
+        QVERIFY2(f.profileManager.de1CommunicationFailure(),
+            "de1CommunicationFailure must flip true after 5 retryable failures");
+        QCOMPARE(flagSpy.count(), 1);
+        // Timer must NOT still be running — there's no retry #6.
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+    }
+
+    void acknowledgeClearsCommunicationFailureAndResetsRetry() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        ScopedWarningFilter filter(
+            "profile upload failed .* consecutive times");
+        f.profileManager.uploadCurrentProfile();
+
+        const QString reason = QStringLiteral("timeout waiting for write ACKs");
+        for (int i = 0; i < 5; ++i) {
+            emit f.device.profileUploaded(false, reason);
+        }
+        QVERIFY(f.profileManager.de1CommunicationFailure());
+
+        QSignalSpy flagSpy(&f.profileManager,
+            &ProfileManager::de1CommunicationFailureChanged);
+        f.profileManager.acknowledgeDe1CommunicationFailure();
+
+        QVERIFY(!f.profileManager.de1CommunicationFailure());
+        QCOMPARE(flagSpy.count(), 1);
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+        QVERIFY(f.profileManager.m_lastUploadFailureReason.isEmpty());
+    }
+
+    void supersededFailureDoesNotArmRetry() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        emit f.device.profileUploaded(false,
+            QStringLiteral("superseded by a new upload"));
+
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+    }
+
+    void bleDisconnectFailureDoesNotArmRetry() {
+        // The reconnect path (initialSettingsComplete -> applyAllSettings ->
+        // uploadCurrentProfile) handles this; the retry timer must not race
+        // with it.
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        emit f.device.profileUploaded(false,
+            QStringLiteral("BLE disconnect during upload"));
+
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+    }
+
+    void queueClearFailureDoesNotArmRetry() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        emit f.device.profileUploaded(false,
+            QStringLiteral("command queue cleared during upload"));
+
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+    }
+
+    void transportDisconnectResetsRetryState() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        // Arm the retry via a retryable failure.
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+        QVERIFY(f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 1);
+
+        // Simulate the transport dropping — DE1Device::onTransportDisconnected
+        // fires, which emits connectedChanged. ProfileManager's handler must
+        // clear the retry state so the reconnect path starts from attempt 0.
+        f.transport.setConnectedSim(false);
+
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+    }
+
+    void loadProfileResetsRetryState() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "First");
+
+        f.profileManager.uploadCurrentProfile();
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+        QVERIFY(f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 1);
+
+        // User switches profiles — attempt counter must reset so the new
+        // profile gets its own fresh 5-attempt budget.
+        loadDFlowProfile(f, "Second");
+
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+    }
+
+    void retryTimerFiringDuringActivePhaseDefersToPendingFlag() {
+        // If the retry timer fires while the machine is in an active phase
+        // (shot in progress), uploadCurrentProfile() hits the active-phase
+        // guard, sets m_profileUploadPending = true, and returns without
+        // attempting a BLE write. The phaseChanged handler must resume the
+        // upload once the phase becomes Idle/Ready — and the retry counter
+        // must stay intact so the 5-attempt budget carries across the
+        // active-phase gap.
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        ScopedWarningFilter filter("BLOCKED during active phase|^  #");
+
+        // Prime: one retryable failure arms the retry timer and sets
+        // attempts=1.
+        f.profileManager.uploadCurrentProfile();
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+        QVERIFY(f.profileManager.m_profileUploadRetryTimer.isActive());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 1);
+
+        // Simulate the machine entering an active phase, then directly
+        // invoke the retry timer's uploadCurrentProfile() call (rather than
+        // waiting 1000 ms of real time).
+        f.machineState.m_phase = MachineState::Phase::Pouring;
+        f.transport.clearWrites();
+        f.profileManager.uploadCurrentProfile();
+
+        // The attempt was blocked: no BLE writes, pending flag set,
+        // retry counter unchanged (blocked attempts don't consume budget).
+        QVERIFY2(f.writesTo(HEADER_WRITE).isEmpty(),
+            "Blocked attempt must not write profile header to BLE");
+        QVERIFY(f.profileManager.m_profileUploadPending);
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 1);
+
+        // Phase returns to Idle — the pending handler resumes the upload.
+        f.machineState.m_phase = MachineState::Phase::Idle;
+        emit f.machineState.phaseChanged();
+
+        QVERIFY2(!f.writesTo(HEADER_WRITE).isEmpty(),
+            "phaseChanged must resume the pending upload");
+        QVERIFY(!f.profileManager.m_profileUploadPending);
+
+        // If the resumed upload now succeeds, the retry state resets cleanly.
+        emit f.device.profileUploaded(true, QString());
+        QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
+        QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ProfileManager)

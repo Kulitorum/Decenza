@@ -50,6 +50,41 @@ static size_t captureBacktrace(void** buffer, size_t maxFrames) {
 }
 #endif
 
+// Auto-retry constants for failed profile uploads (see profilemanager.h for
+// the full design note). The backoff is 1s, 2s, 4s, 8s between the 4 retries,
+// then give up after the 5th total attempt and surface the communication
+// failure to the user. The cap of 8s keeps the total wall-clock before the
+// dialog shows down to ~15s of transient BLE trouble; past that, the DE1
+// very likely needs to be power-cycled.
+static constexpr int kUploadRetryBaseMs = 1000;
+static constexpr int kUploadRetryMaxMs = 8000;
+static constexpr int kMaxUploadRetryAttempts = 5;
+
+// Reasons returned by DE1Device::profileUploaded(false, reason) that should
+// NOT trigger an auto-retry. The rest (frame sequence mismatch, ACK timeout)
+// are treated as retryable.
+//
+// We use startsWith() rather than exact equality so DE1Device can include
+// variable details after a stable prefix — for example "frame sequence
+// mismatch (expected [0x00, 0x01], got [0x00, 0x00])" carries the hex
+// payload in the same string. The exact retryable/non-retryable prefix
+// text is locked down by tst_profileupload.cpp's `.at(1).toString()`
+// assertions, so any future rename of a reason string in
+// finishProfileUpload() will break those tests loudly before it can
+// silently flip classification here.
+static bool isRetryableUploadFailure(const QString& reason) {
+    // Superseded: a newer upload is already in flight — let it own the outcome.
+    if (reason.startsWith(QStringLiteral("superseded"))) return false;
+    // Queue cleared: a shot/steam/hot-water just started, clearing the queue
+    // intentionally. The next uploadCurrentProfile() will re-arm.
+    if (reason.startsWith(QStringLiteral("command queue cleared"))) return false;
+    // BLE disconnect: the reconnect path (initialSettingsComplete ->
+    // applyAllSettings -> uploadCurrentProfile) already re-uploads when the
+    // link comes back. Retrying on a timer would race with that.
+    if (reason.startsWith(QStringLiteral("BLE disconnect"))) return false;
+    return true;
+}
+
 
 ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                                MachineState* machineState,
@@ -76,6 +111,88 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Heating) {
                 qDebug() << "Retrying pending profile upload now that phase is" << m_machineState->phaseString();
                 uploadCurrentProfile();
+            }
+        });
+    }
+
+    // Auto-retry on failed profile uploads. When DE1Device emits a failure
+    // with a retryable reason, arm m_profileUploadRetryTimer with exponential
+    // backoff (capped at 8s). After kMaxUploadRetryAttempts consecutive
+    // failures, give up and set m_de1CommunicationFailure so the UI surfaces
+    // a "power-cycle the DE1" dialog. Success — or any non-retryable reason
+    // like "superseded" — resets the counter.
+    m_profileUploadRetryTimer.setSingleShot(true);
+    connect(&m_profileUploadRetryTimer, &QTimer::timeout, this, [this]() {
+        qDebug() << "ProfileManager: retrying failed profile upload (attempt"
+                 << m_profileUploadRetryAttempts << "of" << kMaxUploadRetryAttempts
+                 << "— last failure:" << m_lastUploadFailureReason << ")";
+        uploadCurrentProfile();
+    });
+
+    if (m_device) {
+        connect(m_device, &DE1Device::profileUploaded, this,
+                [this](bool success, const QString& reason) {
+            if (success) {
+                // A successful upload clears all retry state. If a prior
+                // communication-failure dialog is still up, leave it — the
+                // user needs to explicitly acknowledge — but restore the
+                // ability to arm a fresh retry if this succeeding upload is
+                // followed by another failure.
+                m_profileUploadRetryTimer.stop();
+                m_profileUploadRetryAttempts = 0;
+                m_lastUploadFailureReason.clear();
+                return;
+            }
+            if (!isRetryableUploadFailure(reason)) {
+                // Not a retry condition — don't bump the counter. The
+                // existing m_profileUploadPending / phaseChanged machinery
+                // handles queue-clear and supersede cases on its own.
+                return;
+            }
+            m_lastUploadFailureReason = reason;
+            m_profileUploadRetryAttempts++;
+            if (m_profileUploadRetryAttempts >= kMaxUploadRetryAttempts) {
+                qWarning().noquote() << QStringLiteral(
+                    "ProfileManager: profile upload failed %1 consecutive times — "
+                    "giving up and asking the user to power-cycle the DE1. "
+                    "Last reason: %2")
+                    .arg(m_profileUploadRetryAttempts)
+                    .arg(m_lastUploadFailureReason);
+                m_profileUploadRetryTimer.stop();
+                if (!m_de1CommunicationFailure) {
+                    m_de1CommunicationFailure = true;
+                    emit de1CommunicationFailureChanged();
+                }
+                return;
+            }
+            // Exponential backoff capped at kUploadRetryMaxMs.
+            // attempts=1 -> 1000ms, 2 -> 2000ms, 3 -> 4000ms, 4 -> 8000ms.
+            const int shift = qMin(m_profileUploadRetryAttempts - 1, 20);
+            const int delayMs = qMin(kUploadRetryBaseMs * (1 << shift), kUploadRetryMaxMs);
+            qDebug().noquote() << QStringLiteral(
+                "ProfileManager: profile upload failed (%1); retrying in %2 ms "
+                "(attempt %3 of %4)")
+                .arg(reason)
+                .arg(delayMs)
+                .arg(m_profileUploadRetryAttempts)
+                .arg(kMaxUploadRetryAttempts);
+            m_profileUploadRetryTimer.start(delayMs);
+        });
+
+        // On BLE disconnect, stop retrying — the reconnect path
+        // (initialSettingsComplete -> applyAllSettings -> uploadCurrentProfile)
+        // will re-upload once the link is back, and that fresh upload should
+        // start from attempt 1.
+        connect(m_device, &DE1Device::connectedChanged, this, [this]() {
+            if (m_device && !m_device->isConnected()) {
+                if (m_profileUploadRetryTimer.isActive()
+                    || m_profileUploadRetryAttempts > 0) {
+                    qDebug() << "ProfileManager: resetting upload-retry state "
+                                "because DE1 disconnected";
+                    m_profileUploadRetryTimer.stop();
+                    m_profileUploadRetryAttempts = 0;
+                    m_lastUploadFailureReason.clear();
+                }
             }
         });
     }
@@ -796,6 +913,15 @@ void ProfileManager::loadProfile(const QString& profileName) {
     if (resolvedName.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
         resolvedName = resolvedName.chopped(5);
 
+    // User-initiated profile switch: reset any in-flight retry state so a
+    // stale retry from the previous profile doesn't count toward the new
+    // profile's attempt budget. We do NOT reset in uploadCurrentProfile()
+    // itself because the retry timer calls that function — resetting there
+    // would make kMaxUploadRetryAttempts unreachable.
+    m_profileUploadRetryTimer.stop();
+    m_profileUploadRetryAttempts = 0;
+    m_lastUploadFailureReason.clear();
+
     // Resolve profile name: could be title or filename (MQTT publishes titles)
 
     // First, check if it's a title (most common case from MQTT)
@@ -942,6 +1068,12 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
         qWarning() << "loadProfileFromJson: Empty JSON content";
         return false;
     }
+
+    // Fresh profile load = fresh retry budget (see loadProfile() for the
+    // full rationale).
+    m_profileUploadRetryTimer.stop();
+    m_profileUploadRetryAttempts = 0;
+    m_lastUploadFailureReason.clear();
 
     m_currentProfile = Profile::loadFromJsonString(jsonContent);
 
@@ -1206,6 +1338,21 @@ void ProfileManager::refreshProfiles() {
 
 
 // === Profile upload ===
+
+void ProfileManager::acknowledgeDe1CommunicationFailure() {
+    // The user dismissed the communication-failure dialog. Clear the flag
+    // (so the dialog goes away) and reset retry state so the next
+    // uploadCurrentProfile() starts from a clean attempt counter. We do NOT
+    // auto-trigger a new upload here; the user is expected to power-cycle
+    // the DE1, after which the normal reconnect path re-uploads.
+    if (m_de1CommunicationFailure) {
+        m_de1CommunicationFailure = false;
+        emit de1CommunicationFailureChanged();
+    }
+    m_profileUploadRetryTimer.stop();
+    m_profileUploadRetryAttempts = 0;
+    m_lastUploadFailureReason.clear();
+}
 
 void ProfileManager::uploadCurrentProfile() {
     // Guard: Don't upload profile during active operations - this corrupts the running shot!
