@@ -76,6 +76,12 @@ private:
     QLowEnergyService* m_service = nullptr;
     QMap<QBluetoothUuid, QLowEnergyCharacteristic> m_characteristics;
     bool m_characteristicsReady = false;
+    // True once disconnected() has been emitted for the current connection
+    // attempt (either via Qt's native signal on a Connected→Disconnected
+    // transition, or synthesized by us when a connection attempt fails and
+    // goes Connecting→Unconnected without ever reaching Connected). Reset
+    // on connectToDevice() so a fresh attempt can re-arm it.
+    bool m_disconnectedEmittedForAttempt = false;
 
     // Command queue (50ms spacing between BLE writes)
     QQueue<std::function<void()>> m_commandQueue;

@@ -286,6 +286,7 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_pendingDevice = device;
     m_retryCount = 0;
     m_retryTimer.stop();
+    m_disconnectedEmittedForAttempt = false;
 
     log(QString("Connecting to DE1 at %1").arg(deviceId));
 
@@ -328,7 +329,10 @@ void BleTransport::onControllerDisconnected() {
     m_commandTimer.stop();
     m_characteristicsReady = false;
 
-    emit disconnected();
+    if (!m_disconnectedEmittedForAttempt) {
+        m_disconnectedEmittedForAttempt = true;
+        emit disconnected();
+    }
 }
 
 void BleTransport::onControllerError(QLowEnergyController::Error error) {
@@ -518,7 +522,17 @@ bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {
             this, &BleTransport::onServiceDiscovered, qc);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
             this, &BleTransport::onServiceDiscoveryFinished, qc);
-    // Log all controller state changes for debugging
+    // Log all controller state changes for debugging, and synthesize a
+    // disconnected() signal for failed connect attempts.
+    //
+    // Qt's QLowEnergyController::disconnected() signal only fires on a
+    // Connected→Disconnected transition — NOT when a connection attempt fails
+    // (Connecting→Unconnected without ever reaching Connected). Without a
+    // synthesized emission, DE1Device::m_connecting would stick at true
+    // forever after a failed retry, and the reconnect loop (plus the
+    // de1Discovered handler) would bail out every subsequent attempt with
+    // "already connected/connecting". This was the root cause of the
+    // "DE1 reboot → app never reconnects until restarted" bug.
     connect(m_controller, &QLowEnergyController::stateChanged, this, [this](QLowEnergyController::ControllerState state) {
         QString stateName;
         switch (state) {
@@ -531,6 +545,16 @@ bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {
             default: stateName = QString::number(static_cast<int>(state)); break;
         }
         this->log(QString("Controller state: %1").arg(stateName));
+
+        if (state == QLowEnergyController::UnconnectedState
+            && !m_disconnectedEmittedForAttempt) {
+            // Terminal failure of a connect attempt — Qt won't fire
+            // disconnected() for us, so synthesize it. The flag prevents
+            // double-emission if Qt's native disconnected() also fires.
+            m_disconnectedEmittedForAttempt = true;
+            this->log("Connection attempt failed — synthesizing disconnected()");
+            emit disconnected();
+        }
     }, qc);
 
     return true;

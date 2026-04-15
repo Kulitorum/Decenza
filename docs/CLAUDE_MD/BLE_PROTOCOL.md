@@ -42,6 +42,12 @@ Write FAILED after 3 retries (uuid=0000a00f, 8 bytes)
 - de1app has `vital` flag for commands that must retry
 - Our implementation: hard 5-second timeout, all commands can retry up to 3 times
 
+### Connection-Failure Handling
+
+Qt's `QLowEnergyController::disconnected()` signal only fires on a Connected→Disconnected transition — it is **not** emitted when a connection attempt fails part-way (Connecting→Unconnected without ever reaching Connected). To avoid leaving `DE1Device::m_connecting` stuck at `true` forever after a failed retry (which would block all subsequent reconnect attempts and the `de1Discovered` auto-connect path), `BleTransport::setupController()` watches the controller's `stateChanged` signal and synthesizes a `disconnected()` signal when the state reaches `UnconnectedState` without a preceding native `disconnected()`. A per-attempt flag (`m_disconnectedEmittedForAttempt`) prevents double-emission.
+
+Symptom if this is broken: DE1 reboot drops BLE, app attempts one reconnect, the attempt fails, then app stays silent forever until restarted. The Scan Devices button also appears dead because the `de1Discovered` handler's `!isConnecting()` guard never clears.
+
 ### Shot Debug Logging
 
 `ShotDebugLogger` captures all `qDebug()`/`qWarning()` messages during shots:

@@ -1072,19 +1072,38 @@ int main(int argc, char *argv[])
         }
     });
 
-    // When DE1 connects or disconnects, manage reconnect timer
+    // When DE1 connects or disconnects, manage reconnect timer.
+    //
+    // connectedChanged() can fire multiple times while the device is already
+    // in the disconnected state — DE1Device::disconnect() emits it
+    // unconditionally, and our reconnect path calls disconnect() on the old
+    // transport before spinning up a new one. Without edge-tracking, every
+    // spurious emission would reset de1ReconnectAttempt=0 and re-arm the 5 s
+    // timer, scrambling the backoff schedule (a mid-attempt spurious emit
+    // was observed converting a 30 s retry into a 60 s retry and losing the
+    // attempt counter). Track the previous state and only act on genuine
+    // edges.
+    static bool s_de1WasConnected = false;
     QObject::connect(&de1Device, &DE1Device::connectedChanged,
                      [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings
 #ifndef Q_OS_IOS
                      , &usbManager
 #endif
                      ]() {
-        if (de1Device.isConnected()) {
-            // Connected — stop any pending reconnect attempts
+        const bool isConnected = de1Device.isConnected();
+        if (isConnected == s_de1WasConnected) {
+            return;  // Spurious same-state emission — ignore
+        }
+        s_de1WasConnected = isConnected;
+
+        if (isConnected) {
+            // Just transitioned disconnected → connected: stop any pending
+            // reconnect attempts.
             de1ReconnectTimer.stop();
             de1ReconnectAttempt = 0;
         } else {
-            // Disconnected — start auto-reconnect if we have a saved address
+            // Just transitioned connected → disconnected: start auto-reconnect
+            // if we have a saved address.
 #ifndef Q_OS_IOS
             if (usbManager.isDe1Connected()) {
                 // Don't try BLE reconnect if USB is handling the DE1
