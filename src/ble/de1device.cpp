@@ -1145,34 +1145,15 @@ void DE1Device::sendInitialSettings() {
         writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0);
     }
 
-    // Send a basic profile header (5 bytes)
-    QByteArray header(5, 0);
-    header[0] = 1;   // HeaderV
-    header[1] = 1;   // NumberOfFrames
-    header[2] = 0;   // NumberOfPreinfuseFrames
-    header[3] = 0;   // MinimumPressure (U8P4)
-    header[4] = 96;  // MaximumFlow (U8P4) = 6.0 * 16
-
-    m_transport->write(DE1::Characteristic::HEADER_WRITE, header);
-
-    // Send a basic profile frame (8 bytes)
-    QByteArray frame(8, 0);
-    frame[0] = 0;    // FrameToWrite = 0
-    frame[1] = 0;    // Flag
-    frame[2] = static_cast<char>(144);  // SetVal (U8P4) = 9.0 * 16 = 144
-    frame[3] = static_cast<char>(186);  // Temp (U8P1) = 93.0 * 2 = 186
-    frame[4] = 62;   // FrameLen (F8_1_7)
-    frame[5] = 0;    // TriggerVal
-    frame[6] = 0;    // MaxVol high byte
-    frame[7] = 0;    // MaxVol low byte
-
-    m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
-
-    // Send tail frame
-    QByteArray tailFrame(8, 0);
-    tailFrame[0] = 1;    // FrameToWrite = NumberOfFrames
-
-    m_transport->write(DE1::Characteristic::FRAME_WRITE, tailFrame);
+    // NOTE: de1app's equivalent (later_new_de1_connection_setup →
+    // de1_send_shot_frames) writes the user's current profile here, not a
+    // stub. We used to write a hardcoded 1-frame 9-bar profile ("to trigger
+    // wake-up response") — it served no purpose beyond being overwritten by
+    // MainController::applyAllSettings() ~500 ms later, and its leftover
+    // FRAME_WRITE acks leaked into the next profile-upload tracker (see
+    // onProfileUploadWriteComplete's HEADER_WRITE barrier). The user's real
+    // profile is sent after `initialSettingsComplete` fires, so there's
+    // nothing to send here.
 
     // Read GHC info via MMR
     QByteArray mmrRead(20, 0);
