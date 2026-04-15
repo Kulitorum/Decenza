@@ -146,8 +146,6 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                         m_settings->steamFlow(),
                         static_cast<int>(m_settings->steamTemperature()));
                 }
-                if (m_steamCalibrator && m_steamDataModel)
-                    m_steamCalibrator->onSteamEnded(m_steamDataModel);
                 m_steamStartTime = 0;
                 if (m_steamHealthTracker)
                     m_steamHealthTracker->resetSession();
@@ -1999,10 +1997,6 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
 
     MachineState::Phase phase = m_machineState->phase();
 
-    // Update steam calibrator with heater temp (needed for recovery detection between steps)
-    if (m_steamCalibrator)
-        m_steamCalibrator->updateHeaterTemp(sample.steamTemp);
-
     // Forward flow samples to MachineState for FlowScale during any dispensing phase
     bool isDispensingPhase = (phase == MachineState::Phase::Preinfusion ||
                               phase == MachineState::Phase::Pouring ||
@@ -2033,15 +2027,9 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             m_steamDataModel->addFlowGoalPoint(m_settings->steamTimeout(), flowGoal);
             if (m_steamHealthTracker)
                 m_steamHealthTracker->resetSession();
-            if (m_steamCalibrator)
-                m_steamCalibrator->onSteamStarted();
         }
         double t = sample.timer - m_steamStartTime;
         m_steamDataModel->addSample(t, sample.groupPressure, sample.groupFlow, sample.steamTemp);
-
-        // Steam calibration: track elapsed time and auto-stop when enough data
-        if (m_steamCalibrator)
-            m_steamCalibrator->onSteamSample(t);
 
         // Live threshold warnings
         if (m_steamHealthTracker)

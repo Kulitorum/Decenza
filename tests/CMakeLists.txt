@@ -373,17 +373,3 @@ add_decenza_test(tst_steamhealth
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
 )
 target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Charts)
-
-# --- tst_steamcalibrator: Steam calibration stability analysis and sweep generation ---
-add_decenza_test(tst_steamcalibrator
-    tst_steamcalibrator.cpp
-    ${CMAKE_SOURCE_DIR}/src/machine/steamcalibrator.cpp
-    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
-    ${BLE_SOURCES}
-    ${PROFILE_SOURCES}
-    ${CORE_SOURCES}
-    ${MACHINE_SOURCES}
-    ${CONTROLLER_SOURCES}
-    ${SIMULATOR_SOURCES}
-)
-target_link_libraries(tst_steamcalibrator PRIVATE Qt6::Quick Qt6::Charts)

@@ -258,7 +258,6 @@ set(SOURCES
     src/models/shotdatamodel.cpp
     src/models/steamdatamodel.cpp
     src/machine/steamhealthtracker.cpp
-    src/machine/steamcalibrator.cpp
     src/controllers/maincontroller.cpp
     src/controllers/autoflowcalclassifier.cpp
     src/controllers/profilemanager.cpp
@@ -407,7 +406,6 @@ set(HEADERS
     src/models/shotdatamodel.h
     src/models/steamdatamodel.h
     src/machine/steamhealthtracker.h
-    src/machine/steamcalibrator.h
     src/controllers/maincontroller.h
     src/controllers/profilemanager.h
     src/controllers/directcontroller.h
@@ -676,7 +674,6 @@ set(QML_FILES
     qml/components/QualityBadges.qml
     qml/components/PhaseSummaryPanel.qml
     qml/components/ShotAnalysisDialog.qml
-    qml/components/SteamCalibrationDialog.qml
     qml/components/CupFillView.qml
     qml/components/PhaseTimelineView.qml
     qml/components/ExtractionViewSelector.qml

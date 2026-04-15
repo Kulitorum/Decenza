@@ -140,7 +140,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `VISUALIZER.md` | DYE metadata, profile import/export, ProfileSaveHelper, filename generation |
 | `DATA_MIGRATION.md` | Device-to-device transfer architecture and REST endpoints |
 | `PLATFORM_BUILD.md` | Windows installer, Android signing, Decent tablet quirks |
-| `STEAM_CALIBRATION.md` | Steam health tracking, calibration procedure |
+| `STEAM_CALIBRATION.md` | Postmortem on the removed steam calibration feature — why it didn't work, what held up, future directions |
 | `CUP_FILL_VIEW.md` | CupFillView layer stack, GPU shaders, updating cup images |
 | `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets |
 | `ACCESSIBILITY.md` | TalkBack/VoiceOver rules, focus order, anti-patterns, implementation plan |

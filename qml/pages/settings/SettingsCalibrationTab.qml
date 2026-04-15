@@ -601,20 +601,6 @@ Item {
                             }
                         }
 
-                        // Calibrate Steam button — hidden until recommendation algorithm is improved
-                        // AccessibleButton {
-                        //     Layout.fillWidth: true
-                        //     Layout.topMargin: Theme.spacingSmall
-                        //     text: SteamCalibrator.hasCalibration
-                        //           ? TranslationManager.translate("settings.calibration.steamCalRecommended",
-                        //                 "Calibrated: %1 mL/s (CV %2)")
-                        //                 .arg((SteamCalibrator.recommendedFlow / 100).toFixed(2))
-                        //                 .arg(SteamCalibrator.bestCV.toFixed(3))
-                        //           : TranslationManager.translate("settings.calibration.steamCalibrate", "Calibrate Steam")
-                        //     accessibleName: TranslationManager.translate("settings.calibration.steamCalibrateAccessible", "Calibrate steam settings")
-                        //     primary: !SteamCalibrator.hasCalibration
-                        //     onClicked: steamCalibrationDialog.open()
-                        // }
                     }
                 }
             }
@@ -808,8 +794,4 @@ Item {
         }
     }
 
-    // Steam Calibration Dialog
-    SteamCalibrationDialog {
-        id: steamCalibrationDialog
-    }
 }

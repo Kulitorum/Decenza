@@ -12,7 +12,6 @@
 #include "../models/shotdatamodel.h"
 #include "../models/steamdatamodel.h"
 #include "../machine/steamhealthtracker.h"
-#include "../machine/steamcalibrator.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../profile/profileconverter.h"
@@ -48,7 +47,6 @@ class MainController : public QObject {
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT)
     Q_PROPERTY(SteamDataModel* steamDataModel READ steamDataModel CONSTANT)
     Q_PROPERTY(SteamHealthTracker* steamHealthTracker READ steamHealthTracker CONSTANT)
-    Q_PROPERTY(SteamCalibrator* steamCalibrator READ steamCalibrator CONSTANT)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY frameChanged)
     Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY goalsChanged)
     Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY goalsChanged)
@@ -99,15 +97,8 @@ public:
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
     SteamDataModel* steamDataModel() const { return m_steamDataModel; }
     SteamHealthTracker* steamHealthTracker() const { return m_steamHealthTracker; }
-    SteamCalibrator* steamCalibrator() const { return m_steamCalibrator; }
     void setSteamDataModel(SteamDataModel* model) { m_steamDataModel = model; }
     void setSteamHealthTracker(SteamHealthTracker* tracker) { m_steamHealthTracker = tracker; }
-    void setSteamCalibrator(SteamCalibrator* calibrator) {
-        m_steamCalibrator = calibrator;
-        if (calibrator) {
-            connect(calibrator, &SteamCalibrator::settingsApplied, this, &MainController::sendMachineSettings);
-        }
-    }
     bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
@@ -238,7 +229,6 @@ private:
 
     SteamDataModel* m_steamDataModel = nullptr;
     SteamHealthTracker* m_steamHealthTracker = nullptr;
-    SteamCalibrator* m_steamCalibrator = nullptr;
     double m_steamStartTime = 0;  // Timer base for relative steam timestamps
 
     double m_shotStartTime = 0;
@@ -253,8 +243,8 @@ private:
     double m_frameStartTime = 0;     // Shot-relative time when current frame started
 
     // ShotSettings drift auto-heal tracking. The commanded values live on
-    // DE1Device (so every call site — MainController, ProfileManager,
-    // SteamCalibrator — feeds the same tracker); we only keep the retry
+    // DE1Device (so every call site — MainController, ProfileManager —
+    // feeds the same tracker); we only keep the retry
     // bookkeeping here. Both fields are reset in applyAllSettings() so every
     // reconnect / initial-settings cycle starts with a fresh retry budget.
     int m_shotSettingsDriftResendCount = 0;

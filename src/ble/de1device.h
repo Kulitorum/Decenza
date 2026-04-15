@@ -307,8 +307,8 @@ private:
     double m_deviceSteamTargetC = -1.0;
     double m_deviceGroupTargetC = -1.0;
     // Last ShotSettings values we wrote (tracked here so every setShotSettings
-    // caller — MainController, ProfileManager, SteamCalibrator, etc. — is
-    // covered without each one having to remember). -1.0 until first write.
+    // caller — MainController, ProfileManager, etc. — is covered without each
+    // one having to remember). -1.0 until first write.
     double m_commandedSteamTargetC = -1.0;
     double m_commandedGroupTargetC = -1.0;
     qint64 m_lastShotSettingsWriteMs = 0;

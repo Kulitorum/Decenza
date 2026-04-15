@@ -67,7 +67,6 @@
 #include "models/shotdatamodel.h"
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
-#include "machine/steamcalibrator.h"
 #include "controllers/maincontroller.h"
 #include "controllers/shottimingcontroller.h"
 #include "ai/aimanager.h"
@@ -462,7 +461,6 @@ int main(int argc, char *argv[])
     ShotDataModel shotDataModel;
     SteamDataModel steamDataModel;
     SteamHealthTracker steamHealthTracker;
-    SteamCalibrator steamCalibrator(&settings, &de1Device);
     MachineState machineState(&de1Device);
     machineState.setSettings(&settings);
     machineState.setScale(&flowScale);  // Start with FlowScale, switch to physical scale if found
@@ -476,7 +474,6 @@ int main(int argc, char *argv[])
     MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
-    mainController.setSteamCalibrator(&steamCalibrator);
     checkpoint("MainController");
 
     // Create and wire ShotTimingController (centralized timing and weight handling)
@@ -1488,7 +1485,6 @@ int main(int argc, char *argv[])
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("SteamDataModel", &steamDataModel);
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
-    context->setContextProperty("SteamCalibrator", &steamCalibrator);
     context->setContextProperty("MainController", &mainController);
     context->setContextProperty("ProfileManager", mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);

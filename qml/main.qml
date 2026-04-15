@@ -217,10 +217,8 @@ ApplicationWindow {
                 console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
                 MainController.startSteamHeating()  // This clears steamDisabled flag
                 // Navigate to SteamPage immediately so user sees heating progress
-                // (skip during steam calibration — dialog stays on settings page)
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-                if (currentPage !== "steamPage" && !pageStack.busy
-                    && SteamCalibrator.state < 2) {
+                if (currentPage !== "steamPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
                     pageStack.replace(null, steamPage)
                 }
@@ -2238,9 +2236,7 @@ ApplicationWindow {
                     pageStack.replace(null, espressoPage)
                 }
             } else if (phase === MachineStateType.Phase.Steaming) {
-                // Don't navigate away during steam calibration — the dialog stays on the settings page
-                if (currentPage !== "steamPage" && !pageStack.busy
-                    && SteamCalibrator.state < 2 /* not in WaitingToStart/Steaming/Analyzing */) {
+                if (currentPage !== "steamPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
                     pageStack.replace(null, steamPage)
                 }

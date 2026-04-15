@@ -3,7 +3,6 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../machine/steamhealthtracker.h"
-#include "../machine/steamcalibrator.h"
 #include "../models/shotdatamodel.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
@@ -271,96 +270,6 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
 
             return result;
-        },
-        "read");
-
-    // steam_calibration_status
-    registry->registerTool(
-        "steam_calibration_status",
-        "Get steam calibration results: recommended flow rate, estimated dilution percentage, "
-        "and detailed per-step data including pressure CV (coefficient of variation), "
-        "oscillation rates, and dryness estimates. "
-        "Use this after running a steam calibration to review results, or to check "
-        "if a calibration has been performed.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [mainController](const QJsonObject&) -> QJsonObject {
-            QJsonObject result;
-            auto* calibrator = mainController ? mainController->steamCalibrator() : nullptr;
-            if (!calibrator) {
-                result["hasCalibration"] = false;
-                return result;
-            }
-
-            const auto& cal = calibrator->calibrationResult();
-            result["hasCalibration"] = calibrator->hasCalibration();
-            result["state"] = calibrator->state();
-            result["logFilePath"] = SteamCalibrator::logFilePath();
-
-            if (!calibrator->hasCalibration()) return result;
-
-            result["timestamp"] = cal.timestamp.toOffsetFromUtc(cal.timestamp.offsetFromUtc())
-                                      .toString(Qt::ISODate);
-            result["machineModel"] = cal.machineModel;
-            result["heaterVoltage"] = cal.heaterVoltage;
-            result["recommendedFlowMlPerSec"] = cal.recommendedFlow / 100.0;
-            result["steamTemperatureC"] = cal.steamTemp;
-            result["recommendedDilutionPct"] = cal.recommendedDilution;
-            result["bestCV"] = cal.bestCV;
-
-            QJsonArray steps;
-            for (const auto& step : cal.steps) {
-                QJsonObject s;
-                s["flowMlPerSec"] = step.flowRate / 100.0;
-                s["steamTemperatureC"] = step.steamTemp;
-                s["avgPressureBar"] = step.avgPressure;
-                s["pressureCV"] = step.pressureCV;
-                s["oscillationRateHz"] = step.oscillationRate;
-                s["peakToPeakRangeBar"] = step.peakToPeakRange;
-                s["pressureSlopeBarPerSec"] = step.pressureSlope;
-                s["estimatedDryness0to1"] = step.estimatedDryness;
-                s["estimatedDilutionPct"] = step.estimatedDilution;
-                s["sampleCount"] = step.sampleCount;
-                s["durationSec"] = step.durationSeconds;
-                steps.append(s);
-            }
-            result["steps"] = steps;
-
-            return result;
-        },
-        "read");
-
-    // steam_calibration_log
-    registry->registerTool(
-        "steam_calibration_log",
-        "Get the detailed steam calibration log with full time-series data for every "
-        "calibration step. Each step includes raw pressure, flow, and temperature arrays "
-        "sampled at ~5Hz. Use this to analyze pressure curves, compare steaming into air "
-        "vs. water, or plot stability patterns. Returns the last calibration run's data.",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [](const QJsonObject&) -> QJsonObject {
-            QJsonObject result;
-            QString path = SteamCalibrator::logFilePath();
-
-            QFile file(path);
-            if (!file.exists()) {
-                result["error"] = QStringLiteral("No calibration log found. Run a calibration first.");
-                return result;
-            }
-            if (!file.open(QIODevice::ReadOnly)) {
-                result["error"] = QStringLiteral("Failed to read log: ") + file.errorString();
-                return result;
-            }
-
-            QJsonParseError err;
-            QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-            file.close();
-
-            if (err.error != QJsonParseError::NoError) {
-                result["error"] = QStringLiteral("Log file parse error: ") + err.errorString();
-                return result;
-            }
-
-            return doc.object();
         },
         "read");
 }

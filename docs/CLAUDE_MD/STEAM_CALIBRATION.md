@@ -1,124 +1,76 @@
-# Steam Calibration
+# Steam Calibration (Removed)
 
-## Status: Experimental (Hidden)
+## Status: Removed from the codebase
 
-The steam calibration UI is currently hidden from users. The infrastructure (data collection, stability analysis, MCP tools) works well, but the **recommendation algorithm is not reliable enough** to ship. The community-established defaults (160°C / 0.8 mL/s for Pro/XL, ~1.0-1.2 for XXL) consistently outperform the tool's recommendations. See "Lessons Learned" below.
+A guided steam-calibration feature existed in earlier builds (flow sweep, CV-based stability analysis, dryness/dilution estimation, recommendation engine, QML wizard, MCP tools) but **it did not work well** and was removed in full.
 
-## Overview
+Symptoms reported in use:
 
-The DE1 uses a flash heater (not a boiler) to generate steam on demand. Different models have different heater wattages (Pro/XL: 1.5kW, XXL: 2.2kW, Bengle: 3kW), and voltage (110V vs 220V) further affects actual heating power. Finding optimal steam settings is model- and setup-dependent.
+- The recommendation engine picked different flows across runs on the same machine.
+- Recommendations disagreed with the community-established defaults (160 °C / 0.8 mL/s for Pro/XL, ~1.0–1.2 mL/s for XXL), which continue to out-steam whatever the tool produced.
+- The feature was hidden from the UI on 2026-04-06 (`30775cc1`) and removed entirely shortly after.
 
-## The Physics
+This file is kept as a postmortem so a future attempt doesn't re-hit the same walls.
 
-### Flash Heater Sweet Spot
+## Why it didn't work
 
-The optimal steam flow rate is the **highest rate where the heater can fully vaporize all water passing through it**:
+The data-collection side was fine — CV, oscillation rate, peak-to-peak range, slope, dryness, and dilution estimates were all computed correctly and reproducibly. **The unsolved problem was turning those numbers into a recommendation.** Multiple approaches were tried and all failed in practice:
 
-- **Too low**: The heater overheats and triggers a protective flow increase, creating an oscillating/sawtooth pressure curve. The steam is dry but the vortex is weak.
-- **Too high**: More water passes through than the heater can vaporize, producing wet steam (more water added to milk). The vortex is strong but microfoam quality suffers.
-- **Sweet spot**: Stable pressure curve, maximum steam dryness, and enough kinetic energy for a strong vortex.
+- **Weighted stability score (CV + oscillation + range + slope)** — weights were tuned on synthetic data, scored 0 on every real step.
+- **Lowest-dilution among stable steps** — always picked the lowest flow (best theoretical dryness, weakest steam, useless in practice).
+- **Highest stable flow** — picked ~1.2 mL/s on a DE1+ 120 V, producing obviously wet steam.
+- **Highest flow within 10 % CV of best** — same problem, ignored dilution cliff at high flow.
+- **CV + dilution cap** — closer, but the theoretical dilution estimates don't track the in-cup experience, and the tool still oscillated between 0.80 and 1.20 mL/s across runs.
 
-### Approximate Sweet Spots by Model
+The core issue is that the "best" steam flow isn't a single metric — it balances pressure stability, steam dryness, vortex strength, and user speed preference. Community defaults embody years of human tuning against that balance. An automated tool can measure the numbers, but mapping them to "this is the flow you should use" reliably is still open.
 
-| Model | Heater | Approx. Sweet Spot |
-|-------|--------|-------------------|
-| DE1 Pro/XL | 1.5kW | ~0.6-0.8 mL/s |
-| DE1 XXL | 2.2kW | ~0.9-1.2 mL/s |
-| Bengle | 3.0kW | ~1.2-1.5 mL/s |
+## What the physics says (kept for future reference)
 
-These vary by voltage (110V shifts the sweet spot down) and individual machine calibration.
+The DE1 uses a flash heater, not a boiler. The optimal steam flow rate is the **highest rate at which the heater can still fully vaporize all water passing through it**:
 
-### Dilution Math
+- Too low → heater overheats, firmware triggers protective flow increase → sawtooth pressure, weak vortex.
+- Too high → more water than the heater can vaporize → wet steam, dilute milk, strong vortex.
+- Sweet spot → stable pressure, maximum dryness, enough kinetic energy.
 
-To raise 180g of milk by 60 degrees C, the theoretical minimum water addition from steam condensation is ~11.3% (accounting for pitcher thermal mass). In practice, expect 12-15% due to heat losses. The 1-2% difference between machines is negligible in the cup (milk is already ~88% water), but steam speed and kinetic energy noticeably affect microfoam texture and latte art quality.
+Approximate sweet spots by model:
 
-### Flow Calibration Affects Steam
+| Model      | Heater | Approx. sweet spot |
+|------------|--------|--------------------|
+| DE1 Pro/XL | 1.5 kW | ~0.6–0.8 mL/s      |
+| DE1 XXL    | 2.2 kW | ~0.9–1.2 mL/s      |
 
-The Graphical Flow Calibrator (GFC) multiplier affects the machine's internal flow measurement during steaming, not just espresso. A miscalibrated flow multiplier is a common hidden cause of bad steam performance.
+These shift with voltage (110 V slides the sweet spot down) and individual machine flow-calibration (GFC).
 
-## What Exists in the Code
+**Dilution floor.** To raise 180 g of milk by 60 °C, the theoretical minimum water addition is ~11.3 %. Real-world 12–15 % with thermal losses. Cross-machine differences of 1–2 % are negligible in the cup; what users feel is the steam kinetic energy and texturing speed.
 
-### SteamCalibrator (`src/machine/steamcalibrator.h/.cpp`)
+**GFC affects steam, not just espresso.** A wrong flow-calibration multiplier will silently wreck steam performance on top of espresso pours.
 
-- Flow rate sweep with auto-stop at ~22 seconds per step
-- Pressure stability analysis: CV, oscillation rate, peak-to-peak range, slope
-- Heater exhaustion detection and trimming (pressure drops below 0.3 bar)
-- Negative/discontinuous timestamp filtering
-- Steam dryness estimation from heater power and flow rate
-- Milk dilution estimation from thermodynamic energy balance
-- Per-model heater wattage lookup with voltage adjustment
-- Heater recovery detection between steps (waits for steam temp within 5°C of target)
-- Temporarily enables `keepSteamHeaterOn` during calibration
-- Sends updated settings to machine when advancing steps
-- Raw time-series data logging to JSON file
-- QSettings persistence of calibration results
+## Lessons that held up
 
-### QML Dialog (`qml/components/SteamCalibrationDialog.qml`)
+1. **Air test ≈ water test** on a DE1+ 120 V. Comparable CV and pressure curves. Air is the simpler rig.
+2. **Flash heater exhausts after 30–50 s.** Pressure collapses as thermal mass depletes. Auto-stop at ~22 s avoided this during calibration.
+3. **Steam heater recovery between steps requires `keepSteamHeaterOn`.** The DE1 firmware only maintains steam temp in Ready with this on; otherwise steps run with a cooling heater.
+4. **Temperature sweep into air is meaningless** — stability into air is a function of flow vs. heater capacity; temp only matters when heating real milk.
+5. **CV is the right *primary* metric** — on real data it produces a clean U-curve around the sweet spot. It just isn't the *only* metric you need for a recommendation.
 
-- Guided wizard with step indicator and countdown timer
-- Heater recovery status with live temperature display
-- Results table showing flow, pressure, CV, and stability bars
-- Beta notice banner
-- Currently not accessible from the UI (button commented out in SettingsCalibrationTab.qml)
+## Potential future direction (if someone picks this up again)
 
-### MCP Tools (`src/mcp/mcptools_machine.cpp`)
+Don't try to auto-recommend. Instead:
 
-- `steam_calibration_status`: Returns summary results including recommended flow, CV, dilution
-- `steam_calibration_log`: Returns full raw time-series data for post-run analysis
+- **Show the data** — plot the CV curve and let the user see where the valley is on their machine.
+- **Compare to community baselines** — "Your CV bottoms at 0.80 mL/s; community default for your model is 0.80 mL/s" / "… differs — here's what that might mean."
+- **Use it as a diagnostic** — flag "all CVs unusually high" (possible GFC miscalibration) or "heater exhausts under 20 s" (possible scale / flow-mult issue). The problem-detection use case is plausibly tractable; the recommendation use case probably isn't.
 
-### Machine Info (`src/ble/de1device.h/.cpp`)
+## Community research referenced during development
 
-- `machineModel` property exposed (was private)
-- `heaterVoltage` read from MMR 0x803834 (new)
+- Eduardo Passoa's enthalpy vs. kinetic-energy analysis on DE1 XXL vs. Fiamma (Basecamp, Decent Diaspora, April 2026) — systematic stability comparison.
+- Michael Garcia's flow/temp sweep on a 120 V Pro (Basecamp, July 2020) — settled on 165 °C / 0.6 mL/s for smoothest pressure.
+- Sergey Shevtchenko's flow-calibration discovery (Basecamp, July 2024 – Sept 2025) — bad GFC multiplier destroyed steam on an XXL.
+- Collin Arneson's engineering note — heater efficiency rises with pressure/flow, dilution dips before climbing sharply past the sweet spot.
+- Damian's thermodynamic calculation — ~11.3 % dilution floor.
 
-## Lessons Learned from Testing
+## Representative test data (DE1+ 120 V, air test)
 
-### 1. Steaming into air vs. water produces similar pressure patterns
-Air and water tests on a DE1+ 120V showed comparable CV values and pressure curves. Steaming into air is simpler (no pitcher, no water changes) and sufficient for measuring heater behavior.
-
-### 2. The heater exhausts after 30-50 seconds
-On a DE1+ 120V, pressure drops to near zero after 30-50 seconds as the flash heater's thermal mass is depleted. This corrupts stability metrics if not trimmed. The auto-stop at 22 seconds prevents this, and the exhaustion detection trims any tail that gets through.
-
-### 3. Heater recovery requires `keepSteamHeaterOn`
-The DE1 firmware only maintains steam temperature in Ready state when `keepSteamHeaterOn` is true. Without it, the heater cools between steps and never reaches the target. The calibrator temporarily enables this setting.
-
-### 4. The DE1 firmware heats the steam element during the Heating phase on wake, but does not actively re-heat after a steaming session depletes it
-After a steam session ends and the machine returns to Ready, the steam heater temperature slowly drifts. It takes time to recover, and the recovery rate depends on `keepSteamHeaterOn`.
-
-### 5. Temperature sweep (Phase 2) is not useful when steaming into air
-Changing the temperature setting while steaming into air doesn't meaningfully change what we're measuring. Temperature affects milk heating and dilution, but without milk the pressure stability is primarily a function of flow rate vs. heater capacity.
-
-### 6. CV (coefficient of variation) is the right primary metric
-On real DE1+ data, CV consistently identifies the sweet spot (0.80 mL/s) with a clear U-shaped curve. Absolute CV values vary by machine (DE1+ 120V: 0.19-0.30) but the relative pattern is consistent.
-
-### 7. The recommendation algorithm is the unsolved problem
-Multiple approaches were tried:
-- **Stability score (weighted CV + oscillation + range + slope)**: Scored 0 on every real step because the weights were tuned for synthetic data. Real machines have much higher baseline variation.
-- **Lowest dilution among stable steps**: Always picked the lowest flow rate (best theoretical dryness but weakest steam, useless in practice).
-- **Highest stable flow**: Picked 1.20 mL/s on a DE1+ — too high, terrible steam quality.
-- **Highest flow within 10% CV of best**: Still picked 1.20 because its CV was within the margin, ignoring that the estimated dilution was 25% vs 18% at the best CV.
-- **CV + dilution cap**: Better but the theoretical dilution estimates don't reflect real-world experience. The tool recommended 0.80 in some runs, 1.20 in others.
-
-The core challenge: **the recommendation needs to balance pressure stability, steam dryness, vortex strength, and steaming speed** — and the relative importance of each depends on the user's use case (home latte art vs. commercial volume). The community's human-tuned defaults already embody years of this balancing.
-
-### 8. Potential future approach
-Rather than making automated recommendations, the tool could:
-- **Show the data**: Display the CV curve and let users see their machine's sweet spot
-- **Compare to community baselines**: Show how their results compare to known-good settings for their model
-- **Detect problems**: Flag if all CVs are unusually high (possible flow calibration issue) or if the heater exhausts too quickly (possible scale buildup)
-
-## Community Research Sources
-
-- **Eduardo Passoa's enthalpy vs. kinetic energy analysis** (Basecamp, Decent Diaspora, April 2026): Systematic comparison of DE1 XXL vs. commercial Fiamma boiler. Discovered 0.9 mL/s sweet spot for XXL by analyzing pressure curve stability. 54-comment thread with input from Decent staff.
-- **Michael Garcia's steam performance testing** (Basecamp, July 2020): Systematic sweep of flow/temp combinations on 120V Pro. Settled on 165°C @ 0.6 mL/s for smoothest pressure.
-- **Sergey Shevtchenko's flow calibration discovery** (Basecamp, July 2024 - September 2025): Diagnosed that a wrong GFC multiplier (1.41 instead of ~0.7) caused bad steam on his XXL. The GFC setting affects steam, not just espresso.
-- **Collin Arneson's engineering analysis**: Explained that heater efficiency improves at higher pressures/flow rates, with the sweet spot where dilution starts to drop before increasing sharply at excessive flow.
-- **Shinguk Kwon's Bengle confirmation**: Bengle's 3kW heater produces faster/stronger steam with a notably stronger whirlpool effect.
-- **Damian's thermodynamic calculations**: ~11.3% dilution is the theoretical minimum for standard steaming parameters.
-
-## Real Test Data (DE1+ 120V)
-
-### Air test — CV by flow rate (representative run)
 ```
 Flow (mL/s) | Avg Pressure | CV    | Est. Dryness | Est. Dilution
 0.40        | 0.95 bar     | 0.286 | 1.00         | 10.4%
@@ -128,4 +80,4 @@ Flow (mL/s) | Avg Pressure | CV    | Est. Dryness | Est. Dilution
 1.20        | 2.19 bar     | 0.220 | 0.37         | 25.4%
 ```
 
-The CV valley at 0.80 mL/s matches the community recommendation for this model.
+CV valley at 0.80 mL/s matches the community default for this model. The recommender failed because the data supports 0.80 OR 1.20 depending on which secondary metric you prioritize — and neither the tool nor a user can tell from the numbers alone which one will steam better milk in their pitcher.
