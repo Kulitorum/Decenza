@@ -79,7 +79,9 @@ Dialog {
         return SearchIndex.getSearchEntries(TranslationManager.translate.bind(TranslationManager))
     }
     property var filteredEntries: {
-        var query = searchField.text.trim().toLowerCase()
+        // Read `displayText` (not `text`) so the filter binding re-evaluates on every
+        // IME preedit change on Android, not just after the IME commits the word.
+        var query = searchField.displayText.trim().toLowerCase()
         if (query.length === 0) return allEntries
 
         var results = []
@@ -135,6 +137,9 @@ Dialog {
                 Layout.fillWidth: true
                 placeholder: TranslationManager.translate("settings.search.placeholder", "Search settings...")
                 accessibleName: TranslationManager.translate("settings.search.placeholder", "Search settings")
+                // Hint the Android IME away from autocorrect; some IMEs ignore this,
+                // so the filter above also reads displayText rather than text.
+                inputMethodHints: Qt.ImhNoPredictiveText
             }
         }
 

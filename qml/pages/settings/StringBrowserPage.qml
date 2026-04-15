@@ -266,6 +266,9 @@ Page {
                             font: Theme.bodyFont
                             color: Theme.textColor
                             clip: true
+                            // Hint the Android IME away from autocorrect; some IMEs ignore
+                            // this, so we also filter via displayText (see below).
+                            inputMethodHints: Qt.ImhNoPredictiveText
 
                             Accessible.role: Accessible.EditableText
                             Accessible.name: TranslationManager.translate("stringBrowser.accessible.searchStrings", "Search strings")
@@ -277,11 +280,13 @@ Page {
                                 text: TranslationManager.translate("stringBrowser.searchPlaceholder", "Search strings...")
                                 font: parent.font
                                 color: Theme.textSecondaryColor
-                                visible: !parent.text && !parent.activeFocus
+                                visible: !parent.displayText && !parent.activeFocus
                                 verticalAlignment: Text.AlignVCenter
                             }
 
-                            onTextChanged: stringModel.searchFilter = text
+                            // Drive filter from displayText (includes IME preedit) so results
+                            // update on every keystroke on Android. See SuggestionField.qml.
+                            onDisplayTextChanged: stringModel.searchFilter = displayText
                         }
 
                         Text {
@@ -290,7 +295,7 @@ Page {
                             text: "\u{2715}"
                             font.pixelSize: Theme.scaled(14)
                             color: Theme.textSecondaryColor
-                            visible: searchField.text !== ""
+                            visible: searchField.displayText !== ""
 
                             Accessible.role: Accessible.Button
                             Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearSearch", "Clear search")
