@@ -38,8 +38,35 @@ static SteamHealthInfo computeSteamHealth(SteamHealthTracker* tracker)
     info.hasData = tracker->hasData();
 
     if (!info.hasData) {
-        info.status = QStringLiteral("insufficient_data");
-        info.recommendation = QStringLiteral("Need at least 5 steam sessions to establish baseline");
+        // Differentiate fresh-install, first-baseline-in-progress, and
+        // post-reset states so an AI agent asking "what's my steam health"
+        // can explain *why* there's no trend yet. Mirrors the QML
+        // settings screen's establishing-baseline messaging.
+        const int total = tracker->minSessionsForTrend();
+        switch (tracker->baselineState()) {
+        case SteamHealthTracker::EstablishingAfterReset:
+            info.status = QStringLiteral("establishing_after_reset");
+            info.recommendation = QStringLiteral(
+                "A significant pressure drop was detected (likely descale or steam-wand clean). "
+                "Collecting sessions to calibrate against the freshly-clean baseline. "
+                "%1 of %2 sessions logged.")
+                .arg(info.sessionCount).arg(total);
+            break;
+        case SteamHealthTracker::EstablishingInitial:
+            info.status = QStringLiteral("establishing_baseline");
+            info.recommendation = QStringLiteral(
+                "Establishing initial baseline. %1 of %2 sessions logged — "
+                "trend detection begins once the window is full.")
+                .arg(info.sessionCount).arg(total);
+            break;
+        case SteamHealthTracker::Empty:
+        default:
+            info.status = QStringLiteral("insufficient_data");
+            info.recommendation = QStringLiteral(
+                "No steam sessions recorded yet. At least %1 sessions are needed to establish a baseline.")
+                .arg(total);
+            break;
+        }
         return info;
     }
 

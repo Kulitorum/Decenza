@@ -20,6 +20,25 @@ struct SteamSessionSummary {
 class SteamHealthTracker : public QObject {
     Q_OBJECT
 
+public:
+    // Baseline lifecycle state surfaced to QML so the settings/calibration
+    // screen can show a meaningful message while trends are not yet
+    // available, instead of going silent.
+    //
+    //   Empty                   — no sessions recorded (fresh install / manual reset)
+    //   EstablishingInitial     — 1..4 sessions, collecting first baseline
+    //   EstablishingAfterReset  — 1..4 sessions since an auto-reset trimmed
+    //                             history after a detected pressure drop
+    //                             (likely descale / steam-wand clean)
+    //   Ready                   — 5+ sessions; trend detection is active
+    enum BaselineState {
+        Empty,
+        EstablishingInitial,
+        EstablishingAfterReset,
+        Ready,
+    };
+    Q_ENUM(BaselineState)
+
     Q_PROPERTY(int sessionCount READ sessionCount NOTIFY sessionHistoryChanged)
     Q_PROPERTY(double baselinePressure READ baselinePressure NOTIFY sessionHistoryChanged)
     Q_PROPERTY(double baselineTemperature READ baselineTemperature NOTIFY sessionHistoryChanged)
@@ -28,8 +47,10 @@ class SteamHealthTracker : public QObject {
     Q_PROPERTY(bool hasData READ hasData NOTIFY sessionHistoryChanged)
     Q_PROPERTY(double pressureThreshold READ pressureThreshold NOTIFY sessionHistoryChanged)
     Q_PROPERTY(double temperatureThreshold READ temperatureThreshold CONSTANT)
+    // Number of sessions required before hasData flips true.
+    Q_PROPERTY(int minSessionsForTrend READ minSessionsForTrend CONSTANT)
+    Q_PROPERTY(BaselineState baselineState READ baselineState NOTIFY sessionHistoryChanged)
 
-public:
     explicit SteamHealthTracker(QObject* parent = nullptr);
 
     int sessionCount() const { return m_sessionCount; }
@@ -41,6 +62,8 @@ public:
     double pressureThreshold() const { return m_baselinePressure > 0 ? qMin(m_baselinePressure * PRESSURE_WARN_MULTIPLIER, PRESSURE_HARD_LIMIT) : PRESSURE_HARD_LIMIT; }
     double temperatureThreshold() const { return TEMPERATURE_THRESHOLD; }
     double trendProgressThreshold() const { return TREND_PROGRESS_THRESHOLD; }
+    int minSessionsForTrend() const { return MIN_SESSIONS_FOR_TREND; }
+    BaselineState baselineState() const;
 
     // Called per BLE sample during steaming (live threshold checks)
     void onSample(double pressure, double temperature);
@@ -92,6 +115,17 @@ private:
     bool m_pressureWarningEmitted = false;
     bool m_temperatureWarningEmitted = false;
 
+    // Auto-reset two-step confirmation (persisted across restart).
+    // A single low-pressure session sets m_pendingAutoReset; the trim only
+    // fires when the *next* session also drops. Prevents one-off outliers
+    // (partial-full boiler, normalization edge cases) from wiping history.
+    bool m_pendingAutoReset = false;
+
+    // True after auto-reset has trimmed history, cleared once sessionCount
+    // reaches MIN_SESSIONS_FOR_TREND. Drives the "Establishing new, improved
+    // baseline" state so the UI can explain the transient empty state.
+    bool m_establishingAfterReset = false;
+
     // Thresholds
     static constexpr double PRESSURE_HARD_LIMIT = 8.0;      // bar — absolute safety net for live onSample() check
     static constexpr double PRESSURE_WARN_MULTIPLIER = 3.0;  // warn when pressure reaches this multiple of baseline
@@ -102,8 +136,8 @@ private:
     static constexpr int MIN_SESSIONS_FOR_TREND = 5;         // minimum comparable sessions
     static constexpr int MAX_HISTORY_SIZE = 150;             // sessions to keep
     static constexpr double TREND_PROGRESS_THRESHOLD = 0.6;   // warn at 60% of the way from baseline to warn level
-    static constexpr double AUTO_RESET_DROP_THRESHOLD = 0.3;  // auto-reset baseline if drop >= 30% of range (likely descale)
-    static constexpr int AUTO_RESET_KEEP_SESSIONS = 3;       // sessions to keep after auto-reset
+    static constexpr double AUTO_RESET_DROP_THRESHOLD = 0.3;  // auto-reset baseline if drop >= 30% of range (likely descale) — must persist across 2 consecutive sessions
+    static constexpr int AUTO_RESET_KEEP_SESSIONS = 2;       // sessions to keep after auto-reset (the two consecutive triggering sessions; older scaled-up sessions are discarded)
     static constexpr double TRIM_SECONDS = 2.0;              // skip first 2s of samples
     static constexpr int REFERENCE_FLOW = 150;               // 1.5 mL/s — normalization reference
     static constexpr double PRESSURE_PER_FLOW_UNIT = 0.012;  // bar per 0.01 mL/s (from RO-water baseline data)
