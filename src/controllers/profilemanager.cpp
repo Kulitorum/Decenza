@@ -126,6 +126,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         qDebug() << "ProfileManager: retrying failed profile upload (attempt"
                  << m_profileUploadRetryAttempts << "of" << kMaxUploadRetryAttempts
                  << "— last failure:" << m_lastUploadFailureReason << ")";
+        // Timer is no longer active (it's firing) — the retry indicator
+        // should clear for this instant and re-arm only if the retry also
+        // fails with a retryable reason.
+        updateProfileUploadRetrying();
         uploadCurrentProfile();
     });
 
@@ -141,6 +145,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 m_profileUploadRetryTimer.stop();
                 m_profileUploadRetryAttempts = 0;
                 m_lastUploadFailureReason.clear();
+                updateProfileUploadRetrying();
                 return;
             }
             if (!isRetryableUploadFailure(reason)) {
@@ -163,6 +168,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                     m_de1CommunicationFailure = true;
                     emit de1CommunicationFailureChanged();
                 }
+                updateProfileUploadRetrying();
                 return;
             }
             // Exponential backoff capped at kUploadRetryMaxMs.
@@ -177,6 +183,32 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 .arg(m_profileUploadRetryAttempts)
                 .arg(kMaxUploadRetryAttempts);
             m_profileUploadRetryTimer.start(delayMs);
+            updateProfileUploadRetrying();
+
+            // Safety: if a shot is already running on the DE1 (started via the
+            // group-head button before the new profile landed), the DE1 is
+            // extracting with whatever was previously in memory. Rather than
+            // let the user brew on a stale or half-uploaded profile, stop the
+            // shot immediately — same behaviour as aborting when the saved
+            // scale is not connected. The user can restart once the retry
+            // loop either succeeds or surfaces the communication-failure
+            // dialog.
+            if (m_machineState && m_device) {
+                auto phase = m_machineState->phase();
+                const bool isEspressoShot =
+                    (phase == MachineState::Phase::EspressoPreheating ||
+                     phase == MachineState::Phase::Preinfusion ||
+                     phase == MachineState::Phase::Pouring ||
+                     phase == MachineState::Phase::Ending);
+                if (isEspressoShot) {
+                    qWarning() << "ProfileManager: aborting in-progress shot "
+                                  "because profile upload is retrying (DE1 may "
+                                  "be running stale frames). Phase was:"
+                               << m_machineState->phaseString();
+                    m_device->requestState(DE1::State::Idle);
+                    emit shotAbortedProfileUploadRetrying();
+                }
+            }
         });
 
         // On BLE disconnect, stop retrying — the reconnect path
@@ -192,6 +224,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                     m_profileUploadRetryTimer.stop();
                     m_profileUploadRetryAttempts = 0;
                     m_lastUploadFailureReason.clear();
+                    updateProfileUploadRetrying();
                 }
             }
         });
@@ -921,6 +954,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
     m_profileUploadRetryTimer.stop();
     m_profileUploadRetryAttempts = 0;
     m_lastUploadFailureReason.clear();
+    updateProfileUploadRetrying();
 
     // Resolve profile name: could be title or filename (MQTT publishes titles)
 
@@ -1074,6 +1108,7 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     m_profileUploadRetryTimer.stop();
     m_profileUploadRetryAttempts = 0;
     m_lastUploadFailureReason.clear();
+    updateProfileUploadRetrying();
 
     m_currentProfile = Profile::loadFromJsonString(jsonContent);
 
@@ -1339,6 +1374,14 @@ void ProfileManager::refreshProfiles() {
 
 // === Profile upload ===
 
+void ProfileManager::updateProfileUploadRetrying() {
+    const bool retrying = m_profileUploadRetryAttempts > 0
+                          && m_profileUploadRetryTimer.isActive();
+    if (retrying == m_profileUploadRetrying) return;
+    m_profileUploadRetrying = retrying;
+    emit profileUploadRetryingChanged();
+}
+
 void ProfileManager::acknowledgeDe1CommunicationFailure() {
     // The user dismissed the communication-failure dialog. Clear the flag
     // (so the dialog goes away) and reset retry state so the next
@@ -1352,6 +1395,7 @@ void ProfileManager::acknowledgeDe1CommunicationFailure() {
     m_profileUploadRetryTimer.stop();
     m_profileUploadRetryAttempts = 0;
     m_lastUploadFailureReason.clear();
+    updateProfileUploadRetrying();
 }
 
 void ProfileManager::uploadCurrentProfile() {

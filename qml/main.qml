@@ -2749,6 +2749,73 @@ ApplicationWindow {
         }
     }
 
+    // ============ PROFILE UPLOAD RETRY TOAST ============
+    // Reconnecting… toast shown while ProfileManager is retrying a failed
+    // profile upload. Bound reactively to ProfileManager.profileUploadRetrying
+    // so it appears within one frame of the first retry arming and clears
+    // immediately on success or when the communication-failure dialog takes
+    // over.
+    Tr { id: trReconnectingToast; key: "main.toast.reconnecting"; fallback: "Reconnecting…"; visible: false }
+    Tr { id: trShotStoppedReloading; key: "main.toast.shotStoppedReloading"; fallback: "Shot stopped while profile reloads…"; visible: false }
+
+    // Latched true when ProfileManager aborts a shot during the retry window;
+    // cleared when the retry state clears (success or exhaustion). Drives the
+    // toast text so the user knows *why* the shot stopped, not just that
+    // something is retrying.
+    property bool shotStoppedForProfileRetry: false
+
+    Rectangle {
+        id: reconnectingToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: reconnectingToastLabel.implicitWidth + Theme.scaled(32)
+        height: reconnectingToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: (ProfileManager.profileUploadRetrying
+                  && !ProfileManager.de1CommunicationFailure) ? 1 : 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: reconnectingToastLabel
+            anchors.centerIn: parent
+            text: root.shotStoppedForProfileRetry
+                  ? trShotStoppedReloading.text
+                  : trReconnectingToast.text
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Connections {
+        target: ProfileManager
+        function onProfileUploadRetryingChanged() {
+            if (ProfileManager.profileUploadRetrying) {
+                if (AccessibilityManager.enabled) {
+                    AccessibilityManager.announce(reconnectingToastLabel.text)
+                }
+            } else {
+                // Retry window closed (either succeeded or exhausted) —
+                // reset the shot-stopped message for next time.
+                root.shotStoppedForProfileRetry = false
+            }
+        }
+        function onShotAbortedProfileUploadRetrying() {
+            root.shotStoppedForProfileRetry = true
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trShotStoppedReloading.text, true)
+            }
+        }
+    }
+
     // ============ AUTO FLOW CALIBRATION TOAST ============
     property string flowCalToastText: ""
 

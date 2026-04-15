@@ -65,6 +65,14 @@ class ProfileManager : public QObject {
     // open()/close() on De1CommunicationErrorDialog. The dialog's OK button
     // calls acknowledgeDe1CommunicationFailure() to clear the flag.
     Q_PROPERTY(bool de1CommunicationFailure READ de1CommunicationFailure NOTIFY de1CommunicationFailureChanged)
+    // Reactive view of the upload-retry backoff window. True while a failed
+    // upload is queued to retry (m_profileUploadRetryAttempts > 0 AND
+    // m_profileUploadRetryTimer.isActive()). QML binds a toast to this so the
+    // user sees "Reconnecting…" during the otherwise-silent 15s backoff
+    // window. Cleared on success, on exhaustion (when
+    // de1CommunicationFailure supersedes), on disconnect, on user-initiated
+    // profile switch, and on ack.
+    Q_PROPERTY(bool profileUploadRetrying READ profileUploadRetrying NOTIFY profileUploadRetryingChanged)
     Q_PROPERTY(bool profileHasRecommendedDose READ profileHasRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileRecommendedDose READ profileRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(bool isCurrentProfileReadOnly READ isCurrentProfileReadOnly NOTIFY currentProfileChanged)
@@ -165,6 +173,9 @@ public slots:
     bool de1CommunicationFailure() const { return m_de1CommunicationFailure; }
     Q_INVOKABLE void acknowledgeDe1CommunicationFailure();
 
+    // See Q_PROPERTY documentation above.
+    bool profileUploadRetrying() const { return m_profileUploadRetrying; }
+
 signals:
     void currentProfileChanged();
     void profileModifiedChanged();
@@ -182,6 +193,13 @@ signals:
 
     // See Q_PROPERTY documentation above.
     void de1CommunicationFailureChanged();
+    void profileUploadRetryingChanged();
+
+    // Emitted when an in-progress espresso shot is aborted because a profile
+    // upload just failed with a retryable reason. The DE1 was running stale
+    // frames; the UI should surface a toast/warning. Mirrors the
+    // MainController::shotAbortedNoScale pattern.
+    void shotAbortedProfileUploadRetrying();
 
 private:
     void loadDefaultProfile();
@@ -223,6 +241,12 @@ private:
     int m_profileUploadRetryAttempts = 0;
     QString m_lastUploadFailureReason;
     bool m_de1CommunicationFailure = false;
+    // Cached value of (m_profileUploadRetryAttempts > 0 &&
+    // m_profileUploadRetryTimer.isActive()). Updated via
+    // updateProfileUploadRetrying() from every state-mutation site so the
+    // NOTIFY signal fires exactly when the value changes.
+    bool m_profileUploadRetrying = false;
+    void updateProfileUploadRetrying();
 
 #ifdef DECENZA_TESTING
     friend class tst_ProfileManager;
