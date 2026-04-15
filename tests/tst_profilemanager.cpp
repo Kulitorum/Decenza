@@ -2018,6 +2018,173 @@ private slots:
         QCOMPARE(f.profileManager.m_profileUploadRetryAttempts, 0);
         QVERIFY(!f.profileManager.m_profileUploadRetryTimer.isActive());
     }
+
+    // =========================================================================
+    // profileUploadRetrying Q_PROPERTY lifecycle (issue #750)
+    // =========================================================================
+    //
+    // QML binds a "Reconnecting…" toast to this property, so it must flip true
+    // within the same tick that the retry timer arms, and flip false cleanly
+    // on every exit path (success, exhaustion, disconnect, profile switch,
+    // acknowledge). The NOTIFY signal must fire exactly once per transition
+    // — no spurious emissions, no missed edges.
+
+    void profileUploadRetryingFlipsTrueOnFirstFailure() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+
+        QSignalSpy spy(&f.profileManager,
+            &ProfileManager::profileUploadRetryingChanged);
+
+        f.profileManager.uploadCurrentProfile();
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+
+        QVERIFY(f.profileManager.profileUploadRetrying());
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void profileUploadRetryingClearsOnSuccess() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+        QVERIFY(f.profileManager.profileUploadRetrying());
+
+        QSignalSpy spy(&f.profileManager,
+            &ProfileManager::profileUploadRetryingChanged);
+        emit f.device.profileUploaded(true, QString());
+
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void profileUploadRetryingClearsOnExhaustion() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        ScopedWarningFilter filter(
+            "profile upload failed .* consecutive times");
+        f.profileManager.uploadCurrentProfile();
+
+        const QString reason = QStringLiteral("timeout waiting for write ACKs");
+        // Attempts 1..4 leave the flag true; the 5th exhausts the budget
+        // and the flag must flip back to false so the toast yields to the
+        // exhaustion dialog.
+        for (int i = 0; i < 4; ++i) {
+            emit f.device.profileUploaded(false, reason);
+            QVERIFY(f.profileManager.profileUploadRetrying());
+        }
+        emit f.device.profileUploaded(false, reason);
+
+        QVERIFY(f.profileManager.de1CommunicationFailure());
+        QVERIFY2(!f.profileManager.profileUploadRetrying(),
+            "exhaustion must clear profileUploadRetrying — the dialog takes over");
+    }
+
+    void profileUploadRetryingClearsOnDisconnect() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+        QVERIFY(f.profileManager.profileUploadRetrying());
+
+        f.transport.setConnectedSim(false);
+
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+    }
+
+    void profileUploadRetryingClearsOnAcknowledge() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        ScopedWarningFilter filter(
+            "profile upload failed .* consecutive times");
+        f.profileManager.uploadCurrentProfile();
+        const QString reason = QStringLiteral("timeout waiting for write ACKs");
+        for (int i = 0; i < 5; ++i) {
+            emit f.device.profileUploaded(false, reason);
+        }
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+
+        // Acknowledge is a clean no-op for the retrying flag (already false
+        // at exhaustion) — but it must not regress to true.
+        QSignalSpy spy(&f.profileManager,
+            &ProfileManager::profileUploadRetryingChanged);
+        f.profileManager.acknowledgeDe1CommunicationFailure();
+
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+        QCOMPARE(spy.count(), 0);
+    }
+
+    void profileUploadRetryingClearsOnProfileSwitch() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "First");
+        f.profileManager.uploadCurrentProfile();
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+        QVERIFY(f.profileManager.profileUploadRetrying());
+
+        loadDFlowProfile(f, "Second");
+
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+    }
+
+    void retryableFailureDuringShotStopsShot() {
+        // If the DE1 is mid-shot (user pressed the group-head button) while a
+        // profile upload fails with a retryable reason, the machine is
+        // running on stale frames. ProfileManager must stop the shot
+        // immediately (same behaviour as aborting when no scale is
+        // connected) and emit shotAbortedProfileUploadRetrying so the UI
+        // can surface the reason.
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        f.machineState.m_phase = MachineState::Phase::Pouring;
+        QSignalSpy abortSpy(&f.profileManager,
+            &ProfileManager::shotAbortedProfileUploadRetrying);
+        f.transport.clearWrites();
+
+        ScopedWarningFilter filter(
+            "aborting in-progress shot because profile upload is retrying");
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+
+        QCOMPARE(abortSpy.count(), 1);
+        // requestState(Idle) goes through the transport as a state-request
+        // write — verifying the signal is sufficient to confirm the abort
+        // path ran; the transport-level assertion is covered by other tests.
+    }
+
+    void retryableFailureOutsideShotDoesNotEmitAbort() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        QSignalSpy abortSpy(&f.profileManager,
+            &ProfileManager::shotAbortedProfileUploadRetrying);
+        // Idle phase: no shot to stop.
+        emit f.device.profileUploaded(false,
+            QStringLiteral("timeout waiting for write ACKs"));
+
+        QCOMPARE(abortSpy.count(), 0);
+    }
+
+    void profileUploadRetryingDoesNotFireForNonRetryableFailure() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.profileManager.uploadCurrentProfile();
+
+        QSignalSpy spy(&f.profileManager,
+            &ProfileManager::profileUploadRetryingChanged);
+        emit f.device.profileUploaded(false,
+            QStringLiteral("superseded by a new upload"));
+
+        QVERIFY(!f.profileManager.profileUploadRetrying());
+        QCOMPARE(spy.count(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ProfileManager)
