@@ -136,6 +136,14 @@ BleTransport::BleTransport(QObject* parent)
                 m_pendingDevice = QBluetoothDeviceInfo();
                 return;
             }
+            // Re-arm the disconnected-synthesis flag for the fresh attempt.
+            // The previous attempt's onControllerDisconnected (or the
+            // stateChanged synthesizer) already set it to true; without this
+            // reset, if the retry also fails Connecting->Unconnected the
+            // synthesizer would be skipped and DE1Device::m_connecting would
+            // stick at true — exactly the bug the outer connectToDevice()
+            // reset protects against.
+            m_disconnectedEmittedForAttempt = false;
             m_controller->connectToDevice();
         }
     });
@@ -243,6 +251,13 @@ void BleTransport::disconnect() {
 #endif
 
     emit disconnected();
+    // Reset the synthesis flag AFTER the emit so any listener that re-enters
+    // connectToDevice() on this signal (expected: DE1Device's reconnect path)
+    // starts the next attempt with a clean slate. Without this, a manual
+    // disconnect() following the stateChanged synthesizer would leave the
+    // flag stuck at true; the next attempt's connectToDevice() does its own
+    // reset so this is defence in depth, not strictly required.
+    m_disconnectedEmittedForAttempt = false;
 }
 
 void BleTransport::clearQueue() {

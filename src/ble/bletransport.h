@@ -80,7 +80,11 @@ private:
     // attempt (either via Qt's native signal on a Connected→Disconnected
     // transition, or synthesized by us when a connection attempt fails and
     // goes Connecting→Unconnected without ever reaching Connected). Reset
-    // on connectToDevice() so a fresh attempt can re-arm it.
+    // to false at every point where a fresh BLE-level connect is about to
+    // start: the outer connectToDevice(), the internal service-discovery
+    // retry timer, and the tail of disconnect() (defensive — the next
+    // connectToDevice() would reset it anyway). Each of those reset points
+    // corresponds to a subsequent m_controller->connectToDevice() call.
     bool m_disconnectedEmittedForAttempt = false;
 
     // Command queue (50ms spacing between BLE writes)
