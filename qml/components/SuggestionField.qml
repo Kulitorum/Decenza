@@ -208,10 +208,12 @@ Item {
                 Accessible.ignored: true
             }
 
-            MouseArea {
+            AccessibleMouseArea {
                 id: clearArea
                 anchors.fill: parent
-                onClicked: {
+                accessibleName: TranslationManager.translate("suggestionfield.clear", "Clear text")
+                accessibleItem: parent
+                onAccessibleClicked: {
                     justSelected = false
                     isActivelyTyping = false
                     textInput.text = ""
@@ -246,10 +248,12 @@ Item {
                 }
             }
 
-            MouseArea {
+            AccessibleMouseArea {
                 id: arrowArea
                 anchors.fill: parent
-                onClicked: {
+                accessibleName: TranslationManager.translate("suggestionfield.openDropdown", "Open suggestions")
+                accessibleItem: parent
+                onAccessibleClicked: {
                     if (suggestionPopup.visible) {
                         suggestionPopup.close()
                     } else {
