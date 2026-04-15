@@ -358,13 +358,14 @@ Page {
                 Layout.fillWidth: true
                 placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
                 rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
-                // Disable predictive text / autocorrect — forces IME to commit each
-                // character individually. Without this, the IME holds composing text
-                // and commits the entire word at once on space, which triggers a blank screen.
+                // Hint the Android IME away from autocorrect. Some IMEs (notably Gboard)
+                // ignore this, so we also drive the filter from `displayText` below —
+                // displayText includes the IME preedit composing text, so the filter
+                // updates per keystroke instead of waiting for a word commit.
                 inputMethodHints: Qt.ImhNoPredictiveText
                 property string lastTriggeredText: ""
-                onTextChanged: {
-                    var trimmed = text.trim()
+                onDisplayTextChanged: {
+                    var trimmed = displayText.trim()
                     if (trimmed !== lastTriggeredText) {
                         lastTriggeredText = trimmed
                         // User edited the search field — drop exact-match filter, use FTS
@@ -380,7 +381,7 @@ Page {
                     id: searchClearButton
                     width: Theme.scaled(20)
                     height: Theme.scaled(20)
-                    visible: searchField.text.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                    visible: searchField.displayText.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(10)
                     anchors.verticalCenter: parent.verticalCenter
@@ -406,7 +407,7 @@ Page {
 
             // Accessible clear button (outside TextField bounds for TalkBack discoverability)
             AccessibleButton {
-                visible: searchField.text.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                visible: searchField.displayText.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
                 accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
                 icon.source: "qrc:/icons/cross.svg"
                 onClicked: {

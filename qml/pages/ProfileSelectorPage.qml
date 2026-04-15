@@ -88,7 +88,12 @@ Page {
                         Layout.preferredHeight: Theme.scaled(44)
                         placeholder: TranslationManager.translate("profileselector.search.placeholder", "Search profiles...")
                         font.pixelSize: Theme.scaled(16)
-                        onTextChanged: allProfilesList.searchFilter = text.toLowerCase()
+                        // Hint the Android IME away from autocorrect (reduces surprise corrections
+                        // on profile names); some IMEs ignore this, so we still filter via displayText.
+                        inputMethodHints: Qt.ImhNoPredictiveText
+                        // Drive filter from displayText (includes IME preedit) so suggestions
+                        // update on every keystroke on Android. See SuggestionField.qml.
+                        onDisplayTextChanged: allProfilesList.searchFilter = displayText.toLowerCase()
                     }
 
                     Item { Layout.fillWidth: true; visible: viewFilter.currentIndex !== 5 }
