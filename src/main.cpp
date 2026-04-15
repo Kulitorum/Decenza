@@ -1535,6 +1535,12 @@ int main(int argc, char *argv[])
         "MachineState is created in C++");
     qmlRegisterUncreatableType<AIConversation>("Decenza", 1, 0, "AIConversationType",
         "AIConversation is created in C++");
+    // Exposes SteamHealthTracker::BaselineState enum values to QML
+    // (e.g. SteamHealthTrackerType.EstablishingAfterReset). The tracker
+    // instance itself is available as the "SteamHealthTracker" context
+    // property — this type registration is only needed for enum access.
+    qmlRegisterUncreatableType<SteamHealthTracker>("Decenza", 1, 0, "SteamHealthTrackerType",
+        "SteamHealthTracker is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");

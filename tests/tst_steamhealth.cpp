@@ -18,6 +18,8 @@ private:
     QVariant m_origLastWarned;
     QVariant m_origLastFlow;
     QVariant m_origLastTemp;
+    QVariant m_origPendingAutoReset;
+    QVariant m_origEstablishingAfterReset;
 
 private slots:
 
@@ -26,11 +28,15 @@ private slots:
         m_origLastWarned = m_settings.value("steam/lastWarnedSession");
         m_origLastFlow = m_settings.value("steam/lastTrackedFlow");
         m_origLastTemp = m_settings.value("steam/lastTrackedTemp");
+        m_origPendingAutoReset = m_settings.value("steam/pendingAutoReset");
+        m_origEstablishingAfterReset = m_settings.value("steam/establishingAfterReset");
         // Start each test with clean history
         m_settings.remove("steam/sessionHistory");
         m_settings.remove("steam/lastWarnedSession");
         m_settings.remove("steam/lastTrackedFlow");
         m_settings.remove("steam/lastTrackedTemp");
+        m_settings.remove("steam/pendingAutoReset");
+        m_settings.remove("steam/establishingAfterReset");
     }
 
     void cleanup() {
@@ -53,6 +59,26 @@ private slots:
             m_settings.remove("steam/lastTrackedTemp");
         else
             m_settings.setValue("steam/lastTrackedTemp", m_origLastTemp);
+
+        if (!m_origPendingAutoReset.isValid())
+            m_settings.remove("steam/pendingAutoReset");
+        else
+            m_settings.setValue("steam/pendingAutoReset", m_origPendingAutoReset);
+
+        if (!m_origEstablishingAfterReset.isValid())
+            m_settings.remove("steam/establishingAfterReset");
+        else
+            m_settings.setValue("steam/establishingAfterReset", m_origEstablishingAfterReset);
+    }
+
+    // Helper: feed the tracker a single session at given raw pressure / temp.
+    static void addSession(SteamHealthTracker& tracker, double rawPressure,
+                           int steamFlow = 150, int steamTemp = 160,
+                           double measuredTemp = 160.0) {
+        SteamDataModel model;
+        for (int j = 0; j < 40; ++j)
+            model.addSample(2.0 + j * 0.6, rawPressure, 1.0, measuredTemp);
+        tracker.onSessionComplete(&model, steamFlow, steamTemp);
     }
 
     // ==========================================
@@ -642,6 +668,168 @@ private slots:
         double range = tracker.pressureThreshold() - tracker.baselinePressure();
         double progress = (tracker.currentPressure() - tracker.baselinePressure()) / range;
         QCOMPARE(progress, 0.5);
+    }
+
+    // ==========================================
+    // Auto-reset two-step confirmation (issue #752)
+    // ==========================================
+    //
+    // A real descale/steam-wand clean produces a persistent pressure drop
+    // across multiple sessions. A single low reading (partial boiler,
+    // normalization edge case, etc.) is an outlier and must NOT trim
+    // history on its own. The trim only fires when two consecutive
+    // sessions both drop >= AUTO_RESET_DROP_THRESHOLD below the rolling
+    // recent average. After trimming, only the two triggering sessions
+    // are retained — older scaled-up sessions would pollute the new
+    // baseline's recent-average window.
+
+    void singleLowSessionArmsButDoesNotTrim() {
+        SteamHealthTracker tracker;
+
+        // Seed a scaled-up baseline: 6 sessions at 5.0 bar raw (normalized ~5.0).
+        for (int i = 0; i < 6; ++i)
+            addSession(tracker, 5.0);
+
+        int countBeforeDrop = tracker.sessionCount();
+        QCOMPARE(countBeforeDrop, 6);
+
+        // Single low session — raw 1.0 bar. Big drop, should arm but not trim.
+        addSession(tracker, 1.0);
+
+        QCOMPARE(tracker.sessionCount(), countBeforeDrop + 1);
+        QVERIFY2(tracker.baselineState() == SteamHealthTracker::Ready,
+                 "single low session must not trim history — trend detection stays live");
+    }
+
+    void twoConsecutiveLowSessionsTrimHistoryToJustThem() {
+        SteamHealthTracker tracker;
+
+        // Seed a scaled-up baseline.
+        for (int i = 0; i < 6; ++i)
+            addSession(tracker, 5.0);
+
+        // First low session — arms.
+        addSession(tracker, 1.0);
+        QCOMPARE(tracker.sessionCount(), 7);
+
+        // Second low session — confirms, triggers trim to exactly 2 sessions
+        // (the two triggering low ones; all older scaled-up sessions discarded).
+        addSession(tracker, 1.0);
+
+        QCOMPARE(tracker.sessionCount(), 2);
+        // State flips to EstablishingAfterReset (2 < MIN_SESSIONS_FOR_TREND=5)
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+    }
+
+    void pressureRecoveryDisarmsPendingReset() {
+        SteamHealthTracker tracker;
+
+        // Use raw 5.0 / 3.0 so the baseline doesn't drop so far that the
+        // recovery session looks like massive scale buildup and fires a
+        // spurious scaleBuildupWarning after disarming.
+        //   baseline=3.0, warn=min(9,8)=8, range=5, threshold=1.5
+        //   arming drop = 5.0 - 3.0 = 2.0 (armed)
+        //   recovery drop = avg(3,5,5,5,5)=4.6 - 5.0 = -0.4 (disarm)
+        for (int i = 0; i < 6; ++i)
+            addSession(tracker, 5.0);
+
+        // Armed by a low session...
+        addSession(tracker, 3.0);
+        QCOMPARE(tracker.sessionCount(), 7);
+
+        // ...but next session recovers to the original range. No trim.
+        addSession(tracker, 5.0);
+
+        QCOMPARE(tracker.sessionCount(), 8);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::Ready);
+    }
+
+    void establishingAfterResetClearsOnceFullWindow() {
+        SteamHealthTracker tracker;
+
+        // Seed, trigger reset, then refill past the 5-session threshold.
+        for (int i = 0; i < 6; ++i)
+            addSession(tracker, 5.0);
+        addSession(tracker, 1.0);  // arm
+        addSession(tracker, 1.0);  // confirm — trim
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+
+        // 3 more sessions at the new (low) range — baseline state should
+        // flip back to Ready once sessionCount == 5.
+        addSession(tracker, 1.0);
+        addSession(tracker, 1.0);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+        addSession(tracker, 1.0);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::Ready);
+    }
+
+    void pendingAutoResetSurvivesRestart() {
+        {
+            SteamHealthTracker tracker;
+            for (int i = 0; i < 6; ++i)
+                addSession(tracker, 5.0);
+            addSession(tracker, 1.0);  // arms — m_pendingAutoReset persisted to QSettings
+            QCOMPARE(tracker.sessionCount(), 7);
+        }
+
+        // Simulate app restart: a new tracker instance inherits persisted state.
+        SteamHealthTracker tracker2;
+        QCOMPARE(tracker2.sessionCount(), 7);
+
+        // Immediately trigger a confirming low session — if the pending flag
+        // wasn't persisted, this would merely arm again and NOT trim.
+        addSession(tracker2, 1.0);
+
+        QCOMPARE(tracker2.sessionCount(), 2);
+        QCOMPARE(tracker2.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+    }
+
+    void establishingAfterResetSurvivesRestart() {
+        {
+            SteamHealthTracker tracker;
+            for (int i = 0; i < 6; ++i)
+                addSession(tracker, 5.0);
+            addSession(tracker, 1.0);
+            addSession(tracker, 1.0);  // trim fires
+            QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+        }
+
+        SteamHealthTracker tracker2;
+        QCOMPARE(tracker2.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+        QCOMPARE(tracker2.sessionCount(), 2);
+    }
+
+    void baselineStateReflectsSessionCount() {
+        SteamHealthTracker tracker;
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::Empty);
+
+        addSession(tracker, 2.0);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingInitial);
+
+        for (int i = 0; i < 3; ++i)
+            addSession(tracker, 2.0);
+        QCOMPARE(tracker.sessionCount(), 4);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingInitial);
+
+        addSession(tracker, 2.0);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::Ready);
+    }
+
+    void clearHistoryResetsAutoResetFlags() {
+        SteamHealthTracker tracker;
+        for (int i = 0; i < 6; ++i)
+            addSession(tracker, 5.0);
+        addSession(tracker, 1.0);  // arm
+        addSession(tracker, 1.0);  // confirm — trim fires
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingAfterReset);
+
+        tracker.clearHistory();
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::Empty);
+
+        // After a manual clear, a fresh new run should behave like a
+        // clean install: initial establishing state, not after-reset.
+        addSession(tracker, 2.0);
+        QCOMPARE(tracker.baselineState(), SteamHealthTracker::EstablishingInitial);
     }
 
     void highBaselineWarningStillReachable() {

@@ -15,9 +15,24 @@ SteamHealthTracker::SteamHealthTracker(QObject* parent)
     m_lastWarnedSession = m_settings.value("steam/lastWarnedSession", -99).toInt();
     m_lastSteamFlow = m_settings.value("steam/lastTrackedFlow", 0).toInt();
     m_lastSteamTemp = m_settings.value("steam/lastTrackedTemp", 0).toInt();
+    m_pendingAutoReset = m_settings.value("steam/pendingAutoReset", false).toBool();
+    m_establishingAfterReset = m_settings.value("steam/establishingAfterReset", false).toBool();
+    // Safety: if session count has already accumulated past the threshold
+    // (e.g. user downgraded/upgraded across the feature), clear the stale
+    // "establishing after reset" flag so we don't lie about the state.
+    if (m_establishingAfterReset && m_sessionCount >= MIN_SESSIONS_FOR_TREND) {
+        m_establishingAfterReset = false;
+        m_settings.setValue("steam/establishingAfterReset", false);
+    }
     if (!history.isEmpty()) {
         updateCachedStats(history, m_lastSteamTemp);
     }
+}
+
+SteamHealthTracker::BaselineState SteamHealthTracker::baselineState() const {
+    if (m_sessionCount <= 0) return Empty;
+    if (m_sessionCount >= MIN_SESSIONS_FOR_TREND) return Ready;
+    return m_establishingAfterReset ? EstablishingAfterReset : EstablishingInitial;
 }
 
 double SteamHealthTracker::normalizePressure(double avgPressure, int steamFlow) const {
@@ -123,20 +138,31 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     m_settings.setValue("steam/lastTrackedTemp", steamTempSetting);
     updateCachedStats(history, steamTempSetting);
 
+    // Once we're back to a full baseline window, drop the
+    // "establishing after reset" banner — trend detection is live again.
+    if (m_establishingAfterReset && m_sessionCount >= MIN_SESSIONS_FOR_TREND) {
+        m_establishingAfterReset = false;
+        m_settings.setValue("steam/establishingAfterReset", false);
+    }
+
     emit sessionHistoryChanged();
 }
 
 void SteamHealthTracker::clearHistory() {
     m_settings.remove("steam/sessionHistory");
     m_settings.remove("steam/lastWarnedSession");
+    m_settings.remove("steam/pendingAutoReset");
+    m_settings.remove("steam/establishingAfterReset");
     m_sessionCount = 0;
     m_lastWarnedSession = -99;
     m_baselinePressure = 0.0;
     m_baselineTemperature = 0.0;
     m_currentPressure = 0.0;
     m_currentTemperature = 0.0;
+    m_pendingAutoReset = false;
+    m_establishingAfterReset = false;
     emit sessionHistoryChanged();
-    qDebug() << "SteamHealth [reset] session history and warning cooldown cleared";
+    qDebug() << "SteamHealth [reset] session history, cooldown, and auto-reset flags cleared";
 }
 
 // --- Scale buildup trend detection ---
@@ -198,7 +224,11 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
     // Only pressure is used for auto-reset detection. Temperature changes are
     // driven by the heater setpoint, not limescale — a user changing their steam
     // temperature setting would spuriously trigger a reset.
-    bool autoReset = false;
+    //
+    // Two-step confirmation: a single low session only *arms* m_pendingAutoReset.
+    // The trim fires when the next session also drops (real descales produce
+    // persistent low readings; a one-shot dip is an outlier, not a descale).
+    bool dropDetected = false;
     qsizetype recentCount = qMin(qsizetype(5), n - 1);
     if (recentCount > 0) {
         double recentPressureSum = 0;
@@ -213,24 +243,49 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         if (pressureRange > 0) {
             double drop = recentAvgPressure - currentPressure;
             if (drop >= pressureRange * AUTO_RESET_DROP_THRESHOLD) {
-                autoReset = true;
+                dropDetected = true;
             }
         }
     }
 
-    if (autoReset) {
-        qDebug() << "SteamHealth [auto-reset]"
-                 << "normalizedP:" << currentPressure << "bar"
-                 << "temp:" << currentTemp << "°C"
-                 << "trimmedTo:" << AUTO_RESET_KEEP_SESSIONS << "sessions";
+    if (dropDetected) {
+        if (m_pendingAutoReset) {
+            // Confirmed: two consecutive low sessions. Trim history to just
+            // those two — they describe the new (cleaner) machine state.
+            // Everything older is from before the descale/clean and would
+            // pollute the new baseline's rolling recent-average.
+            qDebug() << "SteamHealth [auto-reset]"
+                     << "confirmed drop — trimming to" << AUTO_RESET_KEEP_SESSIONS << "sessions"
+                     << "normalizedP:" << currentPressure << "bar"
+                     << "temp:" << currentTemp << "°C";
 
-        while (history.size() > AUTO_RESET_KEEP_SESSIONS) {
-            history.removeLast();
+            while (history.size() > AUTO_RESET_KEEP_SESSIONS) {
+                history.removeLast();
+            }
+            saveHistory(history);
+            m_pendingAutoReset = false;
+            m_establishingAfterReset = true;
+            m_lastWarnedSession = -99;
+            m_settings.setValue("steam/pendingAutoReset", false);
+            m_settings.setValue("steam/establishingAfterReset", true);
+            m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
+            return;
         }
-        saveHistory(history);
-        m_lastWarnedSession = -99;
-        m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
-        return;
+
+        // First low session: arm pending flag and wait for confirmation.
+        qDebug() << "SteamHealth [auto-reset-armed]"
+                 << "low session detected — waiting for next session to confirm"
+                 << "normalizedP:" << currentPressure << "bar";
+        m_pendingAutoReset = true;
+        m_settings.setValue("steam/pendingAutoReset", true);
+    } else if (m_pendingAutoReset) {
+        // Previous session was low but this one isn't — the drop didn't
+        // persist, so disarm. The armed session stays in history and
+        // contributes to the baseline like any other session.
+        qDebug() << "SteamHealth [auto-reset-disarmed]"
+                 << "low session not confirmed — pressure recovered";
+        m_pendingAutoReset = false;
+        m_settings.setValue("steam/pendingAutoReset", false);
     }
 
     // --- Compute progress toward thresholds ---

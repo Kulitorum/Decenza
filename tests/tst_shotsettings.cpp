@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QRegularExpression>
 
 #include "ble/de1device.h"
 #include "ble/protocol/binarycodec.h"
@@ -210,6 +211,11 @@ private slots:
         // mis-parsing a stray 8-byte frame.
         TestFixture f;
         QSignalSpy spy(&f.device, &DE1Device::shotSettingsReported);
+
+        // Expected qWarning from parseShotSettings — silence so the test
+        // passes cleanly (otherwise QTest flags it as "passed with warning").
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("\\[BLE DE1\\] parseShotSettings: short payload"));
 
         QByteArray truncated(8, 0);
         emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, truncated);

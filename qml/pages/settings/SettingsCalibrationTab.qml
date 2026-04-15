@@ -381,12 +381,33 @@ Item {
                             Accessible.ignored: true
                         }
 
-                        // Status: no data yet
+                        // Status: establishing baseline (fresh install or post-reset).
+                        // SteamHealthTracker.baselineState drives the wording so the
+                        // user always sees what's happening — never a silent empty
+                        // panel. Covers the Empty / EstablishingInitial /
+                        // EstablishingAfterReset states; hidden once Ready.
                         Text {
                             visible: !SteamHealthTracker.hasData
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.calibration.steamHealthNoData",
-                                "Not enough data yet. At least 5 steam sessions with the same settings are needed to establish a baseline.")
+                            text: {
+                                var state = SteamHealthTracker.baselineState
+                                var count = SteamHealthTracker.sessionCount
+                                var total = SteamHealthTracker.minSessionsForTrend
+                                if (state === SteamHealthTrackerType.EstablishingAfterReset) {
+                                    return TranslationManager.translate("settings.calibration.steamHealthEstablishingAfterReset",
+                                        "Establishing new, improved baseline — we detected a significant pressure drop (likely a descale or steam-wand clean). Collecting %1 of %2 sessions to calibrate against your freshly-clean machine.")
+                                        .arg(count).arg(total)
+                                }
+                                if (state === SteamHealthTrackerType.EstablishingInitial) {
+                                    return TranslationManager.translate("settings.calibration.steamHealthEstablishingInitial",
+                                        "Establishing baseline — %1 of %2 sessions collected. Steam your next drink as normal; trends will appear once we have enough data.")
+                                        .arg(count).arg(total)
+                                }
+                                // Empty
+                                return TranslationManager.translate("settings.calibration.steamHealthEmpty",
+                                    "No steam sessions recorded yet. At least %1 sessions are needed before trend detection begins.")
+                                    .arg(total)
+                            }
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
