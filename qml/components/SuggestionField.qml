@@ -110,6 +110,11 @@ Item {
         text: root.text
         placeholder: root.label
         EnterKey.type: Qt.EnterKeyDone
+        // Disable predictive text / autocorrect on virtual keyboards (Android) so each
+        // keystroke commits to `text` immediately. Without this, the IME holds composing
+        // text and `onTextEdited` only fires on space/punctuation/backspace, so the
+        // filter-as-you-type dropdown appears to lag behind the user's typing.
+        inputMethodHints: Qt.ImhNoPredictiveText
 
         // Make room for buttons on the right (only in normal mode)
         rightPadding: root._accessibilityMode ? Theme.scaled(12) : Theme.scaled(84)
