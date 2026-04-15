@@ -77,6 +77,14 @@ add_decenza_test(tst_profileframe
     ${CODEC_SOURCES}
 )
 
+# --- tst_autoflowcal: window-level flow cal classification (#739 regression) ---
+add_decenza_test(tst_autoflowcal
+    tst_autoflowcal.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/autoflowcalclassifier.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileframe.cpp
+    ${CODEC_SOURCES}
+)
+
 # --- tst_machinestate: Phase transitions, volume reset, signals ---
 add_decenza_test(tst_machinestate
     tst_machinestate.cpp
