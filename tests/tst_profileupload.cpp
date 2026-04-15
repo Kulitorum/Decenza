@@ -223,19 +223,18 @@ private slots:
 
     // ===== Regression: leftover FRAME_WRITE acks from a prior batch ignored =====
     //
-    // Reproduces the first-connect profile-upload failure documented in the
-    // logs: sendInitialSettings() writes a basic profile (1 HEADER + 2 FRAMEs)
-    // to the DE1 before the user profile is uploaded. Those writes sit in the
-    // transport's queue when startProfileUploadTracking() attaches to
-    // writeComplete. As they drain, their FRAME_WRITE acks leak into the new
-    // tracker, so the first three "seen" frame bytes are [0x00, 0x01, ...]
-    // from the basic frames instead of the user profile's real frames, and
-    // the sequence check fails. The retry fires 1s later, by which time the
-    // queue is drained, and succeeds.
-    //
-    // Fix: treat HEADER_WRITE completion as a barrier — clear any frame bytes
-    // accumulated before our header lands, and ignore FRAME_WRITE acks that
-    // arrive before the header. This test asserts both behaviours.
+    // Historical context: sendInitialSettings() used to write a stub profile
+    // (1 HEADER + 2 FRAMEs) on every (re)connect before the user profile was
+    // uploaded. Those writes sat in the transport queue when the tracker
+    // attached to writeComplete, and their FRAME_WRITE acks leaked into the
+    // new tracker — the first two "seen" frame bytes were always [0x00, 0x01]
+    // from the stub, and the sequence check failed until a 1-second retry.
+    // The stub was subsequently removed, but the tracker still needs to be
+    // robust against any future code path that leaves writes pending at
+    // attach time (e.g. a shot-settings retry, or a refill-kit probe). These
+    // tests lock in the two defenses that prevent the leak:
+    //   (1) FRAME_WRITE acks before our HEADER_WRITE are ignored
+    //   (2) every HEADER_WRITE ack clears accumulated frame bytes
 
     void leakedFrameAcksBeforeOurHeaderAreIgnored() {
         MockTransport transport;
