@@ -10,6 +10,7 @@
 #endif
 #include <QBluetoothAddress>
 #include <QDateTime>
+#include <cmath>
 #include <QDebug>
 #include <QStringList>
 #include <chrono>
@@ -101,8 +102,14 @@ void DE1Device::onTransportDisconnected() {
     m_commandedSteamTargetC = -1.0;
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
+    m_lastShotSettingsPayload.clear();
+    m_shotSettingsIndicationPending = false;
     m_deviceSteamTargetC = -1.0;
     m_deviceGroupTargetC = -1.0;
+    // Emit the NOTIFY signal so any QML binding on deviceSteamTargetC /
+    // deviceGroupTargetC sees the reset and doesn't keep displaying the
+    // previous session's values until a fresh indication arrives.
+    emit shotSettingsReported(-1.0, -1.0);
 
     // If an upload was in flight when the transport dropped, surface it as
     // a non-retryable "BLE disconnect during upload" failure *now* rather
@@ -1219,6 +1226,10 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     m_commandedSteamTargetC = steamTemp;
     m_commandedGroupTargetC = groupTemp;
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
+    m_lastShotSettingsPayload = data;
+    // An indication for this write is now outstanding. Cleared in
+    // parseShotSettings() when the DE1 reports a matching value.
+    m_shotSettingsIndicationPending = true;
 
     // Trace every write so the timeline of commanded values is visible in the
     // debug log alongside the DE1-reported values from parseShotSettings().
@@ -1273,5 +1284,28 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
 
     m_deviceSteamTargetC = steamTargetC;
     m_deviceGroupTargetC = groupTargetC;
+
+    // Clear the indication-pending flag only when the report matches our
+    // last commanded value. A mismatch here is either a stale pre-write
+    // indication (leave pending set — the real post-write one will arrive
+    // next) or a genuine dropped-write (MainController will detect it and
+    // trigger a resend, which itself sets pending). Either way we wait.
+    if (m_commandedSteamTargetC >= 0.0
+        && std::abs(steamTargetC - m_commandedSteamTargetC) <= 0.5
+        && std::abs(groupTargetC - m_commandedGroupTargetC) <= 0.5) {
+        m_shotSettingsIndicationPending = false;
+    }
+
     emit shotSettingsReported(steamTargetC, groupTargetC);
+}
+
+void DE1Device::resendLastShotSettings() {
+    if (!m_transport || m_lastShotSettingsPayload.isEmpty()) return;
+    qDebug().noquote() << QString(
+        "[ShotSettings] resend: repeating last payload (steam=%1C group=%2C)")
+        .arg(m_commandedSteamTargetC, 0, 'f', 1)
+        .arg(m_commandedGroupTargetC, 0, 'f', 2);
+    m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
+    m_shotSettingsIndicationPending = true;
+    m_transport->write(DE1::Characteristic::SHOT_SETTINGS, m_lastShotSettingsPayload);
 }

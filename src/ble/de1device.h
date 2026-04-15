@@ -116,6 +116,13 @@ public:
     double commandedSteamTargetC() const { return m_commandedSteamTargetC; }
     double commandedGroupTargetC() const { return m_commandedGroupTargetC; }
     qint64 lastShotSettingsWriteMs() const { return m_lastShotSettingsWriteMs; }
+    // True between issuing a setShotSettings() write and receiving an
+    // indication that matches the commanded value. While true, any mismatch
+    // indication is presumed to be a stale pre-write value still in flight,
+    // and the drift check ignores it rather than triggering a spurious
+    // resend. Event-based replacement for a wall-clock "was the write
+    // recent?" heuristic.
+    bool shotSettingsIndicationPending() const { return m_shotSettingsIndicationPending; }
     double waterLevel() const { return m_waterLevel; }
     double waterLevelMm() const { return m_waterLevelMm; }
     int waterLevelMl() const { return m_waterLevelMl; }
@@ -181,6 +188,15 @@ public slots:
     void setShotSettings(double steamTemp, int steamDuration,
                         double hotWaterTemp, int hotWaterVolume,
                         double groupTemp);
+
+    // Re-send the last ShotSettings payload exactly as last commanded. Used
+    // by the drift auto-heal path to re-assert what we intended WITHOUT
+    // re-deriving the value from current Settings — critical because code
+    // paths like startSteamHeating() or softStopSteam() write values that
+    // intentionally diverge from Settings.steamTemperature()/keepSteamHeaterOn
+    // (e.g. startSteamHeating forces the heater on even when keepSteamHeaterOn
+    // is false). Resending via sendMachineSettings() would clobber them.
+    void resendLastShotSettings();
 
     // MMR write (for advanced settings like steam flow)
     void writeMMR(uint32_t address, uint32_t value);
@@ -296,6 +312,14 @@ private:
     double m_commandedSteamTargetC = -1.0;
     double m_commandedGroupTargetC = -1.0;
     qint64 m_lastShotSettingsWriteMs = 0;
+    // Raw 9-byte payload of the most recent ShotSettings write, used by
+    // resendLastShotSettings() to re-assert the exact value we commanded
+    // (including steamDuration/hotWater/etc. fields that aren't covered by
+    // the commanded-target pair above).
+    QByteArray m_lastShotSettingsPayload;
+    // See shotSettingsIndicationPending() — event-based "is a write currently
+    // unacknowledged?" flag.
+    bool m_shotSettingsIndicationPending = false;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)

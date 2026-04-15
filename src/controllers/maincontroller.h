@@ -219,10 +219,6 @@ private:
     void updateGlobalFromPerProfileMedian();
     double getGroupTemperature() const;
     void sendMachineSettings();
-    // Returns the steam target we'd command right now based on the current
-    // Settings (steamDisabled / keepSteamHeaterOn / steamTemperature). Used
-    // by onShotSettingsReported to detect drift.
-    double expectedSteamTargetC() const;
 
     ProfileManager* m_profileManager = nullptr;
 
@@ -259,9 +255,14 @@ private:
     // ShotSettings drift auto-heal tracking. The commanded values live on
     // DE1Device (so every call site — MainController, ProfileManager,
     // SteamCalibrator — feeds the same tracker); we only keep the retry
-    // bookkeeping here.
+    // bookkeeping here. Both fields are reset in applyAllSettings() so every
+    // reconnect / initial-settings cycle starts with a fresh retry budget.
     int m_shotSettingsDriftResendCount = 0;
-    qint64 m_lastShotSettingsResendMs = 0;
+    // Event-based "is a resend in flight?" flag, cleared when the DE1's
+    // next indication matches commanded (in onShotSettingsReported). Replaces
+    // a wall-clock rate limiter — see CLAUDE.md's "never timers as guards"
+    // rule.
+    bool m_shotSettingsResendInFlight = false;
     double m_lastPressure = 0;       // Last sample pressure (for transition reason inference)
     double m_lastFlow = 0;           // Last sample flow (for transition reason inference)
     bool m_tareDone = false;  // Track if we've tared for this shot

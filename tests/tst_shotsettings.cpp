@@ -255,6 +255,91 @@ private slots:
         QCOMPARE(f.device.deviceSteamTargetC(), -1.0);
         QCOMPARE(f.device.deviceGroupTargetC(), -1.0);
     }
+
+    void disconnectEmitsSentinelSignal() {
+        // Q_PROPERTY(deviceSteamTargetC NOTIFY shotSettingsReported) requires
+        // an emission whenever the value changes — including the -1 reset on
+        // disconnect, otherwise QML bindings would keep showing the previous
+        // session's value.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QSignalSpy spy(&f.device, &DE1Device::shotSettingsReported);
+
+        f.transport.setConnectedSim(false);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toDouble(), -1.0);
+        QCOMPARE(spy.at(0).at(1).toDouble(), -1.0);
+    }
+
+    // ===== Indication-pending flag (event-based stale-indication detection) =====
+
+    void indicationPendingSetOnWriteClearedOnMatch() {
+        TestFixture f;
+        QVERIFY(!f.device.shotSettingsIndicationPending());
+
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QVERIFY(f.device.shotSettingsIndicationPending());
+
+        // A matching indication arrives — flag clears.
+        QByteArray payload(9, 0);
+        payload[1] = char(160);
+        payload[2] = char(120);
+        payload[3] = char(80);
+        payload[4] = char(200);
+        payload[5] = char(60);
+        payload[6] = char(200);
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
+        payload[7] = char((groupRaw >> 8) & 0xFF);
+        payload[8] = char(groupRaw & 0xFF);
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+
+        QVERIFY(!f.device.shotSettingsIndicationPending());
+    }
+
+    void indicationPendingStaysOnMismatch() {
+        // A stale indication (non-matching value arrives before the DE1 has
+        // processed our write) must NOT clear the flag — otherwise a
+        // subsequent matching indication would be misinterpreted, and the
+        // drift handler would incorrectly treat the stale one as real drift.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QVERIFY(f.device.shotSettingsIndicationPending());
+
+        // Stale indication with the previous (0) value.
+        QByteArray payload(9, 0);
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(90.0);
+        payload[7] = char((groupRaw >> 8) & 0xFF);
+        payload[8] = char(groupRaw & 0xFF);
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+
+        QVERIFY(f.device.shotSettingsIndicationPending());
+    }
+
+    // ===== resendLastShotSettings: repeats the last payload exactly =====
+
+    void resendLastShotSettingsRepeatsPayload() {
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QByteArray originalWrite = f.transport.lastWriteData();
+
+        f.transport.clearWrites();
+        f.device.resendLastShotSettings();
+
+        QCOMPARE(f.transport.writes.size(), 1);
+        QCOMPARE(f.transport.lastWriteData(), originalWrite);
+        // Resend should arm the pending flag too — we're waiting for a new
+        // confirming indication.
+        QVERIFY(f.device.shotSettingsIndicationPending());
+    }
+
+    void resendLastShotSettingsNoOpBeforeFirstWrite() {
+        // Calling resend before any setShotSettings must not write anything.
+        TestFixture f;
+        f.transport.clearWrites();
+        f.device.resendLastShotSettings();
+        QCOMPARE(f.transport.writes.size(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSettings)
