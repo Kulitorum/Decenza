@@ -95,6 +95,15 @@ void DE1Device::onTransportDisconnected() {
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
 
+    // Clear ShotSettings tracking so a reconnect doesn't compare the DE1's
+    // post-reconnect indication against a stale commanded value from the
+    // previous session (which would log a spurious drift).
+    m_commandedSteamTargetC = -1.0;
+    m_commandedGroupTargetC = -1.0;
+    m_lastShotSettingsWriteMs = 0;
+    m_deviceSteamTargetC = -1.0;
+    m_deviceGroupTargetC = -1.0;
+
     // If an upload was in flight when the transport dropped, surface it as
     // a non-retryable "BLE disconnect during upload" failure *now* rather
     // than letting the 10 s m_uploadTimeoutTimer eventually fire with a
@@ -120,6 +129,8 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
         parseStateInfo(data);
     } else if (uuid == DE1::Characteristic::SHOT_SAMPLE) {
         parseShotSample(data);
+    } else if (uuid == DE1::Characteristic::SHOT_SETTINGS) {
+        parseShotSettings(data);
     } else if (uuid == DE1::Characteristic::WATER_LEVELS) {
         parseWaterLevel(data);
     } else if (uuid == DE1::Characteristic::VERSION) {
@@ -1202,5 +1213,65 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     data[7] = (groupTempEncoded >> 8) & 0xFF;
     data[8] = groupTempEncoded & 0xFF;
 
+    // Record what we're commanding so any setShotSettings() call site (main
+    // controller, profile manager, steam calibrator, …) contributes to the
+    // drift detector without each one having to remember.
+    m_commandedSteamTargetC = steamTemp;
+    m_commandedGroupTargetC = groupTemp;
+    m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
+
+    // Trace every write so the timeline of commanded values is visible in the
+    // debug log alongside the DE1-reported values from parseShotSettings().
+    // This is what lets us tell apart "we never wrote it" vs "we wrote it and
+    // the DE1 ignored us" vs "stale indication crossed our new write".
+    qDebug().noquote() << QString(
+        "[ShotSettings] write: steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C")
+        .arg(steamTemp, 0, 'f', 1)
+        .arg(steamDuration)
+        .arg(hotWaterTemp, 0, 'f', 1)
+        .arg(hotWaterVolume)
+        .arg(groupTemp, 0, 'f', 2);
+
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, data);
+
+    // SHOT_SETTINGS is subscribed in BleTransport::subscribeAll() and the DE1
+    // indicates the stored value back whenever it changes — including after
+    // our writes. MainController::onShotSettingsReported() compares that
+    // reported value against its commanded value and re-sends on drift.
+    // (A read-after-write here would race with our queued write, since
+    // BleTransport::read() bypasses the command queue; subscription gives us
+    // the same guarantee without the race.)
+}
+
+void DE1Device::parseShotSettings(const QByteArray& data) {
+    // Wire format matches de1app's hotwater_steam_settings_spec:
+    //   byte 0   SteamSettings flags (u8)
+    //   byte 1   TargetSteamTemp     (u8p0, °C)
+    //   byte 2   TargetSteamLength   (u8p0, seconds)
+    //   byte 3   TargetHotWaterTemp  (u8p0, °C)
+    //   byte 4   TargetHotWaterVol   (u8p0, ml)
+    //   byte 5   TargetHotWaterLength(u8p0, seconds)
+    //   byte 6   TargetEspressoVol   (u8p0, ml)
+    //   bytes 7-8 TargetGroupTemp    (u16p8 big-endian, °C)
+    if (data.size() < 9) {
+        qWarning() << "[BLE DE1] parseShotSettings: short payload, size=" << data.size();
+        return;
+    }
+    const auto d = reinterpret_cast<const uint8_t*>(data.constData());
+    const double steamTargetC = BinaryCodec::decodeU8P0(d[1]);
+    const uint16_t groupRaw = BinaryCodec::decodeShortBE(data, 7);
+    const double groupTargetC = BinaryCodec::decodeU16P8(groupRaw);
+
+    // Trace every DE1-reported value. Pair with the [ShotSettings] write:
+    // lines above to reconstruct the request/response timeline when
+    // diagnosing "heater didn't heat" reports (e.g. issue #746).
+    qDebug().noquote() << QString(
+        "[ShotSettings] reported: steam=%1C group=%2C (%3 bytes)")
+        .arg(steamTargetC, 0, 'f', 1)
+        .arg(groupTargetC, 0, 'f', 2)
+        .arg(data.size());
+
+    m_deviceSteamTargetC = steamTargetC;
+    m_deviceGroupTargetC = groupTargetC;
+    emit shotSettingsReported(steamTargetC, groupTargetC);
 }

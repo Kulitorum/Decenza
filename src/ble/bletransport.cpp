@@ -211,11 +211,15 @@ void BleTransport::subscribeAll() {
     subscribe(DE1::Characteristic::WATER_LEVELS);
     subscribe(DE1::Characteristic::READ_FROM_MMR);
     subscribe(DE1::Characteristic::TEMPERATURES);
+    // SHOT_SETTINGS is indicate-capable — subscribing lets us observe the
+    // DE1's stored steam/group targets and verify that our writes stuck.
+    subscribe(DE1::Characteristic::SHOT_SETTINGS);
 
     // Read initial values
     read(DE1::Characteristic::VERSION);
     read(DE1::Characteristic::STATE_INFO);
     read(DE1::Characteristic::WATER_LEVELS);
+    read(DE1::Characteristic::SHOT_SETTINGS);
 }
 
 void BleTransport::disconnect() {

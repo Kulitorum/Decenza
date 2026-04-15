@@ -1,7 +1,9 @@
 #include <QtTest>
+#include <QSignalSpy>
 
 #include "ble/de1device.h"
 #include "ble/protocol/binarycodec.h"
+#include "ble/protocol/de1characteristics.h"
 #include "mocks/MockTransport.h"
 
 // Test DE1Device::setShotSettings BLE wire format.
@@ -146,6 +148,112 @@ private slots:
         uint16_t expected = BinaryCodec::encodeU16P8(93.5);  // 93.5*256 = 23936
         QCOMPARE(uint8_t(data[7]), uint8_t((expected >> 8) & 0xFF));
         QCOMPARE(uint8_t(data[8]), uint8_t(expected & 0xFF));
+    }
+
+    // ===== Commanded-value tracking (issue #746 drift detection) =====
+
+    void commandedValuesInitiallyUnset() {
+        // Before any write, commanded values report -1.0 so MainController's
+        // drift check can ignore pre-commanded indications (DE1's power-on
+        // state isn't something we should "fix").
+        TestFixture f;
+        QCOMPARE(f.device.commandedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.commandedGroupTargetC(), -1.0);
+        QCOMPARE(f.device.lastShotSettingsWriteMs(), qint64(0));
+    }
+
+    void commandedValuesTrackedOnWrite() {
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QCOMPARE(f.device.commandedSteamTargetC(), 160.0);
+        QCOMPARE(f.device.commandedGroupTargetC(), 93.0);
+        QVERIFY(f.device.lastShotSettingsWriteMs() > 0);
+
+        // Subsequent write overwrites — latest command wins.
+        f.device.setShotSettings(0, 120, 80, 200, 88.0);
+        QCOMPARE(f.device.commandedSteamTargetC(), 0.0);
+        QCOMPARE(f.device.commandedGroupTargetC(), 88.0);
+    }
+
+    // ===== ShotSettings indication parsing (verifies DE1's reported state) =====
+
+    void parseShotSettingsValidPayload() {
+        // Construct the 9-byte de1app wire format and feed it to the device
+        // as if the DE1 had indicated its current state.
+        TestFixture f;
+        QSignalSpy spy(&f.device, &DE1Device::shotSettingsReported);
+
+        QByteArray payload(9, 0);
+        payload[0] = 0;                                    // SteamSettings flags
+        payload[1] = char(145);                            // TargetSteamTemp
+        payload[2] = char(120);                            // TargetSteamLength
+        payload[3] = char(80);                             // TargetHotWaterTemp
+        payload[4] = char(200);                            // TargetHotWaterVol
+        payload[5] = char(60);                             // TargetHotWaterLength
+        payload[6] = char(200);                            // TargetEspressoVol
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(90.25);
+        payload[7] = char((groupRaw >> 8) & 0xFF);
+        payload[8] = char(groupRaw & 0xFF);
+
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toDouble(), 145.0);
+        QCOMPARE(spy.at(0).at(1).toDouble(), 90.25);
+        QCOMPARE(f.device.deviceSteamTargetC(), 145.0);
+        QCOMPARE(f.device.deviceGroupTargetC(), 90.25);
+    }
+
+    void parseShotSettingsShortPayloadIgnored() {
+        // A truncated payload (short BLE frame) must not corrupt state or
+        // fire a misleading "reported=0" signal. This guards against
+        // mis-parsing a stray 8-byte frame.
+        TestFixture f;
+        QSignalSpy spy(&f.device, &DE1Device::shotSettingsReported);
+
+        QByteArray truncated(8, 0);
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, truncated);
+
+        QCOMPARE(spy.count(), 0);
+        QCOMPARE(f.device.deviceSteamTargetC(), -1.0);
+        QCOMPARE(f.device.deviceGroupTargetC(), -1.0);
+    }
+
+    void parseShotSettingsHeaterOff() {
+        // DE1 reporting steam=0 is how "heater off" looks on the wire.
+        // Parser must return 0 exactly (not the 74°C physical idle temp),
+        // which is how MainController distinguishes "user wants off" from
+        // "heater hasn't heated yet".
+        TestFixture f;
+        QSignalSpy spy(&f.device, &DE1Device::shotSettingsReported);
+
+        QByteArray payload(9, 0);
+        // All zeros except a plausible group temp.
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
+        payload[7] = char((groupRaw >> 8) & 0xFF);
+        payload[8] = char(groupRaw & 0xFF);
+
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toDouble(), 0.0);
+    }
+
+    void disconnectResetsCommanded() {
+        // On BLE disconnect, the tracker must clear so a reconnect doesn't
+        // compare the DE1's post-reconnect indication against a stale
+        // commanded value (which would log a spurious drift).
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QVERIFY(f.device.commandedSteamTargetC() > 0);
+
+        f.transport.setConnectedSim(false);
+
+        QCOMPARE(f.device.commandedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.commandedGroupTargetC(), -1.0);
+        QCOMPARE(f.device.lastShotSettingsWriteMs(), qint64(0));
+        QCOMPARE(f.device.deviceSteamTargetC(), -1.0);
+        QCOMPARE(f.device.deviceGroupTargetC(), -1.0);
     }
 };
 

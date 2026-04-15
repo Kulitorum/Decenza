@@ -68,6 +68,12 @@ class DE1Device : public QObject {
     Q_PROPERTY(double goalFlow READ goalFlow NOTIFY shotSampleReceived)
     Q_PROPERTY(double goalTemperature READ goalTemperature NOTIFY shotSampleReceived)
     Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY shotSampleReceived)
+    // DE1-reported ShotSettings target temperatures (from indications/reads of
+    // the SHOT_SETTINGS characteristic). -1.0 until first report. Used by
+    // MainController to detect drift between what we commanded and what the
+    // DE1 actually stored.
+    Q_PROPERTY(double deviceSteamTargetC READ deviceSteamTargetC NOTIFY shotSettingsReported)
+    Q_PROPERTY(double deviceGroupTargetC READ deviceGroupTargetC NOTIFY shotSettingsReported)
     Q_PROPERTY(double waterLevel READ waterLevel NOTIFY waterLevelChanged)
     Q_PROPERTY(double waterLevelMm READ waterLevelMm NOTIFY waterLevelChanged)
     Q_PROPERTY(int waterLevelMl READ waterLevelMl NOTIFY waterLevelChanged)
@@ -102,6 +108,14 @@ public:
     double goalTemperature() const { return m_goalTemperature; }
     double mixTemperature() const { return m_mixTemp; }
     double steamTemperature() const { return m_steamTemp; }
+    double deviceSteamTargetC() const { return m_deviceSteamTargetC; }
+    double deviceGroupTargetC() const { return m_deviceGroupTargetC; }
+    // Last ShotSettings values we actually wrote over BLE (-1.0 if none yet).
+    // Used by MainController's drift check to distinguish "DE1 dropped the
+    // write" from "DE1 reported its power-on state before we wrote anything".
+    double commandedSteamTargetC() const { return m_commandedSteamTargetC; }
+    double commandedGroupTargetC() const { return m_commandedGroupTargetC; }
+    qint64 lastShotSettingsWriteMs() const { return m_lastShotSettingsWriteMs; }
     double waterLevel() const { return m_waterLevel; }
     double waterLevelMm() const { return m_waterLevelMm; }
     int waterLevelMl() const { return m_waterLevelMl; }
@@ -215,6 +229,10 @@ signals:
     void isHeadlessChanged();
     void refillKitDetectedChanged();
     void heaterVoltageChanged();
+    // Emitted after the DE1 reports its stored ShotSettings (either from our
+    // initial read on connect or from an indication after a write). Values
+    // are the DE1's current targets in Celsius; 0 means the heater is off.
+    void shotSettingsReported(double deviceSteamTargetC, double deviceGroupTargetC);
     void logMessage(const QString& message);
 
 protected:
@@ -233,6 +251,7 @@ private:
     // Parse methods (dispatch from onTransportDataReceived)
     void parseStateInfo(const QByteArray& data);
     void parseShotSample(const QByteArray& data);
+    void parseShotSettings(const QByteArray& data);
     void parseWaterLevel(const QByteArray& data);
     void parseVersion(const QByteArray& data);
     void parseMMRResponse(const QByteArray& data);
@@ -266,6 +285,17 @@ private:
     double m_goalFlow = 0.0;
     double m_goalTemperature = 0.0;
     double m_steamTemp = 0.0;
+    // DE1-reported ShotSettings targets (from SHOT_SETTINGS indications/reads).
+    // -1.0 until first report so MainController can distinguish "never heard
+    // back" from "DE1 says target is 0".
+    double m_deviceSteamTargetC = -1.0;
+    double m_deviceGroupTargetC = -1.0;
+    // Last ShotSettings values we wrote (tracked here so every setShotSettings
+    // caller — MainController, ProfileManager, SteamCalibrator, etc. — is
+    // covered without each one having to remember). -1.0 until first write.
+    double m_commandedSteamTargetC = -1.0;
+    double m_commandedGroupTargetC = -1.0;
+    qint64 m_lastShotSettingsWriteMs = 0;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
