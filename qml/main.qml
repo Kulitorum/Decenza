@@ -1874,6 +1874,26 @@ ApplicationWindow {
         }
     }
 
+    // DE1 communication-failure dialog — shown when ProfileManager has
+    // exhausted its retry budget for BLE profile uploads. Opens/closes
+    // purely from ProfileManager.de1CommunicationFailure so there's no
+    // imperative showDialog()/hideDialog() coupling to maintain.
+    De1CommunicationErrorDialog {
+        id: de1CommunicationErrorDialog
+    }
+    Connections {
+        target: ProfileManager
+        function onDe1CommunicationFailureChanged() {
+            if (ProfileManager.de1CommunicationFailure) {
+                if (!de1CommunicationErrorDialog.visible)
+                    de1CommunicationErrorDialog.open()
+            } else {
+                if (de1CommunicationErrorDialog.visible)
+                    de1CommunicationErrorDialog.close()
+            }
+        }
+    }
+
     // MCP confirmation dialog — shown when an AI assistant triggers a machine start operation
     McpConfirmDialog {
         id: mcpConfirmDialog

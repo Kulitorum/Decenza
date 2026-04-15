@@ -115,7 +115,12 @@ private slots:
                                      transport.writes.at(1).second);
 
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.takeFirst().at(0).toBool(), false);
+        auto args = spy.takeFirst();
+        QCOMPARE(args.at(0).toBool(), false);
+        // The reason argument (index 1) carries the same text the qWarning
+        // logs. Listeners (e.g. ProfileManager's retry loop) pattern-match on
+        // it to decide whether to retry — lock it down.
+        QVERIFY(args.at(1).toString().startsWith("frame sequence mismatch"));
     }
 
     // ===== Failure path: frames ACKed out of order =====
@@ -145,7 +150,9 @@ private slots:
                                      transport.writes.at(1).second);
 
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.takeFirst().at(0).toBool(), false);
+        auto args = spy.takeFirst();
+        QCOMPARE(args.at(0).toBool(), false);
+        QVERIFY(args.at(1).toString().startsWith("frame sequence mismatch"));
     }
 
     // ===== Unrelated writes don't satisfy the tracker =====
@@ -234,7 +241,44 @@ private slots:
         device.disconnect();
 
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.takeFirst().at(0).toBool(), false);
+        auto args = spy.takeFirst();
+        QCOMPARE(args.at(0).toBool(), false);
+        QCOMPARE(args.at(1).toString(), QStringLiteral("BLE disconnect during upload"));
+    }
+
+    // ===== Unexpected transport drop surfaces the same non-retryable reason =====
+
+    void unexpectedTransportDropReportsBleDisconnect() {
+        // Unlike disconnectMidUploadReportsFailure() (which drives the
+        // app-initiated DE1Device::disconnect() path), this test simulates
+        // the transport layer firing disconnected() on its own — e.g. the
+        // DE1 powered off, or BLE link-loss. DE1Device::onTransportDisconnected
+        // must finish the in-flight upload with the "BLE disconnect during
+        // upload" reason so it's classified non-retryable. Without this,
+        // the 10-second upload-timeout timer would eventually fire with
+        // "timeout waiting for write ACKs" (retryable) and poison any
+        // downstream retry counter across the reconnect.
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        QSignalSpy spy(&device, &DE1Device::profileUploaded);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("profile upload FAILED — BLE disconnect during upload"));
+
+        device.uploadProfile(makeSimpleProfile());
+        // Ack header to get the tracker past its first write, then simulate
+        // the transport going away. Note this bypasses DE1Device::disconnect
+        // and only fires DE1Transport::disconnected, which is the path
+        // that onTransportDisconnected handles.
+        emit transport.writeComplete(DE1::Characteristic::HEADER_WRITE,
+                                     transport.writes.at(0).second);
+        transport.setConnectedSim(false);
+
+        QCOMPARE(spy.count(), 1);
+        auto args = spy.takeFirst();
+        QCOMPARE(args.at(0).toBool(), false);
+        QCOMPARE(args.at(1).toString(), QStringLiteral("BLE disconnect during upload"));
     }
 };
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QTimer>
 #include <QVariantList>
 #include <QMap>
 #include "../profile/profile.h"
@@ -58,6 +59,12 @@ class ProfileManager : public QObject {
     Q_PROPERTY(QString currentEditorType READ currentEditorType NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
+    // Set to true after kMaxUploadRetryAttempts consecutive profile uploads
+    // have failed with retryable reasons. qml/main.qml watches this property
+    // via a Connections handler (onDe1CommunicationFailureChanged) and calls
+    // open()/close() on De1CommunicationErrorDialog. The dialog's OK button
+    // calls acknowledgeDe1CommunicationFailure() to clear the flag.
+    Q_PROPERTY(bool de1CommunicationFailure READ de1CommunicationFailure NOTIFY de1CommunicationFailureChanged)
     Q_PROPERTY(bool profileHasRecommendedDose READ profileHasRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileRecommendedDose READ profileRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(bool isCurrentProfileReadOnly READ isCurrentProfileReadOnly NOTIFY currentProfileChanged)
@@ -154,6 +161,10 @@ public slots:
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);
 
+    // Communication-failure dialog support.
+    bool de1CommunicationFailure() const { return m_de1CommunicationFailure; }
+    Q_INVOKABLE void acknowledgeDe1CommunicationFailure();
+
 signals:
     void currentProfileChanged();
     void profileModifiedChanged();
@@ -168,6 +179,9 @@ signals:
     // Emitted when loadProfile() cannot find the requested profile file.
     // The UI should show an error and prompt the user to select another profile.
     void profileLoadFailed(const QString& filename);
+
+    // See Q_PROPERTY documentation above.
+    void de1CommunicationFailureChanged();
 
 private:
     void loadDefaultProfile();
@@ -197,6 +211,18 @@ private:
     bool m_profileModified = false;
     bool m_profileUploadPending = false;
     bool m_startupLoadDone = false;
+
+    // Auto-retry state for failed profile uploads. A failure with a retryable
+    // reason (frame sequence mismatch, ACK timeout) arms
+    // m_profileUploadRetryTimer with exponential backoff, capped per the
+    // constants in profilemanager.cpp. On success, disconnect, or
+    // supersede/queue-clear, the counter resets. After
+    // kMaxUploadRetryAttempts consecutive failures, m_de1CommunicationFailure
+    // flips to true so the UI can surface a "power-cycle the DE1" dialog.
+    QTimer m_profileUploadRetryTimer;
+    int m_profileUploadRetryAttempts = 0;
+    QString m_lastUploadFailureReason;
+    bool m_de1CommunicationFailure = false;
 
 #ifdef DECENZA_TESTING
     friend class tst_ProfileManager;
