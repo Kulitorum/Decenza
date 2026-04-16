@@ -106,6 +106,7 @@ Dialog {
     }
 
     function doSave() {
+        Qt.inputMethod.commit()
         // Extract segments from document and compile to HTML
         var segments = formatter.toSegments()
         var html = formatter.segmentsToHtml(segments)

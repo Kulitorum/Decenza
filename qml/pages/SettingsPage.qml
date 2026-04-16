@@ -477,6 +477,7 @@ Page {
                     accessibleName: TranslationManager.translate("settingsPage.saveThemeWithName", "Save current theme with entered name")
                     enabled: saveThemeDialog.themeName.trim().length > 0
                     onClicked: {
+                        Qt.inputMethod.commit()
                         var name = saveThemeDialog.themeName.trim()
                         if (name.length > 0 && name !== "Default") {
                             Settings.saveCurrentTheme(name)

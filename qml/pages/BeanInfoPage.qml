@@ -181,6 +181,7 @@ Page {
 
     // Save edited shot back to history
     function saveEditedShot() {
+        Qt.inputMethod.commit()
         if (editShotId <= 0) return
         var metadata = {
             "beanBrand": editBeanBrand,

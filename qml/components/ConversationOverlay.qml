@@ -465,6 +465,7 @@ Rectangle {
                         Keys.onEnterPressed: sendFollowUp()
 
                         function sendFollowUp() {
+                            Qt.inputMethod.commit()
                             if (text.length === 0) return
                             if (!MainController.aiManager || !MainController.aiManager.conversation) return
 
