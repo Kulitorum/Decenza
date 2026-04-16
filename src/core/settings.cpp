@@ -41,6 +41,11 @@ Settings::Settings(QObject* parent)
     m_settings.sync();
     qDebug() << "Settings: sync() done, contains profile/favorites:" << m_settings.contains("profile/favorites");
 
+    // Snapshot whether this looks like a fresh install before any default-init
+    // blocks below write keys. Used by one-shot migrations that need to behave
+    // differently for new users vs upgrades.
+    const bool freshInstall = m_settings.allKeys().isEmpty();
+
     // Initialize default pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {
         QJsonArray defaultPresets;
@@ -181,13 +186,25 @@ Settings::Settings(QObject* parent)
     // One-time migration: the headless-only "skip purge confirm" toggle was folded
     // into the unified steamTwoTapStop setting. If the user had explicitly enabled
     // single-press on a headless machine (skipPurgeConfirm = true), preserve that
-    // by setting steamTwoTapStop = false. Otherwise let the new default apply.
+    // by setting steamTwoTapStop = false. Otherwise drop the old key.
     if (m_settings.contains("headless/skipPurgeConfirm")) {
         if (m_settings.value("headless/skipPurgeConfirm").toBool()) {
             m_settings.setValue("calibration/steamTwoTapStop", false);
         }
         m_settings.remove("headless/skipPurgeConfirm");
         qDebug() << "Settings: Migrated headless/skipPurgeConfirm to calibration/steamTwoTapStop";
+    }
+
+    // One-time default flip: the new default for steamTwoTapStop is false (matches
+    // de1app firmware default). For existing installs, seed the old default (true)
+    // so users who relied on it by inertia don't see their stop button behavior
+    // change on upgrade. Fresh installs skip this and get the new single-tap default.
+    if (!m_settings.contains("calibration/steamTwoTapStopDefaultMigrated")) {
+        if (!freshInstall && !m_settings.contains("calibration/steamTwoTapStop")) {
+            m_settings.setValue("calibration/steamTwoTapStop", true);
+            qDebug() << "Settings: Seeded steamTwoTapStop=true for existing install (preserves pre-unification two-tap default)";
+        }
+        m_settings.setValue("calibration/steamTwoTapStopDefaultMigrated", true);
     }
 
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
