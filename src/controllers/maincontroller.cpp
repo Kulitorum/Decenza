@@ -563,8 +563,8 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     }
     if (hotWaterTempDrift) {
         QString note = QStringLiteral("hot water temp %1C but we commanded %2C")
-                           .arg(deviceHotWaterTempC, 0, 'f', 0)
-                           .arg(commandedHotWaterTemp, 0, 'f', 0);
+                           .arg(deviceHotWaterTempC, 0, 'f', 1)
+                           .arg(commandedHotWaterTemp, 0, 'f', 1);
         summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
     if (hotWaterVolDrift) {

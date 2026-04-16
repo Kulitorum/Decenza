@@ -68,10 +68,10 @@ class DE1Device : public QObject {
     Q_PROPERTY(double goalFlow READ goalFlow NOTIFY shotSampleReceived)
     Q_PROPERTY(double goalTemperature READ goalTemperature NOTIFY shotSampleReceived)
     Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY shotSampleReceived)
-    // DE1-reported ShotSettings target temperatures (from indications/reads of
-    // the SHOT_SETTINGS characteristic). -1.0 until first report. Used by
-    // MainController to detect drift between what we commanded and what the
-    // DE1 actually stored.
+    // DE1-reported ShotSettings targets (from indications/reads of the
+    // SHOT_SETTINGS characteristic). -1.0 (double) or -1 (int) until first
+    // report. Used by MainController to detect drift between what we
+    // commanded and what the DE1 actually stored.
     Q_PROPERTY(double deviceSteamTargetC READ deviceSteamTargetC NOTIFY shotSettingsReported)
     Q_PROPERTY(double deviceGroupTargetC READ deviceGroupTargetC NOTIFY shotSettingsReported)
     Q_PROPERTY(double waterLevel READ waterLevel NOTIFY waterLevelChanged)

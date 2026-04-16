@@ -1312,6 +1312,7 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
         && std::abs(hotWaterTempC - m_commandedHotWaterTempC) <= kTempTolerance
         && m_commandedHotWaterVolMl >= 0
         && hotWaterVolMl == m_commandedHotWaterVolMl
+        && m_commandedGroupTargetC >= 0.0
         && std::abs(groupTargetC - m_commandedGroupTargetC) <= kTempTolerance) {
         m_shotSettingsIndicationPending = false;
     }
