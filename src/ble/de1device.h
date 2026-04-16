@@ -327,9 +327,10 @@ private:
     double m_commandedGroupTargetC = -1.0;
     qint64 m_lastShotSettingsWriteMs = 0;
     // Raw 9-byte payload of the most recent ShotSettings write, used by
-    // resendLastShotSettings() to re-assert the exact value we commanded
-    // (including steamDuration/hotWater/etc. fields that aren't covered by
-    // the commanded-target pair above).
+    // resendLastShotSettings() to re-emit the exact bytes we originally sent.
+    // This is the only way to resend bytes 5-6 (TargetHotWaterLength,
+    // TargetEspressoVol) which are hardcoded in setShotSettings() and have
+    // no corresponding commanded-value members.
     QByteArray m_lastShotSettingsPayload;
     // See shotSettingsIndicationPending() — event-based "is a write currently
     // unacknowledged?" flag.

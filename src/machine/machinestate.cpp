@@ -197,10 +197,12 @@ void MachineState::updatePhase() {
     DE1::SubState previousSubState = m_previousSubState;
     m_previousSubState = subState;
 
-    // Log steam substate transitions for diagnostics (#766 follow-up).
-    // Reconstructs the full Steaming->Puffing->Ending->Idle sequence from
-    // logs when diagnosing "steam didn't stop" reports.
-    if (state == DE1::State::Steam && subState != previousSubState) {
+    // Log steam substate transitions to reconstruct the full
+    // Steaming->Puffing->Ending->Idle sequence in bug reports.
+    // Gate on oldPhase==Steaming so the first entry into Steam doesn't log
+    // a spurious transition from m_previousSubState's init value.
+    if (state == DE1::State::Steam && oldPhase == Phase::Steaming
+        && subState != previousSubState) {
         qDebug().noquote() << QString("[Steam] substate: %1 -> %2")
             .arg(DE1::subStateToString(previousSubState),
                  DE1::subStateToString(subState));

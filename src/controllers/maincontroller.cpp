@@ -454,7 +454,8 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     // Sentinel values emitted by DE1Device on disconnect — skip, there's
     // nothing to compare against.
     if (deviceSteamTargetC < 0.0 || deviceGroupTargetC < 0.0
-        || deviceSteamDurationSec < 0 || deviceHotWaterVolMl < 0) {
+        || deviceSteamDurationSec < 0 || deviceHotWaterTempC < 0.0
+        || deviceHotWaterVolMl < 0) {
         return;
     }
 
