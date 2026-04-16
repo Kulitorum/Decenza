@@ -10,16 +10,20 @@ Page {
 
     property string pageTitle: TranslationManager.translate("flush.title", "Flush")
 
-    // No side effects here — this fires during the StackView preload Loader
-    // in main.qml and would apply flush settings before the user has even
-    // opened the page. Side effects belong in StackView.onActivated.
+    // Use StackView.onActivated (not Component.onCompleted) so side effects
+    // run when the page is actually shown, not during construction. This
+    // also re-fires on pop-back if the page is ever pushed below another.
+    // Skip the preset-reset and settings push while flushing so a
+    // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
         root.currentPageTitle = pageTitle
-        // Sync Settings with selected preset
-        Settings.flushFlow = getCurrentPresetFlow()
-        Settings.flushSeconds = getCurrentPresetSeconds()
-        MainController.applyFlushSettings()
-        if (!isFlushing) secondsInput.forceActiveFocus()
+        if (!isFlushing) {
+            // Sync Settings with selected preset
+            Settings.flushFlow = getCurrentPresetFlow()
+            Settings.flushSeconds = getCurrentPresetSeconds()
+            MainController.applyFlushSettings()
+            secondsInput.forceActiveFocus()
+        }
     }
 
     property bool isFlushing: MachineState.phase === MachineStateType.Phase.Flushing || root.debugLiveView

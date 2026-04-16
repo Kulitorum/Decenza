@@ -8,25 +8,25 @@ Page {
     objectName: "hotWaterPage"
     background: Rectangle { color: Theme.backgroundColor }
 
-    // No side effects here — this fires during the StackView preload Loader
-    // in main.qml and would tare the scale and apply hot water settings before
-    // the user has even opened the page. Side effects belong in
-    // StackView.onActivated.
+    // Use StackView.onActivated (not Component.onCompleted) so side effects
+    // run when the page is actually shown, not during construction. This
+    // also re-fires on pop-back if the page is ever pushed below another.
+    // Skip the preset-reset, settings push, and tare while dispensing so a
+    // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
         root.currentPageTitle = pageTitleText.text
-        // Sync Settings with selected preset
-        Settings.waterVolume = getCurrentVesselVolume()
-        Settings.waterVolumeMode = getCurrentVesselMode()
-        Settings.hotWaterFlowRate = getCurrentVesselFlowRate()
-        MainController.applyHotWaterSettings()
-        // Tare immediately so display shows 0g instead of current scale weight.
-        // Skip if already dispensing — the C++ flow-start handler tares with a
-        // 200ms delay to avoid BLE command contention; a duplicate tare here
-        // would overwrite the baseline and risk BLE packet drops.
-        if (!isVolumeMode && !isDispensing) {
-            MachineState.tareScale()
+        if (!isDispensing) {
+            // Sync Settings with selected preset
+            Settings.waterVolume = getCurrentVesselVolume()
+            Settings.waterVolumeMode = getCurrentVesselMode()
+            Settings.hotWaterFlowRate = getCurrentVesselFlowRate()
+            MainController.applyHotWaterSettings()
+            // Tare immediately so display shows 0g instead of current scale weight.
+            if (!isVolumeMode) {
+                MachineState.tareScale()
+            }
+            volumeInput.forceActiveFocus()
         }
-        if (!isDispensing) volumeInput.forceActiveFocus()
     }
 
     // Hidden Tr component for page title (used by root.currentPageTitle)
