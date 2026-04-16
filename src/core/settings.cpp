@@ -178,6 +178,18 @@ Settings::Settings(QObject* parent)
         qDebug() << "Settings: Migrated auto flow calibration to default-on";
     }
 
+    // One-time migration: the headless-only "skip purge confirm" toggle was folded
+    // into the unified steamTwoTapStop setting. If the user had explicitly enabled
+    // single-press on a headless machine (skipPurgeConfirm = true), preserve that
+    // by setting steamTwoTapStop = false. Otherwise let the new default apply.
+    if (m_settings.contains("headless/skipPurgeConfirm")) {
+        if (m_settings.value("headless/skipPurgeConfirm").toBool()) {
+            m_settings.setValue("calibration/steamTwoTapStop", false);
+        }
+        m_settings.remove("headless/skipPurgeConfirm");
+        qDebug() << "Settings: Migrated headless/skipPurgeConfirm to calibration/steamTwoTapStop";
+    }
+
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
     // The auto-cal algorithm prior to this version had no ratio guards, allowing shots
     // with poor scale data (machine/weight ratio > 1.4) to drag calibrations down to
@@ -625,18 +637,6 @@ void Settings::setSteamAutoFlushSeconds(int seconds) {
     if (steamAutoFlushSeconds() != seconds) {
         m_settings.setValue("steam/autoFlushSeconds", seconds);
         emit steamAutoFlushSecondsChanged();
-    }
-}
-
-// Headless machine settings
-bool Settings::headlessSkipPurgeConfirm() const {
-    return m_settings.value("headless/skipPurgeConfirm", false).toBool();
-}
-
-void Settings::setHeadlessSkipPurgeConfirm(bool skip) {
-    if (headlessSkipPurgeConfirm() != skip) {
-        m_settings.setValue("headless/skipPurgeConfirm", skip);
-        emit headlessSkipPurgeConfirmChanged();
     }
 }
 
@@ -3412,7 +3412,7 @@ void Settings::setHotWaterFlowRate(int value) {
 }
 
 bool Settings::steamTwoTapStop() const {
-    return m_settings.value("calibration/steamTwoTapStop", true).toBool();
+    return m_settings.value("calibration/steamTwoTapStop", false).toBool();
 }
 
 void Settings::setSteamTwoTapStop(bool value) {

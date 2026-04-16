@@ -73,7 +73,6 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
             if (include("screenBrightness", "machine")) result["screenBrightness"] = settings->screenBrightness();
             if (include("defaultShotRating", "machine")) result["defaultShotRating"] = settings->defaultShotRating();
-            if (include("headlessSkipPurgeConfirm", "machine")) result["headlessSkipPurgeConfirm"] = settings->headlessSkipPurgeConfirm();
             if (include("launcherMode", "machine")) result["launcherMode"] = settings->launcherMode();
             if (include("autoWakeEnabled", "machine")) result["autoWakeEnabled"] = settings->autoWakeEnabled();
             if (include("autoWakeStayAwakeEnabled", "machine")) result["autoWakeStayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();

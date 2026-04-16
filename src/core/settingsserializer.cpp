@@ -69,11 +69,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["pitcherPresets"] = pitcherPresets;
     root["steam"] = steam;
 
-    // Headless settings
-    QJsonObject headless;
-    headless["skipPurgeConfirm"] = settings->headlessSkipPurgeConfirm();
-    root["headless"] = headless;
-
     // Launcher mode
     root["launcherMode"] = settings->launcherMode();
 
@@ -424,14 +419,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 QJsonObject p = v.toObject();
                 settings->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
             }
-        }
-    }
-
-    // Headless settings
-    if (json.contains("headless") && !excludeKeys.contains("headless")) {
-        QJsonObject headless = json["headless"].toObject();
-        if (headless.contains("skipPurgeConfirm")) {
-            settings->setHeadlessSkipPurgeConfirm(headless["skipPurgeConfirm"].toBool());
         }
     }
 

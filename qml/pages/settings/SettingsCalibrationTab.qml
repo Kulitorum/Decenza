@@ -726,28 +726,7 @@ Item {
 
                 // Heater test time-out
                 Text { text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: steamTwoTapSwitch; KeyNavigation.backtab: heaterTestFlowSlider }
-
-                // Steam two-tap stop
-                RowLayout { Layout.fillWidth: true
-                    Text { text: TranslationManager.translate("settings.calibration.steamTwoTapStop", "Steam two-tap stop"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                    Item { Layout.fillWidth: true }
-                    StyledSwitch {
-                        id: steamTwoTapSwitch
-                        accessibleName: TranslationManager.translate("settings.calibration.steamTwoTapStop", "Steam two-tap stop")
-                        checked: Settings.steamTwoTapStop
-                        onToggled: Settings.steamTwoTapStop = checked
-                        KeyNavigation.tab: defaultsButton
-                        KeyNavigation.backtab: heaterTestTimeoutSlider
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.calibration.steamTwoTapStopDesc", "First tap goes to puffs, second tap stops steam")
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    wrapMode: Text.WordWrap
-                }
+                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestFlowSlider }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
@@ -763,10 +742,9 @@ Item {
                         Settings.heaterWarmupFlow = 20
                         Settings.heaterTestFlow = 40
                         Settings.heaterWarmupTimeout = 10
-                        Settings.steamTwoTapStop = true
                     }
                     KeyNavigation.tab: doneButton
-                    KeyNavigation.backtab: steamTwoTapSwitch
+                    KeyNavigation.backtab: heaterTestTimeoutSlider
                 }
 
                 RowLayout {
