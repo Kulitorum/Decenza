@@ -2704,10 +2704,26 @@ ApplicationWindow {
 
         function onShotEndedShowMetadata() {
             root.pendingShotId = MainController.lastSavedShotId
-            root.pendingMetadataNavigation = true
-            console.log("Shot ended, will navigate after stop overlay. shotId:", root.pendingShotId)
-            // Restart stop overlay timer to ensure it survives the page change
-            stopOverlayTimer.restart()
+            console.log("Shot ended, navigate to review. shotId:", root.pendingShotId,
+                        "overlayVisible:", root.stopOverlayVisible)
+
+            if (root.stopOverlayVisible) {
+                // Stop overlay still showing — defer navigation to when it expires
+                root.pendingMetadataNavigation = true
+                stopOverlayTimer.restart()
+            } else {
+                // Stop overlay already expired (e.g. SAW settling outlasted the
+                // 3s overlay timer and goToIdle already ran). Navigate directly
+                // to shot review instead of restarting the timer for another 3s.
+                var timeout = Number(Settings.value("postShotReviewTimeout", 31))
+                if (timeout === 0) {
+                    console.log("Post-shot review: Instant timeout, staying on idle")
+                } else if (root.pendingShotId > 0) {
+                    goToShotMetadata(root.pendingShotId)
+                } else {
+                    console.warn("Post-shot navigation: no valid pendingShotId after overlay expired")
+                }
+            }
         }
     }
 
