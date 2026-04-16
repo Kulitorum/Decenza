@@ -106,7 +106,6 @@ void DE1Device::onTransportDisconnected() {
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
     m_lastShotSettingsPayload.clear();
-    m_shotSettingsIndicationPending = false;
     m_deviceSteamTargetC = -1.0;
     m_deviceSteamDurationSec = -1;
     m_deviceHotWaterTempC = -1.0;
@@ -1243,9 +1242,6 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     m_commandedGroupTargetC = groupTemp;
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_lastShotSettingsPayload = data;
-    // An indication for this write is now outstanding. Cleared in
-    // parseShotSettings() when the DE1 reports a matching value.
-    m_shotSettingsIndicationPending = true;
 
     // Trace every write so the timeline of commanded values is visible in the
     // debug log alongside the DE1-reported values from parseShotSettings().
@@ -1310,16 +1306,6 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     m_deviceHotWaterVolMl = hotWaterVolMl;
     m_deviceGroupTargetC = groupTargetC;
 
-    // Clear the indication-pending flag on every received indication. Under
-    // the read-after-write model (the read is queued behind the write so it
-    // executes on the post-write state), there is no "stale pre-write
-    // indication" race to filter out — every received report IS the actual
-    // post-write state. If it doesn't match commanded, that's real drift,
-    // and MainController must act on it (not suppress as stale).
-    if (m_commandedSteamTargetC >= 0.0) {
-        m_shotSettingsIndicationPending = false;
-    }
-
     emit shotSettingsReported(steamTargetC, steamDurationSec, hotWaterTempC, hotWaterVolMl, groupTargetC);
 }
 
@@ -1333,6 +1319,5 @@ void DE1Device::resendLastShotSettings() {
         .arg(m_commandedHotWaterVolMl)
         .arg(m_commandedGroupTargetC, 0, 'f', 2);
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
-    m_shotSettingsIndicationPending = true;
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, m_lastShotSettingsPayload);
 }

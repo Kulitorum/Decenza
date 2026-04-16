@@ -518,12 +518,8 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         return;
     }
 
-    // Drift detected. Under read-after-write, the received indication is the
-    // post-write state — if it doesn't match commanded, that's real drift.
-    // (Previously this branch had a stale-indication filter that suppressed
-    // mismatches while indicationPending was true, but that was needed only
-    // for the subscription-based design where pre-write indications could
-    // race ahead. The queued read happens after the write completes.)
+    // Drift detected. The received indication is the post-write state
+    // (read is queued after the write), so any mismatch is real drift.
 
     // Classify for the log so we can scan `grep SettingsDrift` in bug
     // reports and immediately see what happened.

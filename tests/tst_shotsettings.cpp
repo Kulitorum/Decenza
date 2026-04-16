@@ -305,31 +305,6 @@ private slots:
         QCOMPARE(spy.at(0).at(4).toDouble(), -1.0);     // group temp
     }
 
-    // ===== Indication-pending flag =====
-
-    void indicationPendingSetOnWriteClearedOnAnyIndication() {
-        // Under read-after-write, the queued read always returns the
-        // post-write state. The flag clears on ANY indication received after
-        // the first write, since there are no pre-write stale indications to
-        // filter out (the read happens after the write completes).
-        TestFixture f;
-        QVERIFY(!f.device.shotSettingsIndicationPending());
-
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
-
-        // Any indication clears the flag — match or mismatch. Drift is
-        // detected by MainController comparing reported vs commanded values,
-        // not by inspecting the pending flag.
-        QByteArray payload(9, 0);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(90.0);  // mismatching
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        QVERIFY(!f.device.shotSettingsIndicationPending());
-    }
-
     // ===== resendLastShotSettings: repeats the last payload exactly =====
 
     void resendLastShotSettingsRepeatsPayload() {
@@ -342,9 +317,6 @@ private slots:
 
         QCOMPARE(f.transport.writes.size(), 1);
         QCOMPARE(f.transport.lastWriteData(), originalWrite);
-        // Resend should arm the pending flag too — we're waiting for a new
-        // confirming indication.
-        QVERIFY(f.device.shotSettingsIndicationPending());
     }
 
     void resendLastShotSettingsNoOpBeforeFirstWrite() {
