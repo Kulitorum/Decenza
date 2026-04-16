@@ -375,6 +375,7 @@ private slots:
         // Set a temperature override
         f.settings.setTemperatureOverride(95.0);
         f.transport.clearWrites();
+        f.device.m_lastShotSettingsPayload.clear();
         f.profileManager.uploadCurrentProfile();
 
         // Shot settings should reflect the override, not the profile default
