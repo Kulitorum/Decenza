@@ -544,6 +544,24 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (summary.drinkEy > 0) out << "EY " << QString::number(summary.drinkEy, 'f', 1) << "%";
         out << "\n";
     }
+
+    // Overall shot peaks across ALL phases — so the AI can compare against profile peak-pressure
+    // targets (e.g. D-Flow "grind for 6–9 bar peak") without conflating per-phase peaks.
+    {
+        double peakPressureVal = 0, peakPressureTime = 0;
+        for (const auto& pt : summary.pressureCurve) {
+            if (pt.y() > peakPressureVal) { peakPressureVal = pt.y(); peakPressureTime = pt.x(); }
+        }
+        double peakFlowVal = 0, peakFlowTime = 0;
+        for (const auto& pt : summary.flowCurve) {
+            if (pt.y() > peakFlowVal) { peakFlowVal = pt.y(); peakFlowTime = pt.x(); }
+        }
+        if (peakPressureVal > 0.1 || peakFlowVal > 0.1) {
+            out << "- **Overall shot peaks**: ";
+            out << "pressure " << QString::number(peakPressureVal, 'f', 2) << " bar @" << QString::number(peakPressureTime, 'f', 0) << "s, ";
+            out << "flow " << QString::number(peakFlowVal, 'f', 2) << " ml/s @" << QString::number(peakFlowTime, 'f', 0) << "s\n";
+        }
+    }
     out << "\n";
 
     // Profile recipe (frame sequence)
@@ -578,7 +596,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
                 if (pt.x() < phase.startTime || pt.x() > phase.endTime) continue;
                 if (pt.y() > peakFlowVal) { peakFlowVal = pt.y(); peakFlowTime = pt.x(); }
             }
-            out << "- Phase peaks: ";
+            out << "- Peak within this phase only: ";
             out << "pressure " << QString::number(peakPressureVal, 'f', 2) << " bar @" << QString::number(peakPressureTime, 'f', 0) << "s, ";
             out << "flow " << QString::number(peakFlowVal, 'f', 2) << " ml/s @" << QString::number(peakFlowTime, 'f', 0) << "s\n";
         }
