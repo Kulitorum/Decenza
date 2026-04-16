@@ -8,7 +8,11 @@ Page {
     objectName: "hotWaterPage"
     background: Rectangle { color: Theme.backgroundColor }
 
-    Component.onCompleted: {
+    // No side effects here — this fires during the StackView preload Loader
+    // in main.qml and would tare the scale and apply hot water settings before
+    // the user has even opened the page. Side effects belong in
+    // StackView.onActivated.
+    StackView.onActivated: {
         root.currentPageTitle = pageTitleText.text
         // Sync Settings with selected preset
         Settings.waterVolume = getCurrentVesselVolume()
@@ -24,7 +28,6 @@ Page {
         }
         if (!isDispensing) volumeInput.forceActiveFocus()
     }
-    StackView.onActivated: root.currentPageTitle = pageTitleText.text
 
     // Hidden Tr component for page title (used by root.currentPageTitle)
     Tr { id: pageTitleText; key: "hotwater.title"; fallback: "Hot Water"; visible: false }

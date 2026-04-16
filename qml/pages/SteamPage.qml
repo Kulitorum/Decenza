@@ -12,7 +12,10 @@ Page {
     property string pageTitle: steamPageTitle.text
     Tr { id: steamPageTitle; key: "steam.title"; fallback: "Steam"; visible: false }
 
-    Component.onCompleted: {
+    // No side effects here — this fires during the StackView preload Loader
+    // in main.qml and would call startSteamHeating() before the user has
+    // even opened the page. Side effects belong in StackView.onActivated.
+    StackView.onActivated: {
         root.currentPageTitle = pageTitle
         // Sync Settings with selected preset
         Settings.steamTimeout = getCurrentPitcherDuration()
@@ -22,7 +25,6 @@ Page {
         MainController.startSteamHeating()
         if (!isSteaming) durationSlider.forceActiveFocus()
     }
-    StackView.onActivated: root.currentPageTitle = pageTitle
 
     property bool isSteaming: MachineState.phase === MachineStateType.Phase.Steaming || root.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
