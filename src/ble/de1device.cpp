@@ -1185,19 +1185,16 @@ void DE1Device::sendInitialSettings() {
     // Read refill kit status
     requestRefillKitStatus();
 
-    // Send shot settings
-    double steamTemp = 0.0;
-    int steamDuration = 120;
-    double hotWaterTemp = 80.0;
-    int hotWaterVolume = 200;
-    double groupTemp = 93.0;
+    // NOTE: de1app sends the user's steam/hotwater settings here
+    // (de1_send_steam_hotwater_settings). We skip it — the user's real
+    // settings are sent by MainController::applyAllSettings() which fires
+    // immediately after initialSettingsComplete via signal/slot. Writing
+    // hardcoded defaults here would briefly set wrong values on the DE1
+    // (steam=0, group=93) and pollute the drift detector's commanded state.
 
-    setShotSettings(steamTemp, steamDuration, hotWaterTemp, hotWaterVolume, groupTemp);
-
-    // Signal that initial settings are complete
-    // Use a write-complete counter to detect when all queued writes finish
-    // For simplicity, emit immediately — the transport queues ensure ordering,
-    // and MainController connects to this signal to apply user settings
+    // Signal that initial settings are complete. MainController connects
+    // to this to apply user settings (profile upload, steam/hotwater/flush
+    // settings, water refill level, flow calibration).
     emit initialSettingsComplete();
 }
 

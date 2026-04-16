@@ -695,11 +695,8 @@ void MainController::applyFlushSettings() {
 }
 
 void MainController::applyAllSettings() {
-    // Fresh connection / initial settings cycle — reset ShotSettings drift
-    // bookkeeping so a prior session's exhausted retry budget doesn't
-    // permanently disable auto-heal, and so the spurious drift from the
-    // initial-defaults write's indication crossing our user-value write
-    // doesn't burn the new session's retry slots.
+    // Fresh connection — reset ShotSettings drift bookkeeping so a prior
+    // session's exhausted retry budget doesn't permanently disable auto-heal.
     m_shotSettingsDriftResendCount = 0;
     m_shotSettingsResendInFlight = false;
 
