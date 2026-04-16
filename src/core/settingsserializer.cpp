@@ -427,9 +427,11 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // setting under "steam.twoTapStop"; if the new key was already imported
     // above, it takes precedence (it's the more deliberate choice). Otherwise
     // map the legacy field through the same polarity inversion used by the
-    // in-process migration in Settings::Settings().
+    // in-process migration in Settings::Settings(). Skip if the caller asked
+    // to exclude either the "headless" source or the "steam" target.
     const QJsonObject steamObj = json["steam"].toObject();
     if (json.contains("headless") && !excludeKeys.contains("headless")
+            && !excludeKeys.contains("steam")
             && !steamObj.contains("twoTapStop")) {
         QJsonObject headless = json["headless"].toObject();
         if (headless.contains("skipPurgeConfirm")) {
