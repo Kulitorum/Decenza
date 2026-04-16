@@ -1802,8 +1802,10 @@ ApplicationWindow {
                     goToIdle()
                 }
             } else {
-                // pendingMetadataNavigation is only set by onShotEndedShowMetadata (Edit After
-                // Shot ON). If false here, post-shot review is disabled — go straight to idle.
+                // pendingMetadataNavigation is set by onShotEndedShowMetadata only when
+                // the overlay was still visible at signal time. False here means either
+                // Edit After Shot is OFF, or the shot save arrived after the overlay
+                // expired (SAW settling outlasted 3s) and was handled directly.
                 goToIdle()
             }
         }
@@ -2713,11 +2715,22 @@ ApplicationWindow {
                 stopOverlayTimer.restart()
             } else {
                 // Stop overlay already expired (e.g. SAW settling outlasted the
-                // 3s overlay timer and goToIdle already ran). Navigate directly
-                // to shot review instead of restarting the timer for another 3s.
+                // 3s overlay timer). Navigate directly to shot review instead of
+                // restarting the timer for another 3s.
+
+                // Guard: if a new shot started while the old one was still saving,
+                // onShotStarted cleared the overlay but this stale signal arrived
+                // late. Don't interrupt the active shot.
+                var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+                if (currentPage === "espressoPage") {
+                    console.log("Post-shot navigation: new shot in progress, skipping stale review")
+                    return
+                }
+
                 var timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
-                    console.log("Post-shot review: Instant timeout, staying on idle")
+                    console.log("Post-shot review: Instant timeout, going to idle")
+                    goToIdle()
                 } else if (root.pendingShotId > 0) {
                     goToShotMetadata(root.pendingShotId)
                 } else {
