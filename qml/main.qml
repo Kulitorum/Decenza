@@ -596,97 +596,13 @@ ApplicationWindow {
         }
     }
 
-    // Pre-compile pages at startup by loading them once (warms QML cache)
-    // These are NOT used for navigation - StackView uses Components below
-    // The Loaders just ensure QML is parsed/compiled before first navigation
-    Loader {
-        id: preloadIdle
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { IdlePage {} }
-        onLoaded: active = false  // Unload after compilation (Loader owns the item)
-    }
-    Loader {
-        id: preloadEspresso
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { EspressoPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadSteam
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { SteamPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadHotWater
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { HotWaterPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadFlush
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { FlushPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadSettings
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { SettingsPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadProfileSelector
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { ProfileSelectorPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadProfileEditor
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { ProfileEditorPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadRecipeEditor
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { RecipeEditorPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadPressureEditor
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { PressureEditorPage {} }
-        onLoaded: active = false
-    }
-    Loader {
-        id: preloadFlowEditor
-        active: true
-        asynchronous: true
-        visible: false
-        sourceComponent: Component { FlowEditorPage {} }
-        onLoaded: active = false
-    }
+    // QML compilation is cached at build time by qmlcachegen (enabled by
+    // default in qt_add_qml_module since Qt 6.5), so the previous "preload
+    // every page in a hidden Loader" pattern no longer warmed anything
+    // useful — it just instantiated the full QML object tree, ran every
+    // page's Component.onCompleted (firing real BLE/scale side effects
+    // before the user opened the page), then destroyed it. Removed.
+
 
     // Navigation guard to prevent double-taps during page transitions
     property bool navigationInProgress: false
