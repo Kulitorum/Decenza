@@ -2057,8 +2057,13 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     }
     m_lastSampleTime = sample.timer;
 
-    // Record steam data during Steaming phase
-    if (phase == MachineState::Phase::Steaming && m_steamDataModel) {
+    // Record steam data only while steam is actually flowing (Steaming/Pouring
+    // substates), not during the GHC purge puff (Puffing) or wind-down (Ending).
+    // Without this gate, ~10s of post-flow purge time inflates rawTime() and
+    // skews SteamHealth's avg/peak metrics with non-steaming samples.
+    bool steamFlowing = (phase == MachineState::Phase::Steaming
+                         && m_machineState && m_machineState->isFlowing());
+    if (steamFlowing && m_steamDataModel) {
         if (m_steamStartTime == 0) {
             m_steamStartTime = sample.timer;
             m_steamDataModel->clear();
