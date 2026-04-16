@@ -329,10 +329,11 @@ private slots:
 
     void consecutiveRejectionsAutoReset() {
         // After 3 consecutive rejections, the filter accepts the new baseline.
-        // This handles legitimate shifts (cup removal, scale reconnect).
+        // This handles legitimate shifts during extraction (e.g. scale reconnect).
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+        wp.startExtraction();  // Spike filter only active during extraction
 
         // Establish baseline at ~10g
         feedRising(wp, 8.0, 2.0, 5);
@@ -356,6 +357,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+        wp.startExtraction();  // Spike filter only active during extraction
 
         // Build stable 2 g/s flow
         feedRising(wp, 0.0, 2.0, 10);
@@ -378,6 +380,27 @@ private slots:
         QVERIFY2(qAbs(flowAfter - flowBefore) < 1.5,
                  qPrintable(QString("Flow should be stable after spike rejection: before=%1 after=%2")
                             .arg(flowBefore).arg(flowAfter)));
+    }
+
+    void spikeBypassedWhenInactive() {
+        // Outside extraction, 100g+ jumps should NOT be rejected — they're
+        // legitimate events (cup placement/removal, tare drift).
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+        // Do NOT call startExtraction() — stay inactive
+
+        // Feed a baseline
+        wp.processWeight(0.0); m_fakeClock += 200;
+        QCOMPARE(flowSpy.count(), 1);
+
+        // 200g jump — would be rejected during extraction, but passes when inactive
+        wp.processWeight(200.0); m_fakeClock += 200;
+        QCOMPARE(flowSpy.count(), 2);  // Signal emitted, not rejected
+
+        // Jump back to 0 — also passes
+        wp.processWeight(0.0); m_fakeClock += 200;
+        QCOMPARE(flowSpy.count(), 3);
     }
 
     // ==========================================
