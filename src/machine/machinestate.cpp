@@ -839,7 +839,14 @@ void MachineState::checkStopAtTime() {
 
     double target = 0;
     if (m_phase == Phase::Steaming) {
-        target = m_settings->steamTimeout();
+        // Steam timeout is handled by DE1 firmware via ShotSettings.steamTimeout.
+        // The firmware stops steam flow but keeps the machine in Steaming state so
+        // pressing GHC Stop triggers a final cleaning purge puff. App-side stop
+        // exits steaming entirely, killing the GHC light and purge opportunity.
+        // Only use app-side stop for the simulator (which has no firmware timer).
+        if (m_device && m_device->simulationMode()) {
+            target = m_settings->steamTimeout();
+        }
     } else if (m_phase == Phase::Flushing) {
         target = m_settings->flushSeconds();
     } else {
