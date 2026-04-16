@@ -26,10 +26,11 @@ void WeightProcessor::processWeight(double weight)
     // sample is rejected. Auto-resets after 3 consecutive rejections to handle
     // legitimate shifts (cup removal, tare, scale reconnect at different offset).
     //
-    // Only active during extraction — between shots, cup placement/removal and
-    // tare drift produce legitimate 100g+ swings that the filter would reject,
-    // freezing the flow rate display and polluting the debug log. The filter is
-    // reset by startExtraction() before each shot.
+    // Only active during extraction — between shots, cup placement/removal,
+    // tare drift, and scale reconnect at different offset produce legitimate
+    // 100g+ swings that the filter would reject, freezing the flow rate display
+    // and polluting the debug log. The filter is reset by startExtraction()
+    // before each shot and by resetForRetare() on mid-preheat retare.
     if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
         if (++m_consecutiveRejections < 3) {
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
@@ -358,6 +359,7 @@ void WeightProcessor::resetForRetare()
     m_frameWeightSkipSent.clear();
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
+    m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
     m_flowBecameValidLogged = false;

@@ -74,6 +74,7 @@ private:
     QList<WeightSample> m_weightSamples;
 
     // Spike filter: rejects single-packet BLE corruption (issue #610).
+    // Scoped to active extractions via m_active — see processWeight().
     // Auto-resets after 3 consecutive rejections to handle legitimate shifts.
     double m_lastRawWeight = 0;
     bool m_hasLastWeight = false;
