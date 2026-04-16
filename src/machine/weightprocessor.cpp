@@ -25,7 +25,12 @@ void WeightProcessor::processWeight(double weight)
     // false SAW stop. Any reading that jumps more than 100g from the previous
     // sample is rejected. Auto-resets after 3 consecutive rejections to handle
     // legitimate shifts (cup removal, tare, scale reconnect at different offset).
-    if (m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
+    //
+    // Only active during extraction — between shots, cup placement/removal and
+    // tare drift produce legitimate 100g+ swings that the filter would reject,
+    // freezing the flow rate display and polluting the debug log. The filter is
+    // reset by startExtraction() before each shot.
+    if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
         if (++m_consecutiveRejections < 3) {
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
             qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
