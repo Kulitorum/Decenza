@@ -1310,25 +1310,13 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     m_deviceHotWaterVolMl = hotWaterVolMl;
     m_deviceGroupTargetC = groupTargetC;
 
-    // Clear the indication-pending flag only when the report matches our
-    // last commanded value. A mismatch here is either a stale pre-write
-    // indication (leave pending set — the real post-write one will arrive
-    // next) or a genuine dropped-write (MainController will detect it and
-    // trigger a resend, which itself sets pending). Either way we wait.
-    // All 5 tracked fields must match — bytes 5-6 (TargetHotWaterLength,
-    // TargetEspressoVol) are hardcoded in every write and excluded. A partial
-    // match (e.g. temp OK but duration wrong) still counts as unacknowledged.
-    constexpr double kTempTolerance = 0.5;  // u8p0 encoding rounding
-    if (m_commandedSteamTargetC >= 0.0
-        && std::abs(steamTargetC - m_commandedSteamTargetC) <= kTempTolerance
-        && m_commandedSteamDurationSec >= 0
-        && steamDurationSec == m_commandedSteamDurationSec
-        && m_commandedHotWaterTempC >= 0.0
-        && std::abs(hotWaterTempC - m_commandedHotWaterTempC) <= kTempTolerance
-        && m_commandedHotWaterVolMl >= 0
-        && hotWaterVolMl == m_commandedHotWaterVolMl
-        && m_commandedGroupTargetC >= 0.0
-        && std::abs(groupTargetC - m_commandedGroupTargetC) <= kTempTolerance) {
+    // Clear the indication-pending flag on every received indication. Under
+    // the read-after-write model (the read is queued behind the write so it
+    // executes on the post-write state), there is no "stale pre-write
+    // indication" race to filter out — every received report IS the actual
+    // post-write state. If it doesn't match commanded, that's real drift,
+    // and MainController must act on it (not suppress as stale).
+    if (m_commandedSteamTargetC >= 0.0) {
         m_shotSettingsIndicationPending = false;
     }
 

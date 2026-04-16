@@ -305,48 +305,29 @@ private slots:
         QCOMPARE(spy.at(0).at(4).toDouble(), -1.0);     // group temp
     }
 
-    // ===== Indication-pending flag (event-based stale-indication detection) =====
+    // ===== Indication-pending flag =====
 
-    void indicationPendingSetOnWriteClearedOnMatch() {
+    void indicationPendingSetOnWriteClearedOnAnyIndication() {
+        // Under read-after-write, the queued read always returns the
+        // post-write state. The flag clears on ANY indication received after
+        // the first write, since there are no pre-write stale indications to
+        // filter out (the read happens after the write completes).
         TestFixture f;
         QVERIFY(!f.device.shotSettingsIndicationPending());
 
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
         QVERIFY(f.device.shotSettingsIndicationPending());
 
-        // A matching indication arrives — flag clears.
+        // Any indication clears the flag — match or mismatch. Drift is
+        // detected by MainController comparing reported vs commanded values,
+        // not by inspecting the pending flag.
         QByteArray payload(9, 0);
-        payload[1] = char(160);
-        payload[2] = char(120);
-        payload[3] = char(80);
-        payload[4] = char(200);
-        payload[5] = char(60);
-        payload[6] = char(200);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(90.0);  // mismatching
         payload[7] = char((groupRaw >> 8) & 0xFF);
         payload[8] = char(groupRaw & 0xFF);
         emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
 
         QVERIFY(!f.device.shotSettingsIndicationPending());
-    }
-
-    void indicationPendingStaysOnMismatch() {
-        // A stale indication (non-matching value arrives before the DE1 has
-        // processed our write) must NOT clear the flag — otherwise a
-        // subsequent matching indication would be misinterpreted, and the
-        // drift handler would incorrectly treat the stale one as real drift.
-        TestFixture f;
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
-
-        // Stale indication with the previous (0) value.
-        QByteArray payload(9, 0);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(90.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        QVERIFY(f.device.shotSettingsIndicationPending());
     }
 
     // ===== resendLastShotSettings: repeats the last payload exactly =====
@@ -372,54 +353,6 @@ private slots:
         f.transport.clearWrites();
         f.device.resendLastShotSettings();
         QCOMPARE(f.transport.writes.size(), 0);
-    }
-
-    // ===== Partial-match: pending flag stays set if only some fields match =====
-
-    void indicationPendingPartialMatchStaysPending() {
-        // Validates the "lost steam timeout" scenario: steam temp matches but
-        // duration doesn't. The pending flag must stay set so MainController
-        // detects drift and triggers a resend.
-        TestFixture f;
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
-
-        // Build indication that matches steam+group temp but has wrong duration.
-        QByteArray payload(9, 0);
-        payload[1] = char(160);   // steam temp matches
-        payload[2] = char(60);    // duration MISMATCHES (120 commanded)
-        payload[3] = char(80);    // hot water temp matches
-        payload[4] = char(200);   // hot water vol matches
-        payload[5] = char(60);
-        payload[6] = char(200);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        // Pending should stay set because duration doesn't match.
-        QVERIFY(f.device.shotSettingsIndicationPending());
-    }
-
-    void indicationPendingPartialMatchHotWaterStaysPending() {
-        // Hot water volume mismatch: everything else matches but vol doesn't.
-        TestFixture f;
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
-
-        QByteArray payload(9, 0);
-        payload[1] = char(160);   // steam temp matches
-        payload[2] = char(120);   // duration matches
-        payload[3] = char(80);    // hot water temp matches
-        payload[4] = char(150);   // hot water vol MISMATCHES (200 commanded)
-        payload[5] = char(60);
-        payload[6] = char(200);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        QVERIFY(f.device.shotSettingsIndicationPending());
     }
 
     // ===== Dedup: identical writes are skipped =====

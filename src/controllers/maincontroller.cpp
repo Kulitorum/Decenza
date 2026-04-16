@@ -518,30 +518,12 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
         return;
     }
 
-    // Drift detected. If a write is still in flight (DE1Device clears the
-    // flag only when an indication matches commanded), this mismatch is
-    // almost certainly a stale pre-write indication still arriving —
-    // ignore it and wait for the real post-write indication. This is the
-    // event-based replacement for a wall-clock "msSinceLastWrite < 1500"
-    // guard, which CLAUDE.md's "never timers as guards" rule warned
-    // against.
-    if (m_device->shotSettingsIndicationPending()) {
-        qDebug().noquote() << QString(
-            "[SettingsDrift] stale-indication ignored (write unacknowledged): "
-            "reported(steam=%1C dur=%2s hw=%3C vol=%4ml group=%5C) "
-            "commanded(steam=%6C dur=%7s hw=%8C vol=%9ml group=%10C)")
-            .arg(deviceSteamTargetC, 0, 'f', 1)
-            .arg(deviceSteamDurationSec)
-            .arg(deviceHotWaterTempC, 0, 'f', 1)
-            .arg(deviceHotWaterVolMl)
-            .arg(deviceGroupTargetC, 0, 'f', 2)
-            .arg(commandedSteam, 0, 'f', 1)
-            .arg(commandedDuration)
-            .arg(commandedHotWaterTemp, 0, 'f', 1)
-            .arg(commandedHotWaterVol)
-            .arg(commandedGroup, 0, 'f', 2);
-        return;
-    }
+    // Drift detected. Under read-after-write, the received indication is the
+    // post-write state — if it doesn't match commanded, that's real drift.
+    // (Previously this branch had a stale-indication filter that suppressed
+    // mismatches while indicationPending was true, but that was needed only
+    // for the subscription-based design where pre-write indications could
+    // race ahead. The queued read happens after the write completes.)
 
     // Classify for the log so we can scan `grep SettingsDrift` in bug
     // reports and immediately see what happened.

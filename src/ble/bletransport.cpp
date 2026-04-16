@@ -623,4 +623,12 @@ void BleTransport::processCommandQueue() {
     auto command = m_commandQueue.dequeue();
     m_lastCommand = command;  // Store for potential retry
     command();
+
+    // Reads don't set m_writePending and don't re-enter via
+    // onCharacteristicWritten, so the queue would otherwise stall after a
+    // dispatched read until some other queueCommand() call. Re-arm the timer
+    // here so subsequent queued items continue draining.
+    if (!m_writePending && !m_commandQueue.isEmpty() && !m_commandTimer.isActive()) {
+        m_commandTimer.start();
+    }
 }
