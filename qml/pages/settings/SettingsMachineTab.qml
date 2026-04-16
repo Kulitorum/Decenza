@@ -325,6 +325,41 @@ KeyboardAwareContainer {
                                 }
                             }
                         }
+
+                        // Two-tap stop: first tap puffs/soft-stops, second tap purges.
+                        // Drives both the GHC firmware (via MMR) and the headless
+                        // on-screen stop button. Default off (matches de1app firmware default).
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.steamTwoTapStop", "Two-tap to stop steaming")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+
+                                Accessible.ignored: true
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                id: steamTwoTapSwitch
+                                checked: Settings.steamTwoTapStop
+                                accessibleName: TranslationManager.translate("settings.preferences.steamTwoTapStop", "Two-tap to stop steaming")
+                                onClicked: Settings.steamTwoTapStop = checked
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.preferences.steamTwoTapStopDesc", "First tap stops steam, second tap purges the wand")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
                     }
                 }
 
@@ -1213,55 +1248,6 @@ KeyboardAwareContainer {
                                         accessibleItem: refillKitButton
                                         onAccessibleClicked: Settings.refillKitOverride = modelData.value
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Headless Machine Settings (only visible on headless machines)
-                Rectangle {
-                    objectName: "headlessMachine"
-                    Layout.fillWidth: true
-                    implicitHeight: headlessContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-                    visible: DE1Device.isHeadless
-
-                    ColumnLayout {
-                        id: headlessContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
-
-                        Text {
-                            text: TranslationManager.translate("settings.options.headlessMachine", "Headless Machine")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: TranslationManager.translate("settings.options.singlePressStopPurge", "Single press to stop & purge")
-                                color: Theme.textColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            StyledSwitch {
-                                id: headlessStopSwitch
-                                checked: Settings.headlessSkipPurgeConfirm
-                                accessibleName: TranslationManager.translate("settings.options.singlePressStopPurge", "Single press to stop and purge")
-                                onClicked: {
-                                    Settings.headlessSkipPurgeConfirm = checked
                                 }
                             }
                         }

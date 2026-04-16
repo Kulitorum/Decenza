@@ -56,9 +56,6 @@ class Settings : public QObject {
     Q_PROPERTY(QVariantList steamPitcherPresets READ steamPitcherPresets NOTIFY steamPitcherPresetsChanged)
     Q_PROPERTY(int selectedSteamPitcher READ selectedSteamPitcher WRITE setSelectedSteamCup NOTIFY selectedSteamPitcherChanged)
 
-    // Headless machine settings
-    Q_PROPERTY(bool headlessSkipPurgeConfirm READ headlessSkipPurgeConfirm WRITE setHeadlessSkipPurgeConfirm NOTIFY headlessSkipPurgeConfirmChanged)
-
     // Launcher mode (Android only - register as home screen)
     Q_PROPERTY(bool launcherMode READ launcherMode WRITE setLauncherMode NOTIFY launcherModeChanged)
 
@@ -367,10 +364,6 @@ public:
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
-
-    // Headless machine settings
-    bool headlessSkipPurgeConfirm() const;
-    void setHeadlessSkipPurgeConfirm(bool skip);
 
     // Launcher mode (Android only)
     bool launcherMode() const;
@@ -911,7 +904,6 @@ signals:
     void steamAutoFlushSecondsChanged();
     void steamPitcherPresetsChanged();
     void selectedSteamPitcherChanged();
-    void headlessSkipPurgeConfirmChanged();
     void launcherModeChanged();
     void favoriteProfilesChanged();
     void selectedFavoriteProfileChanged();

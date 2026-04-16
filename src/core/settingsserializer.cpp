@@ -69,11 +69,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["pitcherPresets"] = pitcherPresets;
     root["steam"] = steam;
 
-    // Headless settings
-    QJsonObject headless;
-    headless["skipPurgeConfirm"] = settings->headlessSkipPurgeConfirm();
-    root["headless"] = headless;
-
     // Launcher mode
     root["launcherMode"] = settings->launcherMode();
 
@@ -427,11 +422,20 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
     }
 
-    // Headless settings
-    if (json.contains("headless") && !excludeKeys.contains("headless")) {
+    // Back-compat: a JSON exported by an older version may carry the legacy
+    // "headless.skipPurgeConfirm" field. The current writer emits the unified
+    // setting under "steam.twoTapStop"; if the new key was already imported
+    // above, it takes precedence (it's the more deliberate choice). Otherwise
+    // map the legacy field through the same polarity inversion used by the
+    // in-process migration in Settings::Settings(). Skip if the caller asked
+    // to exclude either the "headless" source or the "steam" target.
+    const QJsonObject steamObj = json["steam"].toObject();
+    if (json.contains("headless") && !excludeKeys.contains("headless")
+            && !excludeKeys.contains("steam")
+            && !steamObj.contains("twoTapStop")) {
         QJsonObject headless = json["headless"].toObject();
         if (headless.contains("skipPurgeConfirm")) {
-            settings->setHeadlessSkipPurgeConfirm(headless["skipPurgeConfirm"].toBool());
+            settings->setSteamTwoTapStop(!headless["skipPurgeConfirm"].toBool());
         }
     }
 

@@ -273,7 +273,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"useFlowScale", QJsonObject{{"type", "boolean"}, {"description", "Use virtual flow scale"}}},
                 {"screenBrightness", QJsonObject{{"type", "number"}, {"description", "Screen brightness 0.0-1.0"}}},
                 {"defaultShotRating", QJsonObject{{"type", "integer"}, {"description", "Default shot enjoyment rating 0-100"}}},
-                {"headlessSkipPurgeConfirm", QJsonObject{{"type", "boolean"}, {"description", "Skip purge confirmation on headless machines"}}},
                 {"launcherMode", QJsonObject{{"type", "boolean"}, {"description", "Enable kiosk/launcher mode (Android only)"}}},
                 {"flowCalibrationMultiplier", QJsonObject{{"type", "number"}, {"description", "Flow calibration multiplier"}}},
                 {"autoFlowCalibration", QJsonObject{{"type", "boolean"}, {"description", "Enable automatic flow calibration"}}},
@@ -624,11 +623,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 int v = qBound(0, args["defaultShotRating"].toInt(), 100);
                 addSetter([settings, v]() { settings->setDefaultShotRating(v); });
                 updated << "defaultShotRating";
-            }
-            if (args.contains("headlessSkipPurgeConfirm")) {
-                bool v = args["headlessSkipPurgeConfirm"].toBool();
-                addSetter([settings, v]() { settings->setHeadlessSkipPurgeConfirm(v); });
-                updated << "headlessSkipPurgeConfirm";
             }
             if (args.contains("launcherMode")) {
                 bool v = args["launcherMode"].toBool();

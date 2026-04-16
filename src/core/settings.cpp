@@ -41,6 +41,11 @@ Settings::Settings(QObject* parent)
     m_settings.sync();
     qDebug() << "Settings: sync() done, contains profile/favorites:" << m_settings.contains("profile/favorites");
 
+    // Snapshot whether this looks like a fresh install before any default-init
+    // blocks below write keys. Used by one-shot migrations that need to behave
+    // differently for new users vs upgrades.
+    const bool freshInstall = m_settings.allKeys().isEmpty();
+
     // Initialize default pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {
         QJsonArray defaultPresets;
@@ -176,6 +181,40 @@ Settings::Settings(QObject* parent)
         m_settings.remove("calibration/autoFlowCalibration");
         m_settings.setValue("calibration/autoFlowCalMigrated", true);
         qDebug() << "Settings: Migrated auto flow calibration to default-on";
+    }
+
+    // One-time migration: the headless-only "skip purge confirm" toggle was folded
+    // into the unified steamTwoTapStop setting. If skipPurgeConfirm was true (user
+    // explicitly opted into single-tap on a headless machine) AND the unified key
+    // hasn't already been explicitly set via the old calibration popup, preserve
+    // their single-tap preference. If both keys coexist with conflicting values,
+    // the explicit calibration value wins (it was harder to get to and represents
+    // a more deliberate choice). If skipPurgeConfirm was false (two-tap), no value
+    // is written here — the seeding migration below will set steamTwoTapStop = true
+    // for existing installs to preserve the pre-unification two-tap default.
+    if (m_settings.contains("headless/skipPurgeConfirm")) {
+        const bool wantedSingleTap = m_settings.value("headless/skipPurgeConfirm").toBool();
+        if (wantedSingleTap && !m_settings.contains("calibration/steamTwoTapStop")) {
+            m_settings.setValue("calibration/steamTwoTapStop", false);
+            qDebug() << "Settings: Migrated headless/skipPurgeConfirm=true -> steamTwoTapStop=false (single-tap)";
+        } else {
+            qDebug() << "Settings: Removed legacy headless/skipPurgeConfirm key (no value migration needed)";
+        }
+        m_settings.remove("headless/skipPurgeConfirm");
+    }
+
+    // One-time default flip: the new default for steamTwoTapStop is false (single-tap,
+    // matching de1app's firmware default of steam_two_tap_stop = 0). Decenza previously
+    // defaulted to true (two-tap). For existing installs, seed steamTwoTapStop = true
+    // so users who relied on the prior two-tap default by inertia don't see their stop
+    // button behavior change on upgrade. Fresh installs skip this and get the new
+    // single-tap default.
+    if (!m_settings.contains("calibration/steamTwoTapStopDefaultMigrated")) {
+        if (!freshInstall && !m_settings.contains("calibration/steamTwoTapStop")) {
+            m_settings.setValue("calibration/steamTwoTapStop", true);
+            qDebug() << "Settings: Seeded steamTwoTapStop=true for existing install (preserves pre-unification two-tap default)";
+        }
+        m_settings.setValue("calibration/steamTwoTapStopDefaultMigrated", true);
     }
 
     // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
@@ -625,18 +664,6 @@ void Settings::setSteamAutoFlushSeconds(int seconds) {
     if (steamAutoFlushSeconds() != seconds) {
         m_settings.setValue("steam/autoFlushSeconds", seconds);
         emit steamAutoFlushSecondsChanged();
-    }
-}
-
-// Headless machine settings
-bool Settings::headlessSkipPurgeConfirm() const {
-    return m_settings.value("headless/skipPurgeConfirm", false).toBool();
-}
-
-void Settings::setHeadlessSkipPurgeConfirm(bool skip) {
-    if (headlessSkipPurgeConfirm() != skip) {
-        m_settings.setValue("headless/skipPurgeConfirm", skip);
-        emit headlessSkipPurgeConfirmChanged();
     }
 }
 
@@ -3412,7 +3439,7 @@ void Settings::setHotWaterFlowRate(int value) {
 }
 
 bool Settings::steamTwoTapStop() const {
-    return m_settings.value("calibration/steamTwoTapStop", true).toBool();
+    return m_settings.value("calibration/steamTwoTapStop", false).toBool();
 }
 
 void Settings::setSteamTwoTapStop(bool value) {
