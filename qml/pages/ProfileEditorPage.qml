@@ -1526,6 +1526,7 @@ Page {
         }
 
         function doSave() {
+            Qt.inputMethod.commit()
             if (profile && nameField.text.length > 0) {
                 profile.title = nameField.text
                 updatePageTitle()

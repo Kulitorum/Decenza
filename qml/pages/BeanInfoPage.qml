@@ -181,6 +181,7 @@ Page {
 
     // Save edited shot back to history
     function saveEditedShot() {
+        Qt.inputMethod.commit()
         if (editShotId <= 0) return
         var metadata = {
             "beanBrand": editBeanBrand,
@@ -236,6 +237,7 @@ Page {
     // Update the currently-selected preset's data with the current DYE field values.
     // Used by "Save" (not "Save As") when a preset was selected before editing.
     function saveToCurrentPreset(pendingPresetIndex, goBackAfter) {
+        Qt.inputMethod.commit()
         var idx = _snapSelectedPreset
         if (idx < 0) return
         var preset = Settings.getBeanPreset(idx)

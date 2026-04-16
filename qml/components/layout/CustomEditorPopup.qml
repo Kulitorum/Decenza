@@ -106,6 +106,7 @@ Dialog {
     }
 
     function doSave() {
+        Qt.inputMethod.commit()
         // Extract segments from document and compile to HTML
         var segments = formatter.toSegments()
         var html = formatter.segmentsToHtml(segments)
@@ -732,6 +733,7 @@ Dialog {
                                 id: bgColorMa
                                 anchors.fill: parent
                                 onClicked: {
+                                    Qt.inputMethod.commit()
                                     colorPickerPopup.mode = "bg"
                                     colorPickerPopup.initialColor = popup.textBackgroundColor
                                         ? Qt.color(popup.textBackgroundColor) : Qt.color("#333333")
