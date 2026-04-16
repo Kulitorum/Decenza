@@ -422,6 +422,21 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
     }
 
+    // Back-compat: a JSON exported by an older version may carry the legacy
+    // "headless.skipPurgeConfirm" field. The current writer emits the unified
+    // setting under "steam.twoTapStop"; if the new key was already imported
+    // above, it takes precedence (it's the more deliberate choice). Otherwise
+    // map the legacy field through the same polarity inversion used by the
+    // in-process migration in Settings::Settings().
+    const QJsonObject steamObj = json["steam"].toObject();
+    if (json.contains("headless") && !excludeKeys.contains("headless")
+            && !steamObj.contains("twoTapStop")) {
+        QJsonObject headless = json["headless"].toObject();
+        if (headless.contains("skipPurgeConfirm")) {
+            settings->setSteamTwoTapStop(!headless["skipPurgeConfirm"].toBool());
+        }
+    }
+
     // Launcher mode
     if (json.contains("launcherMode") && !excludeKeys.contains("launcherMode")) {
         settings->setLauncherMode(json["launcherMode"].toBool());

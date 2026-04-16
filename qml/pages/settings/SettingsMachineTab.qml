@@ -353,11 +353,12 @@ KeyboardAwareContainer {
 
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.preferences.steamTwoTapStopDesc", "First tap goes to puffs, second tap stops steam")
+                            text: TranslationManager.translate("settings.preferences.steamTwoTapStopDesc", "First tap stops steam, second tap purges the wand")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
+                            Accessible.ignored: true
                         }
                     }
                 }

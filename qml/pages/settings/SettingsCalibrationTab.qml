@@ -742,6 +742,10 @@ Item {
                         Settings.heaterWarmupFlow = 20
                         Settings.heaterTestFlow = 40
                         Settings.heaterWarmupTimeout = 10
+                        // Cafe defaults force two-tap stop for safety: the first tap puts
+                        // the firmware in Puffing, allowing the auto-flush timer to clear
+                        // the wand reliably. Toggle UI lives in Steam Heater (Machine tab).
+                        Settings.steamTwoTapStop = true
                     }
                     KeyNavigation.tab: doneButton
                     KeyNavigation.backtab: heaterTestTimeoutSlider

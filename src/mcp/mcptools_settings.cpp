@@ -83,7 +83,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("flowCalibrationMultiplier", "calibration")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
             if (include("autoFlowCalibration", "calibration")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
             if (include("ignoreVolumeWithScale", "calibration")) result["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
-            if (include("steamTwoTapStop", "calibration")) result["steamTwoTapStop"] = settings->steamTwoTapStop();
+            if (include("steamTwoTapStop", "machine")) result["steamTwoTapStop"] = settings->steamTwoTapStop();
 
             // === Connections ===
             if (include("machineAddress", "connections")) result["machineAddress"] = settings->machineAddress();

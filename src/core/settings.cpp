@@ -184,21 +184,31 @@ Settings::Settings(QObject* parent)
     }
 
     // One-time migration: the headless-only "skip purge confirm" toggle was folded
-    // into the unified steamTwoTapStop setting. If the user had explicitly enabled
-    // single-press on a headless machine (skipPurgeConfirm = true), preserve that
-    // by setting steamTwoTapStop = false. Otherwise drop the old key.
+    // into the unified steamTwoTapStop setting. If skipPurgeConfirm was true (user
+    // explicitly opted into single-tap on a headless machine) AND the unified key
+    // hasn't already been explicitly set via the old calibration popup, preserve
+    // their single-tap preference. If both keys coexist with conflicting values,
+    // the explicit calibration value wins (it was harder to get to and represents
+    // a more deliberate choice). If skipPurgeConfirm was false (two-tap), no value
+    // is written here — the seeding migration below will set steamTwoTapStop = true
+    // for existing installs to preserve the pre-unification two-tap default.
     if (m_settings.contains("headless/skipPurgeConfirm")) {
-        if (m_settings.value("headless/skipPurgeConfirm").toBool()) {
+        const bool wantedSingleTap = m_settings.value("headless/skipPurgeConfirm").toBool();
+        if (wantedSingleTap && !m_settings.contains("calibration/steamTwoTapStop")) {
             m_settings.setValue("calibration/steamTwoTapStop", false);
+            qDebug() << "Settings: Migrated headless/skipPurgeConfirm=true -> steamTwoTapStop=false (single-tap)";
+        } else {
+            qDebug() << "Settings: Removed legacy headless/skipPurgeConfirm key (no value migration needed)";
         }
         m_settings.remove("headless/skipPurgeConfirm");
-        qDebug() << "Settings: Migrated headless/skipPurgeConfirm to calibration/steamTwoTapStop";
     }
 
-    // One-time default flip: the new default for steamTwoTapStop is false (matches
-    // de1app firmware default). For existing installs, seed the old default (true)
-    // so users who relied on it by inertia don't see their stop button behavior
-    // change on upgrade. Fresh installs skip this and get the new single-tap default.
+    // One-time default flip: the new default for steamTwoTapStop is false (single-tap,
+    // matching de1app's firmware default of steam_two_tap_stop = 0). Decenza previously
+    // defaulted to true (two-tap). For existing installs, seed steamTwoTapStop = true
+    // so users who relied on the prior two-tap default by inertia don't see their stop
+    // button behavior change on upgrade. Fresh installs skip this and get the new
+    // single-tap default.
     if (!m_settings.contains("calibration/steamTwoTapStopDefaultMigrated")) {
         if (!freshInstall && !m_settings.contains("calibration/steamTwoTapStop")) {
             m_settings.setValue("calibration/steamTwoTapStop", true);
