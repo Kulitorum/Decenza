@@ -421,6 +421,53 @@ private slots:
 
         QVERIFY(f.device.shotSettingsIndicationPending());
     }
+
+    // ===== Dedup: identical writes are skipped =====
+
+    void duplicateWriteSkipped() {
+        // Multiple QML signals (state change, phase change, page open, isSteaming
+        // change) all fire startSteamHeating() with the same values. The second
+        // identical write should be skipped to avoid wasted BLE traffic.
+        TestFixture f;
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("\\[ShotSettings\\] write skipped"));
+
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        f.transport.clearWrites();
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // identical
+
+        QCOMPARE(f.transport.writes.size(), 0);
+    }
+
+    void changedWriteFiresAfterDuplicate() {
+        // After a duplicate is skipped, a genuinely different write must still
+        // fire. Dedup compares against the LAST sent payload, not historical.
+        TestFixture f;
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("\\[ShotSettings\\] write skipped"));
+
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // skipped
+        f.transport.clearWrites();
+        f.device.setShotSettings(160, 60, 80, 200, 93.0);   // different duration
+
+        QCOMPARE(f.transport.writes.size(), 1);
+    }
+
+    void duplicateWriteAfterDisconnectFires() {
+        // Disconnect clears m_lastShotSettingsPayload. A subsequent identical
+        // write after reconnect must not be deduped against the pre-disconnect
+        // value.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+
+        f.transport.setConnectedSim(false);
+        f.transport.setConnectedSim(true);
+
+        f.transport.clearWrites();
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // same values
+        QCOMPARE(f.transport.writes.size(), 1);  // fired despite same values
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSettings)

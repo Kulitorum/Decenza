@@ -1215,6 +1215,24 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     data[7] = (groupTempEncoded >> 8) & 0xFF;
     data[8] = groupTempEncoded & 0xFF;
 
+    // Dedupe: skip writes whose payload exactly matches the last one sent.
+    // Multiple QML signals (state change, phase change, page open, isSteaming
+    // change) all fire startSteamHeating() with the same values, producing
+    // 4-5 identical BLE writes per steam session. Resends from the drift
+    // auto-heal path go through resendLastShotSettings() and bypass this
+    // function, so they're unaffected.
+    if (data == m_lastShotSettingsPayload) {
+        qDebug().noquote() << QString(
+            "[ShotSettings] write skipped: payload unchanged "
+            "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)")
+            .arg(steamTemp, 0, 'f', 1)
+            .arg(steamDuration)
+            .arg(hotWaterTemp, 0, 'f', 1)
+            .arg(hotWaterVolume)
+            .arg(groupTemp, 0, 'f', 2);
+        return;
+    }
+
     // Record what we're commanding so any setShotSettings() call site (main
     // controller, profile manager, steam calibrator, …) contributes to the
     // drift detector without each one having to remember.
