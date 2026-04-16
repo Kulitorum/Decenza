@@ -95,13 +95,19 @@ Page {
     Keys.onEscapePressed: {
         root.stopReason = "manual"
         DE1Device.stopOperation()
-        root.goToIdle()
+        // Don't navigate — main.qml's stop-overlay flow navigates to shot
+        // review (or idle if Edit After Shot is off) after the overlay times
+        // out. Navigating immediately caused a flash of the idle page before
+        // the shot review appeared.
     }
 
     Keys.onSpacePressed: {
         root.stopReason = "manual"
         DE1Device.stopOperation()
-        root.goToIdle()
+        // Don't navigate — main.qml's stop-overlay flow navigates to shot
+        // review (or idle if Edit After Shot is off) after the overlay times
+        // out. Navigating immediately caused a flash of the idle page before
+        // the shot review appeared.
     }
 
     // Additional keyboard navigation for accessibility
@@ -122,7 +128,7 @@ Page {
         if (event.key === Qt.Key_Backspace) {
             root.stopReason = "manual"
             DE1Device.stopOperation()
-            root.goToIdle()
+            // Don't navigate — main.qml's stop-overlay flow handles navigation
             event.accepted = true
         }
     }
@@ -632,13 +638,13 @@ Page {
         Keys.onReturnPressed: {
             root.stopReason = "manual"
             DE1Device.stopOperation()
-            root.goToIdle()
+            // Don't navigate — main.qml's stop-overlay flow handles navigation
             event.accepted = true
         }
         Keys.onSpacePressed: {
             root.stopReason = "manual"
             DE1Device.stopOperation()
-            root.goToIdle()
+            // Don't navigate — main.qml's stop-overlay flow handles navigation
             event.accepted = true
         }
 
@@ -659,7 +665,7 @@ Page {
             onAccessibleClicked: {
                 root.stopReason = "manual"
                 DE1Device.stopOperation()
-                root.goToIdle()
+                // Don't navigate — main.qml's stop-overlay flow handles navigation
             }
         }
     }
@@ -705,18 +711,18 @@ Page {
                 Accessible.onPressAction: {
                     root.stopReason = "manual"
                     DE1Device.stopOperation()
-                    root.goToIdle()
+                    // Don't navigate — main.qml's stop-overlay flow handles navigation
                 }
                 Keys.onReturnPressed: {
                     root.stopReason = "manual"
                     DE1Device.stopOperation()
-                    root.goToIdle()
+                    // Don't navigate — main.qml's stop-overlay flow handles navigation
                     event.accepted = true
                 }
                 Keys.onSpacePressed: {
                     root.stopReason = "manual"
                     DE1Device.stopOperation()
-                    root.goToIdle()
+                    // Don't navigate — main.qml's stop-overlay flow handles navigation
                     event.accepted = true
                 }
 
@@ -743,7 +749,7 @@ Page {
                     onAccessibleClicked: {
                         root.stopReason = "manual"
                         DE1Device.stopOperation()
-                        root.goToIdle()
+                        // Don't navigate — main.qml's stop-overlay flow handles navigation
                     }
                 }
             }
