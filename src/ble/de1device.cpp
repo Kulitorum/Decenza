@@ -106,7 +106,6 @@ void DE1Device::onTransportDisconnected() {
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
     m_lastShotSettingsPayload.clear();
-    m_shotSettingsIndicationPending = false;
     m_deviceSteamTargetC = -1.0;
     m_deviceSteamDurationSec = -1;
     m_deviceHotWaterTempC = -1.0;
@@ -1215,6 +1214,24 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     data[7] = (groupTempEncoded >> 8) & 0xFF;
     data[8] = groupTempEncoded & 0xFF;
 
+    // Dedupe: skip writes whose payload exactly matches the last one sent.
+    // Multiple QML signals (state change, phase change, page open, isSteaming
+    // change) all fire startSteamHeating() with the same values, producing
+    // 4-5 identical BLE writes per steam session. Resends from the drift
+    // auto-heal path go through resendLastShotSettings() and bypass this
+    // function, so they're unaffected.
+    if (data == m_lastShotSettingsPayload) {
+        qDebug().noquote() << QString(
+            "[ShotSettings] write skipped: payload unchanged "
+            "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)")
+            .arg(steamTemp, 0, 'f', 1)
+            .arg(steamDuration)
+            .arg(hotWaterTemp, 0, 'f', 1)
+            .arg(hotWaterVolume)
+            .arg(groupTemp, 0, 'f', 2);
+        return;
+    }
+
     // Record what we're commanding so any setShotSettings() call site (main
     // controller, profile manager, steam calibrator, …) contributes to the
     // drift detector without each one having to remember.
@@ -1225,9 +1242,6 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     m_commandedGroupTargetC = groupTemp;
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_lastShotSettingsPayload = data;
-    // An indication for this write is now outstanding. Cleared in
-    // parseShotSettings() when the DE1 reports a matching value.
-    m_shotSettingsIndicationPending = true;
 
     // Trace every write so the timeline of commanded values is visible in the
     // debug log alongside the DE1-reported values from parseShotSettings().
@@ -1243,13 +1257,13 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
 
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, data);
 
-    // SHOT_SETTINGS is subscribed in BleTransport::subscribeAll() and the DE1
-    // indicates the stored value back whenever it changes — including after
-    // our writes. MainController::onShotSettingsReported() compares that
-    // reported value against its commanded value and re-sends on drift.
-    // (A read-after-write here would race with our queued write, since
-    // BleTransport::read() bypasses the command queue; subscription gives us
-    // the same guarantee without the race.)
+    // Verify the write by reading back. The DE1 firmware does NOT push
+    // notifications on the SHOT_SETTINGS characteristic when written (de1app
+    // doesn't subscribe to it either — confirmed by inspecting de1_comms.tcl).
+    // BleTransport::read() queues the read so it executes after this write
+    // completes, returning the actual stored value to parseShotSettings()
+    // which feeds MainController::onShotSettingsReported() for drift detection.
+    m_transport->read(DE1::Characteristic::SHOT_SETTINGS);
 }
 
 void DE1Device::parseShotSettings(const QByteArray& data) {
@@ -1292,28 +1306,6 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     m_deviceHotWaterVolMl = hotWaterVolMl;
     m_deviceGroupTargetC = groupTargetC;
 
-    // Clear the indication-pending flag only when the report matches our
-    // last commanded value. A mismatch here is either a stale pre-write
-    // indication (leave pending set — the real post-write one will arrive
-    // next) or a genuine dropped-write (MainController will detect it and
-    // trigger a resend, which itself sets pending). Either way we wait.
-    // All 5 tracked fields must match — bytes 5-6 (TargetHotWaterLength,
-    // TargetEspressoVol) are hardcoded in every write and excluded. A partial
-    // match (e.g. temp OK but duration wrong) still counts as unacknowledged.
-    constexpr double kTempTolerance = 0.5;  // u8p0 encoding rounding
-    if (m_commandedSteamTargetC >= 0.0
-        && std::abs(steamTargetC - m_commandedSteamTargetC) <= kTempTolerance
-        && m_commandedSteamDurationSec >= 0
-        && steamDurationSec == m_commandedSteamDurationSec
-        && m_commandedHotWaterTempC >= 0.0
-        && std::abs(hotWaterTempC - m_commandedHotWaterTempC) <= kTempTolerance
-        && m_commandedHotWaterVolMl >= 0
-        && hotWaterVolMl == m_commandedHotWaterVolMl
-        && m_commandedGroupTargetC >= 0.0
-        && std::abs(groupTargetC - m_commandedGroupTargetC) <= kTempTolerance) {
-        m_shotSettingsIndicationPending = false;
-    }
-
     emit shotSettingsReported(steamTargetC, steamDurationSec, hotWaterTempC, hotWaterVolMl, groupTargetC);
 }
 
@@ -1327,6 +1319,5 @@ void DE1Device::resendLastShotSettings() {
         .arg(m_commandedHotWaterVolMl)
         .arg(m_commandedGroupTargetC, 0, 'f', 2);
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
-    m_shotSettingsIndicationPending = true;
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, m_lastShotSettingsPayload);
 }

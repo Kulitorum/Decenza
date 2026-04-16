@@ -180,11 +180,16 @@ void BleTransport::writeUrgent(const QBluetoothUuid& uuid, const QByteArray& dat
 }
 
 void BleTransport::read(const QBluetoothUuid& uuid) {
-    if (!m_service || !m_characteristics.contains(uuid)) {
-        log(QString("read(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
-        return;
-    }
-    m_service->readCharacteristic(m_characteristics[uuid]);
+    // Queue the read so it runs after any pending writes complete. Without
+    // queueing, a read issued right after a write executes immediately and
+    // returns the pre-write value, defeating any read-after-write verification.
+    queueCommand([this, uuid]() {
+        if (!m_service || !m_characteristics.contains(uuid)) {
+            log(QString("read(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+            return;
+        }
+        m_service->readCharacteristic(m_characteristics[uuid]);
+    });
 }
 
 void BleTransport::subscribe(const QBluetoothUuid& uuid) {
@@ -211,9 +216,10 @@ void BleTransport::subscribeAll() {
     subscribe(DE1::Characteristic::WATER_LEVELS);
     subscribe(DE1::Characteristic::READ_FROM_MMR);
     subscribe(DE1::Characteristic::TEMPERATURES);
-    // SHOT_SETTINGS is indicate-capable — subscribing lets us observe the
-    // DE1's stored steam/group targets and verify that our writes stuck.
-    subscribe(DE1::Characteristic::SHOT_SETTINGS);
+    // SHOT_SETTINGS is intentionally NOT subscribed: the DE1 firmware does
+    // not push notifications on writes (confirmed in de1app's de1_comms.tcl).
+    // Verification happens via explicit read() after each write in
+    // DE1Device::setShotSettings().
 
     // Read initial values
     read(DE1::Characteristic::VERSION);
@@ -617,4 +623,12 @@ void BleTransport::processCommandQueue() {
     auto command = m_commandQueue.dequeue();
     m_lastCommand = command;  // Store for potential retry
     command();
+
+    // Reads don't set m_writePending and don't re-enter via
+    // onCharacteristicWritten, so the queue would otherwise stall after a
+    // dispatched read until some other queueCommand() call. Re-arm the timer
+    // here so subsequent queued items continue draining.
+    if (!m_writePending && !m_commandQueue.isEmpty() && !m_commandTimer.isActive()) {
+        m_commandTimer.start();
+    }
 }

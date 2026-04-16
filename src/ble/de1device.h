@@ -122,13 +122,6 @@ public:
     int commandedHotWaterVolMl() const { return m_commandedHotWaterVolMl; }
     double commandedGroupTargetC() const { return m_commandedGroupTargetC; }
     qint64 lastShotSettingsWriteMs() const { return m_lastShotSettingsWriteMs; }
-    // True between issuing a setShotSettings() write and receiving an
-    // indication that matches the commanded value. While true, any mismatch
-    // indication is presumed to be a stale pre-write value still in flight,
-    // and the drift check ignores it rather than triggering a spurious
-    // resend. Event-based replacement for a wall-clock "was the write
-    // recent?" heuristic.
-    bool shotSettingsIndicationPending() const { return m_shotSettingsIndicationPending; }
     double waterLevel() const { return m_waterLevel; }
     double waterLevelMm() const { return m_waterLevelMm; }
     int waterLevelMl() const { return m_waterLevelMl; }
@@ -332,9 +325,6 @@ private:
     // TargetEspressoVol) which are hardcoded in setShotSettings() and have
     // no corresponding commanded-value members.
     QByteArray m_lastShotSettingsPayload;
-    // See shotSettingsIndicationPending() — event-based "is a write currently
-    // unacknowledged?" flag.
-    bool m_shotSettingsIndicationPending = false;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)

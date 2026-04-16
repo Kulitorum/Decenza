@@ -305,50 +305,6 @@ private slots:
         QCOMPARE(spy.at(0).at(4).toDouble(), -1.0);     // group temp
     }
 
-    // ===== Indication-pending flag (event-based stale-indication detection) =====
-
-    void indicationPendingSetOnWriteClearedOnMatch() {
-        TestFixture f;
-        QVERIFY(!f.device.shotSettingsIndicationPending());
-
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
-
-        // A matching indication arrives — flag clears.
-        QByteArray payload(9, 0);
-        payload[1] = char(160);
-        payload[2] = char(120);
-        payload[3] = char(80);
-        payload[4] = char(200);
-        payload[5] = char(60);
-        payload[6] = char(200);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        QVERIFY(!f.device.shotSettingsIndicationPending());
-    }
-
-    void indicationPendingStaysOnMismatch() {
-        // A stale indication (non-matching value arrives before the DE1 has
-        // processed our write) must NOT clear the flag — otherwise a
-        // subsequent matching indication would be misinterpreted, and the
-        // drift handler would incorrectly treat the stale one as real drift.
-        TestFixture f;
-        f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
-
-        // Stale indication with the previous (0) value.
-        QByteArray payload(9, 0);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(90.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        QVERIFY(f.device.shotSettingsIndicationPending());
-    }
-
     // ===== resendLastShotSettings: repeats the last payload exactly =====
 
     void resendLastShotSettingsRepeatsPayload() {
@@ -361,9 +317,6 @@ private slots:
 
         QCOMPARE(f.transport.writes.size(), 1);
         QCOMPARE(f.transport.lastWriteData(), originalWrite);
-        // Resend should arm the pending flag too — we're waiting for a new
-        // confirming indication.
-        QVERIFY(f.device.shotSettingsIndicationPending());
     }
 
     void resendLastShotSettingsNoOpBeforeFirstWrite() {
@@ -374,52 +327,51 @@ private slots:
         QCOMPARE(f.transport.writes.size(), 0);
     }
 
-    // ===== Partial-match: pending flag stays set if only some fields match =====
+    // ===== Dedup: identical writes are skipped =====
 
-    void indicationPendingPartialMatchStaysPending() {
-        // Validates the "lost steam timeout" scenario: steam temp matches but
-        // duration doesn't. The pending flag must stay set so MainController
-        // detects drift and triggers a resend.
+    void duplicateWriteSkipped() {
+        // Multiple QML signals (state change, phase change, page open, isSteaming
+        // change) all fire startSteamHeating() with the same values. The second
+        // identical write should be skipped to avoid wasted BLE traffic.
         TestFixture f;
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("\\[ShotSettings\\] write skipped"));
+
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
+        f.transport.clearWrites();
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // identical
 
-        // Build indication that matches steam+group temp but has wrong duration.
-        QByteArray payload(9, 0);
-        payload[1] = char(160);   // steam temp matches
-        payload[2] = char(60);    // duration MISMATCHES (120 commanded)
-        payload[3] = char(80);    // hot water temp matches
-        payload[4] = char(200);   // hot water vol matches
-        payload[5] = char(60);
-        payload[6] = char(200);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
-
-        // Pending should stay set because duration doesn't match.
-        QVERIFY(f.device.shotSettingsIndicationPending());
+        QCOMPARE(f.transport.writes.size(), 0);
     }
 
-    void indicationPendingPartialMatchHotWaterStaysPending() {
-        // Hot water volume mismatch: everything else matches but vol doesn't.
+    void changedWriteFiresAfterDuplicate() {
+        // After a duplicate is skipped, a genuinely different write must still
+        // fire. Dedup compares against the LAST sent payload, not historical.
+        TestFixture f;
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("\\[ShotSettings\\] write skipped"));
+
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // skipped
+        f.transport.clearWrites();
+        f.device.setShotSettings(160, 60, 80, 200, 93.0);   // different duration
+
+        QCOMPARE(f.transport.writes.size(), 1);
+    }
+
+    void duplicateWriteAfterDisconnectFires() {
+        // Disconnect clears m_lastShotSettingsPayload. A subsequent identical
+        // write after reconnect must not be deduped against the pre-disconnect
+        // value.
         TestFixture f;
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
-        QVERIFY(f.device.shotSettingsIndicationPending());
 
-        QByteArray payload(9, 0);
-        payload[1] = char(160);   // steam temp matches
-        payload[2] = char(120);   // duration matches
-        payload[3] = char(80);    // hot water temp matches
-        payload[4] = char(150);   // hot water vol MISMATCHES (200 commanded)
-        payload[5] = char(60);
-        payload[6] = char(200);
-        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
-        payload[7] = char((groupRaw >> 8) & 0xFF);
-        payload[8] = char(groupRaw & 0xFF);
-        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+        f.transport.setConnectedSim(false);
+        f.transport.setConnectedSim(true);
 
-        QVERIFY(f.device.shotSettingsIndicationPending());
+        f.transport.clearWrites();
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);  // same values
+        QCOMPARE(f.transport.writes.size(), 1);  // fired despite same values
     }
 };
 
