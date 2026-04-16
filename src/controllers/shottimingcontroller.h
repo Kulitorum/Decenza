@@ -158,6 +158,7 @@ private:
     int m_settlingWindowIndex = 0;
     double m_lastSettlingAvg = 0.0;
     qint64 m_settlingAvgStableSince = 0; // When the rolling avg stopped drifting
+    qint64 m_lastDripOngoingLogMs = 0;   // Throttle "drip still ongoing" log to 1/sec
 
     // Tare state machine
     TareState m_tareState = TareState::Idle;

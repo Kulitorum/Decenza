@@ -308,10 +308,15 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                     qDebug() << "[SAW] Avg" << QString::number(avg, 'f', 1)
                              << "g below stop weight" << QString::number(m_weightAtStop, 'f', 1)
                              << "g - not settling yet";
-                if (weightAboveAvg && m_settlingAvgStableSince > 0)
-                    qDebug() << "[SAW] Weight" << QString::number(weight, 'f', 1)
-                             << "g still above avg" << QString::number(avg, 'f', 1)
-                             << "g - drip still ongoing";
+                if (weightAboveAvg && m_settlingAvgStableSince > 0) {
+                    qint64 now = QDateTime::currentMSecsSinceEpoch();
+                    if (now - m_lastDripOngoingLogMs >= 1000) {
+                        qDebug() << "[SAW] Weight" << QString::number(weight, 'f', 1)
+                                 << "g still above avg" << QString::number(avg, 'f', 1)
+                                 << "g - drip still ongoing";
+                        m_lastDripOngoingLogMs = now;
+                    }
+                }
                 m_settlingAvgStableSince = 0;
             }
             m_lastSettlingAvg = avg;
@@ -396,9 +401,14 @@ void ShotTimingController::onDisplayTimerTick()
             } else if (m_settlingWindowCount > 0 && m_weight > avg + SETTLING_ABOVE_AVG_MARGIN) {
                 // BLE silence during potential active drip (1-2s): weight above
                 // rolling avg. Wait for more samples before declaring stable.
-                qDebug() << "[SAW] Timer: silent but weight" << QString::number(m_weight, 'f', 1)
-                         << "g still above avg" << QString::number(avg, 'f', 1)
-                         << "g - drip may still be ongoing";
+                // Throttle to 1/sec — this fires every 50ms tick and produces
+                // 100+ log lines per shot when the scale goes silent.
+                if (now - m_lastDripOngoingLogMs >= 1000) {
+                    qDebug() << "[SAW] Timer: silent but weight" << QString::number(m_weight, 'f', 1)
+                             << "g still above avg" << QString::number(avg, 'f', 1)
+                             << "g - drip may still be ongoing";
+                    m_lastDripOngoingLogMs = now;
+                }
                 m_settlingAvgStableSince = 0;
             } else {
                 qDebug() << "[SAW] Weight stabilized at" << m_weight << "g (stable for" << stableMs << "ms, detected by timer)";
@@ -464,6 +474,7 @@ void ShotTimingController::startSettlingTimer()
     m_settlingWindowIndex = 0;
     m_lastSettlingAvg = m_weight;
     m_settlingAvgStableSince = 0;
+    m_lastDripOngoingLogMs = 0;  // Allow first "drip ongoing" log immediately
 
     m_sawSettling = true;
     m_settlingTimer.setInterval(10000);  // 10 second max timeout
