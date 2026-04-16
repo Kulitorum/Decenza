@@ -733,6 +733,7 @@ Dialog {
                                 id: bgColorMa
                                 anchors.fill: parent
                                 onClicked: {
+                                    Qt.inputMethod.commit()
                                     colorPickerPopup.mode = "bg"
                                     colorPickerPopup.initialColor = popup.textBackgroundColor
                                         ? Qt.color(popup.textBackgroundColor) : Qt.color("#333333")

@@ -451,6 +451,7 @@ Page {
                 accessibleName: TranslationManager.translate("settings.themes.themeNamePlaceholder", "Theme name")
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
+                    Qt.inputMethod.commit()
                     if (saveThemeDialog.themeName.trim().length > 0) {
                         Settings.saveCurrentTheme(saveThemeDialog.themeName.trim())
                         if (themesLoader.item) themesLoader.item.refreshPresets()

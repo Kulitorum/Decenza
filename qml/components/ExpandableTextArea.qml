@@ -318,6 +318,7 @@ Rectangle {
                     primary: !root.readOnly
                     visible: root.isMobile
                     onClicked: {
+                        Qt.inputMethod.commit()
                         if (!root.readOnly) {
                             root.text = dialogTextArea.text
                             root.editingFinished()
@@ -420,6 +421,7 @@ Rectangle {
                     accessibleName: root.readOnly ? TranslationManager.translate("common.close", "Close") : TranslationManager.translate("common.save", "Save")
                     primary: !root.readOnly
                     onClicked: {
+                        Qt.inputMethod.commit()
                         if (!root.readOnly) {
                             root.text = dialogTextArea.text
                             root.editingFinished()

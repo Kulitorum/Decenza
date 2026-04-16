@@ -772,7 +772,7 @@ Page {
                                 editDoseWeight = newValue
                                 calculateEy()
                             }
-                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                         }
                     }
 
@@ -804,7 +804,7 @@ Page {
                                 editDrinkWeight = newValue
                                 calculateEy()
                             }
-                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                         }
                     }
 
@@ -855,7 +855,7 @@ Page {
                                     editDrinkTds = newValue
                                     calculateEy()
                                 }
-                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                                onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                             }
                         }
                     }
@@ -887,7 +887,7 @@ Page {
                             onValueModified: function(newValue) {
                                 editDrinkEy = newValue
                             }
-                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                         }
                     }
                 }
