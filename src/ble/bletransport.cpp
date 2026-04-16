@@ -180,11 +180,16 @@ void BleTransport::writeUrgent(const QBluetoothUuid& uuid, const QByteArray& dat
 }
 
 void BleTransport::read(const QBluetoothUuid& uuid) {
-    if (!m_service || !m_characteristics.contains(uuid)) {
-        log(QString("read(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
-        return;
-    }
-    m_service->readCharacteristic(m_characteristics[uuid]);
+    // Queue the read so it runs after any pending writes complete. Without
+    // queueing, a read issued right after a write executes immediately and
+    // returns the pre-write value, defeating any read-after-write verification.
+    queueCommand([this, uuid]() {
+        if (!m_service || !m_characteristics.contains(uuid)) {
+            log(QString("read(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+            return;
+        }
+        m_service->readCharacteristic(m_characteristics[uuid]);
+    });
 }
 
 void BleTransport::subscribe(const QBluetoothUuid& uuid) {
@@ -211,8 +216,11 @@ void BleTransport::subscribeAll() {
     subscribe(DE1::Characteristic::WATER_LEVELS);
     subscribe(DE1::Characteristic::READ_FROM_MMR);
     subscribe(DE1::Characteristic::TEMPERATURES);
-    // SHOT_SETTINGS is indicate-capable — subscribing lets us observe the
-    // DE1's stored steam/group targets and verify that our writes stuck.
+    // SHOT_SETTINGS: the DE1 firmware does not push notifications on this
+    // characteristic when we write to it (de1app confirms this — it doesn't
+    // subscribe). Verification happens via explicit read() after each write
+    // in DE1Device::setShotSettings(). We still subscribe in case the firmware
+    // ever starts pushing — costs nothing extra.
     subscribe(DE1::Characteristic::SHOT_SETTINGS);
 
     // Read initial values

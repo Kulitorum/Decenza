@@ -1243,13 +1243,13 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
 
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, data);
 
-    // SHOT_SETTINGS is subscribed in BleTransport::subscribeAll() and the DE1
-    // indicates the stored value back whenever it changes — including after
-    // our writes. MainController::onShotSettingsReported() compares that
-    // reported value against its commanded value and re-sends on drift.
-    // (A read-after-write here would race with our queued write, since
-    // BleTransport::read() bypasses the command queue; subscription gives us
-    // the same guarantee without the race.)
+    // Verify the write by reading back. The DE1 firmware does NOT push
+    // notifications on the SHOT_SETTINGS characteristic when written (de1app
+    // doesn't subscribe to it either — confirmed by inspecting de1_comms.tcl).
+    // BleTransport::read() queues the read so it executes after this write
+    // completes, returning the actual stored value to parseShotSettings()
+    // which feeds MainController::onShotSettingsReported() for drift detection.
+    m_transport->read(DE1::Characteristic::SHOT_SETTINGS);
 }
 
 void DE1Device::parseShotSettings(const QByteArray& data) {
