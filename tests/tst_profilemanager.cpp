@@ -185,6 +185,10 @@ private slots:
         McpTestFixture f;
         loadDFlowProfile(f);
         f.transport.clearWrites();
+        // loadProfileFromJson already uploaded (same payload), so the next
+        // setShotSettings would be deduped. Clear the cache so this test can
+        // observe the SHOT_SETTINGS write.
+        f.device.m_lastShotSettingsPayload.clear();
 
         f.profileManager.uploadCurrentProfile();
 
@@ -202,6 +206,7 @@ private slots:
         McpTestFixture f;
         loadDFlowProfile(f, "Test", 36.0, 91.0);
         f.transport.clearWrites();
+        f.device.m_lastShotSettingsPayload.clear();
 
         f.profileManager.uploadCurrentProfile();
 
@@ -222,6 +227,7 @@ private slots:
         McpTestFixture f;
         loadDFlowProfile(f);
         f.transport.clearWrites();
+        f.device.m_lastShotSettingsPayload.clear();
 
         f.profileManager.uploadCurrentProfile();
 
@@ -369,6 +375,7 @@ private slots:
         // Set a temperature override
         f.settings.setTemperatureOverride(95.0);
         f.transport.clearWrites();
+        f.device.m_lastShotSettingsPayload.clear();
         f.profileManager.uploadCurrentProfile();
 
         // Shot settings should reflect the override, not the profile default
