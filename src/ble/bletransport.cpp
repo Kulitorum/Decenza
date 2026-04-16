@@ -216,12 +216,10 @@ void BleTransport::subscribeAll() {
     subscribe(DE1::Characteristic::WATER_LEVELS);
     subscribe(DE1::Characteristic::READ_FROM_MMR);
     subscribe(DE1::Characteristic::TEMPERATURES);
-    // SHOT_SETTINGS: the DE1 firmware does not push notifications on this
-    // characteristic when we write to it (de1app confirms this — it doesn't
-    // subscribe). Verification happens via explicit read() after each write
-    // in DE1Device::setShotSettings(). We still subscribe in case the firmware
-    // ever starts pushing — costs nothing extra.
-    subscribe(DE1::Characteristic::SHOT_SETTINGS);
+    // SHOT_SETTINGS is intentionally NOT subscribed: the DE1 firmware does
+    // not push notifications on writes (confirmed in de1app's de1_comms.tcl).
+    // Verification happens via explicit read() after each write in
+    // DE1Device::setShotSettings().
 
     // Read initial values
     read(DE1::Characteristic::VERSION);
