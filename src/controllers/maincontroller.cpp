@@ -138,7 +138,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 m_settings->setSteamDisabled(false);
             }
 
-            // Steam session ended — run post-session analysis
+            // Steam session ended — run post-session analysis. m_steamStartTime
+            // is only set when isFlowing() was true (Steaming/Pouring substates),
+            // so this fires after all flowing samples have been collected even
+            // though the Steaming phase persists through Puffing/Ending substates.
             if (phase != MachineState::Phase::Steaming && m_steamStartTime > 0) {
                 if (m_steamHealthTracker && m_steamDataModel) {
                     m_steamHealthTracker->onSessionComplete(
@@ -2057,12 +2060,13 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     }
     m_lastSampleTime = sample.timer;
 
-    // Record steam data only while steam is actually flowing (Steaming/Pouring
-    // substates), not during the GHC purge puff (Puffing) or wind-down (Ending).
-    // Without this gate, ~10s of post-flow purge time inflates rawTime() and
-    // skews SteamHealth's avg/peak metrics with non-steaming samples.
+    // Record steam data only while steam is actually flowing. isFlowing()
+    // returns true only for SubState::Steaming or SubState::Pouring (whitelist);
+    // all other Steaming-phase substates (Puffing, Ending, FinalHeating, etc.)
+    // are excluded. Without this gate, post-flow purge/wind-down samples inflate
+    // rawTime() and skew SteamHealth's avg/peak metrics with non-steaming data.
     bool steamFlowing = (phase == MachineState::Phase::Steaming
-                         && m_machineState && m_machineState->isFlowing());
+                         && m_machineState->isFlowing());
     if (steamFlowing && m_steamDataModel) {
         if (m_steamStartTime == 0) {
             m_steamStartTime = sample.timer;

@@ -49,7 +49,10 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
 }
 
 bool MachineState::isFlowing() const {
-    // For steam, only count as flowing if actually steaming (not purging/ending)
+    // For steam, only count as flowing during SubState::Steaming or
+    // SubState::Pouring (whitelist). All other substates that map to
+    // Phase::Steaming — Puffing, Ending, FinalHeating, PausedSteam, etc. —
+    // return false.
     if (m_phase == Phase::Steaming && m_device) {
         DE1::SubState subState = m_device->subState();
         return subState == DE1::SubState::Steaming ||
