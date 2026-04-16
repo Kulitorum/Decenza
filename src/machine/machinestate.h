@@ -123,6 +123,7 @@ private:
     ShotTimingController* m_timingController = nullptr;
 
     Phase m_phase = Phase::Disconnected;
+    DE1::SubState m_previousSubState = DE1::SubState::Ready;
     double m_shotTime = 0.0;
     double m_targetWeight = 36.0;
     double m_targetVolume = 0.0;

@@ -194,10 +194,12 @@ signals:
 
 private slots:
     void onShotSampleReceived(const ShotSample& sample);
-    // Verify that the DE1's stored steam/group targets match what we've
-    // commanded. Logs drift and auto-heals by re-sending ShotSettings, with
-    // a retry budget to avoid infinite loops when the DE1 refuses the value.
-    void onShotSettingsReported(double deviceSteamTargetC, double deviceGroupTargetC);
+    // Verify that the DE1's stored ShotSettings match what we've commanded.
+    // Logs drift and auto-heals by re-sending ShotSettings, with a retry
+    // budget to avoid infinite loops when the DE1 refuses the value.
+    void onShotSettingsReported(double deviceSteamTargetC, int deviceSteamDurationSec,
+                                double deviceHotWaterTempC, int deviceHotWaterVolMl,
+                                double deviceGroupTargetC);
 
 private:
     void applyAllSettings();

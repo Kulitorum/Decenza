@@ -109,11 +109,17 @@ public:
     double mixTemperature() const { return m_mixTemp; }
     double steamTemperature() const { return m_steamTemp; }
     double deviceSteamTargetC() const { return m_deviceSteamTargetC; }
+    int deviceSteamDurationSec() const { return m_deviceSteamDurationSec; }
+    double deviceHotWaterTempC() const { return m_deviceHotWaterTempC; }
+    int deviceHotWaterVolMl() const { return m_deviceHotWaterVolMl; }
     double deviceGroupTargetC() const { return m_deviceGroupTargetC; }
-    // Last ShotSettings values we actually wrote over BLE (-1.0 if none yet).
+    // Last ShotSettings values we actually wrote over BLE (-1 if none yet).
     // Used by MainController's drift check to distinguish "DE1 dropped the
     // write" from "DE1 reported its power-on state before we wrote anything".
     double commandedSteamTargetC() const { return m_commandedSteamTargetC; }
+    int commandedSteamDurationSec() const { return m_commandedSteamDurationSec; }
+    double commandedHotWaterTempC() const { return m_commandedHotWaterTempC; }
+    int commandedHotWaterVolMl() const { return m_commandedHotWaterVolMl; }
     double commandedGroupTargetC() const { return m_commandedGroupTargetC; }
     qint64 lastShotSettingsWriteMs() const { return m_lastShotSettingsWriteMs; }
     // True between issuing a setShotSettings() write and receiving an
@@ -247,8 +253,10 @@ signals:
     void heaterVoltageChanged();
     // Emitted after the DE1 reports its stored ShotSettings (either from our
     // initial read on connect or from an indication after a write). Values
-    // are the DE1's current targets in Celsius; 0 means the heater is off.
-    void shotSettingsReported(double deviceSteamTargetC, double deviceGroupTargetC);
+    // are the DE1's current targets; 0 means the heater/setting is off.
+    void shotSettingsReported(double deviceSteamTargetC, int deviceSteamDurationSec,
+                              double deviceHotWaterTempC, int deviceHotWaterVolMl,
+                              double deviceGroupTargetC);
     void logMessage(const QString& message);
 
 protected:
@@ -302,14 +310,20 @@ private:
     double m_goalTemperature = 0.0;
     double m_steamTemp = 0.0;
     // DE1-reported ShotSettings targets (from SHOT_SETTINGS indications/reads).
-    // -1.0 until first report so MainController can distinguish "never heard
+    // -1 until first report so MainController can distinguish "never heard
     // back" from "DE1 says target is 0".
     double m_deviceSteamTargetC = -1.0;
+    int m_deviceSteamDurationSec = -1;
+    double m_deviceHotWaterTempC = -1.0;
+    int m_deviceHotWaterVolMl = -1;
     double m_deviceGroupTargetC = -1.0;
     // Last ShotSettings values we wrote (tracked here so every setShotSettings
     // caller — MainController, ProfileManager, etc. — is covered without each
-    // one having to remember). -1.0 until first write.
+    // one having to remember). -1 until first write.
     double m_commandedSteamTargetC = -1.0;
+    int m_commandedSteamDurationSec = -1;
+    double m_commandedHotWaterTempC = -1.0;
+    int m_commandedHotWaterVolMl = -1;
     double m_commandedGroupTargetC = -1.0;
     qint64 m_lastShotSettingsWriteMs = 0;
     // Raw 9-byte payload of the most recent ShotSettings write, used by

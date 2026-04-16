@@ -154,11 +154,14 @@ private slots:
     // ===== Commanded-value tracking (issue #746 drift detection) =====
 
     void commandedValuesInitiallyUnset() {
-        // Before any write, commanded values report -1.0 so MainController's
+        // Before any write, commanded values report -1 so MainController's
         // drift check can ignore pre-commanded indications (DE1's power-on
         // state isn't something we should "fix").
         TestFixture f;
         QCOMPARE(f.device.commandedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.commandedSteamDurationSec(), -1);
+        QCOMPARE(f.device.commandedHotWaterTempC(), -1.0);
+        QCOMPARE(f.device.commandedHotWaterVolMl(), -1);
         QCOMPARE(f.device.commandedGroupTargetC(), -1.0);
         QCOMPARE(f.device.lastShotSettingsWriteMs(), qint64(0));
     }
@@ -167,12 +170,18 @@ private slots:
         TestFixture f;
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
         QCOMPARE(f.device.commandedSteamTargetC(), 160.0);
+        QCOMPARE(f.device.commandedSteamDurationSec(), 120);
+        QCOMPARE(f.device.commandedHotWaterTempC(), 80.0);
+        QCOMPARE(f.device.commandedHotWaterVolMl(), 200);
         QCOMPARE(f.device.commandedGroupTargetC(), 93.0);
         QVERIFY(f.device.lastShotSettingsWriteMs() > 0);
 
         // Subsequent write overwrites — latest command wins.
-        f.device.setShotSettings(0, 120, 80, 200, 88.0);
+        f.device.setShotSettings(0, 60, 90, 150, 88.0);
         QCOMPARE(f.device.commandedSteamTargetC(), 0.0);
+        QCOMPARE(f.device.commandedSteamDurationSec(), 60);
+        QCOMPARE(f.device.commandedHotWaterTempC(), 90.0);
+        QCOMPARE(f.device.commandedHotWaterVolMl(), 150);
         QCOMPARE(f.device.commandedGroupTargetC(), 88.0);
     }
 
@@ -199,9 +208,15 @@ private slots:
         emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
 
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.at(0).at(0).toDouble(), 145.0);
-        QCOMPARE(spy.at(0).at(1).toDouble(), 90.25);
+        QCOMPARE(spy.at(0).at(0).toDouble(), 145.0);   // steam temp
+        QCOMPARE(spy.at(0).at(1).toInt(), 120);          // steam duration
+        QCOMPARE(spy.at(0).at(2).toDouble(), 80.0);      // hot water temp
+        QCOMPARE(spy.at(0).at(3).toInt(), 200);           // hot water vol
+        QCOMPARE(spy.at(0).at(4).toDouble(), 90.25);     // group temp
         QCOMPARE(f.device.deviceSteamTargetC(), 145.0);
+        QCOMPARE(f.device.deviceSteamDurationSec(), 120);
+        QCOMPARE(f.device.deviceHotWaterTempC(), 80.0);
+        QCOMPARE(f.device.deviceHotWaterVolMl(), 200);
         QCOMPARE(f.device.deviceGroupTargetC(), 90.25);
     }
 
@@ -242,7 +257,10 @@ private slots:
         emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
 
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.at(0).at(0).toDouble(), 0.0);
+        QCOMPARE(spy.at(0).at(0).toDouble(), 0.0);   // steam temp off
+        QCOMPARE(spy.at(0).at(1).toInt(), 0);          // duration
+        QCOMPARE(spy.at(0).at(2).toDouble(), 0.0);     // hot water temp
+        QCOMPARE(spy.at(0).at(3).toInt(), 0);           // hot water vol
     }
 
     void disconnectResetsCommanded() {
@@ -256,9 +274,15 @@ private slots:
         f.transport.setConnectedSim(false);
 
         QCOMPARE(f.device.commandedSteamTargetC(), -1.0);
+        QCOMPARE(f.device.commandedSteamDurationSec(), -1);
+        QCOMPARE(f.device.commandedHotWaterTempC(), -1.0);
+        QCOMPARE(f.device.commandedHotWaterVolMl(), -1);
         QCOMPARE(f.device.commandedGroupTargetC(), -1.0);
         QCOMPARE(f.device.lastShotSettingsWriteMs(), qint64(0));
         QCOMPARE(f.device.deviceSteamTargetC(), -1.0);
+        QCOMPARE(f.device.deviceSteamDurationSec(), -1);
+        QCOMPARE(f.device.deviceHotWaterTempC(), -1.0);
+        QCOMPARE(f.device.deviceHotWaterVolMl(), -1);
         QCOMPARE(f.device.deviceGroupTargetC(), -1.0);
     }
 
@@ -274,8 +298,11 @@ private slots:
         f.transport.setConnectedSim(false);
 
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.at(0).at(0).toDouble(), -1.0);
-        QCOMPARE(spy.at(0).at(1).toDouble(), -1.0);
+        QCOMPARE(spy.at(0).at(0).toDouble(), -1.0);   // steam temp
+        QCOMPARE(spy.at(0).at(1).toInt(), -1);          // duration
+        QCOMPARE(spy.at(0).at(2).toDouble(), -1.0);     // hot water temp
+        QCOMPARE(spy.at(0).at(3).toInt(), -1);           // hot water vol
+        QCOMPARE(spy.at(0).at(4).toDouble(), -1.0);     // group temp
     }
 
     // ===== Indication-pending flag (event-based stale-indication detection) =====
@@ -345,6 +372,54 @@ private slots:
         f.transport.clearWrites();
         f.device.resendLastShotSettings();
         QCOMPARE(f.transport.writes.size(), 0);
+    }
+
+    // ===== Partial-match: pending flag stays set if only some fields match =====
+
+    void indicationPendingPartialMatchStaysPending() {
+        // Validates the "lost steam timeout" scenario: steam temp matches but
+        // duration doesn't. The pending flag must stay set so MainController
+        // detects drift and triggers a resend.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QVERIFY(f.device.shotSettingsIndicationPending());
+
+        // Build indication that matches steam+group temp but has wrong duration.
+        QByteArray payload(9, 0);
+        payload[1] = char(160);   // steam temp matches
+        payload[2] = char(60);    // duration MISMATCHES (120 commanded)
+        payload[3] = char(80);    // hot water temp matches
+        payload[4] = char(200);   // hot water vol matches
+        payload[5] = char(60);
+        payload[6] = char(200);
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
+        payload[7] = char((groupRaw >> 8) & 0xFF);
+        payload[8] = char(groupRaw & 0xFF);
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+
+        // Pending should stay set because duration doesn't match.
+        QVERIFY(f.device.shotSettingsIndicationPending());
+    }
+
+    void indicationPendingPartialMatchHotWaterStaysPending() {
+        // Hot water volume mismatch: everything else matches but vol doesn't.
+        TestFixture f;
+        f.device.setShotSettings(160, 120, 80, 200, 93.0);
+        QVERIFY(f.device.shotSettingsIndicationPending());
+
+        QByteArray payload(9, 0);
+        payload[1] = char(160);   // steam temp matches
+        payload[2] = char(120);   // duration matches
+        payload[3] = char(80);    // hot water temp matches
+        payload[4] = char(150);   // hot water vol MISMATCHES (200 commanded)
+        payload[5] = char(60);
+        payload[6] = char(200);
+        uint16_t groupRaw = BinaryCodec::encodeU16P8(93.0);
+        payload[7] = char((groupRaw >> 8) & 0xFF);
+        payload[8] = char(groupRaw & 0xFF);
+        emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, payload);
+
+        QVERIFY(f.device.shotSettingsIndicationPending());
     }
 };
 

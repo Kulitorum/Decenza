@@ -437,23 +437,31 @@ QString MainController::pasteFromClipboard() const {
     return text;
 }
 
-void MainController::onShotSettingsReported(double deviceSteamTargetC, double deviceGroupTargetC) {
+void MainController::onShotSettingsReported(double deviceSteamTargetC, int deviceSteamDurationSec,
+                                             double deviceHotWaterTempC, int deviceHotWaterVolMl,
+                                             double deviceGroupTargetC) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     const double commandedSteam = m_device->commandedSteamTargetC();
+    const int commandedDuration = m_device->commandedSteamDurationSec();
+    const double commandedHotWaterTemp = m_device->commandedHotWaterTempC();
+    const int commandedHotWaterVol = m_device->commandedHotWaterVolMl();
     const double commandedGroup = m_device->commandedGroupTargetC();
-    const bool haveCommanded = (commandedSteam >= 0.0 && commandedGroup >= 0.0);
+    const bool haveCommanded = (commandedSteam >= 0.0 && commandedDuration >= 0
+                                && commandedHotWaterTemp >= 0.0 && commandedHotWaterVol >= 0
+                                && commandedGroup >= 0.0);
 
     // Sentinel values emitted by DE1Device on disconnect — skip, there's
     // nothing to compare against.
-    if (deviceSteamTargetC < 0.0 || deviceGroupTargetC < 0.0) {
+    if (deviceSteamTargetC < 0.0 || deviceGroupTargetC < 0.0
+        || deviceSteamDurationSec < 0 || deviceHotWaterVolMl < 0) {
         return;
     }
 
-    // Tolerances cover BLE encoding rounding. Steam is u8p0 (1°C quantum);
-    // group is u16p8 (far finer but we allow 0.5°C to absorb any FP noise).
-    constexpr double kSteamToleranceC = 0.5;
-    constexpr double kGroupToleranceC = 0.5;
+    // Tolerances cover BLE encoding rounding. Temperatures use u8p0 (1°C
+    // quantum) or u16p8; 0.5°C absorbs FP noise. Integer fields (duration,
+    // volume) must match exactly.
+    constexpr double kTempToleranceC = 0.5;
 
     // Compare reported against COMMANDED — "did the DE1 honor our last
     // write?" This is the authoritative question for #746, and it correctly
@@ -463,28 +471,42 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, double de
     // Settings-derived "expected" would make the drift handler clobber
     // those writes.
     const bool steamDrift = haveCommanded &&
-        std::abs(deviceSteamTargetC - commandedSteam) > kSteamToleranceC;
+        std::abs(deviceSteamTargetC - commandedSteam) > kTempToleranceC;
+    const bool durationDrift = haveCommanded &&
+        deviceSteamDurationSec != commandedDuration;
+    const bool hotWaterTempDrift = haveCommanded &&
+        std::abs(deviceHotWaterTempC - commandedHotWaterTemp) > kTempToleranceC;
+    const bool hotWaterVolDrift = haveCommanded &&
+        deviceHotWaterVolMl != commandedHotWaterVol;
     const bool groupDrift = haveCommanded &&
-        std::abs(deviceGroupTargetC - commandedGroup) > kGroupToleranceC;
+        std::abs(deviceGroupTargetC - commandedGroup) > kTempToleranceC;
 
     // Skip before we've ever written — DE1's initial indication on subscribe
     // reflects its power-on state, not ours, and racing against that would
     // log a bogus drift on every connect.
     if (!haveCommanded) {
         qDebug().noquote() << QString(
-            "[SettingsDrift] pre-commanded report ignored: reported steam=%1C group=%2C — waiting for first write")
+            "[SettingsDrift] pre-commanded report ignored: "
+            "reported(steam=%1C dur=%2s hw=%3C vol=%4ml group=%5C) — waiting for first write")
             .arg(deviceSteamTargetC, 0, 'f', 1)
+            .arg(deviceSteamDurationSec)
+            .arg(deviceHotWaterTempC, 0, 'f', 1)
+            .arg(deviceHotWaterVolMl)
             .arg(deviceGroupTargetC, 0, 'f', 2);
         return;
     }
 
-    if (!steamDrift && !groupDrift) {
+    if (!steamDrift && !durationDrift && !hotWaterTempDrift && !hotWaterVolDrift && !groupDrift) {
         // DE1 stored what we sent. Reset retry bookkeeping.
         if (m_shotSettingsDriftResendCount > 0) {
             qDebug().noquote() << QString(
-                "[SettingsDrift] resolved after %1 resend(s) — DE1 stored steam=%2C group=%3C")
+                "[SettingsDrift] resolved after %1 resend(s) — DE1 stored "
+                "steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C")
                 .arg(m_shotSettingsDriftResendCount)
                 .arg(deviceSteamTargetC, 0, 'f', 1)
+                .arg(deviceSteamDurationSec)
+                .arg(deviceHotWaterTempC, 0, 'f', 1)
+                .arg(deviceHotWaterVolMl)
                 .arg(deviceGroupTargetC, 0, 'f', 2);
             m_shotSettingsDriftResendCount = 0;
         }
@@ -502,23 +524,23 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, double de
     if (m_device->shotSettingsIndicationPending()) {
         qDebug().noquote() << QString(
             "[SettingsDrift] stale-indication ignored (write unacknowledged): "
-            "reported(steam=%1C group=%2C) commanded(steam=%3C group=%4C)")
+            "reported(steam=%1C dur=%2s hw=%3C vol=%4ml group=%5C) "
+            "commanded(steam=%6C dur=%7s hw=%8C vol=%9ml group=%10C)")
             .arg(deviceSteamTargetC, 0, 'f', 1)
+            .arg(deviceSteamDurationSec)
+            .arg(deviceHotWaterTempC, 0, 'f', 1)
+            .arg(deviceHotWaterVolMl)
             .arg(deviceGroupTargetC, 0, 'f', 2)
             .arg(commandedSteam, 0, 'f', 1)
+            .arg(commandedDuration)
+            .arg(commandedHotWaterTemp, 0, 'f', 1)
+            .arg(commandedHotWaterVol)
             .arg(commandedGroup, 0, 'f', 2);
         return;
     }
 
     // Classify for the log so we can scan `grep SettingsDrift` in bug
-    // reports and immediately see what happened. Also compute expected
-    // (from Settings) for context — if it differs from commanded it means
-    // the user changed a setting between our last write and now.
-    const double expectedSteamC = m_settings->steamDisabled() ||
-                                  !m_settings->keepSteamHeaterOn()
-                                      ? 0.0
-                                      : m_settings->steamTemperature();
-    const double expectedGroupC = getGroupTemperature();
+    // reports and immediately see what happened.
     QString summary;
     if (steamDrift) {
         if (commandedSteam == 0.0 && deviceSteamTargetC > 0.0) {
@@ -533,23 +555,44 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, double de
                           .arg(commandedSteam, 0, 'f', 0);
         }
     }
+    if (durationDrift) {
+        QString note = QStringLiteral("steam duration %1s but we commanded %2s")
+                           .arg(deviceSteamDurationSec).arg(commandedDuration);
+        summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
+    }
+    if (hotWaterTempDrift) {
+        QString note = QStringLiteral("hot water temp %1C but we commanded %2C")
+                           .arg(deviceHotWaterTempC, 0, 'f', 0)
+                           .arg(commandedHotWaterTemp, 0, 'f', 0);
+        summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
+    }
+    if (hotWaterVolDrift) {
+        QString note = QStringLiteral("hot water vol %1ml but we commanded %2ml")
+                           .arg(deviceHotWaterVolMl).arg(commandedHotWaterVol);
+        summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
+    }
     if (groupDrift) {
-        QString groupNote = QStringLiteral("group target %1C but we commanded %2C")
-                                .arg(deviceGroupTargetC, 0, 'f', 2)
-                                .arg(commandedGroup, 0, 'f', 2);
-        summary = summary.isEmpty() ? groupNote : summary + QStringLiteral("; ") + groupNote;
+        QString note = QStringLiteral("group target %1C but we commanded %2C")
+                           .arg(deviceGroupTargetC, 0, 'f', 2)
+                           .arg(commandedGroup, 0, 'f', 2);
+        summary = summary.isEmpty() ? note : summary + QStringLiteral("; ") + note;
     }
 
     qWarning().noquote() << QString(
-        "[SettingsDrift] DE1-dropped-write: %1 | reported(steam=%2C group=%3C) "
-        "commanded(steam=%4C group=%5C) expected(steam=%6C group=%7C)")
+        "[SettingsDrift] DE1-dropped-write: %1 | "
+        "reported(steam=%2C dur=%3s hw=%4C vol=%5ml group=%6C) "
+        "commanded(steam=%7C dur=%8s hw=%9C vol=%10ml group=%11C)")
         .arg(summary)
         .arg(deviceSteamTargetC, 0, 'f', 1)
+        .arg(deviceSteamDurationSec)
+        .arg(deviceHotWaterTempC, 0, 'f', 1)
+        .arg(deviceHotWaterVolMl)
         .arg(deviceGroupTargetC, 0, 'f', 2)
         .arg(commandedSteam, 0, 'f', 1)
-        .arg(commandedGroup, 0, 'f', 2)
-        .arg(expectedSteamC, 0, 'f', 1)
-        .arg(expectedGroupC, 0, 'f', 2);
+        .arg(commandedDuration)
+        .arg(commandedHotWaterTemp, 0, 'f', 1)
+        .arg(commandedHotWaterVol)
+        .arg(commandedGroup, 0, 'f', 2);
 
     // If a resend is already in flight (we sent one and haven't yet received
     // its indication), wait for that to resolve before firing another. This

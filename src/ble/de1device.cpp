@@ -100,16 +100,22 @@ void DE1Device::onTransportDisconnected() {
     // post-reconnect indication against a stale commanded value from the
     // previous session (which would log a spurious drift).
     m_commandedSteamTargetC = -1.0;
+    m_commandedSteamDurationSec = -1;
+    m_commandedHotWaterTempC = -1.0;
+    m_commandedHotWaterVolMl = -1;
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
     m_lastShotSettingsPayload.clear();
     m_shotSettingsIndicationPending = false;
     m_deviceSteamTargetC = -1.0;
+    m_deviceSteamDurationSec = -1;
+    m_deviceHotWaterTempC = -1.0;
+    m_deviceHotWaterVolMl = -1;
     m_deviceGroupTargetC = -1.0;
     // Emit the NOTIFY signal so any QML binding on deviceSteamTargetC /
     // deviceGroupTargetC sees the reset and doesn't keep displaying the
     // previous session's values until a fresh indication arrives.
-    emit shotSettingsReported(-1.0, -1.0);
+    emit shotSettingsReported(-1.0, -1, -1.0, -1, -1.0);
 
     // If an upload was in flight when the transport dropped, surface it as
     // a non-retryable "BLE disconnect during upload" failure *now* rather
@@ -1216,6 +1222,9 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // controller, profile manager, steam calibrator, …) contributes to the
     // drift detector without each one having to remember.
     m_commandedSteamTargetC = steamTemp;
+    m_commandedSteamDurationSec = steamDuration;
+    m_commandedHotWaterTempC = hotWaterTemp;
+    m_commandedHotWaterVolMl = hotWaterVolume;
     m_commandedGroupTargetC = groupTemp;
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_lastShotSettingsPayload = data;
@@ -1262,19 +1271,28 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     }
     const auto d = reinterpret_cast<const uint8_t*>(data.constData());
     const double steamTargetC = BinaryCodec::decodeU8P0(d[1]);
+    const int steamDurationSec = static_cast<int>(BinaryCodec::decodeU8P0(d[2]));
+    const double hotWaterTempC = BinaryCodec::decodeU8P0(d[3]);
+    const int hotWaterVolMl = static_cast<int>(BinaryCodec::decodeU8P0(d[4]));
     const uint16_t groupRaw = BinaryCodec::decodeShortBE(data, 7);
     const double groupTargetC = BinaryCodec::decodeU16P8(groupRaw);
 
     // Trace every DE1-reported value. Pair with the [ShotSettings] write:
     // lines above to reconstruct the request/response timeline when
-    // diagnosing "heater didn't heat" reports (e.g. issue #746).
+    // diagnosing "heater didn't heat" or "steam didn't stop" reports.
     qDebug().noquote() << QString(
-        "[ShotSettings] reported: steam=%1C group=%2C (%3 bytes)")
+        "[ShotSettings] reported: steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C (%6 bytes)")
         .arg(steamTargetC, 0, 'f', 1)
+        .arg(steamDurationSec)
+        .arg(hotWaterTempC, 0, 'f', 1)
+        .arg(hotWaterVolMl)
         .arg(groupTargetC, 0, 'f', 2)
         .arg(data.size());
 
     m_deviceSteamTargetC = steamTargetC;
+    m_deviceSteamDurationSec = steamDurationSec;
+    m_deviceHotWaterTempC = hotWaterTempC;
+    m_deviceHotWaterVolMl = hotWaterVolMl;
     m_deviceGroupTargetC = groupTargetC;
 
     // Clear the indication-pending flag only when the report matches our
@@ -1282,20 +1300,32 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     // indication (leave pending set — the real post-write one will arrive
     // next) or a genuine dropped-write (MainController will detect it and
     // trigger a resend, which itself sets pending). Either way we wait.
+    // All 5 variable fields must match — a partial match (e.g. temp OK but
+    // duration wrong) still counts as unacknowledged.
+    constexpr double kTempTolerance = 0.5;  // u8p0 encoding rounding
     if (m_commandedSteamTargetC >= 0.0
-        && std::abs(steamTargetC - m_commandedSteamTargetC) <= 0.5
-        && std::abs(groupTargetC - m_commandedGroupTargetC) <= 0.5) {
+        && std::abs(steamTargetC - m_commandedSteamTargetC) <= kTempTolerance
+        && m_commandedSteamDurationSec >= 0
+        && steamDurationSec == m_commandedSteamDurationSec
+        && m_commandedHotWaterTempC >= 0.0
+        && std::abs(hotWaterTempC - m_commandedHotWaterTempC) <= kTempTolerance
+        && m_commandedHotWaterVolMl >= 0
+        && hotWaterVolMl == m_commandedHotWaterVolMl
+        && std::abs(groupTargetC - m_commandedGroupTargetC) <= kTempTolerance) {
         m_shotSettingsIndicationPending = false;
     }
 
-    emit shotSettingsReported(steamTargetC, groupTargetC);
+    emit shotSettingsReported(steamTargetC, steamDurationSec, hotWaterTempC, hotWaterVolMl, groupTargetC);
 }
 
 void DE1Device::resendLastShotSettings() {
     if (!m_transport || m_lastShotSettingsPayload.isEmpty()) return;
     qDebug().noquote() << QString(
-        "[ShotSettings] resend: repeating last payload (steam=%1C group=%2C)")
+        "[ShotSettings] resend: repeating last payload (steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C)")
         .arg(m_commandedSteamTargetC, 0, 'f', 1)
+        .arg(m_commandedSteamDurationSec)
+        .arg(m_commandedHotWaterTempC, 0, 'f', 1)
+        .arg(m_commandedHotWaterVolMl)
         .arg(m_commandedGroupTargetC, 0, 'f', 2);
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_shotSettingsIndicationPending = true;

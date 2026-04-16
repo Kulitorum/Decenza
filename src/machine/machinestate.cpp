@@ -194,6 +194,17 @@ void MachineState::updatePhase() {
     Phase oldPhase = m_phase;
     DE1::State state = m_device->state();
     DE1::SubState subState = m_device->subState();
+    DE1::SubState previousSubState = m_previousSubState;
+    m_previousSubState = subState;
+
+    // Log steam substate transitions for diagnostics (#766 follow-up).
+    // Reconstructs the full Steaming->Puffing->Ending->Idle sequence from
+    // logs when diagnosing "steam didn't stop" reports.
+    if (state == DE1::State::Steam && subState != previousSubState) {
+        qDebug().noquote() << QString("[Steam] substate: %1 -> %2")
+            .arg(DE1::subStateToString(previousSubState),
+                 DE1::subStateToString(subState));
+    }
 
     switch (state) {
         case DE1::State::Sleep:
@@ -500,12 +511,16 @@ void MachineState::updatePhase() {
         // Defer other signal emissions to allow pending BLE notifications to process first.
         // This prevents QML binding updates from blocking the event loop during the BLE callback chain.
         // Note: espressoCycleStarted is emitted immediately above to avoid race conditions.
-        QMetaObject::invokeMethod(this, [this, wasInEspresso, isInEspresso, wasFlowing]() {
+        QMetaObject::invokeMethod(this, [this, wasInEspresso, isInEspresso, wasFlowing, oldPhase]() {
             emit phaseChanged();
 
             if (isFlowing() && !wasFlowing) {
+                if (m_phase == Phase::Steaming)
+                    qDebug().noquote() << "[Steam] flow started (phase entered Steaming)";
                 emit shotStarted();
             } else if (!isFlowing() && wasFlowing) {
+                if (oldPhase == Phase::Steaming)
+                    qDebug().noquote() << "[Steam] flow stopped (phase left Steaming)";
                 emit shotEnded();
             }
         }, Qt::QueuedConnection);
@@ -515,6 +530,10 @@ void MachineState::updatePhase() {
     // This handles steam stopping (Puffing/Ending substates) where phase stays Steaming
     if (!isFlowing() && m_shotTimer->isActive()) {
         qDebug() << "=== TIMER STOP: isFlowing() became false (substate change) ===";
+        if (m_device && m_device->state() == DE1::State::Steam) {
+            qDebug().noquote() << QString("[Steam] flow stopped via substate change (substate=%1)")
+                .arg(DE1::subStateToString(m_device->subState()));
+        }
         stopShotTimer();
         if (m_scale) {
             m_scale->stopTimer();
