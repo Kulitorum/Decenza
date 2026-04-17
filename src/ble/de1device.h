@@ -5,6 +5,7 @@
 #include <QBluetoothUuid>
 #include <QByteArray>
 #include <QEvent>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QTimer>
@@ -200,12 +201,25 @@ public slots:
     // is false). Resending via sendMachineSettings() would clobber them.
     void resendLastShotSettings();
 
-    // MMR write (for advanced settings like steam flow)
-    void writeMMR(uint32_t address, uint32_t value);
+    // MMR write (for advanced settings like steam flow). Identical writes to
+    // the same register are deduped against m_lastMMRValues, matching the
+    // setShotSettings dedup pattern — the session log showed ~30 identical
+    // flush-flow MMR bursts in 2.5 s when settings sliders emitted convergent
+    // change signals. `reason` is an optional caller tag that appears in the
+    // [MMR] write / write skipped log lines. Pass `force=true` to bypass the
+    // dedup check (the DE1's USB-charger register has a 10-minute auto-enable
+    // timeout that requires us to keep reasserting the commanded value).
+    void writeMMR(uint32_t address, uint32_t value,
+                  const QString& reason = QString(),
+                  bool force = false);
 
     // MMR write bypassing the BLE command queue — used for time-critical writes
     // that must complete before the app suspends (e.g. ensureChargerOn on iOS).
-    void writeMMRUrgent(uint32_t address, uint32_t value);
+    // Always bypasses the dedup check since "urgent" implies "must reach the
+    // DE1 now". Still updates m_lastMMRValues so a subsequent non-urgent
+    // writeMMR with the same value is correctly elided.
+    void writeMMRUrgent(uint32_t address, uint32_t value,
+                        const QString& reason = QString());
 
     // USB charger control (force=true to resend even if state unchanged, needed for DE1's 10-min timeout)
     void setUsbChargerOn(bool on, bool force = false);
@@ -328,6 +342,12 @@ private:
     // TargetEspressoVol) which are hardcoded in setShotSettings() and have
     // no corresponding commanded-value members.
     QByteArray m_lastShotSettingsPayload;
+    // Per-register cache of the last value written to each MMR address.
+    // writeMMR() skips the BLE write when the cached value matches, eliding
+    // redundant traffic from convergent callers (flush/steam/hot-water slider
+    // changes fan out into the same MMR). Cleared on transport disconnect so
+    // a reconnect re-writes real values rather than trusting stale ones.
+    QHash<uint32_t, uint32_t> m_lastMMRValues;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
@@ -374,5 +394,6 @@ private:
     friend class tst_SAV;
     friend class tst_MachineState;
     friend class tst_ProfileManager;
+    friend class tst_MMRWrite;
 #endif
 };

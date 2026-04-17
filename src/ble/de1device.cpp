@@ -106,6 +106,10 @@ void DE1Device::onTransportDisconnected() {
     m_commandedGroupTargetC = -1.0;
     m_lastShotSettingsWriteMs = 0;
     m_lastShotSettingsPayload.clear();
+    // Clear the MMR dedup cache so a reconnect re-writes real values rather
+    // than trusting cached values from the previous session (the DE1 may have
+    // power-cycled or had its firmware state reset between sessions).
+    m_lastMMRValues.clear();
     m_deviceSteamTargetC = -1.0;
     m_deviceSteamDurationSec = -1;
     m_deviceHotWaterTempC = -1.0;
@@ -1044,13 +1048,53 @@ QByteArray DE1Device::buildMMRPayload(uint32_t address, uint32_t value) {
     return data;
 }
 
-void DE1Device::writeMMR(uint32_t address, uint32_t value) {
+void DE1Device::writeMMR(uint32_t address, uint32_t value,
+                         const QString& reason, bool force) {
     if (!m_transport) return;
+
+    const QString reasonSuffix = reason.isEmpty()
+        ? QString() : QStringLiteral(" [%1]").arg(reason);
+
+    // Dedup: skip the BLE write when this register's cached value matches.
+    // Matches the setShotSettings pattern (see #773). Multiple convergent
+    // callers — applyFlushSettings/applySteamSettings/sendMachineSettings —
+    // otherwise produce bursts of identical MMR writes when a single slider
+    // change fans out through several QML property bindings. `force` opts out
+    // for callers with refresh semantics (USB charger's 10-minute auto-enable
+    // timeout means we must keep reasserting even when the value is unchanged).
+    auto it = m_lastMMRValues.constFind(address);
+    if (!force && it != m_lastMMRValues.constEnd() && it.value() == value) {
+        qDebug().noquote() << QString(
+            "[MMR] write skipped: 0x%1 unchanged (%2)%3")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(value)
+            .arg(reasonSuffix);
+        return;
+    }
+
+    qDebug().noquote() << QString("[MMR] write: 0x%1 = %2%3")
+        .arg(address, 6, 16, QLatin1Char('0'))
+        .arg(value)
+        .arg(reasonSuffix);
+
+    m_lastMMRValues.insert(address, value);
     m_transport->write(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
 }
 
-void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value) {
+void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& reason) {
     if (!m_transport) return;
+
+    const QString reasonSuffix = reason.isEmpty()
+        ? QString() : QStringLiteral(" [%1]").arg(reason);
+    qDebug().noquote() << QString("[MMR] write urgent: 0x%1 = %2%3")
+        .arg(address, 6, 16, QLatin1Char('0'))
+        .arg(value)
+        .arg(reasonSuffix);
+
+    // Urgent writes always go through (no dedup check), but we still update
+    // the cache so a subsequent non-urgent writeMMR with the same value
+    // correctly dedups against what we just sent.
+    m_lastMMRValues.insert(address, value);
     m_transport->writeUrgent(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
 }
 
@@ -1065,7 +1109,11 @@ void DE1Device::setUsbChargerOn(bool on, bool force) {
         m_usbChargerOn = on;
     }
 
-    writeMMR(DE1::MMR::USB_CHARGER, on ? 1 : 0);
+    // force=true must bypass writeMMR's per-register dedup — the DE1's 10-min
+    // auto-enable timeout requires us to keep reasserting the commanded value
+    // even when unchanged, otherwise the DE1 will silently override us.
+    writeMMR(DE1::MMR::USB_CHARGER, on ? 1 : 0,
+             QStringLiteral("setUsbChargerOn"), force);
 
     if (stateChanged) {
         emit usbChargerOnChanged();
@@ -1081,7 +1129,8 @@ void DE1Device::setUsbChargerOnUrgent(bool on) {
     if (stateChanged) {
         m_usbChargerOn = on;
     }
-    writeMMRUrgent(DE1::MMR::USB_CHARGER, on ? 1 : 0);
+    writeMMRUrgent(DE1::MMR::USB_CHARGER, on ? 1 : 0,
+                   QStringLiteral("setUsbChargerOnUrgent"));
     if (stateChanged) {
         emit usbChargerOnChanged();
     }

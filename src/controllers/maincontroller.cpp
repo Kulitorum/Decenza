@@ -643,16 +643,19 @@ void MainController::sendMachineSettings(const QString& reason) {
         reason.isEmpty() ? QStringLiteral("sendMachineSettings") : reason
     );
 
+    const QString mmrReason = reason.isEmpty()
+        ? QStringLiteral("sendMachineSettings") : reason;
+
     // 2. Steam flow MMR
-    m_device->writeMMR(0x803828, m_settings->steamFlow());
+    m_device->writeMMR(0x803828, m_settings->steamFlow(), mmrReason);
 
     // 3. Flush flow MMR (value × 10)
     int flowValue = static_cast<int>(m_settings->flushFlow() * 10);
-    m_device->writeMMR(0x803840, flowValue);
+    m_device->writeMMR(0x803840, flowValue, mmrReason);
 
     // 4. Flush timeout MMR (value × 10)
     int secondsValue = static_cast<int>(m_settings->flushSeconds() * 10);
-    m_device->writeMMR(0x803848, secondsValue);
+    m_device->writeMMR(0x803848, secondsValue, mmrReason);
 }
 
 void MainController::applySteamSettings() {
@@ -662,7 +665,9 @@ void MainController::applySteamSettings() {
 void MainController::applyHotWaterSettings() {
     sendMachineSettings(QStringLiteral("applyHotWaterSettings"));
     if (m_device && m_device->isConnected())
-        m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
+        m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE,
+                           m_settings->hotWaterFlowRate(),
+                           QStringLiteral("applyHotWaterSettings"));
 }
 
 void MainController::applyFlushSettings() {
@@ -1227,12 +1232,13 @@ void MainController::applyHeaterTweaks() {
         return;
     }
 
-    m_device->writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow());
-    m_device->writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow());
-    m_device->writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp());
-    m_device->writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout());
-    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
-    m_device->writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0);
+    const QString reason = QStringLiteral("applyHeaterTweaks");
+    m_device->writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow(), reason);
+    m_device->writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow(), reason);
+    m_device->writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp(), reason);
+    m_device->writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout(), reason);
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate(), reason);
+    m_device->writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0, reason);
 }
 
 double MainController::getGroupTemperature() const {
@@ -1346,7 +1352,8 @@ void MainController::startSteamHeating(const QString& reason) {
     );
 
     // Also send steam flow via MMR
-    m_device->writeMMR(0x803828, m_settings->steamFlow());
+    m_device->writeMMR(0x803828, m_settings->steamFlow(),
+                       QStringLiteral("startSteamHeating"));
 
     qDebug() << "Started steam heating to" << steamTemp << "°C"
              << "from" << (reason.isEmpty() ? QStringLiteral("<unspecified>") : reason);
@@ -1378,7 +1385,8 @@ void MainController::setHotWaterFlowRateImmediate(int flow) {
 
     m_settings->setHotWaterFlowRate(flow);
 
-    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, flow);
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, flow,
+                       QStringLiteral("setHotWaterFlowRateImmediate"));
 
     qDebug() << "Hot water flow rate set to:" << flow;
 }
@@ -1389,7 +1397,7 @@ void MainController::setSteamFlowImmediate(int flow) {
     m_settings->setSteamFlow(flow);
 
     // Send steam flow via MMR (can be changed in real-time)
-    m_device->writeMMR(0x803828, flow);
+    m_device->writeMMR(0x803828, flow, QStringLiteral("setSteamFlowImmediate"));
 
     qDebug() << "Steam flow set to:" << flow;
 }
