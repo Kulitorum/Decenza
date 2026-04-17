@@ -155,6 +155,43 @@ QtObject {
         return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
     }
 
+    // Strip Markdown syntax so screen readers don't read formatting
+    // characters (e.g. "star star bold star star" for **bold**). Also
+    // caps length so large transcripts don't flood the accessibility tree.
+    // Pass to Accessible.description on read-only TextAreas that render
+    // Text.MarkdownText. Default cap: 2000 characters.
+    function stripMarkdown(text, maxLen) {
+        if (!text) return ""
+        var cap = maxLen || 2000
+        var s = text
+            .replace(/```[\s\S]*?```/g, " ")
+            .replace(/`([^`]+)`/g, "$1")
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+            .replace(/\*\*([^*]+)\*\*/g, "$1")
+            .replace(/__([^_]+)__/g, "$1")
+            .replace(/\*([^*]+)\*/g, "$1")
+            .replace(/_([^_]+)_/g, "$1")
+            .replace(/~~([^~]+)~~/g, "$1")
+            .replace(/^#{1,6}\s+/gm, "")
+            .replace(/^\s*[-*+]\s+/gm, "")
+            .replace(/^\s*\d+\.\s+/gm, "")
+            .replace(/^\s*>\s?/gm, "")
+            .replace(/^\s*-{3,}\s*$/gm, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim()
+        return s.length > cap ? s.substring(0, cap) + "\u2026" : s
+    }
+
+    // Cap plain text length for Accessible.description so very large
+    // strings (log output, crash dumps) don't flood the accessibility
+    // tree. Default cap: 2000 characters.
+    function capAccessibleText(text, maxLen) {
+        if (!text) return ""
+        var cap = maxLen || 2000
+        return text.length > cap ? text.substring(0, cap) + "\u2026" : text
+    }
+
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
 

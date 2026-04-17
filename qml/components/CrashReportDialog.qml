@@ -180,6 +180,12 @@ Dialog {
                             color: Theme.textColor
                             wrapMode: TextArea.Wrap
                             background: null
+
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: TranslationManager.translate("crashReport.crashDetails", "Crash Details")
+                            Accessible.description: Theme.capAccessibleText(text)
+                            Accessible.focusable: true
+                            activeFocusOnTab: true
                         }
                     }
                 }

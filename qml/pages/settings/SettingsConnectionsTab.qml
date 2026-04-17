@@ -317,6 +317,12 @@ Item {
                                 wrapMode: Text.Wrap
                                 background: null
                                 text: ""
+
+                                Accessible.role: Accessible.EditableText
+                                Accessible.name: TranslationManager.translate("settings.connections.usbLog", "USB connection log")
+                                Accessible.description: Theme.capAccessibleText(text)
+                                Accessible.focusable: true
+                                activeFocusOnTab: true
                             }
                         }
 
@@ -484,6 +490,12 @@ Item {
                                 wrapMode: Text.Wrap
                                 background: null
                                 text: ""
+
+                                Accessible.role: Accessible.EditableText
+                                Accessible.name: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
+                                Accessible.description: Theme.capAccessibleText(text)
+                                Accessible.focusable: true
+                                activeFocusOnTab: true
                             }
                         }
 
@@ -645,6 +657,12 @@ Item {
                                     wrapMode: Text.Wrap
                                     background: null
                                     text: ""
+
+                                    Accessible.role: Accessible.EditableText
+                                    Accessible.name: TranslationManager.translate("settings.connections.usbScaleLog", "USB scale connection log")
+                                    Accessible.description: Theme.capAccessibleText(text)
+                                    Accessible.focusable: true
+                                    activeFocusOnTab: true
                                 }
                             }
 
@@ -1256,6 +1274,12 @@ Item {
                                     wrapMode: Text.Wrap
                                     background: null
                                     text: ""
+
+                                    Accessible.role: Accessible.EditableText
+                                    Accessible.name: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
+                                    Accessible.description: Theme.capAccessibleText(text)
+                                    Accessible.focusable: true
+                                    activeFocusOnTab: true
                                 }
                             }
 

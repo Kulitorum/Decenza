@@ -286,8 +286,9 @@ Rectangle {
 
                         Accessible.role: Accessible.EditableText
                         Accessible.name: TranslationManager.translate("conversation.accessible.transcript", "AI conversation transcript")
-                        Accessible.description: text
+                        Accessible.description: Theme.stripMarkdown(text)
                         Accessible.focusable: true
+                        activeFocusOnTab: true
 
                         onCursorRectangleChanged: {
                             if (selectedText.length === 0) {

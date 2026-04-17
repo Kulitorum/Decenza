@@ -171,8 +171,9 @@ Page {
 
                 Accessible.role: Accessible.EditableText
                 Accessible.name: TranslationManager.translate("dialingassistant.accessible.recommendation", "AI dialing recommendation")
-                Accessible.description: text
+                Accessible.description: Theme.stripMarkdown(text)
                 Accessible.focusable: true
+                activeFocusOnTab: true
             }
         }
 
