@@ -1074,11 +1074,13 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
 
     // Dedup: skip the BLE write when this register's cached value matches.
     // Matches the setShotSettings pattern (see #773). Multiple convergent
-    // callers — applyFlushSettings/applySteamSettings/sendMachineSettings —
-    // otherwise produce bursts of identical MMR writes when a single slider
-    // change fans out through several QML property bindings. `force` opts out
-    // for callers with refresh semantics (USB charger's 10-minute auto-enable
-    // timeout means we must keep reasserting even when the value is unchanged).
+    // callers — applyFlushSettings/applySteamSettings/applyHotWaterSettings/
+    // sendMachineSettings — otherwise produce bursts of identical MMR writes
+    // when distinct UI paths (page activation, preset selection, slider
+    // commit, GHC-initiated operation entry) each re-apply the same values.
+    // `force` opts out for callers with refresh semantics (USB charger's
+    // 10-minute auto-enable timeout means we must keep reasserting even when
+    // the value is unchanged).
     auto it = m_lastMMRValues.constFind(address);
     if (!force && it != m_lastMMRValues.constEnd() && it.value() == value) {
         qDebug().noquote() << QString(
@@ -1285,12 +1287,13 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
         ? QString() : QStringLiteral(" [%1]").arg(reason);
 
     // Dedupe: skip writes whose payload exactly matches the last one sent.
-    // Multiple QML signals (state change, phase change, page open, isSteaming
-    // change) all fire startSteamHeating() with the same values, producing
-    // 4-5 identical BLE writes per steam session. Resends from the drift
-    // auto-heal path go through resendLastShotSettings() and bypass this
-    // function, so they're unaffected. The `[reason]` suffix attributes the
-    // elided call to its origin so we can see which convergent signal fired.
+    // Multiple QML signals (DE1 state change, SteamPage activation, pitcher
+    // clicks, +5s/-5s buttons) fire startSteamHeating() with the same values
+    // during a single steam session, producing several identical BLE writes.
+    // Resends from the drift auto-heal path go through resendLastShotSettings()
+    // and bypass this function, so they're unaffected. The `[reason]` suffix
+    // attributes the elided call to its origin so we can see which convergent
+    // signal fired.
     if (data == m_lastShotSettingsPayload) {
         qDebug().noquote() << QString(
             "[ShotSettings] write skipped: payload unchanged "
