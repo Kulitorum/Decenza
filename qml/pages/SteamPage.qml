@@ -128,13 +128,13 @@ Page {
     // sliders don't jump when the user switches to an Off preset.
     function getCurrentPitcherDuration() {
         var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.steamTimeout || 30
+        if (!preset || preset.disabled) return Settings.steamTimeout ?? 30
         return preset.duration
     }
 
     function getCurrentPitcherFlow() {
         var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.steamFlow || 150
+        if (!preset || preset.disabled) return Settings.steamFlow ?? 150
         return (preset.flow !== undefined) ? preset.flow : 150
     }
 

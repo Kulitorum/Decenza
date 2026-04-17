@@ -242,13 +242,19 @@ FocusScope {
 
                         property bool isSelected: modelData.index === root.selectedIndex
                         property bool isFocused: root.activeFocus && modelData.index === root.focusedIndex
+                        // A preset may mark itself as disabled (e.g. a steam "Off" preset
+                        // that stops heating instead of setting a temp/time). Render it
+                        // muted so it's visibly distinct from real time/temp presets.
+                        property bool isDisabled: modelData && modelData.preset && modelData.preset.disabled === true
 
                         width: pillText.implicitWidth + root.pillPadding
                         height: Theme.scaled(50)
                         radius: Theme.scaled(10)
 
-                        color: isSelected ? Theme.primaryColor : Theme.backgroundColor
-                        border.color: isSelected ? Theme.primaryColor : Theme.textSecondaryColor
+                        color: isSelected
+                            ? (isDisabled ? Theme.textSecondaryColor : Theme.primaryColor)
+                            : Theme.backgroundColor
+                        border.color: isSelected && !isDisabled ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
                         // Accessibility: Let AccessibleTapHandler handle screen reader interaction

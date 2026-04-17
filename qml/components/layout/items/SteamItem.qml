@@ -216,6 +216,14 @@ Item {
                     var wasAlreadySelected = (index === Settings.selectedSteamPitcher)
                     Settings.selectedSteamPitcher = index
                     var preset = Settings.getSteamPitcherPreset(index)
+                    if (preset && preset.disabled) {
+                        // "Off" preset — disable the steam heater. Don't write
+                        // undefined preset.duration/flow into int Settings, and
+                        // don't start steam on re-tap.
+                        MainController.turnOffSteamHeater()
+                        presetPopup.close()
+                        return
+                    }
                     if (preset) {
                         Settings.steamTimeout = preset.duration
                         Settings.steamFlow = preset.flow !== undefined ? preset.flow : 150
