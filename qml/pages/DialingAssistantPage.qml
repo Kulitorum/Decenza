@@ -321,6 +321,13 @@ Page {
         function onRecommendationReceived(recommendation) {
             // Reset scroll to top when new recommendation arrives
             recommendationFlickable.contentY = 0
+            // Mobile render thread can stay asleep when a property changes from a
+            // network reply — force a scene graph repaint so the reply appears
+            // without requiring a touch to wake the render loop.
+            Qt.callLater(function() {
+                recommendationText.update()
+                recommendationFlickable.update()
+            })
         }
         function onErrorOccurred(error) {
             // Stay on this page to show the error
@@ -337,6 +344,9 @@ Page {
             // Scroll to top of the new response so it's readable from the start
             Qt.callLater(function() {
                 recommendationFlickable.contentY = Math.max(0, _preResponseHeight)
+                // See onRecommendationReceived for render-thread wakeup rationale.
+                recommendationText.update()
+                recommendationFlickable.update()
             })
         }
         function onErrorOccurred(error) {
