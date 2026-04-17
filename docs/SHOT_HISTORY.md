@@ -40,11 +40,13 @@ Primary APIs (see the header for the full surface):
 - **Backup/import** — `requestCreateBackup(destPath)`, `requestImportDatabase(filePath, merge)`. See `docs/CLAUDE_MD/DATA_MIGRATION.md` for the device-to-device transfer story.
 - **Reanalysis** — `requestReanalyzeBadges(shotId)` recomputes channel/temperature/grind quality flags on legacy shots.
 
-Filter keys for `requestShotsFiltered`: `profileName`, `beanBrand`, `beanType`, `grinderBrand`, `grinderModel`, `roastLevel`, `minEnjoyment`, `maxEnjoyment`, `dateFrom`, `dateTo`, `searchText`, `onlyWithVisualizer`, `beverageType`. Text fields are exact-match; `searchText` hits the FTS5 index.
+Filter keys for `requestShotsFiltered` span exact-match text fields (profile, bean, grinder brand/model/burrs/setting, roast level), numeric ranges (enjoyment, dose, yield, duration, TDS, EY), a date window (`dateFrom`/`dateTo`), the `onlyWithVisualizer` toggle, quality-badge filters (channeling, temperature instability, grind issue, skip-first-frame), and `sortField`/`sortDirection`. `searchText` hits the FTS5 index. The authoritative list lives in `parseFilter` in `src/history/shothistorystorage.cpp` (around line 1333).
 
 ### `ShotHistoryExporter` (`src/history/shothistoryexporter.*`)
 
-Generates formatted shot exports (Markdown/plain text) for bug reports, Visualizer uploads, and AI-context summaries. Extracted from the storage class so formatting concerns don't live alongside SQL.
+Mirrors shots from the SQLite DB to individual Visualizer-format JSON files on disk under `ProfileStorage::userHistoryPath()`, driven by the `Settings::exportShotsToFile` toggle. Toggling on (or starting the app with it already on) triggers a full re-export; subsequent shots are exported incrementally on `shotSaved`, refreshed on metadata updates, and deleted on `shotDeleted`. All disk and DB I/O runs on background threads.
+
+Note that lightweight per-shot formatting helpers (e.g. the `generateShotSummary` Q_INVOKABLE) still live on `ShotHistoryStorage` itself for direct QML/MCP use.
 
 ### `ShotDebugLogger` (`src/history/shotdebuglogger.*`)
 
