@@ -214,8 +214,20 @@ ApplicationWindow {
         function onStateChanged() {
             // DE1::State::Steam = 5
             if (DE1Device.state === 5) {
-                console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
-                MainController.startSteamHeating("de1-state-steam")  // This clears steamDisabled flag
+                // Match de1app: if the currently selected steam preset is an "Off" pill,
+                // leave the heater target at 0 (already pushed via sendMachineSettings /
+                // turnOffSteamHeater). The DE1 still enters Steam state on GHC press, but
+                // with TargetSteamTemp=0 no steam is produced — consistent with the user's
+                // intent to keep the boiler off.
+                var currentPitcher = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+                var currentPitcherDisabled = currentPitcher && currentPitcher.disabled === true
+                if (currentPitcherDisabled) {
+                    console.log("DE1 entered Steam state but Off preset selected — heater stays off")
+                    MainController.turnOffSteamHeater()
+                } else {
+                    console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
+                    MainController.startSteamHeating("de1-state-steam")  // This clears steamDisabled flag
+                }
                 // Navigate to SteamPage immediately so user sees heating progress
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage !== "steamPage" && !pageStack.busy) {
