@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <QString>
-#include <QVariantList>
 #include <atomic>
 #include <memory>
 
@@ -16,10 +15,13 @@ class ShotHistoryStorage;
 //
 // Design:
 //  * Stateless when off: no tracking of "which shots have been exported."
-//  * Toggle off -> on: full re-export overwriting whatever is on disk.
+//  * Toggle off -> on, and app startup with the toggle already on:
+//    full re-export overwriting whatever is on disk.
 //  * Toggle on: incrementally export each new shot when shotSaved fires,
-//               refresh on metadata updates, and delete files when shots
-//               are deleted from the DB.
+//               refresh on metadata updates.
+//  * Shot deletions always remove matching exported files regardless of the
+//    toggle state, so files don't become orphaned if the user turns the
+//    toggle off and later deletes shots from the DB.
 //  * All disk and DB I/O runs on background threads.
 class ShotHistoryExporter : public QObject {
     Q_OBJECT
@@ -40,12 +42,11 @@ private slots:
     void onShotSaved(qint64 shotId);
     void onShotMetadataUpdated(qint64 shotId, bool success);
     void onShotDeleted(qint64 shotId);
-    void onShotsDeleted(const QVariantList& shotIds);
 
 private:
     void startBulkExport();
     void exportSingleShot(qint64 shotId);
-    void deleteExportedFiles(const QList<qint64>& shotIds);
+    void deleteExportedShot(qint64 shotId);
 
     Settings* m_settings;
     ProfileStorage* m_profileStorage;

@@ -58,8 +58,14 @@ public:
     // Get the downloaded profiles path (for profiles imported from Visualizer)
     QString downloadedProfilesPath() const;
 
-    // Get the user history path (sibling of the user profiles folder) for shot export
+    // Get the user history path (sibling of the user profiles folder) for shot export.
+    // Creates the directory if it doesn't already exist.
     QString userHistoryPath() const;
+
+    // Like userHistoryPath(), but returns an empty string instead of creating the
+    // directory when it doesn't exist — use from cleanup paths that should be
+    // no-ops when the feature has never been used.
+    QString userHistoryPathIfExists() const;
 
     // Migrate profiles from internal to external storage (call after permission granted)
     Q_INVOKABLE void migrateProfilesToExternal();

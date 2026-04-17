@@ -9,8 +9,8 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QThread>
@@ -35,10 +35,18 @@ ShotHistoryExporter::ShotHistoryExporter(Settings* settings,
             this, &ShotHistoryExporter::onShotSaved);
     connect(m_storage, &ShotHistoryStorage::shotMetadataUpdated,
             this, &ShotHistoryExporter::onShotMetadataUpdated);
+    // shotsDeleted fires in addition to per-id shotDeleted for batch deletes,
+    // so we intentionally subscribe only to shotDeleted to avoid N+1 racing
+    // threads trying to remove the same files.
     connect(m_storage, &ShotHistoryStorage::shotDeleted,
             this, &ShotHistoryExporter::onShotDeleted);
-    connect(m_storage, &ShotHistoryStorage::shotsDeleted,
-            this, &ShotHistoryExporter::onShotsDeleted);
+
+    // If the toggle was already on from a previous session, re-export on
+    // startup so files are self-healed even if the user cleared the folder
+    // while the app was closed.
+    if (m_settings->exportShotsToFile()) {
+        startBulkExport();
+    }
 }
 
 ShotHistoryExporter::~ShotHistoryExporter()
@@ -55,7 +63,11 @@ void ShotHistoryExporter::onExportToggleChanged()
 
 void ShotHistoryExporter::onShotSaved(qint64 shotId)
 {
+    // ShotHistoryStorage emits shotSaved(-1) on precondition failures.
+    if (shotId <= 0) return;
     if (!m_settings->exportShotsToFile()) return;
+    // Bulk export will pick up any IDs that arrive during its run via its
+    // own post-loop catch-up query, so skip the live handler to avoid races.
     if (m_bulkRunning.load()) return;
     exportSingleShot(shotId);
 }
@@ -63,6 +75,7 @@ void ShotHistoryExporter::onShotSaved(qint64 shotId)
 void ShotHistoryExporter::onShotMetadataUpdated(qint64 shotId, bool success)
 {
     if (!success) return;
+    if (shotId <= 0) return;
     if (!m_settings->exportShotsToFile()) return;
     if (m_bulkRunning.load()) return;
     exportSingleShot(shotId);
@@ -70,15 +83,8 @@ void ShotHistoryExporter::onShotMetadataUpdated(qint64 shotId, bool success)
 
 void ShotHistoryExporter::onShotDeleted(qint64 shotId)
 {
-    deleteExportedFiles({shotId});
-}
-
-void ShotHistoryExporter::onShotsDeleted(const QVariantList& shotIds)
-{
-    QList<qint64> ids;
-    ids.reserve(shotIds.size());
-    for (const auto& v : shotIds) ids.append(v.toLongLong());
-    deleteExportedFiles(ids);
+    if (shotId <= 0) return;
+    deleteExportedShot(shotId);
 }
 
 namespace {
@@ -133,19 +139,38 @@ void ShotHistoryExporter::startBulkExport()
     auto destroyed = m_destroyed;
 
     QThread* thread = QThread::create([this, dbPath, historyDir, destroyed]() {
-        QList<qint64> ids;
-        withTempDb(dbPath, "she_ids", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            if (!q.exec(QStringLiteral("SELECT id FROM shots ORDER BY id ASC"))) {
-                qWarning() << "ShotHistoryExporter: id enumeration failed:" << q.lastError().text();
-                return;
-            }
-            while (q.next()) ids.append(q.value(0).toLongLong());
-        });
+        auto selectAllIds = [&dbPath](QList<qint64>& out) {
+            withTempDb(dbPath, "she_ids", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                if (!q.exec(QStringLiteral("SELECT id FROM shots ORDER BY id ASC"))) {
+                    qWarning() << "ShotHistoryExporter: id enumeration failed:" << q.lastError().text();
+                    return;
+                }
+                while (q.next()) out.append(q.value(0).toLongLong());
+            });
+        };
 
+        QList<qint64> ids;
+        selectAllIds(ids);
+
+        QSet<qint64> seen;
         int ok = 0, failed = 0;
         for (qint64 id : ids) {
             if (*destroyed) return;
+            seen.insert(id);
+            if (writeShotJson(dbPath, historyDir, id)) ok++;
+            else failed++;
+        }
+
+        // Catch-up pass: shots saved after the initial SELECT but before we
+        // flip m_bulkRunning to false are ignored by onShotSaved (which
+        // early-returns while bulk is running). Re-query and process any
+        // that landed during this run so they still end up on disk.
+        QList<qint64> latest;
+        selectAllIds(latest);
+        for (qint64 id : latest) {
+            if (*destroyed) return;
+            if (seen.contains(id)) continue;
             if (writeShotJson(dbPath, historyDir, id)) ok++;
             else failed++;
         }
@@ -175,23 +200,22 @@ void ShotHistoryExporter::exportSingleShot(qint64 shotId)
     thread->start();
 }
 
-void ShotHistoryExporter::deleteExportedFiles(const QList<qint64>& shotIds)
+void ShotHistoryExporter::deleteExportedShot(qint64 shotId)
 {
-    if (shotIds.isEmpty()) return;
-    const QString historyDir = m_profileStorage->userHistoryPath();
+    // Skip entirely if the feature was never used — avoids creating an empty
+    // history folder as a side effect of a deletion.
+    const QString historyDir = m_profileStorage->userHistoryPathIfExists();
+    if (historyDir.isEmpty()) return;
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([historyDir, shotIds, destroyed]() {
+    QThread* thread = QThread::create([historyDir, shotId, destroyed]() {
         if (*destroyed) return;
         QDir dir(historyDir);
-        if (!dir.exists()) return;
-        for (qint64 id : shotIds) {
-            const QStringList matches = dir.entryList(
-                {QString("*_%1.json").arg(id)}, QDir::Files);
-            for (const QString& name : matches) {
-                if (!QFile::remove(dir.filePath(name))) {
-                    qWarning() << "ShotHistoryExporter: remove failed for" << name;
-                }
+        const QStringList matches = dir.entryList(
+            {QString("*_%1.json").arg(shotId)}, QDir::Files);
+        for (const QString& name : matches) {
+            if (!QFile::remove(dir.filePath(name))) {
+                qWarning() << "ShotHistoryExporter: remove failed for" << name;
             }
         }
     });
