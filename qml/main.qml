@@ -2078,10 +2078,11 @@ ApplicationWindow {
 
             // Apply settings when entering operations (to handle GHC-initiated starts)
             if (phase === MachineStateType.Phase.Steaming && wasIdle) {
-                // Start steam heating when entering steam (from GHC button)
-                // startSteamHeating clears steamDisabled flag and forces heater on regardless of keepSteamHeaterOn
-                MainController.startSteamHeating("phase-steaming")
-                console.log("Started steam heating on phase change to Steaming")
+                // Note: the DE1Device.onStateChanged handler above already called
+                // startSteamHeating when state reached Steam, which must happen before
+                // phase can reach Steaming — so we don't re-call it here. The dedup
+                // would elide the redundant BLE write, but the reason tags in the log
+                // showed it firing on every steam session for no benefit.
                 // Stop any pending auto-flush timer when starting new steam
                 steamAutoFlushTimer.stop()
             } else if (phase === MachineStateType.Phase.HotWater && wasIdle) {

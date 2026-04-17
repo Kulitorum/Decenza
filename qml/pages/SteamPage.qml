@@ -73,10 +73,13 @@ Page {
             wasSteaming = true
             steamSoftStopped = false
             _lastAnnouncedSteamWeight = 0
-            // Reset to preset value (discard any +5s/-5s adjustments from previous session)
+            // Reset to preset value (discard any +5s/-5s adjustments from previous session).
+            // Don't re-call startSteamHeating — the heater has been on since state entered
+            // Steam (handled in main.qml), and by the time isSteaming becomes true we're
+            // already flowing. These preset resets persist to Settings and take effect
+            // on the next sendMachineSettings.
             Settings.steamTimeout = getCurrentPitcherDuration()
             Settings.steamFlow = getCurrentPitcherFlow()
-            MainController.startSteamHeating("is-steaming-changed")
         } else {
             console.log("SteamPage: Settings view now visible (isSteaming=false)")
             // Turn off steam heater after steaming if keepSteamHeaterOn is false
