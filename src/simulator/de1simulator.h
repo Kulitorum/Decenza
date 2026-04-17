@@ -54,12 +54,20 @@ public slots:
     void goToSleep();
     void wakeUp();
 
+    // Target steam temperature from the app's ShotSettings write. A target of 0
+    // means "heater off" (Off preset / steamDisabled). The sim doesn't model a
+    // thermal ramp — it snaps m_steamTemp to target (or to ambient ~25C when
+    // target is 0) and emits idleSteamTempChanged so DE1Device's steam temp
+    // property reflects the commanded state instead of a stale hardcoded value.
+    void setTargetSteamTemp(double targetC);
+
 signals:
     void runningChanged();
     void stateChanged();
     void subStateChanged();
     void shotSampleReceived(const ShotSample& sample);
     void scaleWeightChanged(double weight);  // Simulated scale output
+    void idleSteamTempChanged(double steamTempC);  // Fired when target changes (idle thermal update)
 
 private slots:
     void onSimulationTimerTick();

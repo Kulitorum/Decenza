@@ -1642,6 +1642,11 @@ int main(int argc, char *argv[])
         QObject::connect(&de1Simulator, &DE1Simulator::shotSampleReceived,
                          &de1Device, &DE1Device::emitSimulatedShotSample);
 
+        // Idle-state steam temperature updates (fired when the app commands a
+        // new steam target via setShotSettings — including Off presets).
+        QObject::connect(&de1Simulator, &DE1Simulator::idleSteamTempChanged,
+                         &de1Device, &DE1Device::setSimulatedIdleSteamTemp);
+
         // Create SimulatedScale and connect it like a real scale
         simulatedScalePtr = std::make_unique<SimulatedScale>();
         auto& simulatedScale = *simulatedScalePtr;

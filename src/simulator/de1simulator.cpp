@@ -215,6 +215,20 @@ void DE1Simulator::startSteam()
     setState(DE1::State::Steam, DE1::SubState::Pouring);
 }
 
+void DE1Simulator::setTargetSteamTemp(double targetC)
+{
+    // Ambient when heater is off, otherwise snap to target. Real DE1 has a
+    // thermal ramp; we skip it because the sim doesn't run a tick loop when
+    // idle, and the UI only cares that "Heating steam..." clears instead of
+    // climbing indefinitely.
+    constexpr double kAmbientC = 25.0;
+    double newSteamTemp = (targetC <= 0.0) ? kAmbientC : targetC;
+    if (qFuzzyCompare(newSteamTemp, m_steamTemp)) return;
+    m_steamTemp = newSteamTemp;
+    qDebug() << "DE1Simulator: target steam temp=" << targetC << "C -> m_steamTemp=" << m_steamTemp;
+    emit idleSteamTempChanged(m_steamTemp);
+}
+
 void DE1Simulator::startHotWater()
 {
     if (m_state == DE1::State::Sleep) wakeUp();

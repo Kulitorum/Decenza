@@ -147,6 +147,10 @@ public:
     // For simulator integration - allows external code to set state and emit signals
     void setSimulatedState(DE1::State state, DE1::SubState subState);
     void emitSimulatedShotSample(const ShotSample& sample);
+    // Push an idle steam-temperature update from the simulator (e.g. when the
+    // app commands a new steam target via setShotSettings). Emits a minimal
+    // shot sample so QML bindings on DE1Device.steamTemperature re-evaluate.
+    void setSimulatedIdleSteamTemp(double steamTempC);
 #ifdef QT_DEBUG
     void setSimulator(DE1Simulator* simulator) { m_simulator = simulator; }
 #endif
