@@ -277,6 +277,7 @@ set(SOURCES
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
     src/history/shotimporter.cpp
+    src/history/shothistoryexporter.cpp
     src/models/shotcomparisonmodel.cpp
     src/models/flowcalibrationmodel.cpp
     src/network/shotserver.cpp
@@ -424,6 +425,7 @@ set(HEADERS
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
     src/history/shotimporter.h
+    src/history/shothistoryexporter.h
     src/models/shotcomparisonmodel.h
     src/models/flowcalibrationmodel.h
     src/network/shotserver.h

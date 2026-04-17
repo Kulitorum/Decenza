@@ -122,6 +122,28 @@ QString ProfileStorage::downloadedProfilesPath() const {
     return path;
 }
 
+QString ProfileStorage::userHistoryPath() const {
+    QString basePath = isConfigured() ? externalProfilesPath() : fallbackPath();
+    if (basePath.isEmpty()) {
+        basePath = fallbackPath();
+    }
+    QString path = basePath + "/history";
+    QDir dir(path);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return path;
+}
+
+QString ProfileStorage::userHistoryPathIfExists() const {
+    QString basePath = isConfigured() ? externalProfilesPath() : fallbackPath();
+    if (basePath.isEmpty()) {
+        basePath = fallbackPath();
+    }
+    QString path = basePath + "/history";
+    return QDir(path).exists() ? path : QString();
+}
+
 QStringList ProfileStorage::listProfiles() const {
     QStringList profiles;
     QStringList filters;

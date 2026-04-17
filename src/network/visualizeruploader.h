@@ -65,6 +65,10 @@ public:
     // Test connection with current credentials
     Q_INVOKABLE void testConnection();
 
+    // Build a visualizer-compatible JSON payload from a ShotHistoryStorage QVariantMap.
+    // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
+    static QByteArray buildHistoryShotJson(const QVariantMap& shotData);
+
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -96,7 +100,6 @@ private:
     static QJsonObject buildProfileSettings(const Profile* profile);
     bool validateUpload(const QString& beverageType, double duration);
     void sendUpload(const QByteArray& jsonData);
-    QByteArray buildHistoryShotJson(const QVariantMap& shotData);
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
