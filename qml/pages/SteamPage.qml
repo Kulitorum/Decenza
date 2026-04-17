@@ -56,6 +56,17 @@ Page {
     // DE1::SubState::Puffing = 20
     readonly property bool isPuffing: DE1Device.state === 5 && DE1Device.subState === 20
 
+    // Reactive: is the currently selected preset an "Off" pill? Duration/flow/temp
+    // sliders don't apply to Off presets so they're hidden in the settings frame.
+    // References selectedSteamPitcher and steamPitcherPresets so the binding
+    // re-evaluates on selection change or when the preset list itself is edited.
+    readonly property bool currentPitcherDisabled: {
+        var _selected = Settings.selectedSteamPitcher
+        var _list = Settings.steamPitcherPresets
+        var preset = Settings.getSteamPitcherPreset(_selected)
+        return preset ? preset.disabled === true : false
+    }
+
     // Debug logging for steam phase issues
     Connections {
         target: MachineState
@@ -1114,10 +1125,29 @@ Page {
                     anchors.margins: Theme.scaled(16)
                     spacing: Theme.scaled(8)
 
+                    // Centered placeholder when the selected preset is an "Off" pill —
+                    // duration/flow/temperature/weight don't apply, so the slider rows
+                    // below are all hidden and we show this in their place.
+                    Item {
+                        visible: root.currentPitcherDisabled
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        Tr {
+                            anchors.centerIn: parent
+                            key: "steam.offPresetNotice"
+                            fallback: "Steam heater off for this preset."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(20)
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+
                     // Duration (per-pitcher, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
+                        visible: !root.currentPitcherDisabled
 
                         Tr {
                             key: "steam.label.duration"
@@ -1149,12 +1179,13 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !root.currentPitcherDisabled }
 
                     // Steam Flow (per-pitcher, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
+                        visible: !root.currentPitcherDisabled
 
                         Column {
                             Tr {
@@ -1196,12 +1227,13 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !root.currentPitcherDisabled }
 
                     // Temperature (global setting)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
+                        visible: !root.currentPitcherDisabled
 
                         Column {
                             Tr {
@@ -1242,13 +1274,13 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !root.currentPitcherDisabled }
 
                     // Weight — pitcher tare calibration per preset
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
-                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale && !root.currentPitcherDisabled
 
                         Column {
                             spacing: Theme.scaled(4)
