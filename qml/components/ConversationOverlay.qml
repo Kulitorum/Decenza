@@ -729,6 +729,11 @@ Rectangle {
             conversationText.text = MainController.aiManager.conversation.getConversationText()
             Qt.callLater(function() {
                 conversationFlickable.contentY = Math.max(0, overlay._preResponseHeight)
+                // Android's render thread can stay asleep when a property changes from
+                // a network reply. Force a scene graph repaint so the reply appears
+                // without requiring a touch to wake the render loop.
+                conversationText.update()
+                conversationFlickable.update()
             })
         }
         function onErrorOccurred(error) {
@@ -747,6 +752,8 @@ Rectangle {
             // Scroll to bottom to show the user's message / thinking indicator
             Qt.callLater(function() {
                 conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
+                conversationText.update()
+                conversationFlickable.update()
             })
         }
     }

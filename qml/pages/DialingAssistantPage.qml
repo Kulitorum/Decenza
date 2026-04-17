@@ -131,6 +131,28 @@ Page {
             // Reset scroll position when visible
             onVisibleChanged: if (visible) contentY = 0
 
+            // Mobile render thread can stay asleep when text updates from a
+            // network reply — force a scene graph repaint so the reply appears
+            // without requiring a touch to wake the render loop.
+            Connections {
+                target: MainController.aiManager ? MainController.aiManager.conversation : null
+                function onResponseReceived() {
+                    Qt.callLater(function() {
+                        recommendationText.update()
+                        recommendationFlickable.update()
+                    })
+                }
+            }
+            Connections {
+                target: MainController.aiManager
+                function onRecommendationReceived() {
+                    Qt.callLater(function() {
+                        recommendationText.update()
+                        recommendationFlickable.update()
+                    })
+                }
+            }
+
             TextArea {
                 id: recommendationText
                 width: parent.width

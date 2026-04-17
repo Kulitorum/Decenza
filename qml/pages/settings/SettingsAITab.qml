@@ -1180,6 +1180,11 @@ KeyboardAwareContainer {
                 // Scroll to top of the new response
                 Qt.callLater(function() {
                     conversationFlickable.contentY = Math.max(0, conversationOverlay._preResponseHeight)
+                    // Mobile render thread can stay asleep when text updates from a
+                    // network reply — force a scene graph repaint so the reply
+                    // appears without requiring a touch to wake the render loop.
+                    conversationText.update()
+                    conversationFlickable.update()
                 })
             }
             function onHistoryChanged() {
@@ -1189,6 +1194,8 @@ KeyboardAwareContainer {
                 // Scroll to bottom to show user's message / thinking indicator
                 Qt.callLater(function() {
                     conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
+                    conversationText.update()
+                    conversationFlickable.update()
                 })
             }
         }
