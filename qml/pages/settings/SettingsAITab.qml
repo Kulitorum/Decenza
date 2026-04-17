@@ -1174,9 +1174,11 @@ KeyboardAwareContainer {
         }
 
         property real _preResponseHeight: 0
+        property bool _waitingForResponse: false
         Connections {
             target: MainController.aiManager?.conversation ?? null
             function onResponseReceived() {
+                conversationOverlay._waitingForResponse = false
                 // Scroll to top of the new response
                 Qt.callLater(function() {
                     conversationFlickable.contentY = Math.max(0, conversationOverlay._preResponseHeight)
@@ -1187,9 +1189,16 @@ KeyboardAwareContainer {
                     conversationFlickable.update()
                 })
             }
+            function onErrorOccurred() {
+                conversationOverlay._waitingForResponse = false
+            }
             function onHistoryChanged() {
-                // Save height before updating — this is where the new response will start
-                conversationOverlay._preResponseHeight = conversationText.contentHeight
+                // Only save the scroll target when the user sends (before response arrives).
+                // The response also triggers historyChanged, but we handle that in onResponseReceived.
+                if (!conversationOverlay._waitingForResponse) {
+                    conversationOverlay._preResponseHeight = conversationText.contentHeight
+                    conversationOverlay._waitingForResponse = true
+                }
                 conversationText.text = MainController.aiManager?.conversation?.getConversationText() ?? ""
                 // Scroll to bottom to show user's message / thinking indicator
                 Qt.callLater(function() {
