@@ -819,10 +819,10 @@ void DE1Device::clearCommandQueue() {
     // Dropping the transport queue discards pending MMR writes whose values
     // are already recorded in m_lastMMRValues, so the cache would silently
     // elide the next retry. Only invalidate the cache if something was
-    // actually dropped — the call sites here (flow-begin, onShotStarted,
-    // stopOperationUrgent) fire defensively whether or not writes are
-    // pending, and clearing on every call would cost 3 spurious MMR writes
-    // per steam/hot-water session.
+    // actually dropped — the call sites here (flow-begin,
+    // onEspressoCycleStarted, stopOperationUrgent) fire defensively whether
+    // or not writes are pending, and clearing on every call would cost 3
+    // spurious MMR writes per steam/hot-water session.
     if (m_transport) {
         const qsizetype dropped = m_transport->clearQueue();
         if (dropped > 0) {

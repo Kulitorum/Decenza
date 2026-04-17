@@ -174,9 +174,9 @@ private slots:
         // writes never reached the DE1 — but m_lastMMRValues already
         // recorded their values. If the cache survived, the next identical
         // writeMMR would dedup and the DE1 would never see the dropped
-        // value. Callers: MainController::onShotStarted at every espresso
-        // start, DE1Device::stopOperationUrgent on SAW trigger, MachineState
-        // on non-espresso flow-begin.
+        // value. Callers: MainController::onEspressoCycleStarted at every
+        // espresso start, DE1Device::stopOperationUrgent on SAW trigger,
+        // MachineState on non-espresso flow-begin.
         TestFixture f;
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
 
@@ -195,9 +195,11 @@ private slots:
         // when nothing is pending (guarding against stale profile-upload
         // frames that in practice aren't there). If we invalidated the
         // MMR cache on every such call, every steam/hot-water session
-        // would end with three spurious re-sends of STEAM_FLOW / FLUSH_FLOW
-        // / FLUSH_TIMEOUT. When clearQueue reports nothing dropped, the
-        // cache is still in sync with what reached the wire — preserve it.
+        // would end with three spurious re-sends of the three MMR writes
+        // sendMachineSettings emits (steam flow 0x803828, flush flow
+        // 0x803840, flush timeout 0x803848). When clearQueue reports
+        // nothing dropped, the cache is still in sync with what reached
+        // the wire — preserve it.
         TestFixture f;
         QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression("\\[MMR\\] write skipped"));
@@ -206,6 +208,42 @@ private slots:
 
         // pendingQueueSize defaults to 0 — clearQueue is a no-op drop.
         f.device.clearCommandQueue();
+
+        f.transport.clearWrites();
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // same value
+
+        QCOMPARE(f.transport.writes.size(), 0);  // deduped — cache held
+    }
+
+    // ===== goToSleep: same conditional-invalidation contract =====
+
+    void goToSleepDropsInvalidateCache() {
+        // goToSleep bypasses DE1Device::clearCommandQueue() and calls
+        // m_transport->clearQueue() directly. Same invariant applies: if
+        // a queued write was dropped, the cache might be ahead of the DE1
+        // and must be invalidated.
+        TestFixture f;
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
+
+        f.transport.pendingQueueSize = 1;
+        f.device.goToSleep();
+
+        f.transport.clearWrites();
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // same value
+
+        QCOMPARE(f.transport.writes.size(), 1);  // fired despite same value
+    }
+
+    void goToSleepWithEmptyQueuePreservesCache() {
+        // Symmetric to clearCommandQueueWithEmptyQueuePreservesCache — if
+        // nothing was queued, the cache is still in sync and must survive.
+        TestFixture f;
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("\\[MMR\\] write skipped"));
+
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
+
+        f.device.goToSleep();  // pendingQueueSize defaults to 0
 
         f.transport.clearWrites();
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // same value
