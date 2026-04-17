@@ -122,6 +122,40 @@ private slots:
         m_settings.setScaleAddress("");
         QCOMPARE(m_settings.scaleAddress(), QString(""));
     }
+
+    // ==========================================
+    // Derived: effectiveHotWaterVolume
+    // ==========================================
+
+    void effectiveHotWaterVolumeRespectsMode() {
+        QString origMode = m_settings.waterVolumeMode();
+        int origVol = m_settings.waterVolume();
+
+        m_settings.setWaterVolume(65);
+
+        m_settings.setWaterVolumeMode("weight");
+        QCOMPARE(m_settings.effectiveHotWaterVolume(), 0);
+
+        m_settings.setWaterVolumeMode("volume");
+        QCOMPARE(m_settings.effectiveHotWaterVolume(), 65);
+
+        // Anything other than "volume" is treated as weight mode.
+        m_settings.setWaterVolumeMode("something-else");
+        QCOMPARE(m_settings.effectiveHotWaterVolume(), 0);
+
+        // Lower bound: negative values from corrupted storage must clamp to 0,
+        // not wrap to 255 after uint8 cast.
+        m_settings.setWaterVolumeMode("volume");
+        m_settings.setWaterVolume(-1);
+        QCOMPARE(m_settings.effectiveHotWaterVolume(), 0);
+
+        // Upper bound: values above 255 clamp to the BLE uint8 max.
+        m_settings.setWaterVolume(500);
+        QCOMPARE(m_settings.effectiveHotWaterVolume(), 255);
+
+        m_settings.setWaterVolumeMode(origMode);
+        m_settings.setWaterVolume(origVol);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_Settings)

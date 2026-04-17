@@ -631,13 +631,6 @@ void MainController::sendMachineSettings() {
     double groupTemp = getGroupTemperature();
     qDebug() << "sendMachineSettings: steam=" << steamTemp << "°C, groupTemp=" << groupTemp << "°C";
 
-    // Hot water volume: only send actual ml in volume mode (machine auto-stops via flowmeter).
-    // In weight mode send 0 so the app controls stop via scale instead.
-    int hotWaterVolume = 0;
-    if (m_settings->waterVolumeMode() == "volume") {
-        hotWaterVolume = qMin(m_settings->waterVolume(), 255);  // BLE uint8 max
-    }
-
     // 1. ShotSettings (single write with all temperatures).
     // DE1Device::setShotSettings() internally records the commanded values
     // so onShotSettingsReported() can compare reported against commanded.
@@ -645,7 +638,7 @@ void MainController::sendMachineSettings() {
         steamTemp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        hotWaterVolume,
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 
@@ -1267,7 +1260,7 @@ void MainController::setSteamTemperatureImmediate(double temp) {
         temp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 
@@ -1314,7 +1307,7 @@ void MainController::sendSteamTemperature(double temp) {
               .arg(temp)
               .arg(m_settings->steamTimeout())
               .arg(m_settings->waterTemperature())
-              .arg(m_settings->waterVolume())
+              .arg(m_settings->effectiveHotWaterVolume())
               .arg(groupTemp));
 
     // Send to machine without saving to settings (for enable/disable toggle)
@@ -1322,7 +1315,7 @@ void MainController::sendSteamTemperature(double temp) {
         temp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 
@@ -1344,7 +1337,7 @@ void MainController::startSteamHeating() {
         steamTemp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 
@@ -1367,7 +1360,7 @@ void MainController::turnOffSteamHeater() {
         0.0,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 
@@ -1407,7 +1400,7 @@ void MainController::setSteamTimeoutImmediate(int timeout) {
         m_settings->steamTemperature(),
         timeout,
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 
@@ -1426,7 +1419,7 @@ void MainController::softStopSteam() {
         m_settings->steamTemperature(),
         1,  // 1 second - any elapsed time > 1 will trigger stop
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
+        m_settings->effectiveHotWaterVolume(),
         groupTemp
     );
 

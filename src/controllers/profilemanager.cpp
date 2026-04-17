@@ -1473,21 +1473,11 @@ void ProfileManager::uploadCurrentProfile() {
         // This controls what temperature the machine heats to in Ready state
         if (m_settings) {
             double steamTemp = (m_settings->steamDisabled() || !m_settings->keepSteamHeaterOn()) ? 0.0 : m_settings->steamTemperature();
-            // Hot water volume must match MainController::sendMachineSettings:
-            // in weight mode the app stops hot water via the scale, so we
-            // send 0 to disable the DE1's flowmeter auto-stop. If the two
-            // call sites disagree, two back-to-back writes with different
-            // volumes race at the BLE layer and falsely trip the
-            // ShotSettings drift detector.
-            int hotWaterVolume = 0;
-            if (m_settings->waterVolumeMode() == "volume") {
-                hotWaterVolume = qMin(m_settings->waterVolume(), 255);
-            }
             m_device->setShotSettings(
                 steamTemp,
                 m_settings->steamTimeout(),
                 m_settings->waterTemperature(),
-                hotWaterVolume,
+                m_settings->effectiveHotWaterVolume(),
                 groupTemp
             );
             qDebug() << "Set group temp to" << groupTemp << "C for profile" << m_currentProfile.title();
