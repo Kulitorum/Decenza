@@ -87,10 +87,15 @@ private slots:
 
     void burstDeduplication() {
         // Emulate the applyFlushSettings burst: 30 identical calls should
-        // produce exactly 1 BLE write + 29 skip log lines.
+        // produce exactly 1 BLE write and 29 skip log lines. Suppress all 29
+        // — QTest::ignoreMessage matches only the next emission per call, so
+        // without a loop the remaining 28 would print as unexpected-debug
+        // noise.
         TestFixture f;
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression("\\[MMR\\] write skipped"));
+        for (int i = 0; i < 29; ++i) {
+            QTest::ignoreMessage(QtDebugMsg,
+                QRegularExpression("\\[MMR\\] write skipped"));
+        }
 
         for (int i = 0; i < 30; ++i) {
             f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
@@ -160,6 +165,27 @@ private slots:
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // should dedup
 
         QCOMPARE(f.transport.writes.size(), 0);
+    }
+
+    // ===== Command queue clear invalidates cache =====
+
+    void clearCommandQueueClearsCache() {
+        // clearCommandQueue drops every pending transport write — including
+        // MMR writes whose values were just recorded in m_lastMMRValues. If
+        // the cache survived, the next identical writeMMR would dedup and
+        // the DE1 would never receive the value that was dropped on the
+        // floor. Callers: MainController::onShotStarted at every espresso
+        // start, DE1Device::stopOperationUrgent on SAW trigger, MachineState
+        // on preinfusion phase entry.
+        TestFixture f;
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
+
+        f.device.clearCommandQueue();
+
+        f.transport.clearWrites();
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // same value
+
+        QCOMPARE(f.transport.writes.size(), 1);  // fired despite same value
     }
 
     // ===== Disconnect invalidates cache =====

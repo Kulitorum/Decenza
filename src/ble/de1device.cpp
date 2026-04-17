@@ -789,7 +789,10 @@ void DE1Device::goToSleep() {
     }
 
     if (!m_transport) return;
-    // Clear pending commands - sleep takes priority
+    // Clear pending commands - sleep takes priority. Also drop the MMR cache
+    // so any MMR writes queued-then-dropped don't leave the cache claiming
+    // the DE1 already holds those values (see clearCommandQueue).
+    m_lastMMRValues.clear();
     m_transport->clearQueue();
 
     // Send sleep command directly (don't queue it)
@@ -809,6 +812,11 @@ void DE1Device::clearCommandQueue() {
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
+    // Dropping the transport queue discards pending MMR writes whose values
+    // are already recorded in m_lastMMRValues — those writes never reach the
+    // DE1, so the cache would silently elide the next retry. Clearing it
+    // forces the next writeMMR to actually hit the wire.
+    m_lastMMRValues.clear();
     if (m_transport) {
         m_transport->clearQueue();
     }
