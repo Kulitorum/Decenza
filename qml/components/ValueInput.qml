@@ -45,11 +45,28 @@ Item {
     signal valueModified(real newValue)
     signal valueCommitted(real newValue)
 
-    // Helper: emit valueCommitted with the current value. Used by all
-    // release/click handlers so a single tap, a hold release, a drag release,
-    // and a keyboard arrow all produce one commit.
+    // Internal dirty flag: set when valueModified is emitted, cleared by
+    // commitValue(). Ensures valueCommitted only fires when the interaction
+    // actually changed the value (e.g. tapping + when already at max emits
+    // neither signal, rather than firing an expensive BLE-write commit for a
+    // no-op adjustment).
+    property bool _dirtySinceCommit: false
+
+    // Internal helper used in place of raw root.valueModified() emission so
+    // the dirty flag is kept consistent.
+    function _emitValueModified(newVal) {
+        root.valueModified(newVal)
+        _dirtySinceCommit = true
+    }
+
+    // Emit valueCommitted if the interaction changed the value. Called by
+    // every release/click/drag-end/text-entry handler. No-op when nothing
+    // changed (e.g. a tap on a pinned-at-max button).
     function commitValue() {
-        root.valueCommitted(root.value)
+        if (_dirtySinceCommit) {
+            _dirtySinceCommit = false
+            root.valueCommitted(root.value)
+        }
     }
 
     // Enable keyboard focus
@@ -639,12 +656,13 @@ Item {
                                     var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
                                     parsed = Math.round(parsed / roundTo) * roundTo
                                     if (parsed !== root.value) {
-                                        root.valueModified(parsed)
+                                        root._emitValueModified(parsed)
                                     }
-                                    // Typing a number is a deliberate, final adjustment —
-                                    // always commit on Enter so BLE-bound consumers fire
-                                    // exactly once per typed edit.
-                                    root.valueCommitted(parsed)
+                                    // Typing a number is a deliberate, final adjustment.
+                                    // commitValue() only fires valueCommitted if the
+                                    // typed value differed from the prior value — typing
+                                    // the same number back is a no-op.
+                                    root.commitValue()
                                     if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                                         AccessibilityManager.announce(root.displayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
                                     }
@@ -1015,7 +1033,7 @@ Item {
         var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
         newVal = Math.round(newVal / roundTo) * roundTo
         if (newVal !== root.value) {
-            root.valueModified(newVal)
+            _emitValueModified(newVal)
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 AccessibilityManager.announce(root.displayText || (newVal.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
             }
