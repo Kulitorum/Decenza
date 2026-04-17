@@ -31,8 +31,26 @@ Item {
         return useBaseScale ? Theme.scaledBase(value) : Theme.scaled(value)
     }
 
-    // Signals - emits the new value for parent to apply
+    // Signals
+    //
+    // valueModified fires on every adjustment step — every +/- click, every
+    // hold-timer tick, every drag pixel-step. Use for cheap reactions
+    // (updating local state, saving to Settings).
+    //
+    // valueCommitted fires at the END of a user interaction — release of a
+    // hold, end of a drag, single click, text-entry commit. Use for expensive
+    // actions (BLE writes, file saves) that shouldn't fire on every tick.
+    // A single tap emits both signals; a held adjustment emits valueModified
+    // per tick and valueCommitted once on release.
     signal valueModified(real newValue)
+    signal valueCommitted(real newValue)
+
+    // Helper: emit valueCommitted with the current value. Used by all
+    // release/click handlers so a single tap, a hold release, a drag release,
+    // and a keyboard arrow all produce one commit.
+    function commitValue() {
+        root.valueCommitted(root.value)
+    }
 
     // Enable keyboard focus
     activeFocusOnTab: true
@@ -137,9 +155,18 @@ Item {
                 MouseArea {
                     id: minusArea
                     anchors.fill: parent
-                    onClicked: adjustValue(-1)
+                    // Tap: adjust once and commit. Hold: pressAndHold starts the
+                    // repeat timer; on release we stop the timer and commit.
+                    // onCanceled means user dragged off the button — stop without
+                    // committing since the hold repeats are what they wanted to cancel.
+                    onClicked: { adjustValue(-1); root.commitValue() }
                     onPressAndHold: decrementTimer.start()
-                    onReleased: decrementTimer.stop()
+                    onReleased: {
+                        if (decrementTimer.running) {
+                            decrementTimer.stop()
+                            root.commitValue()
+                        }
+                    }
                     onCanceled: decrementTimer.stop()
                 }
 
@@ -428,9 +455,14 @@ Item {
                 MouseArea {
                     id: plusArea
                     anchors.fill: parent
-                    onClicked: adjustValue(1)
+                    onClicked: { adjustValue(1); root.commitValue() }
                     onPressAndHold: incrementTimer.start()
-                    onReleased: incrementTimer.stop()
+                    onReleased: {
+                        if (incrementTimer.running) {
+                            incrementTimer.stop()
+                            root.commitValue()
+                        }
+                    }
                     onCanceled: incrementTimer.stop()
                 }
 
@@ -536,9 +568,14 @@ Item {
                         MouseArea {
                             id: popupMinusArea
                             anchors.fill: parent
-                            onClicked: popupAdjust(-1)
+                            onClicked: { popupAdjust(-1); root.commitValue() }
                             onPressAndHold: popupDecrementTimer.start()
-                            onReleased: popupDecrementTimer.stop()
+                            onReleased: {
+                                if (popupDecrementTimer.running) {
+                                    popupDecrementTimer.stop()
+                                    root.commitValue()
+                                }
+                            }
                             onCanceled: popupDecrementTimer.stop()
                         }
 
@@ -593,7 +630,9 @@ Item {
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
                             selectByMouse: true
 
-                            function commitValue() {
+                            // Rename from commitValue to commitText to avoid clashing
+                            // with root.commitValue() used by release handlers above.
+                            function commitText() {
                                 var parsed = parseFloat(text)
                                 if (!isNaN(parsed)) {
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
@@ -602,6 +641,10 @@ Item {
                                     if (parsed !== root.value) {
                                         root.valueModified(parsed)
                                     }
+                                    // Typing a number is a deliberate, final adjustment —
+                                    // always commit on Enter so BLE-bound consumers fire
+                                    // exactly once per typed edit.
+                                    root.valueCommitted(parsed)
                                     if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                                         AccessibilityManager.announce(root.displayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
                                     }
@@ -610,8 +653,8 @@ Item {
                                 popupValueContainer.forceActiveFocus()
                             }
 
-                            Keys.onReturnPressed: commitValue()
-                            Keys.onEnterPressed: commitValue()
+                            Keys.onReturnPressed: commitText()
+                            Keys.onEnterPressed: commitText()
                             Keys.onEscapePressed: {
                                 popupContent.editMode = false
                                 popupValueContainer.forceActiveFocus()
@@ -693,6 +736,8 @@ Item {
                                 isDragging = false
                                 // Keep currentGear — it persists so +/- buttons
                                 // and subsequent drags use the selected gear.
+                                // Drag is always a real adjustment, so always commit.
+                                root.commitValue()
                             }
 
                             onCanceled: {
@@ -820,9 +865,14 @@ Item {
                         MouseArea {
                             id: popupPlusArea
                             anchors.fill: parent
-                            onClicked: popupAdjust(1)
+                            onClicked: { popupAdjust(1); root.commitValue() }
                             onPressAndHold: popupIncrementTimer.start()
-                            onReleased: popupIncrementTimer.stop()
+                            onReleased: {
+                                if (popupIncrementTimer.running) {
+                                    popupIncrementTimer.stop()
+                                    root.commitValue()
+                                }
+                            }
                             onCanceled: popupIncrementTimer.stop()
                         }
 

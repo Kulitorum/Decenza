@@ -529,12 +529,15 @@ Page {
                             KeyNavigation.tab: flowInput
                             KeyNavigation.backtab: addPresetButton
 
+                            // onValueModified fires on every +/- tick during hold (up to
+                            // 12 Hz). Do cheap bookkeeping here, and defer the BLE write
+                            // to onValueCommitted which fires once on release.
                             onValueModified: function(newValue) {
                                 secondsInput.value = newValue
                                 Settings.flushSeconds = newValue
                                 saveCurrentPreset(flowInput.value, newValue)
-                                MainController.applyFlushSettings()
                             }
+                            onValueCommitted: MainController.applyFlushSettings()
                         }
                     }
 
@@ -569,12 +572,14 @@ Page {
                                 : addPresetButton
                             KeyNavigation.backtab: secondsInput
 
+                            // onValueModified: cheap bookkeeping per tick.
+                            // onValueCommitted: BLE write once at interaction end.
                             onValueModified: function(newValue) {
                                 flowInput.value = newValue
                                 Settings.flushFlow = newValue
                                 saveCurrentPreset(newValue, secondsInput.value)
-                                MainController.applyFlushSettings()
                             }
+                            onValueCommitted: MainController.applyFlushSettings()
                         }
                     }
 
