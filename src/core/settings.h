@@ -193,6 +193,9 @@ class Settings : public QObject {
     // Daily backup settings
     Q_PROPERTY(int dailyBackupHour READ dailyBackupHour WRITE setDailyBackupHour NOTIFY dailyBackupHourChanged)
 
+    // Shot export settings
+    Q_PROPERTY(bool exportShotsToFile READ exportShotsToFile WRITE setExportShotsToFile NOTIFY exportShotsToFileChanged)
+
     // Water level display setting
     Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged)
 
@@ -709,6 +712,10 @@ public:
     int dailyBackupHour() const;
     void setDailyBackupHour(int hour);
 
+    // Shot export to file
+    bool exportShotsToFile() const;
+    void setExportShotsToFile(bool enabled);
+
     // Water level display
     QString waterLevelDisplayUnit() const;
     void setWaterLevelDisplayUnit(const QString& unit);
@@ -994,6 +1001,7 @@ signals:
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
     void dailyBackupHourChanged();
+    void exportShotsToFileChanged();
     void waterLevelDisplayUnitChanged();
     void waterRefillPointChanged();
     void refillKitOverrideChanged();

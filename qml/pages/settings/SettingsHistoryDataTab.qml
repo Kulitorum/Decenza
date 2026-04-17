@@ -492,10 +492,15 @@ KeyboardAwareContainer {
             }
         }
 
-        // Right column: Server & Security
+        // Right column: Share Data card, plus Export Shots card below it
+        ColumnLayout {
+            Layout.preferredWidth: Theme.scaled(280)
+            Layout.fillHeight: true
+            spacing: Theme.scaled(15)
+
         Rectangle {
             objectName: "enableServer"
-            Layout.preferredWidth: Theme.scaled(280)
+            Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
@@ -718,6 +723,66 @@ KeyboardAwareContainer {
                 }
             }
     }
+
+        // Export Shots card — writes each shot as visualizer-format JSON to
+        // the user history folder alongside the user profiles folder. Off by
+        // default; toggling on bulk-exports the entire shot history.
+        Rectangle {
+            objectName: "exportShotsCard"
+            Layout.fillWidth: true
+            Layout.preferredHeight: exportShotsLayout.implicitHeight + Theme.scaled(30)
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+
+            ColumnLayout {
+                id: exportShotsLayout
+                anchors.fill: parent
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(8)
+
+                Tr {
+                    key: "settings.data.exportshots"
+                    fallback: "Export Shots to File"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(14)
+                    font.bold: true
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+
+                        Tr {
+                            key: "settings.data.exportshotsrow"
+                            fallback: "Mirror shots to JSON files"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        Tr {
+                            key: "settings.data.exportshotsdesc"
+                            fallback: "Writes each shot as visualizer-format JSON to the history folder alongside your profiles. Files are for your archive only — the app never reads them back."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(9)
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        checked: Settings.exportShotsToFile
+                        accessibleName: TranslationManager.translate(
+                            "settings.data.exportshots", "Export Shots to File")
+                        onToggled: Settings.exportShotsToFile = checked
+                    }
+                }
+            }
+        }
+        }
 
     // Device Migration Dialog
     DeviceMigrationDialog {

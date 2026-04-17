@@ -122,6 +122,19 @@ QString ProfileStorage::downloadedProfilesPath() const {
     return path;
 }
 
+QString ProfileStorage::userHistoryPath() const {
+    QString basePath = isConfigured() ? externalProfilesPath() : fallbackPath();
+    if (basePath.isEmpty()) {
+        basePath = fallbackPath();
+    }
+    QString path = basePath + "/history";
+    QDir dir(path);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return path;
+}
+
 QStringList ProfileStorage::listProfiles() const {
     QStringList profiles;
     QStringList filters;

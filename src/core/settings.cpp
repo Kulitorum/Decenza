@@ -3347,6 +3347,17 @@ void Settings::setDailyBackupHour(int hour) {
     }
 }
 
+bool Settings::exportShotsToFile() const {
+    return m_settings.value("export/shotsToFile", false).toBool();
+}
+
+void Settings::setExportShotsToFile(bool enabled) {
+    if (exportShotsToFile() != enabled) {
+        m_settings.setValue("export/shotsToFile", enabled);
+        emit exportShotsToFileChanged();
+    }
+}
+
 QString Settings::waterLevelDisplayUnit() const {
     return m_settings.value("display/waterLevelUnit", "percent").toString();
 }

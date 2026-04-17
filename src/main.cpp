@@ -82,6 +82,7 @@
 #endif
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
+#include "history/shothistoryexporter.h"
 #include "mcp/mcpserver.h"
 #include "network/librarysharing.h"
 #include "network/relayclient.h"
@@ -808,6 +809,11 @@ int main(int argc, char *argv[])
     // Connect screensaver manager to data migration client for media import
     mainController.dataMigration()->setScreensaverVideoManager(&screensaverManager);
 
+    // Shot-history-to-file exporter: mirrors the shots DB into individual
+    // visualizer-format JSON files under ProfileStorage::userHistoryPath()
+    // whenever Settings::exportShotsToFile is on.
+    ShotHistoryExporter shotHistoryExporter(&settings, &profileStorage, mainController.shotHistory());
+
     BatteryManager batteryManager;
     batteryManager.setDE1Device(&de1Device);
     batteryManager.setSettings(&settings);
@@ -1498,6 +1504,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
     context->setContextProperty("McpServer", &mcpServer);
     context->setContextProperty("LibrarySharing", &librarySharing);
+    context->setContextProperty("ShotHistoryExporter", &shotHistoryExporter);
 #ifndef Q_OS_IOS
     context->setContextProperty("USBManager", &usbManager);
     context->setContextProperty("UsbScaleManager", &usbScaleManager);

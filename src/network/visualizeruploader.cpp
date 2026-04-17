@@ -963,6 +963,7 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
     qDebug() << "Visualizer: Uploading shot...";
 }
 
+// static
 QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
 {
     QJsonObject root;

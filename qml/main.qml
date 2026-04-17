@@ -2795,6 +2795,67 @@ ApplicationWindow {
         onTriggered: flowCalToast.opacity = 0
     }
 
+    // ============ SHOT EXPORT BULK COMPLETION TOAST ============
+    // Shown once the initial "export all shots" pass triggered by enabling
+    // Settings.exportShotsToFile has finished writing files to the user
+    // history folder. Silent-until-done so the toggle behaves like a plain
+    // boolean preference.
+    property string shotExportToastText: ""
+
+    Rectangle {
+        id: shotExportToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: shotExportToastLabel.implicitWidth + Theme.scaled(32)
+        height: shotExportToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: shotExportToastLabel
+            anchors.centerIn: parent
+            text: shotExportToastText
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: shotExportToastTimer
+        interval: 4000
+        onTriggered: shotExportToast.opacity = 0
+    }
+
+    Connections {
+        target: ShotHistoryExporter
+        function onBulkExportFinished(ok, failed) {
+            if (failed > 0) {
+                shotExportToastText = TranslationManager.translate(
+                    "main.toast.exportShotsPartial",
+                    "Exported %1 shots; %2 failed").arg(ok).arg(failed)
+            } else {
+                shotExportToastText = TranslationManager.translate(
+                    "main.toast.exportShotsDone",
+                    "Exported %1 shots").arg(ok)
+            }
+            shotExportToast.opacity = 1
+            shotExportToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(shotExportToastText)
+            }
+        }
+    }
+
     // ============ ACCESSIBILITY: Machine State Announcements ============
     // Translatable accessibility announcements for machine state
     Tr { id: trAnnounceDisconnected; key: "main.accessibility.machineDisconnected"; fallback: "Machine disconnected"; visible: false }
