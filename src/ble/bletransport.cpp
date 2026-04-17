@@ -270,7 +270,7 @@ void BleTransport::disconnect() {
     m_disconnectedEmittedForAttempt = false;
 }
 
-void BleTransport::clearQueue() {
+qsizetype BleTransport::clearQueue() {
     qsizetype cleared = m_commandQueue.size();
     m_commandQueue.clear();
     m_writePending = false;
@@ -279,7 +279,7 @@ void BleTransport::clearQueue() {
     m_writeRetryCount = 0;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
-    Q_UNUSED(cleared);
+    return cleared;
 }
 
 bool BleTransport::isConnected() const {

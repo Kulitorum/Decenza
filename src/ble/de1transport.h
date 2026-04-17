@@ -69,11 +69,14 @@ public:
     virtual void disconnect() = 0;
 
     /**
-     * Clear any pending command queue.
-     * Called before urgent operations (SAW stop, sleep) to prevent stale
-     * commands from interfering. No-op for transports without queuing.
+     * Clear any pending command queue and return the number of commands
+     * that were dropped. Called before urgent operations (SAW stop, sleep)
+     * to prevent stale commands from interfering. Transports without
+     * queuing return 0. The count lets DE1Device skip invalidating its
+     * per-register MMR dedup cache when nothing was actually dropped (the
+     * cache is only at risk when a queued write never reached the wire).
      */
-    virtual void clearQueue() {}
+    virtual qsizetype clearQueue() { return 0; }
 
     /**
      * Check if the transport is currently connected.

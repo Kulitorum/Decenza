@@ -789,11 +789,15 @@ void DE1Device::goToSleep() {
     }
 
     if (!m_transport) return;
-    // Clear pending commands - sleep takes priority. Also drop the MMR cache
-    // so any MMR writes queued-then-dropped don't leave the cache claiming
-    // the DE1 already holds those values (see clearCommandQueue).
-    m_lastMMRValues.clear();
-    m_transport->clearQueue();
+    // Clear pending commands - sleep takes priority. Only drop the MMR
+    // cache if something was actually queued — an empty queue means the
+    // cache still matches what we've sent. Avoids a spurious re-send of
+    // steam/flush MMR on every steam end (where flow-begin defensively
+    // calls us through clearCommandQueue but nothing is pending).
+    const qsizetype dropped = m_transport->clearQueue();
+    if (dropped > 0) {
+        m_lastMMRValues.clear();
+    }
 
     // Send sleep command directly (don't queue it)
     QByteArray data(1, static_cast<char>(DE1::State::Sleep));
@@ -813,12 +817,17 @@ void DE1Device::clearCommandQueue() {
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
     // Dropping the transport queue discards pending MMR writes whose values
-    // are already recorded in m_lastMMRValues — those writes never reach the
-    // DE1, so the cache would silently elide the next retry. Clearing it
-    // forces the next writeMMR to actually hit the wire.
-    m_lastMMRValues.clear();
+    // are already recorded in m_lastMMRValues, so the cache would silently
+    // elide the next retry. Only invalidate the cache if something was
+    // actually dropped — the call sites here (flow-begin, onShotStarted,
+    // stopOperationUrgent) fire defensively whether or not writes are
+    // pending, and clearing on every call would cost 3 spurious MMR writes
+    // per steam/hot-water session.
     if (m_transport) {
-        m_transport->clearQueue();
+        const qsizetype dropped = m_transport->clearQueue();
+        if (dropped > 0) {
+            m_lastMMRValues.clear();
+        }
     }
 }
 

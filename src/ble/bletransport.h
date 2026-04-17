@@ -39,7 +39,7 @@ public:
     void subscribe(const QBluetoothUuid& uuid) override;
     void subscribeAll() override;
     void disconnect() override;
-    void clearQueue() override;
+    qsizetype clearQueue() override;
     bool isConnected() const override;
     QString transportName() const override { return QStringLiteral("BLE"); }
 

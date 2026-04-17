@@ -169,23 +169,48 @@ private slots:
 
     // ===== Command queue clear invalidates cache =====
 
-    void clearCommandQueueClearsCache() {
-        // clearCommandQueue drops every pending transport write — including
-        // MMR writes whose values were just recorded in m_lastMMRValues. If
-        // the cache survived, the next identical writeMMR would dedup and
-        // the DE1 would never receive the value that was dropped on the
-        // floor. Callers: MainController::onShotStarted at every espresso
+    void clearCommandQueueDropsInvalidateCache() {
+        // When clearCommandQueue actually drops pending writes, those
+        // writes never reached the DE1 — but m_lastMMRValues already
+        // recorded their values. If the cache survived, the next identical
+        // writeMMR would dedup and the DE1 would never see the dropped
+        // value. Callers: MainController::onShotStarted at every espresso
         // start, DE1Device::stopOperationUrgent on SAW trigger, MachineState
-        // on preinfusion phase entry.
+        // on non-espresso flow-begin.
         TestFixture f;
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
 
+        // Simulate a non-empty transport queue — clearQueue reports >0.
+        f.transport.pendingQueueSize = 1;
         f.device.clearCommandQueue();
 
         f.transport.clearWrites();
         f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // same value
 
         QCOMPARE(f.transport.writes.size(), 1);  // fired despite same value
+    }
+
+    void clearCommandQueueWithEmptyQueuePreservesCache() {
+        // Non-espresso flow-begin defensively calls clearCommandQueue even
+        // when nothing is pending (guarding against stale profile-upload
+        // frames that in practice aren't there). If we invalidated the
+        // MMR cache on every such call, every steam/hot-water session
+        // would end with three spurious re-sends of STEAM_FLOW / FLUSH_FLOW
+        // / FLUSH_TIMEOUT. When clearQueue reports nothing dropped, the
+        // cache is still in sync with what reached the wire — preserve it.
+        TestFixture f;
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("\\[MMR\\] write skipped"));
+
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);
+
+        // pendingQueueSize defaults to 0 — clearQueue is a no-op drop.
+        f.device.clearCommandQueue();
+
+        f.transport.clearWrites();
+        f.device.writeMMR(DE1::MMR::STEAM_FLOW, 150);  // same value
+
+        QCOMPARE(f.transport.writes.size(), 0);  // deduped — cache held
     }
 
     // ===== Disconnect invalidates cache =====

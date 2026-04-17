@@ -27,6 +27,12 @@ public:
     // also emits the matching DE1Transport::connected/disconnected signal.
     bool m_connected = true;
 
+    // Simulated queue depth for clearQueue() accounting. Tests that
+    // exercise the "queue drop → MMR cache invalidated" path bump this
+    // before calling clearCommandQueue(); the default of 0 models an
+    // idle transport where clearQueue is a no-op drop.
+    qsizetype pendingQueueSize = 0;
+
     // DE1Transport interface
     void write(const QBluetoothUuid& uuid, const QByteArray& data) override {
         writes.append({uuid, data});
@@ -39,6 +45,11 @@ public:
             m_connected = false;
             emit disconnected();
         }
+    }
+    qsizetype clearQueue() override {
+        const qsizetype dropped = pendingQueueSize;
+        pendingQueueSize = 0;
+        return dropped;
     }
     bool isConnected() const override { return m_connected; }
     QString transportName() const override { return QStringLiteral("Mock"); }
