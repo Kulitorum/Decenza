@@ -616,11 +616,28 @@ void MainController::sendMachineSettings(const QString& reason) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     // Determine steam temperature to send:
-    // - If steam is disabled: send 0
+    // - If the currently selected steam preset is an "Off" pill: send 0
+    //   (matches de1app's persistent steam_disabled behavior — target 0 is
+    //   pushed so the DE1 firmware can still honor GHC presses with no
+    //   steam produced.)
+    // - If steam is disabled (session flag): send 0
     // - If keepSteamHeaterOn is false: send 0 (user doesn't want heater on)
     // - Otherwise: send configured temperature
+    //
+    // Rationalization: if the user has selected a non-Off preset, the session
+    // flag is stale (set by a previous turnOffSteamHeater call on a prior Off
+    // selection). The preset is the authoritative user intent — clear the
+    // flag so downstream code sees a consistent state. Without this, IdlePage
+    // / SteamItem applySteamSettings paths (which don't call startSteamHeating)
+    // would leave the flag set and the heater off until the user opened
+    // SteamPage.
+    const QVariantMap currentPitcher = m_settings->getSteamPitcherPreset(m_settings->selectedSteamPitcher());
+    const bool currentPitcherDisabled = currentPitcher.value("disabled").toBool();
+    if (!currentPitcherDisabled && m_settings->steamDisabled()) {
+        m_settings->setSteamDisabled(false);
+    }
     double steamTemp;
-    if (m_settings->steamDisabled()) {
+    if (currentPitcherDisabled || m_settings->steamDisabled()) {
         steamTemp = 0.0;
     } else if (!m_settings->keepSteamHeaterOn()) {
         steamTemp = 0.0;

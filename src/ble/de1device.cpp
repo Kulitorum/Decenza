@@ -251,6 +251,25 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     }
 }
 
+void DE1Device::setSimulatedIdleSteamTemp(double steamTempC) {
+    if (!m_simulationMode) return;
+    if (qFuzzyCompare(m_steamTemp, steamTempC)) return;
+    m_steamTemp = steamTempC;
+    // steamTemperature's NOTIFY is shotSampleReceived, so fire a sample to
+    // wake QML bindings. Populate steamTemp + headTemp + mixTemp from our
+    // cached members (so those properties aren't clobbered to zero); all
+    // other sample fields (pressure, flow, goals, timer, frame) are
+    // zero-initialized. The caller (DE1Simulator::setTargetSteamTemp) only
+    // invokes this when idle — never during an active Steam/Espresso
+    // session — so the zeros won't land on the live graphs.
+    ShotSample sample;
+    sample.timestamp = QDateTime::currentMSecsSinceEpoch();
+    sample.steamTemp = m_steamTemp;
+    sample.headTemp = m_headTemp;
+    sample.mixTemp = m_mixTemp;
+    emit shotSampleReceived(sample);
+}
+
 void DE1Device::emitSimulatedShotSample(const ShotSample& sample) {
     if (!m_simulationMode) return;
 
@@ -1269,6 +1288,22 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
                                 double hotWaterTemp, int hotWaterVolume,
                                 double groupTemp,
                                 const QString& reason) {
+    // In simulation mode, forward the commanded steam target to the simulator
+    // so its m_steamTemp reflects what the app asked for (including Off
+    // presets where steamTemp=0 means "heater off"). Sim mode has no BLE
+    // transport, so the real-path dedupe check, characteristic write, and
+    // read-back verification are all skipped. m_lastShotSettingsPayload is
+    // intentionally left untouched — drift detection only runs against real
+    // DE1 indications, which never fire in sim mode.
+    if (m_simulationMode && m_simulator) {
+        m_simulator->setTargetSteamTemp(steamTemp);
+        m_commandedSteamTargetC = steamTemp;
+        m_commandedSteamDurationSec = steamDuration;
+        m_commandedHotWaterTempC = hotWaterTemp;
+        m_commandedHotWaterVolMl = hotWaterVolume;
+        m_commandedGroupTargetC = groupTemp;
+        return;
+    }
     if (!m_transport) return;
     QByteArray data(9, 0);
     data[0] = 0;  // SteamSettings flags

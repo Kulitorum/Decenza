@@ -743,6 +743,20 @@ void Settings::addSteamPitcherPreset(const QString& name, int duration, int flow
     emit steamPitcherPresetsChanged();
 }
 
+void Settings::addSteamPitcherPresetDisabled(const QString& name) {
+    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QJsonObject preset;
+    preset["name"] = name;
+    preset["disabled"] = true;
+    arr.append(preset);
+
+    m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+    emit steamPitcherPresetsChanged();
+}
+
 void Settings::updateSteamPitcherPreset(int index, const QString& name, int duration, int flow) {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
