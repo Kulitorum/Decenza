@@ -168,6 +168,11 @@ Page {
                 color: Theme.textColor
                 background: null
                 padding: 0
+
+                Accessible.role: Accessible.EditableText
+                Accessible.name: TranslationManager.translate("dialingassistant.accessible.recommendation", "AI dialing recommendation")
+                Accessible.description: text
+                Accessible.focusable: true
             }
         }
 
