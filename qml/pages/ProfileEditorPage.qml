@@ -526,7 +526,7 @@ Page {
                     ValueInput {
                         Layout.fillWidth: true; valueColor: Theme.weightColor
                         accessibleName: TranslationManager.translate("profileEditor.recommendedDose", "Recommended dose"); from: 5; to: 100; stepSize: 0.1; suffix: " g"
-                        value: { stepVersion; return profile ? (profile.recommended_dose || 18) : 18 }
+                        value: { stepVersion; return profile ? (profile.recommended_dose ?? 18) : 18 }
                         onValueModified: function(newValue) { if (profile) { profile.recommended_dose = Math.round(newValue * 10) / 10 } }
                         onValueCommitted: uploadProfile()
                     }
@@ -592,7 +592,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.preheatTankAccessible", "Preheat water tank temperature")
                     from: 0; to: 45; stepSize: 1; suffix: " °C"
-                    value: { stepVersion; return profile ? (profile.tank_desired_water_temperature || 0) : 0 }
+                    value: { stepVersion; return profile ? (profile.tank_desired_water_temperature ?? 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.tank_desired_water_temperature = Math.round(newValue)
@@ -611,7 +611,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160)
                     accessibleName: TranslationManager.translate("profileEditor.preinfusionEndsAccessible", "Preinfusion ends after step")
                     from: 0; to: profile ? profile.steps.length : 0; stepSize: 1
-                    value: { stepVersion; return profile ? (profile.preinfuse_frame_count || 0) : 0 }
+                    value: { stepVersion; return profile ? (profile.preinfuse_frame_count ?? 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.preinfuse_frame_count = Math.round(newValue)

@@ -80,7 +80,11 @@ Item {
     Accessible.description: TranslationManager.translate("valueinput.accessibility.description", "Use plus and minus buttons to adjust. Tap center for full-screen editor. Double-tap value to type a number.")
     Accessible.focusable: true
 
-    // Keyboard handling
+    // Keyboard handling. Press fires adjustValue per key-press (including
+    // auto-repeat while held); release fires commitValue once when the
+    // physical key lifts — same contract as the +/- button MouseAreas, so
+    // BLE-bound consumers that migrated to onValueCommitted don't miss
+    // hardware-keyboard adjustments.
     Keys.onUpPressed: adjustValue(1)
     Keys.onDownPressed: adjustValue(-1)
     Keys.onLeftPressed: adjustValue(-1)
@@ -98,6 +102,17 @@ Item {
         } else if (event.key === Qt.Key_PageDown) {
             adjustValue(-10)
             event.accepted = true
+        }
+    }
+
+    Keys.onReleased: function(event) {
+        if (event.isAutoRepeat) return
+        switch (event.key) {
+            case Qt.Key_Up: case Qt.Key_Down: case Qt.Key_Left: case Qt.Key_Right:
+            case Qt.Key_PageUp: case Qt.Key_PageDown:
+                commitValue()
+                event.accepted = true
+                break
         }
     }
 
@@ -532,13 +547,15 @@ Item {
 
             Accessible.name: TranslationManager.translate("valueinput.editor.title", "Value editor")
 
-            // Tap outside to close (exit edit mode first)
+            // Tap outside to close (exit edit mode first). When the TextInput
+            // is in edit mode, commit the typed value instead of silently
+            // discarding it — tapping elsewhere is a common tablet "done"
+            // gesture. Escape in the TextInput remains an explicit discard.
             MouseArea {
                 anchors.fill: parent
                 onClicked: {
                     if (popupContent.editMode) {
-                        popupContent.editMode = false
-                        popupValueContainer.forceActiveFocus()
+                        popupTextInput.commitText()
                     } else {
                         scrubberPopup.close()
                     }
@@ -616,7 +633,9 @@ Item {
                         Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
                         Accessible.focusable: true
 
-                        // Keyboard navigation — honors the selected gear
+                        // Keyboard navigation — honors the selected gear.
+                        // Release fires commitValue once when the key lifts,
+                        // mirroring the +/- button contract.
                         Keys.onEscapePressed: scrubberPopup.close()
                         Keys.onUpPressed: popupAdjust(1)
                         Keys.onDownPressed: popupAdjust(-1)
@@ -624,6 +643,15 @@ Item {
                         Keys.onRightPressed: popupAdjust(1)
                         Keys.onReturnPressed: scrubberPopup.close()
                         Keys.onEnterPressed: scrubberPopup.close()
+                        Keys.onReleased: function(event) {
+                            if (event.isAutoRepeat) return
+                            switch (event.key) {
+                                case Qt.Key_Up: case Qt.Key_Down: case Qt.Key_Left: case Qt.Key_Right:
+                                    root.commitValue()
+                                    event.accepted = true
+                                    break
+                            }
+                        }
 
                         Text {
                             anchors.centerIn: parent
