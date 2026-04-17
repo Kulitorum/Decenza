@@ -73,19 +73,35 @@ Page {
             wasSteaming = true
             steamSoftStopped = false
             _lastAnnouncedSteamWeight = 0
-            // Reset to preset value (discard any +5s/-5s adjustments from previous session).
-            // Don't re-call startSteamHeating — the heater has been on since state entered
-            // Steam (handled in main.qml), and by the time isSteaming becomes true we're
-            // already flowing. These preset resets persist to Settings and take effect
-            // on the next sendMachineSettings.
-            Settings.steamTimeout = getCurrentPitcherDuration()
-            Settings.steamFlow = getCurrentPitcherFlow()
+            // Preset reset runs in the else branch (at session end), not here.
+            // Resetting at session start meant Settings was stale during the
+            // window between state=Steam (when main.qml's onStateChanged fires
+            // startSteamHeating with current Settings) and the isSteaming=true
+            // transition. If the user stayed on SteamPage and GHC-started a
+            // new session, that window carried prior +5s adjustments to the DE1
+            // silently. Resetting at session end means Settings is already at
+            // preset before the next onStateChanged fires, so the BLE write
+            // that session uses the correct values.
         } else {
             console.log("SteamPage: Settings view now visible (isSteaming=false)")
-            // Turn off steam heater after steaming if keepSteamHeaterOn is false
-            if (wasSteaming && !Settings.keepSteamHeaterOn) {
-                console.log("SteamPage: Turning off steam heater (keepSteamHeaterOn=false)")
-                MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
+            if (wasSteaming) {
+                // Discard +5s/-5s adjustments made during this session so the
+                // next one starts from the pitcher preset.
+                //
+                // When keepSteamHeaterOn=false the sendSteamTemperature(0) call
+                // below re-writes ShotSettings with the reset timeout as a side
+                // effect (it reads Settings.steamTimeout after the assignment),
+                // so the DE1 is in sync immediately. When keepSteamHeaterOn=true
+                // the reset just persists to Settings; the next session's
+                // onStateChanged->startSteamHeating picks it up and writes it
+                // (the DE1's commanded state between sessions is idle anyway,
+                // so the lag is invisible).
+                Settings.steamTimeout = getCurrentPitcherDuration()
+                Settings.steamFlow = getCurrentPitcherFlow()
+                if (!Settings.keepSteamHeaterOn) {
+                    console.log("SteamPage: Turning off steam heater (keepSteamHeaterOn=false)")
+                    MainController.sendSteamTemperature(0)  // also sets steamDisabled=true
+                }
             }
             wasSteaming = false
         }
