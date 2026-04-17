@@ -240,6 +240,49 @@ private slots:
         QCOMPARE(targetEspressoVol, static_cast<uint8_t>(200));
     }
 
+    void uploadCurrentProfileRespectsWaterVolumeMode() {
+        // Regression: profile upload must match MainController::sendMachineSettings
+        // on hot water volume, otherwise two back-to-back writes with different
+        // `vol` values race at the BLE layer and falsely trip the drift detector.
+        // Byte 4 of the ShotSettings payload is TargetHotWaterVol (U8P0 ml).
+
+        // --- Weight mode: vol byte must be 0 ---
+        {
+            McpTestFixture f;
+            loadDFlowProfile(f);
+            f.settings.setWaterVolumeMode("weight");
+            f.settings.setWaterVolume(65);
+            f.transport.clearWrites();
+            f.device.m_lastShotSettingsPayload.clear();
+
+            f.profileManager.uploadCurrentProfile();
+
+            auto settingsWrites = f.writesTo(SHOT_SETTINGS);
+            QVERIFY(!settingsWrites.isEmpty());
+            QByteArray data = settingsWrites.last();
+            QVERIFY(data.size() >= 5);
+            QCOMPARE(static_cast<uint8_t>(data[4]), static_cast<uint8_t>(0));
+        }
+
+        // --- Volume mode: vol byte must echo settings.waterVolume() ---
+        {
+            McpTestFixture f;
+            loadDFlowProfile(f);
+            f.settings.setWaterVolumeMode("volume");
+            f.settings.setWaterVolume(65);
+            f.transport.clearWrites();
+            f.device.m_lastShotSettingsPayload.clear();
+
+            f.profileManager.uploadCurrentProfile();
+
+            auto settingsWrites = f.writesTo(SHOT_SETTINGS);
+            QVERIFY(!settingsWrites.isEmpty());
+            QByteArray data = settingsWrites.last();
+            QVERIFY(data.size() >= 5);
+            QCOMPARE(static_cast<uint8_t>(data[4]), static_cast<uint8_t>(65));
+        }
+    }
+
     void uploadBlockedDuringActivePhase() {
         McpTestFixture f;
         loadDFlowProfile(f);
