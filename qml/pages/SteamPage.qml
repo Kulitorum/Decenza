@@ -26,7 +26,7 @@ Page {
             Settings.steamFlow = getCurrentPitcherFlow()
             // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
             // startSteamHeating clears steamDisabled flag automatically
-            MainController.startSteamHeating()
+            MainController.startSteamHeating("steampage-activated")
             durationSlider.forceActiveFocus()
         }
     }
@@ -76,7 +76,7 @@ Page {
             // Reset to preset value (discard any +5s/-5s adjustments from previous session)
             Settings.steamTimeout = getCurrentPitcherDuration()
             Settings.steamFlow = getCurrentPitcherFlow()
-            MainController.startSteamHeating()
+            MainController.startSteamHeating("is-steaming-changed")
         } else {
             console.log("SteamPage: Settings view now visible (isSteaming=false)")
             // Turn off steam heater after steaming if keepSteamHeaterOn is false
@@ -312,7 +312,7 @@ Page {
                                     Settings.steamTimeout = modelData.duration
                                     Settings.steamFlow = flow
                                     if (!isSteaming)
-                                        MainController.startSteamHeating()
+                                        MainController.startSteamHeating("live-pitcher-click")
                                 }
                             }
                         }
@@ -455,7 +455,7 @@ Page {
                                 if (isSteaming)
                                     MainController.setSteamTimeoutImmediate(newTime)
                                 else
-                                    MainController.startSteamHeating()
+                                    MainController.startSteamHeating("decrease-5s")
                             }
                         }
                     }
@@ -515,7 +515,7 @@ Page {
                                 if (isSteaming)
                                     MainController.setSteamTimeoutImmediate(newTime)
                                 else
-                                    MainController.startSteamHeating()
+                                    MainController.startSteamHeating("increase-5s")
                             }
                         }
                     }
@@ -854,7 +854,7 @@ Page {
                                         flowSlider.value = flow
                                         Settings.steamTimeout = modelData.duration
                                         Settings.steamFlow = flow
-                                        MainController.startSteamHeating()
+                                        MainController.startSteamHeating("pitcher-a11y")
                                     }
 
                                     Keys.onReturnPressed: {
@@ -864,7 +864,7 @@ Page {
                                         flowSlider.value = flow
                                         Settings.steamTimeout = modelData.duration
                                         Settings.steamFlow = flow
-                                        MainController.startSteamHeating()
+                                        MainController.startSteamHeating("pitcher-return")
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: {
@@ -874,7 +874,7 @@ Page {
                                         flowSlider.value = flow
                                         Settings.steamTimeout = modelData.duration
                                         Settings.steamFlow = flow
-                                        MainController.startSteamHeating()
+                                        MainController.startSteamHeating("pitcher-space")
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: {
@@ -947,7 +947,7 @@ Page {
                                                 flowSlider.value = flow
                                                 Settings.steamTimeout = modelData.duration
                                                 Settings.steamFlow = flow
-                                                MainController.startSteamHeating()
+                                                MainController.startSteamHeating("pitcher-click")
                                             }
                                             pitcherPill.Drag.drop()
                                             pitcherPresetsRow.draggedIndex = -1

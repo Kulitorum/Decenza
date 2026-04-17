@@ -143,8 +143,11 @@ public slots:
     // Send steam temperature to machine without saving to settings (for enable/disable toggle)
     Q_INVOKABLE void sendSteamTemperature(double temp);
 
-    // Start heating steam heater (ignores keepSteamHeaterOn - for when user wants to steam)
-    Q_INVOKABLE void startSteamHeating();
+    // Start heating steam heater (ignores keepSteamHeaterOn - for when user wants to steam).
+    // `reason` is a caller-identifying tag that flows into the [ShotSettings] BLE log
+    // so redundant calls (convergent QML signals, state/phase/isSteaming transitions)
+    // can be attributed. Pass a short kebab-case string like "steampage-activated".
+    Q_INVOKABLE void startSteamHeating(const QString& reason = QString());
 
     // Turn off steam heater (sends 0 C)
     Q_INVOKABLE void turnOffSteamHeater();
@@ -211,7 +214,8 @@ private:
     void computeAutoFlowCalibration();
     void updateGlobalFromPerProfileMedian();
     double getGroupTemperature() const;
-    void sendMachineSettings();
+    // `reason` is a caller tag that flows into the [ShotSettings] BLE log.
+    void sendMachineSettings(const QString& reason = QString());
 
     ProfileManager* m_profileManager = nullptr;
 
