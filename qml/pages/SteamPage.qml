@@ -21,12 +21,19 @@ Page {
     StackView.onActivated: {
         root.currentPageTitle = pageTitle
         if (!isSteaming) {
-            // Sync Settings with selected preset
-            Settings.steamTimeout = getCurrentPitcherDuration()
-            Settings.steamFlow = getCurrentPitcherFlow()
-            // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
-            // startSteamHeating clears steamDisabled flag automatically
-            MainController.startSteamHeating("steampage-activated")
+            var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+            if (preset && preset.disabled) {
+                // Selected preset is an "Off" pill — leave the heater off rather
+                // than kicking it on as the page activates.
+                MainController.turnOffSteamHeater()
+            } else {
+                // Sync Settings with selected preset
+                Settings.steamTimeout = getCurrentPitcherDuration()
+                Settings.steamFlow = getCurrentPitcherFlow()
+                // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
+                // startSteamHeating clears steamDisabled flag automatically
+                MainController.startSteamHeating("steampage-activated")
+            }
             durationSlider.forceActiveFocus()
         }
     }
@@ -116,15 +123,19 @@ Page {
         return (flow / 100).toFixed(2)
     }
 
-    // Get current pitcher's values with defaults
+    // Get current pitcher's values with defaults. "Off" (disabled) presets
+    // don't carry duration/flow, so fall back to the current Settings so the
+    // sliders don't jump when the user switches to an Off preset.
     function getCurrentPitcherDuration() {
         var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
-        return preset ? preset.duration : 30
+        if (!preset || preset.disabled) return Settings.steamTimeout || 30
+        return preset.duration
     }
 
     function getCurrentPitcherFlow() {
         var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
-        return (preset && preset.flow !== undefined) ? preset.flow : 150
+        if (!preset || preset.disabled) return Settings.steamFlow || 150
+        return (preset.flow !== undefined) ? preset.flow : 150
     }
 
     function getCurrentPitcherName() {
@@ -132,10 +143,17 @@ Page {
         return preset ? preset.name : ""
     }
 
-    // Save current pitcher with new values
+    function isCurrentPitcherDisabled() {
+        var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+        return preset ? preset.disabled === true : false
+    }
+
+    // Save current pitcher with new values. No-op for disabled presets — their
+    // duration/flow are meaningless, and writing them via updateSteamPitcherPreset
+    // would let slider drags silently bake values into the saved JSON.
     function saveCurrentPitcher(duration, flow) {
         var name = getCurrentPitcherName()
-        if (name) {
+        if (name && !isCurrentPitcherDisabled()) {
             Settings.updateSteamPitcherPreset(Settings.selectedSteamPitcher, name, duration, flow)
         }
     }
@@ -263,21 +281,33 @@ Page {
                         model: Settings.steamPitcherPresets
 
                         Rectangle {
+                            id: livePitcherPill
+                            readonly property bool pitcherDisabled: modelData.disabled === true
+                            readonly property bool pitcherSelected: index === Settings.selectedSteamPitcher
+
+                            // Hide "Off" presets from the mid-session preset row — there's no
+                            // meaningful action when tapped mid-steam, so don't show the pill.
+                            visible: !(isSteaming && pitcherDisabled)
+
                             width: livePitcherText.implicitWidth + 24
                             height: Theme.scaled(36)
                             radius: Theme.scaled(18)
-                            color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.surfaceColor
-                            border.color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
+                            color: pitcherSelected
+                                ? (pitcherDisabled ? Theme.textSecondaryColor : Theme.primaryColor)
+                                : Theme.surfaceColor
+                            border.color: pitcherSelected && !pitcherDisabled ? Theme.primaryColor : Theme.textSecondaryColor
                             border.width: 1
 
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: {
                                 var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                if (livePitcherPill.pitcherDisabled)
+                                    label += ", " + TranslationManager.translate("steam.accessibility.presetOff", "turns steam heater off")
                                 var pitcherWt = modelData.pitcherWeightG ?? 0
-                                if (pitcherWt > 0)
+                                if (pitcherWt > 0 && !livePitcherPill.pitcherDisabled)
                                     label += ", " + TranslationManager.translate("steam.accessibility.pitcherWeight", "pitcher") + " " + pitcherWt.toFixed(0) + "g"
-                                if (index === Settings.selectedSteamPitcher)
+                                if (livePitcherPill.pitcherSelected)
                                     label += ", " + TranslationManager.translate("accessibility.selected", "selected")
                                 return label
                             }
@@ -317,7 +347,9 @@ Page {
                                 id: livePitcherText
                                 anchors.centerIn: parent
                                 text: modelData.name
-                                color: index === Settings.selectedSteamPitcher ? Theme.primaryContrastColor : Theme.textColor
+                                color: livePitcherPill.pitcherSelected
+                                    ? Theme.primaryContrastColor
+                                    : (livePitcherPill.pitcherDisabled ? Theme.textSecondaryColor : Theme.textColor)
                                 font: Theme.bodyFont
                                 Accessible.ignored: true
                             }
@@ -326,7 +358,14 @@ Page {
                                 id: livePitcherMa
                                 anchors.fill: parent
                                 onClicked: {
+                                    // Off pills are hidden during steaming (visible binding
+                                    // above), so ignore any tap that slips through mid-session.
+                                    if (isSteaming && livePitcherPill.pitcherDisabled) return
                                     Settings.selectedSteamPitcher = index
+                                    if (livePitcherPill.pitcherDisabled) {
+                                        MainController.turnOffSteamHeater()
+                                        return
+                                    }
                                     var flow = modelData.flow !== undefined ? modelData.flow : 150
                                     Settings.steamTimeout = modelData.duration
                                     Settings.steamFlow = flow
@@ -849,55 +888,56 @@ Page {
 
                                 Rectangle {
                                     id: pitcherPill
+                                    readonly property bool pitcherDisabled: modelData.disabled === true
+                                    readonly property bool pitcherSelected: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher
+
                                     width: pitcherText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.backgroundColor
-                                    border.color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: pitcherSelected
+                                        ? (pitcherDisabled ? Theme.textSecondaryColor : Theme.primaryColor)
+                                        : Theme.backgroundColor
+                                    border.color: pitcherSelected && !pitcherDisabled ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
+
+                                    function applyPitcher(reason) {
+                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
+                                        if (pitcherDisabled) {
+                                            MainController.turnOffSteamHeater()
+                                            return
+                                        }
+                                        var flow = modelData.flow !== undefined ? modelData.flow : 150
+                                        durationSlider.value = modelData.duration
+                                        flowSlider.value = flow
+                                        Settings.steamTimeout = modelData.duration
+                                        Settings.steamFlow = flow
+                                        MainController.startSteamHeating(reason)
+                                    }
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: {
                                         var label = modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset")
+                                        if (pitcherDisabled)
+                                            label += ", " + TranslationManager.translate("steam.accessibility.presetOff", "turns steam heater off")
                                         var pitcherWt = modelData.pitcherWeightG ?? 0
-                                        if (pitcherWt > 0)
+                                        if (pitcherWt > 0 && !pitcherDisabled)
                                             label += ", " + TranslationManager.translate("steam.accessibility.pitcherWeight", "pitcher") + " " + pitcherWt.toFixed(0) + "g"
-                                        if (pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher)
+                                        if (pitcherSelected)
                                             label += ", " + TranslationManager.translate("accessibility.selected", "selected")
                                         return label
                                     }
                                     Accessible.description: TranslationManager.translate("steam.accessibility.pitcherEditHint", "Double-tap or long-press to edit preset.")
                                     Accessible.focusable: true
-                                    Accessible.onPressAction: {
-                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
-                                        var flow = modelData.flow !== undefined ? modelData.flow : 150
-                                        durationSlider.value = modelData.duration
-                                        flowSlider.value = flow
-                                        Settings.steamTimeout = modelData.duration
-                                        Settings.steamFlow = flow
-                                        MainController.startSteamHeating("pitcher-a11y")
-                                    }
+                                    Accessible.onPressAction: pitcherPill.applyPitcher("pitcher-a11y")
 
                                     Keys.onReturnPressed: {
-                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
-                                        var flow = modelData.flow !== undefined ? modelData.flow : 150
-                                        durationSlider.value = modelData.duration
-                                        flowSlider.value = flow
-                                        Settings.steamTimeout = modelData.duration
-                                        Settings.steamFlow = flow
-                                        MainController.startSteamHeating("pitcher-return")
+                                        pitcherPill.applyPitcher("pitcher-return")
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: {
-                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
-                                        var flow = modelData.flow !== undefined ? modelData.flow : 150
-                                        durationSlider.value = modelData.duration
-                                        flowSlider.value = flow
-                                        Settings.steamTimeout = modelData.duration
-                                        Settings.steamFlow = flow
-                                        MainController.startSteamHeating("pitcher-space")
+                                        pitcherPill.applyPitcher("pitcher-space")
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: {
@@ -940,7 +980,9 @@ Page {
                                         id: pitcherText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryContrastColor : Theme.textColor
+                                        color: pitcherPill.pitcherSelected
+                                            ? Theme.primaryContrastColor
+                                            : (pitcherPill.pitcherDisabled ? Theme.textSecondaryColor : Theme.textColor)
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -964,13 +1006,7 @@ Page {
                                             holdTimer.stop()
                                             if (!moved && !held) {
                                                 // Simple click - select the pitcher
-                                                Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
-                                                var flow = modelData.flow !== undefined ? modelData.flow : 150
-                                                durationSlider.value = modelData.duration
-                                                flowSlider.value = flow
-                                                Settings.steamTimeout = modelData.duration
-                                                Settings.steamFlow = flow
-                                                MainController.startSteamHeating("pitcher-click")
+                                                pitcherPill.applyPitcher("pitcher-click")
                                             }
                                             pitcherPill.Drag.drop()
                                             pitcherPresetsRow.draggedIndex = -1
@@ -1608,6 +1644,7 @@ Page {
             Tr { id: addPitcherNamePlaceholder; key: "steam.placeholder.pitcherName"; fallback: "Pitcher name"; visible: false }
             Tr { id: addCancelButtonText; key: "steam.button.cancel"; fallback: "Cancel"; visible: false }
             Tr { id: addButtonText; key: "steam.button.add"; fallback: "Add"; visible: false }
+            Tr { id: addOffButtonText; key: "steam.button.addOff"; fallback: "Add Off"; visible: false }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -1654,9 +1691,27 @@ Page {
                     id: addCancelPitcherButton
                     text: addCancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
-                    KeyNavigation.tab: addPitcherConfirmButton
+                    KeyNavigation.tab: addPitcherOffButton
                     KeyNavigation.backtab: newPitcherName
                     onClicked: addPitcherDialog.close()
+                }
+
+                AccessibleButton {
+                    id: addPitcherOffButton
+                    text: addOffButtonText.text
+                    accessibleName: TranslationManager.translate("steam.addNewPitcherOff", "Add new preset that turns the steam heater off")
+                    KeyNavigation.tab: addPitcherConfirmButton
+                    KeyNavigation.backtab: addCancelPitcherButton
+                    onClicked: {
+                        Qt.inputMethod.commit()
+                        if (newPitcherName.text.trim() !== "") {
+                            var presetCount = Settings.steamPitcherPresets.length
+                            Settings.addSteamPitcherPresetDisabled(newPitcherName.text.trim())
+                            Settings.selectedSteamPitcher = presetCount
+                            newPitcherName.text = ""
+                            addPitcherDialog.close()
+                        }
+                    }
                 }
 
                 AccessibleButton {
@@ -1665,7 +1720,7 @@ Page {
                     text: addButtonText.text
                     accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
                     KeyNavigation.tab: newPitcherName
-                    KeyNavigation.backtab: addCancelPitcherButton
+                    KeyNavigation.backtab: addPitcherOffButton
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newPitcherName.text.trim() !== "") {

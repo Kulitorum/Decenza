@@ -362,6 +362,7 @@ public:
     void setSelectedSteamCup(int index);
 
     Q_INVOKABLE void addSteamPitcherPreset(const QString& name, int duration, int flow);
+    Q_INVOKABLE void addSteamPitcherPresetDisabled(const QString& name);
     Q_INVOKABLE void updateSteamPitcherPreset(int index, const QString& name, int duration, int flow);
     Q_INVOKABLE void removeSteamPitcherPreset(int index);
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
