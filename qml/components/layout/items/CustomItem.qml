@@ -334,7 +334,7 @@ Item {
                 case "tempToggleSteam":
                     if (typeof Settings !== "undefined" && typeof MainController !== "undefined") {
                         if (Settings.steamDisabled)
-                            MainController.startSteamHeating()
+                            MainController.startSteamHeating("custom-widget-toggle")
                         else
                             MainController.turnOffSteamHeater()
                     }

@@ -215,7 +215,7 @@ ApplicationWindow {
             // DE1::State::Steam = 5
             if (DE1Device.state === 5) {
                 console.log("DE1 entered Steam state - starting heater, navigating to SteamPage")
-                MainController.startSteamHeating()  // This clears steamDisabled flag
+                MainController.startSteamHeating("de1-state-steam")  // This clears steamDisabled flag
                 // Navigate to SteamPage immediately so user sees heating progress
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage !== "steamPage" && !pageStack.busy) {
@@ -2080,7 +2080,7 @@ ApplicationWindow {
             if (phase === MachineStateType.Phase.Steaming && wasIdle) {
                 // Start steam heating when entering steam (from GHC button)
                 // startSteamHeating clears steamDisabled flag and forces heater on regardless of keepSteamHeaterOn
-                MainController.startSteamHeating()
+                MainController.startSteamHeating("phase-steaming")
                 console.log("Started steam heating on phase change to Steaming")
                 // Stop any pending auto-flush timer when starting new steam
                 steamAutoFlushTimer.stop()

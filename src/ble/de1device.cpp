@@ -1199,7 +1199,8 @@ void DE1Device::sendInitialSettings() {
 
 void DE1Device::setShotSettings(double steamTemp, int steamDuration,
                                 double hotWaterTemp, int hotWaterVolume,
-                                double groupTemp) {
+                                double groupTemp,
+                                const QString& reason) {
     if (!m_transport) return;
     QByteArray data(9, 0);
     data[0] = 0;  // SteamSettings flags
@@ -1214,21 +1215,26 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     data[7] = (groupTempEncoded >> 8) & 0xFF;
     data[8] = groupTempEncoded & 0xFF;
 
+    const QString reasonSuffix = reason.isEmpty()
+        ? QString() : QStringLiteral(" [%1]").arg(reason);
+
     // Dedupe: skip writes whose payload exactly matches the last one sent.
     // Multiple QML signals (state change, phase change, page open, isSteaming
     // change) all fire startSteamHeating() with the same values, producing
     // 4-5 identical BLE writes per steam session. Resends from the drift
     // auto-heal path go through resendLastShotSettings() and bypass this
-    // function, so they're unaffected.
+    // function, so they're unaffected. The `[reason]` suffix attributes the
+    // elided call to its origin so we can see which convergent signal fired.
     if (data == m_lastShotSettingsPayload) {
         qDebug().noquote() << QString(
             "[ShotSettings] write skipped: payload unchanged "
-            "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)")
+            "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)%6")
             .arg(steamTemp, 0, 'f', 1)
             .arg(steamDuration)
             .arg(hotWaterTemp, 0, 'f', 1)
             .arg(hotWaterVolume)
-            .arg(groupTemp, 0, 'f', 2);
+            .arg(groupTemp, 0, 'f', 2)
+            .arg(reasonSuffix);
         return;
     }
 
@@ -1248,12 +1254,13 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // This is what lets us tell apart "we never wrote it" vs "we wrote it and
     // the DE1 ignored us" vs "stale indication crossed our new write".
     qDebug().noquote() << QString(
-        "[ShotSettings] write: steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C")
+        "[ShotSettings] write: steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C%6")
         .arg(steamTemp, 0, 'f', 1)
         .arg(steamDuration)
         .arg(hotWaterTemp, 0, 'f', 1)
         .arg(hotWaterVolume)
-        .arg(groupTemp, 0, 'f', 2);
+        .arg(groupTemp, 0, 'f', 2)
+        .arg(reasonSuffix);
 
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, data);
 

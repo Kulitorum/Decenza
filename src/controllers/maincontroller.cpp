@@ -258,7 +258,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Steam on/off commands
     connect(m_mqttClient, &MqttClient::steamOnRequested, this, [this]() {
-        startSteamHeating();
+        startSteamHeating(QStringLiteral("mqtt-steam-on"));
     });
     connect(m_mqttClient, &MqttClient::steamOffRequested, this, [this]() {
         turnOffSteamHeater();
@@ -612,7 +612,7 @@ void MainController::onShotSettingsReported(double deviceSteamTargetC, int devic
     m_device->resendLastShotSettings();
 }
 
-void MainController::sendMachineSettings() {
+void MainController::sendMachineSettings(const QString& reason) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     // Determine steam temperature to send:
@@ -631,13 +631,6 @@ void MainController::sendMachineSettings() {
     double groupTemp = getGroupTemperature();
     qDebug() << "sendMachineSettings: steam=" << steamTemp << "°C, groupTemp=" << groupTemp << "°C";
 
-    // Hot water volume: only send actual ml in volume mode (machine auto-stops via flowmeter).
-    // In weight mode send 0 so the app controls stop via scale instead.
-    int hotWaterVolume = 0;
-    if (m_settings->waterVolumeMode() == "volume") {
-        hotWaterVolume = qMin(m_settings->waterVolume(), 255);  // BLE uint8 max
-    }
-
     // 1. ShotSettings (single write with all temperatures).
     // DE1Device::setShotSettings() internally records the commanded values
     // so onShotSettingsReported() can compare reported against commanded.
@@ -645,8 +638,9 @@ void MainController::sendMachineSettings() {
         steamTemp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        hotWaterVolume,
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        reason.isEmpty() ? QStringLiteral("sendMachineSettings") : reason
     );
 
     // 2. Steam flow MMR
@@ -662,17 +656,17 @@ void MainController::sendMachineSettings() {
 }
 
 void MainController::applySteamSettings() {
-    sendMachineSettings();
+    sendMachineSettings(QStringLiteral("applySteamSettings"));
 }
 
 void MainController::applyHotWaterSettings() {
-    sendMachineSettings();
+    sendMachineSettings(QStringLiteral("applyHotWaterSettings"));
     if (m_device && m_device->isConnected())
         m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
 }
 
 void MainController::applyFlushSettings() {
-    sendMachineSettings();
+    sendMachineSettings(QStringLiteral("applyFlushSettings"));
 }
 
 void MainController::applyAllSettings() {
@@ -687,7 +681,7 @@ void MainController::applyAllSettings() {
     }
 
     // 2. Apply steam/hot water/flush settings (unified)
-    sendMachineSettings();
+    sendMachineSettings(QStringLiteral("applyAllSettings"));
 
     // 3. Apply water refill level
     applyWaterRefillLevel();
@@ -1267,8 +1261,9 @@ void MainController::setSteamTemperatureImmediate(double temp) {
         temp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        QStringLiteral("setSteamTemperatureImmediate")
     );
 
     qDebug() << "Steam temperature set to:" << temp;
@@ -1314,7 +1309,7 @@ void MainController::sendSteamTemperature(double temp) {
               .arg(temp)
               .arg(m_settings->steamTimeout())
               .arg(m_settings->waterTemperature())
-              .arg(m_settings->waterVolume())
+              .arg(m_settings->effectiveHotWaterVolume())
               .arg(groupTemp));
 
     // Send to machine without saving to settings (for enable/disable toggle)
@@ -1322,14 +1317,15 @@ void MainController::sendSteamTemperature(double temp) {
         temp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        QStringLiteral("sendSteamTemperature")
     );
 
     logToFile("Command queued successfully");
 }
 
-void MainController::startSteamHeating() {
+void MainController::startSteamHeating(const QString& reason) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     // Clear steamDisabled flag - we're explicitly starting steam heating
@@ -1344,14 +1340,16 @@ void MainController::startSteamHeating() {
         steamTemp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        reason.isEmpty() ? QStringLiteral("startSteamHeating") : reason
     );
 
     // Also send steam flow via MMR
     m_device->writeMMR(0x803828, m_settings->steamFlow());
 
-    qDebug() << "Started steam heating to" << steamTemp << "°C";
+    qDebug() << "Started steam heating to" << steamTemp << "°C"
+             << "from" << (reason.isEmpty() ? QStringLiteral("<unspecified>") : reason);
 }
 
 void MainController::turnOffSteamHeater() {
@@ -1367,8 +1365,9 @@ void MainController::turnOffSteamHeater() {
         0.0,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        QStringLiteral("turnOffSteamHeater")
     );
 
     qDebug() << "Turned off steam heater (steamDisabled=true)";
@@ -1407,8 +1406,9 @@ void MainController::setSteamTimeoutImmediate(int timeout) {
         m_settings->steamTemperature(),
         timeout,
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        QStringLiteral("setSteamTimeoutImmediate")
     );
 
     qDebug() << "Steam timeout set to:" << timeout;
@@ -1426,8 +1426,9 @@ void MainController::softStopSteam() {
         m_settings->steamTemperature(),
         1,  // 1 second - any elapsed time > 1 will trigger stop
         m_settings->waterTemperature(),
-        m_settings->waterVolume(),
-        groupTemp
+        m_settings->effectiveHotWaterVolume(),
+        groupTemp,
+        QStringLiteral("softStopSteam")
     );
 
     qDebug() << "Soft stop steam: sent 1-second timeout to trigger natural stop";

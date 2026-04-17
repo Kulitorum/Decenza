@@ -1200,6 +1200,11 @@ void Settings::setWaterVolumeMode(const QString& mode) {
     }
 }
 
+int Settings::effectiveHotWaterVolume() const {
+    if (waterVolumeMode() != "volume") return 0;
+    return qBound(0, waterVolume(), 255);  // BLE uint8 range
+}
+
 // Hot water SAW learning
 double Settings::hotWaterSawOffset() const {
     return m_settings.value("water/sawOffset", 2.0).toDouble();

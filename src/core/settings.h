@@ -418,6 +418,14 @@ public:
     QString waterVolumeMode() const;  // "weight" or "volume"
     void setWaterVolumeMode(const QString& mode);
 
+    // Hot water volume byte to send in DE1 ShotSettings. In "weight" mode the
+    // app stops hot water via the scale and sends 0 so the DE1 flowmeter
+    // auto-stop is disabled; in "volume" mode it returns the clamped
+    // waterVolume(). All setShotSettings() call sites must use this to keep
+    // payloads consistent — otherwise the ShotSettings drift detector trips
+    // on BLE echo reordering.
+    int effectiveHotWaterVolume() const;
+
     double hotWaterSawOffset() const;
     void setHotWaterSawOffset(double offset);
     int hotWaterSawSampleCount() const;

@@ -183,10 +183,13 @@ public slots:
     void writeHeader(const QByteArray& headerData);
     void writeFrame(const QByteArray& frameData);
 
-    // Settings
+    // Settings. `reason` is an optional caller tag that appears in the
+    // [ShotSettings] write: / write skipped: log lines, so redundant calls
+    // from convergent signals can be attributed to their origin.
     void setShotSettings(double steamTemp, int steamDuration,
                         double hotWaterTemp, int hotWaterVolume,
-                        double groupTemp);
+                        double groupTemp,
+                        const QString& reason = QString());
 
     // Re-send the last ShotSettings payload exactly as last commanded. Used
     // by the drift auto-heal path to re-assert what we intended WITHOUT

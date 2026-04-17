@@ -1477,8 +1477,9 @@ void ProfileManager::uploadCurrentProfile() {
                 steamTemp,
                 m_settings->steamTimeout(),
                 m_settings->waterTemperature(),
-                m_settings->waterVolume(),
-                groupTemp
+                m_settings->effectiveHotWaterVolume(),
+                groupTemp,
+                QStringLiteral("uploadCurrentProfile")
             );
             qDebug() << "Set group temp to" << groupTemp << "C for profile" << m_currentProfile.title();
         }
