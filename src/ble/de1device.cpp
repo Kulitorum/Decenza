@@ -255,9 +255,13 @@ void DE1Device::setSimulatedIdleSteamTemp(double steamTempC) {
     if (!m_simulationMode) return;
     if (qFuzzyCompare(m_steamTemp, steamTempC)) return;
     m_steamTemp = steamTempC;
-    // steamTemperature's NOTIFY is shotSampleReceived, so fire a minimal
-    // sample to wake QML bindings. Other sample fields stay at their last
-    // values — this is an idle-state heater update, not a shot sample.
+    // steamTemperature's NOTIFY is shotSampleReceived, so fire a sample to
+    // wake QML bindings. Populate steamTemp + headTemp + mixTemp from our
+    // cached members (so those properties aren't clobbered to zero); all
+    // other sample fields (pressure, flow, goals, timer, frame) are
+    // zero-initialized. The caller (DE1Simulator::setTargetSteamTemp) only
+    // invokes this when idle — never during an active Steam/Espresso
+    // session — so the zeros won't land on the live graphs.
     ShotSample sample;
     sample.timestamp = QDateTime::currentMSecsSinceEpoch();
     sample.steamTemp = m_steamTemp;
@@ -1286,8 +1290,11 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
                                 const QString& reason) {
     // In simulation mode, forward the commanded steam target to the simulator
     // so its m_steamTemp reflects what the app asked for (including Off
-    // presets where steamTemp=0 means "heater off"). The sim has no BLE
-    // transport, so return after forwarding — there's no write to queue.
+    // presets where steamTemp=0 means "heater off"). Sim mode has no BLE
+    // transport, so the real-path dedupe check, characteristic write, and
+    // read-back verification are all skipped. m_lastShotSettingsPayload is
+    // intentionally left untouched — drift detection only runs against real
+    // DE1 indications, which never fire in sim mode.
     if (m_simulationMode && m_simulator) {
         m_simulator->setTargetSteamTemp(steamTemp);
         m_commandedSteamTargetC = steamTemp;

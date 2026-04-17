@@ -226,6 +226,13 @@ void DE1Simulator::setTargetSteamTemp(double targetC)
     if (qFuzzyCompare(newSteamTemp, m_steamTemp)) return;
     m_steamTemp = newSteamTemp;
     qDebug() << "DE1Simulator: target steam temp=" << targetC << "C -> m_steamTemp=" << m_steamTemp;
+    // Only emit when idle — during active steam, the tick loop is already
+    // producing real shot samples at 5Hz and we'd inject a zero-pressure /
+    // zero-flow sample into the steam graph. The +5s/-5s buttons route
+    // through setShotSettings mid-steam; suppressing the emit here prevents
+    // graph pollution. The in-session target change is moot anyway because
+    // the Steam-state tick hardcodes m_steamTemp to 140°C + noise.
+    if (m_state == DE1::State::Steam) return;
     emit idleSteamTempChanged(m_steamTemp);
 }
 

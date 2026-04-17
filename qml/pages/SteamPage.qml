@@ -25,7 +25,9 @@ Page {
             var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
             if (preset && preset.disabled) {
                 // Selected preset is an "Off" pill — leave the heater off rather
-                // than kicking it on as the page activates.
+                // than kicking it on as the page activates. Don't forceActiveFocus
+                // on the hidden duration slider; let the first visible interactive
+                // element (the pill row) take default focus.
                 MainController.turnOffSteamHeater()
             } else {
                 // Sync Settings with selected preset
@@ -34,8 +36,8 @@ Page {
                 // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
                 // startSteamHeating clears steamDisabled flag automatically
                 MainController.startSteamHeating("steampage-activated")
+                durationSlider.forceActiveFocus()
             }
-            durationSlider.forceActiveFocus()
         }
     }
 
