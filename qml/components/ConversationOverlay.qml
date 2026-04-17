@@ -284,6 +284,12 @@ Rectangle {
                         background: null
                         padding: 0
 
+                        Accessible.role: Accessible.EditableText
+                        Accessible.name: TranslationManager.translate("conversation.accessible.transcript", "AI conversation transcript")
+                        Accessible.description: Theme.stripMarkdown(text)
+                        Accessible.focusable: true
+                        activeFocusOnTab: true
+
                         onCursorRectangleChanged: {
                             if (selectedText.length === 0) {
                                 selectionScrollTimer.stop()

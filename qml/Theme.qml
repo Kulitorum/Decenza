@@ -155,6 +155,58 @@ QtObject {
         return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
     }
 
+    // Truncate a UTF-16 string at `cap` code units and append an ellipsis,
+    // backing off one unit if cap would split a surrogate pair so we
+    // don't emit an orphaned high surrogate to the accessibility tree.
+    function _truncateWithEllipsis(s, cap) {
+        if (s.length <= cap) return s
+        var c = s.charCodeAt(cap - 1)
+        var cut = (c >= 0xD800 && c <= 0xDBFF) ? cap - 1 : cap
+        return s.substring(0, cut) + "\u2026"
+    }
+
+    // Strip Markdown syntax so screen readers don't read formatting
+    // characters (e.g. "star star bold star star" for **bold**). Also
+    // caps length so large transcripts don't flood the accessibility tree.
+    // Pass to Accessible.description on read-only TextAreas that render
+    // Text.MarkdownText. Default cap: 2000 characters.
+    // Note: the regex chain is a best-effort cleanup and does NOT handle
+    // nested or malformed spans (e.g. ***bold-italic***, unclosed **bold) —
+    // those pass through partially un-stripped, which is acceptable for an
+    // accessibility hint.
+    function stripMarkdown(text, maxLen) {
+        if (!text) return ""
+        var cap = maxLen ?? 2000
+        var s = text
+            .replace(/```[\s\S]*?```/g, " ")
+            .replace(/`([^`]+)`/g, "$1")
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+            .replace(/\*\*([^*]+)\*\*/g, "$1")
+            .replace(/__([^_]+)__/g, "$1")
+            .replace(/\*([^*]+)\*/g, "$1")
+            .replace(/_([^_]+)_/g, "$1")
+            .replace(/~~([^~]+)~~/g, "$1")
+            .replace(/^#{1,6}\s+/gm, "")
+            .replace(/^\s*[-*+]\s+/gm, "")
+            .replace(/^\s*\d+\.\s+/gm, "")
+            .replace(/^\s*>\s?/gm, "")
+            .replace(/^\s*-{3,}\s*$/gm, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim()
+        return _truncateWithEllipsis(s, cap)
+    }
+
+    // Cap plain text length for Accessible.description so very large
+    // strings (log output, crash dumps) don't flood the accessibility
+    // tree. Default cap: 2000 characters. For Markdown-formatted content,
+    // use stripMarkdown instead so formatting chars aren't read literally.
+    function capAccessibleText(text, maxLen) {
+        if (!text) return ""
+        var cap = maxLen ?? 2000
+        return _truncateWithEllipsis(text, cap)
+    }
+
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
 

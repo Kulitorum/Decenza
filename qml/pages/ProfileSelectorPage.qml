@@ -978,6 +978,12 @@ Page {
                 font: Theme.bodyFont
                 wrapMode: Text.WordWrap
                 lineHeight: 1.5
+
+                Accessible.role: Accessible.StaticText
+                Accessible.name: TranslationManager.translate("profileselector.accessible.knowledgeContent", "Profile knowledge base")
+                Accessible.description: Theme.stripMarkdown(knowledgeDialog.content)
+                Accessible.focusable: true
+                activeFocusOnTab: true
             }
         }
 

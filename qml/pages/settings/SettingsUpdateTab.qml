@@ -447,8 +447,9 @@ Item {
 
                                 Accessible.role: Accessible.StaticText
                                 Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
-                                Accessible.description: text
+                                Accessible.description: Theme.stripMarkdown(text)
                                 Accessible.focusable: true
+                                activeFocusOnTab: true
                             }
                         }
                     }
@@ -550,6 +551,12 @@ Item {
                         wrapMode: Text.WordWrap
                         background: null
                         selectByMouse: true
+
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
+                        Accessible.description: Theme.stripMarkdown(text)
+                        Accessible.focusable: true
+                        activeFocusOnTab: true
                     }
                 }
 
