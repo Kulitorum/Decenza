@@ -6,6 +6,7 @@ import Decenza
 import "../components"
 
 Page {
+    id: steamPage
     objectName: "steamPage"
     background: Rectangle { color: Theme.backgroundColor }
 
@@ -1129,7 +1130,7 @@ Page {
                     // duration/flow/temperature/weight don't apply, so the slider rows
                     // below are all hidden and we show this in their place.
                     Item {
-                        visible: root.currentPitcherDisabled
+                        visible: steamPage.currentPitcherDisabled
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
@@ -1147,7 +1148,7 @@ Page {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
-                        visible: !root.currentPitcherDisabled
+                        visible: !steamPage.currentPitcherDisabled
 
                         Tr {
                             key: "steam.label.duration"
@@ -1179,13 +1180,13 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !root.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Steam Flow (per-pitcher, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
-                        visible: !root.currentPitcherDisabled
+                        visible: !steamPage.currentPitcherDisabled
 
                         Column {
                             Tr {
@@ -1227,13 +1228,13 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !root.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Temperature (global setting)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
-                        visible: !root.currentPitcherDisabled
+                        visible: !steamPage.currentPitcherDisabled
 
                         Column {
                             Tr {
@@ -1274,13 +1275,13 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !root.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Weight — pitcher tare calibration per preset
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
-                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale && !root.currentPitcherDisabled
+                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale && !steamPage.currentPitcherDisabled
 
                         Column {
                             spacing: Theme.scaled(4)
