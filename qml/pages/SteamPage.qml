@@ -578,10 +578,14 @@ Page {
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                     KeyNavigation.tab: steamStopButton.visible ? steamStopButton : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider)
                     KeyNavigation.backtab: increaseTimeBtn
+                    // Defer BLE writes to commit: onValueModified fires per
+                    // adjustment tick; BLE should only fire on release.
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
-                        MainController.setSteamFlowImmediate(newValue)
                         saveCurrentPitcher(getCurrentPitcherDuration(), newValue)
+                    }
+                    onValueCommitted: function(newValue) {
+                        MainController.setSteamFlowImmediate(newValue)
                     }
                 }
 
@@ -1129,8 +1133,10 @@ Page {
                             KeyNavigation.backtab: durationSlider
                             onValueModified: function(newValue) {
                                 flowSlider.value = newValue
-                                MainController.setSteamFlowImmediate(newValue)
                                 saveCurrentPitcher(durationSlider.value, newValue)
+                            }
+                            onValueCommitted: function(newValue) {
+                                MainController.setSteamFlowImmediate(newValue)
                             }
                         }
                     }
@@ -1174,6 +1180,8 @@ Page {
                             KeyNavigation.backtab: flowSlider
                             onValueModified: function(newValue) {
                                 steamTempSlider.value = newValue
+                            }
+                            onValueCommitted: function(newValue) {
                                 MainController.setSteamTemperatureImmediate(newValue)
                             }
                         }

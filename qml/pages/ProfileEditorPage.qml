@@ -486,6 +486,9 @@ Page {
                     Layout.fillWidth: true; valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.globalTemperature", "Global temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"
                     value: { stepVersion; return profile && profile.steps.length > 0 ? profile.steps[0].temperature : 93 }
+                    // onValueModified mutates the profile per adjustment tick so the UI
+                    // reflects the change live; onValueCommitted fires the BLE upload
+                    // once on release instead of per tick.
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
                             var rounded = Math.round(newValue * 10) / 10
@@ -494,9 +497,9 @@ Page {
                                 profile.steps[i].temperature += delta
                             }
                             profile.espresso_temperature = rounded
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -523,8 +526,9 @@ Page {
                     ValueInput {
                         Layout.fillWidth: true; valueColor: Theme.weightColor
                         accessibleName: TranslationManager.translate("profileEditor.recommendedDose", "Recommended dose"); from: 5; to: 100; stepSize: 0.1; suffix: " g"
-                        value: { stepVersion; return profile ? (profile.recommended_dose || 18) : 18 }
-                        onValueModified: function(newValue) { if (profile) { profile.recommended_dose = Math.round(newValue * 10) / 10; uploadProfile() } }
+                        value: { stepVersion; return profile ? (profile.recommended_dose ?? 18) : 18 }
+                        onValueModified: function(newValue) { if (profile) { profile.recommended_dose = Math.round(newValue * 10) / 10 } }
+                        onValueCommitted: uploadProfile()
                     }
                 }
             }
@@ -588,13 +592,13 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.preheatTankAccessible", "Preheat water tank temperature")
                     from: 0; to: 45; stepSize: 1; suffix: " °C"
-                    value: { stepVersion; return profile ? (profile.tank_desired_water_temperature || 0) : 0 }
+                    value: { stepVersion; return profile ? (profile.tank_desired_water_temperature ?? 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.tank_desired_water_temperature = Math.round(newValue)
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -607,13 +611,13 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160)
                     accessibleName: TranslationManager.translate("profileEditor.preinfusionEndsAccessible", "Preinfusion ends after step")
                     from: 0; to: profile ? profile.steps.length : 0; stepSize: 1
-                    value: { stepVersion; return profile ? (profile.preinfuse_frame_count || 0) : 0 }
+                    value: { stepVersion; return profile ? (profile.preinfuse_frame_count ?? 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.preinfuse_frame_count = Math.round(newValue)
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -637,9 +641,9 @@ Page {
                         if (profile) {
                             profile.target_volume = Math.round(newValue)
                             stepVersion++
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -663,9 +667,9 @@ Page {
                         if (profile) {
                             profile.target_weight = Math.round(newValue * 10) / 10
                             stepVersion++
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -684,9 +688,9 @@ Page {
                             var newRange = Math.round(newValue * 100) / 100
                             profile.maximum_flow_range_advanced = newRange
                             applyRangeToAllSteps()
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -705,9 +709,9 @@ Page {
                             var newRange = Math.round(newValue * 100) / 100
                             profile.maximum_pressure_range_advanced = newRange
                             applyRangeToAllSteps()
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
             }
 
@@ -1217,7 +1221,7 @@ Page {
                 }
 
                 // Temperature
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10; uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10 } }; onValueCommitted: uploadProfile() }
 
                 // Sensor toggle
                 Text { text: TranslationManager.translate("profileEditor.sensor", "Sensor"); font: Theme.captionFont; color: Theme.textSecondaryColor }
@@ -1298,9 +1302,9 @@ Page {
                             } else {
                                 profile.steps[selectedStepIndex].pressure = val
                             }
-                            uploadProfile()
                         }
                     }
+                    onValueCommitted: uploadProfile()
                 }
 
                 // Transition toggle
@@ -1342,15 +1346,15 @@ Page {
 
                 // Max duration
                 Text { text: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); from: 0; to: 120; stepSize: 1; suffix: " s"; displayText: stepVersion >= 0 && step && step.seconds === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue); uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); from: 0; to: 120; stepSize: 1; suffix: " s"; displayText: stepVersion >= 0 && step && step.seconds === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue) } }; onValueCommitted: uploadProfile() }
 
                 // Max volume
                 Text { text: TranslationManager.translate("profileEditor.maxVolume", "Volume"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: stepVersion >= 0 && step && (step.volume || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue); uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: stepVersion >= 0 && step && (step.volume || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue) } }; onValueCommitted: uploadProfile() }
 
                 // Max weight (independent, app-side exit)
                 Text { text: TranslationManager.translate("profileEditor.maxWeight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight", "Max weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: stepVersion >= 0 && step && (step.exit_weight || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10; uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight", "Max weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: stepVersion >= 0 && step && (step.exit_weight || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10 } }; onValueCommitted: uploadProfile() }
 
                 // Flow/Pressure limit (opposite of goal in section 2)
                 Text { text: step && step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit"); font: Theme.captionFont; color: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor }
@@ -1362,7 +1366,8 @@ Page {
                     suffix: step && step.pump === "pressure" ? " mL/s" : " bar"
                     displayText: { var v = stepVersion; var val = step ? (step.max_flow_or_pressure || 0) : 0; return val === 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { var v = stepVersion; return step ? (step.max_flow_or_pressure || 0) : 0 }
-                    onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 100) / 100; uploadProfile() } }
+                    onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 100) / 100 } }
+                    onValueCommitted: uploadProfile()
                 }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
@@ -1418,8 +1423,8 @@ Page {
                                 case "flow_over": profile.steps[selectedStepIndex].exit_flow_over = val; break
                                 case "flow_under": profile.steps[selectedStepIndex].exit_flow_under = val; break
                             }
-                            uploadProfile()
                         }
+                        onValueCommitted: uploadProfile()
                     }
                 }
 

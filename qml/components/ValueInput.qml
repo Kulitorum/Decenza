@@ -31,8 +31,43 @@ Item {
         return useBaseScale ? Theme.scaledBase(value) : Theme.scaled(value)
     }
 
-    // Signals - emits the new value for parent to apply
+    // Signals
+    //
+    // valueModified fires on every adjustment step — every +/- click, every
+    // hold-timer tick, every drag pixel-step. Use for cheap reactions
+    // (updating local state, saving to Settings).
+    //
+    // valueCommitted fires at the END of a user interaction — release of a
+    // hold, end of a drag, single click, text-entry commit. Use for expensive
+    // actions (BLE writes, file saves) that shouldn't fire on every tick.
+    // A single tap emits both signals; a held adjustment emits valueModified
+    // per tick and valueCommitted once on release.
     signal valueModified(real newValue)
+    signal valueCommitted(real newValue)
+
+    // Internal dirty flag: set when valueModified is emitted, cleared by
+    // commitValue(). Ensures valueCommitted only fires when the interaction
+    // actually changed the value (e.g. tapping + when already at max emits
+    // neither signal, rather than firing an expensive BLE-write commit for a
+    // no-op adjustment).
+    property bool _dirtySinceCommit: false
+
+    // Internal helper used in place of raw root.valueModified() emission so
+    // the dirty flag is kept consistent.
+    function _emitValueModified(newVal) {
+        root.valueModified(newVal)
+        _dirtySinceCommit = true
+    }
+
+    // Emit valueCommitted if the interaction changed the value. Called by
+    // every release/click/drag-end/text-entry handler. No-op when nothing
+    // changed (e.g. a tap on a pinned-at-max button).
+    function commitValue() {
+        if (_dirtySinceCommit) {
+            _dirtySinceCommit = false
+            root.valueCommitted(root.value)
+        }
+    }
 
     // Enable keyboard focus
     activeFocusOnTab: true
@@ -45,7 +80,11 @@ Item {
     Accessible.description: TranslationManager.translate("valueinput.accessibility.description", "Use plus and minus buttons to adjust. Tap center for full-screen editor. Double-tap value to type a number.")
     Accessible.focusable: true
 
-    // Keyboard handling
+    // Keyboard handling. Press fires adjustValue per key-press (including
+    // auto-repeat while held); release fires commitValue once when the
+    // physical key lifts — same contract as the +/- button MouseAreas, so
+    // BLE-bound consumers that migrated to onValueCommitted don't miss
+    // hardware-keyboard adjustments.
     Keys.onUpPressed: adjustValue(1)
     Keys.onDownPressed: adjustValue(-1)
     Keys.onLeftPressed: adjustValue(-1)
@@ -63,6 +102,17 @@ Item {
         } else if (event.key === Qt.Key_PageDown) {
             adjustValue(-10)
             event.accepted = true
+        }
+    }
+
+    Keys.onReleased: function(event) {
+        if (event.isAutoRepeat) return
+        switch (event.key) {
+            case Qt.Key_Up: case Qt.Key_Down: case Qt.Key_Left: case Qt.Key_Right:
+            case Qt.Key_PageUp: case Qt.Key_PageDown:
+                commitValue()
+                event.accepted = true
+                break
         }
     }
 
@@ -137,9 +187,18 @@ Item {
                 MouseArea {
                     id: minusArea
                     anchors.fill: parent
-                    onClicked: adjustValue(-1)
+                    // Tap: adjust once and commit. Hold: pressAndHold starts the
+                    // repeat timer; on release we stop the timer and commit.
+                    // onCanceled means user dragged off the button — stop without
+                    // committing since the hold repeats are what they wanted to cancel.
+                    onClicked: { adjustValue(-1); root.commitValue() }
                     onPressAndHold: decrementTimer.start()
-                    onReleased: decrementTimer.stop()
+                    onReleased: {
+                        if (decrementTimer.running) {
+                            decrementTimer.stop()
+                            root.commitValue()
+                        }
+                    }
                     onCanceled: decrementTimer.stop()
                 }
 
@@ -428,9 +487,14 @@ Item {
                 MouseArea {
                     id: plusArea
                     anchors.fill: parent
-                    onClicked: adjustValue(1)
+                    onClicked: { adjustValue(1); root.commitValue() }
                     onPressAndHold: incrementTimer.start()
-                    onReleased: incrementTimer.stop()
+                    onReleased: {
+                        if (incrementTimer.running) {
+                            incrementTimer.stop()
+                            root.commitValue()
+                        }
+                    }
                     onCanceled: incrementTimer.stop()
                 }
 
@@ -483,13 +547,15 @@ Item {
 
             Accessible.name: TranslationManager.translate("valueinput.editor.title", "Value editor")
 
-            // Tap outside to close (exit edit mode first)
+            // Tap outside to close (exit edit mode first). When the TextInput
+            // is in edit mode, commit the typed value instead of silently
+            // discarding it — tapping elsewhere is a common tablet "done"
+            // gesture. Escape in the TextInput remains an explicit discard.
             MouseArea {
                 anchors.fill: parent
                 onClicked: {
                     if (popupContent.editMode) {
-                        popupContent.editMode = false
-                        popupValueContainer.forceActiveFocus()
+                        popupTextInput.commitText()
                     } else {
                         scrubberPopup.close()
                     }
@@ -536,9 +602,14 @@ Item {
                         MouseArea {
                             id: popupMinusArea
                             anchors.fill: parent
-                            onClicked: popupAdjust(-1)
+                            onClicked: { popupAdjust(-1); root.commitValue() }
                             onPressAndHold: popupDecrementTimer.start()
-                            onReleased: popupDecrementTimer.stop()
+                            onReleased: {
+                                if (popupDecrementTimer.running) {
+                                    popupDecrementTimer.stop()
+                                    root.commitValue()
+                                }
+                            }
                             onCanceled: popupDecrementTimer.stop()
                         }
 
@@ -562,7 +633,9 @@ Item {
                         Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
                         Accessible.focusable: true
 
-                        // Keyboard navigation — honors the selected gear
+                        // Keyboard navigation — honors the selected gear.
+                        // Release fires commitValue once when the key lifts,
+                        // mirroring the +/- button contract.
                         Keys.onEscapePressed: scrubberPopup.close()
                         Keys.onUpPressed: popupAdjust(1)
                         Keys.onDownPressed: popupAdjust(-1)
@@ -570,6 +643,15 @@ Item {
                         Keys.onRightPressed: popupAdjust(1)
                         Keys.onReturnPressed: scrubberPopup.close()
                         Keys.onEnterPressed: scrubberPopup.close()
+                        Keys.onReleased: function(event) {
+                            if (event.isAutoRepeat) return
+                            switch (event.key) {
+                                case Qt.Key_Up: case Qt.Key_Down: case Qt.Key_Left: case Qt.Key_Right:
+                                    root.commitValue()
+                                    event.accepted = true
+                                    break
+                            }
+                        }
 
                         Text {
                             anchors.centerIn: parent
@@ -593,15 +675,22 @@ Item {
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
                             selectByMouse: true
 
-                            function commitValue() {
+                            // Rename from commitValue to commitText to avoid clashing
+                            // with root.commitValue() used by release handlers above.
+                            function commitText() {
                                 var parsed = parseFloat(text)
                                 if (!isNaN(parsed)) {
                                     parsed = Math.max(root.from, Math.min(root.to, parsed))
                                     var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
                                     parsed = Math.round(parsed / roundTo) * roundTo
                                     if (parsed !== root.value) {
-                                        root.valueModified(parsed)
+                                        root._emitValueModified(parsed)
                                     }
+                                    // Typing a number is a deliberate, final adjustment.
+                                    // commitValue() only fires valueCommitted if the
+                                    // typed value differed from the prior value — typing
+                                    // the same number back is a no-op.
+                                    root.commitValue()
                                     if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                                         AccessibilityManager.announce(root.displayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
                                     }
@@ -610,8 +699,8 @@ Item {
                                 popupValueContainer.forceActiveFocus()
                             }
 
-                            Keys.onReturnPressed: commitValue()
-                            Keys.onEnterPressed: commitValue()
+                            Keys.onReturnPressed: commitText()
+                            Keys.onEnterPressed: commitText()
                             Keys.onEscapePressed: {
                                 popupContent.editMode = false
                                 popupValueContainer.forceActiveFocus()
@@ -693,6 +782,8 @@ Item {
                                 isDragging = false
                                 // Keep currentGear — it persists so +/- buttons
                                 // and subsequent drags use the selected gear.
+                                // Drag is always a real adjustment, so always commit.
+                                root.commitValue()
                             }
 
                             onCanceled: {
@@ -820,9 +911,14 @@ Item {
                         MouseArea {
                             id: popupPlusArea
                             anchors.fill: parent
-                            onClicked: popupAdjust(1)
+                            onClicked: { popupAdjust(1); root.commitValue() }
                             onPressAndHold: popupIncrementTimer.start()
-                            onReleased: popupIncrementTimer.stop()
+                            onReleased: {
+                                if (popupIncrementTimer.running) {
+                                    popupIncrementTimer.stop()
+                                    root.commitValue()
+                                }
+                            }
                             onCanceled: popupIncrementTimer.stop()
                         }
 
@@ -965,7 +1061,7 @@ Item {
         var roundTo = root.hasFineGear ? root.fineStepSize : root.stepSize
         newVal = Math.round(newVal / roundTo) * roundTo
         if (newVal !== root.value) {
-            root.valueModified(newVal)
+            _emitValueModified(newVal)
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 AccessibilityManager.announce(root.displayText || (newVal.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
             }

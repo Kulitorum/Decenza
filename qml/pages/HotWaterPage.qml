@@ -231,7 +231,17 @@ Page {
                 KeyNavigation.tab: hotWaterStopButton.visible ? hotWaterStopButton : (liveVesselRepeater.count > 0 ? liveVesselRepeater.itemAt(0) : liveFlowRateInput)
                 KeyNavigation.backtab: liveVesselRepeater.count > 0 ? liveVesselRepeater.itemAt(liveVesselRepeater.count - 1) : liveFlowRateInput
 
+                // Cheap Settings write per tick so the slider's `value:`
+                // binding re-evaluates and the displayed number tracks the
+                // user's adjustment live during a hold. ValueInput doesn't
+                // self-mutate root.value — without a consumer writing the
+                // bound source, the displayed value stays pinned.
                 onValueModified: function(newValue) {
+                    Settings.hotWaterFlowRate = Math.round(newValue)
+                }
+                // BLE write deferred to commit so holding +/- doesn't
+                // spam the flow-rate MMR register every 80 ms.
+                onValueCommitted: function(newValue) {
                     MainController.setHotWaterFlowRateImmediate(Math.round(newValue))
                 }
             }
@@ -674,8 +684,8 @@ Page {
                                 volumeInput.value = newValue
                                 Settings.waterVolume = newValue
                                 saveCurrentVessel(newValue, flowRateInput.value)
-                                MainController.applyHotWaterSettings()
                             }
+                            onValueCommitted: MainController.applyHotWaterSettings()
                         }
                     }
 
@@ -711,8 +721,8 @@ Page {
                             onValueModified: function(newValue) {
                                 temperatureInput.value = newValue
                                 Settings.waterTemperature = newValue
-                                MainController.applyHotWaterSettings()
                             }
+                            onValueCommitted: MainController.applyHotWaterSettings()
                         }
                     }
 
