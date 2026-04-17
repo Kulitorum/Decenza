@@ -250,6 +250,15 @@ void MachineState::updatePhase() {
             // Map all active steam substates to Steaming phase
             // This keeps the live view visible during purge (Puffing) and ending
             // Only show Heating for pre-steam warmup (Heating/FinalHeating substates)
+            //
+            // Load-bearing invariant: SteamPage.qml's session-end handler
+            // (onIsSteamingChanged's isSteaming=false branch) resets the per-preset
+            // steamTimeout / steamFlow and may call sendSteamTemperature(0). That
+            // handler fires when `phase !== Steaming`, so reclassifying Puffing or
+            // Ending out of Steaming here would cause the reset to fire
+            // mid-purge — writing to ShotSettings while the DE1 is still handling
+            // the end-of-steam sequence. If you need to split Puffing into its own
+            // phase, update SteamPage.qml in the same change.
             if (subState == DE1::SubState::Steaming ||
                 subState == DE1::SubState::Pouring ||
                 subState == DE1::SubState::Puffing ||
