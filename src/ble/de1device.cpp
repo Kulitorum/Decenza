@@ -110,6 +110,7 @@ void DE1Device::onTransportDisconnected() {
     // than trusting cached values from the previous session (the DE1 may have
     // power-cycled or had its firmware state reset between sessions).
     m_lastMMRValues.clear();
+    m_pendingMMRVerifies.clear();
     m_deviceSteamTargetC = -1.0;
     m_deviceSteamDurationSec = -1;
     m_deviceHotWaterTempC = -1.0;
@@ -655,6 +656,31 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             emit refillKitDetectedChanged();
         }
     }
+
+    // writeMMRVerified read-back: if this address has a pending verify,
+    // compare what the DE1 reports against what we wrote. Match → done.
+    // Mismatch → retry until the budget is exhausted. This sits below the
+    // address-specific handlers above so they still see the read response
+    // (no early return) — verifications and address handlers are independent.
+    auto verifyIt = m_pendingMMRVerifies.constFind(address);
+    if (verifyIt != m_pendingMMRVerifies.constEnd() && data.size() >= 8) {
+        uint32_t actualValue =
+            (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
+            (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
+            (static_cast<uint32_t>(static_cast<uint8_t>(d[5])) << 8) |
+            static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
+
+        if (actualValue == verifyIt.value().expectedValue) {
+            qDebug().noquote() << QString("[MMR] verify ok: 0x%1 = %2 [%3]")
+                .arg(address, 6, 16, QLatin1Char('0'))
+                .arg(actualValue)
+                .arg(verifyIt.value().reason);
+            m_pendingMMRVerifies.remove(address);
+        } else {
+            retryMMRVerify(address,
+                QString("read-mismatch got=%1").arg(actualValue));
+        }
+    }
 }
 
 // -- Machine control methods (delegate through transport) --
@@ -1134,6 +1160,76 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
     // correctly dedups against what we just sent.
     m_lastMMRValues.insert(address, value);
     m_transport->writeUrgent(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
+}
+
+void DE1Device::writeMMRVerified(uint32_t address, uint32_t value,
+                                  const QString& reason, int maxRetries) {
+    if (!m_transport) return;
+
+    // Replace any prior verification for this address — newest write wins.
+    // (Mid-drag the user can replace the value many times before the first
+    // read-back lands; we only care about reaching the latest value.)
+    m_pendingMMRVerifies.insert(address, PendingMMRVerify{value, maxRetries, reason});
+
+    // Initial write. force=true bypasses dedup so a retry that re-writes the
+    // same value actually reaches the wire (otherwise the cache would elide).
+    writeMMR(address, value, reason, /*force=*/true);
+
+    // Schedule the read-back. 50ms gives the BLE queue's 50ms inter-write
+    // spacing time to dispatch the write and the DE1 a tick to process it.
+    QTimer::singleShot(50, this, [this, address]() {
+        scheduleMMRVerifyRead(address);
+    });
+}
+
+void DE1Device::scheduleMMRVerifyRead(uint32_t address) {
+    if (!m_pendingMMRVerifies.contains(address)) return;
+    if (!m_transport) {
+        m_pendingMMRVerifies.remove(address);
+        return;
+    }
+
+    // Request a read. Response arrives via READ_FROM_MMR notification and is
+    // dispatched by parseMMRResponse, which checks m_pendingMMRVerifies.
+    QByteArray req(20, 0);
+    req[0] = 0x00;  // Len = 0 means "read 4 bytes"
+    req[1] = (address >> 16) & 0xFF;
+    req[2] = (address >> 8) & 0xFF;
+    req[3] = address & 0xFF;
+    m_transport->write(DE1::Characteristic::READ_FROM_MMR, req);
+}
+
+void DE1Device::retryMMRVerify(uint32_t address, const QString& cause) {
+    auto it = m_pendingMMRVerifies.find(address);
+    if (it == m_pendingMMRVerifies.end()) return;
+
+    it.value().attemptsRemaining--;
+
+    if (it.value().attemptsRemaining <= 0) {
+        qWarning().noquote() << QString(
+            "[MMR] verify FAILED for 0x%1 expected=%2 [%3 / %4]")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(it.value().expectedValue)
+            .arg(it.value().reason)
+            .arg(cause);
+        m_pendingMMRVerifies.remove(address);
+        return;
+    }
+
+    qDebug().noquote() << QString(
+        "[MMR] verify retry for 0x%1 expected=%2 attempts_left=%3 [%4 / %5]")
+        .arg(address, 6, 16, QLatin1Char('0'))
+        .arg(it.value().expectedValue)
+        .arg(it.value().attemptsRemaining)
+        .arg(it.value().reason)
+        .arg(cause);
+
+    writeMMR(address, it.value().expectedValue,
+             it.value().reason + QStringLiteral("-retry"), /*force=*/true);
+
+    QTimer::singleShot(50, this, [this, address]() {
+        scheduleMMRVerifyRead(address);
+    });
 }
 
 void DE1Device::setUsbChargerOn(bool on, bool force) {
