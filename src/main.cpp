@@ -1693,6 +1693,20 @@ int main(int argc, char *argv[])
         timingController.setScale(&simulatedScale);
         context->setContextProperty("ScaleDevice", &simulatedScale);
 
+        // Register as a known scale so UI gated on Settings.knownScales (keepScaleOn
+        // toggle, alerts toggle, known-devices picker) is reachable in simulation.
+        // Idempotent: addKnownScale dedupes by address. Removed on non-sim startup below.
+        const QString kSimulatedScaleAddress = QStringLiteral("sim:00:00:00:00:00:00");
+        settings.addKnownScale(kSimulatedScaleAddress,
+                               QStringLiteral("simulated"),
+                               QStringLiteral("Simulated Scale"));
+        // Promote to primary only if no real scale is paired, so the Known Devices
+        // picker shows "Simulated Scale" instead of "No scale selected" without
+        // clobbering a user's real scale pairing.
+        if (settings.primaryScaleAddress().isEmpty()) {
+            settings.setPrimaryScale(kSimulatedScaleAddress);
+        }
+
         // Reconnect WeightProcessor from FlowScale to SimulatedScale for espresso SAW
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                             &weightProcessor, &WeightProcessor::processWeight);
@@ -1751,6 +1765,12 @@ int main(int argc, char *argv[])
 #endif // desktop GHC window
     }
 #endif // QT_DEBUG
+
+    // Purge the simulated-scale entry when not running in simulation mode, so a
+    // prior debug session's placeholder doesn't leak into the real connection UI.
+    if (!settings.simulationMode()) {
+        settings.removeKnownScale(QStringLiteral("sim:00:00:00:00:00:00"));
+    }
 
 #ifdef Q_OS_ANDROID
     // Set landscape orientation on Android (after QML is loaded)
