@@ -1,0 +1,110 @@
+name: Bug report
+description: Report a problem with Decenza
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. The more detail you provide — especially **debug logs** — the faster we can fix it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the problem, what you expected to happen, and what actually happened.
+      placeholder: |
+        e.g. During a shot, the weight display froze at 18g and never updated, but the graph kept drawing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Decenza and connect to DE1
+        2. Start a shot with profile "X"
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Decenza version
+      description: Found under Settings → About (e.g. `1.6.7 (build 3286)`)
+      placeholder: "1.6.7 (build 3286)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Android
+        - iOS
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device / OS version
+      description: e.g. `Decent tablet (Android 11)`, `iPad Air 5 (iPadOS 17.4)`, `Windows 11 23H2`
+    validations:
+      required: true
+
+  - type: input
+    id: scale
+    attributes:
+      label: Scale (if applicable)
+      description: Make/model of connected scale, or "virtual (flow-based)" if none
+      placeholder: "Decent Scale v2"
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ## Debug logs (strongly encouraged)
+
+        **App debug log** — captures everything the app is doing:
+
+        1. In Decenza, go to **Settings → History and Data** and enable the **server**.
+        2. On a desktop computer on the same network, open the URL shown under the server toggle.
+        3. In the web interface, open the **top-right menu** and go to **Debug Tools**.
+        4. Click **Download Log** and attach the file below.
+
+        **Shot debug log** — if the bug involves a specific shot (weight, profile, flow, stop-at-weight, etc.):
+
+        1. From the web interface, open **Shot History** and click the affected shot.
+        2. Scroll to the bottom of the shot detail page and click **Copy Log**.
+        3. Paste the contents into the field below.
+
+        Drag-and-drop log files (or paste text) into the field below. Zip large logs if needed.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log / shot debug log
+      description: Attach the app debug log and (if relevant) the shot debug log here. Drag files in or paste text.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or video
+      description: Optional but very helpful, especially for UI bugs.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Recent changes, workarounds you tried, related issues, etc.
