@@ -75,16 +75,16 @@ body:
 
         **App debug log** — captures everything the app is doing:
 
-        1. In Decenza, go to **Settings → History and Data** and enable the **server**.
+        1. In Decenza, go to **Settings → History and Data** and toggle **Enable Server** on.
         2. On a desktop computer on the same network, open the URL shown under the server toggle.
-        3. In the web interface, open the **top-right menu** and go to **Debug Tools**.
+        3. In the web interface, open the **top-right burger menu (☰)** and choose **Debugging Tools**.
         4. Click **Download Log** and attach the file below.
 
         **Shot debug log** — if the bug involves a specific shot (weight, profile, flow, stop-at-weight, etc.):
 
-        1. From the web interface, open **Shot History** and click the affected shot.
-        2. Scroll to the bottom of the shot detail page and click **Copy Log**.
-        3. Paste the contents into the field below.
+        1. In the web interface, open **Shot History** and click the affected shot.
+        2. Scroll toward the bottom of the shot detail page and click **View Debug Log** to expand the panel.
+        3. Click **Copy to Clipboard**, then paste the contents into the field below.
 
         Drag-and-drop log files (or paste text) into the field below. Zip large logs if needed.
 
