@@ -2892,7 +2892,9 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         X509_gmtime_adj(X509_get_notAfter(x509), 10L * 365 * 24 * 60 * 60);
 
         // Set subject and issuer (self-signed)
-        X509_NAME* name = X509_get_subject_name(x509);
+        // Cast away const: newer OpenSSL (3.4+) returns const X509_NAME*, but
+        // X509_NAME_add_entry_by_txt still needs a mutable pointer.
+        X509_NAME* name = const_cast<X509_NAME*>(X509_get_subject_name(x509));
         X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
                                     reinterpret_cast<const unsigned char*>("Decenza"), -1, -1, 0);
         X509_set_issuer_name(x509, name);
