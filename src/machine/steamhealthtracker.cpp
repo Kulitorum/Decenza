@@ -330,7 +330,9 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
         emit scaleBuildupWarning(
             tr("Steam pressure has increased from %1 to %2 bar over %3 sessions. "
-               "This may indicate scale buildup. Consider descaling your machine.")
+               "This may be caused by milk residue in the steam tip or scale buildup. "
+               "Try a steam-tip soak in a milk cleaner (Rinza/Cafiza) first; "
+               "if the issue persists, consider descaling your machine.")
             .arg(baselinePressure, 0, 'f', 1)
             .arg(currentPressure, 0, 'f', 1)
             .arg(n));
@@ -344,7 +346,9 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
         m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
         emit scaleBuildupWarning(
             tr("Steam temperature has increased from %1 to %2 °C over %3 sessions. "
-               "This may indicate scale buildup. Consider descaling your machine.")
+               "This may be caused by milk residue in the steam tip or scale buildup. "
+               "Try a steam-tip soak in a milk cleaner (Rinza/Cafiza) first; "
+               "if the issue persists, consider descaling your machine.")
             .arg(baselineTemp, 0, 'f', 1)
             .arg(currentTemp, 0, 'f', 1)
             .arg(n));
