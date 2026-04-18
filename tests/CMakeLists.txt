@@ -28,6 +28,7 @@ set(MACHINE_SOURCES
 set(BLE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ble/de1device.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/bletransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/blecapability.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/protocol/binarycodec.cpp
 )

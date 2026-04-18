@@ -11,6 +11,8 @@
 #include <QStringList>
 #include <QFile>
 
+#include "blecapability.h"
+
 class ScaleDevice;
 class DiFluidR2;
 
@@ -45,6 +47,8 @@ class BLEManager : public QObject {
     Q_PROPERTY(bool refractometerConnected READ isRefractometerConnected NOTIFY refractometerConnectedChanged)
     Q_PROPERTY(bool hasSavedDE1 READ hasSavedDE1 CONSTANT)
     Q_PROPERTY(bool disabled READ isDisabled WRITE setDisabled NOTIFY disabledChanged)
+    Q_PROPERTY(bool linuxBleCapabilityMissing READ linuxBleCapabilityMissing CONSTANT)
+    Q_PROPERTY(QString linuxBleSetcapCommand READ linuxBleSetcapCommand CONSTANT)
 
 public:
     explicit BLEManager(QObject* parent = nullptr);
@@ -60,6 +64,8 @@ public:
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
+    bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
+    QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;

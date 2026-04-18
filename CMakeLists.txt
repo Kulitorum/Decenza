@@ -223,6 +223,7 @@ set(SOURCES
     src/core/translationmanager.cpp
     src/core/updatechecker.cpp
     src/ble/protocol/binarycodec.cpp
+    src/ble/blecapability.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
     src/ble/bletransport.cpp
@@ -371,6 +372,7 @@ set(HEADERS
     src/ble/protocol/binarycodec.h
     src/ble/protocol/de1characteristics.h
     src/ble/protocol/decentscaleprotocol.h
+    src/ble/blecapability.h
     src/ble/blemanager.h
     src/ble/de1transport.h
     src/ble/de1device.h

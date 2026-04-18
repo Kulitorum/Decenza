@@ -1,4 +1,5 @@
 #include "bletransport.h"
+#include "blecapability.h"
 #include "protocol/de1characteristics.h"
 
 #include <QBluetoothAddress>
@@ -7,7 +8,6 @@
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
-#include <QCoreApplication>
 
 // Store DE1 address in Android SharedPreferences for shutdown service
 static void storeDE1AddressForShutdown(const QString& address) {
@@ -391,6 +391,17 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     }
     warn(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
     emit errorOccurred(userMessage);
+
+    // On Linux, UnknownRemoteDeviceError usually means the process lacks
+    // CAP_NET_ADMIN and BlueZ guessed the address type wrong. Only log the
+    // setcap hint when we've actually detected the capability is missing —
+    // otherwise we'd mislead users whose error has a different cause.
+    if (error == QLowEnergyController::UnknownRemoteDeviceError
+        && BleCapability::linuxMissing()) {
+        warn(QStringLiteral("Linux hint: run `%1` and restart the app "
+                            "(capability is often cleared by OS updates).")
+                 .arg(BleCapability::linuxSetcapCommand()));
+    }
 }
 
 void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {

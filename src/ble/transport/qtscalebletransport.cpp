@@ -1,4 +1,5 @@
 #include "qtscalebletransport.h"
+#include "../blecapability.h"
 #include <QDebug>
 #include <QTimer>
 #include <QLowEnergyConnectionParameters>
@@ -281,6 +282,15 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
     QString msg = QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName);
     QT_TRANSPORT_LOG(msg);
     emit error(msg);
+
+    // Only log the setcap hint when we've actually detected the missing
+    // capability — the check is a no-op / always false on non-Linux.
+    if (err == QLowEnergyController::UnknownRemoteDeviceError
+        && BleCapability::linuxMissing()) {
+        QT_TRANSPORT_LOG(QStringLiteral("Linux hint: run `%1` and restart the app "
+                                        "(capability is often cleared by OS updates).")
+                             .arg(BleCapability::linuxSetcapCommand()));
+    }
 }
 
 void QtScaleBleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {

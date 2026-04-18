@@ -1,4 +1,5 @@
 #include "blemanager.h"
+#include "blecapability.h"
 #include "scaledevice.h"
 #include "protocol/de1characteristics.h"
 #include "scales/scalefactory.h"
@@ -47,6 +48,10 @@ BLEManager::BLEManager(QObject* parent)
     m_scaleConnectionTimer->setSingleShot(true);
     m_scaleConnectionTimer->setInterval(20000);
     connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
+
+    // Eagerly run the Linux capability check so any qWarning lands early in
+    // startup logs; subsequent calls hit the cached result.
+    (void) BleCapability::linuxMissing();
 }
 
 bool BLEManager::isBluetoothAvailable() const

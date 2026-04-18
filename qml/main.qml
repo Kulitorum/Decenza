@@ -372,6 +372,15 @@ ApplicationWindow {
         })
     }
 
+    // Shows the Linux CAP_NET_ADMIN warning when the binary is missing the
+    // capability. Suppressed in simulator mode (BLE disabled) to avoid a
+    // spurious startup modal for devs running the simulator on Linux.
+    function maybeShowLinuxBleCapabilityDialog() {
+        if (!BLEManager.disabled && BLEManager.linuxBleCapabilityMissing) {
+            Qt.callLater(function() { linuxBleCapabilityDialog.open() })
+        }
+    }
+
     // No timer needed — page transitions are instant (empty Transition{}),
     // so Qt.callLater suffices to let the event loop finish the replace().
 
@@ -466,6 +475,13 @@ ApplicationWindow {
             // On subsequent launches, still check if storage setup is needed
             // (e.g., after reinstall when QSettings was restored but SAF permission wasn't)
             checkStorageSetup()
+
+            // If a crash dialog is about to open, defer the capability
+            // warning until it's dismissed (see crashReportDialog handlers)
+            // so the two modals don't stack on the same frame.
+            if (!(PreviousCrashLog && PreviousCrashLog.length > 0)) {
+                maybeShowLinuxBleCapabilityDialog()
+            }
         }
 
         // Initialize sleep countdowns (fresh app start, not auto-woken)
@@ -1795,10 +1811,12 @@ ApplicationWindow {
         onDismissed: {
             // Clear the crash log file
             MainController.clearCrashLog()
+            maybeShowLinuxBleCapabilityDialog()
         }
         onReported: {
             // Clear the crash log file after successful report
             MainController.clearCrashLog()
+            maybeShowLinuxBleCapabilityDialog()
         }
     }
 
@@ -1844,6 +1862,100 @@ ApplicationWindow {
             mcpConfirmDialog.toolDescription = toolDescription
             mcpConfirmDialog.sessionId = sessionId
             mcpConfirmDialog.open()
+        }
+    }
+
+    // Linux BLE capability warning — shown on Linux when the binary lacks
+    // CAP_NET_ADMIN. Without it, BlueZ can't determine whether a BLE address
+    // is random or public and rejects connections to the DE1 (which uses a
+    // random static address) with UnknownRemoteDeviceError. The capability
+    // is granted via `sudo setcap` and is frequently cleared by OS updates.
+    Dialog {
+        id: linuxBleCapabilityDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        closePolicy: Dialog.NoAutoClose
+        padding: Theme.dialogPadding
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.errorColor
+        }
+
+        Tr { id: trLinuxBleCapTitle; key: "main.dialog.linuxBleCapability.title"; fallback: "Bluetooth permission missing"; visible: false }
+        Tr { id: trLinuxBleCapMessage; key: "main.dialog.linuxBleCapability.message"; fallback: "Decenza needs the CAP_NET_ADMIN Linux capability to connect to the DE1 over Bluetooth. Without it, the DE1 is discovered by scans but connections fail with \"Remote device not found\".\n\nThis often happens after a system update clears file capabilities.\n\nRun this command in a terminal, then restart Decenza:"; visible: false }
+        Tr { id: trLinuxBleCapCopy; key: "main.dialog.linuxBleCapability.copy"; fallback: "Copy command"; visible: false }
+        Tr { id: trLinuxBleCapCommandField; key: "main.dialog.linuxBleCapability.commandField"; fallback: "Setcap command"; visible: false }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trLinuxBleCapTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: trLinuxBleCapMessage.text
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            Rectangle {
+                width: parent.width
+                color: Theme.backgroundColor
+                radius: Theme.cardRadius / 2
+                border.width: 1
+                border.color: Theme.primaryContrastColor
+                height: cmdText.implicitHeight + 2 * Theme.spacingMedium
+
+                TextEdit {
+                    id: cmdText
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    text: BLEManager.linuxBleSetcapCommand
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    font.family: "monospace"
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    color: Theme.textColor
+
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: trLinuxBleCapCommandField.text
+                    Accessible.readOnly: true
+                    Accessible.focusable: true
+                }
+            }
+
+            Row {
+                spacing: Theme.spacingMedium
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                AccessibleButton {
+                    text: trLinuxBleCapCopy.text
+                    accessibleName: trLinuxBleCapCopy.text
+                    onClicked: {
+                        cmdText.selectAll()
+                        cmdText.copy()
+                        cmdText.deselect()
+                    }
+                }
+
+                AccessibleButton {
+                    text: trCommonOk.text
+                    accessibleName: trCommonDismissDialog.text
+                    onClicked: linuxBleCapabilityDialog.close()
+                }
+            }
         }
     }
 
@@ -1894,6 +2006,7 @@ ApplicationWindow {
                     Settings.setValue("firstRunComplete", true)
                     firstRunDialog.close()
                     checkStorageSetup()
+                    maybeShowLinuxBleCapabilityDialog()
                 }
             }
         }
