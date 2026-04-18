@@ -680,9 +680,9 @@ int main(int argc, char *argv[])
                      });
 
     // Forward live SAW target changes (e.g. user pressed +10g mid-shot) to the worker.
-    // Pre-shot callers (profile activation, recipe save) set the target before
-    // configure() runs, so this is a no-op for them; only mid-shot bumps actually
-    // move the worker's target.
+    // Pre-shot callers (profile activation, recipe save) also fire this signal, but
+    // configure() overwrites m_targetWeight at shot start, so any pre-shot forwarding
+    // is harmless. Only mid-shot bumps observably move the worker's target.
     QObject::connect(&machineState, &MachineState::targetWeightChanged,
                      [&weightProcessor, &machineState]() {
                          const double w = machineState.targetWeight();

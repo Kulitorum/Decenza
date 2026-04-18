@@ -981,13 +981,15 @@ Page {
             }
 
             // Bump SAW target by +10g (issue #792 — "salvage" a too-fast shot)
-            Rectangle {
+            AccessibleButton {
                 id: addTenButton
                 Layout.preferredWidth: Theme.scaled(56)
                 Layout.preferredHeight: Theme.scaled(24)
                 Layout.alignment: Qt.AlignVCenter
-                radius: Theme.scaled(12)
-                color: addTenTapHandler.pressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                leftPadding: 0
+                rightPadding: 0
+                text: TranslationManager.translate("espresso.button.add10", "+10 g")
+                accessibleName: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
                 visible: MachineState.targetWeight > 0 &&
                          (MachineState.phase === MachineStateType.Phase.Preinfusion ||
                           MachineState.phase === MachineStateType.Phase.Pouring)
@@ -995,61 +997,57 @@ Page {
                 activeFocusOnTab: true
                 KeyNavigation.tab: skipFrameButton
                 KeyNavigation.backtab: espressoBackButton
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
-                Accessible.focusable: true
-                Accessible.onPressAction: addTenTapHandler.tapped(null)
-                Keys.onReturnPressed: { MainController.bumpTargetWeight(10.0); event.accepted = true }
-                Keys.onSpacePressed:  { MainController.bumpTargetWeight(10.0); event.accepted = true }
 
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("espresso.button.add10", "+10 g")
+                onClicked: MainController.bumpTargetWeight(10.0)
+
+                background: Rectangle {
+                    implicitHeight: Theme.scaled(24)
+                    color: addTenButton.down ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                    radius: Theme.scaled(12)
+                }
+                contentItem: Text {
+                    text: addTenButton.text
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(11)
                     font.weight: Font.Medium
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                     Accessible.ignored: true
-                }
-
-                TapHandler {
-                    id: addTenTapHandler
-                    onTapped: MainController.bumpTargetWeight(10.0)
                 }
             }
 
             // Skip to next profile frame
-            Rectangle {
+            AccessibleButton {
                 id: skipFrameButton
                 Layout.preferredWidth: Theme.scaled(56)
                 Layout.preferredHeight: Theme.scaled(24)
                 Layout.alignment: Qt.AlignVCenter
-                radius: Theme.scaled(12)
-                color: skipFrameTapHandler.pressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                leftPadding: 0
+                rightPadding: 0
+                text: TranslationManager.translate("espresso.button.skip", "Skip")
+                accessibleName: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
                 visible: MachineState.phase === MachineStateType.Phase.Preinfusion ||
                          MachineState.phase === MachineStateType.Phase.Pouring
 
                 activeFocusOnTab: true
                 KeyNavigation.tab: viewModeMouseArea
-                KeyNavigation.backtab: addTenButton
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
-                Accessible.focusable: true
-                Accessible.onPressAction: skipFrameTapHandler.tapped(null)
-                Keys.onReturnPressed: { DE1Device.skipToNextFrame(); event.accepted = true }
-                Keys.onSpacePressed:  { DE1Device.skipToNextFrame(); event.accepted = true }
+                KeyNavigation.backtab: addTenButton.visible ? addTenButton : espressoBackButton
 
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("espresso.button.skip", "Skip")
+                onClicked: DE1Device.skipToNextFrame()
+
+                background: Rectangle {
+                    implicitHeight: Theme.scaled(24)
+                    color: skipFrameButton.down ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                    radius: Theme.scaled(12)
+                }
+                contentItem: Text {
+                    text: skipFrameButton.text
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(11)
                     font.weight: Font.Medium
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                     Accessible.ignored: true
-                }
-
-                TapHandler {
-                    id: skipFrameTapHandler
-                    onTapped: DE1Device.skipToNextFrame()
                 }
             }
         }
