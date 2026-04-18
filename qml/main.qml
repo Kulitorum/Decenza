@@ -1925,6 +1925,7 @@ ApplicationWindow {
 
                 AccessibleButton {
                     text: trLinuxBleCapCopy.text
+                    accessibleName: trLinuxBleCapCopy.text
                     onClicked: {
                         cmdText.selectAll()
                         cmdText.copy()
