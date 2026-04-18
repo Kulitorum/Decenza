@@ -278,6 +278,18 @@ void DE1Simulator::stop()
     stopOperation();
 }
 
+void DE1Simulator::skipFrame()
+{
+    if (m_state != DE1::State::Espresso ||
+        (m_subState != DE1::SubState::Preinfusion && m_subState != DE1::SubState::Pouring)) {
+        qDebug() << "DE1Simulator: skipFrame ignored (state=" << static_cast<int>(m_state)
+                 << "subState=" << static_cast<int>(m_subState) << ")";
+        return;
+    }
+    qDebug() << "DE1Simulator: skipFrame requested at frame" << m_currentFrameIndex;
+    advanceToNextFrame();
+}
+
 void DE1Simulator::goToSleep()
 {
     stopOperation();

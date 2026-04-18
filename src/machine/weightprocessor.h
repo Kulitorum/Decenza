@@ -36,6 +36,9 @@ public slots:
                    QVector<double> frameExitWeights,
                    QVector<double> learningDrips, QVector<double> learningFlows,
                    bool sawConverged, double sensorLagSeconds = 0.38);
+    // Live SAW target update (e.g. user pressed +10g mid-shot). Safe to call any time;
+    // single-writer on the worker thread, invoked from main thread via QueuedConnection.
+    void setTargetWeight(double weight);
     void setCurrentFrame(int frameNumber);
     void setTareComplete(bool complete);
     void startExtraction();
@@ -103,7 +106,7 @@ private:
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction
 
-    // Configuration (set once at shot start, read-only during extraction)
+    // Configuration (set at shot start; m_targetWeight may be updated mid-shot via setTargetWeight)
     double m_targetWeight = 0;
     int m_preinfuseFrameCount = 0;  // SAW suppressed until m_currentFrame >= this
     QVector<double> m_frameExitWeights;

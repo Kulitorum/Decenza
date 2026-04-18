@@ -2043,6 +2043,23 @@ void MainController::factoryResetAndQuit()
     QCoreApplication::quit();
 }
 
+void MainController::bumpTargetWeight(double deltaG)
+{
+    if (!m_machineState) return;
+    const double current = m_machineState->targetWeight();
+    if (current <= 0.0) return;
+
+    const auto phase = m_machineState->phase();
+    if (phase != MachineState::Phase::Preinfusion && phase != MachineState::Phase::Pouring) {
+        return;
+    }
+
+    const double newTarget = current + deltaG;
+    qInfo().noquote() << "MainController::bumpTargetWeight: targetWeight"
+                      << current << "->" << newTarget << "g (delta=" << deltaG << ")";
+    m_machineState->setTargetWeight(newTarget);
+}
+
 void MainController::onShotSampleReceived(const ShotSample& sample) {
     if (!m_shotDataModel || !m_machineState) {
         return;

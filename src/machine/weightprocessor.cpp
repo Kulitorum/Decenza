@@ -278,6 +278,14 @@ void WeightProcessor::configure(double targetWeight, int preinfuseFrameCount,
     m_sensorLagSeconds = sensorLagSeconds;
 }
 
+void WeightProcessor::setTargetWeight(double weight)
+{
+    if (m_targetWeight == weight) return;
+    qInfo().noquote() << "WeightProcessor: targetWeight" << m_targetWeight << "->" << weight
+                      << "(active=" << m_active << ")";
+    m_targetWeight = weight;
+}
+
 void WeightProcessor::setCurrentFrame(int frameNumber)
 {
     m_currentFrame = frameNumber;

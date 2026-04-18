@@ -53,6 +53,9 @@ public slots:
     void stop();
     void goToSleep();
     void wakeUp();
+    // Skip to next profile frame (mirrors DE1::State::SkipToNext from the real machine).
+    // No-op outside espresso (Preinfusion/Pouring substates).
+    void skipFrame();
 
     // Target steam temperature from the app's ShotSettings write. A target of 0
     // means "heater off" (Off preset / steamDisabled). The sim doesn't model a

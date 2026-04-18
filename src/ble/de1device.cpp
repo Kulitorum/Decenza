@@ -717,6 +717,9 @@ void DE1Device::requestState(DE1::State state) {
         case DE1::State::Clean:
             m_simulator->startClean();
             break;
+        case DE1::State::SkipToNext:
+            m_simulator->skipFrame();
+            break;
         default:
             break;
         }
