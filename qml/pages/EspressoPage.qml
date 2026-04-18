@@ -13,11 +13,8 @@ Page {
     // Local weight property - updated directly in signal handler for immediate display
     property real currentWeight: 0.0
 
-    // Frame name display — only updates when the same frame name is seen on
-    // consecutive frame-change events, filtering out short transitional frames.
+    // Frame name shown in the phase pill; updated on every frame change.
     property string displayedFrameName: ""
-    property string pendingFrameName: ""
-    property int pendingFrameCount: 0
 
     // Accessibility: value announcement cycling (swipe left/right)
     property int accessibilityValueIndex: 0
@@ -172,8 +169,6 @@ Page {
         function onShotStarted() {
             // Reset frame name so previous shot's last frame doesn't linger
             espressoPage.displayedFrameName = ""
-            espressoPage.pendingFrameName = ""
-            espressoPage.pendingFrameCount = 0
 
             if (!accessibilityEnabled()) return
             lastAnnouncedWeight = 0
@@ -261,23 +256,8 @@ Page {
     Connections {
         target: MainController
         function onFrameChanged(frameIndex, frameName, transitionReason) {
-            // Frame name filtering: show immediately if it matches the pending name
-            // (confirming it's a real phase, not a brief transition), or queue it.
             if (frameName !== "") {
-                if (frameName === espressoPage.pendingFrameName) {
-                    espressoPage.pendingFrameCount++
-                    // Second consecutive event with same name — it's stable, show it
-                    if (espressoPage.pendingFrameCount >= 2 && espressoPage.displayedFrameName !== frameName) {
-                        espressoPage.displayedFrameName = frameName
-                    }
-                } else {
-                    // New frame name — if it's the first frame or display is empty, show immediately
-                    espressoPage.pendingFrameName = frameName
-                    espressoPage.pendingFrameCount = 1
-                    if (espressoPage.displayedFrameName === "") {
-                        espressoPage.displayedFrameName = frameName
-                    }
-                }
+                espressoPage.displayedFrameName = frameName
             }
 
             if (transitionReason === "" || frameName === "") return
