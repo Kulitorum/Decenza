@@ -21,6 +21,10 @@ Button {
     // For external reference
     property Item accessibleItem: root
 
+    // Live press state — Button.down stays false because touchArea below accepts
+    // the press. Bind custom background visuals to this instead of `down`.
+    readonly property alias isPressed: touchArea.pressed
+
     // Optional font overrides (0/-1 = use defaults)
     property int _customFontSize: 0
     property int _customFontWeight: -1

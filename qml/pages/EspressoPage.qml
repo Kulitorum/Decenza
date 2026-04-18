@@ -1001,8 +1001,9 @@ Page {
                 onClicked: MainController.bumpTargetWeight(10.0)
 
                 background: Rectangle {
+                    implicitWidth: Theme.scaled(56)
                     implicitHeight: Theme.scaled(24)
-                    color: addTenButton.down ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                    color: addTenButton.isPressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
                     radius: Theme.scaled(12)
                 }
                 contentItem: Text {
@@ -1036,8 +1037,9 @@ Page {
                 onClicked: DE1Device.skipToNextFrame()
 
                 background: Rectangle {
+                    implicitWidth: Theme.scaled(56)
                     implicitHeight: Theme.scaled(24)
-                    color: skipFrameButton.down ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                    color: skipFrameButton.isPressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
                     radius: Theme.scaled(12)
                 }
                 contentItem: Text {

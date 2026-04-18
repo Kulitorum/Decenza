@@ -168,8 +168,9 @@ public slots:
     Q_INVOKABLE void factoryResetAndQuit();
 
     // Mid-shot SAW adjustment (e.g. user pressed +10g to "salvage" a too-fast shot).
-    // Intentionally only mutates MachineState — leaving the persisted profile/setting
-    // untouched so the next shot reverts to the user's normal target.
+    // No-op outside Preinfusion/Pouring or when no SAW target is set. Intentionally
+    // only mutates MachineState — leaving the persisted profile/setting untouched so
+    // the next shot reverts to the user's normal target.
     Q_INVOKABLE void bumpTargetWeight(double deltaG);
 
 signals:
