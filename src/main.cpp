@@ -1022,6 +1022,13 @@ int main(int argc, char *argv[])
     scaleReconnectTimer.setSingleShot(true);
     const std::vector<int> reconnectDelays = {5000, 30000, 60000};
 
+    // When Settings.keepScaleOn is false we deliberately disconnect the scale
+    // on DE1 sleep. The connectedChanged handler below normally schedules an
+    // auto-reconnect 5 s after any disconnect — this flag suppresses that for
+    // our deliberate path. Cleared on DE1 wake (Idle), app resume, and user-
+    // initiated scan so normal reconnect behaviour resumes.
+    bool scaleAutoReconnectSuppressed = false;
+
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer, &reconnectDelays]() {
         if (settings.scaleAddress().isEmpty()) {
@@ -1197,11 +1204,15 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings]() {
+                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();
                 scaleReconnectAttempt = 0;
+                // A fresh successful connect clears any deliberate-disconnect
+                // suppression (e.g. scale reconnected during DE1 sleep via a
+                // manual scan).
+                scaleAutoReconnectSuppressed = false;
                 // Scale connected - use physical scale
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
@@ -1239,8 +1250,13 @@ int main(int argc, char *argv[])
                 }
                 emit bleManager.scaleDisconnected();
                 qDebug() << "Scale disconnected - switched to FlowScale";
-                // Start auto-reconnect if we have a saved scale address
-                if (!settings.scaleAddress().isEmpty()) {
+                // Start auto-reconnect if we have a saved scale address, unless
+                // the disconnect was a deliberate one from the DE1-sleep path
+                // (keepScaleOn=false). In that case the DE1-wake handler
+                // re-arms the reconnect.
+                if (scaleAutoReconnectSuppressed) {
+                    qDebug() << "Scale disconnect was deliberate (keepScaleOn=false) - auto-reconnect suppressed until DE1 wakes";
+                } else if (!settings.scaleAddress().isEmpty()) {
                     scaleReconnectAttempt = 0;
                     scaleReconnectTimer.start(reconnectDelays[0]);
                     qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms";
@@ -1258,9 +1274,12 @@ int main(int argc, char *argv[])
 
     // Handle disconnect request when starting a new scan
     QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested,
-                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt]() {
+                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed]() {
         // Stop any pending auto-reconnect (user is deliberately scanning for a different scale)
         scaleReconnectTimer.stop();
+        // User is selecting a new scale — clear any sleep-deliberate suppression
+        // so the new scale's normal reconnect behaviour applies.
+        scaleAutoReconnectSuppressed = false;
         scaleReconnectAttempt = 0;
         if (physicalScale) {
             qDebug() << "Disconnecting scale before scan";
@@ -1891,7 +1910,7 @@ int main(int argc, char *argv[])
     // when app is suspended/resumed. Neither DE1 nor scale are put to sleep when
     // backgrounded — users may switch apps while the machine heats up.
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         if (state == Qt::ApplicationSuspended) {
@@ -1951,6 +1970,10 @@ int main(int argc, char *argv[])
 
             // Scale was not put to sleep on suspend, so it should still be connected.
             // If the OS dropped the BLE connection anyway, start the reconnect sequence.
+            // If the scale was deliberately disconnected on DE1 sleep, the user
+            // returning to the app is a signal that they want it back — clear the
+            // suppression flag so the normal reconnect runs.
+            scaleAutoReconnectSuppressed = false;
             if (physicalScale && physicalScale->isConnected()) {
                 qDebug() << "App resumed - scale still connected";
             } else if (!settings.scaleAddress().isEmpty() && !scaleReconnectTimer.isActive()) {
@@ -1981,13 +2004,21 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Turn off scale LCD when DE1 sleeps, wake when DE1 wakes (like de1app's decentscale_off plugin)
-    // Uses disableLcd() instead of sleep() to keep BLE connected - no reconnection needed on wake
-    // de1EverAwake: suppress Sleep reaction on initial connect (DE1's default state is Sleep,
-    // so MachineState transitions Disconnected→Sleep before the real state arrives)
+    // Manage scale power state when the DE1 sleeps/wakes.
+    //   keepScaleOn=true  (default): send disableLcd() only — BLE stays connected,
+    //                                LCD re-enables via wake() on resume.
+    //   keepScaleOn=false: send sleep() then drop the BLE link once the write
+    //                      completes. Matches de1app's default for battery-only
+    //                      scales. Auto-reconnect is suppressed via
+    //                      scaleAutoReconnectSuppressed until the DE1 wakes.
+    // de1EverAwake: suppress Sleep reaction on initial connect (DE1's default
+    // BLE state is Sleep, so MachineState transitions Disconnected→Sleep before
+    // the real state arrives).
     bool de1EverAwake = false;
     QObject::connect(&machineState, &MachineState::phaseChanged,
-                     [&physicalScale, &machineState, &settings, &de1EverAwake]() {
+                     [&physicalScale, &machineState, &settings, &de1EverAwake,
+                      &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
+                      &scaleReconnectAttempt, &reconnectDelays]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
             de1EverAwake = false;
@@ -1997,13 +2028,10 @@ int main(int argc, char *argv[])
                     qDebug() << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
                     physicalScale->disableLcd();
                 } else {
-                    // Match de1app's default behaviour for battery-only scales:
-                    // send the scale's power-off command (no-op for scales that
-                    // don't implement sleep()), then drop the BLE link once the
-                    // sleep write completes. The saved scale address stays in
-                    // Settings, so the existing reconnect-on-resume / DE1-wake
-                    // flows reconnect automatically.
                     qDebug() << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
+                    // Suppress the reconnect timer that connectedChanged would
+                    // otherwise schedule when disconnectFromScale() fires.
+                    scaleAutoReconnectSuppressed = true;
                     QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
                                      physicalScale.get(),
                                      [scale = physicalScale.get()]() {
@@ -2017,6 +2045,17 @@ int main(int argc, char *argv[])
             if (physicalScale && physicalScale->isConnected()) {
                 qDebug() << "DE1 woke up - waking scale LCD";
                 physicalScale->wake();
+            } else if (scaleAutoReconnectSuppressed
+                       && !settings.scaleAddress().isEmpty()) {
+                // keepScaleOn=false path: we deliberately disconnected on DE1
+                // sleep and suppressed the auto-reconnect. Re-arm the reconnect
+                // sequence now that the DE1 is back.
+                qDebug() << "DE1 woke up - re-arming scale reconnect (keepScaleOn=false)";
+                scaleAutoReconnectSuppressed = false;
+                if (!scaleReconnectTimer.isActive()) {
+                    scaleReconnectAttempt = 0;
+                    scaleReconnectTimer.start(reconnectDelays[0]);
+                }
             }
             de1EverAwake = true;
         } else {
