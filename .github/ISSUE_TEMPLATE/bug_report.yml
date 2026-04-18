@@ -92,8 +92,7 @@ body:
     id: logs
     attributes:
       label: Debug log / shot debug log
-      description: Attach the app debug log and (if relevant) the shot debug log here. Drag files in or paste text.
-      render: text
+      description: Attach the app debug log and (if relevant) the shot debug log here. Drag files in, paste text, or click the paperclip to upload.
     validations:
       required: false
 
