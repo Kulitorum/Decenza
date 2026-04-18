@@ -1987,14 +1987,31 @@ int main(int argc, char *argv[])
     // so MachineState transitions Disconnected→Sleep before the real state arrives)
     bool de1EverAwake = false;
     QObject::connect(&machineState, &MachineState::phaseChanged,
-                     [&physicalScale, &machineState, &de1EverAwake]() {
+                     [&physicalScale, &machineState, &settings, &de1EverAwake]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
             de1EverAwake = false;
         } else if (phase == MachineState::Phase::Sleep) {
             if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
-                qDebug() << "DE1 going to sleep - disabling scale LCD";
-                physicalScale->disableLcd();
+                if (settings.keepScaleOn()) {
+                    qDebug() << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
+                    physicalScale->disableLcd();
+                } else {
+                    // Match de1app's default behaviour for battery-only scales:
+                    // send the scale's power-off command (no-op for scales that
+                    // don't implement sleep()), then drop the BLE link once the
+                    // sleep write completes. The saved scale address stays in
+                    // Settings, so the existing reconnect-on-resume / DE1-wake
+                    // flows reconnect automatically.
+                    qDebug() << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
+                    QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
+                                     physicalScale.get(),
+                                     [scale = physicalScale.get()]() {
+                                         if (scale) scale->disconnectFromScale();
+                                     },
+                                     Qt::SingleShotConnection);
+                    physicalScale->sleep();
+                }
             }
         } else if (phase == MachineState::Phase::Idle) {
             if (physicalScale && physicalScale->isConnected()) {

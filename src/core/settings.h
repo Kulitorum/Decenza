@@ -19,6 +19,7 @@ class Settings : public QObject {
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
     Q_PROPERTY(QString scaleAddress READ scaleAddress WRITE setScaleAddress NOTIFY scaleAddressChanged)
     Q_PROPERTY(QString scaleType READ scaleType WRITE setScaleType NOTIFY scaleTypeChanged)
+    Q_PROPERTY(bool keepScaleOn READ keepScaleOn WRITE setKeepScaleOn NOTIFY keepScaleOnChanged)
     Q_PROPERTY(QString scaleName READ scaleName WRITE setScaleName NOTIFY scaleNameChanged)
 
     // Multi-scale management
@@ -296,6 +297,9 @@ public:
 
     QString scaleAddress() const;
     void setScaleAddress(const QString& address);
+
+    bool keepScaleOn() const;
+    void setKeepScaleOn(bool keep);
 
     QString scaleType() const;
     void setScaleType(const QString& type);
@@ -903,6 +907,7 @@ signals:
     void machineAddressChanged();
     void scaleAddressChanged();
     void scaleTypeChanged();
+    void keepScaleOnChanged();
     void scaleNameChanged();
     void knownScalesChanged();
     void useFlowScaleChanged();

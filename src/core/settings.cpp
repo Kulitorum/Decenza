@@ -375,6 +375,20 @@ void Settings::setScaleType(const QString& type) {
     }
 }
 
+bool Settings::keepScaleOn() const {
+    // Default true preserves legacy Decenza behaviour (scale stays BLE-connected
+    // when the DE1 sleeps). Set to false to mirror de1app's default of powering
+    // off and disconnecting the scale — useful for battery-only scales.
+    return m_settings.value("scale/keepOn", true).toBool();
+}
+
+void Settings::setKeepScaleOn(bool keep) {
+    if (keepScaleOn() != keep) {
+        m_settings.setValue("scale/keepOn", keep);
+        emit keepScaleOnChanged();
+    }
+}
+
 QString Settings::scaleName() const {
     return m_settings.value("scale/name", "").toString();
 }

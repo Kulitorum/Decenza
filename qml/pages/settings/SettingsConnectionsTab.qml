@@ -777,6 +777,47 @@ Item {
                         }
                     }
 
+                    // Keep scale connected when DE1 sleeps
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.bluetooth.keepScaleOn",
+                                                                   "Keep scale connected when DE1 sleeps")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                                Accessible.ignored: true
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                id: keepScaleOnSwitch
+                                checked: Settings.keepScaleOn
+                                accessibleName: TranslationManager.translate(
+                                    "settings.bluetooth.keepScaleOn",
+                                    "Keep scale connected when DE1 sleeps")
+                                onToggled: Settings.keepScaleOn = checked
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate(
+                                "settings.bluetooth.keepScaleOnDesc",
+                                "Turn off to power down and disconnect the scale when the DE1 sleeps. Recommended for battery-only scales; reconnects automatically when the DE1 wakes.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+                    }
+
                     // Connected BLE scale name + battery
                     RowLayout {
                         Layout.fillWidth: true
