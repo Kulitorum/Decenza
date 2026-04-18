@@ -1413,10 +1413,11 @@ void MainController::setSteamFlowImmediate(int flow) {
 
     m_settings->setSteamFlow(flow);
 
-    // Verify-and-retry: a single MMR write to 0x803828 isn't reliably picked
-    // up by the steam controller's sample-tick loop mid-Pouring. Read the
-    // register back and retry until the DE1 confirms the new value, so a
-    // single caller-side call (slider release, preset tap) is enough.
+    // Verify-and-retry as defensive insurance: a single MMR write should be
+    // enough (on-device testing showed zero retries needed across many slider
+    // drags), but steam flow is user-visible enough that we read the register
+    // back and retry on mismatch rather than relying on the write alone. One
+    // caller-side call (slider release, preset tap) stays one logical command.
     m_device->writeMMRVerified(0x803828, flow,
                                QStringLiteral("setSteamFlowImmediate"));
 

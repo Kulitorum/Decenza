@@ -227,11 +227,12 @@ public slots:
 
     // MMR write with read-back verification: write, then read the register
     // back ~50ms later, retry up to maxRetries times if the read doesn't
-    // return the value we wrote. Used for SteamFlow during steaming where a
-    // single MMR write isn't reliably picked up by the firmware's sample-tick
-    // loop — verify-and-retry replaces blind spam with confirmed delivery.
-    // A subsequent call for the same address replaces (cancels) the prior
-    // verification — newest write wins.
+    // return the value we wrote. Used for SteamFlow during steaming as
+    // defensive insurance — on-device testing showed zero retries needed
+    // in practice, but verify-and-retry catches any silent drop (e.g. a
+    // BLE write lost during high traffic) without costing a retry budget
+    // on the happy path. A subsequent call for the same address replaces
+    // (cancels) the prior verification — newest write wins.
     void writeMMRVerified(uint32_t address, uint32_t value,
                           const QString& reason = QString(),
                           int maxRetries = 5);

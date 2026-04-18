@@ -386,18 +386,19 @@ Page {
                                     if (!isSteaming) {
                                         MainController.startSteamHeating("live-pitcher-click")
                                     } else {
-                                        // Sync the live slider imperatively. Its binding to
-                                        // Settings.steamFlow gets broken the first time the
-                                        // user drags it (onValueModified writes value=newVal),
-                                        // so a Settings update from this preset tap won't
-                                        // reach the slider on its own.
-                                        steamingFlowSlider.value = flow
-                                        // Settings assignment alone only updates QSettings; the BLE
-                                        // MMR write to 0x803828 lives in MainController. Push the
-                                        // new flow immediately so the DE1 picks it up mid-session.
-                                        // Don't push timeout — the DE1's session timer is already
-                                        // running on the prior value and a mid-session timeout
-                                        // change risks an immediate stop if the new value is < elapsed.
+                                        // Re-bind the live slider to Settings.steamFlow using
+                                        // Qt.binding. The user's first drag on the slider
+                                        // imperatively writes value=newVal in onValueModified,
+                                        // which permanently destroys the original declarative
+                                        // binding — any later Settings.steamFlow change (like
+                                        // this preset tap) won't reach the slider. Qt.binding
+                                        // restores reactivity without falling back to a bare
+                                        // imperative assignment.
+                                        steamingFlowSlider.value = Qt.binding(function() { return Settings.steamFlow })
+                                        // Push the new flow over BLE. Don't push timeout — the
+                                        // DE1's session timer is already running on the prior
+                                        // value and a mid-session timeout change risks an
+                                        // immediate stop if the new value is < elapsed.
                                         MainController.setSteamFlowImmediate(flow)
                                     }
                                 }
