@@ -2670,14 +2670,15 @@ ApplicationWindow {
             if (screensaverActive) {
                 goToIdleFromScreensaver()
             }
-            // Arm the stay-awake window on every auto-wake, regardless of whether
-            // the tablet was in screensaver. Otherwise, if the app was already
-            // awake at the scheduled time (user touched the tablet, screensaver
-            // disabled, or app just launched), the window is silently skipped
-            // and the machine sleeps ~autoSleepMinutes after the next shot.
+            // Arm on every auto-wake, not only when exiting screensaver — the app
+            // may already be awake at the scheduled time, and skipping would let
+            // the machine auto-sleep before the stay-awake window applies.
             if (Settings.autoWakeStayAwakeEnabled && Settings.autoWakeStayAwakeMinutes > 0) {
                 root.sleepCountdownStayAwake = Settings.autoWakeStayAwakeMinutes
                 console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
+            } else {
+                console.log("Auto-wake: stayAwake not armed (enabled=" + Settings.autoWakeStayAwakeEnabled +
+                            ", minutes=" + Settings.autoWakeStayAwakeMinutes + ")")
             }
         }
 
