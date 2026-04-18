@@ -2666,14 +2666,18 @@ ApplicationWindow {
         target: MainController
 
         function onAutoWakeTriggered() {
-            console.log("[Main] Auto-wake triggered, exiting screensaver")
+            console.log("[Main] Auto-wake triggered")
             if (screensaverActive) {
                 goToIdleFromScreensaver()
-                // Set stay-awake countdown if enabled (after goToIdleFromScreensaver sets normal)
-                if (Settings.autoWakeStayAwakeEnabled && Settings.autoWakeStayAwakeMinutes > 0) {
-                    root.sleepCountdownStayAwake = Settings.autoWakeStayAwakeMinutes
-                    console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
-                }
+            }
+            // Arm the stay-awake window on every auto-wake, regardless of whether
+            // the tablet was in screensaver. Otherwise, if the app was already
+            // awake at the scheduled time (user touched the tablet, screensaver
+            // disabled, or app just launched), the window is silently skipped
+            // and the machine sleeps ~autoSleepMinutes after the next shot.
+            if (Settings.autoWakeStayAwakeEnabled && Settings.autoWakeStayAwakeMinutes > 0) {
+                root.sleepCountdownStayAwake = Settings.autoWakeStayAwakeMinutes
+                console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
             }
         }
 
