@@ -83,13 +83,17 @@ static SteamHealthInfo computeSteamHealth(SteamHealthTracker* tracker)
     double maxProgress = qMax(info.pressureProgress, info.temperatureProgress);
     if (maxProgress >= warnThreshold) {
         info.status = QStringLiteral("warning");
-        info.recommendation = QStringLiteral("Significant scale buildup detected — descaling recommended soon");
+        info.recommendation = QStringLiteral(
+            "Significant steam-flow restriction detected — likely milk residue in the steam tip or scale buildup. "
+            "Start with a steam-tip soak in a milk cleaner (Rinza/Cafiza); if pressure doesn't recover, descaling is likely needed.");
     } else if (maxProgress >= monitorThreshold) {
         info.status = QStringLiteral("monitor");
-        info.recommendation = QStringLiteral("Scale buildup is progressing — consider descaling in the coming weeks");
+        info.recommendation = QStringLiteral(
+            "Steam pressure or temperature is rising — likely milk residue in the steam tip or scale buildup. "
+            "Try a steam-tip soak in a milk cleaner first; if the trend persists, consider descaling.");
     } else {
         info.status = QStringLiteral("healthy");
-        info.recommendation = QStringLiteral("Steam system is clean — no scale buildup detected");
+        info.recommendation = QStringLiteral("Steam system is clean — no flow restriction detected");
     }
     return info;
 }
@@ -178,8 +182,8 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                 if (info.hasData && info.status != QStringLiteral("healthy")) {
                     QJsonObject sh;
                     sh["sessionCount"] = info.sessionCount;
-                    sh["pressureScaleBuildupProgress0to1"] = info.pressureProgress;
-                    sh["temperatureScaleBuildupProgress0to1"] = info.temperatureProgress;
+                    sh["pressureRestrictionProgress0to1"] = info.pressureProgress;
+                    sh["temperatureRestrictionProgress0to1"] = info.temperatureProgress;
                     sh["status"] = info.status;
                     sh["recommendation"] = info.recommendation;
                     result["steamHealth"] = sh;
@@ -241,8 +245,10 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
     registry->registerTool(
         "steam_get_health",
         "Get detailed steam system health: baseline and current pressure/temperature, "
-        "scale buildup progress toward warn thresholds, status, and recommendation. "
-        "Use this when the user asks about steam health, descaling, or scale buildup.",
+        "flow-restriction progress toward warn thresholds, status, and recommendation. "
+        "Rising pressure/temperature can indicate milk residue in the steam tip or scale buildup "
+        "(the tool cannot distinguish the two — recommendations cover both). "
+        "Use this when the user asks about steam health, steam wand cleaning, or descaling.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -264,8 +270,8 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
 
             if (info.hasData) {
-                result["pressureScaleBuildupProgress0to1"] = info.pressureProgress;
-                result["temperatureScaleBuildupProgress0to1"] = info.temperatureProgress;
+                result["pressureRestrictionProgress0to1"] = info.pressureProgress;
+                result["temperatureRestrictionProgress0to1"] = info.temperatureProgress;
                 result["warnThresholdProgress0to1"] = tracker->trendProgressThreshold();
             }
 
