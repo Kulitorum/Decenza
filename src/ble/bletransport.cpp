@@ -1,5 +1,5 @@
 #include "bletransport.h"
-#include "blemanager.h"
+#include "blecapability.h"
 #include "protocol/de1characteristics.h"
 
 #include <QBluetoothAddress>
@@ -397,10 +397,10 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     // setcap hint when we've actually detected the capability is missing —
     // otherwise we'd mislead users whose error has a different cause.
     if (error == QLowEnergyController::UnknownRemoteDeviceError
-        && BLEManager::isLinuxBleCapabilityMissing()) {
+        && BleCapability::linuxMissing()) {
         warn(QStringLiteral("Linux hint: run `%1` and restart the app "
                             "(capability is often cleared by OS updates).")
-                 .arg(BLEManager::linuxBleSetcapCommandStatic()));
+                 .arg(BleCapability::linuxSetcapCommand()));
     }
 }
 

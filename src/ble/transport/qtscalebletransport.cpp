@@ -1,5 +1,5 @@
 #include "qtscalebletransport.h"
-#include "../blemanager.h"
+#include "../blecapability.h"
 #include <QDebug>
 #include <QTimer>
 #include <QLowEnergyConnectionParameters>
@@ -286,10 +286,10 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
     // Only log the setcap hint when we've actually detected the missing
     // capability — the check is a no-op / always false on non-Linux.
     if (err == QLowEnergyController::UnknownRemoteDeviceError
-        && BLEManager::isLinuxBleCapabilityMissing()) {
+        && BleCapability::linuxMissing()) {
         QT_TRANSPORT_LOG(QStringLiteral("Linux hint: run `%1` and restart the app "
                                         "(capability is often cleared by OS updates).")
-                             .arg(BLEManager::linuxBleSetcapCommandStatic()));
+                             .arg(BleCapability::linuxSetcapCommand()));
     }
 }
 

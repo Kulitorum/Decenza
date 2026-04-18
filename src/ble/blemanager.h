@@ -11,6 +11,8 @@
 #include <QStringList>
 #include <QFile>
 
+#include "blecapability.h"
+
 class ScaleDevice;
 class DiFluidR2;
 
@@ -62,14 +64,8 @@ public:
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
-    bool linuxBleCapabilityMissing() const { return isLinuxBleCapabilityMissing(); }
-    QString linuxBleSetcapCommand() const { return linuxBleSetcapCommandStatic(); }
-
-    // Static accessors — usable by BLE transport classes that don't hold a
-    // BLEManager reference. Return false/empty on non-Linux (and cached after
-    // first call).
-    static bool isLinuxBleCapabilityMissing();
-    static QString linuxBleSetcapCommandStatic();
+    bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
+    QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
