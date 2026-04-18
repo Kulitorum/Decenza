@@ -47,6 +47,39 @@ BLEManager::BLEManager(QObject* parent)
     m_scaleConnectionTimer->setSingleShot(true);
     m_scaleConnectionTimer->setInterval(20000);
     connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
+
+    checkLinuxBleCapability();
+}
+
+void BLEManager::checkLinuxBleCapability()
+{
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    // BlueZ needs CAP_NET_ADMIN to determine whether a remote BLE address is
+    // random or public. Without it, connects to random-address peripherals
+    // (like the DE1) fail with UnknownRemoteDeviceError. The capability is
+    // granted via `sudo setcap 'cap_net_admin+eip' <binary>` and is often
+    // cleared by OS package updates, so detect and surface it.
+    QFile f(QStringLiteral("/proc/self/status"));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    while (!f.atEnd()) {
+        const QByteArray line = f.readLine();
+        if (!line.startsWith("CapEff:")) continue;
+        const QString hex = QString::fromUtf8(line.mid(7)).trimmed();
+        bool ok = false;
+        const quint64 capEff = hex.toULongLong(&ok, 16);
+        if (!ok) return;
+        constexpr quint64 CAP_NET_ADMIN_BIT = quint64(1) << 12;  // CAP_NET_ADMIN = 12
+        if ((capEff & CAP_NET_ADMIN_BIT) == 0) {
+            m_linuxBleCapabilityMissing = true;
+            m_linuxBleSetcapCommand =
+                QStringLiteral("sudo setcap 'cap_net_admin+eip' %1")
+                    .arg(QCoreApplication::applicationFilePath());
+            qWarning().noquote() << "BLEManager: CAP_NET_ADMIN missing — BLE connects to random-address devices (including the DE1) will fail. Fix:"
+                                 << m_linuxBleSetcapCommand;
+        }
+        return;
+    }
+#endif
 }
 
 bool BLEManager::isBluetoothAvailable() const

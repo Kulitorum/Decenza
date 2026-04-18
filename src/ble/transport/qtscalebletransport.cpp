@@ -1,4 +1,5 @@
 #include "qtscalebletransport.h"
+#include <QCoreApplication>
 #include <QDebug>
 #include <QTimer>
 #include <QLowEnergyConnectionParameters>
@@ -281,6 +282,18 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
     QString msg = QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName);
     QT_TRANSPORT_LOG(msg);
     emit error(msg);
+
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    // See BleTransport::onControllerError for context. Without CAP_NET_ADMIN,
+    // BlueZ can't tell random vs public BLE addresses and rejects connects
+    // with UnknownRemoteDeviceError.
+    if (err == QLowEnergyController::UnknownRemoteDeviceError) {
+        const QString exe = QCoreApplication::applicationFilePath();
+        QT_TRANSPORT_LOG(QStringLiteral("Linux hint: run `sudo setcap 'cap_net_admin+eip' %1` "
+                                        "and restart the app (capability is often cleared by OS updates).")
+                             .arg(exe));
+    }
+#endif
 }
 
 void QtScaleBleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {

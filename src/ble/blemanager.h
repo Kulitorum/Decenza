@@ -45,6 +45,8 @@ class BLEManager : public QObject {
     Q_PROPERTY(bool refractometerConnected READ isRefractometerConnected NOTIFY refractometerConnectedChanged)
     Q_PROPERTY(bool hasSavedDE1 READ hasSavedDE1 CONSTANT)
     Q_PROPERTY(bool disabled READ isDisabled WRITE setDisabled NOTIFY disabledChanged)
+    Q_PROPERTY(bool linuxBleCapabilityMissing READ linuxBleCapabilityMissing CONSTANT)
+    Q_PROPERTY(QString linuxBleSetcapCommand READ linuxBleSetcapCommand CONSTANT)
 
 public:
     explicit BLEManager(QObject* parent = nullptr);
@@ -60,6 +62,8 @@ public:
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
+    bool linuxBleCapabilityMissing() const { return m_linuxBleCapabilityMissing; }
+    QString linuxBleSetcapCommand() const { return m_linuxBleSetcapCommand; }
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
@@ -142,6 +146,7 @@ private:
     void requestBluetoothPermission();
     void doStartScan();
     void ensureDiscoveryAgent();
+    void checkLinuxBleCapability();
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
@@ -154,6 +159,8 @@ private:
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
     bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
     bool m_scaleConnectionFailed = false;
+    bool m_linuxBleCapabilityMissing = false;
+    QString m_linuxBleSetcapCommand;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
 

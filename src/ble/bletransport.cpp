@@ -2,12 +2,12 @@
 #include "protocol/de1characteristics.h"
 
 #include <QBluetoothAddress>
+#include <QCoreApplication>
 #include <QLowEnergyConnectionParameters>
 #include <QDebug>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
-#include <QCoreApplication>
 
 // Store DE1 address in Android SharedPreferences for shutdown service
 static void storeDE1AddressForShutdown(const QString& address) {
@@ -391,6 +391,21 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     }
     warn(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
     emit errorOccurred(userMessage);
+
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    // On desktop Linux, BlueZ requires CAP_NET_ADMIN for the process to
+    // determine whether a remote BLE address is random or public. Without it,
+    // Qt guesses wrong and BlueZ rejects the connection with
+    // UnknownRemoteDeviceError. The DE1 uses a random static address, so this
+    // hits users whose binary lost its file capability (e.g. after an OS
+    // upgrade re-extracted the package).
+    if (error == QLowEnergyController::UnknownRemoteDeviceError) {
+        const QString exe = QCoreApplication::applicationFilePath();
+        warn(QStringLiteral("Linux hint: run `sudo setcap 'cap_net_admin+eip' %1` "
+                            "and restart the app (capability is often cleared by OS updates).")
+                 .arg(exe));
+    }
+#endif
 }
 
 void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
