@@ -2666,14 +2666,19 @@ ApplicationWindow {
         target: MainController
 
         function onAutoWakeTriggered() {
-            console.log("[Main] Auto-wake triggered, exiting screensaver")
+            console.log("[Main] Auto-wake triggered")
             if (screensaverActive) {
                 goToIdleFromScreensaver()
-                // Set stay-awake countdown if enabled (after goToIdleFromScreensaver sets normal)
-                if (Settings.autoWakeStayAwakeEnabled && Settings.autoWakeStayAwakeMinutes > 0) {
-                    root.sleepCountdownStayAwake = Settings.autoWakeStayAwakeMinutes
-                    console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
-                }
+            }
+            // Arm on every auto-wake, not only when exiting screensaver — the app
+            // may already be awake at the scheduled time, and skipping would let
+            // the machine auto-sleep before the stay-awake window applies.
+            if (Settings.autoWakeStayAwakeEnabled && Settings.autoWakeStayAwakeMinutes > 0) {
+                root.sleepCountdownStayAwake = Settings.autoWakeStayAwakeMinutes
+                console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
+            } else {
+                console.log("Auto-wake: stayAwake not armed (enabled=" + Settings.autoWakeStayAwakeEnabled +
+                            ", minutes=" + Settings.autoWakeStayAwakeMinutes + ")")
             }
         }
 
