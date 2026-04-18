@@ -62,8 +62,14 @@ public:
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
-    bool linuxBleCapabilityMissing() const { return m_linuxBleCapabilityMissing; }
-    QString linuxBleSetcapCommand() const { return m_linuxBleSetcapCommand; }
+    bool linuxBleCapabilityMissing() const { return isLinuxBleCapabilityMissing(); }
+    QString linuxBleSetcapCommand() const { return linuxBleSetcapCommandStatic(); }
+
+    // Static accessors — usable by BLE transport classes that don't hold a
+    // BLEManager reference. Return false/empty on non-Linux (and cached after
+    // first call).
+    static bool isLinuxBleCapabilityMissing();
+    static QString linuxBleSetcapCommandStatic();
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
@@ -146,7 +152,6 @@ private:
     void requestBluetoothPermission();
     void doStartScan();
     void ensureDiscoveryAgent();
-    void checkLinuxBleCapability();
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
@@ -159,8 +164,6 @@ private:
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
     bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
     bool m_scaleConnectionFailed = false;
-    bool m_linuxBleCapabilityMissing = false;
-    QString m_linuxBleSetcapCommand;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
 

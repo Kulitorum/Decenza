@@ -372,6 +372,15 @@ ApplicationWindow {
         })
     }
 
+    // Shows the Linux CAP_NET_ADMIN warning when the binary is missing the
+    // capability. Suppressed in simulator mode (BLE disabled) to avoid a
+    // spurious startup modal for devs running the simulator on Linux.
+    function maybeShowLinuxBleCapabilityDialog() {
+        if (!BLEManager.disabled && BLEManager.linuxBleCapabilityMissing) {
+            Qt.callLater(function() { linuxBleCapabilityDialog.open() })
+        }
+    }
+
     // No timer needed — page transitions are instant (empty Transition{}),
     // so Qt.callLater suffices to let the event loop finish the replace().
 
@@ -467,11 +476,11 @@ ApplicationWindow {
             // (e.g., after reinstall when QSettings was restored but SAF permission wasn't)
             checkStorageSetup()
 
-            // Linux-only: warn if the binary is missing CAP_NET_ADMIN, which
-            // causes BLE connections to the DE1 to fail silently. Only shown
-            // after first run so the welcome dialog isn't obscured.
-            if (BLEManager.linuxBleCapabilityMissing) {
-                Qt.callLater(function() { linuxBleCapabilityDialog.open() })
+            // If a crash dialog is about to open, defer the capability
+            // warning until it's dismissed (see crashReportDialog handlers)
+            // so the two modals don't stack on the same frame.
+            if (!(PreviousCrashLog && PreviousCrashLog.length > 0)) {
+                maybeShowLinuxBleCapabilityDialog()
             }
         }
 
@@ -1802,10 +1811,12 @@ ApplicationWindow {
         onDismissed: {
             // Clear the crash log file
             MainController.clearCrashLog()
+            maybeShowLinuxBleCapabilityDialog()
         }
         onReported: {
             // Clear the crash log file after successful report
             MainController.clearCrashLog()
+            maybeShowLinuxBleCapabilityDialog()
         }
     }
 
@@ -1878,6 +1889,7 @@ ApplicationWindow {
         Tr { id: trLinuxBleCapTitle; key: "main.dialog.linuxBleCapability.title"; fallback: "Bluetooth permission missing"; visible: false }
         Tr { id: trLinuxBleCapMessage; key: "main.dialog.linuxBleCapability.message"; fallback: "Decenza needs the CAP_NET_ADMIN Linux capability to connect to the DE1 over Bluetooth. Without it, the DE1 is discovered by scans but connections fail with \"Remote device not found\".\n\nThis often happens after a system update clears file capabilities.\n\nRun this command in a terminal, then restart Decenza:"; visible: false }
         Tr { id: trLinuxBleCapCopy; key: "main.dialog.linuxBleCapability.copy"; fallback: "Copy command"; visible: false }
+        Tr { id: trLinuxBleCapCommandField; key: "main.dialog.linuxBleCapability.commandField"; fallback: "Setcap command"; visible: false }
 
         contentItem: Column {
             spacing: Theme.spacingLarge
@@ -1916,6 +1928,11 @@ ApplicationWindow {
                     font.family: "monospace"
                     font.pixelSize: Theme.bodyFont.pixelSize
                     color: Theme.textColor
+
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: trLinuxBleCapCommandField.text
+                    Accessible.readOnly: true
+                    Accessible.focusable: true
                 }
             }
 
@@ -1989,9 +2006,7 @@ ApplicationWindow {
                     Settings.setValue("firstRunComplete", true)
                     firstRunDialog.close()
                     checkStorageSetup()
-                    if (BLEManager.linuxBleCapabilityMissing) {
-                        Qt.callLater(function() { linuxBleCapabilityDialog.open() })
-                    }
+                    maybeShowLinuxBleCapabilityDialog()
                 }
             }
         }

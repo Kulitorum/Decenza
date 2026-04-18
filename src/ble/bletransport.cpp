@@ -1,8 +1,8 @@
 #include "bletransport.h"
+#include "blemanager.h"
 #include "protocol/de1characteristics.h"
 
 #include <QBluetoothAddress>
-#include <QCoreApplication>
 #include <QLowEnergyConnectionParameters>
 #include <QDebug>
 
@@ -392,20 +392,16 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     warn(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
     emit errorOccurred(userMessage);
 
-#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
-    // On desktop Linux, BlueZ requires CAP_NET_ADMIN for the process to
-    // determine whether a remote BLE address is random or public. Without it,
-    // Qt guesses wrong and BlueZ rejects the connection with
-    // UnknownRemoteDeviceError. The DE1 uses a random static address, so this
-    // hits users whose binary lost its file capability (e.g. after an OS
-    // upgrade re-extracted the package).
-    if (error == QLowEnergyController::UnknownRemoteDeviceError) {
-        const QString exe = QCoreApplication::applicationFilePath();
-        warn(QStringLiteral("Linux hint: run `sudo setcap 'cap_net_admin+eip' %1` "
-                            "and restart the app (capability is often cleared by OS updates).")
-                 .arg(exe));
+    // On Linux, UnknownRemoteDeviceError usually means the process lacks
+    // CAP_NET_ADMIN and BlueZ guessed the address type wrong. Only log the
+    // setcap hint when we've actually detected the capability is missing —
+    // otherwise we'd mislead users whose error has a different cause.
+    if (error == QLowEnergyController::UnknownRemoteDeviceError
+        && BLEManager::isLinuxBleCapabilityMissing()) {
+        warn(QStringLiteral("Linux hint: run `%1` and restart the app "
+                            "(capability is often cleared by OS updates).")
+                 .arg(BLEManager::linuxBleSetcapCommandStatic()));
     }
-#endif
 }
 
 void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
