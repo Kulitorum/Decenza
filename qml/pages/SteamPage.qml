@@ -383,8 +383,23 @@ Page {
                                     var flow = modelData.flow !== undefined ? modelData.flow : 150
                                     Settings.steamTimeout = modelData.duration
                                     Settings.steamFlow = flow
-                                    if (!isSteaming)
+                                    if (!isSteaming) {
                                         MainController.startSteamHeating("live-pitcher-click")
+                                    } else {
+                                        // Sync the live slider imperatively. Its binding to
+                                        // Settings.steamFlow gets broken the first time the
+                                        // user drags it (onValueModified writes value=newVal),
+                                        // so a Settings update from this preset tap won't
+                                        // reach the slider on its own.
+                                        steamingFlowSlider.value = flow
+                                        // Settings assignment alone only updates QSettings; the BLE
+                                        // MMR write to 0x803828 lives in MainController. Push the
+                                        // new flow immediately so the DE1 picks it up mid-session.
+                                        // Don't push timeout — the DE1's session timer is already
+                                        // running on the prior value and a mid-session timeout
+                                        // change risks an immediate stop if the new value is < elapsed.
+                                        MainController.setSteamFlowImmediate(flow)
+                                    }
                                 }
                             }
                         }
@@ -650,8 +665,11 @@ Page {
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                     KeyNavigation.tab: steamStopButton.visible ? steamStopButton : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider)
                     KeyNavigation.backtab: increaseTimeBtn
-                    // Defer BLE writes to commit: onValueModified fires per
-                    // adjustment tick; BLE should only fire on release.
+                    // BLE write deferred to commit (PR #782 pattern). The single
+                    // commit-time MMR write is reliable because setSteamFlowImmediate
+                    // routes through writeMMRVerified — write, read-back, retry on
+                    // mismatch — so a single caller-side call is enough even when
+                    // the firmware's sample-tick loop misses the first write.
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
                         saveCurrentPitcher(getCurrentPitcherDuration(), newValue)

@@ -1413,8 +1413,12 @@ void MainController::setSteamFlowImmediate(int flow) {
 
     m_settings->setSteamFlow(flow);
 
-    // Send steam flow via MMR (can be changed in real-time)
-    m_device->writeMMR(0x803828, flow, QStringLiteral("setSteamFlowImmediate"));
+    // Verify-and-retry: a single MMR write to 0x803828 isn't reliably picked
+    // up by the steam controller's sample-tick loop mid-Pouring. Read the
+    // register back and retry until the DE1 confirms the new value, so a
+    // single caller-side call (slider release, preset tap) is enough.
+    m_device->writeMMRVerified(0x803828, flow,
+                               QStringLiteral("setSteamFlowImmediate"));
 
     qDebug() << "Steam flow set to:" << flow;
 }

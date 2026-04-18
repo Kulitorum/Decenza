@@ -225,6 +225,17 @@ public slots:
     void writeMMRUrgent(uint32_t address, uint32_t value,
                         const QString& reason = QString());
 
+    // MMR write with read-back verification: write, then read the register
+    // back ~50ms later, retry up to maxRetries times if the read doesn't
+    // return the value we wrote. Used for SteamFlow during steaming where a
+    // single MMR write isn't reliably picked up by the firmware's sample-tick
+    // loop — verify-and-retry replaces blind spam with confirmed delivery.
+    // A subsequent call for the same address replaces (cancels) the prior
+    // verification — newest write wins.
+    void writeMMRVerified(uint32_t address, uint32_t value,
+                          const QString& reason = QString(),
+                          int maxRetries = 5);
+
     // USB charger control (force=true to resend even if state unchanged, needed for DE1's 10-min timeout)
     void setUsbChargerOn(bool on, bool force = false);
 
@@ -296,6 +307,10 @@ private:
     void rebuildVersionLine3();
     void requestGHCStatus();
 
+    // writeMMRVerified helpers
+    void scheduleMMRVerifyRead(uint32_t address);
+    void retryMMRVerify(uint32_t address, const QString& cause);
+
     void sendInitialSettings();
 
     // Profile upload tracking (frame-ACK verification, modeled on de1app's
@@ -352,6 +367,15 @@ private:
     // changes fan out into the same MMR). Cleared on transport disconnect so
     // a reconnect re-writes real values rather than trusting stale ones.
     QHash<uint32_t, uint32_t> m_lastMMRValues;
+    // Pending writeMMRVerified() entries keyed by address. Each tracks the
+    // expected value and remaining retry budget; cleared when a read-back
+    // matches or retries are exhausted, and on transport disconnect.
+    struct PendingMMRVerify {
+        uint32_t expectedValue;
+        int attemptsRemaining;
+        QString reason;
+    };
+    QHash<uint32_t, PendingMMRVerify> m_pendingMMRVerifies;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)

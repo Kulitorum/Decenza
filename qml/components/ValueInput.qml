@@ -320,12 +320,26 @@ Item {
                         if (!isDragging && !hasMoved) {
                             scrubberPopup.open()
                         }
+                        // Commit on drag release. PR #782 added the
+                        // valueCommitted contract for the +/- buttons but
+                        // missed this MouseArea, so drags were updating
+                        // _dirtySinceCommit during onPositionChanged
+                        // (via _emitValueModified) without ever firing
+                        // commitValue() — silently dropping the BLE write
+                        // for every consumer that migrated to onValueCommitted.
+                        if (isDragging) {
+                            root.commitValue()
+                        }
                         isDragging = false
                         dragReady = false
                         hasMoved = false
                     }
 
                     onCanceled: {
+                        // Drag canceled (e.g. finger left the screen edge,
+                        // or another gesture stole focus). Don't commit —
+                        // this matches the +/- button onCanceled semantics
+                        // (treat cancel as "user changed their mind").
                         isDragging = false
                         dragReady = false
                         hasMoved = false
