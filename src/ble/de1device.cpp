@@ -1295,6 +1295,11 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // read-back verification are all skipped. m_lastShotSettingsPayload is
     // intentionally left untouched — drift detection only runs against real
     // DE1 indications, which never fire in sim mode.
+    //
+    // Guarded by QT_DEBUG because m_simulator and setSimulator() are only
+    // compiled in debug builds (see de1device.h). Release builds have no
+    // simulator at all, so this branch is dead code there.
+#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->setTargetSteamTemp(steamTemp);
         m_commandedSteamTargetC = steamTemp;
@@ -1304,6 +1309,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
         m_commandedGroupTargetC = groupTemp;
         return;
     }
+#endif
     if (!m_transport) return;
     QByteArray data(9, 0);
     data[0] = 0;  // SteamSettings flags
