@@ -1174,7 +1174,10 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
         if (m_screensaverManager->addPersonalMedia(outputPath, filename, mediaDate)) {
             sendResponse(socket, 200, "text/plain", "Media uploaded successfully");
         } else {
-            QFile::remove(outputPath);
+            QString pathToRemove = outputPath;
+            QThread* t = QThread::create([pathToRemove]() { QFile::remove(pathToRemove); });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
             sendResponse(socket, 500, "text/plain", "Failed to add media to screensaver");
         }
 

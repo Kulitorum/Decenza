@@ -67,7 +67,6 @@ signals:
     void releaseNotesChanged();
     void errorMessageChanged();
     void updatePromptRequested();  // Emitted when auto-check finds update
-    void installationStarted();
     void installingChanged();
     void latestIsBetaChanged();
     void downloadReadyChanged();
