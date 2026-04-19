@@ -185,6 +185,7 @@ public class ApkInstaller {
 
     private static final BroadcastReceiver sStatusReceiver = new BroadcastReceiver() {
         @Override
+        @SuppressWarnings("deprecation")  // getParcelableExtra(String) on pre-33; typed overload used on 33+
         public void onReceive(Context context, Intent intent) {
             int status = intent.getIntExtra(
                     PackageInstaller.EXTRA_STATUS,
@@ -197,7 +198,6 @@ public class ApkInstaller {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class);
                 } else {
-                    //noinspection deprecation
                     confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
                 }
                 if (confirm == null) {
