@@ -73,6 +73,9 @@ void registerInstallerNativeMethods()
         return;
     }
     registered = true;
+    // Mark native as registered so ShotServer can query isNativeRegistered() via JNI.
+    QJniObject::callStaticMethod<void>(
+        "io/github/kulitorum/decenza_de1/ApkInstaller", "onNativeRegistered", "()V");
 }
 }  // namespace
 #endif
@@ -375,8 +378,8 @@ void UpdateChecker::downloadAndInstall()
         qDebug() << "UpdateChecker: APK already downloaded, installing directly:" << m_downloadedApkPath;
         m_errorMessage.clear();
         emit errorMessageChanged();
-        emit installationStarted();
-        installApk(m_downloadedApkPath);
+        if (installApk(m_downloadedApkPath))
+            emit installationStarted();
         return;
     }
 
@@ -595,8 +598,8 @@ void UpdateChecker::onDownloadFinished()
     }
 
     // Install the APK
-    emit installationStarted();
-    installApk(filePath);
+    if (installApk(filePath))
+        emit installationStarted();
 }
 
 void UpdateChecker::dismissUpdate()
@@ -667,13 +670,13 @@ void UpdateChecker::onPeriodicCheck()
     });
 }
 
-void UpdateChecker::installApk(const QString& apkPath)
+bool UpdateChecker::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
     if (s_nativeRegistrationFailed) {
         m_errorMessage = "Install bridge failed to initialize. Please restart the app and try again.";
         emit errorMessageChanged();
-        return;
+        return false;
     }
 
     qDebug() << "UpdateChecker: Installing APK via PackageInstaller session:" << apkPath;
@@ -687,7 +690,7 @@ void UpdateChecker::installApk(const QString& apkPath)
         qWarning() << "UpdateChecker: Failed to get Android activity";
         m_errorMessage = "Failed to get Android activity";
         emit errorMessageChanged();
-        return;
+        return false;
     }
 
     QJniObject javaPath = QJniObject::fromString(apkPath);
@@ -707,18 +710,28 @@ void UpdateChecker::installApk(const QString& apkPath)
     }
 
     if (!ok) {
-        m_errorMessage = "Could not start install. If this is a first install, enable "
-                         "'Install Unknown Apps' for Decenza in Android Settings, then try again.";
+        // Distinguish: in-flight (stuck OEM flag or ShotServer session) vs. genuine failure.
+        jboolean inFlight = QJniObject::callStaticMethod<jboolean>(
+            "io/github/kulitorum/decenza_de1/ApkInstaller", "isInFlight", "()Z");
+        if (inFlight == JNI_TRUE) {
+            m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "
+                             "restart the app and try again.";
+        } else {
+            m_errorMessage = "Could not start install. If this is a first install, enable "
+                             "'Install Unknown Apps' for Decenza in Android Settings, then try again.";
+        }
         emit errorMessageChanged();
-        return;
+        return false;
     }
 
     m_installInFlight = true;
     qDebug() << "UpdateChecker: PackageInstaller install dispatched (session write runs on worker thread)";
+    return true;
 #else
     qDebug() << "UpdateChecker: APK installation only supported on Android. File saved to:" << apkPath;
     m_errorMessage = "APK installation only supported on Android";
     emit errorMessageChanged();
+    return false;
 #endif
 }
 
@@ -733,6 +746,12 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     constexpr int INTERNAL_STATUS_CREATE_FAILED    = -100;
     constexpr int INTERNAL_STATUS_WRITE_FAILED     = -101;
     constexpr int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
+
+    if (!m_installInFlight) {
+        // Status from a ShotServer-triggered install or a stale session — not ours.
+        qDebug() << "UpdateChecker: ignoring install status=" << status << "(no active install)";
+        return;
+    }
 
     qDebug() << "UpdateChecker: install status=" << status << "message=" << message;
 

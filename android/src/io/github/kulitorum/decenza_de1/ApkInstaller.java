@@ -60,9 +60,13 @@ public class ApkInstaller {
 
     /**
      * Implemented in C++. Forwards install status (Android PackageInstaller
-     * STATUS_* or INTERNAL_STATUS_*) to {@code UpdateChecker} on the Qt main
-     * thread. Registered via {@code QJniEnvironment::registerNativeMethods}
-     * when the first {@code UpdateChecker} is constructed.
+     * STATUS_* or INTERNAL_STATUS_*) to the Qt main thread via a
+     * {@code QMetaObject::invokeMethod} call. Registered by
+     * {@code UpdateChecker} via {@code QJniEnvironment::registerNativeMethods}.
+     *
+     * Both {@code UpdateChecker}-triggered and {@code ShotServer}-triggered
+     * sessions share this callback. The C++ side uses {@code m_installInFlight}
+     * to ignore statuses that belong to sessions it did not dispatch.
      */
     static native void nativeOnInstallStatus(int status, String message);
 
@@ -80,6 +84,26 @@ public class ApkInstaller {
      * activity or path argument is null; the APK file is missing or empty; or a
      * session is already in flight ({@link #sInstallInFlight} is set).
      */
+    /** Returns true if a PackageInstaller session is currently in flight. */
+    public static boolean isInFlight() {
+        return sInstallInFlight.get();
+    }
+
+    private static volatile boolean sNativeRegistered = false;
+
+    /**
+     * Called by UpdateChecker via JNI after successful native method registration.
+     * ShotServer can query this to know whether status callbacks will reach C++.
+     */
+    static void onNativeRegistered() {
+        sNativeRegistered = true;
+    }
+
+    /** Returns true if the JNI status callback is registered and functional. */
+    public static boolean isNativeRegistered() {
+        return sNativeRegistered;
+    }
+
     public static boolean install(Activity activity, String apkPath) {
         if (activity == null || apkPath == null) {
             Log.e(TAG, "install: null activity or path");
@@ -121,6 +145,9 @@ public class ApkInstaller {
             // Catches Error subclasses (OutOfMemoryError, etc.) that escape the
             // narrower catches inside doSessionInstall, ensuring sInstallInFlight
             // is always reset and the C++ side always receives a terminal status.
+            // Reports INTERNAL_STATUS_WRITE_FAILED as a generic unexpected-error
+            // sentinel; the more specific INTERNAL_STATUS_CREATE_FAILED is only
+            // produced by the narrower catches inside doSessionInstall.
             Log.e(TAG, "install: unexpected error in worker: " + t);
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, t.toString());

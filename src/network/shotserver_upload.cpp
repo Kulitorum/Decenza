@@ -305,6 +305,68 @@ QString ShotServer::generateUploadPage() const
 )HTML");
 }
 
+// Called from onReadyRead's streaming path for APK uploads. The body has already
+// been written to tempPath on disk — this renames it to the final cache location
+// without ever holding the full APK in memory on the main thread.
+void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPath, const QString& headers)
+{
+    QString filename = "uploaded.apk";
+    for (const QString& line : headers.split("\r\n")) {
+        if (line.startsWith("X-Filename:", Qt::CaseInsensitive)) {
+            filename = line.mid(11).trimmed();
+            break;
+        }
+    }
+    filename = QFileInfo(filename).fileName();
+    if (filename.isEmpty()) filename = "uploaded.apk";
+
+    if (!filename.endsWith(".apk", Qt::CaseInsensitive)) {
+        QFile::remove(tempPath);
+        sendResponse(socket, 400, "text/plain", "Only APK files are allowed");
+        return;
+    }
+
+    QString savePath;
+#ifdef Q_OS_ANDROID
+    savePath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+#else
+    savePath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+#endif
+    QDir().mkpath(savePath);
+    QString fullPath = savePath + "/" + filename;
+
+    QPointer<QTcpSocket> safeSocket = socket;
+    QPointer<ShotServer> safeThis = this;
+    QThread* t = QThread::create([safeThis, safeSocket, tempPath, fullPath]() {
+        // Remove stale destination, then rename (atomic on same filesystem).
+        QFile::remove(fullPath);
+        bool ok = QFile::rename(tempPath, fullPath);
+        if (!ok) {
+            // Cross-filesystem fallback: copy then delete.
+            ok = QFile::copy(tempPath, fullPath);
+            QFile::remove(tempPath);
+        }
+        if (!ok) {
+            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
+                if (safeThis && safeSocket)
+                    safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to save APK");
+            }, Qt::QueuedConnection);
+            return;
+        }
+        qDebug() << "APK uploaded:" << fullPath << "size:" << QFileInfo(fullPath).size();
+        QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, fullPath]() {
+            if (!safeThis || !safeSocket) return;
+            if (!safeThis->installApk(fullPath)) {
+                safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
+                return;
+            }
+            safeThis->sendResponse(safeSocket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
+        }, Qt::QueuedConnection);
+    });
+    connect(t, &QThread::finished, t, &QThread::deleteLater);
+    t->start();
+}
+
 void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
 {
     // Parse headers to get filename and content
@@ -316,6 +378,12 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
 
     QString headers = QString::fromUtf8(request.left(headerEndPos));
     QByteArray body = request.mid(headerEndPos + 4);
+
+    if (body.size() > MAX_UPLOAD_SIZE) {
+        sendResponse(socket, 413, "text/plain",
+            QString("File too large. Maximum size is %1 MB").arg(MAX_UPLOAD_SIZE / (1024*1024)).toUtf8());
+        return;
+    }
 
     // Get filename from X-Filename header
     QString filename = "uploaded.apk";
@@ -383,6 +451,15 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
 bool ShotServer::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
+    // If JNI registration failed, PackageInstaller still works but C++ won't
+    // receive the status callback. ShotServer doesn't need the callback (the
+    // user sees Android's own confirmation/error UI), so we proceed anyway.
+    jboolean nativeReady = QJniObject::callStaticMethod<jboolean>(
+        "io/github/kulitorum/decenza_de1/ApkInstaller", "isNativeRegistered", "()Z");
+    if (!nativeReady) {
+        qWarning() << "ShotServer: install bridge not initialized — install status won't be reported to C++";
+    }
+
     qDebug() << "ShotServer: Installing APK via PackageInstaller session:" << apkPath;
 
     QJniObject activity = QJniObject::callStaticObjectMethod(

@@ -86,7 +86,7 @@ private slots:
 private:
     void parseReleaseInfo(const QByteArray& data);
     void startDownload();
-    void installApk(const QString& apkPath);
+    bool installApk(const QString& apkPath);
     int extractBuildNumber(const QString& version) const;
     bool isNewerVersion(const QString& latest, const QString& current) const;
 

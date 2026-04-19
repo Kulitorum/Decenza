@@ -596,9 +596,13 @@ void ShotServer::onReadyRead()
             // Check if this is a media upload (POST to /upload/media)
             pending.isMediaUpload = requestLine.contains("POST") && requestLine.contains("/upload/media");
             pending.isBackupRestore = requestLine.contains("POST") && requestLine.contains("/api/backup/restore");
+            // APK upload: POST /upload (not /upload/anything-else)
+            pending.isApkUpload = requestLine.contains("POST") &&
+                                  requestLine.contains("/upload") &&
+                                  !requestLine.contains("/upload/");
 
-            // Check upload size limit for media uploads
-            if ((pending.isMediaUpload || pending.isBackupRestore) && pending.contentLength > MAX_UPLOAD_SIZE) {
+            // Check upload size limit for media and APK uploads
+            if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.contentLength > MAX_UPLOAD_SIZE) {
                 qWarning() << "ShotServer: Upload too large:" << pending.contentLength << "bytes (max:" << MAX_UPLOAD_SIZE << ")";
                 sendResponse(socket, 413, "text/plain",
                     QString("File too large. Maximum size is %1 MB").arg(MAX_UPLOAD_SIZE / (1024*1024)).toUtf8());
@@ -609,7 +613,7 @@ void ShotServer::onReadyRead()
             }
 
             // Check concurrent upload limit
-            if ((pending.isMediaUpload || pending.isBackupRestore) && m_activeMediaUploads >= MAX_CONCURRENT_UPLOADS) {
+            if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && m_activeMediaUploads >= MAX_CONCURRENT_UPLOADS) {
                 qWarning() << "ShotServer: Too many concurrent uploads";
                 sendResponse(socket, 503, "text/plain", "Server busy. Please wait and try again.");
                 cleanupPendingRequest(socket);
@@ -618,8 +622,8 @@ void ShotServer::onReadyRead()
                 return;
             }
 
-            // For large uploads (> 1MB), stream to temp file instead of memory
-            if (pending.contentLength > MAX_SMALL_BODY_SIZE) {
+            // For large uploads (> 1MB) and all APK uploads, stream to temp file instead of memory
+            if (pending.contentLength > MAX_SMALL_BODY_SIZE || pending.isApkUpload) {
                 QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
                 pending.tempFilePath = tempDir + "/upload_stream_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
                 pending.tempFile = new QFile(pending.tempFilePath);
@@ -631,7 +635,7 @@ void ShotServer::onReadyRead()
                     socket->close();
                     return;
                 }
-                if (pending.isMediaUpload || pending.isBackupRestore) {
+                if (pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) {
                     m_activeMediaUploads++;
                 }
                 qDebug() << "ShotServer: Streaming large upload to" << pending.tempFilePath;
@@ -688,17 +692,20 @@ void ShotServer::onReadyRead()
         }
 
         // Handle the request
-        if ((pending.isMediaUpload || pending.isBackupRestore) && pending.tempFile) {
+        if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.tempFile) {
             // Large upload with streamed body - pass temp file path
             QString headers = QString::fromUtf8(pending.headerData);
             QString tempPath = pending.tempFilePath;
             bool wasBackupRestore = pending.isBackupRestore;
+            bool wasApkUpload = pending.isApkUpload;
             pending.tempFile = nullptr;  // Transfer ownership
             pending.tempFilePath.clear();
             m_activeMediaUploads--;
             m_pendingRequests.remove(socket);
             if (wasBackupRestore) {
                 handleBackupRestore(socket, tempPath, headers);
+            } else if (wasApkUpload) {
+                handleUploadFromFile(socket, tempPath, headers);
             } else {
                 handleMediaUpload(socket, tempPath, headers);
             }
@@ -818,7 +825,7 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
     }
     // Only decrement if this was a large upload that was actually counted
     // (small uploads < MAX_SMALL_BODY_SIZE don't increment m_activeMediaUploads)
-    if ((pending.isMediaUpload || pending.isBackupRestore) && !pending.tempFilePath.isEmpty() && m_activeMediaUploads > 0) {
+    if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && !pending.tempFilePath.isEmpty() && m_activeMediaUploads > 0) {
         m_activeMediaUploads--;
     }
 }

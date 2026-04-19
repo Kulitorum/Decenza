@@ -44,6 +44,7 @@ struct PendingRequest {
     QElapsedTimer lastActivity;     // For timeout tracking
     bool isMediaUpload = false;     // Flag for media upload requests
     bool isBackupRestore = false;   // Flag for backup restore uploads
+    bool isApkUpload = false;       // Flag for APK upload requests
 };
 
 class ShotServer : public QObject {
@@ -134,6 +135,7 @@ private:
     QString generateDebugPage() const;
     QString generateUploadPage() const;
     void handleUpload(QTcpSocket* socket, const QByteArray& request);
+    void handleUploadFromFile(QTcpSocket* socket, const QString& tempPath, const QString& headers);
     bool installApk(const QString& apkPath);
 
     // Personal media upload
