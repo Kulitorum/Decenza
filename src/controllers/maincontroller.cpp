@@ -1501,6 +1501,14 @@ void MainController::onEspressoCycleStarted() {
         }
     }
 
+    // Reset MachineState::targetWeight to the profile's current value so any +10g
+    // bump from the previous shot doesn't carry over. main.cpp reads
+    // machineState.targetWeight() in its espressoCycleStarted lambda to configure
+    // WeightProcessor, and MainController's handler runs first (connected earlier).
+    if (m_machineState && m_profileManager) {
+        m_machineState->setTargetWeight(m_profileManager->targetWeight());
+    }
+
     // Save previous shot if settling is still in progress — startShot() emits
     // shotProcessingReady synchronously, which triggers onShotEnded(). This must
     // happen BEFORE clearing the model or resetting m_extractionStarted, otherwise
