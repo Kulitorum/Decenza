@@ -362,6 +362,12 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 void UpdateChecker::downloadAndInstall()
 {
     if (m_downloading || m_checking) return;
+    if (m_installInFlight) {
+        m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "
+                         "restart the app and try again.";
+        emit errorMessageChanged();
+        return;
+    }
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = "No download available for this platform";
         qWarning() << "UpdateChecker:" << m_errorMessage;
@@ -417,12 +423,8 @@ void UpdateChecker::startDownload()
     QString filename = QString("Decenza_%1.apk").arg(m_latestVersion);
     QString fullPath = savePath + "/" + filename;
 
-    if (QFile::exists(fullPath) && !QFile::remove(fullPath)) {
-        qWarning() << "UpdateChecker: Could not remove existing file:" << fullPath;
-    }
-
     m_downloadFile = new QFile(fullPath);
-    if (!m_downloadFile->open(QIODevice::WriteOnly)) {
+    if (!m_downloadFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         m_errorMessage = "Failed to create download file: " + m_downloadFile->errorString();
         m_downloading = false;
         emit downloadingChanged();
