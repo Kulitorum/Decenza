@@ -15,12 +15,62 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #include <QJniEnvironment>
+#include <QPointer>
+#include <jni.h>
 #include <unistd.h>  // fsync
 #include <cerrno>    // errno, strerror
 #endif
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
+
+#ifdef Q_OS_ANDROID
+namespace {
+// Weak pointer to the active UpdateChecker so the JNI callback can route
+// async install status back to it. Only one UpdateChecker exists at a time.
+QPointer<UpdateChecker> s_activeChecker;
+
+// JNI bridge invoked from ApkInstaller's worker thread / BroadcastReceiver.
+// Must hop to the Qt main thread because it touches QObject state + emits
+// signals that drive QML property updates.
+void installerNativeOnInstallStatus(JNIEnv* env, jclass, jint status, jstring messageJ)
+{
+    QString message;
+    if (messageJ) {
+        const char* chars = env->GetStringUTFChars(messageJ, nullptr);
+        if (chars) {
+            message = QString::fromUtf8(chars);
+            env->ReleaseStringUTFChars(messageJ, chars);
+        }
+    }
+    const int s = static_cast<int>(status);
+    QMetaObject::invokeMethod(qApp, [s, message]() {
+        if (auto* checker = s_activeChecker.data()) {
+            checker->onInstallStatus(s, message);
+        }
+    }, Qt::QueuedConnection);
+}
+
+void registerInstallerNativeMethods()
+{
+    static bool registered = false;
+    if (registered) return;
+    QJniEnvironment env;
+    JNINativeMethod methods[] = {
+        {"nativeOnInstallStatus",
+         "(ILjava/lang/String;)V",
+         reinterpret_cast<void*>(installerNativeOnInstallStatus)},
+    };
+    if (!env.registerNativeMethods(
+            "io/github/kulitorum/decenza_de1/ApkInstaller", methods, 1)) {
+        qWarning() << "UpdateChecker: failed to register native methods on ApkInstaller";
+        return;
+    }
+    registered = true;
+}
+}  // namespace
+#endif
+
 UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
@@ -28,6 +78,10 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
     , m_periodicTimer(new QTimer(this))
 {
     Q_ASSERT(networkManager);
+#ifdef Q_OS_ANDROID
+    registerInstallerNativeMethods();
+    s_activeChecker = this;
+#endif
     // Check every hour
     m_periodicTimer->setInterval(60 * 60 * 1000);  // 1 hour
     connect(m_periodicTimer, &QTimer::timeout, this, &UpdateChecker::onPeriodicCheck);
@@ -307,8 +361,8 @@ void UpdateChecker::downloadAndInstall()
     }
 
     // If we already downloaded this version's APK and it's the right size, skip
-    // straight to install. This handles the case where Android's "Install Unknown
-    // Apps" permission flow consumed the first install intent.
+    // straight to install. This handles the case where a prior attempt didn't
+    // complete (e.g., Android's "Install Unknown Apps" permission redirect).
     if (!m_downloadedApkPath.isEmpty() && QFileInfo::exists(m_downloadedApkPath)
         && m_expectedDownloadSize > 0
         && QFileInfo(m_downloadedApkPath).size() == m_expectedDownloadSize) {
@@ -355,7 +409,6 @@ void UpdateChecker::startDownload()
     QString filename = QString("Decenza_%1.apk").arg(m_latestVersion);
     QString fullPath = savePath + "/" + filename;
 
-    // Remove existing file (may still be held by PackageInstaller)
     if (QFile::exists(fullPath) && !QFile::remove(fullPath)) {
         qWarning() << "UpdateChecker: Could not remove existing file:" << fullPath;
     }
@@ -435,9 +488,10 @@ void UpdateChecker::onDownloadFinished()
 
     QString filePath = m_downloadFile->fileName();
 
-    // Flush Qt's userspace buffer, then call fsync to commit the kernel
-    // page-cache to persistent storage before launching the install intent.
-    // Without this, PackageInstaller can open a truncated APK.
+    // Best-effort flush: push Qt's userspace buffer to the kernel, then fsync
+    // to nudge the kernel toward persistent storage before the PackageInstaller
+    // session opens the file for reading. Failures are non-fatal — if the file
+    // really is incomplete, PackageInstaller's verification will reject it.
     bool flushOk = m_downloadFile->flush();
     if (!flushOk) {
         qWarning() << "UpdateChecker: flush() failed:" << m_downloadFile->errorString();
@@ -548,10 +602,11 @@ void UpdateChecker::dismissUpdate()
     m_updateAvailable = false;
     emit updateAvailableChanged();
 
-    // Delete the cached APK on dismiss. Unlike version-change invalidation
-    // (which leaves the file for PackageInstaller), dismiss is an explicit
-    // user action so the file is no longer needed.
-    if (!m_downloadedApkPath.isEmpty()) {
+    // Dismiss is an explicit user action; remove the cached APK immediately —
+    // unless an install is in flight, in which case the worker thread is
+    // mid-stream from this file and deleting it would race the FileInputStream
+    // open (pre-unlink) or produce a partial session (post-unlink).
+    if (!m_downloadedApkPath.isEmpty() && !m_installInFlight) {
         if (!QFile::remove(m_downloadedApkPath)) {
             qWarning() << "UpdateChecker: Failed to remove cached APK:" << m_downloadedApkPath;
         }
@@ -642,6 +697,7 @@ void UpdateChecker::installApk(const QString& apkPath)
         return;
     }
 
+    m_installInFlight = true;
     qDebug() << "UpdateChecker: PackageInstaller install dispatched (session write runs on worker thread)";
 #else
     qDebug() << "UpdateChecker: APK installation only supported on Android. File saved to:" << apkPath;
@@ -649,6 +705,67 @@ void UpdateChecker::installApk(const QString& apkPath)
     emit errorMessageChanged();
 #endif
 }
+
+#ifdef Q_OS_ANDROID
+void UpdateChecker::onInstallStatus(int status, const QString& message)
+{
+    // Mirror the Java sentinels in ApkInstaller.java — kept outside the
+    // PackageInstaller STATUS_* range (-1..8).
+    constexpr int INTERNAL_STATUS_CREATE_FAILED = -100;
+    constexpr int INTERNAL_STATUS_WRITE_FAILED  = -101;
+
+    qDebug() << "UpdateChecker: install status=" << status << "message=" << message;
+
+    // PackageInstaller codes: STATUS_SUCCESS=0, STATUS_FAILURE=1,
+    // STATUS_FAILURE_BLOCKED=2, STATUS_FAILURE_ABORTED=3, STATUS_FAILURE_INVALID=4,
+    // STATUS_FAILURE_CONFLICT=5, STATUS_FAILURE_STORAGE=6,
+    // STATUS_FAILURE_INCOMPATIBLE=7, STATUS_FAILURE_TIMEOUT=8.
+    QString userMessage;
+    switch (status) {
+        case 0:  // STATUS_SUCCESS — app is typically being killed for the upgrade.
+            m_installInFlight = false;
+            return;
+        case 3:  // STATUS_FAILURE_ABORTED — user cancelled the confirmation.
+            m_installInFlight = false;
+            return;
+        case 2:  // STATUS_FAILURE_BLOCKED
+            userMessage = "Install blocked by device policy.";
+            break;
+        case 4:  // STATUS_FAILURE_INVALID
+            userMessage = "The downloaded APK is invalid. Please try again.";
+            break;
+        case 5:  // STATUS_FAILURE_CONFLICT
+            userMessage = "Install conflicts with an existing app. Please uninstall and retry.";
+            break;
+        case 6:  // STATUS_FAILURE_STORAGE
+            userMessage = "Not enough storage to install the update.";
+            break;
+        case 7:  // STATUS_FAILURE_INCOMPATIBLE
+            userMessage = "Update is incompatible with this device.";
+            break;
+        case 8:  // STATUS_FAILURE_TIMEOUT
+            userMessage = "Install timed out. Please try again.";
+            break;
+        case INTERNAL_STATUS_CREATE_FAILED:
+            userMessage = "Could not start install session. Check that 'Install Unknown Apps' "
+                          "is enabled for Decenza in Android Settings, then try again.";
+            break;
+        case INTERNAL_STATUS_WRITE_FAILED:
+            userMessage = "Failed to write the update package. Please try again.";
+            break;
+        default:  // STATUS_FAILURE (1) and anything unexpected.
+            userMessage = "Install failed.";
+            if (!message.isEmpty()) {
+                userMessage += " (" + message + ")";
+            }
+            break;
+    }
+
+    m_installInFlight = false;
+    m_errorMessage = userMessage;
+    emit errorMessageChanged();
+}
+#endif
 
 bool UpdateChecker::canDownloadUpdate() const
 {

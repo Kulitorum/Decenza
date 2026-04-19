@@ -23,16 +23,34 @@ import java.io.OutputStream;
  * the confirmation dialog was being dismissed by a lifecycle flicker, forcing
  * the user to tap "Install" a second time.
  *
- * On API 31+ we request USER_ACTION_NOT_REQUIRED. When this app is already the
- * package's update owner, Android may apply the update silently; otherwise the
- * system fires STATUS_PENDING_USER_ACTION and we forward its EXTRA_INTENT to
- * startActivity, which is the officially-sanctioned way to surface the
- * confirmation sheet and is not subject to the flicker race.
+ * On API 31+ we request USER_ACTION_NOT_REQUIRED. If this app is the installer
+ * of record for its own package (common after a prior self-install), Android
+ * may apply the update silently; otherwise the system fires
+ * STATUS_PENDING_USER_ACTION and we forward its EXTRA_INTENT to startActivity,
+ * which is the officially-sanctioned way to surface the confirmation sheet and
+ * is not subject to the flicker race.
+ *
+ * Terminal statuses (SUCCESS / FAILURE*) and internal worker-thread errors are
+ * reported back to Qt via {@link #nativeOnInstallStatus}.
  */
 public class ApkInstaller {
     private static final String TAG = "ApkInstaller";
     private static final String ACTION_INSTALL_STATUS =
             "io.github.kulitorum.decenza_de1.APK_INSTALL_STATUS";
+
+    // Sentinel codes for errors that happen before PackageInstaller produces a
+    // STATUS_*. Values are chosen outside the PackageInstaller.STATUS_* range
+    // (STATUS_PENDING_USER_ACTION = -1, STATUS_* = 0..8) to avoid collision.
+    private static final int INTERNAL_STATUS_CREATE_FAILED = -100;
+    private static final int INTERNAL_STATUS_WRITE_FAILED = -101;
+
+    /**
+     * Implemented in C++. Forwards install status (Android PackageInstaller
+     * STATUS_* or INTERNAL_STATUS_*) to {@code UpdateChecker} on the Qt main
+     * thread. Registered via {@code QJniEnvironment::registerNativeMethods}
+     * when the first {@code UpdateChecker} is constructed.
+     */
+    static native void nativeOnInstallStatus(int status, String message);
 
     /**
      * Validates the APK, registers the status receiver, then streams the APK
@@ -40,9 +58,9 @@ public class ApkInstaller {
      * quickly so the Qt UI thread stays responsive during the (potentially
      * multi-second) session write for large APKs.
      *
-     * Returns true on successful dispatch of the worker thread. Write/commit
-     * failures are reported asynchronously via logcat; STATUS_PENDING_USER_ACTION
-     * and terminal install statuses arrive on the registered BroadcastReceiver.
+     * Returns true on successful dispatch of the worker thread. All subsequent
+     * failures (create / write / commit / PackageInstaller terminal statuses)
+     * are reported via {@link #nativeOnInstallStatus}.
      */
     public static boolean install(Activity activity, String apkPath) {
         if (activity == null || apkPath == null) {
@@ -94,6 +112,7 @@ public class ApkInstaller {
             sessionId = installer.createSession(params);
         } catch (IOException e) {
             Log.e(TAG, "install: createSession failed: " + e);
+            reportStatus(INTERNAL_STATUS_CREATE_FAILED, e.toString());
             return;
         }
 
@@ -122,15 +141,27 @@ public class ApkInstaller {
 
             session.commit(pi.getIntentSender());
             Log.i(TAG, "install: session " + sessionId + " committed (" + apkLen + " bytes)");
-        } catch (IOException e) {
+        } catch (Exception e) {
             Log.e(TAG, "install: write/commit failed: " + e);
             if (session != null) {
                 try { session.abandon(); } catch (Exception ignored) {}
             }
+            reportStatus(INTERNAL_STATUS_WRITE_FAILED, e.toString());
         } finally {
             if (session != null) {
                 session.close();
             }
+        }
+    }
+
+    private static void reportStatus(int status, String message) {
+        try {
+            nativeOnInstallStatus(status, message);
+        } catch (UnsatisfiedLinkError e) {
+            // Native side not yet registered (unit tests, or install()
+            // called before UpdateChecker construction). Logged status is
+            // the fallback signal.
+            Log.w(TAG, "reportStatus: native not registered, status=" + status);
         }
     }
 
@@ -158,7 +189,12 @@ public class ApkInstaller {
                     PackageInstaller.EXTRA_STATUS_MESSAGE);
 
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                Intent confirm;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class);
+                } else {
+                    confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                }
                 if (confirm == null) {
                     Log.w(TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
                     return;
@@ -169,11 +205,13 @@ public class ApkInstaller {
                     Log.i(TAG, "install: user confirmation dialog launched");
                 } catch (Exception e) {
                     Log.e(TAG, "install: startActivity for confirm failed: " + e);
+                    reportStatus(INTERNAL_STATUS_WRITE_FAILED, "failed to launch install dialog: " + e);
                 }
                 return;
             }
 
             Log.i(TAG, "install: status=" + status + " msg=" + msg);
+            reportStatus(status, msg);
         }
     };
 }

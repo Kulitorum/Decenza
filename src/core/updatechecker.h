@@ -55,6 +55,13 @@ public:
     Q_INVOKABLE void downloadAndInstall();
     Q_INVOKABLE void dismissUpdate();
 
+#ifdef Q_OS_ANDROID
+    // Called (on the Qt main thread) from the JNI bridge in updatechecker.cpp
+    // when the Java PackageInstaller session reports a terminal status or an
+    // internal create/write failure.
+    void onInstallStatus(int status, const QString& message);
+#endif
+
 signals:
     void checkingChanged();
     void downloadingChanged();
@@ -102,6 +109,7 @@ private:
     bool m_latestIsBeta = false;
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
+    bool m_installInFlight = false;  // True between installApk() dispatch and terminal PackageInstaller status
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
