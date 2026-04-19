@@ -42,14 +42,20 @@ public class ApkInstaller {
 
     // Sentinel codes for errors that happen before PackageInstaller produces a
     // STATUS_*. Values are chosen outside the PackageInstaller.STATUS_* range
-    // (STATUS_PENDING_USER_ACTION = -1, STATUS_SUCCESS..STATUS_FAILURE_TIMEOUT = 0..8).
+    // (STATUS_PENDING_USER_ACTION = -1, STATUS_SUCCESS = 0, STATUS_FAILURE = 1,
+    //  STATUS_FAILURE_BLOCKED = 2, STATUS_FAILURE_ABORTED = 3,
+    //  STATUS_FAILURE_INVALID = 4, STATUS_FAILURE_CONFLICT = 5,
+    //  STATUS_FAILURE_STORAGE = 6, STATUS_FAILURE_INCOMPATIBLE = 7,
+    //  STATUS_FAILURE_TIMEOUT = 8 [API 34+]).
     private static final int INTERNAL_STATUS_CREATE_FAILED   = -100;
     private static final int INTERNAL_STATUS_WRITE_FAILED    = -101;
     private static final int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
 
-    // Guards against concurrent sessions. Both the UpdateChecker and ShotServer
-    // paths share a single BroadcastReceiver whose callbacks route to one global
-    // nativeOnInstallStatus — a second session would corrupt m_installInFlight.
+    // Guards against concurrent sessions. Both UpdateChecker and ShotServer call
+    // install() but share a single BroadcastReceiver. A ShotServer-triggered
+    // session's terminal status is misdelivered to UpdateChecker.onInstallStatus()
+    // via nativeOnInstallStatus, potentially triggering spurious errors or APK
+    // cleanup. The AtomicBoolean ensures only one session exists at a time.
     private static final AtomicBoolean sInstallInFlight = new AtomicBoolean(false);
 
     /**
@@ -69,6 +75,10 @@ public class ApkInstaller {
      * Returns true on successful dispatch of the worker thread. All subsequent
      * failures (create / write / commit / PackageInstaller terminal statuses)
      * are reported via {@link #nativeOnInstallStatus}.
+     *
+     * Returns false without calling {@link #nativeOnInstallStatus} if: the
+     * activity or path argument is null; the APK file is missing or empty; or a
+     * session is already in flight ({@link #sInstallInFlight} is set).
      */
     public static boolean install(Activity activity, String apkPath) {
         if (activity == null || apkPath == null) {
@@ -105,6 +115,20 @@ public class ApkInstaller {
     }
 
     private static void runSessionInstall(Context appContext, File apk, long apkLen) {
+        try {
+            doSessionInstall(appContext, apk, apkLen);
+        } catch (Throwable t) {
+            // Catches Error subclasses (OutOfMemoryError, etc.) that escape the
+            // narrower catches inside doSessionInstall, ensuring sInstallInFlight
+            // is always reset and the C++ side always receives a terminal status.
+            Log.e(TAG, "install: unexpected error in worker: " + t);
+            sInstallInFlight.set(false);
+            reportStatus(INTERNAL_STATUS_WRITE_FAILED, t.toString());
+        }
+    }
+
+    private static void doSessionInstall(Context appContext, File apk, long apkLen)
+            throws Exception {
         PackageInstaller installer =
                 appContext.getPackageManager().getPackageInstaller();
 
@@ -123,17 +147,24 @@ public class ApkInstaller {
         int sessionId;
         try {
             sessionId = installer.createSession(params);
-        } catch (IOException e) {
+        } catch (IOException | SecurityException | IllegalArgumentException | IllegalStateException e) {
             Log.e(TAG, "install: createSession failed: " + e);
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_CREATE_FAILED, e.toString());
             return;
         }
 
-        PackageInstaller.Session session = null;
+        PackageInstaller.Session session;
         try {
             session = installer.openSession(sessionId);
+        } catch (IOException | SecurityException e) {
+            Log.e(TAG, "install: openSession failed: " + e);
+            sInstallInFlight.set(false);
+            reportStatus(INTERNAL_STATUS_CREATE_FAILED, e.toString());
+            return;
+        }
 
+        try {
             try (InputStream in = new FileInputStream(apk);
                  OutputStream out = session.openWrite("base.apk", 0, apkLen)) {
                 byte[] buf = new byte[1 << 16];
@@ -157,17 +188,13 @@ public class ApkInstaller {
             Log.i(TAG, "install: session " + sessionId + " committed (" + apkLen + " bytes)");
         } catch (Exception e) {
             Log.e(TAG, "install: write/commit failed: " + e);
-            if (session != null) {
-                try { session.abandon(); } catch (Exception e2) {
-                    Log.w(TAG, "session.abandon() failed: " + e2);
-                }
+            try { session.abandon(); } catch (Exception e2) {
+                Log.w(TAG, "session.abandon() failed: " + e2);
             }
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, e.toString());
         } finally {
-            if (session != null) {
-                session.close();
-            }
+            session.close();
         }
     }
 
@@ -184,6 +211,9 @@ public class ApkInstaller {
 
     private static volatile boolean sReceiverRegistered = false;
 
+    // Registers the receiver once for the application lifetime. It is
+    // deliberately not unregistered — sessions can outlive individual install()
+    // calls, and ACTION_INSTALL_STATUS is scoped to this package (not exported).
     private static synchronized void registerStatusReceiver(Context appContext) {
         if (sReceiverRegistered) return;
         IntentFilter filter = new IntentFilter(ACTION_INSTALL_STATUS);
@@ -224,6 +254,11 @@ public class ApkInstaller {
                 try {
                     context.getApplicationContext().startActivity(confirm);
                     Log.i(TAG, "install: user confirmation dialog launched");
+                    // sInstallInFlight stays true while the user interacts with
+                    // the confirmation dialog; the terminal STATUS_* broadcast
+                    // clears it below. Note: some OEM ROMs fail to deliver
+                    // STATUS_FAILURE_ABORTED on back-dismiss, which can leave the
+                    // flag stuck until the process restarts.
                 } catch (Exception e) {
                     Log.e(TAG, "install: startActivity for confirm failed: " + e);
                     sInstallInFlight.set(false);

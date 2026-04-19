@@ -53,6 +53,8 @@ void installerNativeOnInstallStatus(JNIEnv* env, jclass, jint status, jstring me
     }, Qt::QueuedConnection);
 }
 
+bool s_nativeRegistrationFailed = false;
+
 void registerInstallerNativeMethods()
 {
     static bool registered = false;
@@ -66,8 +68,7 @@ void registerInstallerNativeMethods()
     if (!env.registerNativeMethods(
             "io/github/kulitorum/decenza_de1/ApkInstaller", methods, 1)) {
         qWarning() << "UpdateChecker: failed to register native methods on ApkInstaller";
-        // Mark registered to prevent repeated failed attempts; install() will
-        // surface the missing bridge as an UnsatisfiedLinkError via reportStatus.
+        s_nativeRegistrationFailed = true;
         registered = true;
         return;
     }
@@ -669,6 +670,12 @@ void UpdateChecker::onPeriodicCheck()
 void UpdateChecker::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
+    if (s_nativeRegistrationFailed) {
+        m_errorMessage = "Install bridge failed to initialize. Please restart the app and try again.";
+        emit errorMessageChanged();
+        return;
+    }
+
     qDebug() << "UpdateChecker: Installing APK via PackageInstaller session:" << apkPath;
 
     QJniObject activity = QJniObject::callStaticObjectMethod(
@@ -719,7 +726,10 @@ void UpdateChecker::installApk(const QString& apkPath)
 void UpdateChecker::onInstallStatus(int status, const QString& message)
 {
     // Mirror the Java sentinels in ApkInstaller.java — kept outside the
-    // PackageInstaller STATUS_* range (STATUS_PENDING_USER_ACTION=-1, 0..8).
+    // PackageInstaller STATUS_* range (STATUS_PENDING_USER_ACTION=-1,
+    // STATUS_SUCCESS=0..STATUS_FAILURE_INCOMPATIBLE=7, STATUS_FAILURE_TIMEOUT=8 [API 34+]).
+    // Note: STATUS_PENDING_USER_ACTION is handled entirely in Java (startActivity)
+    // and is never forwarded here.
     constexpr int INTERNAL_STATUS_CREATE_FAILED    = -100;
     constexpr int INTERNAL_STATUS_WRITE_FAILED     = -101;
     constexpr int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
