@@ -3,6 +3,10 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
+#include <QProcess>
+#include <QStandardPaths>
+#include <atomic>
+#include <mutex>
 
 namespace {
 // Cached result of the /proc/self/status CAP_NET_ADMIN probe. BlueZ needs
@@ -42,6 +46,41 @@ void ensureChecked()
     }
 #endif
 }
+
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+// Run a short-lived external command and return its stdout (trimmed).
+// Returns an empty string if the binary isn't installed or the command
+// exceeded the 2-second budget. Stays on the caller's thread — only
+// invoked from the one-shot diagnostics dump, which runs off the BLE
+// error handler path.
+QString runBriefly(const QString& program, const QStringList& args)
+{
+    const QString resolved = QStandardPaths::findExecutable(program);
+    if (resolved.isEmpty()) return QString();
+    QProcess p;
+    p.setProcessChannelMode(QProcess::MergedChannels);
+    p.start(resolved, args);
+    if (!p.waitForFinished(2000)) {
+        p.kill();
+        p.waitForFinished(250);
+        return QString();
+    }
+    return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+}
+
+void logProcStatusCaps()
+{
+    QFile f(QStringLiteral("/proc/self/status"));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    while (!f.atEnd()) {
+        const QByteArray line = f.readLine();
+        if (line.startsWith("CapEff:") || line.startsWith("CapBnd:")
+            || line.startsWith("CapInh:") || line.startsWith("CapAmb:")) {
+            qInfo().noquote() << "BtDiagnostics:" << QString::fromUtf8(line).trimmed();
+        }
+    }
+}
+#endif
 } // namespace
 
 namespace BleCapability {
@@ -56,6 +95,42 @@ QString linuxSetcapCommand()
 {
     ensureChecked();
     return g_setcapCommand;
+}
+
+void logLinuxBtDiagnosticsOnce()
+{
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        qInfo().noquote() << "BtDiagnostics: ---- Linux BT diagnostics (one-shot) ----";
+        qInfo().noquote() << "BtDiagnostics: binary =" << QCoreApplication::applicationFilePath();
+        logProcStatusCaps();
+
+        const QString getcap = runBriefly(QStringLiteral("getcap"),
+                                          {QCoreApplication::applicationFilePath()});
+        if (!getcap.isEmpty())
+            qInfo().noquote() << "BtDiagnostics: getcap =" << getcap;
+
+        const QString bluezVersion = runBriefly(QStringLiteral("bluetoothctl"),
+                                                {QStringLiteral("--version")});
+        if (!bluezVersion.isEmpty())
+            qInfo().noquote() << "BtDiagnostics: bluetoothctl =" << bluezVersion;
+
+        const QString hci = runBriefly(QStringLiteral("hciconfig"), {QStringLiteral("-a")});
+        if (!hci.isEmpty()) {
+            const auto lines = hci.split(u'\n');
+            for (const QString& l : lines)
+                qInfo().noquote() << "BtDiagnostics: hciconfig:" << l;
+        }
+        qInfo().noquote() << "BtDiagnostics: ---- end ----";
+    });
+#endif
+}
+
+bool takeBluezCacheHintToken()
+{
+    static std::atomic_bool fired{false};
+    return !fired.exchange(true);
 }
 
 } // namespace BleCapability

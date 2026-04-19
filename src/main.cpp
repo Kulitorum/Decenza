@@ -35,6 +35,7 @@
 
 
 #include "core/asynclogger.h"
+#include "core/btlogfilter.h"
 #include "core/settings.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
@@ -327,6 +328,10 @@ int main(int argc, char *argv[])
 
     // Install web debug logger early to capture all output
     WebDebugLogger::install();
+
+    // Install BLE log filter before Qt's Bluetooth module fires its
+    // spurious "Missing CAP_NET_ADMIN" warning (issue #804 follow-up).
+    BtLogFilter::install();
 
     QApplication app(argc, argv);
 

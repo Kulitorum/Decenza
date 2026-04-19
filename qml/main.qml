@@ -1959,6 +1959,113 @@ ApplicationWindow {
         }
     }
 
+    // Linux BLE BlueZ-cache recovery hint — shown when UnknownRemoteDeviceError
+    // fires on a DE1 connection attempt while CAP_NET_ADMIN is effective. That
+    // combination almost always means the host-side BlueZ state is stale
+    // (cached address type, expired pairing) after an OS upgrade or similar.
+    // Gated to Linux + caps-OK; the setcap dialog above covers the caps-missing
+    // case.
+    Connections {
+        target: BLEManager
+        function onLinuxBlueZCacheHintNeeded() {
+            if (BLEManager.disabled) return
+            if (BLEManager.linuxBleCapabilityMissing) return  // setcap dialog takes precedence
+            Qt.callLater(function() { linuxBleBluezCacheDialog.open() })
+        }
+    }
+
+    Dialog {
+        id: linuxBleBluezCacheDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        closePolicy: Dialog.NoAutoClose
+        padding: Theme.dialogPadding
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.errorColor
+        }
+
+        Tr { id: trBluezCacheTitle; key: "main.dialog.linuxBleBluezCache.title"; fallback: "Can't connect to DE1 — try clearing the Bluetooth cache"; visible: false }
+        Tr { id: trBluezCacheMessage; key: "main.dialog.linuxBleBluezCache.message"; fallback: "The DE1 was discovered but the Bluetooth stack rejected the connection (\"Remote device not found\"). This usually means BlueZ cached stale pairing or address information after an OS update.\n\nIn a terminal, remove the cached entry and restart the Bluetooth service, then power-cycle the DE1 and try again:"; visible: false }
+        Tr { id: trBluezCacheCopy; key: "main.dialog.linuxBleBluezCache.copy"; fallback: "Copy commands"; visible: false }
+        Tr { id: trBluezCacheCommandField; key: "main.dialog.linuxBleBluezCache.commandField"; fallback: "BlueZ recovery commands"; visible: false }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trBluezCacheTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+                wrapMode: Text.Wrap
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                text: trBluezCacheMessage.text
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            Rectangle {
+                width: parent.width
+                color: Theme.backgroundColor
+                radius: Theme.cardRadius / 2
+                border.width: 1
+                border.color: Theme.primaryContrastColor
+                height: bluezCmdText.implicitHeight + 2 * Theme.spacingMedium
+
+                TextEdit {
+                    id: bluezCmdText
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    text: "MAC=$(bluetoothctl devices | awk '/DE1/ {print $2; exit}')\nbluetoothctl remove \"$MAC\"\nsudo systemctl restart bluetooth"
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    font.family: "monospace"
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    color: Theme.textColor
+
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: trBluezCacheCommandField.text
+                    Accessible.readOnly: true
+                    Accessible.focusable: true
+                }
+            }
+
+            Row {
+                spacing: Theme.spacingMedium
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                AccessibleButton {
+                    text: trBluezCacheCopy.text
+                    accessibleName: trBluezCacheCopy.text
+                    onClicked: {
+                        bluezCmdText.selectAll()
+                        bluezCmdText.copy()
+                        bluezCmdText.deselect()
+                    }
+                }
+
+                AccessibleButton {
+                    text: trCommonOk.text
+                    accessibleName: trCommonDismissDialog.text
+                    onClicked: linuxBleBluezCacheDialog.close()
+                }
+            }
+        }
+    }
+
     // First-run welcome dialog
     Dialog {
         id: firstRunDialog

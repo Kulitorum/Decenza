@@ -67,6 +67,17 @@ public:
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
 
+    // Singleton accessor so the transport layer can surface the BlueZ-cache
+    // hint without plumbing a BLEManager* through every constructor. Only
+    // one BLEManager is ever constructed (see main.cpp).
+    static BLEManager* instance() { return s_instance; }
+
+    // Emit linuxBlueZCacheHintNeeded at most once per session. Invoked from
+    // the transport layer when UnknownRemoteDeviceError fires and the
+    // capability check indicates caps are effective (so the cause is
+    // almost certainly a stale BlueZ cache or similar host-side state).
+    void requestBluezCacheHint();
+
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
     Q_INVOKABLE void connectToScale(const QString& address);  // Manual scale selection
@@ -132,6 +143,7 @@ signals:
     void refractometerConnectedChanged();
     void refractometerDiscovered(const QBluetoothDeviceInfo& device);
     void disconnectRefractometerRequested();
+    void linuxBlueZCacheHintNeeded();  // Request the BlueZ-cache recovery dialog (Linux, caps OK).
 
 
 private slots:
@@ -192,4 +204,6 @@ private:
     QStringList m_scaleLogMessages;
     QString m_scaleLogFilePath;
     void writeScaleLogToFile();
+
+    static BLEManager* s_instance;
 };

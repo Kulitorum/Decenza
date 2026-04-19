@@ -1,5 +1,6 @@
 #include "bletransport.h"
 #include "blecapability.h"
+#include "blemanager.h"
 #include "protocol/de1characteristics.h"
 
 #include <QBluetoothAddress>
@@ -392,6 +393,12 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     warn(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
     emit errorOccurred(userMessage);
 
+    // Dump a one-shot Linux BT diagnostics block into the debug log the
+    // first time any transport error fires. The issue template attaches
+    // the debug log to every bug report, so this flows to maintainers
+    // automatically. No-op on non-Linux.
+    BleCapability::logLinuxBtDiagnosticsOnce();
+
     // On Linux, UnknownRemoteDeviceError usually means the process lacks
     // CAP_NET_ADMIN and BlueZ guessed the address type wrong. Only log the
     // setcap hint when we've actually detected the capability is missing —
@@ -401,6 +408,15 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
         warn(QStringLiteral("Linux hint: run `%1` and restart the app "
                             "(capability is often cleared by OS updates).")
                  .arg(BleCapability::linuxSetcapCommand()));
+    }
+
+    // Caps are fine but the DE1 still couldn't be resolved — almost always
+    // a stale BlueZ cache after an OS upgrade. Ask BLEManager to surface
+    // the recovery dialog (it de-dupes; only the first call per session
+    // fires the signal).
+    if (error == QLowEnergyController::UnknownRemoteDeviceError
+        && !BleCapability::linuxMissing()) {
+        if (auto* m = BLEManager::instance()) m->requestBluezCacheHint();
     }
 }
 
