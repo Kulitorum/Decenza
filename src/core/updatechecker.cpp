@@ -15,7 +15,6 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #include <QJniEnvironment>
-#include <QCoreApplication>
 #include <unistd.h>  // fsync
 #include <cerrno>    // errno, strerror
 #endif
@@ -40,25 +39,6 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
         // Check shortly after startup (30 seconds delay)
         QTimer::singleShot(30000, this, &UpdateChecker::onPeriodicCheck);
     }
-#endif
-
-#ifdef Q_OS_ANDROID
-    // Clear install-intent flag when app returns to foreground (event-based guard).
-    // Require that the app actually left Active state first — on some Android versions
-    // the install dialog shows as an overlay without backgrounding, causing
-    // applicationStateChanged(Active) to fire immediately (~180ms). Without this
-    // check, the guard clears before the user interacts with the dialog, allowing
-    // a second install intent to be launched from the cached-APK fast-path.
-    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        if (state != Qt::ApplicationActive && m_installIntentPending) {
-            m_installIntentLeftActive = true;
-        }
-        if (state == Qt::ApplicationActive && m_installIntentPending && m_installIntentLeftActive) {
-            m_installIntentPending = false;
-            m_installIntentLeftActive = false;
-            qDebug() << "UpdateChecker: app resumed from background, install intent guard cleared";
-        }
-    });
 #endif
 
     connect(m_settings, &Settings::betaUpdatesEnabledChanged, this, [this]() {
@@ -188,7 +168,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     if (m_releaseTag != tagName) {
         m_updatePromptShown = false;
         // Invalidate cached APK from previous version. Don't delete the file —
-        // PackageInstaller may still be reading it via FileProvider. The cache
+        // a PackageInstaller session may still be streaming from it. The cache
         // directory is cleaned up by the OS.
         if (!m_downloadedApkPath.isEmpty()) {
             m_downloadedApkPath.clear();
@@ -339,23 +319,7 @@ void UpdateChecker::downloadAndInstall()
         installApk(m_downloadedApkPath);
         return;
     }
-#ifdef Q_OS_ANDROID
-    // Event-based dedup guard: prevent rapid taps from spawning multiple download+install flows.
-    // Flag is set when install intent launches, cleared when app returns to foreground.
-    // Placed after the cached-APK fast-path so permission-flow retaps still work.
-    // If the install dialog was dismissed without the app ever leaving Active (overlay scenario),
-    // m_installIntentPending stays set. This explicit user tap clears the stale guard so
-    // the user can retry. The cached-APK fast-path above already handled direct reinstall.
-    if (m_installIntentPending && !m_installIntentLeftActive) {
-        // App never left Active — overlay was dismissed, user is explicitly retrying.
-        qDebug() << "UpdateChecker: clearing stale install guard (overlay dismissed without backgrounding)";
-        m_installIntentPending = false;
-    }
-    if (m_installIntentPending) {
-        qDebug() << "UpdateChecker: install intent still pending; ignoring duplicate request";
-        return;
-    }
-#endif
+
     m_downloadedApkPath.clear();
     m_expectedDownloadSize = 0;
     emit downloadReadyChanged();
@@ -566,13 +530,8 @@ void UpdateChecker::onDownloadFinished()
     m_downloading = false;
     emit downloadingChanged();
 
-    // If flush or fsync failed, the file may not be fully committed to storage.
-    // Cache it so the user can retry via the Install button (data may settle
-    // after a brief delay), but don't auto-launch the intent now.
     if (!flushOk || !syncOk) {
-        m_errorMessage = "Download completed but file sync failed. Please tap Install to retry.";
-        emit errorMessageChanged();
-        return;
+        qWarning() << "UpdateChecker: flush/fsync reported failure; proceeding with install anyway";
     }
 
     // Install the APK
@@ -646,7 +605,7 @@ void UpdateChecker::onPeriodicCheck()
 void UpdateChecker::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
-    qDebug() << "UpdateChecker: Installing APK:" << apkPath;
+    qDebug() << "UpdateChecker: Installing APK via PackageInstaller session:" << apkPath;
 
     QJniObject activity = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative",
@@ -654,92 +613,36 @@ void UpdateChecker::installApk(const QString& apkPath)
         "()Landroid/app/Activity;");
 
     if (!activity.isValid()) {
-        qWarning() << "Failed to get Android activity";
+        qWarning() << "UpdateChecker: Failed to get Android activity";
         m_errorMessage = "Failed to get Android activity";
         emit errorMessageChanged();
         return;
     }
 
-    QJniObject context = activity.callObjectMethod(
-        "getApplicationContext",
-        "()Landroid/content/Context;");
-
-    if (!context.isValid()) {
-        qWarning() << "UpdateChecker: Failed to get application context";
-        m_errorMessage = "Failed to prepare APK for installation (no app context)";
-        emit errorMessageChanged();
-        return;
-    }
-
-    // Create file URI using FileProvider for Android 7+
     QJniObject javaPath = QJniObject::fromString(apkPath);
-    QJniObject file = QJniObject("java/io/File", "(Ljava/lang/String;)V",
-                                  javaPath.object<jstring>());
+    jboolean ok = QJniObject::callStaticMethod<jboolean>(
+        "io/github/kulitorum/decenza_de1/ApkInstaller",
+        "install",
+        "(Landroid/app/Activity;Ljava/lang/String;)Z",
+        activity.object(),
+        javaPath.object<jstring>());
 
-    // Get package name for FileProvider authority
-    QJniObject packageName = context.callObjectMethod(
-        "getPackageName",
-        "()Ljava/lang/String;");
-    QString authority = packageName.toString() + ".fileprovider";
-
-    QJniObject uri = QJniObject::callStaticObjectMethod(
-        "androidx/core/content/FileProvider",
-        "getUriForFile",
-        "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
-        context.object(),
-        QJniObject::fromString(authority).object<jstring>(),
-        file.object());
-
-    // Clear any JNI exception from getUriForFile (e.g. IllegalArgumentException
-    // from FileProvider misconfiguration) before checking validity
     {
         QJniEnvironment env;
         if (env.checkAndClearExceptions()) {
-            qWarning() << "UpdateChecker: FileProvider.getUriForFile threw a JNI exception";
+            qWarning() << "UpdateChecker: ApkInstaller.install threw a JNI exception";
+            ok = JNI_FALSE;
         }
     }
 
-    if (!uri.isValid()) {
-        qWarning() << "Failed to create content URI for APK";
-        m_errorMessage = "Failed to prepare APK for installation";
+    if (!ok) {
+        m_errorMessage = "Could not start install. If this is a first install, enable "
+                         "'Install Unknown Apps' for Decenza in Android Settings, then try again.";
         emit errorMessageChanged();
         return;
     }
 
-    // Create install intent
-    QJniObject intent("android/content/Intent");
-    QJniObject actionView = QJniObject::fromString("android.intent.action.VIEW");
-    intent.callObjectMethod("setAction",
-                            "(Ljava/lang/String;)Landroid/content/Intent;",
-                            actionView.object<jstring>());
-
-    QJniObject mimeType = QJniObject::fromString("application/vnd.android.package-archive");
-    intent.callObjectMethod("setDataAndType",
-                            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
-                            uri.object(),
-                            mimeType.object<jstring>());
-
-    // Add flags
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x00000001); // FLAG_GRANT_READ_URI_PERMISSION
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000); // FLAG_ACTIVITY_NEW_TASK
-
-    // Start activity — can throw ActivityNotFoundException (no handler),
-    // SecurityException (missing REQUEST_INSTALL_PACKAGES), etc.
-    activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
-
-    {
-        QJniEnvironment env;
-        if (env.checkAndClearExceptions()) {
-            qWarning() << "UpdateChecker: startActivity threw a JNI exception";
-            m_errorMessage = "Could not launch install dialog. Please enable "
-                             "'Install Unknown Apps' for Decenza in Android Settings, then try again.";
-            emit errorMessageChanged();
-            return;
-        }
-    }
-
-    qDebug() << "UpdateChecker: APK install intent launched";
-    m_installIntentPending = true;
+    qDebug() << "UpdateChecker: PackageInstaller install dispatched (session write runs on worker thread)";
 #else
     qDebug() << "UpdateChecker: APK installation only supported on Android. File saved to:" << apkPath;
     m_errorMessage = "APK installation only supported on Android";

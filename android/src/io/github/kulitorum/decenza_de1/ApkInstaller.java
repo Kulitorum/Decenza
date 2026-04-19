@@ -1,0 +1,179 @@
+package io.github.kulitorum.decenza_de1;
+
+import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageInstaller;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.util.Log;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+/**
+ * Streams an APK into a PackageInstaller session and commits it. Replaces the
+ * legacy ACTION_VIEW intent, which was unreliable on Android 16 / Samsung —
+ * the confirmation dialog was being dismissed by a lifecycle flicker, forcing
+ * the user to tap "Install" a second time.
+ *
+ * On API 31+ we request USER_ACTION_NOT_REQUIRED. When this app is already the
+ * package's update owner, Android may apply the update silently; otherwise the
+ * system fires STATUS_PENDING_USER_ACTION and we forward its EXTRA_INTENT to
+ * startActivity, which is the officially-sanctioned way to surface the
+ * confirmation sheet and is not subject to the flicker race.
+ */
+public class ApkInstaller {
+    private static final String TAG = "ApkInstaller";
+    private static final String ACTION_INSTALL_STATUS =
+            "io.github.kulitorum.decenza_de1.APK_INSTALL_STATUS";
+
+    /**
+     * Validates the APK, registers the status receiver, then streams the APK
+     * bytes into a PackageInstaller session on a background thread. Returns
+     * quickly so the Qt UI thread stays responsive during the (potentially
+     * multi-second) session write for large APKs.
+     *
+     * Returns true on successful dispatch of the worker thread. Write/commit
+     * failures are reported asynchronously via logcat; STATUS_PENDING_USER_ACTION
+     * and terminal install statuses arrive on the registered BroadcastReceiver.
+     */
+    public static boolean install(Activity activity, String apkPath) {
+        if (activity == null || apkPath == null) {
+            Log.e(TAG, "install: null activity or path");
+            return false;
+        }
+
+        final File apk = new File(apkPath);
+        final long apkLen = apk.length();
+        if (!apk.exists() || apkLen <= 0) {
+            Log.e(TAG, "install: APK missing or empty: " + apkPath);
+            return false;
+        }
+
+        final Context appContext = activity.getApplicationContext();
+
+        // Register before dispatching the worker so STATUS_PENDING_USER_ACTION
+        // is never delivered to a non-existent receiver.
+        registerStatusReceiver(appContext);
+
+        Thread worker = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                runSessionInstall(appContext, apk, apkLen);
+            }
+        }, "ApkInstallerWorker");
+        worker.start();
+        return true;
+    }
+
+    private static void runSessionInstall(Context appContext, File apk, long apkLen) {
+        PackageInstaller installer =
+                appContext.getPackageManager().getPackageInstaller();
+
+        PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
+                PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setAppPackageName(appContext.getPackageName());
+        params.setSize(apkLen);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            params.setInstallReason(PackageManager.INSTALL_REASON_USER);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            params.setRequireUserAction(
+                    PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        }
+
+        int sessionId;
+        try {
+            sessionId = installer.createSession(params);
+        } catch (IOException e) {
+            Log.e(TAG, "install: createSession failed: " + e);
+            return;
+        }
+
+        PackageInstaller.Session session = null;
+        try {
+            session = installer.openSession(sessionId);
+
+            try (InputStream in = new FileInputStream(apk);
+                 OutputStream out = session.openWrite("base.apk", 0, apkLen)) {
+                byte[] buf = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+                session.fsync(out);
+            }
+
+            Intent statusIntent = new Intent(ACTION_INSTALL_STATUS)
+                    .setPackage(appContext.getPackageName());
+            int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                piFlags |= PendingIntent.FLAG_MUTABLE;
+            }
+            PendingIntent pi = PendingIntent.getBroadcast(
+                    appContext, sessionId, statusIntent, piFlags);
+
+            session.commit(pi.getIntentSender());
+            Log.i(TAG, "install: session " + sessionId + " committed (" + apkLen + " bytes)");
+        } catch (IOException e) {
+            Log.e(TAG, "install: write/commit failed: " + e);
+            if (session != null) {
+                try { session.abandon(); } catch (Exception ignored) {}
+            }
+        } finally {
+            if (session != null) {
+                session.close();
+            }
+        }
+    }
+
+    private static volatile boolean sReceiverRegistered = false;
+
+    private static synchronized void registerStatusReceiver(Context appContext) {
+        if (sReceiverRegistered) return;
+        IntentFilter filter = new IntentFilter(ACTION_INSTALL_STATUS);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appContext.registerReceiver(
+                    sStatusReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            appContext.registerReceiver(sStatusReceiver, filter);
+        }
+        sReceiverRegistered = true;
+    }
+
+    private static final BroadcastReceiver sStatusReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            int status = intent.getIntExtra(
+                    PackageInstaller.EXTRA_STATUS,
+                    PackageInstaller.STATUS_FAILURE);
+            String msg = intent.getStringExtra(
+                    PackageInstaller.EXTRA_STATUS_MESSAGE);
+
+            if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                if (confirm == null) {
+                    Log.w(TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
+                    return;
+                }
+                confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    context.getApplicationContext().startActivity(confirm);
+                    Log.i(TAG, "install: user confirmation dialog launched");
+                } catch (Exception e) {
+                    Log.e(TAG, "install: startActivity for confirm failed: " + e);
+                }
+                return;
+            }
+
+            Log.i(TAG, "install: status=" + status + " msg=" + msg);
+        }
+    };
+}

@@ -102,8 +102,6 @@ private:
     bool m_latestIsBeta = false;
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
-    bool m_installIntentPending = false;
-    bool m_installIntentLeftActive = false;  // True once app leaves Active state after install intent
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
