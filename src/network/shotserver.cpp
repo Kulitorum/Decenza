@@ -698,7 +698,8 @@ void ShotServer::onReadyRead()
             QString tempPath = pending.tempFilePath;
             bool wasBackupRestore = pending.isBackupRestore;
             bool wasApkUpload = pending.isApkUpload;
-            pending.tempFile = nullptr;  // Transfer ownership
+            delete pending.tempFile;
+            pending.tempFile = nullptr;
             pending.tempFilePath.clear();
             m_activeMediaUploads--;
             m_pendingRequests.remove(socket);

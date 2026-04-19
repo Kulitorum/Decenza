@@ -484,8 +484,11 @@ void UpdateChecker::onDownloadFinished()
             qWarning() << "UpdateChecker: Final write failed:" << m_downloadFile->errorString();
             m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
             emit errorMessageChanged();
+            const QString fileToRemove = m_downloadFile->fileName();
             m_downloadFile->close();
-            QFile::remove(m_downloadFile->fileName());
+            QThread* t = QThread::create([fileToRemove]() { QFile::remove(fileToRemove); });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
             delete m_downloadFile;
             m_downloadFile = nullptr;
             m_currentReply->deleteLater();
@@ -528,7 +531,9 @@ void UpdateChecker::onDownloadFinished()
             m_errorMessage = "Download failed: " + m_currentReply->errorString();
         }
         emit errorMessageChanged();
-        QFile::remove(filePath);
+        QThread* t = QThread::create([filePath]() { QFile::remove(filePath); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
         delete m_downloadFile;
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
@@ -546,7 +551,9 @@ void UpdateChecker::onDownloadFinished()
                              .arg(actualSize).arg(expectedSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
-        QFile::remove(filePath);
+        QThread* t = QThread::create([filePath]() { QFile::remove(filePath); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
         delete m_downloadFile;
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
@@ -564,7 +571,9 @@ void UpdateChecker::onDownloadFinished()
                              .arg(actualSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
-        QFile::remove(filePath);
+        QThread* t = QThread::create([filePath]() { QFile::remove(filePath); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
         delete m_downloadFile;
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();

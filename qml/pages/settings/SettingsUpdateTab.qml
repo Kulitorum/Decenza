@@ -316,6 +316,8 @@ Item {
                         RowLayout {
                             spacing: Theme.scaled(8)
                             visible: MainController.updateChecker.installing
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: trInstalling.text
 
                             BusyIndicator {
                                 running: true
@@ -324,6 +326,7 @@ Item {
                             }
 
                             Tr {
+                                id: trInstalling
                                 key: "settings.update.installing"
                                 fallback: "Installing update..."
                                 color: Theme.textColor

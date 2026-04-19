@@ -357,6 +357,7 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
         QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, fullPath]() {
             if (!safeThis || !safeSocket) return;
             if (!safeThis->installApk(fullPath)) {
+                QFile::remove(fullPath);
                 safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
                 return;
             }
@@ -438,6 +439,7 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
         QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, fullPath]() {
             if (!safeThis || !safeSocket) return;
             if (!safeThis->installApk(fullPath)) {
+                QFile::remove(fullPath);
                 safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
                 return;
             }
@@ -1072,124 +1074,123 @@ winget install OliverBetz.ExifTool</pre>
 
 void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTempPath, const QString& headers)
 {
-    // Ensure temp file cleanup on any exit path
-    QString tempPathToCleanup = uploadedTempPath;
-    auto cleanupTempFile = [&tempPathToCleanup]() {
-        if (!tempPathToCleanup.isEmpty() && QFile::exists(tempPathToCleanup)) {
-            QFile::remove(tempPathToCleanup);
-        }
-    };
+    if (!m_screensaverManager) {
+        sendResponse(socket, 500, "text/plain", "Screensaver manager not available");
+        QThread* t = QThread::create([uploadedTempPath]() { QFile::remove(uploadedTempPath); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
+        return;
+    }
 
-    try {
-        if (!m_screensaverManager) {
-            sendResponse(socket, 500, "text/plain", "Screensaver manager not available");
-            cleanupTempFile();
-            return;
+    // Get filename from X-Filename header (URL-encoded)
+    QString filename = "uploaded_media";
+    for (const QString& line : headers.split("\r\n")) {
+        if (line.startsWith("X-Filename:", Qt::CaseInsensitive)) {
+            filename = QUrl::fromPercentEncoding(line.mid(11).trimmed().toUtf8());
+            break;
         }
+    }
 
-        // Get filename from X-Filename header (URL-encoded)
-        QString filename = "uploaded_media";
-        for (const QString& line : headers.split("\r\n")) {
-            if (line.startsWith("X-Filename:", Qt::CaseInsensitive)) {
-                filename = QUrl::fromPercentEncoding(line.mid(11).trimmed().toUtf8());
-                break;
-            }
-        }
+    // Validate file type — fast check before dispatching background work
+    QString ext = QFileInfo(filename).suffix().toLower();
+    bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp");
+    bool isVideo = (ext == "mp4" || ext == "webm" || ext == "mov");
 
-        // Validate file type
-        QString ext = QFileInfo(filename).suffix().toLower();
-        bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp");
-        bool isVideo = (ext == "mp4" || ext == "webm" || ext == "mov");
+    if (!isImage && !isVideo) {
+        sendResponse(socket, 400, "text/plain", "Unsupported file type. Use JPG, PNG, GIF, WebP, MP4, or WebM.");
+        QThread* t = QThread::create([uploadedTempPath]() { QFile::remove(uploadedTempPath); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
+        return;
+    }
 
-        if (!isImage && !isVideo) {
-            sendResponse(socket, 400, "text/plain", "Unsupported file type. Use JPG, PNG, GIF, WebP, MP4, or WebM.");
-            cleanupTempFile();
-            return;
-        }
+    // Check for duplicate before doing expensive resize work
+    if (m_screensaverManager->hasPersonalMediaWithName(filename)) {
+        sendResponse(socket, 409, "text/plain", "File already exists: " + filename.toUtf8());
+        QThread* t = QThread::create([uploadedTempPath]() { QFile::remove(uploadedTempPath); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
+        return;
+    }
 
-        // Check for duplicate before doing expensive resize work
-        if (m_screensaverManager->hasPersonalMediaWithName(filename)) {
-            sendResponse(socket, 409, "text/plain", "File already exists: " + filename.toUtf8());
-            cleanupTempFile();
-            return;
-        }
+    QPointer<QTcpSocket> safeSocket = socket;
+    // Captured as raw pointer: resizeImage/extractImageDate/extractVideoDate/resizeVideo
+    // do not access member data and ShotServer outlives any media upload.
+    ShotServer* rawThis = this;
+    QPointer<ShotServer> safeThis = this;
+    QThread* worker = QThread::create([rawThis, safeThis, safeSocket, uploadedTempPath, filename, ext, isImage, isVideo]() {
+        auto sendErr = [&](int code, const QByteArray& msg) {
+            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, code, msg]() {
+                if (safeThis && safeSocket) safeThis->sendResponse(safeSocket, code, "text/plain", msg);
+            }, Qt::QueuedConnection);
+        };
 
         // Rename the streamed temp file to have proper extension
         QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
         QString tempPath = tempDir + "/upload_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
 
         if (!QFile::rename(uploadedTempPath, tempPath)) {
-            // If rename fails (cross-device?), try copy
             if (!QFile::copy(uploadedTempPath, tempPath)) {
-                sendResponse(socket, 500, "text/plain", "Failed to process uploaded file");
-                cleanupTempFile();
+                QFile::remove(uploadedTempPath);
+                sendErr(500, "Failed to process uploaded file");
                 return;
             }
             QFile::remove(uploadedTempPath);
         }
-        tempPathToCleanup = tempPath;  // Update cleanup path
 
         qDebug() << "Media uploaded to temp:" << tempPath << "size:" << QFileInfo(tempPath).size() << "bytes";
 
-        // Extract date from original file BEFORE resizing (resize strips EXIF)
+        // Extract date BEFORE resizing (resize strips EXIF)
         QDateTime mediaDate;
         if (isImage) {
-            mediaDate = extractImageDate(tempPath);
+            mediaDate = rawThis->extractImageDate(tempPath);
         } else if (isVideo) {
-            mediaDate = extractVideoDate(tempPath);
+            mediaDate = rawThis->extractVideoDate(tempPath);
         }
 
         // Resize the media
-        QString outputPath = tempDir + "/resized_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
-
-        // Target resolution matches shared screensaver media (1280x800)
         const int targetWidth = 1280;
         const int targetHeight = 800;
+        QString outputPath = tempDir + "/resized_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
 
         if (isImage) {
-            if (resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
+            if (rawThis->resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
-                tempPathToCleanup.clear();  // Successfully processed
                 qDebug() << "Image resized successfully:" << outputPath;
             } else {
-                // Use original if resize fails
                 outputPath = tempPath;
-                tempPathToCleanup.clear();  // Will use original, don't delete
                 qDebug() << "Image resize failed, using original";
             }
         } else if (isVideo) {
-            if (resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
+            if (rawThis->resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
-                tempPathToCleanup.clear();  // Successfully processed
                 qDebug() << "Video resized successfully:" << outputPath;
             } else {
-                // Use original if resize fails
                 outputPath = tempPath;
-                tempPathToCleanup.clear();  // Will use original, don't delete
                 qDebug() << "Video resize not available or failed, using original";
             }
         }
 
-        // Add to screensaver personal media with extracted date
-        if (m_screensaverManager->addPersonalMedia(outputPath, filename, mediaDate)) {
-            sendResponse(socket, 200, "text/plain", "Media uploaded successfully");
-        } else {
-            QString pathToRemove = outputPath;
-            QThread* t = QThread::create([pathToRemove]() { QFile::remove(pathToRemove); });
-            connect(t, &QThread::finished, t, &QThread::deleteLater);
-            t->start();
-            sendResponse(socket, 500, "text/plain", "Failed to add media to screensaver");
-        }
-
-    } catch (const std::exception& e) {
-        qWarning() << "ShotServer: Exception in handleMediaUpload:" << e.what();
-        cleanupTempFile();
-        sendResponse(socket, 500, "text/plain", QString("Server error: %1").arg(e.what()).toUtf8());
-    } catch (...) {
-        qWarning() << "ShotServer: Unknown exception in handleMediaUpload";
-        cleanupTempFile();
-        sendResponse(socket, 500, "text/plain", "Server error: unexpected exception");
-    }
+        // Add to screensaver — must be done on the main thread (QObject)
+        QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, outputPath, filename, mediaDate]() {
+            if (!safeThis || !safeSocket) {
+                QThread* t = QThread::create([outputPath]() { QFile::remove(outputPath); });
+                connect(t, &QThread::finished, t, &QThread::deleteLater);
+                t->start();
+                return;
+            }
+            if (safeThis->m_screensaverManager->addPersonalMedia(outputPath, filename, mediaDate)) {
+                safeThis->sendResponse(safeSocket, 200, "text/plain", "Media uploaded successfully");
+            } else {
+                QThread* t = QThread::create([outputPath]() { QFile::remove(outputPath); });
+                connect(t, &QThread::finished, t, &QThread::deleteLater);
+                t->start();
+                safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to add media to screensaver");
+            }
+        }, Qt::QueuedConnection);
+    });
+    connect(worker, &QThread::finished, worker, &QThread::deleteLater);
+    worker->start();
 }
 
 bool ShotServer::resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight)
