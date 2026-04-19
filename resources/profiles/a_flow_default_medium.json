@@ -1,5 +1,5 @@
 {
-    "author": "Decent",
+    "author": "Janek",
     "beverage_type": "espresso",
     "espresso_temperature": 95,
     "has_recommended_dose": false,
@@ -51,6 +51,21 @@
     "recommended_dose": 18,
     "steps": [
         {
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 8
+            },
+            "name": "Pre Fill",
+            "pressure": 3,
+            "pump": "flow",
+            "seconds": 1,
+            "sensor": "coffee",
+            "temperature": 93,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
@@ -66,7 +81,7 @@
             "pump": "flow",
             "seconds": 15,
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": 93,
             "transition": "fast",
             "volume": 100
         },
@@ -82,10 +97,50 @@
             "pump": "pressure",
             "seconds": 60,
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": 93,
             "transition": "fast",
             "volume": 100,
             "weight": 3.6
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 2.5
+            },
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 3
+            },
+            "name": "2nd Fill",
+            "pressure": 0,
+            "pump": "flow",
+            "seconds": 0,
+            "sensor": "coffee",
+            "temperature": 95,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "exit": {
+                "condition": "under",
+                "type": "flow",
+                "value": 1
+            },
+            "flow": 6,
+            "limiter": {
+                "range": 0.6,
+                "value": 1
+            },
+            "name": "Pause",
+            "pressure": 1,
+            "pump": "pressure",
+            "seconds": 0,
+            "sensor": "coffee",
+            "temperature": 95,
+            "transition": "fast",
+            "volume": 100
         },
         {
             "exit": {
@@ -104,7 +159,7 @@
             "pump": "pressure",
             "seconds": 10,
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": 93,
             "transition": "smooth",
             "volume": 100
         },
@@ -112,7 +167,7 @@
             "exit": {
                 "condition": "under",
                 "type": "flow",
-                "value": 2
+                "value": 2.1
             },
             "flow": 8,
             "limiter": {
@@ -125,7 +180,7 @@
             "pump": "pressure",
             "seconds": 0,
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": 93,
             "transition": "smooth",
             "volume": 100
         },
@@ -141,7 +196,7 @@
             "pump": "flow",
             "seconds": 0,
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": 93,
             "transition": "fast",
             "volume": 100
         },
@@ -157,7 +212,7 @@
             "pump": "flow",
             "seconds": 60,
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": 93,
             "transition": "smooth",
             "volume": 100
         }

@@ -318,18 +318,29 @@ private slots:
                  qPrintable("\n=== compareProfiles mismatch: " + tcl.title() + " ===\n" + report));
     }
 
+    void aFlowProfileOracle_data() {
+        QTest::addColumn<QString>("fileName");
+        QTest::newRow("dark")        << "A-Flow____default-dark.tcl";
+        QTest::newRow("light")       << "A-Flow____default-light.tcl";
+        QTest::newRow("like-dflow")  << "A-Flow____default-like-dflow.tcl";
+        QTest::newRow("medium")      << "A-Flow____default-medium.tcl";
+        QTest::newRow("very-dark")   << "A-Flow____default-very-dark.tcl";
+    }
+
     void aFlowProfileOracle() {
-        // A-Flow default-medium: advanced profile stored with 6 frames in TCL
-        // (de1app's A-Flow plugin dynamically adds 3 more via update_A-Flow,
-        // but the TCL file only contains the base 6 frames from advanced_shot)
-        QString content = readFile(DE1APP_PROFILES_DIR + "/A-Flow____default-medium.tcl");
-        if (content.isEmpty()) QSKIP("A-Flow____default-medium.tcl not found");
+        // A-Flow profiles from Jan3kJ/A_Flow ship with 9 frames directly in the
+        // TCL (Pre Fill, Fill, Infuse, 2nd Fill, Pause, Pressure Up, Pressure
+        // Decline, Flow Start, Flow Extraction) — the pre-2025-05 6-frame format
+        // is obsolete.
+        QFETCH(QString, fileName);
+        QString content = readFile(DE1APP_PROFILES_DIR + "/" + fileName);
+        if (content.isEmpty()) QSKIP(qPrintable(fileName + " not found"));
 
         Profile p = Profile::loadFromTclString(content);
         QVERIFY(!p.title().isEmpty());
+        QVERIFY(p.title().startsWith("A-Flow"));
         QVERIFY(p.profileType().startsWith("settings_2c"));
-        // TCL stores the base frames; A-Flow plugin adds more at runtime
-        QVERIFY(p.steps().size() >= 5);
+        QCOMPARE(p.steps().size(), 9);
     }
 };
 
