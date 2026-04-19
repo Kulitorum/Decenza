@@ -423,6 +423,8 @@ void UpdateChecker::startDownload()
     QString filename = QString("Decenza_%1.apk").arg(m_latestVersion);
     QString fullPath = savePath + "/" + filename;
 
+    // Bump before opening so any pending background remove for the old file skips deletion.
+    m_downloadGeneration.fetchAndAddOrdered(1);
     m_downloadFile = new QFile(fullPath);
     if (!m_downloadFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         m_errorMessage = "Failed to create download file: " + m_downloadFile->errorString();
@@ -485,8 +487,12 @@ void UpdateChecker::onDownloadFinished()
             m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
             emit errorMessageChanged();
             const QString fileToRemove = m_downloadFile->fileName();
+            const int capturedGen = m_downloadGeneration.loadAcquire();
             m_downloadFile->close();
-            QThread* t = QThread::create([fileToRemove]() { QFile::remove(fileToRemove); });
+            QThread* t = QThread::create([this, fileToRemove, capturedGen]() {
+                if (m_downloadGeneration.loadAcquire() == capturedGen)
+                    QFile::remove(fileToRemove);
+            });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
             t->start();
             delete m_downloadFile;
@@ -531,9 +537,15 @@ void UpdateChecker::onDownloadFinished()
             m_errorMessage = "Download failed: " + m_currentReply->errorString();
         }
         emit errorMessageChanged();
-        QThread* t = QThread::create([filePath]() { QFile::remove(filePath); });
-        connect(t, &QThread::finished, t, &QThread::deleteLater);
-        t->start();
+        {
+            const int capturedGen = m_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([this, filePath, capturedGen]() {
+                if (m_downloadGeneration.loadAcquire() == capturedGen)
+                    QFile::remove(filePath);
+            });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
+        }
         delete m_downloadFile;
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
@@ -551,9 +563,15 @@ void UpdateChecker::onDownloadFinished()
                              .arg(actualSize).arg(expectedSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
-        QThread* t = QThread::create([filePath]() { QFile::remove(filePath); });
-        connect(t, &QThread::finished, t, &QThread::deleteLater);
-        t->start();
+        {
+            const int capturedGen = m_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([this, filePath, capturedGen]() {
+                if (m_downloadGeneration.loadAcquire() == capturedGen)
+                    QFile::remove(filePath);
+            });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
+        }
         delete m_downloadFile;
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
@@ -571,9 +589,15 @@ void UpdateChecker::onDownloadFinished()
                              .arg(actualSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
-        QThread* t = QThread::create([filePath]() { QFile::remove(filePath); });
-        connect(t, &QThread::finished, t, &QThread::deleteLater);
-        t->start();
+        {
+            const int capturedGen = m_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([this, filePath, capturedGen]() {
+                if (m_downloadGeneration.loadAcquire() == capturedGen)
+                    QFile::remove(filePath);
+            });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
+        }
         delete m_downloadFile;
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
@@ -774,14 +798,14 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
         case 0:  // STATUS_SUCCESS — app is typically being killed for the upgrade.
             m_installInFlight = false;
             emit installingChanged();
-            if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
+            if (!m_downloadedApkPath.isEmpty()) {
                 QString path = m_downloadedApkPath;
-                QThread* t = QThread::create([path]() { QFile::remove(path); });
-                connect(t, &QThread::finished, t, &QThread::deleteLater);
-                t->start();
                 m_downloadedApkPath.clear();
                 m_expectedDownloadSize = 0;
                 emit downloadReadyChanged();
+                QThread* t = QThread::create([path]() { QFile::remove(path); });
+                connect(t, &QThread::finished, t, &QThread::deleteLater);
+                t->start();
             }
             return;
         case 3:  // STATUS_FAILURE_ABORTED — user cancelled the confirmation.

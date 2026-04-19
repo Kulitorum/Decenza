@@ -321,7 +321,9 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
     if (filename.isEmpty()) filename = "uploaded.apk";
 
     if (!filename.endsWith(".apk", Qt::CaseInsensitive)) {
-        QFile::remove(tempPath);
+        QThread* cleanup = QThread::create([tempPath]() { QFile::remove(tempPath); });
+        connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
+        cleanup->start();
         sendResponse(socket, 400, "text/plain", "Only APK files are allowed");
         return;
     }
@@ -332,12 +334,12 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
 #else
     savePath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 #endif
-    QDir().mkpath(savePath);
     QString fullPath = savePath + "/" + filename;
 
     QPointer<QTcpSocket> safeSocket = socket;
     QPointer<ShotServer> safeThis = this;
-    QThread* t = QThread::create([safeThis, safeSocket, tempPath, fullPath]() {
+    QThread* t = QThread::create([safeThis, safeSocket, tempPath, fullPath, savePath]() {
+        QDir().mkpath(savePath);
         // Remove stale destination, then rename (atomic on same filesystem).
         QFile::remove(fullPath);
         bool ok = QFile::rename(tempPath, fullPath);
@@ -368,87 +370,6 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
     t->start();
 }
 
-void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
-{
-    // Parse headers to get filename and content
-    qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-    if (headerEndPos < 0) {
-        sendResponse(socket, 400, "text/plain", "Invalid request");
-        return;
-    }
-
-    QString headers = QString::fromUtf8(request.left(headerEndPos));
-    QByteArray body = request.mid(headerEndPos + 4);
-
-    if (body.size() > MAX_UPLOAD_SIZE) {
-        sendResponse(socket, 413, "text/plain",
-            QString("File too large. Maximum size is %1 MB").arg(MAX_UPLOAD_SIZE / (1024*1024)).toUtf8());
-        return;
-    }
-
-    // Get filename from X-Filename header
-    QString filename = "uploaded.apk";
-    for (const QString& line : headers.split("\r\n")) {
-        if (line.startsWith("X-Filename:", Qt::CaseInsensitive)) {
-            filename = line.mid(11).trimmed();
-            break;
-        }
-    }
-    // Strip any path components to prevent directory traversal
-    filename = QFileInfo(filename).fileName();
-    if (filename.isEmpty()) filename = "uploaded.apk";
-
-    if (!filename.endsWith(".apk", Qt::CaseInsensitive)) {
-        sendResponse(socket, 400, "text/plain", "Only APK files are allowed");
-        return;
-    }
-
-    // Save to cache/downloads directory
-    QString savePath;
-#ifdef Q_OS_ANDROID
-    savePath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-#else
-    savePath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-#endif
-
-    QDir().mkpath(savePath);
-    QString fullPath = savePath + "/" + filename;
-
-    QPointer<QTcpSocket> safeSocket = socket;
-    QPointer<ShotServer> safeThis = this;
-    QThread* t = QThread::create([safeThis, safeSocket, body, fullPath]() {
-        QFile file(fullPath);
-        if (!file.open(QIODevice::WriteOnly)) {
-            QByteArray err = file.errorString().toUtf8();
-            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, err]() {
-                if (safeThis && safeSocket) safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to save file: " + err);
-            }, Qt::QueuedConnection);
-            return;
-        }
-        if (file.write(body) != body.size()) {
-            QByteArray err = file.errorString().toUtf8();
-            file.close();
-            QFile::remove(fullPath);
-            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, err]() {
-                if (safeThis && safeSocket) safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to write file: " + err);
-            }, Qt::QueuedConnection);
-            return;
-        }
-        file.close();
-        qDebug() << "APK uploaded:" << fullPath << "size:" << body.size();
-        QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, fullPath]() {
-            if (!safeThis || !safeSocket) return;
-            if (!safeThis->installApk(fullPath)) {
-                QFile::remove(fullPath);
-                safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
-                return;
-            }
-            safeThis->sendResponse(safeSocket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
-        }, Qt::QueuedConnection);
-    });
-    connect(t, &QThread::finished, t, &QThread::deleteLater);
-    t->start();
-}
 
 bool ShotServer::installApk(const QString& apkPath)
 {
@@ -1114,11 +1035,8 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
     }
 
     QPointer<QTcpSocket> safeSocket = socket;
-    // Captured as raw pointer: resizeImage/extractImageDate/extractVideoDate/resizeVideo
-    // do not access member data and ShotServer outlives any media upload.
-    ShotServer* rawThis = this;
     QPointer<ShotServer> safeThis = this;
-    QThread* worker = QThread::create([rawThis, safeThis, safeSocket, uploadedTempPath, filename, ext, isImage, isVideo]() {
+    QThread* worker = QThread::create([safeThis, safeSocket, uploadedTempPath, filename, ext, isImage, isVideo]() {
         auto sendErr = [&](int code, const QByteArray& msg) {
             QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, code, msg]() {
                 if (safeThis && safeSocket) safeThis->sendResponse(safeSocket, code, "text/plain", msg);
@@ -1143,9 +1061,9 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
         // Extract date BEFORE resizing (resize strips EXIF)
         QDateTime mediaDate;
         if (isImage) {
-            mediaDate = rawThis->extractImageDate(tempPath);
+            mediaDate = ShotServer::extractImageDate(tempPath);
         } else if (isVideo) {
-            mediaDate = rawThis->extractVideoDate(tempPath);
+            mediaDate = ShotServer::extractVideoDate(tempPath);
         }
 
         // Resize the media
@@ -1154,7 +1072,7 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
         QString outputPath = tempDir + "/resized_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
 
         if (isImage) {
-            if (rawThis->resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
+            if (ShotServer::resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
                 qDebug() << "Image resized successfully:" << outputPath;
             } else {
@@ -1162,7 +1080,7 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
                 qDebug() << "Image resize failed, using original";
             }
         } else if (isVideo) {
-            if (rawThis->resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
+            if (ShotServer::resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
                 qDebug() << "Video resized successfully:" << outputPath;
             } else {
@@ -1316,7 +1234,7 @@ bool ShotServer::resizeVideo(const QString& inputPath, const QString& outputPath
 #endif
 }
 
-QDateTime ShotServer::extractDateWithExiftool(const QString& filePath) const
+QDateTime ShotServer::extractDateWithExiftool(const QString& filePath)
 {
 #ifdef Q_OS_IOS
     // QProcess is not available on iOS
@@ -1366,7 +1284,7 @@ QDateTime ShotServer::extractDateWithExiftool(const QString& filePath) const
 #endif
 }
 
-QDateTime ShotServer::extractImageDate(const QString& imagePath) const
+QDateTime ShotServer::extractImageDate(const QString& imagePath)
 {
     // Try exiftool first (handles all formats including RAW/HEIC)
     QDateTime dt = extractDateWithExiftool(imagePath);
@@ -1438,7 +1356,7 @@ QDateTime ShotServer::extractImageDate(const QString& imagePath) const
     return QDateTime();  // No date found
 }
 
-QDateTime ShotServer::extractVideoDate(const QString& videoPath) const
+QDateTime ShotServer::extractVideoDate(const QString& videoPath)
 {
 #ifdef Q_OS_IOS
     // QProcess is not available on iOS

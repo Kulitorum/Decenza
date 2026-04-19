@@ -2142,7 +2142,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         if (method == "GET") {
             sendHtml(socket, generateUploadPage());
         } else if (method == "POST") {
-            handleUpload(socket, request);
+            // POST /upload is always streamed before handleRequest is called
+            // (isApkUpload forces temp-file streaming for all /upload POSTs).
+            sendResponse(socket, 400, "text/plain", "Upload must use streaming path");
         }
     }
     else if (path == "/upload/media") {

@@ -71,13 +71,15 @@ signals:
     void latestIsBetaChanged();
     void downloadReadyChanged();
 
-private slots:
+public slots:
 #ifdef Q_OS_ANDROID
     // Called (on the Qt main thread) from the static JNI bridge in
     // updatechecker.cpp when the Java PackageInstaller session reports a
     // terminal status or an internal create/write failure.
     void onInstallStatus(int status, const QString& message);
 #endif
+
+private slots:
     void onReleaseInfoReceived();
     void onDownloadProgress(qint64 received, qint64 total);
     void onDownloadFinished();
@@ -111,6 +113,7 @@ private:
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
     bool m_installInFlight = false;  // True between installApk() dispatch and terminal PackageInstaller status
+    QAtomicInt m_downloadGeneration{0};  // Bumped each time startDownload() opens a new file; guards background removes
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;

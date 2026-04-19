@@ -134,18 +134,17 @@ private:
     QString generateComparisonPage(const QList<ShotRecord>& shots) const;
     QString generateDebugPage() const;
     QString generateUploadPage() const;
-    void handleUpload(QTcpSocket* socket, const QByteArray& request);
     void handleUploadFromFile(QTcpSocket* socket, const QString& tempPath, const QString& headers);
     bool installApk(const QString& apkPath);
 
     // Personal media upload
     QString generateMediaUploadPage() const;
     void handleMediaUpload(QTcpSocket* socket, const QString& tempFilePath, const QString& headers);
-    bool resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
-    bool resizeVideo(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
-    QDateTime extractImageDate(const QString& imagePath) const;
-    QDateTime extractVideoDate(const QString& videoPath) const;
-    QDateTime extractDateWithExiftool(const QString& filePath) const;
+    static bool resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
+    static bool resizeVideo(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
+    static QDateTime extractImageDate(const QString& imagePath);
+    static QDateTime extractVideoDate(const QString& videoPath);
+    static QDateTime extractDateWithExiftool(const QString& filePath);
     void cleanupPendingRequest(QTcpSocket* socket);
     void resetKeepAliveTimer(QTcpSocket* socket);
 
