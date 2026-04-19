@@ -261,7 +261,7 @@ Item {
                         // Status row
                         RowLayout {
                             spacing: Theme.scaled(8)
-                            visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading
+                            visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading && !MainController.updateChecker.installing
 
                             Rectangle {
                                 width: Theme.scaled(10)
@@ -307,6 +307,25 @@ Item {
                             Tr {
                                 key: "settings.update.checking"
                                 fallback: "Checking for updates..."
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(13)
+                            }
+                        }
+
+                        // Installing (PackageInstaller session write in progress)
+                        RowLayout {
+                            spacing: Theme.scaled(8)
+                            visible: MainController.updateChecker.installing
+
+                            BusyIndicator {
+                                running: true
+                                Layout.preferredWidth: Theme.scaled(20)
+                                Layout.preferredHeight: Theme.scaled(20)
+                            }
+
+                            Tr {
+                                key: "settings.update.installing"
+                                fallback: "Installing update..."
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(13)
                             }
@@ -367,7 +386,7 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
-                    visible: MainController.updateChecker.canCheckForUpdates && !MainController.updateChecker.checking && !MainController.updateChecker.downloading
+                    visible: MainController.updateChecker.canCheckForUpdates && !MainController.updateChecker.checking && !MainController.updateChecker.downloading && !MainController.updateChecker.installing
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.update.checknow", "Check Now")

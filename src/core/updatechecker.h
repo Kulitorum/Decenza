@@ -28,6 +28,7 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(QString platformName READ platformName CONSTANT)
     Q_PROPERTY(QString releasePageUrl READ releasePageUrl NOTIFY latestVersionChanged)
     Q_PROPERTY(bool latestIsBeta READ latestIsBeta NOTIFY latestIsBetaChanged)
+    Q_PROPERTY(bool installing READ isInstalling NOTIFY installingChanged)
 
 public:
     explicit UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
@@ -49,6 +50,7 @@ public:
     QString platformName() const;
     QString releasePageUrl() const;
     bool latestIsBeta() const { return m_latestIsBeta; }
+    bool isInstalling() const { return m_installInFlight; }
 
     Q_INVOKABLE void checkForUpdates();
     Q_INVOKABLE void openReleasePage();
@@ -66,6 +68,7 @@ signals:
     void errorMessageChanged();
     void updatePromptRequested();  // Emitted when auto-check finds update
     void installationStarted();
+    void installingChanged();
     void latestIsBetaChanged();
     void downloadReadyChanged();
 

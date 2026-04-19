@@ -67,23 +67,12 @@ public class ApkInstaller {
      * Both {@code UpdateChecker}-triggered and {@code ShotServer}-triggered
      * sessions share this callback. The C++ side uses {@code m_installInFlight}
      * to ignore statuses that belong to sessions it did not dispatch.
+     *
+     * Note: {@code STATUS_PENDING_USER_ACTION} is handled entirely in Java
+     * (startActivity for the confirmation sheet) and is never forwarded here.
      */
     static native void nativeOnInstallStatus(int status, String message);
 
-    /**
-     * Validates the APK, registers the status receiver, then streams the APK
-     * bytes into a PackageInstaller session on a background thread. Returns
-     * quickly so the Qt UI thread stays responsive during the (potentially
-     * multi-second) session write for large APKs.
-     *
-     * Returns true on successful dispatch of the worker thread. All subsequent
-     * failures (create / write / commit / PackageInstaller terminal statuses)
-     * are reported via {@link #nativeOnInstallStatus}.
-     *
-     * Returns false without calling {@link #nativeOnInstallStatus} if: the
-     * activity or path argument is null; the APK file is missing or empty; or a
-     * session is already in flight ({@link #sInstallInFlight} is set).
-     */
     /** Returns true if a PackageInstaller session is currently in flight. */
     public static boolean isInFlight() {
         return sInstallInFlight.get();
@@ -104,6 +93,20 @@ public class ApkInstaller {
         return sNativeRegistered;
     }
 
+    /**
+     * Validates the APK, registers the status receiver, then streams the APK
+     * bytes into a PackageInstaller session on a background thread. Returns
+     * quickly so the Qt UI thread stays responsive during the (potentially
+     * multi-second) session write for large APKs.
+     *
+     * Returns true on successful dispatch of the worker thread. All subsequent
+     * failures (create / write / commit / PackageInstaller terminal statuses)
+     * are reported via {@link #nativeOnInstallStatus}.
+     *
+     * Returns false without calling {@link #nativeOnInstallStatus} if: the
+     * activity or path argument is null; the APK file is missing or empty; or a
+     * session is already in flight ({@link #sInstallInFlight} is set).
+     */
     public static boolean install(Activity activity, String apkPath) {
         if (activity == null || apkPath == null) {
             Log.e(TAG, "install: null activity or path");
@@ -221,7 +224,11 @@ public class ApkInstaller {
             sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, e.toString());
         } finally {
-            session.close();
+            try { session.close(); } catch (Exception e) {
+                // Closing an already-abandoned session throws IllegalStateException
+                // on some Android versions. Log and ignore — the session is gone.
+                Log.w(TAG, "session.close() after abandon: " + e);
+            }
         }
     }
 

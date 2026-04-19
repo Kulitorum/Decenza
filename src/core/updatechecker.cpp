@@ -725,6 +725,7 @@ bool UpdateChecker::installApk(const QString& apkPath)
     }
 
     m_installInFlight = true;
+    emit installingChanged();
     qDebug() << "UpdateChecker: PackageInstaller install dispatched (session write runs on worker thread)";
     return true;
 #else
@@ -763,6 +764,7 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     switch (status) {
         case 0:  // STATUS_SUCCESS — app is typically being killed for the upgrade.
             m_installInFlight = false;
+            emit installingChanged();
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
                 QString path = m_downloadedApkPath;
                 QThread* t = QThread::create([path]() { QFile::remove(path); });
@@ -775,6 +777,7 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
             return;
         case 3:  // STATUS_FAILURE_ABORTED — user cancelled the confirmation.
             m_installInFlight = false;
+            emit installingChanged();
             // Clear any stale error from a prior failed attempt so it doesn't
             // linger when the user merely cancelled the current attempt.
             if (!m_errorMessage.isEmpty()) {
@@ -830,6 +833,7 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     }
 
     m_installInFlight = false;
+    emit installingChanged();
     // If the user already dismissed the update card, clean up the APK
     // (dismissUpdate() skipped this while the install was in flight).
     if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
