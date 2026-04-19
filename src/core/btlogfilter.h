@@ -4,13 +4,13 @@
 
 // Chains into qInstallMessageHandler to drop Qt's "Missing CAP_NET_ADMIN
 // permission..." bluetooth warning when BleCapability::linuxMissing() is
-// false. Qt prints that warning under conditions where it isn't actually
-// caused by missing caps (see issue #804 follow-up) which misleads users
-// into running setcap despite caps already being effective.
+// false — Qt prints the warning under conditions that don't always mean
+// caps are missing, and the false alarm misleads users who have already
+// granted the capability.
 //
-// Installation order matters — install AFTER AsyncLogger so we sit above
-// it in the handler chain and reach messages before they're enqueued:
-//   qDebug() → ShotDebugLogger → WebDebugLogger → CrashHandler → BtLogFilter → AsyncLogger
+// Install AFTER AsyncLogger, CrashHandler, and WebDebugLogger so this
+// filter sits at the top of the static chain and can suppress the false
+// warning before it reaches any other handler.
 //
 // No-op on non-Linux.
 namespace BtLogFilter {

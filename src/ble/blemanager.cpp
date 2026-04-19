@@ -113,6 +113,7 @@ BLEManager::~BLEManager() {
 
 void BLEManager::requestBluezCacheHint()
 {
+    if (m_disabled) return;  // don't burn the one-shot token in simulator mode
     if (BleCapability::takeBluezCacheHintToken()) {
         emit linuxBlueZCacheHintNeeded();
     }

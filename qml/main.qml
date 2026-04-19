@@ -1960,11 +1960,11 @@ ApplicationWindow {
     }
 
     // Linux BLE BlueZ-cache recovery hint — shown when UnknownRemoteDeviceError
-    // fires on a DE1 connection attempt while CAP_NET_ADMIN is effective. That
-    // combination almost always means the host-side BlueZ state is stale
-    // (cached address type, expired pairing) after an OS upgrade or similar.
-    // Gated to Linux + caps-OK; the setcap dialog above covers the caps-missing
-    // case.
+    // fires on a DE1 or scale connection attempt while CAP_NET_ADMIN is
+    // effective. That combination almost always means the host-side BlueZ
+    // state is stale (cached address type, expired pairing) after an OS
+    // upgrade. Gated to Linux + caps-OK; the setcap dialog above covers the
+    // caps-missing case.
     Connections {
         target: BLEManager
         function onLinuxBlueZCacheHintNeeded() {

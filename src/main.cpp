@@ -329,8 +329,9 @@ int main(int argc, char *argv[])
     // Install web debug logger early to capture all output
     WebDebugLogger::install();
 
-    // Install BLE log filter before Qt's Bluetooth module fires its
-    // spurious "Missing CAP_NET_ADMIN" warning (issue #804 follow-up).
+    // Suppress Qt's spurious "Missing CAP_NET_ADMIN" bluetooth warning
+    // when our own probe says caps are effective. Must run before Qt
+    // Bluetooth classes are constructed.
     BtLogFilter::install();
 
     QApplication app(argc, argv);
