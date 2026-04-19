@@ -359,7 +359,9 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
         QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, fullPath]() {
             if (!safeThis || !safeSocket) return;
             if (!safeThis->installApk(fullPath)) {
-                QFile::remove(fullPath);
+                QThread* cleanup = QThread::create([fullPath]() { QFile::remove(fullPath); });
+                connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
+                cleanup->start();
                 safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
                 return;
             }
