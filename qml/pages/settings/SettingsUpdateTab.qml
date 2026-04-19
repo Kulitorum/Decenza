@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../../components"
 
@@ -603,13 +604,19 @@ Item {
                     Accessible.focusable: true
                     Accessible.onPressAction: scrollDownArea.clicked(null)
 
-                    Text {
+                    Image {
                         anchors.centerIn: parent
-                        text: "↓"
-                        color: Theme.primaryContrastColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        source: "qrc:/icons/ArrowLeft.svg"
+                        sourceSize.width: Theme.scaled(16)
+                        sourceSize.height: Theme.scaled(16)
+                        rotation: 90
                         Accessible.ignored: true
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.primaryContrastColor
+                        }
                     }
 
                     MouseArea {

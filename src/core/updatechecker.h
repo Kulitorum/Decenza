@@ -46,7 +46,7 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     bool canDownloadUpdate() const;
     bool canCheckForUpdates() const;
-    bool isDownloadReady() const { return !m_downloadedApkPath.isEmpty() && QFileInfo::exists(m_downloadedApkPath); }
+    bool isDownloadReady() const { return !m_downloadedApkPath.isEmpty(); }
     QString platformName() const;
     QString releasePageUrl() const;
     bool latestIsBeta() const { return m_latestIsBeta; }

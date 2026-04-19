@@ -820,9 +820,14 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
         delete pending.tempFile;
         pending.tempFile = nullptr;
     }
-    if (!pending.tempFilePath.isEmpty() && QFile::exists(pending.tempFilePath)) {
-        QFile::remove(pending.tempFilePath);
-        qDebug() << "ShotServer: Cleaned up temp file:" << pending.tempFilePath;
+    if (!pending.tempFilePath.isEmpty()) {
+        QString tmpPath = pending.tempFilePath;
+        QThread* cleanup = QThread::create([tmpPath]() {
+            if (QFile::remove(tmpPath))
+                qDebug() << "ShotServer: Cleaned up temp file:" << tmpPath;
+        });
+        connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
+        cleanup->start();
     }
     // Only decrement if this was a large upload that was actually counted
     // (small uploads < MAX_SMALL_BODY_SIZE don't increment m_activeMediaUploads)

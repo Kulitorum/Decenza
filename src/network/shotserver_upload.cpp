@@ -278,7 +278,7 @@ QString ShotServer::generateUploadPage() const
             xhr.onload = function() {
                 uploadZone.classList.remove("uploading");
                 if (xhr.status === 200) {
-                    showStatus("success", "Upload complete! Installing...");
+                    showStatus("success", "APK dispatched to PackageInstaller — check device screen for installation prompt");
                 } else {
                     showStatus("error", "Upload failed: " + xhr.responseText);
                 }
@@ -365,7 +365,7 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
                 safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
                 return;
             }
-            safeThis->sendResponse(safeSocket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
+            safeThis->sendResponse(safeSocket, 200, "text/plain", "APK dispatched to PackageInstaller — check device screen for installation prompt");
         }, Qt::QueuedConnection);
     });
     connect(t, &QThread::finished, t, &QThread::deleteLater);

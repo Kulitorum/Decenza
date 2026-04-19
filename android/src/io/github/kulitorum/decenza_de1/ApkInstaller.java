@@ -65,8 +65,10 @@ public class ApkInstaller {
      * {@code UpdateChecker} via {@code QJniEnvironment::registerNativeMethods}.
      *
      * Both {@code UpdateChecker}-triggered and {@code ShotServer}-triggered
-     * sessions share this callback. The C++ side uses {@code m_installInFlight}
-     * to ignore statuses that belong to sessions it did not dispatch.
+     * sessions share this callback. {@code UpdateChecker} uses its
+     * {@code m_installInFlight} flag to drop statuses from sessions it did not
+     * dispatch; {@code ShotServer}-triggered sessions are silently dropped by
+     * the same guard since {@code ShotServer} never sets that flag.
      *
      * Note: {@code STATUS_PENDING_USER_ACTION} is handled entirely in Java
      * (startActivity for the confirmation sheet) and is never forwarded here.

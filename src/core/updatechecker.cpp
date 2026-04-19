@@ -378,9 +378,7 @@ void UpdateChecker::downloadAndInstall()
     // If we already downloaded this version's APK and it's the right size, skip
     // straight to install. This handles the case where a prior attempt didn't
     // complete (e.g., Android's "Install Unknown Apps" permission redirect).
-    if (!m_downloadedApkPath.isEmpty() && QFileInfo::exists(m_downloadedApkPath)
-        && m_expectedDownloadSize > 0
-        && QFileInfo(m_downloadedApkPath).size() == m_expectedDownloadSize) {
+    if (!m_downloadedApkPath.isEmpty() && m_expectedDownloadSize > 0) {
         qDebug() << "UpdateChecker: APK already downloaded, installing directly:" << m_downloadedApkPath;
         m_errorMessage.clear();
         emit errorMessageChanged();
@@ -650,8 +648,9 @@ void UpdateChecker::dismissUpdate()
     // open (pre-unlink) or produce a partial session (post-unlink).
     if (!m_downloadedApkPath.isEmpty() && !m_installInFlight) {
         QString path = m_downloadedApkPath;
-        QThread* t = QThread::create([path]() {
-            if (!QFile::remove(path))
+        const int capturedGen = m_downloadGeneration.loadAcquire();
+        QThread* t = QThread::create([this, path, capturedGen]() {
+            if (m_downloadGeneration.loadAcquire() == capturedGen && !QFile::remove(path))
                 qWarning() << "UpdateChecker: Failed to remove cached APK:" << path;
         });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -773,9 +772,9 @@ bool UpdateChecker::installApk(const QString& apkPath)
 void UpdateChecker::onInstallStatus(int status, const QString& message)
 {
     // Mirror the Java sentinels in ApkInstaller.java — kept outside the
-    // PackageInstaller STATUS_* range (STATUS_PENDING_USER_ACTION=-1,
-    // STATUS_SUCCESS=0..STATUS_FAILURE_INCOMPATIBLE=7, STATUS_FAILURE_TIMEOUT=8 [API 34+]).
-    // Note: STATUS_PENDING_USER_ACTION is handled entirely in Java (startActivity)
+    // range of codes that can actually arrive here: STATUS_SUCCESS=0,
+    // STATUS_FAILURE=1..STATUS_FAILURE_INCOMPATIBLE=7, STATUS_FAILURE_TIMEOUT=8 [API 34+].
+    // STATUS_PENDING_USER_ACTION=-1 is handled entirely in Java (startActivity)
     // and is never forwarded here.
     constexpr int INTERNAL_STATUS_CREATE_FAILED    = -100;
     constexpr int INTERNAL_STATUS_WRITE_FAILED     = -101;
