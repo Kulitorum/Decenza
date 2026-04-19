@@ -51,11 +51,11 @@ public class ApkInstaller {
     private static final int INTERNAL_STATUS_WRITE_FAILED    = -101;
     private static final int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
 
-    // Guards against concurrent sessions. Both UpdateChecker and ShotServer call
-    // install() but share a single BroadcastReceiver. A ShotServer-triggered
-    // session's terminal status is misdelivered to UpdateChecker.onInstallStatus()
-    // via nativeOnInstallStatus, potentially triggering spurious errors or APK
-    // cleanup. The AtomicBoolean ensures only one session exists at a time.
+    // Guards against concurrent sessions. Both UpdateChecker and ShotServer can
+    // call install(), but only one session is allowed at a time. Without this
+    // guard two simultaneous PackageInstaller sessions would share the same
+    // BroadcastReceiver. The C++ side independently drops any status callbacks
+    // that arrive when no UpdateChecker install is active.
     private static final AtomicBoolean sInstallInFlight = new AtomicBoolean(false);
 
     /**

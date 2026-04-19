@@ -659,6 +659,14 @@ void UpdateChecker::dismissUpdate()
         m_expectedDownloadSize = 0;
         emit downloadReadyChanged();
     }
+
+    // Always clear the installing flag on explicit dismiss. Some OEM ROMs skip
+    // STATUS_FAILURE_ABORTED when the user back-dismisses the confirmation dialog,
+    // leaving m_installInFlight stuck and the spinner permanently visible.
+    if (m_installInFlight) {
+        m_installInFlight = false;
+        emit installingChanged();
+    }
 }
 
 void UpdateChecker::onPeriodicCheck()

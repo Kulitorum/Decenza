@@ -319,6 +319,7 @@ Item {
                             visible: MainController.updateChecker.installing
                             Accessible.role: Accessible.StaticText
                             Accessible.name: trInstalling.text
+                            Accessible.focusable: true
 
                             BusyIndicator {
                                 running: true
