@@ -16,6 +16,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Streams an APK into a PackageInstaller session and commits it. Replaces the
@@ -46,6 +47,11 @@ public class ApkInstaller {
     private static final int INTERNAL_STATUS_WRITE_FAILED    = -101;
     private static final int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
 
+    // Guards against concurrent sessions. Both the UpdateChecker and ShotServer
+    // paths share a single BroadcastReceiver whose callbacks route to one global
+    // nativeOnInstallStatus — a second session would corrupt m_installInFlight.
+    private static final AtomicBoolean sInstallInFlight = new AtomicBoolean(false);
+
     /**
      * Implemented in C++. Forwards install status (Android PackageInstaller
      * STATUS_* or INTERNAL_STATUS_*) to {@code UpdateChecker} on the Qt main
@@ -74,6 +80,11 @@ public class ApkInstaller {
         final long apkLen = apk.length();
         if (!apk.exists() || apkLen <= 0) {
             Log.e(TAG, "install: APK missing or empty: " + apkPath);
+            return false;
+        }
+
+        if (!sInstallInFlight.compareAndSet(false, true)) {
+            Log.w(TAG, "install: session already in flight, ignoring duplicate request");
             return false;
         }
 
@@ -114,6 +125,7 @@ public class ApkInstaller {
             sessionId = installer.createSession(params);
         } catch (IOException e) {
             Log.e(TAG, "install: createSession failed: " + e);
+            sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_CREATE_FAILED, e.toString());
             return;
         }
@@ -150,6 +162,7 @@ public class ApkInstaller {
                     Log.w(TAG, "session.abandon() failed: " + e2);
                 }
             }
+            sInstallInFlight.set(false);
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, e.toString());
         } finally {
             if (session != null) {
@@ -202,6 +215,7 @@ public class ApkInstaller {
                 }
                 if (confirm == null) {
                     Log.w(TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
+                    sInstallInFlight.set(false);
                     reportStatus(INTERNAL_STATUS_NO_CONFIRM_INTENT,
                             "STATUS_PENDING_USER_ACTION delivered with no EXTRA_INTENT");
                     return;
@@ -212,12 +226,14 @@ public class ApkInstaller {
                     Log.i(TAG, "install: user confirmation dialog launched");
                 } catch (Exception e) {
                     Log.e(TAG, "install: startActivity for confirm failed: " + e);
-                    reportStatus(INTERNAL_STATUS_WRITE_FAILED, "failed to launch install dialog: " + e);
+                    sInstallInFlight.set(false);
+                    reportStatus(INTERNAL_STATUS_NO_CONFIRM_INTENT, "failed to launch install dialog: " + e);
                 }
                 return;
             }
 
             Log.i(TAG, "install: status=" + status + " msg=" + msg);
+            sInstallInFlight.set(false);
             reportStatus(status, msg);
         }
     };

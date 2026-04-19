@@ -38,6 +38,7 @@
 #endif
 #include <QCoreApplication>
 #include <QRegularExpression>
+#include <QThread>
 
 
 QString ShotServer::generateUploadPage() const
@@ -324,6 +325,9 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
             break;
         }
     }
+    // Strip any path components to prevent directory traversal
+    filename = QFileInfo(filename).fileName();
+    if (filename.isEmpty()) filename = "uploaded.apk";
 
     if (!filename.endsWith(".apk", Qt::CaseInsensitive)) {
         sendResponse(socket, 400, "text/plain", "Only APK files are allowed");
@@ -341,28 +345,38 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
     QDir().mkpath(savePath);
     QString fullPath = savePath + "/" + filename;
 
-    QFile file(fullPath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        sendResponse(socket, 500, "text/plain", "Failed to save file: " + file.errorString().toUtf8());
-        return;
-    }
-
-    if (file.write(body) != body.size()) {
-        sendResponse(socket, 500, "text/plain", "Failed to write file: " + file.errorString().toUtf8());
+    QPointer<QTcpSocket> safeSocket = socket;
+    QThread* t = QThread::create([this, safeSocket, body, fullPath]() {
+        QFile file(fullPath);
+        if (!file.open(QIODevice::WriteOnly)) {
+            QByteArray err = file.errorString().toUtf8();
+            QMetaObject::invokeMethod(this, [this, safeSocket, err]() {
+                if (safeSocket) sendResponse(safeSocket, 500, "text/plain", "Failed to save file: " + err);
+            }, Qt::QueuedConnection);
+            return;
+        }
+        if (file.write(body) != body.size()) {
+            QByteArray err = file.errorString().toUtf8();
+            file.close();
+            QFile::remove(fullPath);
+            QMetaObject::invokeMethod(this, [this, safeSocket, err]() {
+                if (safeSocket) sendResponse(safeSocket, 500, "text/plain", "Failed to write file: " + err);
+            }, Qt::QueuedConnection);
+            return;
+        }
         file.close();
-        QFile::remove(fullPath);
-        return;
-    }
-    file.close();
-
-    qDebug() << "APK uploaded:" << fullPath << "size:" << body.size();
-
-    if (!installApk(fullPath)) {
-        sendResponse(socket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
-        return;
-    }
-
-    sendResponse(socket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
+        qDebug() << "APK uploaded:" << fullPath << "size:" << body.size();
+        QMetaObject::invokeMethod(this, [this, safeSocket, fullPath]() {
+            if (!safeSocket) return;
+            if (!installApk(fullPath)) {
+                sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
+                return;
+            }
+            sendResponse(safeSocket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
+        }, Qt::QueuedConnection);
+    });
+    connect(t, &QThread::finished, t, &QThread::deleteLater);
+    t->start();
 }
 
 bool ShotServer::installApk(const QString& apkPath)

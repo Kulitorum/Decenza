@@ -21,6 +21,8 @@
 #include <cerrno>    // errno, strerror
 #endif
 
+#include <QThread>
+
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
 
@@ -610,9 +612,13 @@ void UpdateChecker::dismissUpdate()
     // mid-stream from this file and deleting it would race the FileInputStream
     // open (pre-unlink) or produce a partial session (post-unlink).
     if (!m_downloadedApkPath.isEmpty() && !m_installInFlight) {
-        if (!QFile::remove(m_downloadedApkPath)) {
-            qWarning() << "UpdateChecker: Failed to remove cached APK:" << m_downloadedApkPath;
-        }
+        QString path = m_downloadedApkPath;
+        QThread* t = QThread::create([path]() {
+            if (!QFile::remove(path))
+                qWarning() << "UpdateChecker: Failed to remove cached APK:" << path;
+        });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
         m_downloadedApkPath.clear();
         m_expectedDownloadSize = 0;
         emit downloadReadyChanged();
@@ -729,7 +735,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
         case 0:  // STATUS_SUCCESS — app is typically being killed for the upgrade.
             m_installInFlight = false;
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
-                QFile::remove(m_downloadedApkPath);
+                QString path = m_downloadedApkPath;
+                QThread* t = QThread::create([path]() { QFile::remove(path); });
+                connect(t, &QThread::finished, t, &QThread::deleteLater);
+                t->start();
                 m_downloadedApkPath.clear();
                 m_expectedDownloadSize = 0;
                 emit downloadReadyChanged();
@@ -746,7 +755,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
             // If the user already dismissed the update card, clean up the APK
             // (dismissUpdate() skipped this while the install was in flight).
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
-                QFile::remove(m_downloadedApkPath);
+                QString path = m_downloadedApkPath;
+                QThread* t = QThread::create([path]() { QFile::remove(path); });
+                connect(t, &QThread::finished, t, &QThread::deleteLater);
+                t->start();
                 m_downloadedApkPath.clear();
                 m_expectedDownloadSize = 0;
                 emit downloadReadyChanged();
@@ -792,7 +804,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     // If the user already dismissed the update card, clean up the APK
     // (dismissUpdate() skipped this while the install was in flight).
     if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
-        QFile::remove(m_downloadedApkPath);
+        QString path = m_downloadedApkPath;
+        QThread* t = QThread::create([path]() { QFile::remove(path); });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
         m_downloadedApkPath.clear();
         m_expectedDownloadSize = 0;
         emit downloadReadyChanged();
