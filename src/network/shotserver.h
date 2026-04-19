@@ -134,7 +134,7 @@ private:
     QString generateDebugPage() const;
     QString generateUploadPage() const;
     void handleUpload(QTcpSocket* socket, const QByteArray& request);
-    void installApk(const QString& apkPath);
+    bool installApk(const QString& apkPath);
 
     // Personal media upload
     QString generateMediaUploadPage() const;

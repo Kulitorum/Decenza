@@ -69,17 +69,19 @@ signals:
     void latestIsBetaChanged();
     void downloadReadyChanged();
 
+public slots:
+#ifdef Q_OS_ANDROID
+    // Called (on the Qt main thread) from the static JNI bridge in
+    // updatechecker.cpp when the Java PackageInstaller session reports a
+    // terminal status or an internal create/write failure.
+    void onInstallStatus(int status, const QString& message);
+#endif
+
 private slots:
     void onReleaseInfoReceived();
     void onDownloadProgress(qint64 received, qint64 total);
     void onDownloadFinished();
     void onPeriodicCheck();
-#ifdef Q_OS_ANDROID
-    // Called (on the Qt main thread) from the JNI bridge in updatechecker.cpp
-    // when the Java PackageInstaller session reports a terminal status or an
-    // internal create/write failure.
-    void onInstallStatus(int status, const QString& message);
-#endif
 
 private:
     void parseReleaseInfo(const QByteArray& data);

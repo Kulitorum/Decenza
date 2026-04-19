@@ -28,7 +28,8 @@ import java.io.OutputStream;
  * currently declared), so the system always fires STATUS_PENDING_USER_ACTION;
  * we forward its EXTRA_INTENT to startActivity, which is the
  * officially-sanctioned way to surface the confirmation sheet and is not
- * subject to the flicker race.
+ * subject to the flicker race. If EXTRA_INTENT is absent (unexpected), the
+ * install is aborted and INTERNAL_STATUS_NO_CONFIRM_INTENT is reported.
  *
  * Terminal statuses (SUCCESS / FAILURE*) and internal worker-thread errors are
  * reported back to Qt via {@link #nativeOnInstallStatus}.
@@ -40,9 +41,10 @@ public class ApkInstaller {
 
     // Sentinel codes for errors that happen before PackageInstaller produces a
     // STATUS_*. Values are chosen outside the PackageInstaller.STATUS_* range
-    // (STATUS_PENDING_USER_ACTION = -1, STATUS_* = 0..8) to avoid collision.
-    private static final int INTERNAL_STATUS_CREATE_FAILED = -100;
-    private static final int INTERNAL_STATUS_WRITE_FAILED = -101;
+    // (STATUS_PENDING_USER_ACTION = -1, STATUS_SUCCESS..STATUS_FAILURE_TIMEOUT = 0..8).
+    private static final int INTERNAL_STATUS_CREATE_FAILED   = -100;
+    private static final int INTERNAL_STATUS_WRITE_FAILED    = -101;
+    private static final int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
 
     /**
      * Implemented in C++. Forwards install status (Android PackageInstaller
@@ -144,7 +146,9 @@ public class ApkInstaller {
         } catch (Exception e) {
             Log.e(TAG, "install: write/commit failed: " + e);
             if (session != null) {
-                try { session.abandon(); } catch (Exception ignored) {}
+                try { session.abandon(); } catch (Exception e2) {
+                    Log.w(TAG, "session.abandon() failed: " + e2);
+                }
             }
             reportStatus(INTERNAL_STATUS_WRITE_FAILED, e.toString());
         } finally {
@@ -193,11 +197,12 @@ public class ApkInstaller {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class);
                 } else {
+                    //noinspection deprecation
                     confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
                 }
                 if (confirm == null) {
                     Log.w(TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
-                    reportStatus(INTERNAL_STATUS_WRITE_FAILED,
+                    reportStatus(INTERNAL_STATUS_NO_CONFIRM_INTENT,
                             "STATUS_PENDING_USER_ACTION delivered with no EXTRA_INTENT");
                     return;
                 }

@@ -39,9 +39,6 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 
-#ifdef Q_OS_ANDROID
-#include <QJniObject>
-#endif
 
 QString ShotServer::generateUploadPage() const
 {
@@ -350,18 +347,25 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
         return;
     }
 
-    file.write(body);
+    if (file.write(body) != body.size()) {
+        sendResponse(socket, 500, "text/plain", "Failed to write file: " + file.errorString().toUtf8());
+        file.close();
+        QFile::remove(fullPath);
+        return;
+    }
     file.close();
 
     qDebug() << "APK uploaded:" << fullPath << "size:" << body.size();
 
-    // Trigger installation on Android
-    installApk(fullPath);
+    if (!installApk(fullPath)) {
+        sendResponse(socket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
+        return;
+    }
 
     sendResponse(socket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
 }
 
-void ShotServer::installApk(const QString& apkPath)
+bool ShotServer::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
     qDebug() << "ShotServer: Installing APK via PackageInstaller session:" << apkPath;
@@ -373,7 +377,7 @@ void ShotServer::installApk(const QString& apkPath)
 
     if (!activity.isValid()) {
         qWarning() << "ShotServer: Failed to get Android activity for APK install";
-        return;
+        return false;
     }
 
     QJniObject javaPath = QJniObject::fromString(apkPath);
@@ -394,8 +398,10 @@ void ShotServer::installApk(const QString& apkPath)
     if (!ok) {
         qWarning() << "ShotServer: ApkInstaller.install() failed for:" << apkPath;
     }
+    return ok == JNI_TRUE;
 #else
     qDebug() << "APK installation only supported on Android. File saved to:" << apkPath;
+    return true;
 #endif
 }
 

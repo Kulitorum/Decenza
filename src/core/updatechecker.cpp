@@ -64,6 +64,9 @@ void registerInstallerNativeMethods()
     if (!env.registerNativeMethods(
             "io/github/kulitorum/decenza_de1/ApkInstaller", methods, 1)) {
         qWarning() << "UpdateChecker: failed to register native methods on ApkInstaller";
+        // Mark registered to prevent repeated failed attempts; install() will
+        // surface the missing bridge as an UnsatisfiedLinkError via reportStatus.
+        registered = true;
         return;
     }
     registered = true;
@@ -710,9 +713,10 @@ void UpdateChecker::installApk(const QString& apkPath)
 void UpdateChecker::onInstallStatus(int status, const QString& message)
 {
     // Mirror the Java sentinels in ApkInstaller.java — kept outside the
-    // PackageInstaller STATUS_* range (-1..8).
-    constexpr int INTERNAL_STATUS_CREATE_FAILED = -100;
-    constexpr int INTERNAL_STATUS_WRITE_FAILED  = -101;
+    // PackageInstaller STATUS_* range (STATUS_PENDING_USER_ACTION=-1, 0..8).
+    constexpr int INTERNAL_STATUS_CREATE_FAILED    = -100;
+    constexpr int INTERNAL_STATUS_WRITE_FAILED     = -101;
+    constexpr int INTERNAL_STATUS_NO_CONFIRM_INTENT = -102;
 
     qDebug() << "UpdateChecker: install status=" << status << "message=" << message;
 
@@ -724,6 +728,12 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     switch (status) {
         case 0:  // STATUS_SUCCESS — app is typically being killed for the upgrade.
             m_installInFlight = false;
+            if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
+                QFile::remove(m_downloadedApkPath);
+                m_downloadedApkPath.clear();
+                m_expectedDownloadSize = 0;
+                emit downloadReadyChanged();
+            }
             return;
         case 3:  // STATUS_FAILURE_ABORTED — user cancelled the confirmation.
             m_installInFlight = false;
@@ -766,6 +776,9 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
             break;
         case INTERNAL_STATUS_WRITE_FAILED:
             userMessage = "Failed to write the update package. Please try again.";
+            break;
+        case INTERNAL_STATUS_NO_CONFIRM_INTENT:
+            userMessage = "Install dialog could not be launched. Please try again.";
             break;
         default:  // STATUS_FAILURE (1) and anything unexpected.
             userMessage = "Install failed.";
