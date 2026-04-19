@@ -11,6 +11,11 @@
 #include "../ai/aimanager.h"
 #include "version.h"
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#include <QJniEnvironment>
+#endif
+
 #include <QNetworkInterface>
 #include <QUdpSocket>
 #include <QSet>
@@ -359,7 +364,7 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
 void ShotServer::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
-    qDebug() << "Installing APK:" << apkPath;
+    qDebug() << "ShotServer: Installing APK via PackageInstaller session:" << apkPath;
 
     QJniObject activity = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative",
@@ -367,59 +372,28 @@ void ShotServer::installApk(const QString& apkPath)
         "()Landroid/app/Activity;");
 
     if (!activity.isValid()) {
-        qWarning() << "Failed to get Android activity";
+        qWarning() << "ShotServer: Failed to get Android activity for APK install";
         return;
     }
 
-    QJniObject context = activity.callObjectMethod(
-        "getApplicationContext",
-        "()Landroid/content/Context;");
-
-    // Create file URI using FileProvider for Android 7+
     QJniObject javaPath = QJniObject::fromString(apkPath);
-    QJniObject file = QJniObject("java/io/File", "(Ljava/lang/String;)V",
-                                  javaPath.object<jstring>());
+    jboolean ok = QJniObject::callStaticMethod<jboolean>(
+        "io/github/kulitorum/decenza_de1/ApkInstaller",
+        "install",
+        "(Landroid/app/Activity;Ljava/lang/String;)Z",
+        activity.object(),
+        javaPath.object<jstring>());
 
-    // Get package name for FileProvider authority
-    QJniObject packageName = context.callObjectMethod(
-        "getPackageName",
-        "()Ljava/lang/String;");
-    QString authority = packageName.toString() + ".fileprovider";
-
-    QJniObject uri = QJniObject::callStaticObjectMethod(
-        "androidx/core/content/FileProvider",
-        "getUriForFile",
-        "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
-        context.object(),
-        QJniObject::fromString(authority).object<jstring>(),
-        file.object());
-
-    if (!uri.isValid()) {
-        qWarning() << "Failed to create content URI for APK";
-        return;
+    {
+        QJniEnvironment env;
+        if (env.checkAndClearExceptions()) {
+            ok = JNI_FALSE;
+        }
     }
 
-    // Create install intent
-    QJniObject intent("android/content/Intent");
-    QJniObject actionView = QJniObject::fromString("android.intent.action.VIEW");
-    intent.callObjectMethod("setAction",
-                            "(Ljava/lang/String;)Landroid/content/Intent;",
-                            actionView.object<jstring>());
-
-    QJniObject mimeType = QJniObject::fromString("application/vnd.android.package-archive");
-    intent.callObjectMethod("setDataAndType",
-                            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
-                            uri.object(),
-                            mimeType.object<jstring>());
-
-    // Add flags
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x00000001); // FLAG_GRANT_READ_URI_PERMISSION
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000); // FLAG_ACTIVITY_NEW_TASK
-
-    // Start activity
-    activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
-
-    qDebug() << "APK install intent launched";
+    if (!ok) {
+        qWarning() << "ShotServer: ApkInstaller.install() failed for:" << apkPath;
+    }
 #else
     qDebug() << "APK installation only supported on Android. File saved to:" << apkPath;
 #endif

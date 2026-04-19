@@ -23,12 +23,12 @@ import java.io.OutputStream;
  * the confirmation dialog was being dismissed by a lifecycle flicker, forcing
  * the user to tap "Install" a second time.
  *
- * On API 31+ we request USER_ACTION_NOT_REQUIRED. If this app is the installer
- * of record for its own package (common after a prior self-install), Android
- * may apply the update silently; otherwise the system fires
- * STATUS_PENDING_USER_ACTION and we forward its EXTRA_INTENT to startActivity,
- * which is the officially-sanctioned way to surface the confirmation sheet and
- * is not subject to the flicker race.
+ * On API 31+ we request USER_ACTION_NOT_REQUIRED. Silent updates additionally
+ * require the UPDATE_PACKAGES_WITHOUT_USER_ACTION privileged permission (not
+ * currently declared), so the system always fires STATUS_PENDING_USER_ACTION;
+ * we forward its EXTRA_INTENT to startActivity, which is the
+ * officially-sanctioned way to surface the confirmation sheet and is not
+ * subject to the flicker race.
  *
  * Terminal statuses (SUCCESS / FAILURE*) and internal worker-thread errors are
  * reported back to Qt via {@link #nativeOnInstallStatus}.
@@ -133,7 +133,7 @@ public class ApkInstaller {
             Intent statusIntent = new Intent(ACTION_INSTALL_STATUS)
                     .setPackage(appContext.getPackageName());
             int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 piFlags |= PendingIntent.FLAG_MUTABLE;
             }
             PendingIntent pi = PendingIntent.getBroadcast(
@@ -197,6 +197,8 @@ public class ApkInstaller {
                 }
                 if (confirm == null) {
                     Log.w(TAG, "install: STATUS_PENDING_USER_ACTION with no EXTRA_INTENT");
+                    reportStatus(INTERNAL_STATUS_WRITE_FAILED,
+                            "STATUS_PENDING_USER_ACTION delivered with no EXTRA_INTENT");
                     return;
                 }
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

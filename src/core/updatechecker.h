@@ -55,13 +55,6 @@ public:
     Q_INVOKABLE void downloadAndInstall();
     Q_INVOKABLE void dismissUpdate();
 
-#ifdef Q_OS_ANDROID
-    // Called (on the Qt main thread) from the JNI bridge in updatechecker.cpp
-    // when the Java PackageInstaller session reports a terminal status or an
-    // internal create/write failure.
-    void onInstallStatus(int status, const QString& message);
-#endif
-
 signals:
     void checkingChanged();
     void downloadingChanged();
@@ -81,6 +74,12 @@ private slots:
     void onDownloadProgress(qint64 received, qint64 total);
     void onDownloadFinished();
     void onPeriodicCheck();
+#ifdef Q_OS_ANDROID
+    // Called (on the Qt main thread) from the JNI bridge in updatechecker.cpp
+    // when the Java PackageInstaller session reports a terminal status or an
+    // internal create/write failure.
+    void onInstallStatus(int status, const QString& message);
+#endif
 
 private:
     void parseReleaseInfo(const QByteArray& data);

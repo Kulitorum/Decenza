@@ -56,7 +56,7 @@ void registerInstallerNativeMethods()
     static bool registered = false;
     if (registered) return;
     QJniEnvironment env;
-    JNINativeMethod methods[] = {
+    const JNINativeMethod methods[] = {
         {"nativeOnInstallStatus",
          "(ILjava/lang/String;)V",
          reinterpret_cast<void*>(installerNativeOnInstallStatus)},
@@ -352,7 +352,7 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 
 void UpdateChecker::downloadAndInstall()
 {
-    if (m_downloading || m_checking) return;
+    if (m_downloading || m_checking || m_installInFlight) return;
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = "No download available for this platform";
         qWarning() << "UpdateChecker:" << m_errorMessage;
@@ -727,6 +727,20 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
             return;
         case 3:  // STATUS_FAILURE_ABORTED — user cancelled the confirmation.
             m_installInFlight = false;
+            // Clear any stale error from a prior failed attempt so it doesn't
+            // linger when the user merely cancelled the current attempt.
+            if (!m_errorMessage.isEmpty()) {
+                m_errorMessage.clear();
+                emit errorMessageChanged();
+            }
+            // If the user already dismissed the update card, clean up the APK
+            // (dismissUpdate() skipped this while the install was in flight).
+            if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
+                QFile::remove(m_downloadedApkPath);
+                m_downloadedApkPath.clear();
+                m_expectedDownloadSize = 0;
+                emit downloadReadyChanged();
+            }
             return;
         case 2:  // STATUS_FAILURE_BLOCKED
             userMessage = "Install blocked by device policy.";
@@ -762,6 +776,14 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     }
 
     m_installInFlight = false;
+    // If the user already dismissed the update card, clean up the APK
+    // (dismissUpdate() skipped this while the install was in flight).
+    if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
+        QFile::remove(m_downloadedApkPath);
+        m_downloadedApkPath.clear();
+        m_expectedDownloadSize = 0;
+        emit downloadReadyChanged();
+    }
     m_errorMessage = userMessage;
     emit errorMessageChanged();
 }
