@@ -16,7 +16,10 @@ class ShotHistoryStorage;
 // Design:
 //  * Stateless when off: no tracking of "which shots have been exported."
 //  * Toggle off -> on, and app startup with the toggle already on:
-//    full re-export overwriting whatever is on disk.
+//    bulk pass that self-heals anything missing or out of date. Each shot's
+//    existing file is kept if its mtime is >= the shot's updated_at column,
+//    so a warm run with no DB changes performs no writes (and no shot-record
+//    load / JSON parse, which is where the real cost lived).
 //  * Toggle on: incrementally export each new shot when shotSaved fires,
 //               refresh on metadata updates.
 //  * Shot deletions always remove matching exported files regardless of the
@@ -34,8 +37,10 @@ public:
 
 signals:
     // Emitted on the main thread after the initial bulk export finishes.
-    // ok + failed together equal the total shots attempted.
-    void bulkExportFinished(int ok, int failed);
+    // written + skipped + failed together equal the total shots attempted.
+    // "skipped" counts shots whose on-disk export was already current
+    // (file mtime >= shot updated_at), so no write was performed.
+    void bulkExportFinished(int written, int skipped, int failed);
 
 private slots:
     void onExportToggleChanged();
