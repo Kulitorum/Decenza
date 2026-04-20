@@ -40,6 +40,7 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
     m_postEraseWaitTimer.setSingleShot(true);
     m_eraseTimeoutTimer.setSingleShot(true);
     m_verifyTimeoutTimer.setSingleShot(true);
+    m_verifyDisconnectGrace.setSingleShot(true);
     m_chunkPumpTimer.setInterval(m_chunkPumpIntervalMs);
 
     connect(&m_postEraseWaitTimer, &QTimer::timeout,
@@ -50,6 +51,8 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
             this, &FirmwareUpdater::onEraseTimeout);
     connect(&m_verifyTimeoutTimer, &QTimer::timeout,
             this, &FirmwareUpdater::onVerifyTimeout);
+    connect(&m_verifyDisconnectGrace, &QTimer::timeout,
+            this, &FirmwareUpdater::onVerifyDisconnectGrace);
 
     if (m_cache) {
         connect(m_cache, &FirmwareAssetCache::checkFinished,
@@ -71,21 +74,54 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
 }
 
 void FirmwareUpdater::onDeviceConnectionChanged() {
-    // We only react to *disconnects* that happen while we're actively
-    // talking to the DE1 — during Erasing, Uploading, or Verifying. A
-    // disconnect outside those phases (e.g. user pulls the plug in Idle)
-    // is just a normal BLE event and doesn't affect the flow.
-    if (!m_device || m_device->isConnected()) return;
+    if (!m_device) return;
+
+    // Reconnect path. If we were in ambiguous-verify (disconnected during
+    // the verify phase, which commonly means a successful post-flash
+    // reboot rather than a real failure), re-read the installed version
+    // and decide: match → retroactive success; mismatch → keep waiting
+    // for more version updates; timeout → fail.
+    if (m_device->isConnected()) {
+        if (m_verifyingAmbiguous) {
+            const uint32_t installed = m_installedVersionProvider
+                ? m_installedVersionProvider() : m_installedVersion;
+            m_installedVersion = installed;
+            if (installed >= m_availableVersion) {
+                m_verifyingAmbiguous = false;
+                m_verifyDisconnectGrace.stop();
+                completeSuccess();
+            }
+        }
+        return;
+    }
+
+    // Disconnect path. Only acts on phases that are actively talking to the
+    // DE1. Idle / Ready / Succeeded / Failed ignore disconnects.
     switch (m_state) {
         case State::Erasing:
         case State::Uploading:
-        case State::Verifying:
             failWith(QStringLiteral("DE1 disconnected during firmware update"),
                      /*retryable*/ true);
+            break;
+        case State::Verifying:
+            // Ambiguous — don't classify yet. Open a 15 s grace window to
+            // see whether the device comes back reporting the new version
+            // (successful reboot) or stays away / comes back with the old
+            // version (genuine failure).
+            m_verifyingAmbiguous = true;
+            m_verifyTimeoutTimer.stop();
+            m_verifyDisconnectGrace.start(m_verifyDisconnectGraceMs);
             break;
         default:
             break;
     }
+}
+
+void FirmwareUpdater::onVerifyDisconnectGrace() {
+    if (!m_verifyingAmbiguous) return;
+    m_verifyingAmbiguous = false;
+    failWith(QStringLiteral("DE1 did not reconnect after verify"),
+             /*retryable*/ true);
 }
 
 FirmwareUpdater::~FirmwareUpdater() = default;
@@ -107,8 +143,9 @@ void FirmwareUpdater::setChunkPumpIntervalMs(int ms) {
     m_chunkPumpTimer.setInterval(ms);
 }
 
-void FirmwareUpdater::setEraseTimeoutMs(int ms)  { m_eraseTimeoutMs  = ms; }
-void FirmwareUpdater::setVerifyTimeoutMs(int ms) { m_verifyTimeoutMs = ms; }
+void FirmwareUpdater::setEraseTimeoutMs(int ms)            { m_eraseTimeoutMs            = ms; }
+void FirmwareUpdater::setVerifyTimeoutMs(int ms)           { m_verifyTimeoutMs           = ms; }
+void FirmwareUpdater::setVerifyDisconnectGraceMs(int ms)   { m_verifyDisconnectGraceMs   = ms; }
 
 // ---- Read-only state helpers -------------------------------------------
 
@@ -187,6 +224,10 @@ void FirmwareUpdater::retry() {
 
 void FirmwareUpdater::dismissAvailability() {
     if (!m_updateAvailable) return;
+    // Pin the dismissed version so a subsequent check that returns the
+    // same remote version doesn't re-open the banner. A strictly newer
+    // version clears the pin in onCheckFinished.
+    m_dismissedVersion = m_availableVersion;
     m_updateAvailable = false;
     emit availabilityChanged();
 }
@@ -195,15 +236,20 @@ void FirmwareUpdater::dismissAvailability() {
 
 void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     if (m_state != State::Checking && m_state != State::Idle) return;
+    m_availableVersion = result.remoteVersion;
     if (result.kind == FirmwareAssetCache::CheckResult::Newer) {
-        m_availableVersion = result.remoteVersion;
-        m_updateAvailable  = true;
-        emit availabilityChanged();
+        // Suppress the banner if the user dismissed this exact version.
+        // Any strictly newer version clears the dismissal.
+        if (result.remoteVersion > m_dismissedVersion) {
+            m_dismissedVersion = 0;
+            m_updateAvailable  = true;
+        } else {
+            m_updateAvailable  = false;
+        }
     } else {
         m_updateAvailable = false;
-        m_availableVersion = result.remoteVersion;
-        emit availabilityChanged();
     }
+    emit availabilityChanged();
     setState(State::Idle);
 }
 

@@ -72,6 +72,7 @@ public:
     void setChunkPumpIntervalMs(int ms);      // default 1
     void setEraseTimeoutMs(int ms);           // default 30000
     void setVerifyTimeoutMs(int ms);          // default 10000
+    void setVerifyDisconnectGraceMs(int ms);  // default 15000
 
     // Read-only state -----------------------------------------------
 
@@ -107,6 +108,7 @@ private slots:
     void onChunkPumpTick();
     void onEraseTimeout();
     void onVerifyTimeout();
+    void onVerifyDisconnectGrace();
 
 private:
     void setState(State newState);
@@ -139,6 +141,20 @@ private:
     // (erase in progress), then fwToErase=0 (erase complete). We only
     // proceed after the second.
     bool        m_eraseInProgressSeen = false;
+
+    // Dismissed-version memory. When the user taps the banner's "x",
+    // availableVersion is pinned here; subsequent checks that return
+    // the same version don't re-surface the banner. A strictly newer
+    // remote version clears the pin via onCheckFinished.
+    uint32_t    m_dismissedVersion = 0;
+
+    // Verify-disconnect grace window: when the DE1 disconnects during
+    // Verifying (which commonly means a successful reboot rather than a
+    // failure), we wait briefly to see if the post-reboot version matches
+    // what we just flashed before classifying the outcome.
+    bool        m_verifyingAmbiguous    = false;
+    QTimer      m_verifyDisconnectGrace;
+    int         m_verifyDisconnectGraceMs = 15000;
 
     QTimer      m_postEraseWaitTimer;
     QTimer      m_chunkPumpTimer;

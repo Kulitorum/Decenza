@@ -175,6 +175,122 @@ private slots:
         QVERIFY(!sawEraseReq);
     }
 
+    // ===== §4c: retry, dismiss, verify-disconnect retroactive success =====
+
+    void retryAfterFailure_restartsFromErase() {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        // Short erase timeout so the first attempt fails fast.
+        f.updater.setEraseTimeoutMs(50);
+        f.updater.startUpdate();
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Failed, 2000);
+        QVERIFY(f.updater.retryAvailable());
+
+        // Restore a sensible erase timeout so retry has room to succeed.
+        f.updater.setEraseTimeoutMs(5000);
+        f.transport.clearWrites();
+
+        f.updater.retry();
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Erasing, 2000);
+
+        // A fresh erase packet (the same 7-byte "00000101000000") must
+        // appear on the wire — retry restarts from Phase 1, not from wherever
+        // the previous attempt left off.
+        bool sawFreshErase = false;
+        for (const auto& w : f.transport.writes) {
+            if (w.first == DE1::Characteristic::FW_MAP_REQUEST &&
+                w.second == QByteArray::fromHex("00000101000000")) {
+                sawFreshErase = true; break;
+            }
+        }
+        QVERIFY2(sawFreshErase, "retry did not re-issue the erase request");
+    }
+
+    void dismissAvailability_suppressesBannerForSameVersion() {
+        Fixture f;
+        // Drive the availability signal directly — no startUpdate, no
+        // Erasing state to get in the way.
+        DE1::Firmware::FirmwareAssetCache::CheckResult r;
+        r.kind = DE1::Firmware::FirmwareAssetCache::CheckResult::Newer;
+        r.remoteVersion = 1352;
+
+        emit f.cache.checkFinished(r);
+        QVERIFY(f.updater.updateAvailable());
+
+        f.updater.dismissAvailability();
+        QVERIFY(!f.updater.updateAvailable());
+
+        // Same remote version again → stays dismissed.
+        emit f.cache.checkFinished(r);
+        QVERIFY(!f.updater.updateAvailable());
+    }
+
+    void dismissedBannerReappearsOnNewerVersion() {
+        Fixture f;
+        DE1::Firmware::FirmwareAssetCache::CheckResult r;
+        r.kind = DE1::Firmware::FirmwareAssetCache::CheckResult::Newer;
+
+        r.remoteVersion = 1352;
+        emit f.cache.checkFinished(r);
+        f.updater.dismissAvailability();
+        QVERIFY(!f.updater.updateAvailable());
+
+        // A strictly newer version clears the dismissal → banner returns.
+        r.remoteVersion = 1353;
+        emit f.cache.checkFinished(r);
+        QVERIFY(f.updater.updateAvailable());
+    }
+
+    void verifyDisconnectRetroactive_succeedsOnVersionMatch() {
+        Fixture f;
+        auto installed = std::make_shared<uint32_t>(1200);
+        f.updater.setInstalledVersionProvider([installed]{ return *installed; });
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000100000000"));
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+
+        // Disconnect mid-verify — ambiguous: could be a real failure, could
+        // be the DE1's post-flash reboot.
+        f.transport.setConnectedSim(false);
+        // State should NOT flip to Failed immediately; it waits in the
+        // grace window.
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+
+        // Post-reboot: DE1 comes back reporting the new firmware version.
+        *installed = 1352;
+        f.transport.setConnectedSim(true);
+
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Succeeded, 2000);
+    }
+
+    void verifyDisconnectGraceTimeout_failsRetryable() {
+        Fixture f;
+        f.updater.setVerifyDisconnectGraceMs(50);   // short grace for test
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000100000000"));
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+
+        f.transport.setConnectedSim(false);
+        // Never reconnects; grace timer fires → Failed (retryable).
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Failed, 2000);
+        QVERIFY(f.updater.retryAvailable());
+    }
+
     // ===== §4a: happy path =====
 
     void happyPath_endToEnd() {
