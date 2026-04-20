@@ -1,4 +1,5 @@
 #include "shothistorystorage.h"
+#include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
 #include "core/grinderaliases.h"
@@ -1998,64 +1999,26 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 
 void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
 {
-    qsizetype n = qMin(record.pressure.size(), record.flow.size());
+    const qsizetype n = qMin(record.pressure.size(), record.flow.size());
     if (n < 3) return;
 
-    // Compute conductance (F^2/P) and Darcy resistance (P/F^2)
-    record.conductance.reserve(n);
+    // Share the conductance + derivative formulas with ShotDataModel (live path)
+    // and shot_eval (offline) so all three agree on kernel / clamp / scaling.
+    record.conductance = Conductance::fromPressureFlow(record.pressure, record.flow);
+
+    // Darcy resistance (P/F²) isn't exposed via Conductance yet — retain the
+    // inline loop here; mirror the same thresholds and clamp the namespace uses.
+    record.darcyResistance.clear();
     record.darcyResistance.reserve(n);
     for (qsizetype i = 0; i < n; ++i) {
-        double p = record.pressure[i].y();
-        double f = record.flow[i].y();
-        double t = record.pressure[i].x();
-        double c = 0.0, dr = 0.0;
-        if (f > 0.05 && p > 0.05) {
-            c = qMin((f * f) / p, 19.0);
-            dr = qMin(p / (f * f), 19.0);
-        }
-        record.conductance.append(QPointF(t, c));
-        record.darcyResistance.append(QPointF(t, dr));
+        const double p = record.pressure[i].y();
+        const double f = record.flow[i].y();
+        double dr = 0.0;
+        if (f > 0.05 && p > 0.05) dr = qMin(p / (f * f), 19.0);
+        record.darcyResistance.append(QPointF(record.pressure[i].x(), dr));
     }
 
-    // Compute conductance derivative (dC/dt) with Gaussian smoothing
-    QVector<double> rawDeriv(n, 0.0);
-    for (qsizetype i = 1; i < n - 1; ++i) {
-        double dt = record.conductance[i + 1].x() - record.conductance[i - 1].x();
-        if (dt > 0.001) {
-            double dc = record.conductance[i + 1].y() - record.conductance[i - 1].y();
-            rawDeriv[i] = (dc / dt) * 10.0;
-        }
-    }
-    {
-        double dt = record.conductance[1].x() - record.conductance[0].x();
-        if (dt > 0.001)
-            rawDeriv[0] = ((record.conductance[1].y() - record.conductance[0].y()) / dt) * 10.0;
-        dt = record.conductance[n - 1].x() - record.conductance[n - 2].x();
-        if (dt > 0.001)
-            rawDeriv[n - 1] = ((record.conductance[n - 1].y() - record.conductance[n - 2].y()) / dt) * 10.0;
-    }
-
-    static constexpr double GAUSSIAN[] = {
-        0.048297, 0.08393, 0.124548, 0.157829, 0.170793,
-        0.157829, 0.124548, 0.08393, 0.048297
-    };
-    static constexpr qsizetype KERNEL_HALF = 4;
-
-    record.conductanceDerivative.reserve(n);
-    for (qsizetype i = 0; i < n; ++i) {
-        double smoothed = 0.0;
-        double wSum = 0.0;
-        for (qsizetype k = -KERNEL_HALF; k <= KERNEL_HALF; ++k) {
-            qsizetype idx = i + k;
-            if (idx >= 0 && idx < n) {
-                double w = GAUSSIAN[k + KERNEL_HALF];
-                smoothed += rawDeriv[idx] * w;
-                wSum += w;
-            }
-        }
-        if (wSum > 0.0) smoothed /= wSum;
-        record.conductanceDerivative.append(QPointF(record.conductance[i].x(), qBound(-5.0, smoothed, 19.0)));
-    }
+    record.conductanceDerivative = Conductance::derivative(record.conductance);
 }
 
 void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)

@@ -143,8 +143,10 @@ add_decenza_test(tst_shotanalysis
 # block, which runs AFTER add_subdirectory(tests) — so TARGET shot_eval is
 # not defined here yet. Use the same desktop-only gate that declares it.
 if(NOT ANDROID AND NOT IOS)
+    # Use $<TARGET_FILE:...> so CTest gets the absolute path explicitly,
+    # regardless of the working directory or generator.
     add_test(NAME shot_corpus_regression
-        COMMAND shot_eval --validate
+        COMMAND $<TARGET_FILE:shot_eval> --validate
             ${CMAKE_CURRENT_SOURCE_DIR}/data/shots/manifest.json
     )
 endif()

@@ -175,10 +175,11 @@ private slots:
             pressure, flow, pressureGoal, flowGoal, phases, /*pourStart=*/5.0, /*pourEnd=*/15.0);
 
         QVERIFY2(!windows.isEmpty(), "expected at least one inclusion window");
-        // 2 s pour-start skip → window starts ≈ 7 s; window ends ≈ pourEnd.
+        // 2 s pour-start skip → window starts ≈ 7 s; 1.5 s pour-end skip →
+        // window ends ≈ pourEnd - 1.5 = 13.5 s.
         QVERIFY2(windows.first().start >= 6.8 && windows.first().start <= 7.2,
                  qPrintable(QString("window start: %1").arg(windows.first().start)));
-        QVERIFY2(windows.last().end >= 14.5 && windows.last().end <= 15.1,
+        QVERIFY2(windows.last().end >= 13.3 && windows.last().end <= 13.7,
                  qPrintable(QString("window end: %1").arg(windows.last().end)));
     }
 
@@ -236,10 +237,10 @@ private slots:
 
     // detectChannelingFromDerivative ----------------------------------------
 
-    // When windows mask out the spike, detector should return None. Without
-    // the mask (legacy fallback) the same spike should register as
-    // Sustained. This is the shot-867 regression: dC/dt spikes during the
-    // pressure ramp, fix #2 windows exclude the ramp.
+    // When windows mask out a dC/dt spike, the detector must return None.
+    // Without a mask (baseline whole-pour window) the same spike should
+    // register as Sustained. Validates that mode-aware window exclusion is
+    // what's doing the work, not some other property of the detector.
     void channelingFromDerivative_windowMaskSuppressesRampSpike()
     {
         // dC/dt series with a sustained high region during 10–15s (ramp)

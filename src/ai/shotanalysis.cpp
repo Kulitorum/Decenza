@@ -146,12 +146,17 @@ QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
         current = {-1.0, -1.0};
     };
 
+    // Trim both ends of the pour so the window bounds match what
+    // detectChannelingFromDerivative will actually analyze — otherwise
+    // windows silently overstate their coverage by up to
+    // CHANNELING_DC_POUR_SKIP_END_SEC at the tail.
     const double analysisStart = pourStart + CHANNELING_DC_POUR_SKIP_SEC;
+    const double analysisEnd = pourEnd - CHANNELING_DC_POUR_SKIP_END_SEC;
 
     for (const auto& pt : grid) {
         const double t = pt.x();
         if (t < analysisStart) continue;
-        if (t > pourEnd) break;
+        if (t > analysisEnd) break;
 
         bool isFlowMode = false;
         if (!phaseAtTime(phases, t, &isFlowMode)) {
@@ -346,7 +351,7 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     };
 
     double actualSum = 0, goalSum = 0;
-    int count = 0;
+    qsizetype count = 0;
     for (const auto& fp : flow) {
         if (fp.x() < pourStart || fp.x() > pourEnd) continue;
         if (!inFlowMode(fp.x())) continue;
@@ -488,12 +493,12 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
 
     if (!skipChanneling && !conductanceDerivative.isEmpty()) {
         // Build mode-aware inclusion windows. Pressure-mode phases with a
-        // ramping pressureGoal (80's Espresso decline, Cremina lever
-        // decompression, D-Flow pour) are excluded; flow-mode phases with a
-        // stationary flowGoal (D-Flow's 1.7 ml/s pour, Turbo hold) qualify.
-        // If buildChannelingWindows returns empty (missing goals, no
-        // phases), detectChannelingFromDerivative falls back to unrestricted
-        // analysis so the detector is not silently disabled.
+        // ramping pressureGoal (lever decline, post-preinfusion pour ramps)
+        // are excluded; flow-mode phases with a stationary flowGoal qualify.
+        // buildChannelingWindows emits a whole-pour fallback when phases is
+        // empty so legacy shots still get analyzed; when phases are present
+        // but nothing qualifies (all-ramp shot) it returns empty and the
+        // detector stays silent rather than re-flagging on noise.
         const QVector<DetectionWindow> windows = buildChannelingWindows(
             pressure, flow, pressureGoal, flowGoal, phases, pourStart, pourEnd);
 

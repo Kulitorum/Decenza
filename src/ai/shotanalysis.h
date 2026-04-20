@@ -44,9 +44,11 @@ public:
     // legitimate espresso extraction develops pressure above ~3 bar at some
     // point. If a shot's peak pressure stays below this floor, the puck
     // never built resistance — massive channel, missing puck, or grind
-    // radically too coarse. Decenza shot 868 sat at 0.63 bar peak for 7.3 s
-    // and neither channeling nor grind-direction fired; this catches that
-    // class of failure directly from the pressure curve.
+    // radically too coarse. Needed because conductance saturates at its
+    // clamp when pressure stays low, making dC/dt flat and the channeling
+    // detector silent; flow tracking preinfusion goal also masks the grind
+    // direction signal. Looking at the pressure curve directly is the only
+    // way to catch this failure mode.
     static constexpr double PRESSURE_FLOOR_BAR = 2.5;
 
     // --- Channeling detection ---
@@ -93,11 +95,14 @@ public:
     // CHANNELING_DC_POUR_SKIP_SEC of pour are skipped to avoid the transition
     // spike that happens when pressure ramps and flow catches up.
     //
-    // `windows` (optional): mode-aware inclusion mask from
-    // buildChannelingWindows(). When non-empty, only samples inside one of
-    // the windows count toward the elevated-sample tally. When empty the
-    // detector falls back to unrestricted analysis across [pourStart+skip,
-    // pourEnd], preserving legacy behavior for callers that lack goal data.
+    // `windows`: mode-aware inclusion mask from buildChannelingWindows().
+    // Only samples inside one of the windows count toward the elevated-
+    // sample tally. An empty vector returns None immediately — it means
+    // phase data was present but no stationary+converged range qualified
+    // (all-ramp shot, nothing reliable to analyze). Callers that want
+    // unrestricted legacy behavior must pass a single whole-pour window
+    // explicitly; buildChannelingWindows emits that automatically when
+    // `phases` is empty.
     //
     // outMaxSpikeTime (optional) receives the timestamp of the largest spike.
     static ChannelingSeverity detectChannelingFromDerivative(
@@ -145,10 +150,10 @@ public:
 
     // Result of the flow-vs-goal grind direction check.
     struct GrindCheck {
-        double delta = 0.0;     // (avg actual flow) - (avg goal flow). Positive = coarse, negative = fine.
-        int sampleCount = 0;    // number of qualifying samples included in the average
-        bool hasData = false;   // true when sampleCount ≥ 5 and the check ran
-        bool skipped = false;   // true when suppressed by a flag or beverage type
+        double delta = 0.0;          // (avg actual flow) - (avg goal flow). Positive = coarse, negative = fine.
+        qsizetype sampleCount = 0;   // number of qualifying samples included in the average
+        bool hasData = false;        // true when sampleCount ≥ 5 and the check ran
+        bool skipped = false;        // true when suppressed by a flag or beverage type
     };
 
     // Flow-vs-goal grind direction check — the canonical implementation

@@ -15,9 +15,10 @@
 // same-mode samples become HistoryPhaseMarker spans, identical in shape to
 // what maincontroller.cpp records for live shots.
 //
-// Output: a table per shot showing the current-detector verdict alongside
-// counts, peaks, and the mask coverage that fix #2 produces. Optional
-// --json emits one JSON object per shot to stdout for diffing.
+// Output: a table per shot showing baseline (unrestricted) vs mode-aware
+// detector verdicts alongside counts, peaks, and the mask coverage the
+// mode-aware windowing produces. Optional --json emits one JSON object
+// per shot to stdout for diffing.
 
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
@@ -87,7 +88,7 @@ QVector<QPointF> buildSeries(const QJsonArray& values, const QJsonArray& timefra
     QVector<QPointF> out;
     out.reserve(values.size());
     const bool useTimeframe = timeframe.size() == values.size();
-    for (int i = 0; i < values.size(); ++i) {
+    for (qsizetype i = 0; i < values.size(); ++i) {
         const double t = useTimeframe ? toDouble(timeframe[i]) : i * fallbackDt;
         const double y = toDouble(values[i]);
         out.append(QPointF(t, y));
@@ -154,16 +155,13 @@ QList<HistoryPhaseMarker> inferPhasesFromGoals(const QVector<QPointF>& pressure,
         currentMode = m;
     }
 
-    // If we never resolved a mode, fall back to a single pressure-mode span
-    // — this keeps the detector in its legacy unrestricted branch rather
-    // than silently disabling it.
-    if (markers.isEmpty()) {
-        HistoryPhaseMarker m;
-        m.time = pressure.first().x();
-        m.label = QStringLiteral("Unknown");
-        m.isFlowMode = false;
-        markers.append(m);
-    }
+    // Return an empty list when no mode ever resolved. Under the current
+    // buildChannelingWindows contract, empty phases triggers the whole-pour
+    // legacy fallback, which is what we want for visualizer shots without
+    // populated goal curves. A synthesized pressure-mode marker would make
+    // buildChannelingWindows probe pressureGoal, get NaN everywhere, and
+    // return an empty window list — which the detector now treats as
+    // "silence" rather than "unrestricted fallback".
     return markers;
 }
 
@@ -459,7 +457,7 @@ EvaluatedShot evaluate(const LoadedShot& s)
         && std::abs(grind.delta) > ShotAnalysis::FLOW_DEVIATION_THRESHOLD;
 
     // Pour-truncated: catches shots the dC/dt + grind detectors miss
-    // because the puck never built pressure at all (shot 868 class).
+    // because the puck never built pressure at all.
     ev.pourTruncated = ShotAnalysis::detectPourTruncated(
         s.pressure, s.pourStart, s.pourEnd, s.beverageType);
 
