@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSaveFile>
 #include <QSet>
 #include <QSqlQuery>
@@ -89,6 +90,29 @@ void ShotHistoryExporter::onShotDeleted(qint64 shotId)
 
 namespace {
 
+struct ShotRefreshInfo {
+    qint64 id = 0;
+    qint64 timestamp = 0;
+    qint64 updatedAt = 0;
+};
+
+QString exportedFilePath(const QString& historyDir, qint64 timestamp, qint64 shotId)
+{
+    const QDateTime dt = QDateTime::fromSecsSinceEpoch(timestamp);
+    return historyDir + "/" + QString("%1_%2.json")
+        .arg(dt.toString("yyyyMMddTHHmmss"))
+        .arg(shotId);
+}
+
+// Returns true if the exported file is present and was written after the
+// shot's last DB update (so its contents are known to be current).
+bool exportedFileIsFresh(const QString& historyDir, const ShotRefreshInfo& info)
+{
+    const QFileInfo fi(exportedFilePath(historyDir, info.timestamp, info.id));
+    if (!fi.exists() || fi.size() <= 0) return false;
+    return fi.lastModified().toSecsSinceEpoch() >= info.updatedAt;
+}
+
 bool writeShotJson(const QString& dbPath,
                    const QString& historyDir,
                    qint64 shotId)
@@ -105,11 +129,7 @@ bool writeShotJson(const QString& dbPath,
     QVariantMap shotData = ShotHistoryStorage::convertShotRecord(record);
     QByteArray payload = VisualizerUploader::buildHistoryShotJson(shotData);
 
-    const QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
-    const QString filename = QString("%1_%2.json")
-        .arg(dt.toString("yyyyMMddTHHmmss"))
-        .arg(shotId);
-    const QString fullPath = historyDir + "/" + filename;
+    const QString fullPath = exportedFilePath(historyDir, record.summary.timestamp, shotId);
 
     QSaveFile file(fullPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -139,26 +159,38 @@ void ShotHistoryExporter::startBulkExport()
     auto destroyed = m_destroyed;
 
     QThread* thread = QThread::create([this, dbPath, historyDir, destroyed]() {
-        auto selectAllIds = [&dbPath](QList<qint64>& out) {
+        auto selectAllShots = [&dbPath](QList<ShotRefreshInfo>& out) {
             withTempDb(dbPath, "she_ids", [&](QSqlDatabase& db) {
                 QSqlQuery q(db);
-                if (!q.exec(QStringLiteral("SELECT id FROM shots ORDER BY id ASC"))) {
+                if (!q.exec(QStringLiteral(
+                        "SELECT id, timestamp, COALESCE(updated_at, 0) "
+                        "FROM shots ORDER BY id ASC"))) {
                     qWarning() << "ShotHistoryExporter: id enumeration failed:" << q.lastError().text();
                     return;
                 }
-                while (q.next()) out.append(q.value(0).toLongLong());
+                while (q.next()) {
+                    ShotRefreshInfo info;
+                    info.id = q.value(0).toLongLong();
+                    info.timestamp = q.value(1).toLongLong();
+                    info.updatedAt = q.value(2).toLongLong();
+                    out.append(info);
+                }
             });
         };
 
-        QList<qint64> ids;
-        selectAllIds(ids);
+        QList<ShotRefreshInfo> shots;
+        selectAllShots(shots);
 
         QSet<qint64> seen;
-        int ok = 0, failed = 0;
-        for (qint64 id : ids) {
+        int written = 0, skipped = 0, failed = 0;
+        for (const ShotRefreshInfo& info : shots) {
             if (*destroyed) return;
-            seen.insert(id);
-            if (writeShotJson(dbPath, historyDir, id)) ok++;
+            seen.insert(info.id);
+            if (exportedFileIsFresh(historyDir, info)) {
+                skipped++;
+                continue;
+            }
+            if (writeShotJson(dbPath, historyDir, info.id)) written++;
             else failed++;
         }
 
@@ -166,20 +198,24 @@ void ShotHistoryExporter::startBulkExport()
         // flip m_bulkRunning to false are ignored by onShotSaved (which
         // early-returns while bulk is running). Re-query and process any
         // that landed during this run so they still end up on disk.
-        QList<qint64> latest;
-        selectAllIds(latest);
-        for (qint64 id : latest) {
+        QList<ShotRefreshInfo> latest;
+        selectAllShots(latest);
+        for (const ShotRefreshInfo& info : latest) {
             if (*destroyed) return;
-            if (seen.contains(id)) continue;
-            if (writeShotJson(dbPath, historyDir, id)) ok++;
+            if (seen.contains(info.id)) continue;
+            if (exportedFileIsFresh(historyDir, info)) {
+                skipped++;
+                continue;
+            }
+            if (writeShotJson(dbPath, historyDir, info.id)) written++;
             else failed++;
         }
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, ok, failed, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, written, skipped, failed, destroyed]() {
             if (*destroyed) return;
             m_bulkRunning.store(false);
-            emit bulkExportFinished(ok, failed);
+            emit bulkExportFinished(written, skipped, failed);
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
