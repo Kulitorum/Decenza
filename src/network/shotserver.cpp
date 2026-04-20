@@ -714,20 +714,42 @@ void ShotServer::onReadyRead()
             } else {
                 handleMediaUpload(socket, tempPath, headers);
             }
-        } else {
-            // Small request or non-media - headerData contains full request (headers + \r\n\r\n + body)
+        } else if (pending.tempFilePath.isEmpty()) {
+            // Small request or non-media — headerData contains the full
+            // request (headers + \r\n\r\n + body), nothing on disk.
             QByteArray request = pending.headerData;
-            if (!pending.tempFilePath.isEmpty() && QFile::exists(pending.tempFilePath)) {
-                // Large non-media request with temp file - reconstruct
-                request = pending.headerData + "\r\n\r\n";
-                QFile f(pending.tempFilePath);
-                if (f.open(QIODevice::ReadOnly)) {
-                    request.append(f.readAll());
-                }
-            }
             cleanupPendingRequest(socket);
             m_pendingRequests.remove(socket);
             handleRequest(socket, request);
+        } else {
+            // Large non-media request that was streamed to a temp file.
+            // Reconstruct on a background thread to keep main-thread disk I/O
+            // off the event loop (CLAUDE.md: "Never run disk I/O on the main
+            // thread"). We take ownership of the temp file removal here so we
+            // clear pending.tempFilePath before cleanupPendingRequest to stop
+            // it from queueing its own remove.
+            QByteArray headerData = pending.headerData;
+            QString tempPath = pending.tempFilePath;
+            pending.tempFilePath.clear();
+            cleanupPendingRequest(socket);
+            m_pendingRequests.remove(socket);
+            QPointer<QTcpSocket> safeSocket = socket;
+            QPointer<ShotServer> safeThis = this;
+            QThread* t = QThread::create([safeThis, safeSocket, headerData, tempPath]() {
+                QByteArray request = headerData + "\r\n\r\n";
+                QFile f(tempPath);
+                if (f.open(QIODevice::ReadOnly)) {
+                    request.append(f.readAll());
+                    f.close();
+                }
+                QFile::remove(tempPath);
+                QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, request]() {
+                    if (safeThis && safeSocket)
+                        safeThis->handleRequest(safeSocket, request);
+                }, Qt::QueuedConnection);
+            });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
         }
 
     } catch (const std::exception& e) {
@@ -2175,18 +2197,32 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             qDebug() << "ShotServer: Small media upload - request size:" << request.size()
                      << "headerEnd:" << headerEndPos << "body size:" << body.size();
 
-            // Save to temp file
+            // Save to temp file on a background thread (CLAUDE.md prohibits
+            // main-thread disk I/O). Dispatch handleMediaUpload back to the
+            // main thread once the write completes.
             QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
             QString tempPath = tempDir + "/upload_small_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
-            QFile tempFile(tempPath);
-            if (!tempFile.open(QIODevice::WriteOnly)) {
-                sendResponse(socket, 500, "text/plain", "Failed to create temp file");
-                return;
-            }
-            tempFile.write(body);
-            tempFile.close();
-
-            handleMediaUpload(socket, tempPath, headers);
+            QPointer<QTcpSocket> safeSocket = socket;
+            QPointer<ShotServer> safeThis = this;
+            QThread* t = QThread::create([safeThis, safeSocket, tempPath, body, headers]() {
+                QFile tempFile(tempPath);
+                if (!tempFile.open(QIODevice::WriteOnly) || tempFile.write(body) != body.size()) {
+                    tempFile.close();
+                    QFile::remove(tempPath);
+                    QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
+                        if (safeThis && safeSocket)
+                            safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to create temp file");
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+                tempFile.close();
+                QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, tempPath, headers]() {
+                    if (safeThis && safeSocket)
+                        safeThis->handleMediaUpload(safeSocket, tempPath, headers);
+                }, Qt::QueuedConnection);
+            });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
         }
     }
     else if (path == "/api/media/personal" && method == "GET") {
@@ -2316,15 +2352,30 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 
         QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
         QString tempPath = tempDir + "/restore_small_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
-        QFile tempFile(tempPath);
-        if (!tempFile.open(QIODevice::WriteOnly)) {
-            sendResponse(socket, 500, "text/plain", "Failed to create temp file");
-            return;
-        }
-        tempFile.write(body);
-        tempFile.close();
-
-        handleBackupRestore(socket, tempPath, headers);
+        // Write the body on a background thread to keep main-thread disk I/O
+        // off the event loop (CLAUDE.md). Dispatch handleBackupRestore back
+        // to the main thread once the write completes.
+        QPointer<QTcpSocket> safeSocket = socket;
+        QPointer<ShotServer> safeThis = this;
+        QThread* t = QThread::create([safeThis, safeSocket, tempPath, body, headers]() {
+            QFile tempFile(tempPath);
+            if (!tempFile.open(QIODevice::WriteOnly) || tempFile.write(body) != body.size()) {
+                tempFile.close();
+                QFile::remove(tempPath);
+                QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
+                    if (safeThis && safeSocket)
+                        safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to create temp file");
+                }, Qt::QueuedConnection);
+                return;
+            }
+            tempFile.close();
+            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, tempPath, headers]() {
+                if (safeThis && safeSocket)
+                    safeThis->handleBackupRestore(safeSocket, tempPath, headers);
+            }, Qt::QueuedConnection);
+        });
+        connect(t, &QThread::finished, t, &QThread::deleteLater);
+        t->start();
     }
     // Theme editor
     else if (path == "/theme") {

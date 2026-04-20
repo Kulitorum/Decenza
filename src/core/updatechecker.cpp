@@ -891,7 +891,11 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
                 m_downloadedApkPath.clear();
                 m_expectedDownloadSize = 0;
                 emit downloadReadyChanged();
-                QThread* t = QThread::create([path]() { QFile::remove(path); });
+                const int capturedGen = s_downloadGeneration.loadAcquire();
+                QThread* t = QThread::create([path, capturedGen]() {
+                    if (s_downloadGeneration.loadAcquire() == capturedGen)
+                        QFile::remove(path);
+                });
                 connect(t, &QThread::finished, t, &QThread::deleteLater);
                 t->start();
             }
@@ -905,16 +909,20 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
                 m_errorMessage.clear();
                 emit errorMessageChanged();
             }
-            // Safety net: normally unreachable. dismissUpdate() clears
-            // m_installInFlight, so a status arriving after dismiss hits the
-            // !m_installInFlight early-return at the top of this function and
-            // never gets here. dismissUpdate() also clears m_downloadedApkPath,
-            // so even if the early-return were bypassed the condition below
-            // would be false. This block runs only for a future code path that
-            // clears m_updateAvailable without going through dismissUpdate().
+            // Safety net. After dismissUpdate() this block is unreachable:
+            // dismissUpdate clears m_installInFlight (so we early-returned at
+            // the top) and also clears m_downloadedApkPath (so the condition
+            // below is false). The block is still reachable today via
+            // onCheckFinished / parseReleaseInfo setting m_updateAvailable
+            // back to false when a later check finds no update, while the
+            // previous version's m_downloadedApkPath is still set.
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
                 QString path = m_downloadedApkPath;
-                QThread* t = QThread::create([path]() { QFile::remove(path); });
+                const int capturedGen = s_downloadGeneration.loadAcquire();
+                QThread* t = QThread::create([path, capturedGen]() {
+                    if (s_downloadGeneration.loadAcquire() == capturedGen)
+                        QFile::remove(path);
+                });
                 connect(t, &QThread::finished, t, &QThread::deleteLater);
                 t->start();
                 m_downloadedApkPath.clear();
@@ -960,15 +968,18 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
 
     m_installInFlight = false;
     emit installingChanged();
-    // Safety net: normally unreachable. dismissUpdate() clears m_installInFlight,
-    // so a status arriving after dismiss hits the !m_installInFlight early-return
-    // at the top of this function. dismissUpdate() also clears m_downloadedApkPath,
-    // so even if the early-return were bypassed the condition below would be
-    // false. This block runs only for a future code path that clears
-    // m_updateAvailable without going through dismissUpdate().
+    // Safety net. After dismissUpdate() this block is unreachable (dismiss
+    // clears both m_installInFlight and m_downloadedApkPath). It can still
+    // be reached today via onCheckFinished / parseReleaseInfo setting
+    // m_updateAvailable back to false when a later check finds no update,
+    // while the previous version's m_downloadedApkPath is still set.
     if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
-        QThread* t = QThread::create([path]() { QFile::remove(path); });
+        const int capturedGen = s_downloadGeneration.loadAcquire();
+        QThread* t = QThread::create([path, capturedGen]() {
+            if (s_downloadGeneration.loadAcquire() == capturedGen)
+                QFile::remove(path);
+        });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
         t->start();
         m_downloadedApkPath.clear();
