@@ -64,6 +64,12 @@ add_decenza_test(tst_binarycodec
     ${CODEC_SOURCES}
 )
 
+# --- tst_firmwarepackets: FWMapRequest + firmware chunk byte layout tests
+# (header-only target; no cpp dependency beyond the test itself) ---
+add_decenza_test(tst_firmwarepackets
+    tst_firmwarepackets.cpp
+)
+
 # --- tst_profile: Profile JSON/TCL parsing, frame generation, BLE encoding ---
 add_decenza_test(tst_profile
     tst_profile.cpp
