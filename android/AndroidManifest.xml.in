@@ -26,6 +26,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- APK installation permission for remote updates -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 13+ (API 33+): required to show the "Decenza updated — tap to
+         open" notification posted by UpdateLaunchReceiver after self-update.
+         Denied-by-default at runtime; DecenzaActivity.onCreate() asks once. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />

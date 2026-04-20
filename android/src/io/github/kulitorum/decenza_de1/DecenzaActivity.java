@@ -1,8 +1,13 @@
 package io.github.kulitorum.decenza_de1;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import org.qtproject.qt.android.bindings.QtActivity;
 
@@ -37,6 +42,28 @@ public class DecenzaActivity extends QtActivity {
             // Android may block startService() if app is considered "in background"
             // This can happen during certain wake scenarios - safe to ignore
             android.util.Log.w("DecenzaActivity", "Could not start shutdown service: " + e.getMessage());
+        }
+
+        maybeRequestNotificationPermission();
+    }
+
+    // Android 13+ (API 33+) requires runtime POST_NOTIFICATIONS permission
+    // for any notification to be shown. We use notifications from
+    // UpdateLaunchReceiver to give the user a "Decenza updated — tap to open"
+    // affordance after a self-update, matching the legacy Intent(ACTION_VIEW)
+    // install flow's "Open" button. Ask once on first launch; if declined,
+    // the app still works — the user just relaunches manually after an update.
+    private void maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        String perm = android.Manifest.permission.POST_NOTIFICATIONS;
+        if (ContextCompat.checkSelfPermission(this, perm)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        try {
+            ActivityCompat.requestPermissions(this, new String[] { perm }, 4242);
+        } catch (Throwable t) {
+            Log.w(TAG, "requestPermissions POST_NOTIFICATIONS failed: " + t);
         }
     }
 

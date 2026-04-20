@@ -1,34 +1,37 @@
 package io.github.kulitorum.decenza_de1;
 
-import android.app.ActivityOptions;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.os.Bundle;
 import android.util.Log;
+
+import androidx.core.app.NotificationCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
 /**
- * Relaunches Decenza after a self-update.
+ * Posts a "Decenza updated — tap to open" notification after a self-update,
+ * restoring the UX of the legacy Intent(ACTION_VIEW) install flow, where the
+ * system package-installer activity provided an "Open" button.
  *
- * The legacy Intent(ACTION_VIEW) install flow used to provide this via the
- * system package-installer activity's "Open" button. PackageInstaller's session
- * API has no equivalent post-install UI, and the dynamic BroadcastReceiver we
- * register in ApkInstaller cannot handle STATUS_SUCCESS for a self-update
- * because Android kills the old process when it replaces the package on disk,
- * before the status broadcast is delivered.
- *
- * ACTION_MY_PACKAGE_REPLACED is delivered by the system to a manifest-
- * registered receiver running in the NEW process after a self-update, which
- * is exactly the right hook to bring the updated app back to the foreground.
+ * We previously tried to start the main activity directly from this receiver.
+ * Target SDK 36 / Android 15+ BAL (Background Activity Launch) rules block
+ * that, even with PendingIntent + full creator/sender opt-in — the creator
+ * opt-in is rejected because this receiver's process is already in RECEIVER
+ * state with no visible window when we run, so we have no BAL privilege to
+ * grant. A tap on a notification, by contrast, is a foreground-initiated
+ * start, so its contentIntent PendingIntent is allowed to launch the activity.
  */
 public class UpdateLaunchReceiver extends BroadcastReceiver {
     private static final String TAG = "DecenzaUpdateLaunch";
+    private static final String CHANNEL_ID = "decenza_update";
+    private static final int NOTIFICATION_ID = 1001;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -40,59 +43,21 @@ public class UpdateLaunchReceiver extends BroadcastReceiver {
                 .getLaunchIntentForPackage(context.getPackageName());
         if (launch == null) {
             result.append("null launch intent");
+            Log.w(TAG, "no launch intent for package " + context.getPackageName());
         } else {
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-            // Attempt 1: direct startActivity (known to BAL_BLOCK on Android 15+,
-            // but we log the outcome for the record).
             try {
-                context.startActivity(launch);
-                result.append("direct:ok ");
-                Log.i(TAG, "direct startActivity returned without throwing");
+                postUpdatedNotification(context, launch);
+                result.append("notif:posted");
+                Log.i(TAG, "posted update-complete notification");
             } catch (Throwable t) {
-                result.append("direct:ex=").append(t).append(" ");
-                Log.w(TAG, "direct startActivity threw: " + t);
-            }
-
-            // Attempt 2: PendingIntent + explicit BAL opt-in from both creator
-            // and sender. Android 15+ requires the PendingIntent creator to
-            // opt in, and the sender's ActivityOptions bundle also needs the
-            // BAL-allowed mode. The BAL log from our last test claimed this
-            // would still be blocked (resultIfPiCreatorAllowsBal: BAL_BLOCK),
-            // but let's confirm empirically.
-            try {
-                Bundle creatorOptions = null;
-                if (Build.VERSION.SDK_INT >= 35) {  // VANILLA_ICE_CREAM (Android 15)
-                    ActivityOptions ao = ActivityOptions.makeBasic();
-                    ao.setPendingIntentCreatorBackgroundActivityStartMode(
-                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
-                    creatorOptions = ao.toBundle();
-                }
-                int piFlags = PendingIntent.FLAG_UPDATE_CURRENT
-                            | PendingIntent.FLAG_IMMUTABLE;
-                PendingIntent pi;
-                if (creatorOptions != null) {
-                    pi = PendingIntent.getActivity(
-                            context, 0, launch, piFlags, creatorOptions);
-                } else {
-                    pi = PendingIntent.getActivity(
-                            context, 0, launch, piFlags);
-                }
-                Bundle sendOptions = null;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    ActivityOptions ao = ActivityOptions.makeBasic();
-                    ao.setPendingIntentBackgroundActivityStartMode(
-                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
-                    sendOptions = ao.toBundle();
-                }
-                pi.send(context, 0, null, null, null, null, sendOptions);
-                result.append("pi:sent");
-                Log.i(TAG, "PendingIntent.send() returned without throwing");
-            } catch (Throwable t) {
-                result.append("pi:ex=").append(t);
-                Log.w(TAG, "PendingIntent path threw: " + t);
+                result.append("notif:ex=").append(t);
+                Log.w(TAG, "failed to post update-complete notification: " + t);
             }
         }
+        // Diagnostic: flag file + log on next startup lets us confirm the
+        // receiver ran. Harmless if permission prompts block the notification;
+        // the flag still tells us whether this code executed.
         try {
             File flag = new File(context.getFilesDir(), "auto_launch_fired.txt");
             FileOutputStream out = new FileOutputStream(flag);
@@ -105,5 +70,40 @@ public class UpdateLaunchReceiver extends BroadcastReceiver {
         } catch (IOException e) {
             Log.w(TAG, "failed to write auto_launch_fired.txt: " + e);
         }
+    }
+
+    private static void postUpdatedNotification(Context context, Intent launch) {
+        NotificationManager nm =
+                (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+
+        // Android 8+ requires a channel. Creating the channel repeatedly is
+        // idempotent, so we ensure it exists here rather than at app startup
+        // (where we may never have a chance to run for a fresh install's first
+        // self-update).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Updates",
+                    NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Notifies you when an in-app update has installed.");
+            nm.createNotificationChannel(channel);
+        }
+
+        PendingIntent contentIntent = PendingIntent.getActivity(
+                context, 0, launch,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        NotificationCompat.Builder builder =
+                new NotificationCompat.Builder(context, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                        .setContentTitle("Decenza updated")
+                        .setContentText("Tap to open.")
+                        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                        .setCategory(NotificationCompat.CATEGORY_STATUS)
+                        .setContentIntent(contentIntent)
+                        .setAutoCancel(true);
+
+        nm.notify(NOTIFICATION_ID, builder.build());
     }
 }
