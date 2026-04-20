@@ -628,6 +628,7 @@ set(QML_FILES
     qml/pages/settings/SettingsHistoryDataTab.qml
     qml/pages/settings/SettingsHomeAutomationTab.qml
     qml/pages/settings/SettingsUpdateTab.qml
+    qml/pages/settings/SettingsFirmwareTab.qml
     qml/pages/settings/SettingsDebugTab.qml
     qml/pages/settings/SettingsSearchDialog.qml
     qml/pages/settings/DeviceMigrationDialog.qml
