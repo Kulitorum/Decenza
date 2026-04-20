@@ -5,6 +5,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
 /**
  * Relaunches Decenza after a self-update.
  *
@@ -27,18 +31,37 @@ public class UpdateLaunchReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) {
             return;
         }
+        // Diagnostic: drop a flag file so we can confirm from the Qt log on the
+        // next app start whether this receiver ran at all, independently of
+        // whether startActivity() below actually brings the UI up.
+        String launchResult = "pending";
         try {
             Intent launch = context.getPackageManager()
                     .getLaunchIntentForPackage(context.getPackageName());
             if (launch != null) {
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 context.startActivity(launch);
+                launchResult = "startActivity ok";
                 Log.i(TAG, "launched updated app after ACTION_MY_PACKAGE_REPLACED");
             } else {
+                launchResult = "null launch intent";
                 Log.w(TAG, "no launch intent for package " + context.getPackageName());
             }
         } catch (Throwable t) {
+            launchResult = "exception: " + t;
             Log.w(TAG, "failed to launch updated app: " + t);
+        }
+        try {
+            File flag = new File(context.getFilesDir(), "auto_launch_fired.txt");
+            FileOutputStream out = new FileOutputStream(flag);
+            try {
+                String line = System.currentTimeMillis() + " " + launchResult + "\n";
+                out.write(line.getBytes());
+            } finally {
+                out.close();
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "failed to write auto_launch_fired.txt: " + e);
         }
     }
 }

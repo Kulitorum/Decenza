@@ -441,6 +441,24 @@ int main(int argc, char *argv[])
     }
     checkpoint("Crash check done");
 
+    // Diagnostic: UpdateLaunchReceiver (Android ACTION_MY_PACKAGE_REPLACED)
+    // drops this flag file when it runs. Reading it here tells us whether the
+    // receiver fired at all on the last self-update, independent of whether
+    // the startActivity() it called actually brought the UI up.
+    {
+        QString flagPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/auto_launch_fired.txt";
+        QFile flag(flagPath);
+        if (flag.exists()) {
+            if (flag.open(QIODevice::ReadOnly)) {
+                qInfo().noquote() << "UpdateLaunchReceiver fired on previous update:" << QString::fromUtf8(flag.readAll()).trimmed();
+                flag.close();
+            }
+            flag.remove();
+        } else {
+            qInfo() << "UpdateLaunchReceiver did NOT fire on previous update (no flag file)";
+        }
+    }
+
     // Create core objects
     Settings settings;
     settings.initSystemThemeDetection();
