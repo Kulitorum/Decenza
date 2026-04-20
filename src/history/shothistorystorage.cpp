@@ -923,12 +923,21 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // Channeling detection uses dC/dt (the Gaussian-smoothed conductance
         // derivative) — it catches channels invisible to flow/pressure alone
         // and works regardless of frame mode. computeConductanceDerivative()
-        // above populates the series we read here.
+        // above populates the series we read here. Mode-aware inclusion
+        // windows (built from phase markers + goal curves) mask out phases
+        // where the control goal is ramping or the actual hasn't converged
+        // onto it yet — suppresses false positives on lever, D-Flow decline,
+        // and pressure ramps.
         data.channelingDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("channeling_expected"))) {
+            const auto channelWindows = ShotAnalysis::buildChannelingWindows(
+                tmpRecord.pressure, flowPts,
+                shotData->pressureGoalData(), shotData->flowGoalData(),
+                tmpRecord.phases, pourStart, pourEnd);
             auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                shotData->conductanceDerivativeData(), pourStart, pourEnd);
+                shotData->conductanceDerivativeData(), pourStart, pourEnd,
+                channelWindows);
             data.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
         }
 
@@ -943,14 +952,17 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             }
         }
 
-        // Grind issue detection: flow persistently above or below goal during pour.
-        // Skip for turbo/filter shots (same guard as channeling) — high-flow profiles
-        // have wide natural flow variation that would cause false positives.
-        // Also skip profiles where grind detection is intentionally suppressed (e.g. Turbo Shot).
-        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
-            && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("grind_check_skip"))) {
+        // Grind issue detection: flow persistently above or below goal during
+        // pour. Skip for turbo/filter shots (high-flow profiles have wide
+        // natural flow variation that would cause false positives). Phase-
+        // mode aware — restricts averaging to flow-controlled phases so the
+        // check no longer compares actual flow against a pressure-mode
+        // profile's flow limiter (80's Espresso, Cremina, Londinium pour).
+        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
-                flowPts, shotData->flowGoalData(), pourStart, pourEnd);
+                flowPts, shotData->flowGoalData(), tmpRecord.phases,
+                pourStart, pourEnd, data.beverageType,
+                ShotSummarizer::getAnalysisFlags(data.profileKbId));
         }
 
         // Skip-first-frame detection: check whether frame 0 was absent or very short,
@@ -1720,13 +1732,17 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 }
             }
 
-            // Channeling
+            // Channeling (mode-aware inclusion windows)
             if (!ShotAnalysis::shouldSkipChannelingCheck(
                     record.summary.beverageType, record.flow, pourStart, pourEnd)
                 && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
                         .contains(QStringLiteral("channeling_expected"))) {
+                const auto windows = ShotAnalysis::buildChannelingWindows(
+                    record.pressure, record.flow,
+                    record.pressureGoal, record.flowGoal,
+                    record.phases, pourStart, pourEnd);
                 auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                    record.conductanceDerivative, pourStart, pourEnd);
+                    record.conductanceDerivative, pourStart, pourEnd, windows);
                 newChanneling = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
             }
 
@@ -1739,14 +1755,14 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 }
             }
 
-            // Grind issue
+            // Grind issue (phase-mode aware — only averaged across flow-mode phases)
             if (!record.flowGoal.isEmpty()
                 && !ShotAnalysis::shouldSkipChannelingCheck(
-                        record.summary.beverageType, record.flow, pourStart, pourEnd)
-                && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
-                        .contains(QStringLiteral("grind_check_skip"))) {
+                        record.summary.beverageType, record.flow, pourStart, pourEnd)) {
                 newGrindIssue = ShotAnalysis::detectGrindIssue(
-                    record.flow, record.flowGoal, pourStart, pourEnd);
+                    record.flow, record.flowGoal, record.phases,
+                    pourStart, pourEnd, record.summary.beverageType,
+                    ShotSummarizer::getAnalysisFlags(record.profileKbId));
             }
 
             // Skip-first-frame detection from phase markers
@@ -2244,8 +2260,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         record.channelingDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("channeling_expected"))) {
+            const auto windows = ShotAnalysis::buildChannelingWindows(
+                record.pressure, record.flow,
+                record.pressureGoal, record.flowGoal,
+                record.phases, pourStart, pourEnd);
             auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                record.conductanceDerivative, pourStart, pourEnd);
+                record.conductanceDerivative, pourStart, pourEnd, windows);
             record.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
         }
 
@@ -2274,10 +2294,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
             }
         }
-        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
-            && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("grind_check_skip"))) {
+        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
-                record.flow, record.flowGoal, pourStart, pourEnd);
+                record.flow, record.flowGoal, record.phases,
+                pourStart, pourEnd, record.summary.beverageType,
+                ShotSummarizer::getAnalysisFlags(record.profileKbId));
         }
     }
 

@@ -25,9 +25,29 @@ public:
     static constexpr double CHANNELING_DC_TRANSIENT_PEAK = 5.0;   // single-sample peak flagged as transient
     static constexpr int    CHANNELING_DC_SUSTAINED_COUNT = 10;   // >this many elevated samples = sustained
     static constexpr double CHANNELING_DC_POUR_SKIP_SEC = 2.0;    // skip first N seconds of pour (transition spike)
+    static constexpr double CHANNELING_DC_POUR_SKIP_END_SEC = 1.5; // skip last N seconds of pour (natural tail acceleration)
     static constexpr double CHANNELING_MAX_AVG_FLOW = 3.0;        // mL/s — skip turbo/filter shots
     static constexpr double TEMP_UNSTABLE_THRESHOLD = 2.0;        // °C avg deviation from goal
     static constexpr double TEMP_STEPPING_RANGE = 5.0;            // °C goal range = intentional stepping
+
+    // Mode-aware detection window tuning. A sample counts toward channeling
+    // detection only inside a window where the active control goal (pressure
+    // goal for pressure-mode phases, flow goal for flow-mode phases) is
+    // roughly stationary AND the actual value has converged onto it.
+    static constexpr double WINDOW_STATIONARY_REL = 0.15;   // goal change ≤ 15% across ±WINDOW_HALF_SEC
+    static constexpr double WINDOW_CONVERGED_REL  = 0.15;   // |actual - goal| / goal ≤ 15%
+    static constexpr double WINDOW_HALF_SEC       = 0.75;   // stationarity half-width
+    static constexpr double WINDOW_MIN_GOAL       = 0.1;    // treat goal below this (or sentinel values) as "no goal"
+    static constexpr double WINDOW_GAP_MERGE_SEC  = 0.3;    // merge window fragments separated by ≤ this gap
+
+    // Puck-failure / truncated-pour detection (detectPourTruncated). Any
+    // legitimate espresso extraction develops pressure above ~3 bar at some
+    // point. If a shot's peak pressure stays below this floor, the puck
+    // never built resistance — massive channel, missing puck, or grind
+    // radically too coarse. Decenza shot 868 sat at 0.63 bar peak for 7.3 s
+    // and neither channeling nor grind-direction fired; this catches that
+    // class of failure directly from the pressure curve.
+    static constexpr double PRESSURE_FLOOR_BAR = 2.5;
 
     // --- Channeling detection ---
 
@@ -38,16 +58,52 @@ public:
         Sustained    // >CHANNELING_DC_SUSTAINED_COUNT samples above CHANNELING_DC_ELEVATED
     };
 
+    // Contiguous time range to include in dC/dt channeling analysis.
+    struct DetectionWindow {
+        double start = 0;
+        double end = 0;
+    };
+
+    // Build inclusion windows for mode-aware channeling detection. For each
+    // phase in `phases`, consults the per-phase `isFlowMode` flag and walks
+    // the active goal curve (flow goal for flow-mode phases, pressure goal
+    // for pressure-mode phases). A time is included when:
+    //   * The active goal is stationary (|goal(t±WINDOW_HALF_SEC) - goal(t)|
+    //     / goal(t) ≤ WINDOW_STATIONARY_REL), AND
+    //   * Actual is converged onto goal (|actual - goal| / goal ≤
+    //     WINDOW_CONVERGED_REL).
+    // Contiguous included times collapse into DetectionWindow spans. Short
+    // gaps (≤ WINDOW_GAP_MERGE_SEC) are merged.
+    //
+    // Returns empty when the necessary goal data is absent — callers should
+    // treat this as "cannot evaluate" rather than "detector silent": see
+    // detectChannelingFromDerivative for behavior when windows are empty.
+    static QVector<DetectionWindow> buildChannelingWindows(
+        const QVector<QPointF>& pressure,
+        const QVector<QPointF>& flow,
+        const QVector<QPointF>& pressureGoal,
+        const QVector<QPointF>& flowGoal,
+        const QList<HistoryPhaseMarker>& phases,
+        double pourStart, double pourEnd);
+
     // Analyze the conductance derivative (dC/dt) to classify puck integrity.
     // `conductanceDerivative` is expected to be the Gaussian-smoothed dC/dt
     // series produced by ShotDataModel::computeConductanceDerivative() or
     // ShotHistoryStorage::computeDerivedCurves(). Samples in the first
     // CHANNELING_DC_POUR_SKIP_SEC of pour are skipped to avoid the transition
     // spike that happens when pressure ramps and flow catches up.
+    //
+    // `windows` (optional): mode-aware inclusion mask from
+    // buildChannelingWindows(). When non-empty, only samples inside one of
+    // the windows count toward the elevated-sample tally. When empty the
+    // detector falls back to unrestricted analysis across [pourStart+skip,
+    // pourEnd], preserving legacy behavior for callers that lack goal data.
+    //
     // outMaxSpikeTime (optional) receives the timestamp of the largest spike.
     static ChannelingSeverity detectChannelingFromDerivative(
         const QVector<QPointF>& conductanceDerivative,
         double pourStart, double pourEnd,
+        const QVector<DetectionWindow>& windows = {},
         double* outMaxSpikeTime = nullptr);
 
     // Check if channeling analysis should be skipped for this shot.
@@ -87,12 +143,59 @@ public:
     static constexpr double FLOW_GOAL_MIN_AVG = 0.3;    // ml/s — ignore goal periods with very low target (preinfusion)
     static constexpr double FLOW_DEVIATION_THRESHOLD = 0.4;  // ml/s avg deviation to flag grind issue
 
-    // Returns true if flow consistently deviates from goal by more than FLOW_DEVIATION_THRESHOLD
-    // during the pour phase, indicating a grind issue (too fine or too coarse).
-    // Returns false when there is insufficient flow goal data (< 5 qualifying samples).
+    // Result of the flow-vs-goal grind direction check.
+    struct GrindCheck {
+        double delta = 0.0;     // (avg actual flow) - (avg goal flow). Positive = coarse, negative = fine.
+        int sampleCount = 0;    // number of qualifying samples included in the average
+        bool hasData = false;   // true when sampleCount ≥ 5 and the check ran
+        bool skipped = false;   // true when suppressed by a flag or beverage type
+    };
+
+    // Flow-vs-goal grind direction check — the canonical implementation
+    // shared by the badge path (detectGrindIssue) and the summary path
+    // (generateSummary). Only averages samples that fall inside a
+    // flow-controlled phase (HistoryPhaseMarker::isFlowMode == true). If no
+    // flow-controlled pour phase exists (e.g. 80's Espresso, Cremina,
+    // Londinium — entire pour is pressure-controlled), the check returns
+    // hasData=false and callers treat the shot as "grind direction not
+    // evaluable from flow goal."
+    //
+    // analysisFlags honored: "grind_check_skip" forces skipped=true. Filter/
+    // pourover beverage types also short-circuit to skipped=true.
+    static GrindCheck analyzeFlowVsGoal(const QVector<QPointF>& flow,
+                                         const QVector<QPointF>& flowGoal,
+                                         const QList<HistoryPhaseMarker>& phases,
+                                         double pourStart, double pourEnd,
+                                         const QString& beverageType = {},
+                                         const QStringList& analysisFlags = {});
+
+    // Returns true if the flow-vs-goal check flags a meaningful deviation
+    // (|delta| > FLOW_DEVIATION_THRESHOLD). Returns false when the check is
+    // skipped, there is insufficient data, or deviation is within tolerance.
+    // Phase-mode aware: restricts averaging to flow-controlled phases, so
+    // pressure-mode profiles (lever, D-Flow pour, etc.) no longer trigger on
+    // flow that is naturally below a profile's flow-limiter ceiling.
     static bool detectGrindIssue(const QVector<QPointF>& flow,
                                   const QVector<QPointF>& flowGoal,
-                                  double pourStart, double pourEnd);
+                                  const QList<HistoryPhaseMarker>& phases,
+                                  double pourStart, double pourEnd,
+                                  const QString& beverageType = {},
+                                  const QStringList& analysisFlags = {});
+
+    // Returns true when the pour never pressurized — peak pressure inside
+    // the pour window stayed below PRESSURE_FLOOR_BAR. Diagnoses puck
+    // failures that the dC/dt channeling detector and the flow-vs-goal
+    // grind direction check cannot see: when the puck offers near-zero
+    // resistance, conductance saturates, the derivative is zero, and flow
+    // tracks the preinfusion goal perfectly — all three signals that would
+    // normally scream "bad shot" are silent. Looking directly at the
+    // pressure curve catches those cases.
+    //
+    // Skipped for non-espresso beverage types (filter/pourover/tea/steam/
+    // cleaning) where low pressure is expected.
+    static bool detectPourTruncated(const QVector<QPointF>& pressure,
+                                     double pourStart, double pourEnd,
+                                     const QString& beverageType = {});
 
     // Returns true if the shot appears to have skipped profile frame 0, indicating
     // either a known DE1 firmware bug (machine started at frame 1+) or a profile

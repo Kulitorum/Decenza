@@ -1,5 +1,6 @@
 #include "shotsummarizer.h"
 #include "shotanalysis.h"
+#include "../history/shothistorystorage.h"  // HistoryPhaseMarker — passed to ShotAnalysis mode-aware detectors
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
@@ -94,9 +95,27 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary,
     // Use dC/dt (conductance derivative) — the most diagnostic puck-integrity
     // signal. Only a Sustained event counts toward the stored "channeling"
     // anomaly flag; transient self-healed channels show up in the popup but
-    // do not trip the badge or AI observation.
+    // do not trip the badge or AI observation. Build mode-aware inclusion
+    // windows so pressure-mode ramps / lever declines / flow-mode
+    // transitions don't get mistaken for puck-prep failures. PhaseSummary
+    // already carries isFlowMode; synthesize HistoryPhaseMarker spans from
+    // the phase list so ShotAnalysis can mask correctly.
+    QList<HistoryPhaseMarker> phaseMarkers;
+    phaseMarkers.reserve(summary.phases.size());
+    for (const auto& ph : summary.phases) {
+        HistoryPhaseMarker m;
+        m.time = ph.startTime;
+        m.label = ph.name;
+        m.isFlowMode = ph.isFlowMode;
+        phaseMarkers.append(m);
+    }
+    const auto windows = ShotAnalysis::buildChannelingWindows(
+        summary.pressureCurve, flowData,
+        summary.pressureGoalCurve, summary.flowGoalCurve,
+        phaseMarkers, pourStart, pourEnd);
+
     auto severity = ShotAnalysis::detectChannelingFromDerivative(
-        conductanceDerivative, pourStart, pourEnd);
+        conductanceDerivative, pourStart, pourEnd, windows);
     summary.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
 }
 
