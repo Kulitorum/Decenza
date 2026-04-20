@@ -829,8 +829,11 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
         connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
         cleanup->start();
     }
-    // Only decrement if this was a large upload that was actually counted
-    // (small uploads < MAX_SMALL_BODY_SIZE don't increment m_activeMediaUploads)
+    // Only decrement if this upload was actually counted. An upload is counted
+    // (m_activeMediaUploads++) when it streams to a temp file. APK uploads always
+    // stream regardless of size; media/backup uploads only stream when
+    // contentLength > MAX_SMALL_BODY_SIZE. Guarding on !tempFilePath.isEmpty()
+    // distinguishes the streaming path from small in-memory uploads.
     if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && !pending.tempFilePath.isEmpty() && m_activeMediaUploads > 0) {
         m_activeMediaUploads--;
     }

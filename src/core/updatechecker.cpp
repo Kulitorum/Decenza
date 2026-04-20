@@ -21,10 +21,17 @@
 #include <cerrno>    // errno, strerror
 #endif
 
+#include <QAtomicInt>
 #include <QThread>
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
+
+// File-scope so background QFile::remove threads can read it without capturing
+// `this`. Bumped by startDownload() each time a new download file is opened;
+// cleanup lambdas compare against the captured value and skip the delete if the
+// generation has advanced (meaning a new download has taken over the path).
+static QAtomicInt s_downloadGeneration{0};
 
 #ifdef Q_OS_ANDROID
 namespace {
@@ -262,6 +269,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 
     // Find platform-appropriate asset
     QJsonArray assets = release["assets"].toArray();
+    const QString previousDownloadUrl = m_downloadUrl;
     m_downloadUrl.clear();
     for (const QJsonValue& assetVal : assets) {
         QJsonObject asset = assetVal.toObject();
@@ -304,6 +312,12 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 
     if (m_updateAvailable != wasAvailable) {
         emit updateAvailableChanged();
+    }
+    // canDownloadUpdate is derived from m_downloadUrl on desktop; fire when it
+    // changes so QML re-evaluates the download-button visibility binding. On
+    // Android/iOS this is a no-op because the value is compile-time constant.
+    if (m_downloadUrl != previousDownloadUrl) {
+        emit canDownloadUpdateChanged();
     }
 
     // When no update is available and the user is running a different version
@@ -368,6 +382,18 @@ void UpdateChecker::downloadAndInstall()
         emit errorMessageChanged();
         return;
     }
+#ifdef Q_OS_ANDROID
+    // ShotServer can initiate installs that we don't track in m_installInFlight;
+    // check the Java-level flag so we don't waste a ~146 MB download only to be
+    // rejected by ApkInstaller.install() at the end.
+    if (QJniObject::callStaticMethod<jboolean>(
+            "io/github/kulitorum/decenza_de1/ApkInstaller", "isInFlight", "()Z") == JNI_TRUE) {
+        m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "
+                         "restart the app and try again.";
+        emit errorMessageChanged();
+        return;
+    }
+#endif
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = "No download available for this platform";
         qWarning() << "UpdateChecker:" << m_errorMessage;
@@ -375,15 +401,23 @@ void UpdateChecker::downloadAndInstall()
         return;
     }
 
-    // If we already downloaded this version's APK and it's the right size, skip
-    // straight to install. This handles the case where a prior attempt didn't
-    // complete (e.g., Android's "Install Unknown Apps" permission redirect).
+    // If a prior run of this version's APK download finished, skip straight to
+    // install. m_expectedDownloadSize > 0 is a sentinel indicating a completed
+    // download (not a size comparison — we no longer stat the file from the
+    // main thread). Handles the case where a prior attempt didn't reach the
+    // install step (e.g., Android's "Install Unknown Apps" permission redirect).
     if (!m_downloadedApkPath.isEmpty() && m_expectedDownloadSize > 0) {
         qDebug() << "UpdateChecker: APK already downloaded, installing directly:" << m_downloadedApkPath;
         m_errorMessage.clear();
         emit errorMessageChanged();
-        installApk(m_downloadedApkPath);
-        return;
+        if (installApk(m_downloadedApkPath))
+            return;
+        // installApk() failed — Java detected a missing/invalid APK (typically
+        // cache eviction) and returned false without a status callback. Clear
+        // the stale error set by installApk() and fall through to re-download.
+        qWarning() << "UpdateChecker: cached APK install failed, forcing re-download";
+        m_errorMessage.clear();
+        emit errorMessageChanged();
     }
 
     m_downloadedApkPath.clear();
@@ -422,7 +456,7 @@ void UpdateChecker::startDownload()
     QString fullPath = savePath + "/" + filename;
 
     // Bump before opening so any pending background remove for the old file skips deletion.
-    m_downloadGeneration.fetchAndAddOrdered(1);
+    s_downloadGeneration.fetchAndAddOrdered(1);
     m_downloadFile = new QFile(fullPath);
     if (!m_downloadFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         m_errorMessage = "Failed to create download file: " + m_downloadFile->errorString();
@@ -485,10 +519,10 @@ void UpdateChecker::onDownloadFinished()
             m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
             emit errorMessageChanged();
             const QString fileToRemove = m_downloadFile->fileName();
-            const int capturedGen = m_downloadGeneration.loadAcquire();
+            const int capturedGen = s_downloadGeneration.loadAcquire();
             m_downloadFile->close();
-            QThread* t = QThread::create([this, fileToRemove, capturedGen]() {
-                if (m_downloadGeneration.loadAcquire() == capturedGen)
+            QThread* t = QThread::create([fileToRemove, capturedGen]() {
+                if (s_downloadGeneration.loadAcquire() == capturedGen)
                     QFile::remove(fileToRemove);
             });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -536,9 +570,9 @@ void UpdateChecker::onDownloadFinished()
         }
         emit errorMessageChanged();
         {
-            const int capturedGen = m_downloadGeneration.loadAcquire();
-            QThread* t = QThread::create([this, filePath, capturedGen]() {
-                if (m_downloadGeneration.loadAcquire() == capturedGen)
+            const int capturedGen = s_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([filePath, capturedGen]() {
+                if (s_downloadGeneration.loadAcquire() == capturedGen)
                     QFile::remove(filePath);
             });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -562,9 +596,9 @@ void UpdateChecker::onDownloadFinished()
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
         {
-            const int capturedGen = m_downloadGeneration.loadAcquire();
-            QThread* t = QThread::create([this, filePath, capturedGen]() {
-                if (m_downloadGeneration.loadAcquire() == capturedGen)
+            const int capturedGen = s_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([filePath, capturedGen]() {
+                if (s_downloadGeneration.loadAcquire() == capturedGen)
                     QFile::remove(filePath);
             });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -588,9 +622,9 @@ void UpdateChecker::onDownloadFinished()
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
         {
-            const int capturedGen = m_downloadGeneration.loadAcquire();
-            QThread* t = QThread::create([this, filePath, capturedGen]() {
-                if (m_downloadGeneration.loadAcquire() == capturedGen)
+            const int capturedGen = s_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([filePath, capturedGen]() {
+                if (s_downloadGeneration.loadAcquire() == capturedGen)
                     QFile::remove(filePath);
             });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -642,15 +676,21 @@ void UpdateChecker::dismissUpdate()
     m_updateAvailable = false;
     emit updateAvailableChanged();
 
-    // Dismiss is an explicit user action; remove the cached APK immediately —
-    // unless an install is in flight, in which case the worker thread is
-    // mid-stream from this file and deleting it would race the FileInputStream
-    // open (pre-unlink) or produce a partial session (post-unlink).
-    if (!m_downloadedApkPath.isEmpty() && !m_installInFlight) {
+    // Dismiss is an explicit user action: clean up the cached APK unconditionally.
+    // Because we also clear m_installInFlight below (to hide the spinner on OEM
+    // ROMs that skip STATUS_FAILURE_ABORTED), any later terminal status callback
+    // will be dropped by the early-return guard in onInstallStatus(). This is
+    // therefore our only chance to clean up, so we can't defer to that path.
+    //
+    // Safety: on Android, unlinking an APK that a Java worker has open via
+    // FileInputStream is safe — POSIX semantics keep the fd (and the file data)
+    // valid until the last descriptor closes, so an in-flight session-write
+    // completes even though the path has been removed from the cache directory.
+    const int capturedGen = s_downloadGeneration.loadAcquire();
+    if (!m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
-        const int capturedGen = m_downloadGeneration.loadAcquire();
-        QThread* t = QThread::create([this, path, capturedGen]() {
-            if (m_downloadGeneration.loadAcquire() == capturedGen && !QFile::remove(path))
+        QThread* t = QThread::create([path, capturedGen]() {
+            if (s_downloadGeneration.loadAcquire() == capturedGen && !QFile::remove(path))
                 qWarning() << "UpdateChecker: Failed to remove cached APK:" << path;
         });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -824,8 +864,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
                 m_errorMessage.clear();
                 emit errorMessageChanged();
             }
-            // If the user already dismissed the update card, clean up the APK
-            // (dismissUpdate() skipped this while the install was in flight).
+            // Safety net: dismissUpdate() clears the APK path and m_installInFlight
+            // together, so this branch is normally unreachable (a dismissed install's
+            // terminal status is dropped by the early-return above). Kept in case a
+            // future code path clears m_updateAvailable without going through dismissUpdate.
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
                 QString path = m_downloadedApkPath;
                 QThread* t = QThread::create([path]() { QFile::remove(path); });

@@ -22,7 +22,7 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(int latestVersionCode READ latestVersionCode NOTIFY latestVersionCodeChanged)
     Q_PROPERTY(QString releaseNotes READ releaseNotes NOTIFY releaseNotesChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
-    Q_PROPERTY(bool canDownloadUpdate READ canDownloadUpdate CONSTANT)
+    Q_PROPERTY(bool canDownloadUpdate READ canDownloadUpdate NOTIFY canDownloadUpdateChanged)
     Q_PROPERTY(bool canCheckForUpdates READ canCheckForUpdates CONSTANT)
     Q_PROPERTY(bool downloadReady READ isDownloadReady NOTIFY downloadReadyChanged)
     Q_PROPERTY(QString platformName READ platformName CONSTANT)
@@ -70,6 +70,7 @@ signals:
     void installingChanged();
     void latestIsBetaChanged();
     void downloadReadyChanged();
+    void canDownloadUpdateChanged();
 
 public slots:
 #ifdef Q_OS_ANDROID
@@ -113,7 +114,8 @@ private:
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
     bool m_installInFlight = false;  // True between installApk() dispatch and terminal PackageInstaller status
-    QAtomicInt m_downloadGeneration{0};  // Bumped each time startDownload() opens a new file; guards background removes
+    // Generation counter lives at file scope in updatechecker.cpp so background
+    // QFile::remove threads don't capture `this` (see s_downloadGeneration).
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
