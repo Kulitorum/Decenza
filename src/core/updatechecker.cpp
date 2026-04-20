@@ -913,7 +913,7 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
             // dismissUpdate clears m_installInFlight (so we early-returned at
             // the top) and also clears m_downloadedApkPath (so the condition
             // below is false). The block is still reachable today via
-            // onCheckFinished / parseReleaseInfo setting m_updateAvailable
+            // parseReleaseInfo (called from onReleaseInfoReceived or onPeriodicCheck) setting m_updateAvailable
             // back to false when a later check finds no update, while the
             // previous version's m_downloadedApkPath is still set.
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {

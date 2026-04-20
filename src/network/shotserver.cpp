@@ -2217,8 +2217,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 }
                 tempFile.close();
                 QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, tempPath, headers]() {
-                    if (safeThis && safeSocket)
+                    if (safeThis && safeSocket) {
                         safeThis->handleMediaUpload(safeSocket, tempPath, headers);
+                    } else {
+                        // Client disconnected or ShotServer torn down before the
+                        // handler could run; prevent the temp file from leaking.
+                        QFile::remove(tempPath);
+                    }
                 }, Qt::QueuedConnection);
             });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -2370,8 +2375,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             }
             tempFile.close();
             QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, tempPath, headers]() {
-                if (safeThis && safeSocket)
+                if (safeThis && safeSocket) {
                     safeThis->handleBackupRestore(safeSocket, tempPath, headers);
+                } else {
+                    // Client disconnected or ShotServer torn down before the
+                    // handler could run; prevent the temp file from leaking.
+                    QFile::remove(tempPath);
+                }
             }, Qt::QueuedConnection);
         });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
