@@ -52,7 +52,7 @@ Decenza aims to be a complete replacement for Decent's original `de1app` (Tcl/Tk
 1. **`FirmwareUpdater` is owned by `MainController`** as a peer to `SteamCalibrator`, `UpdateChecker`, and `BatteryManager`. Exposed to QML as `mainController.firmwareUpdater`.
 2. **`FirmwareAssetCache` is independent of BLE.** Pure networking + file I/O, testable in isolation.
 3. **`DE1Device` additions are three methods and one signal.** No state-machine logic inside `DE1Device`; it remains a thin BLE I/O layer.
-4. **Auto-check is cheap and weekly.** HEAD request with `If-None-Match`; on ETag change fetch only the 28-byte header via `Range: bytes=0-27`; no full-body download until the user confirms.
+4. **Auto-check is cheap and weekly.** HEAD request with `If-None-Match`; on ETag change fetch only the 64-byte header via `Range: bytes=0-63`; no full-body download until the user confirms.
 5. **No BLE write pacing changes.** `DE1Device` / `BleTransport` already handle backpressure; we pump chunks through the existing write queue via a 1 ms `QTimer`.
 
 ## 4. Components
@@ -102,8 +102,11 @@ Path: `src/core/firmwareassetcache.{h,cpp}`
 class FirmwareAssetCache : public QObject {
     Q_OBJECT
 public:
-    struct Header {
-        uint32_t checksum, boardMarker, version, byteCount, cpuBytes, unused, dcSum;
+    struct Header {                                           // 64 bytes on wire
+        uint32_t checksum, boardMarker, version, byteCount,   // offsets 0..15
+                 cpuBytes, unused, dcSum;                     // offsets 16..27
+        std::array<uint8_t, 32> iv;                           // offset 28..59 (opaque to us)
+        uint32_t headerChecksum;                              // offset 60..63
     };
     struct CheckResult { enum Kind { Newer, Same, Error } kind; int remoteVersion; };
 
@@ -246,9 +249,8 @@ Erase and verify each take 2 – 5 s; upload takes ~28 s. Linear-over-chunks alo
 | GitHub 5xx | HTTP status | Tab: "GitHub temporarily unavailable" | `Idle` |
 | GitHub 4xx (URL moved) | HTTP status | Log warning, silently disable update flow until next app restart | `Idle` |
 | Download truncated | `bytesReceived < Content-Length` | "Download incomplete — try again" + retry | `Failed` |
-| SHA mismatch after partial resume | CRC check | Wipe cache, restart download from 0. | `Downloading` (transparent) |
-| Header `boardMarker` invalid | Parsed after download | "The firmware file is not valid. Please report this." Disable flow until app restart. | `Failed` (non-retryable) |
-| Header `checksum != crc32(payload)` | Computed | Same as boardMarker mismatch | `Failed` (non-retryable) |
+| File size < `ByteCount + 64` after download | Size check | Wipe cache, restart download from 0. | `Downloading` (transparent one-shot retry) → `Failed` if repeats |
+| Header `boardMarker != 0xDE100001` | Parsed after download | "The firmware file is not valid. Please report this." Disable flow until app restart. | `Failed` (non-retryable) |
 
 ### 6.2 Pre-flight failures
 
@@ -313,13 +315,14 @@ DE1 behavior after interrupted erase: the bootloader flag (`FWToMap=1`) is alrea
 
 | Test | Asserts |
 |---|---|
-| `parseHeader_valid` | Canned 28-byte header parses with correct LE values |
-| `validateFile_goodBoardMarker_goodCrc` | Synthetic fixture passes |
+| `parseHeader_valid` | Canned 64-byte header parses with correct LE values, IV bytes preserved |
+| `validateFile_goodBoardMarker` | Synthetic fixture with `BoardMarker = 0xDE100001` and `fileSize == ByteCount + 64` passes |
 | `validateFile_badBoardMarker` | Returns false, error mentions "not a DE1 firmware file" |
-| `validateFile_crcMismatch` | Flipped payload byte fails CRC32 check |
+| `validateFile_truncated` | File smaller than `ByteCount + 64` → validation fails with retryable classification |
+| `validateFile_truncated` | File smaller than `ByteCount + 64` → validation fails |
 | `versionComparison_strictlyGreater` | v1342 < v1347 → `Newer`; equal → `Same`; remote < installed → not offered |
 
-Fixture: synthetic 284-byte `.dat` (28-byte header + 256-byte payload, all-zero payload with matching CRC32) under `tests/data/firmware/`. No Decent binary redistributed.
+Fixture: synthetic 320-byte `.dat` (64-byte header + 256-byte payload) under `tests/data/firmware/`. Header has `BoardMarker = 0xDE100001` and `ByteCount = 256`; payload is all-zero. No Decent binary redistributed. The `CheckSum`, `DCSum`, and `HeaderChecksum` fields can stay zero until the `TODO(firmware-crc)` question to Decent is resolved.
 
 **`tests/tst_firmwareupdater.cpp`** (new), using a `FakeDE1Device` and mocked `FirmwareAssetCache`:
 

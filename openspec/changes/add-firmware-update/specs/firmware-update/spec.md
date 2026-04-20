@@ -4,7 +4,7 @@
 
 ### Requirement: Firmware availability detection
 
-The system SHALL periodically check for new DE1 firmware on the upstream source (`https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat`) and compare the remote firmware version against the connected DE1's installed version (read from `MMR 0x800010`). The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running. The check SHALL minimise bandwidth: an `HTTP HEAD` with `If-None-Match` SHALL be issued first, and only when the `ETag` has changed SHALL the system fetch at most the 28-byte firmware header via `Range: bytes=0-27` to read the remote version. The full firmware payload SHALL NOT be downloaded until the user initiates an update.
+The system SHALL periodically check for new DE1 firmware on the upstream source (`https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat`) and compare the remote firmware version against the connected DE1's installed version (read from `MMR 0x800010`). The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running. The check SHALL minimise bandwidth: an `HTTP HEAD` with `If-None-Match` SHALL be issued first, and only when the `ETag` has changed SHALL the system fetch the 64-byte firmware header via `Range: bytes=0-63` to read the remote `BoardMarker` and `Version`. The full firmware payload SHALL NOT be downloaded until the user initiates an update.
 
 #### Scenario: Newer firmware available
 
@@ -40,14 +40,15 @@ The system SHALL periodically check for new DE1 firmware on the upstream source 
 
 ### Requirement: Firmware download and validation
 
-The system SHALL download the firmware file only when the user initiates an update. The downloaded file SHALL be validated before the system writes anything to the DE1, including verification that the file's 28-byte header declares a valid DE1 board marker and that the header's checksum field matches a CRC32 computed over the firmware payload. The system SHALL support resuming partially-downloaded files via HTTP `Range` requests.
+The system SHALL download the firmware file only when the user initiates an update and SHALL validate the file's 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven `u32` header fields in little-endian, confirm that `BoardMarker` at offset 4 equals `0xDE100001`, and confirm that the on-disk file size is at least `ByteCount + 64`. The DE1's own verify-phase response (`FirstError == {0xFF, 0xFF, 0xFD}`) is the authoritative correctness check for the written firmware; client-side validation over the encrypted payload (`CheckSum` / `DCSum` / `HeaderChecksum` algorithms) is deferred pending a protocol question to Decent, tracked by the `TODO(firmware-crc)` marker in `FirmwareAssetCache`. The system SHALL support resuming partially-downloaded files via HTTP `Range` requests.
 
 #### Scenario: Successful download and validation
 
 - **WHEN** the user taps "Update now" and the file downloads fully
-- **THEN** the system parses the 28-byte header
-- **AND** computes CRC32 over the payload bytes
-- **AND** enters the `Ready` state when the header's `checksum` field equals the computed CRC32
+- **THEN** the system parses the 64-byte header
+- **AND** confirms `BoardMarker == 0xDE100001`
+- **AND** confirms the on-disk file size is ≥ `ByteCount + 64`
+- **AND** enters the `Ready` state
 
 #### Scenario: Download resume
 
@@ -59,16 +60,16 @@ The system SHALL download the firmware file only when the user initiates an upda
 
 #### Scenario: Invalid firmware file — bad board marker
 
-- **WHEN** the downloaded file's `boardMarker` header field does not match the expected DE1 constant
+- **WHEN** the downloaded file's `BoardMarker` header field does not equal `0xDE100001`
 - **THEN** the flow enters `Failed` with `retryAvailable = false`
 - **AND** the user sees "The firmware file is not valid. Please report this."
 - **AND** further automatic checks are disabled until the next app restart
 
-#### Scenario: Invalid firmware file — CRC mismatch
+#### Scenario: Invalid firmware file — truncated payload
 
-- **WHEN** the computed CRC32 over the payload does not match the header's `checksum` field
-- **THEN** the flow enters `Failed` with `retryAvailable = false`
-- **AND** the cached file is deleted to avoid re-validating the same corrupted bytes
+- **WHEN** the on-disk file size is less than `ByteCount + 64`
+- **THEN** the flow enters `Failed` with `retryAvailable = true`
+- **AND** the cached file is deleted so a subsequent retry re-downloads from scratch
 
 ### Requirement: Three-phase firmware flash procedure
 

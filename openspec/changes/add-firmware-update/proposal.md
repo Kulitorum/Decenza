@@ -8,11 +8,11 @@ Decenza aims to be a complete replacement for Decent's original `de1app` (Tcl/Tk
 
 - Add a **firmware update capability**: detect, download, validate, and flash new DE1 firmware over BLE
 - Add `FirmwareUpdater` controller that owns the three-phase state machine (erase → upload → verify) as a peer of `SteamCalibrator` and `UpdateChecker` under `MainController`
-- Add `FirmwareAssetCache` service that downloads the firmware binary from Decent's GitHub (`main` branch of `decentespresso/de1app`), validates its 28-byte header (board marker + CRC32 over payload), and caches it under `QStandardPaths::AppDataLocation/firmware/`
+- Add `FirmwareAssetCache` service that downloads the firmware binary from Decent's GitHub (`main` branch of `decentespresso/de1app`), validates its 64-byte header (`BoardMarker == 0xDE100001` plus file-size ≥ `ByteCount + 64`), and caches it under `QStandardPaths::AppDataLocation/firmware/`. Payload-level checksum validation is deferred pending a protocol question to Decent (`TODO(firmware-crc)` marker); the DE1's own verify-phase response is the authoritative correctness check
 - Add packet builders (`src/ble/protocol/firmwarepackets.h`) for `FWMapRequest` (A009) and firmware chunks (A006, opcode `0x10`)
 - Extend `DE1Device` with `writeFWMapRequest()`, `writeFirmwareChunk()`, on-demand A009 subscribe/unsubscribe, and an `fwMapResponse` signal — **no state-machine logic inside `DE1Device`**
 - Add home-screen **`FirmwareBanner.qml`** (dismissible, per-version) and **`SettingsFirmwareTab.qml`** (full flow with progress, retry, error surfaces)
-- Add weekly + startup auto-check cadence (HEAD with `If-None-Match`; on ETag change fetch only the 28-byte header via `Range: bytes=0-27`); no full-body download until user confirms
+- Add weekly + startup auto-check cadence (HEAD with `If-None-Match`; on ETag change fetch only the 64-byte header via `Range: bytes=0-63`); no full-body download until user confirms
 - Add failure-recovery UX: any interruption produces a clean full-retry with a persistent banner, screensaver suppressed until the user succeeds or explicitly cancels
 - Add unit tests for packet builders, asset cache, and state machine (using a `FakeDE1Device`), plus a mocked-BLE integration test
 

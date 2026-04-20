@@ -38,12 +38,12 @@ URL: `https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bo
 - Decent abandoned GitHub Releases for firmware in 2021 (last release v1.37). The `.dat` file lives at this path on `main` and Decent updates it in place.
 - The tag-based alternative was considered. At design time, `main` was ~7 KB newer than the v1.46.1 tag — tag-tracking would have missed that firmware. Users would get stale firmware whenever Decent commits a new `.dat` between app tags.
 - Kal Freese's Python tool uses this same URL successfully in production.
-- Validation is anchored on the file's 28-byte header (board marker + CRC32 over payload), not on the URL label. An unexpected bad file from `main` is caught before we touch the DE1.
+- Validation is anchored on the file's 64-byte header (`BoardMarker == 0xDE100001` plus file-size ≥ `ByteCount + 64`), not on the URL label. An unexpected bad file from `main` is caught before we touch the DE1. Payload-level checksum validation is pending a protocol question to Decent (see `TODO(firmware-crc)`); the DE1's verify-phase response is the ultimate gate.
 
 ### Decision: Architecture — separate controller, thin device additions
 
 - `FirmwareUpdater` (new) owns the three-phase state machine as a peer of `SteamCalibrator` and `UpdateChecker` under `MainController`
-- `FirmwareAssetCache` (new) handles HTTP download, header parsing, and CRC validation — testable without BLE
+- `FirmwareAssetCache` (new) handles HTTP download, header parsing, and `BoardMarker` / file-size validation — testable without BLE
 - `DE1Device` gains three methods and one signal; zero state-machine logic inside it
 
 Approaches considered and rejected:
@@ -74,7 +74,7 @@ UX softens the full-retry cost:
 
 - The home-screen banner persists as "Firmware update interrupted — tap to retry" until the user succeeds or explicitly cancels. Persisted via `firmware/inProgressBeforeFailure` in `QSettings` so it survives app restarts.
 - Screensaver suppression and navigation guards remain in effect across failure → retry so the user doesn't walk away mid-process.
-- The only non-retryable failures are "invalid firmware file" (bad board marker or CRC mismatch) and "URL moved" (HTTP 4xx on GitHub). In those cases Decenza stops retrying until the next app restart, avoiding a tight retry loop against a bad server state.
+- The only non-retryable failures are "invalid firmware file" (bad `BoardMarker`) and "URL moved" (HTTP 4xx on GitHub). In those cases Decenza stops retrying until the next app restart, avoiding a tight retry loop against a bad server state. Truncated downloads are retryable since they typically reflect a transient network condition.
 
 ### Decision: Verify-disconnect is ambiguous — check version, not just notification
 
@@ -98,7 +98,23 @@ Firmware ships every few months. Polling more often is wasteful:
 - Weekly: one `QTimer` armed at app start with `qMax(168h - elapsed, 30s)`. `QTimer` is millisecond-accurate up to ~24.8 days, so 168 h is safe.
 - Manual: "Check now" button in `SettingsFirmwareTab` always performs a HEAD, bypassing the 168 h gate.
 
-Check implementation: HEAD first with `If-None-Match`. On `304 Not Modified`, no further network I/O. On `200 OK` with a changed `ETag`, issue a `Range: bytes=0-27` GET to fetch only the firmware header (28 bytes) and parse the version. The full payload (~453 KB) is only downloaded when the user taps "Update now".
+Check implementation: HEAD first with `If-None-Match`. On `304 Not Modified`, no further network I/O. On `200 OK` with a changed `ETag`, issue a `Range: bytes=0-63` GET to fetch only the firmware header (64 bytes) and parse the `BoardMarker` + `Version`. The full payload (~453 KB) is only downloaded when the user taps "Update now".
+
+Header layout on the wire (all `u32` little-endian unless noted):
+
+| Offset | Field | Notes |
+|---|---|---|
+| 0 | `CheckSum` | algorithm pending; not validated client-side (see `TODO(firmware-crc)`) |
+| 4 | `BoardMarker` | must equal `0xDE100001` — the only client-side validation we gate on |
+| 8 | `Version` | linear build number (current main: 1352 for "v1352") |
+| 12 | `ByteCount` | payload size; file-size sanity is `fileSize >= ByteCount + 64` |
+| 16 | `CPUBytes` | logged for diagnostics |
+| 20 | `Unused` | always zero |
+| 24 | `DCSum` | second checksum, algorithm pending |
+| 28 | `IV` (32 bytes) | payload-decryption IV — opaque to Decenza, streamed verbatim |
+| 60 | `HeaderChecksum` | checksum over first 60 bytes, algorithm pending |
+
+The IV + HeaderChecksum fields are newer than de1app's `binary.tcl:379-390` spec. de1app's upload loop streams the entire file byte-for-byte from offset 0, letting the DE1 firmware do the decryption — Decenza does the same, so the 64-byte header layout has no special handling during upload.
 
 No per-connect check. The original design considered it and was simplified per user feedback: DE1s reconnect frequently during normal use, and hammering GitHub CDN on every reconnect adds no value when firmware ships monthly at most.
 
@@ -112,7 +128,7 @@ No per-connect check. The original design considered it and was simplified per u
 ## Risks
 
 - **Bricking a real DE1.** Mitigation: we cannot commit an automated test that flashes a real machine. Manual verification on maintainer hardware before merge, header validation before erase, precondition gates refusing to start during shots.
-- **GitHub serves a bad `.dat`.** Mitigation: header validation (board marker, CRC32 over payload). If either check fails, we enter `Failed` non-retryable and disable the flow until next app restart. No loop against bad state.
+- **GitHub serves a bad `.dat`.** Mitigation: `BoardMarker` must equal `0xDE100001` and file size must be ≥ `ByteCount + 64`. A wrong `BoardMarker` is non-retryable (disable flow until app restart, no retry loop against bad state). A truncated download is retryable (likely transient). Payload corruption beyond that is caught by the DE1 in verify phase.
 - **BLE pacing on iOS stricter than elsewhere.** Mitigation: no code changes for iOS; rely on Qt's write queue. Manual verification covers iOS explicitly. If pacing is a problem, the 1 ms chunk-pump timer is configurable (injected through constructor) and can be raised for iOS in a follow-up.
 - **User backgrounds the app mid-update on mobile.** Mitigation: full-screen "Do not switch apps" overlay during active phases. If the OS kills the app anyway, we fall through to the BLE-disconnect path (clean failure, clear retry offer).
 

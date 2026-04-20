@@ -10,10 +10,10 @@
 - [ ] 1.3 Register the new test binary in `tests/CMakeLists.txt`
 
 ## 2. Firmware Asset Cache
-- [ ] 2.1 Add `src/core/firmwareassetcache.{h,cpp}` with `checkForUpdate` (HEAD with `If-None-Match`), `downloadIfNeeded` (GET with `Range` resume), header parser, and CRC32 validator
+- [ ] 2.1 Add `src/core/firmwareassetcache.{h,cpp}` with `checkForUpdate` (HEAD with `If-None-Match`), `downloadIfNeeded` (GET with `Range` resume), 64-byte header parser, and `BoardMarker` / file-size validator. Leave `TODO(firmware-crc)` marker where the payload checksum check would go once Decent confirms the algorithm.
 - [ ] 2.2 Store cache under `QStandardPaths::AppDataLocation/firmware/`; sidecar `bootfwupdate.dat.meta.json` holds `{etag, sha256, version, downloadedAt}`
-- [ ] 2.3 Add `tests/tst_firmwareassetcache.cpp` covering valid/invalid headers, CRC mismatch, version comparison, resume-after-partial
-- [ ] 2.4 Commit synthetic 284-byte test fixture under `tests/data/firmware/` (28-byte header + 256-byte payload, all-zero payload with matching CRC32). Do not redistribute Decent's real `.dat`.
+- [ ] 2.3 Add `tests/tst_firmwareassetcache.cpp` covering valid/invalid headers, truncated payload, version comparison, resume-after-partial
+- [ ] 2.4 Commit synthetic 320-byte test fixture under `tests/data/firmware/` (64-byte header + 256-byte payload, `BoardMarker = 0xDE100001`, `ByteCount = 256`, all-zero payload). Do not redistribute Decent's real `.dat`.
 
 ## 3. DE1Device Extensions
 - [ ] 3.1 Add `writeFWMapRequest(uint8 fwToErase, uint8 fwToMap, std::array<uint8_t,3> firstError)` to `src/ble/de1device.{h,cpp}` — bypasses MMR dedupe cache
