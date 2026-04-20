@@ -60,11 +60,11 @@ public:
     // Newer-vs-Same and to race-guard before erase.
     void setInstalledVersionProvider(std::function<uint32_t()> fn);
 
-    // Supplies the current machine phase as a DE1::State enum value. The
-    // updater refuses to start when the phase is anything but Idle or
-    // Sleep. When not set, no precondition check is performed (tests that
-    // don't need it can omit it).
-    void setMachinePhaseProvider(std::function<int()> fn);
+    // Supplies the "is it OK to start a firmware update right now?" gate.
+    // Typical wiring checks MachineState::phase against Sleep/Idle/Heating/
+    // Ready and rejects anything else (espresso, steam, flush, descale,
+    // clean). Not-set is treated as "yes, allow".
+    void setPreconditionProvider(std::function<bool()> fn);
 
     // Timing knobs (defaults match the spec). Tests set these to small
     // values to avoid minute-long test runs.
@@ -167,7 +167,7 @@ private:
     int         m_verifyTimeoutMs      = 10000;
 
     std::function<uint32_t()> m_installedVersionProvider;
-    std::function<int()>      m_machinePhaseProvider;
+    std::function<bool()>     m_preconditionProvider;
 
     friend class tst_FirmwareUpdater;
 };

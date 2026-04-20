@@ -77,7 +77,7 @@ private:
             updater.setVerifyTimeoutMs(5000);
 
             // Pretend machine is idle and installed firmware is older.
-            updater.setMachinePhaseProvider([]{ return static_cast<int>(DE1::State::Idle); });
+            updater.setPreconditionProvider([]{ return true; });
             updater.setInstalledVersionProvider([]{ return 1200u; });
         }
     };
@@ -137,8 +137,7 @@ private slots:
     void preconditionRefuses_duringShot() {
         Fixture f;
         // Override: machine is pulling a shot — Update must refuse.
-        f.updater.setMachinePhaseProvider(
-            []{ return static_cast<int>(DE1::State::Espresso); });
+        f.updater.setPreconditionProvider([]{ return false; });
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
         f.updater.startUpdate();
 

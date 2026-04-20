@@ -21,6 +21,8 @@
 #include "../network/shotreporter.h"
 #include "../network/mqttclient.h"
 #include "../core/updatechecker.h"
+#include "../core/firmwareassetcache.h"
+#include "firmwareupdater.h"
 #include "../core/datamigrationclient.h"
 #include "../core/databasebackupmanager.h"
 
@@ -58,6 +60,7 @@ class MainController : public QObject {
     Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT)
     Q_PROPERTY(MqttClient* mqttClient READ mqttClient CONSTANT)
     Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
+    Q_PROPERTY(FirmwareUpdater* firmwareUpdater READ firmwareUpdater CONSTANT)
     Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT)
     Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT)
     Q_PROPERTY(DatabaseBackupManager* backupManager READ backupManager CONSTANT)
@@ -109,6 +112,7 @@ public:
     ShotServer* shotServer() const { return m_shotServer; }
     MqttClient* mqttClient() const { return m_mqttClient; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
+    FirmwareUpdater* firmwareUpdater() const { return m_firmwareUpdater; }
     ShotReporter* shotReporter() const { return m_shotReporter; }
     DataMigrationClient* dataMigration() const { return m_dataMigration; }
     DatabaseBackupManager* backupManager() const { return m_backupManager; }
@@ -293,6 +297,9 @@ private:
     ShotServer* m_shotServer = nullptr;
     MqttClient* m_mqttClient = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
+    DE1::Firmware::FirmwareAssetCache* m_firmwareAssetCache = nullptr;
+    FirmwareUpdater* m_firmwareUpdater = nullptr;
+    QTimer* m_firmwareCheckTimer = nullptr;   // weekly recurring check
     LocationProvider* m_locationProvider = nullptr;
     DataMigrationClient* m_dataMigration = nullptr;
     ShotReporter* m_shotReporter = nullptr;

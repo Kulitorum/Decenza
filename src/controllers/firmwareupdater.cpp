@@ -132,8 +132,8 @@ void FirmwareUpdater::setInstalledVersionProvider(std::function<uint32_t()> fn) 
     m_installedVersionProvider = std::move(fn);
 }
 
-void FirmwareUpdater::setMachinePhaseProvider(std::function<int()> fn) {
-    m_machinePhaseProvider = std::move(fn);
+void FirmwareUpdater::setPreconditionProvider(std::function<bool()> fn) {
+    m_preconditionProvider = std::move(fn);
 }
 
 void FirmwareUpdater::setPostEraseWaitMs(int ms) { m_postEraseWaitMs = ms; }
@@ -193,20 +193,16 @@ void FirmwareUpdater::checkForUpdate() {
 void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
 
-    // Precondition: machine must be idle or sleep (if we know the phase).
-    if (m_machinePhaseProvider) {
-        const int phase = m_machinePhaseProvider();
-        const bool idleOrSleep =
-            phase == static_cast<int>(DE1::State::Idle) ||
-            phase == static_cast<int>(DE1::State::Sleep);
-        if (!idleOrSleep) {
-            // Precondition failure — user can retry once the shot/steam
-            // finishes. Not the same as a permanently-bad firmware file.
-            m_errorMessage = QStringLiteral("Finish current operation first");
-            m_retryAvailable = true;
-            setState(State::Failed);
-            return;
-        }
+    // Precondition: delegate to the caller-supplied predicate. If unset,
+    // treat as "yes, allow" so unit tests can skip the check when they're
+    // focused on later phases.
+    if (m_preconditionProvider && !m_preconditionProvider()) {
+        // Precondition failure — user can retry once the shot/steam
+        // finishes. Not the same as a permanently-bad firmware file.
+        m_errorMessage = QStringLiteral("Finish current operation first");
+        m_retryAvailable = true;
+        setState(State::Failed);
+        return;
     }
 
     // Download (or short-circuit if already cached and valid).
