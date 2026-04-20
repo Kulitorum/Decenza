@@ -189,6 +189,20 @@ add_decenza_test(tst_de1device_firmware
     ${SIMULATOR_SOURCES}
 )
 
+# --- tst_firmwareupdater: FirmwareUpdater state-machine tests ---
+add_decenza_test(tst_firmwareupdater
+    tst_firmwareupdater.cpp
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/firmwareupdater.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/firmwareassetcache.cpp
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
 # --- tst_profileupload: Profile upload frame-ACK verification ---
 add_decenza_test(tst_profileupload
     tst_profileupload.cpp

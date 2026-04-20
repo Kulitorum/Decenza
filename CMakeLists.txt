@@ -266,6 +266,7 @@ set(SOURCES
     src/controllers/profilemanager.cpp
     src/controllers/directcontroller.cpp
     src/controllers/shottimingcontroller.cpp
+    src/controllers/firmwareupdater.cpp
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
