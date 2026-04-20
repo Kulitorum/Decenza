@@ -970,9 +970,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     emit installingChanged();
     // Safety net. After dismissUpdate() this block is unreachable (dismiss
     // clears both m_installInFlight and m_downloadedApkPath). It can still
-    // be reached today via onCheckFinished / parseReleaseInfo setting
-    // m_updateAvailable back to false when a later check finds no update,
-    // while the previous version's m_downloadedApkPath is still set.
+    // be reached today via parseReleaseInfo (called from onReleaseInfoReceived
+    // or onPeriodicCheck) setting m_updateAvailable back to false when a later
+    // check finds no update, while the previous version's m_downloadedApkPath
+    // is still set.
     if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
         const int capturedGen = s_downloadGeneration.loadAcquire();

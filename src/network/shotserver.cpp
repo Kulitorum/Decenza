@@ -2221,8 +2221,12 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                         safeThis->handleMediaUpload(safeSocket, tempPath, headers);
                     } else {
                         // Client disconnected or ShotServer torn down before the
-                        // handler could run; prevent the temp file from leaking.
-                        QFile::remove(tempPath);
+                        // handler could run. This callback runs on the main thread,
+                        // so dispatch the cleanup to a background thread to keep
+                        // main-thread disk I/O off the event loop (CLAUDE.md).
+                        QThread* cleanup = QThread::create([tempPath]() { QFile::remove(tempPath); });
+                        connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
+                        cleanup->start();
                     }
                 }, Qt::QueuedConnection);
             });
@@ -2379,8 +2383,12 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                     safeThis->handleBackupRestore(safeSocket, tempPath, headers);
                 } else {
                     // Client disconnected or ShotServer torn down before the
-                    // handler could run; prevent the temp file from leaking.
-                    QFile::remove(tempPath);
+                    // handler could run. This callback runs on the main thread,
+                    // so dispatch the cleanup to a background thread to keep
+                    // main-thread disk I/O off the event loop (CLAUDE.md).
+                    QThread* cleanup = QThread::create([tempPath]() { QFile::remove(tempPath); });
+                    connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
+                    cleanup->start();
                 }
             }, Qt::QueuedConnection);
         });
