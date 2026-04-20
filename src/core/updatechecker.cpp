@@ -315,7 +315,8 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     }
     // canDownloadUpdate is derived from m_downloadUrl on desktop; fire when it
     // changes so QML re-evaluates the download-button visibility binding. On
-    // Android/iOS this is a no-op because the value is compile-time constant.
+    // Android/iOS the return value is platform-constant (always true / always
+    // false), so the signal fires but QML bindings see no effective change.
     if (m_downloadUrl != previousDownloadUrl) {
         emit canDownloadUpdateChanged();
     }
@@ -455,8 +456,6 @@ void UpdateChecker::startDownload()
     QString filename = QString("Decenza_%1.apk").arg(m_latestVersion);
     QString fullPath = savePath + "/" + filename;
 
-    // Bump before opening so any pending background remove for the old file skips deletion.
-    s_downloadGeneration.fetchAndAddOrdered(1);
     m_downloadFile = new QFile(fullPath);
     if (!m_downloadFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         m_errorMessage = "Failed to create download file: " + m_downloadFile->errorString();
@@ -467,6 +466,10 @@ void UpdateChecker::startDownload()
         m_downloadFile = nullptr;
         return;
     }
+    // Bump after successful open so any pending background remove for the old
+    // file skips deletion. Bumping before open() would "phantom bump" on open
+    // failure, causing in-flight dismiss cleanups from a prior download to skip.
+    s_downloadGeneration.fetchAndAddOrdered(1);
 
     qDebug() << "UpdateChecker: Downloading" << m_downloadUrl << "to" << fullPath;
 
@@ -560,6 +563,10 @@ void UpdateChecker::onDownloadFinished()
         syncOk = false;
     }
 #endif
+    // Capture the write position before close so we can validate download size
+    // without calling QFileInfo(path).size() (a stat() syscall on the main
+    // thread — CLAUDE.md prohibits disk I/O on the main thread).
+    const qint64 actualSize = m_downloadFile->pos();
     m_downloadFile->close();
 
     if (m_currentReply->error() != QNetworkReply::NoError) {
@@ -587,9 +594,9 @@ void UpdateChecker::onDownloadFinished()
         return;
     }
 
-    // Verify download is complete (not truncated by dropped connection)
+    // Verify download is complete (not truncated by dropped connection).
+    // actualSize was captured from m_downloadFile->pos() before close() above.
     qint64 expectedSize = m_currentReply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-    qint64 actualSize = QFileInfo(filePath).size();
     if (expectedSize > 0 && actualSize < expectedSize) {
         m_errorMessage = QString("Download incomplete: got %1 of %2 bytes")
                              .arg(actualSize).arg(expectedSize);
@@ -676,6 +683,31 @@ void UpdateChecker::dismissUpdate()
     m_updateAvailable = false;
     emit updateAvailableChanged();
 
+    // Cancel any in-flight download so it does not proceed to install. Without
+    // this, the QNetworkReply continues, onDownloadFinished() fires, and the
+    // system install dialog appears despite the user explicitly dismissing.
+    // Disconnect finished() first so the slot does not run during abort().
+    if (m_downloading && m_currentReply) {
+        QString partialPath;
+        if (m_downloadFile) partialPath = m_downloadFile->fileName();
+        disconnect(m_currentReply, &QNetworkReply::finished, this, &UpdateChecker::onDownloadFinished);
+        m_currentReply->abort();
+        m_currentReply->deleteLater();
+        m_currentReply = nullptr;
+        if (m_downloadFile) {
+            m_downloadFile->close();
+            delete m_downloadFile;
+            m_downloadFile = nullptr;
+        }
+        m_downloading = false;
+        emit downloadingChanged();
+        if (!partialPath.isEmpty()) {
+            QThread* t = QThread::create([partialPath]() { QFile::remove(partialPath); });
+            connect(t, &QThread::finished, t, &QThread::deleteLater);
+            t->start();
+        }
+    }
+
     // Dismiss is an explicit user action: clean up the cached APK unconditionally.
     // Because we also clear m_installInFlight below (to hide the spinner on OEM
     // ROMs that skip STATUS_FAILURE_ABORTED), any later terminal status callback
@@ -686,11 +718,14 @@ void UpdateChecker::dismissUpdate()
     // FileInputStream is safe — POSIX semantics keep the fd (and the file data)
     // valid until the last descriptor closes, so an in-flight session-write
     // completes even though the path has been removed from the cache directory.
-    const int capturedGen = s_downloadGeneration.loadAcquire();
+    //
+    // No generation re-check here: dismiss is the user's explicit intent to
+    // forget this APK. The update card is hidden, so a new download cannot be
+    // triggered from the UI between this call and the background remove.
     if (!m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
-        QThread* t = QThread::create([path, capturedGen]() {
-            if (s_downloadGeneration.loadAcquire() == capturedGen && !QFile::remove(path))
+        QThread* t = QThread::create([path]() {
+            if (!QFile::remove(path))
                 qWarning() << "UpdateChecker: Failed to remove cached APK:" << path;
         });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -916,8 +951,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
 
     m_installInFlight = false;
     emit installingChanged();
-    // If the user already dismissed the update card, clean up the APK
-    // (dismissUpdate() skipped this while the install was in flight).
+    // Safety net: dismissUpdate() already clears both m_downloadedApkPath and
+    // m_installInFlight together, so if the status arrived after a dismiss we
+    // would have early-returned at the top. This branch only runs for future
+    // code paths that clear m_updateAvailable without going through dismissUpdate.
     if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
         QThread* t = QThread::create([path]() { QFile::remove(path); });

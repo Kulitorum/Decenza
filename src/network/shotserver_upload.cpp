@@ -37,6 +37,8 @@
 #include <QProcess>
 #endif
 #include <QCoreApplication>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QRegularExpression>
 #include <QThread>
 
@@ -336,10 +338,15 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
 #endif
     QString fullPath = savePath + "/" + filename;
 
+    // Serializes the remove+rename finalization of APK uploads so two concurrent
+    // uploads with the same destination filename can't race (thread B's
+    // QFile::remove(fullPath) deleting the file thread A just renamed in).
+    static QMutex s_apkFinalizationMutex;
     QPointer<QTcpSocket> safeSocket = socket;
     QPointer<ShotServer> safeThis = this;
     QThread* t = QThread::create([safeThis, safeSocket, tempPath, fullPath, savePath]() {
         QDir().mkpath(savePath);
+        QMutexLocker finalizeLock(&s_apkFinalizationMutex);
         // Remove stale destination, then rename (atomic on same filesystem).
         QFile::remove(fullPath);
         bool ok = QFile::rename(tempPath, fullPath);
