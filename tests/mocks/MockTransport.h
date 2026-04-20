@@ -21,6 +21,11 @@ public:
     // Captured writes
     QList<QPair<QBluetoothUuid, QByteArray>> writes;
 
+    // Captured subscribe() calls. Firmware update uses on-demand A009
+    // subscription (not always-on) — tests verify subscribe/unsubscribe
+    // timing by looking at this list.
+    QList<QBluetoothUuid> subscribes;
+
     // Simulated connection state. Default true so tests that never touch it
     // behave as if the transport is always up (existing behaviour). Tests
     // that exercise disconnect/reconnect flip it via setConnectedSim(), which
@@ -38,7 +43,7 @@ public:
         writes.append({uuid, data});
     }
     void read(const QBluetoothUuid&) override {}
-    void subscribe(const QBluetoothUuid&) override {}
+    void subscribe(const QBluetoothUuid& uuid) override { subscribes.append(uuid); }
     void subscribeAll() override {}
     void disconnect() override {
         if (m_connected) {

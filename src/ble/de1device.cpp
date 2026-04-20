@@ -2,6 +2,7 @@
 #include "de1transport.h"
 #include "bletransport.h"
 #include "protocol/binarycodec.h"
+#include "protocol/firmwarepackets.h"
 #include "profile/profile.h"
 #include "../core/settings.h"
 
@@ -154,6 +155,12 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
         parseVersion(data);
     } else if (uuid == DE1::Characteristic::READ_FROM_MMR) {
         parseMMRResponse(data);
+    } else if (uuid == DE1::Characteristic::FW_MAP_REQUEST) {
+        auto parsed = DE1::Firmware::parseFWMapNotification(data);
+        if (parsed) {
+            emit fwMapResponse(parsed->fwToErase, parsed->fwToMap,
+                               QByteArray(reinterpret_cast<const char*>(parsed->firstError.data()), 3));
+        }
     }
 }
 
@@ -1163,6 +1170,34 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
     // correctly dedups against what we just sent.
     m_lastMMRValues.insert(address, value);
     m_transport->writeUrgent(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
+}
+
+// ----- Firmware update (A009 / A006) -------------------------------------
+
+void DE1Device::writeFWMapRequest(uint8_t fwToErase, uint8_t fwToMap,
+                                  std::array<uint8_t, 3> firstError) {
+    if (!m_transport) return;
+    m_transport->write(DE1::Characteristic::FW_MAP_REQUEST,
+                       DE1::Firmware::buildFWMapRequest(fwToErase, fwToMap, firstError));
+}
+
+void DE1Device::writeFirmwareChunk(uint32_t address, const QByteArray& payload16) {
+    if (!m_transport) return;
+    QByteArray packet = DE1::Firmware::buildChunk(address, payload16);
+    if (packet.isEmpty()) {
+        // buildChunk rejects payload size != 16; drop silently rather than
+        // ship a malformed packet. Bug will be caught by the §3 test, not
+        // by the DE1 after thousands of other chunks already got through.
+        return;
+    }
+    // Intentionally does NOT touch m_lastMMRValues. See the header comment
+    // on writeFirmwareChunk for why.
+    m_transport->write(DE1::Characteristic::WRITE_TO_MMR, packet);
+}
+
+void DE1Device::subscribeFirmwareNotifications() {
+    if (!m_transport) return;
+    m_transport->subscribe(DE1::Characteristic::FW_MAP_REQUEST);
 }
 
 void DE1Device::writeMMRVerified(uint32_t address, uint32_t value,

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
+
 #include <QObject>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
@@ -255,6 +258,36 @@ public slots:
     void setRefillKitPresent(int value);
     void requestRefillKitStatus();
 
+    // ---- Firmware update (BLE A009 / A006) --------------------------------
+    // These three writers talk directly to the transport and deliberately
+    // bypass the per-register MMR dedupe cache (m_lastMMRValues): firmware
+    // uploads stream ~28,000 unique 16-byte chunks, populating the cache
+    // with those would grow the hash uselessly and risk colliding with
+    // real MMR register addresses. See tasks.md §3 and the firmware-update
+    // design doc for the wire formats.
+
+    // Write the 7-byte FWMapRequest to A009 (firmware-update control).
+    // `fwToErase=1, fwToMap=1` starts Phase 1 (erase). A second call with
+    // `fwToErase=0, fwToMap=1, firstError={0xFF,0xFF,0xFF}` starts Phase 3
+    // (verify-and-activate). See `DE1::Firmware::buildFWMapRequest`.
+    void writeFWMapRequest(uint8_t fwToErase, uint8_t fwToMap,
+                           std::array<uint8_t, 3> firstError = {0, 0, 0});
+
+    // Stream one 16-byte firmware chunk to A006 (WRITE_TO_MMR) with opcode
+    // 0x10 and a 24-bit little-endian address. Caller is responsible for
+    // pacing (de1app uses ~1 ms between chunks). A zero-size or
+    // non-16-byte payload is silently dropped so a caller bug can't ship
+    // a malformed packet to the DE1.
+    void writeFirmwareChunk(uint32_t address, const QByteArray& payload16);
+
+    // Subscribe to FW_MAP_REQUEST notifications. Done on demand at the
+    // start of a firmware update rather than always-on, because A009 is
+    // silent during normal operation and leaving a handler active adds
+    // nothing. There is no unsubscribe on the transport; BLE disconnect
+    // and/or the DE1 auto-reboot at the end of verify implicitly
+    // terminate the subscription.
+    void subscribeFirmwareNotifications();
+
 signals:
     void connectedChanged();
     void connectingChanged();
@@ -277,6 +310,14 @@ signals:
     void isHeadlessChanged();
     void refillKitDetectedChanged();
     void heaterVoltageChanged();
+
+    // Firmware-update response from the DE1 (A009 notification). Carries
+    // the parsed fwToErase/fwToMap flags and the 3-byte FirstError. During
+    // Phase 1 the DE1 emits two notifications: first with fwToErase=1
+    // (erase in progress), then fwToErase=0 (erase complete). Phase 3 emits
+    // one notification whose firstError == {0xFF,0xFF,0xFD} on success.
+    void fwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
+                       QByteArray firstError);
     // Emitted after the DE1 reports its stored ShotSettings (either from our
     // initial read on connect or from an indication after a write). Values
     // are the DE1's current targets; 0 means the heater/setting is off.
@@ -424,5 +465,6 @@ private:
     friend class tst_MachineState;
     friend class tst_ProfileManager;
     friend class tst_MMRWrite;
+    friend class tst_DE1DeviceFirmware;
 #endif
 };
