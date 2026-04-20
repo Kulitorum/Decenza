@@ -425,6 +425,21 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
         if (auto* m = BLEManager::instance()) m->requestBluezCacheHint();
     }
 #endif
+
+    // Synthesize disconnected() so the upper layer treats the attempt as
+    // terminated. Without this, DE1Device::m_connecting stays true forever
+    // after a connect-time error like UnknownRemoteDeviceError, and the
+    // !isConnecting() guard in the de1Discovered handler (main.cpp) silently
+    // drops every subsequent scan-triggered retry. Qt's stateChanged →
+    // UnconnectedState synthesis at setupController() handles the common
+    // case, but BlueZ does not reliably transition to Unconnected after
+    // UnknownRemoteDeviceError when the device isn't in the adapter cache.
+    // The m_disconnectedEmittedForAttempt guard de-dupes if Qt fires later.
+    if (!m_disconnectedEmittedForAttempt) {
+        m_disconnectedEmittedForAttempt = true;
+        log("Controller error — synthesizing disconnected() so retry path can fire");
+        emit disconnected();
+    }
 }
 
 void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {

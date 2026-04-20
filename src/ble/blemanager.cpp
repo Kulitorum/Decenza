@@ -336,6 +336,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         }
         m_de1Devices.append(device);
         emit devicesChanged();
+        qDebug() << "[BLE] Found DE1:" << device.name() << "at" << getDeviceIdentifier(device);
         emit de1LogMessage(QString("Found DE1: %1 (%2)").arg(device.name()).arg(getDeviceIdentifier(device)));
         emit de1Discovered(device);
         return;
