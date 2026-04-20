@@ -94,3 +94,111 @@ inline std::optional<QByteArray> rangeHeaderFor(qint64 existingSize, qint64 expe
 }
 
 }  // namespace DE1::Firmware
+
+// -----------------------------------------------------------------------
+// FirmwareAssetCache — network-driven downloader + cache.
+//
+// Owns the two network round-trips: (a) cheap HEAD with If-None-Match to
+// detect new firmware, promoted to a 64-byte Range-GET when the ETag has
+// changed so we can read the remote Version without pulling ~453 KB; and
+// (b) full-body GET (optionally resumed via Range) when the user taps
+// Update. All HTTP calls go through QNetworkAccessManager; setNetworkManager
+// allows test scaffolding to inject a mock.
+//
+// Unit tests cover only the pure helpers above. The class itself is
+// exercised by the §5 integration test (tst_firmwareflow.cpp) which uses
+// a mocked QNetworkAccessManager to drive the full flow end-to-end.
+// -----------------------------------------------------------------------
+
+class QNetworkAccessManager;
+class QNetworkReply;
+class QFile;
+
+namespace DE1::Firmware {
+
+class FirmwareAssetCache : public QObject {
+    Q_OBJECT
+
+public:
+    // Upstream source — Decent's main branch. Kept here so tests and
+    // integration code can reference the same string, and so that a
+    // future change to the URL is a one-line edit.
+    static constexpr const char* FIRMWARE_URL =
+        "https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat";
+
+    struct CheckResult {
+        enum Kind { Newer, Same, Error };
+        Kind     kind          = Error;
+        uint32_t remoteVersion = 0;
+        QString  errorDetail;                // empty on success
+    };
+
+    explicit FirmwareAssetCache(QObject* parent = nullptr);
+    ~FirmwareAssetCache() override;
+
+    // Dependency injection for tests. Pass a custom QNetworkAccessManager
+    // (typically one that returns synthetic replies). FirmwareAssetCache
+    // does NOT take ownership; the caller is responsible for the manager's
+    // lifetime. If never called, the cache creates and owns its own manager.
+    void setNetworkManager(QNetworkAccessManager* manager);
+
+    // Override the cache root (defaults to
+    // QStandardPaths::AppDataLocation/firmware). Tests point this at a
+    // QTemporaryDir to isolate from the user's real cache.
+    void setCacheRoot(const QString& absolutePath);
+
+    QString cachePath() const;                // <root>/bootfwupdate.dat
+    QString metaPath() const;                 // <root>/bootfwupdate.dat.meta.json
+    std::optional<Header> cachedHeader() const;
+    std::optional<MetaJson> cachedMeta() const { return m_meta; }
+
+    // Wipe the cache file and the sidecar meta. Used when the user resets,
+    // or when validation finds a permanently-invalid file.
+    void clearCache();
+
+public slots:
+    // Cheap availability check. Always emits checkFinished exactly once.
+    // `installedVersion` is what's currently on the DE1 (from MMR 0x800010);
+    // it drives the Newer/Same classification.
+    void checkForUpdate(uint32_t installedVersion);
+
+    // Full download (with Range resume when a partial cache exists).
+    // Always emits exactly one of downloadFinished or downloadFailed.
+    void downloadIfNeeded();
+
+signals:
+    void checkFinished(CheckResult result);
+    void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+    void downloadFinished(QString path, DE1::Firmware::Header header);
+    void downloadFailed(QString reason);
+
+private slots:
+    void onHeadReplyFinished();
+    void onHeaderRangeReplyFinished();
+    void onDownloadReadyRead();
+    void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+    void onDownloadFinished();
+
+private:
+    void ensureCacheDir() const;
+    void loadMetaFromDisk();
+    void saveMetaToDisk();
+    void abortActiveReply();
+    void cleanUpDownloadFile();
+    void failDownload(const QString& reason);
+    void issueHeaderRangeRequest(const QByteArray& newEtag);
+
+    QNetworkAccessManager* m_manager      = nullptr;
+    bool                   m_ownsManager  = false;
+
+    QString  m_cacheRoot;                     // set lazily to AppDataLocation
+    MetaJson m_meta;
+    bool     m_metaLoaded = false;
+
+    QNetworkReply* m_activeReply = nullptr;
+    QFile*         m_downloadFile = nullptr;
+    QByteArray     m_pendingEtag;             // ETag of in-flight HEAD response
+    uint32_t       m_installedVersion = 0;
+};
+
+}  // namespace DE1::Firmware

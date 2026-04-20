@@ -222,6 +222,7 @@ set(SOURCES
     src/core/profilestorage.cpp
     src/core/translationmanager.cpp
     src/core/updatechecker.cpp
+    src/core/firmwareassetcache.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blecapability.cpp
     src/ble/blemanager.cpp
