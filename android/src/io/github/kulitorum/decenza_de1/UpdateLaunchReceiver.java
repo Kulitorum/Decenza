@@ -1,8 +1,12 @@
 package io.github.kulitorum.decenza_de1;
 
+import android.app.ActivityOptions;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
+import android.os.Bundle;
 import android.util.Log;
 
 import java.io.File;
@@ -31,31 +35,69 @@ public class UpdateLaunchReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) {
             return;
         }
-        // Diagnostic: drop a flag file so we can confirm from the Qt log on the
-        // next app start whether this receiver ran at all, independently of
-        // whether startActivity() below actually brings the UI up.
-        String launchResult = "pending";
-        try {
-            Intent launch = context.getPackageManager()
-                    .getLaunchIntentForPackage(context.getPackageName());
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        StringBuilder result = new StringBuilder();
+        Intent launch = context.getPackageManager()
+                .getLaunchIntentForPackage(context.getPackageName());
+        if (launch == null) {
+            result.append("null launch intent");
+        } else {
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            // Attempt 1: direct startActivity (known to BAL_BLOCK on Android 15+,
+            // but we log the outcome for the record).
+            try {
                 context.startActivity(launch);
-                launchResult = "startActivity ok";
-                Log.i(TAG, "launched updated app after ACTION_MY_PACKAGE_REPLACED");
-            } else {
-                launchResult = "null launch intent";
-                Log.w(TAG, "no launch intent for package " + context.getPackageName());
+                result.append("direct:ok ");
+                Log.i(TAG, "direct startActivity returned without throwing");
+            } catch (Throwable t) {
+                result.append("direct:ex=").append(t).append(" ");
+                Log.w(TAG, "direct startActivity threw: " + t);
             }
-        } catch (Throwable t) {
-            launchResult = "exception: " + t;
-            Log.w(TAG, "failed to launch updated app: " + t);
+
+            // Attempt 2: PendingIntent + explicit BAL opt-in from both creator
+            // and sender. Android 15+ requires the PendingIntent creator to
+            // opt in, and the sender's ActivityOptions bundle also needs the
+            // BAL-allowed mode. The BAL log from our last test claimed this
+            // would still be blocked (resultIfPiCreatorAllowsBal: BAL_BLOCK),
+            // but let's confirm empirically.
+            try {
+                Bundle creatorOptions = null;
+                if (Build.VERSION.SDK_INT >= 35) {  // VANILLA_ICE_CREAM (Android 15)
+                    ActivityOptions ao = ActivityOptions.makeBasic();
+                    ao.setPendingIntentCreatorBackgroundActivityStartMode(
+                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                    creatorOptions = ao.toBundle();
+                }
+                int piFlags = PendingIntent.FLAG_UPDATE_CURRENT
+                            | PendingIntent.FLAG_IMMUTABLE;
+                PendingIntent pi;
+                if (creatorOptions != null) {
+                    pi = PendingIntent.getActivity(
+                            context, 0, launch, piFlags, creatorOptions);
+                } else {
+                    pi = PendingIntent.getActivity(
+                            context, 0, launch, piFlags);
+                }
+                Bundle sendOptions = null;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ActivityOptions ao = ActivityOptions.makeBasic();
+                    ao.setPendingIntentBackgroundActivityStartMode(
+                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                    sendOptions = ao.toBundle();
+                }
+                pi.send(context, 0, null, null, null, null, sendOptions);
+                result.append("pi:sent");
+                Log.i(TAG, "PendingIntent.send() returned without throwing");
+            } catch (Throwable t) {
+                result.append("pi:ex=").append(t);
+                Log.w(TAG, "PendingIntent path threw: " + t);
+            }
         }
         try {
             File flag = new File(context.getFilesDir(), "auto_launch_fired.txt");
             FileOutputStream out = new FileOutputStream(flag);
             try {
-                String line = System.currentTimeMillis() + " " + launchResult + "\n";
+                String line = System.currentTimeMillis() + " " + result + "\n";
                 out.write(line.getBytes());
             } finally {
                 out.close();
