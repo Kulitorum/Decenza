@@ -70,6 +70,12 @@ add_decenza_test(tst_firmwarepackets
     tst_firmwarepackets.cpp
 )
 
+# --- tst_firmwareheader: bootfwupdate.dat header parser + validator tests
+# (header-only target; uses QFile / QTemporaryDir for on-disk cases) ---
+add_decenza_test(tst_firmwareheader
+    tst_firmwareheader.cpp
+)
+
 # --- tst_profile: Profile JSON/TCL parsing, frame generation, BLE encoding ---
 add_decenza_test(tst_profile
     tst_profile.cpp
