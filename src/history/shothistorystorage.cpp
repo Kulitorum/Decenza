@@ -552,7 +552,8 @@ bool ShotHistoryStorage::runMigrations()
                 readQuery.prepare("SELECT id, grinder_model FROM shots WHERE grinder_model IS NOT NULL AND grinder_model != ''");
                 if (readQuery.exec()) {
                     QSqlQuery updateQuery(m_db);
-                    updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? WHERE id = ?");
+                    updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ?, "
+                                        "updated_at = strftime('%s', 'now') WHERE id = ?");
                     int backfillCount = 0;
 
                     while (readQuery.next()) {
@@ -1763,7 +1764,8 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 QSqlQuery q(db);
                 q.prepare("UPDATE shots SET channeling_detected=:c,"
                           " temperature_unstable=:t, grind_issue_detected=:g,"
-                          " skip_first_frame_detected=:s WHERE id=:id");
+                          " skip_first_frame_detected=:s,"
+                          " updated_at = strftime('%s', 'now') WHERE id=:id");
                 q.bindValue(":c", newChanneling ? 1 : 0);
                 q.bindValue(":t", newTempUnstable ? 1 : 0);
                 q.bindValue(":g", newGrindIssue ? 1 : 0);
@@ -3440,7 +3442,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     QString type = doc.object().value("beverage_type").toString();
                     if (!type.isEmpty() && type != "espresso") {
                         QSqlQuery update(destDb);
-                        update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
+                        update.prepare("UPDATE shots SET beverage_type = ?, "
+                                       "updated_at = strftime('%s', 'now') WHERE id = ?");
                         update.addBindValue(type);
                         update.addBindValue(id);
                         update.exec();
@@ -3761,7 +3764,8 @@ void ShotHistoryStorage::backfillBeverageType()
         QString type = doc.object().value("beverage_type").toString();
         if (!type.isEmpty() && type != "espresso") {
             QSqlQuery update(m_db);
-            update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
+            update.prepare("UPDATE shots SET beverage_type = ?, "
+                           "updated_at = strftime('%s', 'now') WHERE id = ?");
             update.bindValue(0, type);
             update.bindValue(1, id);
             update.exec();
@@ -3819,7 +3823,8 @@ void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, con
         int count = 0;
         withTempDb(dbPath, "shs_grinder_update", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
-            query.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? "
+            query.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ?, "
+                          "updated_at = strftime('%s', 'now') "
                           "WHERE grinder_brand = ? AND grinder_model = ?");
             query.bindValue(0, newBrand);
             query.bindValue(1, newModel);
