@@ -76,6 +76,13 @@ add_decenza_test(tst_firmwareheader
     tst_firmwareheader.cpp
 )
 
+# --- tst_firmwareassetcachehelpers: pure helpers (MetaJson JSON round-trip,
+# Range-header computation). Network-driven FirmwareAssetCache class is
+# covered by the integration test in tst_firmwareflow. ---
+add_decenza_test(tst_firmwareassetcachehelpers
+    tst_firmwareassetcachehelpers.cpp
+)
+
 # --- tst_profile: Profile JSON/TCL parsing, frame generation, BLE encoding ---
 add_decenza_test(tst_profile
     tst_profile.cpp
