@@ -306,6 +306,31 @@ public class ApkInstaller {
             Log.i(TAG, "install: status=" + status + " msg=" + msg);
             sInstallInFlight.set(false);
             reportStatus(status, msg);
+
+            // Restore the post-install "Open" affordance the legacy
+            // Intent(ACTION_VIEW) install flow used to provide. PackageInstaller
+            // has no equivalent, so on success we launch the updated app
+            // ourselves. getLaunchIntentForPackage resolves against the
+            // now-installed package (the new version), so even though this
+            // code is running in the old process the activity comes up in the
+            // new version.
+            if (status == PackageInstaller.STATUS_SUCCESS) {
+                try {
+                    Context appCtx = context.getApplicationContext();
+                    Intent launch = appCtx.getPackageManager()
+                            .getLaunchIntentForPackage(appCtx.getPackageName());
+                    if (launch != null) {
+                        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                      | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                        appCtx.startActivity(launch);
+                        Log.i(TAG, "install: launched updated app after STATUS_SUCCESS");
+                    } else {
+                        Log.w(TAG, "install: no launch intent for package " + appCtx.getPackageName());
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "install: failed to launch updated app: " + t);
+                }
+            }
         }
     };
 }
