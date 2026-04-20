@@ -1,4 +1,5 @@
 #include "shotdatamodel.h"
+#include "ai/conductance.h"
 #include "rendering/fastlinerenderer.h"
 #include <QDebug>
 
@@ -266,11 +267,12 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
 
     // Conductance: F^2 / P (Darcy's law for laminar flow through porous media)
     // Darcy Resistance: P / F^2 (inverse of conductance)
-    // Both clamped to 19 to match Visualizer.coffee convention
-    double conductance = 0.0;
+    // Both clamped to 19 to match Visualizer.coffee convention.
+    // Conductance formula is shared with tools/shot_eval via Conductance::sample
+    // so per-sample production behavior and batch offline evaluation agree.
+    const double conductance = Conductance::sample(pressure, flow);
     double darcyResistance = 0.0;
     if (flow > 0.05 && pressure > 0.05) {
-        conductance = qMin((flow * flow) / pressure, 19.0);
         darcyResistance = qMin(pressure / (flow * flow), 19.0);
     }
     m_conductancePoints.append(QPointF(time, conductance));
@@ -441,62 +443,12 @@ void ShotDataModel::smoothWeightFlowRate(int window) {
 }
 
 void ShotDataModel::computeConductanceDerivative() {
-    // Compute dC/dt (rate of change of conductance, scaled x10, Gaussian smoothed).
-    // This is the single most diagnostic visual for puck integrity — it reveals
-    // transient channeling events that are invisible in pressure/flow/resistance curves.
-    // Formula matches Visualizer.coffee (app/models/shot_chart/additional_charts.rb).
-    m_conductanceDerivativePoints.clear();
-
-    qsizetype n = m_conductancePoints.size();
-    if (n < 3) return;
-
-    // Step 1: Compute raw derivative using central differences, scaled x10
-    QVector<double> rawDerivative(n, 0.0);
-    for (qsizetype i = 1; i < n - 1; ++i) {
-        double dt = m_conductancePoints[i + 1].x() - m_conductancePoints[i - 1].x();
-        if (dt > 0.001) {
-            double dc = m_conductancePoints[i + 1].y() - m_conductancePoints[i - 1].y();
-            rawDerivative[i] = (dc / dt) * 10.0;
-        }
-    }
-    // Edge values: forward/backward difference
-    {
-        double dt = m_conductancePoints[1].x() - m_conductancePoints[0].x();
-        if (dt > 0.001)
-            rawDerivative[0] = ((m_conductancePoints[1].y() - m_conductancePoints[0].y()) / dt) * 10.0;
-        dt = m_conductancePoints[n - 1].x() - m_conductancePoints[n - 2].x();
-        if (dt > 0.001)
-            rawDerivative[n - 1] = ((m_conductancePoints[n - 1].y() - m_conductancePoints[n - 2].y()) / dt) * 10.0;
-    }
-
-    // Step 2: Apply 9-point Gaussian kernel (matches Visualizer.coffee)
-    static constexpr double GAUSSIAN[] = {
-        0.048297, 0.08393, 0.124548, 0.157829, 0.170793,
-        0.157829, 0.124548, 0.08393, 0.048297
-    };
-    static constexpr qsizetype KERNEL_HALF = 4;
-
-    m_conductanceDerivativePoints.reserve(n);
-    for (qsizetype i = 0; i < n; ++i) {
-        double smoothed = 0.0;
-        double weightSum = 0.0;
-        for (qsizetype k = -KERNEL_HALF; k <= KERNEL_HALF; ++k) {
-            qsizetype idx = i + k;
-            if (idx >= 0 && idx < n) {
-                double w = GAUSSIAN[k + KERNEL_HALF];
-                smoothed += rawDerivative[idx] * w;
-                weightSum += w;
-            }
-        }
-        if (weightSum > 0.0)
-            smoothed /= weightSum;
-
-        // Clamp to [-5, 19] per Visualizer convention
-        smoothed = qBound(-5.0, smoothed, 19.0);
-        m_conductanceDerivativePoints.append(QPointF(m_conductancePoints[i].x(), smoothed));
-    }
-
-    qDebug() << "ShotDataModel: Computed conductance derivative (" << n << " points)";
+    // Delegate to Conductance::derivative so ShotDataModel (per-sample live
+    // data) and tools/shot_eval (batch offline data) share one formula —
+    // keeps live-graph curves identical to offline-evaluation curves.
+    m_conductanceDerivativePoints = Conductance::derivative(m_conductancePoints);
+    qDebug() << "ShotDataModel: Computed conductance derivative ("
+             << m_conductanceDerivativePoints.size() << " points)";
 }
 
 void ShotDataModel::trimSettlingData() {
