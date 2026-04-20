@@ -28,9 +28,13 @@
 #include <QUrl>
 #endif
 
+BLEManager* BLEManager::s_instance = nullptr;
+
 BLEManager::BLEManager(QObject* parent)
     : QObject(parent)
 {
+    s_instance = this;
+
     // Discovery agent is created lazily in ensureDiscoveryAgent() to avoid
     // initializing CoreBluetooth (and triggering TCC privacy checks) when
     // BLE is disabled (e.g. simulation mode on Mac debug builds).
@@ -103,6 +107,15 @@ void BLEManager::ensureDiscoveryAgent() {
 BLEManager::~BLEManager() {
     if (m_scanning) {
         stopScan();
+    }
+    if (s_instance == this) s_instance = nullptr;
+}
+
+void BLEManager::requestBluezCacheHint()
+{
+    if (m_disabled) return;  // don't burn the one-shot token in simulator mode
+    if (BleCapability::takeBluezCacheHintToken()) {
+        emit linuxBlueZCacheHintNeeded();
     }
 }
 

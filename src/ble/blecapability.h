@@ -18,4 +18,16 @@ bool linuxMissing();
 // already present.
 QString linuxSetcapCommand();
 
+// Dump a one-shot block of Linux BT diagnostics (CapEff/CapBnd, getcap,
+// BlueZ version, hciconfig -a) to the debug log via qInfo(). Safe to call
+// from any BLE error path; fires at most once per process and is a no-op
+// on non-Linux. Designed to flow into the debug log that the issue
+// template attaches to bug reports.
+void logLinuxBtDiagnosticsOnce();
+
+// One-shot latch for the BlueZ-cache recovery hint. Returns true the
+// first time it is called in a process, false thereafter. Used by
+// transport error paths to emit the hint signal only once per session.
+bool takeBluezCacheHintToken();
+
 } // namespace BleCapability

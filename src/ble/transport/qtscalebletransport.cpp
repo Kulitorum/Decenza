@@ -1,5 +1,6 @@
 #include "qtscalebletransport.h"
 #include "../blecapability.h"
+#include "../blemanager.h"
 #include <QDebug>
 #include <QTimer>
 #include <QLowEnergyConnectionParameters>
@@ -283,6 +284,10 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
     QT_TRANSPORT_LOG(msg);
     emit error(msg);
 
+    // Same one-shot Linux BT diagnostics dump as the DE1 transport —
+    // whichever transport hits an error first triggers it.
+    BleCapability::logLinuxBtDiagnosticsOnce();
+
     // Only log the setcap hint when we've actually detected the missing
     // capability — the check is a no-op / always false on non-Linux.
     if (err == QLowEnergyController::UnknownRemoteDeviceError
@@ -290,6 +295,13 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
         QT_TRANSPORT_LOG(QStringLiteral("Linux hint: run `%1` and restart the app "
                                         "(capability is often cleared by OS updates).")
                              .arg(BleCapability::linuxSetcapCommand()));
+    }
+
+    // Caps OK but still UnknownRemoteDeviceError — surface the BlueZ cache
+    // recovery dialog via BLEManager.
+    if (err == QLowEnergyController::UnknownRemoteDeviceError
+        && !BleCapability::linuxMissing()) {
+        if (auto* m = BLEManager::instance()) m->requestBluezCacheHint();
     }
 }
 
