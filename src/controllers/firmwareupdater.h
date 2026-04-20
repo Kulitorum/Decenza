@@ -102,6 +102,7 @@ private slots:
     void onDownloadFailed(QString reason);
     void onDownloadProgress(qint64 received, qint64 total);
     void onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap, QByteArray firstError);
+    void onDeviceConnectionChanged();
     void onPostEraseWaitComplete();
     void onChunkPumpTick();
     void onEraseTimeout();

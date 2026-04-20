@@ -84,6 +84,99 @@ private:
 
 private slots:
 
+    // ===== §4b: error paths =====
+
+    void eraseTimeout_failsRetryable() {
+        Fixture f;
+        f.updater.setEraseTimeoutMs(50);                // short timeout
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        // Deliberately never send the erase-done notification.
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Failed, 2000);
+        QVERIFY(f.updater.retryAvailable());
+        QVERIFY(f.updater.errorMessage().contains("Erase"));
+    }
+
+    void disconnectDuringUpload_failsRetryable() {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352, 4096));  // more chunks
+        f.updater.setChunkPumpIntervalMs(5);            // slow enough to catch mid-upload
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000100000000"));
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        // Yank the BLE transport mid-upload.
+        f.transport.setConnectedSim(false);
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Failed, 2000);
+        QVERIFY(f.updater.retryAvailable());
+        QVERIFY(f.updater.errorMessage().contains("disconnected", Qt::CaseInsensitive));
+    }
+
+    void verifyFailure_reportsErrorOffsetRetryable() {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000100000000"));
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        // Non-success firstError: {0x12, 0x34, 0x56} (arbitrary non-success)
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001123456"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        QVERIFY(f.updater.retryAvailable());
+        QVERIFY(f.updater.errorMessage().contains("Verification"));
+    }
+
+    void preconditionRefuses_duringShot() {
+        Fixture f;
+        // Override: machine is pulling a shot — Update must refuse.
+        f.updater.setMachinePhaseProvider(
+            []{ return static_cast<int>(DE1::State::Espresso); });
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        QVERIFY(f.updater.retryAvailable());
+        QVERIFY(f.updater.errorMessage().contains("Finish", Qt::CaseInsensitive));
+        // No BLE writes — refused before any firmware transaction.
+        bool sawFirmwareWrite = false;
+        for (const auto& w : f.transport.writes) {
+            if (w.first == DE1::Characteristic::FW_MAP_REQUEST ||
+                (w.first == DE1::Characteristic::WRITE_TO_MMR &&
+                 w.second.size() == 20 && uint8_t(w.second[0]) == 0x10)) {
+                sawFirmwareWrite = true; break;
+            }
+        }
+        QVERIFY(!sawFirmwareWrite);
+    }
+
+    void raceGuardAlreadyUpdated_jumpsToSucceeded() {
+        Fixture f;
+        // Installed version already equals what the file contains.
+        f.updater.setInstalledVersionProvider([]{ return 1352u; });
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Succeeded);
+        // Race guard fired before any BLE write: no erase, no chunks.
+        bool sawEraseReq = false;
+        for (const auto& w : f.transport.writes) {
+            if (w.first == DE1::Characteristic::FW_MAP_REQUEST) {
+                sawEraseReq = true; break;
+            }
+        }
+        QVERIFY(!sawEraseReq);
+    }
+
+    // ===== §4a: happy path =====
+
     void happyPath_endToEnd() {
         Fixture f;
         const QByteArray blob = makeFirmwareBlob(/*version*/ 1352);

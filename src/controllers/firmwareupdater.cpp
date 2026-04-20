@@ -65,6 +65,26 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
     if (m_device) {
         connect(m_device, &DE1Device::fwMapResponse,
                 this, &FirmwareUpdater::onFwMapResponse);
+        connect(m_device, &DE1Device::connectedChanged,
+                this, &FirmwareUpdater::onDeviceConnectionChanged);
+    }
+}
+
+void FirmwareUpdater::onDeviceConnectionChanged() {
+    // We only react to *disconnects* that happen while we're actively
+    // talking to the DE1 — during Erasing, Uploading, or Verifying. A
+    // disconnect outside those phases (e.g. user pulls the plug in Idle)
+    // is just a normal BLE event and doesn't affect the flow.
+    if (!m_device || m_device->isConnected()) return;
+    switch (m_state) {
+        case State::Erasing:
+        case State::Uploading:
+        case State::Verifying:
+            failWith(QStringLiteral("DE1 disconnected during firmware update"),
+                     /*retryable*/ true);
+            break;
+        default:
+            break;
     }
 }
 
@@ -143,8 +163,10 @@ void FirmwareUpdater::startUpdate() {
             phase == static_cast<int>(DE1::State::Idle) ||
             phase == static_cast<int>(DE1::State::Sleep);
         if (!idleOrSleep) {
+            // Precondition failure — user can retry once the shot/steam
+            // finishes. Not the same as a permanently-bad firmware file.
             m_errorMessage = QStringLiteral("Finish current operation first");
-            m_retryAvailable = false;
+            m_retryAvailable = true;
             setState(State::Failed);
             return;
         }
