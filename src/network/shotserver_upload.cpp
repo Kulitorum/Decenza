@@ -372,6 +372,14 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
                 safeThis->sendResponse(safeSocket, 500, "text/plain", "Upload succeeded but install could not be dispatched");
                 return;
             }
+            // Fire-and-forget: installApk() dispatches the session to a Java
+            // worker. The terminal status (success/failure) is routed to
+            // UpdateChecker::onInstallStatus but early-returns there because
+            // m_installInFlight was not set for this ShotServer-initiated
+            // session — we intentionally don't track it here to keep the web
+            // response non-blocking. The user sees the outcome via Android's
+            // native PackageInstaller UI; a tracking web channel (WebSocket
+            // / polling endpoint) would be a future enhancement.
             safeThis->sendResponse(safeSocket, 200, "text/plain", "APK dispatched to PackageInstaller — check device screen for installation prompt");
         }, Qt::QueuedConnection);
     });

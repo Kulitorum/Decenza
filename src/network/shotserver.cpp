@@ -686,9 +686,13 @@ void ShotServer::onReadyRead()
 
         // Request complete
         if (pending.tempFile) {
+            // Use the QFile's write position instead of QFileInfo::size() — pos()
+            // is a pure in-memory read, avoiding a main-thread stat/fstat syscall
+            // (CLAUDE.md "Never run disk I/O on the main thread").
+            const qint64 tempFileSize = pending.tempFile->pos();
             pending.tempFile->close();
             qDebug() << "ShotServer: Upload complete, temp file:" << pending.tempFilePath
-                     << "size:" << QFileInfo(pending.tempFilePath).size() << "bytes";
+                     << "size:" << tempFileSize << "bytes";
         }
 
         // Handle the request

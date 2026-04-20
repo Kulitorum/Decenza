@@ -28,9 +28,11 @@ const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/r
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
 
 // File-scope so background QFile::remove threads can read it without capturing
-// `this`. Bumped by startDownload() each time a new download file is opened;
-// cleanup lambdas compare against the captured value and skip the delete if the
-// generation has advanced (meaning a new download has taken over the path).
+// `this`. Bumped by startDownload() after a successful QFile::open() — any
+// pending cleanup lambda for the now-superseded file sees an advanced generation
+// and skips the delete. Every background QFile::remove in this file follows the
+// pattern: capture the current generation on the main thread before spawning
+// the thread, then compare against the current value inside the lambda.
 static QAtomicInt s_downloadGeneration{0};
 
 #ifdef Q_OS_ANDROID
@@ -702,7 +704,14 @@ void UpdateChecker::dismissUpdate()
         m_downloading = false;
         emit downloadingChanged();
         if (!partialPath.isEmpty()) {
-            QThread* t = QThread::create([partialPath]() { QFile::remove(partialPath); });
+            // Generation guard: if a new startDownload() (programmatic or via a
+            // subsequent user action) reuses the same filename before this thread
+            // runs, we must not delete the new download's freshly-opened file.
+            const int capturedGen = s_downloadGeneration.loadAcquire();
+            QThread* t = QThread::create([partialPath, capturedGen]() {
+                if (s_downloadGeneration.loadAcquire() == capturedGen)
+                    QFile::remove(partialPath);
+            });
             connect(t, &QThread::finished, t, &QThread::deleteLater);
             t->start();
         }
@@ -718,14 +727,11 @@ void UpdateChecker::dismissUpdate()
     // FileInputStream is safe — POSIX semantics keep the fd (and the file data)
     // valid until the last descriptor closes, so an in-flight session-write
     // completes even though the path has been removed from the cache directory.
-    //
-    // No generation re-check here: dismiss is the user's explicit intent to
-    // forget this APK. The update card is hidden, so a new download cannot be
-    // triggered from the UI between this call and the background remove.
     if (!m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
-        QThread* t = QThread::create([path]() {
-            if (!QFile::remove(path))
+        const int capturedGen = s_downloadGeneration.loadAcquire();
+        QThread* t = QThread::create([path, capturedGen]() {
+            if (s_downloadGeneration.loadAcquire() == capturedGen && !QFile::remove(path))
                 qWarning() << "UpdateChecker: Failed to remove cached APK:" << path;
         });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -899,10 +905,13 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
                 m_errorMessage.clear();
                 emit errorMessageChanged();
             }
-            // Safety net: dismissUpdate() clears the APK path and m_installInFlight
-            // together, so this branch is normally unreachable (a dismissed install's
-            // terminal status is dropped by the early-return above). Kept in case a
-            // future code path clears m_updateAvailable without going through dismissUpdate.
+            // Safety net: normally unreachable. dismissUpdate() clears
+            // m_installInFlight, so a status arriving after dismiss hits the
+            // !m_installInFlight early-return at the top of this function and
+            // never gets here. dismissUpdate() also clears m_downloadedApkPath,
+            // so even if the early-return were bypassed the condition below
+            // would be false. This block runs only for a future code path that
+            // clears m_updateAvailable without going through dismissUpdate().
             if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
                 QString path = m_downloadedApkPath;
                 QThread* t = QThread::create([path]() { QFile::remove(path); });
@@ -951,10 +960,12 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
 
     m_installInFlight = false;
     emit installingChanged();
-    // Safety net: dismissUpdate() already clears both m_downloadedApkPath and
-    // m_installInFlight together, so if the status arrived after a dismiss we
-    // would have early-returned at the top. This branch only runs for future
-    // code paths that clear m_updateAvailable without going through dismissUpdate.
+    // Safety net: normally unreachable. dismissUpdate() clears m_installInFlight,
+    // so a status arriving after dismiss hits the !m_installInFlight early-return
+    // at the top of this function. dismissUpdate() also clears m_downloadedApkPath,
+    // so even if the early-return were bypassed the condition below would be
+    // false. This block runs only for a future code path that clears
+    // m_updateAvailable without going through dismissUpdate().
     if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
         QString path = m_downloadedApkPath;
         QThread* t = QThread::create([path]() { QFile::remove(path); });
