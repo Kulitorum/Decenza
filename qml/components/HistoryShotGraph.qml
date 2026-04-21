@@ -108,9 +108,11 @@ ChartView {
             temperatureMixSeries.append(temperatureMixData[i].x, temperatureMixData[i].y)
         }
 
-        // Update time axis
+        // Update time axis. Clip to maxTime (extraction end) so post-End
+        // samples like scale dribble don't clutter the view, matching the
+        // live graph behavior.
         if (pressureData.length > 0) {
-            timeAxis.max = Math.max(5, maxTime + 2)
+            timeAxis.max = Math.max(5, maxTime)
         }
     }
 
