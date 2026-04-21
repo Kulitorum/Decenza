@@ -2,10 +2,17 @@
 
 #include <QDebug>
 #include <QFile>
+#include <QLoggingCategory>
 #include <QOperatingSystemVersion>
 
 #include "ble/de1device.h"
 #include "ble/protocol/firmwarepackets.h"
+
+// Shared logging category with FirmwareAssetCache (defined there). Field
+// bug reports can grep "decenza.firmware" in the AsyncLogger output to
+// recover the full timeline of a failed update without sifting through
+// unrelated BLE/HTTP traffic.
+Q_DECLARE_LOGGING_CATEGORY(firmwareLog)
 
 using namespace DE1::Firmware;
 
@@ -166,6 +173,12 @@ QString FirmwareUpdater::stateText() const {
 
 void FirmwareUpdater::setState(State newState) {
     if (m_state == newState) return;
+    qCDebug(firmwareLog).noquote()
+        << "[firmware] state:" << stateText() << "->" << [&]{
+            const State old = m_state; m_state = newState;
+            const QString s = stateText(); m_state = old;
+            return s;
+        }();
     m_state = newState;
     emit stateChanged();
 }
@@ -182,16 +195,32 @@ void FirmwareUpdater::setProgress(double p) {
 
 void FirmwareUpdater::checkForUpdate() {
     if (!m_cache) return;
+    // Simulator suppresses the entire update flow — see startUpdate too.
+    if (m_device && m_device->simulationMode()) {
+        qCDebug(firmwareLog) << "[firmware] check skipped (simulator)";
+        return;
+    }
     if (m_state == State::Checking) return;
     const uint32_t installed = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
     m_installedVersion = installed;
+    qCDebug(firmwareLog) << "[firmware] check started, installed=" << installed;
     setState(State::Checking);
     m_cache->checkForUpdate(installed);
 }
 
 void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
+
+    // Simulator: refuse any flash so we don't stream fake bytes onto a
+    // pretend BLE channel and confuse the state machine. The UI hides
+    // updateAvailable in simulator mode (see onCheckFinished) so this
+    // branch primarily protects against direct invocation from QML or
+    // tests.
+    if (m_device->simulationMode()) {
+        qCDebug(firmwareLog) << "[firmware] startUpdate refused (simulator)";
+        return;
+    }
 
     // Precondition: delegate to the caller-supplied predicate. If unset,
     // treat as "yes, allow" so unit tests can skip the check when they're
@@ -233,9 +262,10 @@ void FirmwareUpdater::dismissAvailability() {
 void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     if (m_state != State::Checking && m_state != State::Idle) return;
     m_availableVersion = result.remoteVersion;
-    if (result.kind == FirmwareAssetCache::CheckResult::Newer) {
-        // Suppress the banner if the user dismissed this exact version.
-        // Any strictly newer version clears the dismissal.
+    // Simulator never offers updates regardless of remote state — the DE1
+    // simulator class isn't a real flashable device and we'd hang trying.
+    const bool simulator = m_device && m_device->simulationMode();
+    if (result.kind == FirmwareAssetCache::CheckResult::Newer && !simulator) {
         if (result.remoteVersion > m_dismissedVersion) {
             m_dismissedVersion = 0;
             m_updateAvailable  = true;
@@ -245,6 +275,13 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     } else {
         m_updateAvailable = false;
     }
+    qCDebug(firmwareLog).noquote()
+        << "[firmware] check finished: remote=" << result.remoteVersion
+        << " kind=" << (result.kind == FirmwareAssetCache::CheckResult::Newer ? "Newer"
+                       : result.kind == FirmwareAssetCache::CheckResult::Same  ? "Same"
+                                                                                : "Error")
+        << " updateAvailable=" << m_updateAvailable
+        << (result.errorDetail.isEmpty() ? QString() : QStringLiteral(" err=") + result.errorDetail);
     emit availabilityChanged();
     setState(State::Idle);
 }
@@ -429,6 +466,11 @@ void FirmwareUpdater::completeSuccess() {
 }
 
 void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
+    qCWarning(firmwareLog).noquote()
+        << "[firmware] FAIL phase=" << stateText()
+        << " chunks=" << m_chunksSent << "/" << m_chunksTotal
+        << " retry=" << (retryable ? "yes" : "no")
+        << " reason=" << reason;
     m_eraseTimeoutTimer.stop();
     m_verifyTimeoutTimer.stop();
     m_postEraseWaitTimer.stop();
