@@ -182,13 +182,16 @@ Page {
         }
     }
 
-    // Warning banner (auto-dismiss after 5 seconds — allowed per CLAUDE.md for UI auto-dismiss)
+    // Live safety warning banner. Persists until the user taps it — this is a
+    // one-shot per-session alert (latched in SteamHealthTracker), so if it
+    // auto-dismissed the user could easily miss it while focused on the pitcher.
     property string warningText: ""
     property bool warningVisible: false
-    Timer {
-        id: warningDismissTimer
-        interval: 5000
-        onTriggered: warningVisible = false
+
+    // Clear any stale warning when a new steam session starts.
+    onIsSteamingChanged: {
+        if (isSteaming)
+            warningVisible = false
     }
 
     // Warning connections
@@ -199,13 +202,11 @@ Page {
             warningText = TranslationManager.translate("steam.warning.pressureHigh",
                 "Warning: steam pressure is too high")
             warningVisible = true
-            warningDismissTimer.restart()
         }
         function onTemperatureTooHigh() {
             warningText = TranslationManager.translate("steam.warning.temperatureHigh",
                 "Warning: steam temperature is too high")
             warningVisible = true
-            warningDismissTimer.restart()
         }
         function onDescaleWarning() {
             steamWarningDialog.warningMessage = TranslationManager.translate("steam.warning.descale",
@@ -461,8 +462,9 @@ Page {
                 }
             }
 
-            // Warning banner (live warnings during steaming)
+            // Warning banner (live warnings during steaming). Tap to dismiss.
             Rectangle {
+                id: warningBanner
                 Layout.fillWidth: true
                 Layout.preferredHeight: warningBannerText.implicitHeight + Theme.spacingSmall * 2
                 visible: warningVisible
@@ -473,7 +475,7 @@ Page {
                     id: warningBannerText
                     anchors.centerIn: parent
                     width: parent.width - Theme.spacingMedium * 2
-                    text: warningText
+                    text: warningText + "  " + TranslationManager.translate("steam.warning.tapToDismiss", "(tap to dismiss)")
                     color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -481,9 +483,12 @@ Page {
                     Accessible.ignored: true
                 }
 
-                Accessible.role: Accessible.StaticText
-                Accessible.name: warningText
-                Accessible.focusable: true
+                AccessibleMouseArea {
+                    anchors.fill: parent
+                    accessibleItem: warningBanner
+                    accessibleName: warningText
+                    onAccessibleClicked: warningVisible = false
+                }
             }
 
             // === TIMER VIEW (default) ===
