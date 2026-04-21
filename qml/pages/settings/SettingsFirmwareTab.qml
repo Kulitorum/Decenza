@@ -5,7 +5,7 @@ import Decenza
 import "../../components"
 
 // DE1 firmware update tab. Surfaces the FirmwareUpdater state machine
-// from MainController (mainController.firmwareUpdater) — current vs.
+// from MainController (MainController.firmwareUpdater) — current vs.
 // available version, "Check now" + "Update now" buttons, a progress
 // bar, and an inline error / retry strip when the last attempt failed.
 //
@@ -15,8 +15,8 @@ import "../../components"
 Item {
     id: firmwareTab
 
-    readonly property var fw: typeof mainController !== "undefined" && mainController
-                              ? mainController.firmwareUpdater : null
+    readonly property var fw: typeof MainController !== "undefined" && MainController
+                              ? MainController.firmwareUpdater : null
 
     Component.onCompleted: {
         console.log("[firmware] SettingsFirmwareTab loaded, fw=",
