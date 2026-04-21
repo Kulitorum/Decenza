@@ -6,7 +6,10 @@
 #include <QOperatingSystemVersion>
 
 #include "ble/de1device.h"
+#include "ble/de1transport.h"
 #include "ble/protocol/firmwarepackets.h"
+
+#include <memory>
 
 // Shared logging category with FirmwareAssetCache (defined there). Field
 // bug reports can grep "decenza.firmware" in the AsyncLogger output to
@@ -443,13 +446,35 @@ void FirmwareUpdater::onChunkPumpTick() {
     }
     if (m_chunksSent >= m_chunksTotal) {
         m_chunkPumpTimer.stop();
-        // Settle delay before verify so the DE1 finishes processing the
-        // upload tail. Without this delay, verify lands too close to the
-        // last chunk and we get "No response during verify".
-        qCDebug(firmwareLog) << "[firmware] upload complete, settling"
-                             << POST_UPLOAD_SETTLE_MS << "ms before verify";
-        QTimer::singleShot(POST_UPLOAD_SETTLE_MS, this,
-                           [this]{ if (m_state == State::Uploading) beginVerifyPhase(); });
+        // Our chunk pump queues writes at 1 ms intervals via BleTransport's
+        // command queue; BLE drains them at ACK speed (~15 ms per write on
+        // Android). When we reach "m_chunksSent == m_chunksTotal", the queue
+        // may still have thousands of chunks backed up — the writes are
+        // enqueued, not yet on the wire. Sending verify now would land it
+        // behind all those chunks and race the verify-response timeout.
+        //
+        // Instead wait for the transport's queueDrained signal, which fires
+        // when the last write has actually been ACKed by the DE1. Only then
+        // start the post-upload settle timer before issuing verify.
+        qCDebug(firmwareLog) << "[firmware] upload queued to BLE, waiting for queue to drain";
+        auto* transport = m_device ? m_device->transport() : nullptr;
+        if (!transport) {
+            // No transport — shouldn't happen, but be defensive.
+            QTimer::singleShot(POST_UPLOAD_SETTLE_MS, this,
+                               [this]{ if (m_state == State::Uploading) beginVerifyPhase(); });
+            return;
+        }
+        auto conn = std::make_shared<QMetaObject::Connection>();
+        *conn = connect(transport, &DE1Transport::queueDrained, this,
+                        [this, conn]() {
+            if (m_state != State::Uploading) return;
+            QObject::disconnect(*conn);
+            qCDebug(firmwareLog) << "[firmware] BLE queue drained, settling"
+                                 << POST_UPLOAD_SETTLE_MS << "ms before verify";
+            QTimer::singleShot(POST_UPLOAD_SETTLE_MS, this, [this]() {
+                if (m_state == State::Uploading) beginVerifyPhase();
+            });
+        });
         return;
     }
     const qsizetype byteOffset = m_chunksSent * 16;
