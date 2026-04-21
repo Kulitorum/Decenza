@@ -154,6 +154,15 @@ ApplicationWindow {
         Tr { id: trFwExitKeepOpen; key: "main.dialog.firmwareFlashExit.keepOpen"; fallback: "Keep app open"; visible: false }
         Tr { id: trFwExitQuitAnyway; key: "main.dialog.firmwareFlashExit.quitAnyway"; fallback: "Quit anyway"; visible: false }
 
+        onOpened: {
+            // Park focus on the safe default so a stray screen-reader tap
+            // can't trigger "Quit anyway" — which would brick mid-flash.
+            fwExitKeepOpenButton.forceActiveFocus()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trFwExitTitle.text + ". " + trFwExitMessage.text, true)
+            }
+        }
+
         contentItem: Column {
             spacing: Theme.spacingLarge
 
@@ -180,6 +189,7 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
 
                 AccessibleButton {
+                    id: fwExitKeepOpenButton
                     text: trFwExitKeepOpen.text
                     accessibleName: trFwExitKeepOpen.text
                     onClicked: firmwareFlashExitDialog.close()
