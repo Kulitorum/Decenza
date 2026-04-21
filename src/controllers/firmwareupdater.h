@@ -2,6 +2,7 @@
 
 #include <QBluetoothUuid>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -174,6 +175,11 @@ private:
     QTimer      m_chunkPumpTimer;
     QTimer      m_eraseTimeoutTimer;
     QTimer      m_verifyTimeoutTimer;
+
+    // Wall clock since the user tapped "Update now". Prefixes [firmware]
+    // log lines with "[+MM:SS.ms]" so a later review of logcat can tell
+    // at a glance how long each phase took.
+    QElapsedTimer m_updateTimer;
 
     // NB: these inline initializers are the actual defaults. The
     // constexpr DEFAULT_*_MS values in firmwareupdater.cpp are advisory

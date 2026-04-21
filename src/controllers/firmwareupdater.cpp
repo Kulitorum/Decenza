@@ -45,6 +45,18 @@ int defaultPostEraseWaitMs() {
         : DEFAULT_POST_ERASE_WAIT_OTHER_MS;
 }
 
+// Format an elapsed count as "[+MM:SS.ms]" — fits long uploads and is
+// trivially greppable with /\[\+\d+:/ to strip back to phase order.
+QString formatElapsed(qint64 ms) {
+    if (ms < 0) return QStringLiteral("[+--:--.---]");
+    const qint64 secs = ms / 1000;
+    const qint64 mins = secs / 60;
+    return QStringLiteral("[+%1:%2.%3]")
+        .arg(mins,       2, 10, QLatin1Char('0'))
+        .arg(secs % 60,  2, 10, QLatin1Char('0'))
+        .arg(ms % 1000,  3, 10, QLatin1Char('0'));
+}
+
 }  // namespace
 
 FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
@@ -228,6 +240,7 @@ QString FirmwareUpdater::stateText() const {
 void FirmwareUpdater::setState(State newState) {
     if (m_state == newState) return;
     qCDebug(firmwareLog).noquote()
+        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
         << "[firmware] state:" << stateText() << "->" << [&]{
             const State old = m_state; m_state = newState;
             const QString s = stateText(); m_state = old;
@@ -255,10 +268,13 @@ void FirmwareUpdater::checkForUpdate() {
         return;
     }
     if (m_state == State::Checking) return;
+    if (!m_updateTimer.isValid()) m_updateTimer.start();  // reset for a fresh check
     const uint32_t installed = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
     m_installedVersion = installed;
-    qCDebug(firmwareLog) << "[firmware] check started, installed=" << installed;
+    qCDebug(firmwareLog).noquote()
+        << formatElapsed(m_updateTimer.elapsed())
+        << "[firmware] check started, installed=" << installed;
     setState(State::Checking);
     m_cache->checkForUpdate(installed);
 }
@@ -287,6 +303,11 @@ void FirmwareUpdater::startUpdate() {
         setState(State::Failed);
         return;
     }
+
+    // Reset the elapsed clock so the log prefix for this flash attempt
+    // starts at [+00:00.000] — gives reviewers a crisp "how long did
+    // each phase take" reading without mental math across sessions.
+    m_updateTimer.restart();
 
     // Download (or short-circuit if already cached and valid).
     setState(State::Downloading);
@@ -510,6 +531,7 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     const qsizetype fivePercent = qMax<qsizetype>(m_chunksTotal / 20, 1);
     if (m_chunksAcked % fivePercent == 0) {
         qCDebug(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
             << "[firmware] upload progress:"
             << m_chunksAcked << "/" << m_chunksTotal
             << "(" << int(100.0 * m_chunksAcked / m_chunksTotal) << "%)";
@@ -519,9 +541,11 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     setProgress(PROGRESS_ERASE_MAX + uploadFrac * (PROGRESS_UPLOAD_MAX - PROGRESS_ERASE_MAX));
 
     if (m_chunksAcked >= m_chunksTotal) {
-        qCDebug(firmwareLog) << "[firmware] all" << m_chunksTotal
-                             << "chunks ACKed, settling"
-                             << m_postUploadSettleMs << "ms before verify";
+        qCDebug(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] all" << m_chunksTotal
+            << "chunks ACKed, settling"
+            << m_postUploadSettleMs << "ms before verify";
         QTimer::singleShot(m_postUploadSettleMs, this, [this]() {
             if (m_state == State::Uploading) beginVerifyPhase();
         });
@@ -610,6 +634,7 @@ void FirmwareUpdater::completeSuccess() {
 
 void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
     qCWarning(firmwareLog).noquote()
+        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
         << "[firmware] FAIL phase=" << stateText()
         << " chunks acked=" << m_chunksAcked
         << " queued=" << m_chunksQueued
