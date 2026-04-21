@@ -298,11 +298,15 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
     }
 
     // Caps OK but still UnknownRemoteDeviceError — surface the BlueZ cache
-    // recovery dialog via BLEManager.
+    // recovery dialog via BLEManager. Linux-only: the recovery commands
+    // (bluetoothctl/systemctl) do not apply on macOS/iOS/Android, where
+    // UnknownRemoteDeviceError surfaces for unrelated reasons.
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     if (err == QLowEnergyController::UnknownRemoteDeviceError
         && !BleCapability::linuxMissing()) {
         if (auto* m = BLEManager::instance()) m->requestBluezCacheHint();
     }
+#endif
 }
 
 void QtScaleBleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {

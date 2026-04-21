@@ -415,8 +415,11 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     // Caps are fine but the DE1 still couldn't be resolved — almost always
     // a stale BlueZ cache after an OS upgrade. Ask BLEManager to surface
     // the recovery dialog (it de-dupes; only the first call per session
-    // fires the signal).
-#ifndef DECENZA_TESTING
+    // fires the signal). Linux-only: macOS/iOS/Android surface
+    // UnknownRemoteDeviceError for unrelated reasons (Core Bluetooth cache,
+    // Android scan-restart races) where the bluetoothctl/systemctl recovery
+    // steps are irrelevant and confusing.
+#if !defined(DECENZA_TESTING) && defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     // Guarded out of test builds: test targets link bletransport.cpp
     // without blemanager.cpp, and pulling blemanager.cpp in would drag in
     // most of the BLE stack (scales, refractometers, permissions).
