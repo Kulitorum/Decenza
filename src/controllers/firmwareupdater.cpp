@@ -416,6 +416,12 @@ void FirmwareUpdater::beginErasePhase() {
         return;
     }
     m_eraseInProgressSeen = false;
+    // Engage the MMR-write guard on the device *before* we subscribe or
+    // write anything. Firmware chunks share the WRITE_TO_MMR characteristic
+    // with regular MMR writes (distinguished only by the length byte), so a
+    // stray MMR write interleaved with chunks would corrupt the flash. The
+    // guard is cleared in completeSuccess() and failWith().
+    m_device->setFirmwareFlashInProgress(true);
     setState(State::Erasing);
     m_device->subscribeFirmwareNotifications();
     m_device->writeFWMapRequest(/*erase*/ 1, /*map*/ 1);
@@ -637,6 +643,7 @@ void FirmwareUpdater::onPostEraseWaitComplete() {
 }
 
 void FirmwareUpdater::completeSuccess() {
+    if (m_device) m_device->setFirmwareFlashInProgress(false);
     setProgress(1.0);
     setState(State::Succeeded);
     m_updateAvailable = false;
@@ -654,6 +661,7 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
         << " total=" << m_chunksTotal
         << " retry=" << (retryable ? "yes" : "no")
         << " reason=" << reason;
+    if (m_device) m_device->setFirmwareFlashInProgress(false);
     m_eraseTimeoutTimer.stop();
     m_verifyTimeoutTimer.stop();
     m_postEraseWaitTimer.stop();

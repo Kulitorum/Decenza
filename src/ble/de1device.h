@@ -147,6 +147,16 @@ public:
     bool simulationMode() const { return m_simulationMode; }
     void setSimulationMode(bool enabled);
 
+    // Firmware-flash guard. Set to true by FirmwareUpdater for the duration
+    // of the erase/upload/verify sequence so writeMMR() / writeMMRUrgent() /
+    // writeMMRVerified() can drop incoming MMR writes — otherwise a stray
+    // MMR packet on the WRITE_TO_MMR characteristic (length byte 4) would
+    // interleave with in-flight firmware chunks (length byte 16) on A006 and
+    // corrupt the image. Mirrors de1app's `currently_erasing_firmware` gate
+    // in `mmr_write` (de1_comms.tcl:1026).
+    bool firmwareFlashInProgress() const { return m_firmwareFlashInProgress; }
+    void setFirmwareFlashInProgress(bool inProgress);
+
     // For simulator integration - allows external code to set state and emit signals
     void setSimulatedState(DE1::State state, DE1::SubState subState);
     void emitSimulatedShotSample(const ShotSample& sample);
@@ -431,6 +441,7 @@ private:
 
     bool m_connecting = false;
     bool m_simulationMode = false;
+    bool m_firmwareFlashInProgress = false;
 #ifdef QT_DEBUG
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
 #endif

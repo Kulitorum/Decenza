@@ -1123,9 +1123,32 @@ QByteArray DE1Device::buildMMRPayload(uint32_t address, uint32_t value) {
     return data;
 }
 
+void DE1Device::setFirmwareFlashInProgress(bool inProgress) {
+    if (m_firmwareFlashInProgress == inProgress) return;
+    m_firmwareFlashInProgress = inProgress;
+    qDebug() << "[firmware] DE1Device MMR-write guard"
+             << (inProgress ? "ENGAGED" : "cleared");
+}
+
 void DE1Device::writeMMR(uint32_t address, uint32_t value,
                          const QString& reason, bool force) {
     if (!m_transport) return;
+
+    // Firmware flash active: MMR writes travel on the same BLE
+    // characteristic (A006) that carries firmware chunks. An MMR packet
+    // (length byte 4) landing mid-stream between firmware chunks
+    // (length byte 16) would corrupt the bootloader's address tracking
+    // and brick the flash. Drop the write noisily so any regression —
+    // e.g. a future periodic MMR writer fired from a timer — shows up
+    // in the logs rather than silently killing an update.
+    if (m_firmwareFlashInProgress) {
+        qWarning().noquote() << QString(
+            "[MMR] write DROPPED (firmware flash in progress): 0x%1 = %2%3")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(value)
+            .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+        return;
+    }
 
     const QString reasonSuffix = reason.isEmpty()
         ? QString() : QStringLiteral(" [%1]").arg(reason);
@@ -1160,6 +1183,15 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
 
 void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& reason) {
     if (!m_transport) return;
+
+    if (m_firmwareFlashInProgress) {
+        qWarning().noquote() << QString(
+            "[MMR] write urgent DROPPED (firmware flash in progress): 0x%1 = %2%3")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(value)
+            .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+        return;
+    }
 
     const QString reasonSuffix = reason.isEmpty()
         ? QString() : QStringLiteral(" [%1]").arg(reason);
@@ -1214,6 +1246,17 @@ void DE1Device::subscribeFirmwareNotifications() {
 void DE1Device::writeMMRVerified(uint32_t address, uint32_t value,
                                   const QString& reason, int maxRetries) {
     if (!m_transport) return;
+
+    if (m_firmwareFlashInProgress) {
+        // Drop the whole verified-write request — both the initial write
+        // and its scheduled read-back would fire into the flash stream.
+        qWarning().noquote() << QString(
+            "[MMR] write verified DROPPED (firmware flash in progress): 0x%1 = %2%3")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(value)
+            .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+        return;
+    }
 
     // Replace any prior verification for this address — newest write wins.
     // (Mid-drag the user can replace the value many times before the first
