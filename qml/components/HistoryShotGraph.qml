@@ -108,15 +108,21 @@ ChartView {
             temperatureMixSeries.append(temperatureMixData[i].x, temperatureMixData[i].y)
         }
 
-        // Update time axis. Clip to maxTime (extraction end) so post-End
-        // samples like scale dribble don't clutter the view, matching the
-        // live graph. Small pixel-based padding keeps the End marker off the
-        // right edge so the dashed line isn't half-clipped on narrow DPIs.
+        // Update time axis. Clip to the later of maxTime (extraction duration)
+        // or the last phase-marker time so any frame-transition marker that
+        // lands just past duration still renders. Post-End samples (scale
+        // dribble etc.) are still clipped, matching the live graph. Small
+        // pixel-based padding keeps markers off the right edge.
         if (pressureData.length > 0) {
+            var markerMaxTime = 0
+            for (var m = 0; m < phaseMarkers.length; m++) {
+                if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
+            }
+            var axisEnd = Math.max(maxTime, markerMaxTime)
             var plotWidth = Math.max(1, chart.plotArea.width)
             var paddingPx = Theme.scaled(5)
             var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
-            timeAxis.max = Math.max(5, maxTime * scale)
+            timeAxis.max = Math.max(5, axisEnd * scale)
         }
     }
 
@@ -410,16 +416,6 @@ ChartView {
         axisY: pressureAxis
     }
 
-    LineSeries {
-        id: stopMarker
-        name: ""
-        color: Theme.stopMarkerColor
-        width: Theme.scaled(2)
-        style: Qt.DashDotLine
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
-
     // === GOAL LINES (dashed) — segments for clean breaks at pump mode transitions ===
 
     // Pressure goal segments (up to 5 for mode switches)
@@ -581,19 +577,19 @@ ChartView {
             _markerLines[i].clear()
         }
         extractionStartMarker.clear()
-        stopMarker.clear()
 
-        // Draw vertical lines for each phase marker
+        // Draw vertical lines for each phase marker. "End" markers are skipped
+        // — they were only added on SAW-triggered stops, so their presence was
+        // inconsistent. The last frame-transition marker already signals the
+        // end of extraction.
         var markerIdx = 0
         for (var m = 0; m < phaseMarkers.length; m++) {
             var marker = phaseMarkers[m]
+            if (marker.label === "End") continue
             var t = marker.time
             if (marker.label === "Start") {
                 extractionStartMarker.append(t, 0)
                 extractionStartMarker.append(t, 100)
-            } else if (marker.label === "End") {
-                stopMarker.append(t, 0)
-                stopMarker.append(t, 100)
             } else if (markerIdx < _markerLines.length) {
                 _markerLines[markerIdx].append(t, 0)
                 _markerLines[markerIdx].append(t, 100)
@@ -615,16 +611,16 @@ ChartView {
             property string markerLabel: modelData.label
             property string transitionReason: modelData.transitionReason || ""
             property bool isStart: modelData.label === "Start"
-            property bool isEnd: modelData.label === "End"
 
             x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
             y: chart.plotArea.y
             height: chart.plotArea.height
             visible: markerTime <= timeAxis.max && markerTime >= 0 && chart.showPhaseLabels
+                     && markerLabel !== "End"
 
             Text {
                 text: {
-                    if (transitionReason === "" || isEnd) return markerLabel
+                    if (transitionReason === "") return markerLabel
                     var suffix = ""
                     switch (transitionReason) {
                         case "weight": suffix = " [W]"; break
@@ -635,8 +631,8 @@ ChartView {
                     return markerLabel + suffix
                 }
                 font.pixelSize: Theme.scaled(14)
-                font.bold: isStart || isEnd
-                color: isStart ? Theme.accentColor : (isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8))
+                font.bold: isStart
+                color: isStart ? Theme.accentColor : Qt.rgba(255, 255, 255, 0.8)
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(3)

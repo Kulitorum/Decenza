@@ -75,13 +75,23 @@ ChartView {
         comparisonModel.populateAdvancedSeries(1, conductance2, conductanceDerivative2, darcyResistance2, temperatureMix2)
         comparisonModel.populateAdvancedSeries(2, conductance3, conductanceDerivative3, darcyResistance3, temperatureMix3)
 
-        // Fit time axis to the longest extraction end time. Post-End samples
-        // (scale dribble etc.) are clipped to match the live graph. Small
-        // pixel-based padding keeps the End marker off the right edge.
+        // Fit time axis to the later of the longest extraction duration or
+        // any phase-marker time (defensive — handles edge cases where a
+        // marker lands just past duration). Post-End samples (scale dribble
+        // etc.) are clipped to match the live graph. Small pixel-based
+        // padding keeps markers off the right edge.
+        var markerMaxTime = 0
+        for (var pmi = 0; pmi < comparisonModel.shotCount; pmi++) {
+            var pmMarkers = comparisonModel.getPhaseMarkers(pmi)
+            for (var pmj = 0; pmj < pmMarkers.length; pmj++) {
+                if (pmMarkers[pmj].time > markerMaxTime) markerMaxTime = pmMarkers[pmj].time
+            }
+        }
+        var axisEnd = Math.max(comparisonModel.maxTime, markerMaxTime)
         var plotWidth = Math.max(1, chart.plotArea.width)
         var paddingPx = Theme.scaled(5)
         var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
-        timeAxis.max = Math.max(15, comparisonModel.maxTime * scale)
+        timeAxis.max = Math.max(15, axisEnd * scale)
 
         // Fit dC/dt axis to data. Min extends below zero only when the data
         // actually dips negative (exact values via crosshair).
@@ -113,13 +123,14 @@ ChartView {
             for (var mi = 0; mi < markers.length; mi++) {
                 var lbl = markers[mi].label
                 if (lbl === "Start") continue  // redundant — always 0.0s
+                if (lbl === "End") continue    // only added on SAW stops; inconsistent
                 if (phaseIndexMap[lbl] === undefined) phaseIndexMap[lbl] = nextPhaseIndex++
                 phases.push({ shotIdx: pi, time: markers[mi].time, label: lbl, phaseIndex: phaseIndexMap[lbl] })
             }
         }
         phaseData = phases
 
-        // Default visibility: hide all phases except End and the one before it
+        // Default visibility: hide all phases except the last 2 labels
         var uniqueLabels = []
         var seenLabels = {}
         for (var ui = 0; ui < phases.length; ui++) {
