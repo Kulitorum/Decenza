@@ -163,10 +163,13 @@ private:
     QTimer      m_eraseTimeoutTimer;
     QTimer      m_verifyTimeoutTimer;
 
-    int         m_postEraseWaitMs      = 0;   // set in ctor based on OS
+    // NB: these inline initializers are the actual defaults. The
+    // constexpr DEFAULT_*_MS values in firmwareupdater.cpp are advisory
+    // documentation only — they're never used to construct these members.
+    int         m_postEraseWaitMs      = 0;       // overridden in ctor based on OS
     int         m_chunkPumpIntervalMs  = 1;
     int         m_eraseTimeoutMs       = 30000;
-    int         m_verifyTimeoutMs      = 10000;
+    int         m_verifyTimeoutMs      = 60000;   // bumped from 10000; see below
 
     std::function<uint32_t()> m_installedVersionProvider;
     std::function<bool()>     m_preconditionProvider;
