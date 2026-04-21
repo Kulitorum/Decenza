@@ -187,14 +187,10 @@ void FirmwareUpdater::setInstalledVersionProvider(std::function<uint32_t()> fn) 
     // fires once and is gone — there's no replay).
     if (m_installedVersionProvider) {
         const uint32_t v = m_installedVersionProvider();
-        qCDebug(firmwareLog) << "[firmware] provider wired, immediate pull returned"
-                             << v << "(was" << m_installedVersion << ")";
         if (v != m_installedVersion) {
             m_installedVersion = v;
             emit installedVersionChanged();
         }
-    } else {
-        qCDebug(firmwareLog) << "[firmware] provider cleared";
     }
 }
 
@@ -217,8 +213,6 @@ void FirmwareUpdater::setPostUploadSettleMs(int ms)        { m_postUploadSettleM
 // ---- Read-only state helpers -------------------------------------------
 
 int FirmwareUpdater::installedVersion() const {
-    qCDebug(firmwareLog) << "[firmware] installedVersion getter called, returning"
-                         << m_installedVersion;
     return static_cast<int>(m_installedVersion);
 }
 
@@ -530,11 +524,13 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     // and "all ... ACKed".
     const qsizetype fivePercent = qMax<qsizetype>(m_chunksTotal / 20, 1);
     if (m_chunksAcked % fivePercent == 0) {
+        // qRound (not int-truncation) so the 5% boundary prints "5%" rather
+        // than "4%" (1449/28992 = 4.9985...).
         qCDebug(firmwareLog).noquote()
             << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
             << "[firmware] upload progress:"
             << m_chunksAcked << "/" << m_chunksTotal
-            << "(" << int(100.0 * m_chunksAcked / m_chunksTotal) << "%)";
+            << "(" << qRound(100.0 * m_chunksAcked / m_chunksTotal) << "%)";
     }
 
     const double uploadFrac = double(m_chunksAcked) / double(m_chunksTotal);
