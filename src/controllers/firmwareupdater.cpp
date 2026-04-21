@@ -77,6 +77,24 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
                 this, &FirmwareUpdater::onFwMapResponse);
         connect(m_device, &DE1Device::connectedChanged,
                 this, &FirmwareUpdater::onDeviceConnectionChanged);
+        // Re-pull installedVersion when the DE1 reports a new firmware
+        // build number (happens once on connect when MMR 0x800010 is parsed,
+        // and again after a successful flash + reboot). Without this, the
+        // Settings → Firmware tab would show "—" for the first 30 seconds
+        // after app start (until the scheduled check runs) even when the
+        // DE1 has long since reported its version.
+        connect(m_device, &DE1Device::firmwareVersionChanged,
+                this, &FirmwareUpdater::onDeviceFirmwareVersionChanged);
+    }
+}
+
+void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
+    if (!m_installedVersionProvider) return;
+    const uint32_t v = m_installedVersionProvider();
+    if (v != m_installedVersion) {
+        m_installedVersion = v;
+        qCDebug(firmwareLog) << "[firmware] installed version refreshed:" << v;
+        emit availabilityChanged();
     }
 }
 
@@ -137,6 +155,16 @@ FirmwareUpdater::~FirmwareUpdater() = default;
 
 void FirmwareUpdater::setInstalledVersionProvider(std::function<uint32_t()> fn) {
     m_installedVersionProvider = std::move(fn);
+    // Pull immediately in case DE1Device already reported its version
+    // before this provider was wired up (the firmwareVersionChanged signal
+    // fires once and is gone — there's no replay).
+    if (m_installedVersionProvider) {
+        const uint32_t v = m_installedVersionProvider();
+        if (v != m_installedVersion) {
+            m_installedVersion = v;
+            emit availabilityChanged();
+        }
+    }
 }
 
 void FirmwareUpdater::setPreconditionProvider(std::function<bool()> fn) {
