@@ -470,6 +470,18 @@ void FirmwareUpdater::beginVerifyPhase() {
     if (!m_device) return;
     setState(State::Verifying);
     setProgress(PROGRESS_UPLOAD_MAX);
+
+    // Match de1app's exact ordering: re-enable A009 notifications RIGHT
+    // before sending the verify request (de1_comms.tcl:962). The heavy
+    // upload-write burst can invalidate the CCCD subscription on Android
+    // BLE, and the bootloader appears to re-arm its notification handlers
+    // after the write phase. Calling subscribe here is the single change
+    // that distinguishes "no verify response" from "success notification
+    // arrives within seconds". Note that de1app also leaves the original
+    // erase-phase subscription disabled (line 876 commented out) — but
+    // we keep ours active for diagnostic visibility into the erase-done
+    // notification, which has no protocol cost.
+    m_device->subscribeFirmwareNotifications();
     m_device->writeFWMapRequest(/*erase*/ 0, /*map*/ 1, {0xFF, 0xFF, 0xFF});
     m_verifyTimeoutTimer.start(m_verifyTimeoutMs);
 }
