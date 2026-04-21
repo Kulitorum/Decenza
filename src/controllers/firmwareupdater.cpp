@@ -95,6 +95,14 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
         // DE1 has long since reported its version.
         connect(m_device, &DE1Device::firmwareVersionChanged,
                 this, &FirmwareUpdater::onDeviceFirmwareVersionChanged);
+        // Listen to the transport's per-write ACK so we can show the user
+        // real upload progress (what the DE1 has actually received) rather
+        // than queued-but-unsent progress, and so we can trigger verify only
+        // after the wire has truly caught up.
+        if (auto* t = m_device->transport()) {
+            connect(t, &DE1Transport::writeComplete,
+                    this, &FirmwareUpdater::onFirmwareWriteAcked);
+        }
     }
 }
 
@@ -195,6 +203,7 @@ void FirmwareUpdater::setChunkPumpIntervalMs(int ms) {
 void FirmwareUpdater::setEraseTimeoutMs(int ms)            { m_eraseTimeoutMs            = ms; }
 void FirmwareUpdater::setVerifyTimeoutMs(int ms)           { m_verifyTimeoutMs           = ms; }
 void FirmwareUpdater::setVerifyDisconnectGraceMs(int ms)   { m_verifyDisconnectGraceMs   = ms; }
+void FirmwareUpdater::setPostUploadSettleMs(int ms)        { m_postUploadSettleMs        = ms; }
 
 // ---- Read-only state helpers -------------------------------------------
 
@@ -419,8 +428,9 @@ void FirmwareUpdater::beginUploadPhase() {
         failWith(QStringLiteral("Firmware file missing or unreadable"), true);
         return;
     }
-    m_chunksTotal = (m_firmwareBytes.size() + 15) / 16;  // ceil to 16-byte blocks
-    m_chunksSent  = 0;
+    m_chunksTotal  = (m_firmwareBytes.size() + 15) / 16;  // ceil to 16-byte blocks
+    m_chunksQueued = 0;
+    m_chunksAcked  = 0;
     setState(State::Uploading);
     setProgress(PROGRESS_ERASE_MAX);
     m_chunkPumpTimer.start();
@@ -444,49 +454,51 @@ void FirmwareUpdater::onChunkPumpTick() {
         m_chunkPumpTimer.stop();
         return;
     }
-    if (m_chunksSent >= m_chunksTotal) {
+    if (m_chunksQueued >= m_chunksTotal) {
+        // All chunks are *queued* into BleTransport. Don't trigger verify
+        // here — wait until onFirmwareWriteAcked sees the last ACK arrive
+        // (m_chunksAcked == m_chunksTotal). The ACK-driven trigger means
+        // the user-visible progress bar keeps climbing smoothly to 90 % as
+        // each ACK clears the wire, instead of jumping to 90 % the moment
+        // we queue the last chunk and then freezing silently for minutes.
         m_chunkPumpTimer.stop();
-        // Our chunk pump queues writes at 1 ms intervals via BleTransport's
-        // command queue; BLE drains them at ACK speed (~15 ms per write on
-        // Android). When we reach "m_chunksSent == m_chunksTotal", the queue
-        // may still have thousands of chunks backed up — the writes are
-        // enqueued, not yet on the wire. Sending verify now would land it
-        // behind all those chunks and race the verify-response timeout.
-        //
-        // Instead wait for the transport's queueDrained signal, which fires
-        // when the last write has actually been ACKed by the DE1. Only then
-        // start the post-upload settle timer before issuing verify.
-        qCDebug(firmwareLog) << "[firmware] upload queued to BLE, waiting for queue to drain";
-        auto* transport = m_device ? m_device->transport() : nullptr;
-        if (!transport) {
-            // No transport — shouldn't happen, but be defensive.
-            QTimer::singleShot(POST_UPLOAD_SETTLE_MS, this,
-                               [this]{ if (m_state == State::Uploading) beginVerifyPhase(); });
-            return;
-        }
-        auto conn = std::make_shared<QMetaObject::Connection>();
-        *conn = connect(transport, &DE1Transport::queueDrained, this,
-                        [this, conn]() {
-            if (m_state != State::Uploading) return;
-            QObject::disconnect(*conn);
-            qCDebug(firmwareLog) << "[firmware] BLE queue drained, settling"
-                                 << POST_UPLOAD_SETTLE_MS << "ms before verify";
-            QTimer::singleShot(POST_UPLOAD_SETTLE_MS, this, [this]() {
-                if (m_state == State::Uploading) beginVerifyPhase();
-            });
-        });
+        qCDebug(firmwareLog) << "[firmware] upload queued to BLE ("
+                             << m_chunksTotal << "chunks), waiting for ACKs";
         return;
     }
-    const qsizetype byteOffset = m_chunksSent * 16;
+    const qsizetype byteOffset = m_chunksQueued * 16;
     QByteArray payload = m_firmwareBytes.mid(byteOffset, 16);
     if (payload.size() < 16) {
         payload.append(QByteArray(16 - payload.size(), char(0xFF)));  // pad tail
     }
     m_device->writeFirmwareChunk(static_cast<uint32_t>(byteOffset), payload);
-    m_chunksSent++;
+    m_chunksQueued++;
+}
 
-    const double uploadFrac = double(m_chunksSent) / double(m_chunksTotal);
+void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
+                                           const QByteArray& data) {
+    if (m_state != State::Uploading) return;
+    // Filter: only count ACKs for 20-byte WriteToMMR packets carrying the
+    // firmware-chunk length byte (16). Skips any other traffic that might
+    // share the WRITE_TO_MMR characteristic during the upload window, and
+    // avoids double-counting the FWMapRequest writes on A009.
+    if (uuid != DE1::Characteristic::WRITE_TO_MMR) return;
+    if (data.size() != 20) return;
+    if (static_cast<uint8_t>(data[0]) != 16) return;
+
+    m_chunksAcked++;
+
+    const double uploadFrac = double(m_chunksAcked) / double(m_chunksTotal);
     setProgress(PROGRESS_ERASE_MAX + uploadFrac * (PROGRESS_UPLOAD_MAX - PROGRESS_ERASE_MAX));
+
+    if (m_chunksAcked >= m_chunksTotal) {
+        qCDebug(firmwareLog) << "[firmware] all" << m_chunksTotal
+                             << "chunks ACKed, settling"
+                             << m_postUploadSettleMs << "ms before verify";
+        QTimer::singleShot(m_postUploadSettleMs, this, [this]() {
+            if (m_state == State::Uploading) beginVerifyPhase();
+        });
+    }
 }
 
 // ---- Phase 3: Verify ---------------------------------------------------
@@ -572,7 +584,9 @@ void FirmwareUpdater::completeSuccess() {
 void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
     qCWarning(firmwareLog).noquote()
         << "[firmware] FAIL phase=" << stateText()
-        << " chunks=" << m_chunksSent << "/" << m_chunksTotal
+        << " chunks acked=" << m_chunksAcked
+        << " queued=" << m_chunksQueued
+        << " total=" << m_chunksTotal
         << " retry=" << (retryable ? "yes" : "no")
         << " reason=" << reason;
     m_eraseTimeoutTimer.stop();

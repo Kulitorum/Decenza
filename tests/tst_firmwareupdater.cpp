@@ -53,6 +53,19 @@ void writeCachedBlob(const FirmwareUpdater*, DE1::Firmware::FirmwareAssetCache* 
     f.close();
 }
 
+// Drive the test through the upload phase by waiting for all chunks to be
+// queued into MockTransport, then simulating BLE ACKs for each. Returns
+// after the state has advanced to Verifying (or whatever follows, depending
+// on timings in the specific test).
+void simulateFullUpload(MockTransport& transport, const QByteArray& blob,
+                        int ackWaitTimeoutMs = 5000) {
+    const qsizetype expectedChunks = (blob.size() + 15) / 16;
+    // Expected writes at this point: 1 erase FWMapRequest + N chunks.
+    QTRY_VERIFY_WITH_TIMEOUT(
+        transport.writes.size() >= 1 + expectedChunks, ackWaitTimeoutMs);
+    transport.ackAllWritesInOrder();
+}
+
 }  // namespace
 
 class tst_FirmwareUpdater : public QObject {
@@ -73,6 +86,7 @@ private:
             // Fast timings so the test runs in milliseconds.
             updater.setPostEraseWaitMs(0);
             updater.setChunkPumpIntervalMs(0);
+            updater.setPostUploadSettleMs(0);
             updater.setEraseTimeoutMs(5000);
             updater.setVerifyTimeoutMs(5000);
 
@@ -118,13 +132,15 @@ private slots:
 
     void verifyFailure_reportsErrorOffsetRetryable() {
         Fixture f;
-        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
         f.updater.startUpdate();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000100000000"));
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000001000000"));
+        simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
         // Non-success firstError: {0x12, 0x34, 0x56} (arbitrary non-success)
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
@@ -246,7 +262,8 @@ private slots:
         Fixture f;
         auto installed = std::make_shared<uint32_t>(1200);
         f.updater.setInstalledVersionProvider([installed]{ return *installed; });
-        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
 
         f.updater.startUpdate();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
@@ -254,6 +271,7 @@ private slots:
                                       QByteArray::fromHex("00000100000000"));
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000001000000"));
+        simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
 
         // Disconnect mid-verify — ambiguous: could be a real failure, could
@@ -274,13 +292,15 @@ private slots:
     void verifyDisconnectGraceTimeout_failsRetryable() {
         Fixture f;
         f.updater.setVerifyDisconnectGraceMs(50);   // short grace for test
-        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
         f.updater.startUpdate();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000100000000"));
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000001000000"));
+        simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
 
         f.transport.setConnectedSim(false);
@@ -330,7 +350,19 @@ private slots:
         // Post-erase wait is 0 ms → pumps the event loop, reaches Uploading.
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Uploading, 2000);
 
-        // Wait for all chunks to drain, then updater enters Verifying.
+        // Wait for all chunks to land in MockTransport (the pump queues them
+        // synchronously with a 0 ms interval). The expected write count is
+        // 1 (erase FWMapRequest) + N (firmware chunks).
+        const qsizetype expectedChunksQueued = (blob.size() + 15) / 16;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            f.transport.writes.size() >= 1 + expectedChunksQueued, 5000);
+
+        // Now simulate BLE ACKing each write. The updater counts
+        // WRITE_TO_MMR ACKs with length==16; after the last chunk's ACK
+        // it schedules beginVerifyPhase() after postUploadSettleMs (0 in
+        // test mode).
+        f.transport.ackAllWritesInOrder();
+
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Verifying, 5000);
 
         // Confirm the exact number of 16-byte chunks went out on A006.

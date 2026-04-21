@@ -71,8 +71,9 @@ public:
     void setPostEraseWaitMs(int ms);          // default 10000 (Android) or 1000 (other)
     void setChunkPumpIntervalMs(int ms);      // default 1
     void setEraseTimeoutMs(int ms);           // default 30000
-    void setVerifyTimeoutMs(int ms);          // default 10000
+    void setVerifyTimeoutMs(int ms);          // default 60000
     void setVerifyDisconnectGraceMs(int ms);  // default 15000
+    void setPostUploadSettleMs(int ms);       // default 1500
 
     // Read-only state -----------------------------------------------
 
@@ -108,6 +109,7 @@ private slots:
     void onDeviceFirmwareVersionChanged();
     void onPostEraseWaitComplete();
     void onChunkPumpTick();
+    void onFirmwareWriteAcked(const QBluetoothUuid& uuid, const QByteArray& data);
     void onEraseTimeout();
     void onVerifyTimeout();
     void onVerifyDisconnectGrace();
@@ -135,9 +137,17 @@ private:
 
     // Cached firmware bytes for the chunk pump. Loaded once at the start
     // of uploading so we don't re-read the ~453 KB file for every chunk.
+    //
+    // Two counters, because "queued" (what we've handed to BleTransport's
+    // command queue) and "acked" (what the DE1 has actually confirmed
+    // over BLE) diverge significantly on Android — we can queue 28k chunks
+    // in seconds but BLE drains them at ~15 ms/ACK. The progress bar and
+    // the verify-trigger gate both use m_chunksAcked so the user sees real
+    // progress and verify doesn't race ahead of the wire.
     QByteArray  m_firmwareBytes;
     qsizetype   m_chunksTotal      = 0;
-    qsizetype   m_chunksSent       = 0;
+    qsizetype   m_chunksQueued     = 0;   // handed to BleTransport
+    qsizetype   m_chunksAcked      = 0;   // confirmed by DE1 via writeComplete
 
     // Erase state: de1app expects *two* notifications — first fwToErase=1
     // (erase in progress), then fwToErase=0 (erase complete). We only
@@ -170,6 +180,7 @@ private:
     int         m_chunkPumpIntervalMs  = 1;
     int         m_eraseTimeoutMs       = 30000;
     int         m_verifyTimeoutMs      = 60000;   // bumped from 10000; see below
+    int         m_postUploadSettleMs   = 1500;    // delay after last ACK → verify
 
     std::function<uint32_t()> m_installedVersionProvider;
     std::function<bool()>     m_preconditionProvider;
