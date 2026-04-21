@@ -521,7 +521,7 @@ Page {
                             Layout.preferredWidth: Theme.scaled(180)
                             value: getCurrentPresetSeconds()
                             from: 1
-                            to: 30
+                            to: 45
                             stepSize: 0.5
                             suffix: " s"
                             valueColor: Theme.primaryColor
