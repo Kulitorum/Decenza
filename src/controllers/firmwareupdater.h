@@ -29,7 +29,7 @@ class FirmwareUpdater : public QObject {
     Q_PROPERTY(QString stateText READ stateText NOTIFY stateChanged)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY availabilityChanged)
     Q_PROPERTY(int availableVersion READ availableVersion NOTIFY availabilityChanged)
-    Q_PROPERTY(int installedVersion READ installedVersion NOTIFY availabilityChanged)
+    Q_PROPERTY(int installedVersion READ installedVersion NOTIFY installedVersionChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged)
     Q_PROPERTY(bool retryAvailable READ retryAvailable NOTIFY stateChanged)
@@ -96,6 +96,7 @@ signals:
     void stateChanged();
     void availabilityChanged();
     void progressChanged();
+    void installedVersionChanged();
 
 private slots:
     void onCheckFinished(DE1::Firmware::FirmwareAssetCache::CheckResult result);

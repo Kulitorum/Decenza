@@ -94,7 +94,7 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
     if (v != m_installedVersion) {
         m_installedVersion = v;
         qCDebug(firmwareLog) << "[firmware] installed version refreshed:" << v;
-        emit availabilityChanged();
+        emit installedVersionChanged();
     }
 }
 
@@ -162,7 +162,7 @@ void FirmwareUpdater::setInstalledVersionProvider(std::function<uint32_t()> fn) 
         const uint32_t v = m_installedVersionProvider();
         if (v != m_installedVersion) {
             m_installedVersion = v;
-            emit availabilityChanged();
+            emit installedVersionChanged();
         }
     }
 }
@@ -491,6 +491,7 @@ void FirmwareUpdater::completeSuccess() {
     m_updateAvailable = false;
     m_installedVersion = m_availableVersion;
     emit availabilityChanged();
+    emit installedVersionChanged();
 }
 
 void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
