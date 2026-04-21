@@ -203,9 +203,13 @@ Item {
         // ----- Status + progress strip (visible while working) -----
 
         Rectangle {
+            // Show only during the long flash phases (Erasing/Uploading/
+            // Verifying). Checking and Downloading can be sub-second,
+            // which would otherwise fire this 110px accent-bordered card
+            // every channel toggle and look like a red/pink flash.
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(110)
-            visible: firmwareTab.isWorking
+            visible: firmwareTab.isFlashing
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.color: Theme.accentColor
