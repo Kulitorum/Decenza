@@ -329,6 +329,14 @@ void FirmwareUpdater::retry() {
     startUpdate();
 }
 
+void FirmwareUpdater::dismissLingeringFailure() {
+    if (m_state != State::Failed) return;
+    m_errorMessage.clear();
+    m_retryAvailable = false;
+    setProgress(0.0);
+    setState(State::Idle);
+}
+
 void FirmwareUpdater::dismissAvailability() {
     if (!m_updateAvailable) return;
     // Pin the dismissed version so a subsequent check that returns the

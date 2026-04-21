@@ -310,7 +310,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
             // Re-check immediately so the UI reflects the new channel's
             // available version without waiting for the weekly poll.
-            if (m_firmwareUpdater) m_firmwareUpdater->checkForUpdate();
+            // dismissLingeringFailure() wipes any stale Failed state from a
+            // prior check (e.g. a transient network error in the weekly
+            // auto-check) so the "Update failed" error strip doesn't briefly
+            // re-render beneath the channel toggle while the new check
+            // resolves.
+            if (m_firmwareUpdater) {
+                m_firmwareUpdater->dismissLingeringFailure();
+                m_firmwareUpdater->checkForUpdate();
+            }
         });
     }
     m_firmwareUpdater    = new FirmwareUpdater(m_device, m_firmwareAssetCache, this);

@@ -116,6 +116,13 @@ public:
     Q_INVOKABLE void retry();
     Q_INVOKABLE void dismissAvailability();
 
+    // Reset state + errorMessage if we're currently in Failed. Used before
+    // a programmatic re-check (e.g. channel-toggle re-check) so a stale
+    // Failed state from a prior attempt doesn't bleed into the new flow
+    // as a red "Update failed" strip flashing under the toggle. No-op in
+    // any non-Failed state.
+    void dismissLingeringFailure();
+
 signals:
     void stateChanged();
     void availabilityChanged();
