@@ -94,6 +94,11 @@ Page {
             wasSteaming = true
             steamSoftStopped = false
             _lastAnnouncedSteamWeight = 0
+            // Drop any banner left over from a prior session so it doesn't
+            // carry into the new one. SteamHealthTracker re-arms its per-session
+            // latch at the first sample of the new session, so if the new
+            // session also trips a threshold, the banner will re-show.
+            warningVisible = false
             // Preset reset runs in the else branch (at session end), not here.
             // Resetting at session start meant Settings was stale during the
             // window between state=Steam (when main.qml's onStateChanged fires
@@ -182,17 +187,14 @@ Page {
         }
     }
 
-    // Live safety warning banner. Persists until the user taps it — this is a
-    // one-shot per-session alert (latched in SteamHealthTracker), so if it
-    // auto-dismissed the user could easily miss it while focused on the pitcher.
+    // Live safety warning banner. Persists until the user taps it. The two
+    // signals that drive it (pressureTooHigh / temperatureTooHigh) are each
+    // latched to fire at most once per session in SteamHealthTracker, so an
+    // auto-dismiss would risk the user missing the only alert they get.
+    // (The three other SteamHealthTracker signals handled below are
+    // post-session modal dialogs, not this banner.)
     property string warningText: ""
     property bool warningVisible: false
-
-    // Clear any stale warning when a new steam session starts.
-    onIsSteamingChanged: {
-        if (isSteaming)
-            warningVisible = false
-    }
 
     // Warning connections
     Connections {
@@ -471,11 +473,16 @@ Page {
                 radius: Theme.cardRadius
                 color: Theme.errorColor
 
+                // Composed banner text — a single translatable template so
+                // translators control word order relative to the warning.
+                readonly property string composedText: TranslationManager.translate(
+                    "steam.warning.withTapHint", "%1  (tap to dismiss)").arg(warningText)
+
                 Text {
                     id: warningBannerText
                     anchors.centerIn: parent
                     width: parent.width - Theme.spacingMedium * 2
-                    text: warningText + "  " + TranslationManager.translate("steam.warning.tapToDismiss", "(tap to dismiss)")
+                    text: warningBanner.composedText
                     color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -486,7 +493,7 @@ Page {
                 AccessibleMouseArea {
                     anchors.fill: parent
                     accessibleItem: warningBanner
-                    accessibleName: warningText
+                    accessibleName: warningBanner.composedText
                     onAccessibleClicked: warningVisible = false
                 }
             }
