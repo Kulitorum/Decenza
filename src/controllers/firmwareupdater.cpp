@@ -22,7 +22,14 @@ constexpr int DEFAULT_POST_ERASE_WAIT_ANDROID_MS = 10000;
 constexpr int DEFAULT_POST_ERASE_WAIT_OTHER_MS   = 1000;
 constexpr int DEFAULT_CHUNK_PUMP_INTERVAL_MS     = 1;
 constexpr int DEFAULT_ERASE_TIMEOUT_MS           = 30000;
-constexpr int DEFAULT_VERIFY_TIMEOUT_MS          = 10000;
+constexpr int DEFAULT_VERIFY_TIMEOUT_MS          = 60000;
+// Settle delay between the last firmware chunk and the verify request.
+// Matches Kal Freese's reference Python (asyncio.sleep(1)) — gives the
+// DE1's BLE queue time to drain the upload tail before we ask "did
+// it work?". Without this, the verify request lands behind the last
+// few chunks still in flight and the DE1 either ignores it or its
+// response races our timeout.
+constexpr int POST_UPLOAD_SETTLE_MS              = 1500;
 
 // Progress weighting so the bar doesn't sit at 0% and 100% for seconds at
 // a time. See docs/plans/2026-04-20-firmware-update-design.md §5.3.
@@ -436,7 +443,13 @@ void FirmwareUpdater::onChunkPumpTick() {
     }
     if (m_chunksSent >= m_chunksTotal) {
         m_chunkPumpTimer.stop();
-        beginVerifyPhase();
+        // Settle delay before verify so the DE1 finishes processing the
+        // upload tail. Without this delay, verify lands too close to the
+        // last chunk and we get "No response during verify".
+        qCDebug(firmwareLog) << "[firmware] upload complete, settling"
+                             << POST_UPLOAD_SETTLE_MS << "ms before verify";
+        QTimer::singleShot(POST_UPLOAD_SETTLE_MS, this,
+                           [this]{ if (m_state == State::Uploading) beginVerifyPhase(); });
         return;
     }
     const qsizetype byteOffset = m_chunksSent * 16;
