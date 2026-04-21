@@ -75,8 +75,9 @@ ChartView {
         comparisonModel.populateAdvancedSeries(1, conductance2, conductanceDerivative2, darcyResistance2, temperatureMix2)
         comparisonModel.populateAdvancedSeries(2, conductance3, conductanceDerivative3, darcyResistance3, temperatureMix3)
 
-        // Fit time axis to data
-        timeAxis.max = Math.max(15, comparisonModel.maxTime + 0.5)
+        // Fit time axis to the longest extraction end time. Post-End samples
+        // (scale dribble etc.) are clipped to match the live graph.
+        timeAxis.max = Math.max(15, comparisonModel.maxTime)
 
         // Fit dC/dt axis to data. Min extends below zero only when the data
         // actually dips negative (exact values via crosshair).
