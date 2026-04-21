@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QBluetoothUuid>
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 #include <QTimer>
