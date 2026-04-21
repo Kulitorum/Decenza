@@ -41,15 +41,17 @@ private slots:
     // Layout: [Opcode=0x10][Addr(u24 LE)][Payload 16 B]
 
     void buildChunk_layout() {
-        // Address 0x00123456 with a 16-byte 0xAA payload.
+        // Address 0x00123456 with a 16-byte 0xAA payload. Address is
+        // BIG-endian over bytes 1-3 (matching Kal Freese's reference Python
+        // updater); byte 0 is the payload length (16 = 0x10).
         QByteArray payload(16, char(0xAA));
         QByteArray packet = DE1::Firmware::buildChunk(0x00123456, payload);
 
         QCOMPARE(packet.size(), qsizetype(20));
-        QCOMPARE(uint8_t(packet[0]), uint8_t(0x10));           // opcode
-        QCOMPARE(uint8_t(packet[1]), uint8_t(0x56));           // addr LE byte 0
-        QCOMPARE(uint8_t(packet[2]), uint8_t(0x34));           // addr LE byte 1
-        QCOMPARE(uint8_t(packet[3]), uint8_t(0x12));           // addr LE byte 2
+        QCOMPARE(uint8_t(packet[0]), uint8_t(16));             // length
+        QCOMPARE(uint8_t(packet[1]), uint8_t(0x12));           // addr BE high
+        QCOMPARE(uint8_t(packet[2]), uint8_t(0x34));           // addr BE mid
+        QCOMPARE(uint8_t(packet[3]), uint8_t(0x56));           // addr BE low
         for (int i = 0; i < 16; ++i) {
             QCOMPARE(uint8_t(packet[4 + i]), uint8_t(0xAA));   // payload byte i
         }
@@ -59,10 +61,20 @@ private slots:
         QByteArray payload(16, char(0x00));
         QByteArray packet = DE1::Firmware::buildChunk(0, payload);
         QCOMPARE(packet.size(), qsizetype(20));
-        QCOMPARE(uint8_t(packet[0]), uint8_t(0x10));
+        QCOMPARE(uint8_t(packet[0]), uint8_t(16));
         QCOMPARE(uint8_t(packet[1]), uint8_t(0x00));
         QCOMPARE(uint8_t(packet[2]), uint8_t(0x00));
         QCOMPARE(uint8_t(packet[3]), uint8_t(0x00));
+    }
+
+    void buildChunk_addressFullRange() {
+        // 24-bit address near the upper limit — confirms all three address
+        // bytes appear in the right order at the right positions.
+        QByteArray payload(16, char(0));
+        QByteArray packet = DE1::Firmware::buildChunk(0x00FF80EF, payload);
+        QCOMPARE(uint8_t(packet[1]), uint8_t(0xFF));   // BE high (was the bug — would have been 0xEF in LE)
+        QCOMPARE(uint8_t(packet[2]), uint8_t(0x80));
+        QCOMPARE(uint8_t(packet[3]), uint8_t(0xEF));   // BE low (was the bug — would have been 0xFF in LE)
     }
 
     void buildChunk_rejectsWrongSize() {

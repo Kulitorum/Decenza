@@ -60,7 +60,7 @@ private slots:
 
     // ===== writeFirmwareChunk → A006 =====
 
-    void writeFirmwareChunk_toA006WithOpcode() {
+    void writeFirmwareChunk_toA006WithLengthAndBeAddress() {
         TestFixture f;
         QByteArray payload(16, char(0xAA));
         f.device.writeFirmwareChunk(0x00123456, payload);
@@ -70,10 +70,10 @@ private slots:
 
         const QByteArray sent = f.transport.writes.first().second;
         QCOMPARE(sent.size(), qsizetype(20));
-        QCOMPARE(uint8_t(sent[0]), uint8_t(0x10));          // firmware-write opcode
-        QCOMPARE(uint8_t(sent[1]), uint8_t(0x56));          // addr LE byte 0
-        QCOMPARE(uint8_t(sent[2]), uint8_t(0x34));          // addr LE byte 1
-        QCOMPARE(uint8_t(sent[3]), uint8_t(0x12));          // addr LE byte 2
+        QCOMPARE(uint8_t(sent[0]), uint8_t(16));            // length (matches 0x10 incidentally)
+        QCOMPARE(uint8_t(sent[1]), uint8_t(0x12));          // addr BE high
+        QCOMPARE(uint8_t(sent[2]), uint8_t(0x34));          // addr BE mid
+        QCOMPARE(uint8_t(sent[3]), uint8_t(0x56));          // addr BE low
         for (int i = 0; i < 16; ++i) {
             QCOMPARE(uint8_t(sent[4 + i]), uint8_t(0xAA));
         }
