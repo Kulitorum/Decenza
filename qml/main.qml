@@ -102,6 +102,17 @@ ApplicationWindow {
 
     // Handle app close: save position, put devices to sleep
     onClosing: function(close) {
+        // Block close during firmware flash — quitting mid-flash can brick
+        // the DE1. Show a confirmation dialog instead and let the user
+        // decide. If they confirm, the dialog calls Qt.quit() directly
+        // without the normal sleep sequence (which would try to talk to
+        // the DE1 mid-bootloader anyway).
+        if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing) {
+            close.accepted = false
+            firmwareFlashExitDialog.open()
+            return
+        }
+
         // Save window position on desktop (not size - keep default to match real device)
         if (Qt.platform.os !== "android" && Qt.platform.os !== "ios") {
             Settings.setValue("mainWindow/x", root.x)
@@ -120,6 +131,74 @@ ApplicationWindow {
         // Small delay before sending DE1 sleep to let scale command go through
         close.accepted = false
         scaleSleepTimer.start()
+    }
+
+    Dialog {
+        id: firmwareFlashExitDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        closePolicy: Dialog.NoAutoClose
+        padding: Theme.dialogPadding
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.errorColor
+        }
+
+        Tr { id: trFwExitTitle; key: "main.dialog.firmwareFlashExit.title"; fallback: "Firmware update in progress"; visible: false }
+        Tr { id: trFwExitMessage; key: "main.dialog.firmwareFlashExit.message"; fallback: "Quitting now can leave the DE1 in a partially flashed state and may require manual bootloader recovery. Wait for the update to finish before closing the app."; visible: false }
+        Tr { id: trFwExitKeepOpen; key: "main.dialog.firmwareFlashExit.keepOpen"; fallback: "Keep app open"; visible: false }
+        Tr { id: trFwExitQuitAnyway; key: "main.dialog.firmwareFlashExit.quitAnyway"; fallback: "Quit anyway"; visible: false }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trFwExitTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+                wrapMode: Text.Wrap
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                text: trFwExitMessage.text
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            Row {
+                spacing: Theme.spacingMedium
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                AccessibleButton {
+                    text: trFwExitKeepOpen.text
+                    accessibleName: trFwExitKeepOpen.text
+                    onClicked: firmwareFlashExitDialog.close()
+                }
+
+                AccessibleButton {
+                    text: trFwExitQuitAnyway.text
+                    accessibleName: trFwExitQuitAnyway.text
+                    onClicked: {
+                        firmwareFlashExitDialog.close()
+                        // Skip the normal sleep-and-quit sequence — sleep is
+                        // already blocked in C++ mid-flash, and we don't want
+                        // any further BLE traffic either. Just exit.
+                        root.shuttingDown = true
+                        Qt.quit()
+                    }
+                }
+            }
+        }
     }
 
     Timer {

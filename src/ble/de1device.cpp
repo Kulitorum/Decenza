@@ -839,6 +839,15 @@ void DE1Device::goToSleep() {
     }
 #endif
 
+    // Never send sleep during a firmware flash: writing to REQUESTED_STATE
+    // mid-flash can disrupt the bootloader and risk bricking. The MMR-write
+    // guard catches MMR traffic but sleep uses a direct writeUrgent on
+    // REQUESTED_STATE and would otherwise bypass it.
+    if (m_firmwareFlashInProgress) {
+        qWarning() << "DE1Device: Sleep requested during firmware flash, dropping";
+        return;
+    }
+
     // If a profile upload is in progress, defer sleep until it completes.
     if (m_profileUploadInProgress) {
         qDebug() << "DE1Device: Sleep requested during profile upload, deferring until upload completes";
