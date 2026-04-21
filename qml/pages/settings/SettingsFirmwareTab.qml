@@ -240,7 +240,9 @@ Item {
                       "firmware.tab.sourceNote",
                       "Firmware comes from Decent's official GitHub repository " +
                       "(decentespresso/de1app). Auto-checks run weekly. " +
-                      "A typical update takes about 45 seconds.")
+                      "The upload takes several minutes over Bluetooth — " +
+                      "keep the app open and the DE1 connected until the " +
+                      "update completes.")
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.Wrap

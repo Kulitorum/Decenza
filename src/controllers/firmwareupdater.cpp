@@ -503,6 +503,18 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
 
     m_chunksAcked++;
 
+    // Heartbeat log every 5 % of the upload so `[firmware]` in the log
+    // has a visible trail during what can be a 5–10 minute BLE-serialised
+    // upload on Android, instead of going silent between "upload queued"
+    // and "all ... ACKed".
+    const qsizetype fivePercent = qMax<qsizetype>(m_chunksTotal / 20, 1);
+    if (m_chunksAcked % fivePercent == 0) {
+        qCDebug(firmwareLog).noquote()
+            << "[firmware] upload progress:"
+            << m_chunksAcked << "/" << m_chunksTotal
+            << "(" << int(100.0 * m_chunksAcked / m_chunksTotal) << "%)";
+    }
+
     const double uploadFrac = double(m_chunksAcked) / double(m_chunksTotal);
     setProgress(PROGRESS_ERASE_MAX + uploadFrac * (PROGRESS_UPLOAD_MAX - PROGRESS_ERASE_MAX));
 
