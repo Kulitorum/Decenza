@@ -76,8 +76,12 @@ ChartView {
         comparisonModel.populateAdvancedSeries(2, conductance3, conductanceDerivative3, darcyResistance3, temperatureMix3)
 
         // Fit time axis to the longest extraction end time. Post-End samples
-        // (scale dribble etc.) are clipped to match the live graph.
-        timeAxis.max = Math.max(15, comparisonModel.maxTime)
+        // (scale dribble etc.) are clipped to match the live graph. Small
+        // pixel-based padding keeps the End marker off the right edge.
+        var plotWidth = Math.max(1, chart.plotArea.width)
+        var paddingPx = Theme.scaled(5)
+        var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
+        timeAxis.max = Math.max(15, comparisonModel.maxTime * scale)
 
         // Fit dC/dt axis to data. Min extends below zero only when the data
         // actually dips negative (exact values via crosshair).

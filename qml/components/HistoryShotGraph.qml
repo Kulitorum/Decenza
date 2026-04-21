@@ -110,9 +110,13 @@ ChartView {
 
         // Update time axis. Clip to maxTime (extraction end) so post-End
         // samples like scale dribble don't clutter the view, matching the
-        // live graph behavior.
+        // live graph. Small pixel-based padding keeps the End marker off the
+        // right edge so the dashed line isn't half-clipped on narrow DPIs.
         if (pressureData.length > 0) {
-            timeAxis.max = Math.max(5, maxTime)
+            var plotWidth = Math.max(1, chart.plotArea.width)
+            var paddingPx = Theme.scaled(5)
+            var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
+            timeAxis.max = Math.max(5, maxTime * scale)
         }
     }
 
