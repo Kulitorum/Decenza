@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "description": "Regression corpus for ShotAnalysis. Each shot exercises a specific detector path. Changes that shift any of these verdicts break an invariant the algorithm was designed for — read the description and confirm the change is intentional before updating expectations.",
+  "shots": [
+    {
+      "file": "80s_puck_failure.json",
+      "description": "Shot 868 — catastrophic puck failure. 80's Espresso, 0.6 bar peak, 37g in 7s. Puck offered no resistance; channeling + grind detectors are blind to this because conductance saturates and flow tracks preinfusion goal perfectly. detectPourTruncated must catch it.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": true
+      }
+    },
+    {
+      "file": "puck_failure_short_gusher.json",
+      "description": "Extreme puck failure — 2.2s total, 0g yield. Extracted nothing because the machine bailed out immediately. Redundantly caught by both pourTruncated and grindIssue.",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": true,
+        "pourTruncated": true
+      }
+    },
+    {
+      "file": "londinium_gusher.json",
+      "description": "Londonium lever profile finished in 15.7s at 1:1.78 ratio — the pressure should have held longer. True-positive Sustained channeling: pressure hit 9 bar then the puck gave up.",
+      "expect": {
+        "channeling": "Sustained",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "malabar_grind_too_fine.json",
+      "description": "D-Flow / Malabar pinned at 10 bar for 40+ seconds, flow stuck at 1 ml/s vs goal 1.88. Classic 'too fine' grind. Validates the mode-aware flow-vs-goal check on flow-controlled pour.",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": true,
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "blooming_choker.json",
+      "description": "Blooming Espresso aborted at 7.8s with 0.5g yield. Grind so fine the puck locked up. Blooming has channeling_expected flag so channeling stays silent; grind direction must catch it.",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": true,
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "blooming_aborted.json",
+      "description": "Blooming Espresso, 63s / 0g yield. Baseline detector flagged Sustained because of the fill→bloom transition spike; mode-aware + channeling_expected correctly downgrade to Transient.",
+      "expect": {
+        "channeling": "Transient",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "cremina_clean.json",
+      "description": "Cremina lever — clean 32.5s shot, Square Mile beans. Baseline flagged Sustained (false positive on the lever ramp); mode-aware must stay None. Validates the core lever-false-positive suppression.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "damian_lrv3_clean.json",
+      "description": "Damian's LRv3 lever — baseline flagged Sustained with peaks as high as 12.5; mode-aware must stay None. Validates D-Flow family lever-ramp suppression.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "e61_long_clean.json",
+      "description": "E61 flat 9 bar profile, 41.8s, clean shot. Flat-pressure profiles are where dC/dt is MOST reliable — detector must stay quiet. Validates the happy path.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "classic_italian_clean.json",
+      "description": "Classic Italian, 28.1s / 1:2.06 ratio. Clean flat-pressure shot. Must stay None.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "classic_italian_fast.json",
+      "description": "Classic Italian 30.3s shot where flow accelerated in the last 2s from puck erosion. Without CHANNELING_DC_POUR_SKIP_END_SEC this flagged Sustained from the tail; with the end-skip it stays None. Regression guard for the end-skip.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "gagne_adaptive_clean.json",
+      "description": "Gagné Adaptive Shot — multi-step adaptive profile with scan frames. Clean shot, detector must stay None (no confusion from the scan).",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    }
+  ]
+}

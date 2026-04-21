@@ -260,8 +260,10 @@ Page {
         }
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
-        // Sync sticky metadata back to Settings (bean/grinder info) for the next shot
-        // but NOT enjoyment/notes which are shot-specific
+        // Sync sticky metadata back to Settings (bean/grinder info) for the next shot.
+        // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise they
+        // would leak into the next shot's metadata, since MainController builds shot
+        // metadata from these Settings values at shot end.
         Settings.dyeBeanBrand = editBeanBrand
         Settings.dyeBeanType = editBeanType
         Settings.dyeRoastDate = editRoastDate
@@ -273,9 +275,6 @@ Page {
         Settings.dyeBarista = editBarista
         if (editDoseWeight > 0) Settings.dyeBeanWeight = editDoseWeight
         if (editDrinkWeight > 0) Settings.dyeDrinkWeight = editDrinkWeight
-        if (editDrinkTds > 0) Settings.dyeDrinkTds = editDrinkTds
-        if (editDrinkEy > 0) Settings.dyeDrinkEy = editDrinkEy
-        // Note: enjoyment and notes are NOT synced back - they're shot-specific
         // Note: reload deferred to onShotMetadataUpdated to avoid race with async write
     }
 

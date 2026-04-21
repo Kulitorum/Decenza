@@ -3067,15 +3067,21 @@ ApplicationWindow {
 
     Connections {
         target: ShotHistoryExporter
-        function onBulkExportFinished(ok, failed) {
+        function onBulkExportFinished(written, skipped, failed) {
+            // Suppress the toast when nothing was actually written — a warm
+            // startup where every file is already current is the common case
+            // and a silent no-op is the honest signal there.
+            if (written === 0 && failed === 0) {
+                return
+            }
             if (failed > 0) {
                 shotExportToastText = TranslationManager.translate(
                     "main.toast.exportShotsPartial",
-                    "Exported %1 shots; %2 failed").arg(ok).arg(failed)
+                    "Exported %1 shots; %2 failed").arg(written).arg(failed)
             } else {
                 shotExportToastText = TranslationManager.translate(
                     "main.toast.exportShotsDone",
-                    "Exported %1 shots").arg(ok)
+                    "Exported %1 shots").arg(written)
             }
             shotExportToast.opacity = 1
             shotExportToastTimer.restart()

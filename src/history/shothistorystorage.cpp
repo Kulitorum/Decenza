@@ -1,4 +1,5 @@
 #include "shothistorystorage.h"
+#include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
 #include "core/grinderaliases.h"
@@ -552,7 +553,8 @@ bool ShotHistoryStorage::runMigrations()
                 readQuery.prepare("SELECT id, grinder_model FROM shots WHERE grinder_model IS NOT NULL AND grinder_model != ''");
                 if (readQuery.exec()) {
                     QSqlQuery updateQuery(m_db);
-                    updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? WHERE id = ?");
+                    updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ?, "
+                                        "updated_at = strftime('%s', 'now') WHERE id = ?");
                     int backfillCount = 0;
 
                     while (readQuery.next()) {
@@ -923,12 +925,21 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // Channeling detection uses dC/dt (the Gaussian-smoothed conductance
         // derivative) — it catches channels invisible to flow/pressure alone
         // and works regardless of frame mode. computeConductanceDerivative()
-        // above populates the series we read here.
+        // above populates the series we read here. Mode-aware inclusion
+        // windows (built from phase markers + goal curves) mask out phases
+        // where the control goal is ramping or the actual hasn't converged
+        // onto it yet — suppresses false positives on lever, D-Flow decline,
+        // and pressure ramps.
         data.channelingDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("channeling_expected"))) {
+            const auto channelWindows = ShotAnalysis::buildChannelingWindows(
+                tmpRecord.pressure, flowPts,
+                shotData->pressureGoalData(), shotData->flowGoalData(),
+                tmpRecord.phases, pourStart, pourEnd);
             auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                shotData->conductanceDerivativeData(), pourStart, pourEnd);
+                shotData->conductanceDerivativeData(), pourStart, pourEnd,
+                channelWindows);
             data.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
         }
 
@@ -943,14 +954,17 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             }
         }
 
-        // Grind issue detection: flow persistently above or below goal during pour.
-        // Skip for turbo/filter shots (same guard as channeling) — high-flow profiles
-        // have wide natural flow variation that would cause false positives.
-        // Also skip profiles where grind detection is intentionally suppressed (e.g. Turbo Shot).
-        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
-            && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("grind_check_skip"))) {
+        // Grind issue detection: flow persistently above or below goal during
+        // pour. Skip for turbo/filter shots (high-flow profiles have wide
+        // natural flow variation that would cause false positives). Phase-
+        // mode aware — restricts averaging to flow-controlled phases so the
+        // check no longer compares actual flow against a pressure-mode
+        // profile's flow limiter (80's Espresso, Cremina, Londinium pour).
+        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
-                flowPts, shotData->flowGoalData(), pourStart, pourEnd);
+                flowPts, shotData->flowGoalData(), tmpRecord.phases,
+                pourStart, pourEnd, data.beverageType,
+                ShotSummarizer::getAnalysisFlags(data.profileKbId));
         }
 
         // Skip-first-frame detection: check whether frame 0 was absent or very short,
@@ -1720,13 +1734,17 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 }
             }
 
-            // Channeling
+            // Channeling (mode-aware inclusion windows)
             if (!ShotAnalysis::shouldSkipChannelingCheck(
                     record.summary.beverageType, record.flow, pourStart, pourEnd)
                 && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
                         .contains(QStringLiteral("channeling_expected"))) {
+                const auto windows = ShotAnalysis::buildChannelingWindows(
+                    record.pressure, record.flow,
+                    record.pressureGoal, record.flowGoal,
+                    record.phases, pourStart, pourEnd);
                 auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                    record.conductanceDerivative, pourStart, pourEnd);
+                    record.conductanceDerivative, pourStart, pourEnd, windows);
                 newChanneling = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
             }
 
@@ -1739,14 +1757,14 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 }
             }
 
-            // Grind issue
+            // Grind issue (phase-mode aware — only averaged across flow-mode phases)
             if (!record.flowGoal.isEmpty()
                 && !ShotAnalysis::shouldSkipChannelingCheck(
-                        record.summary.beverageType, record.flow, pourStart, pourEnd)
-                && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
-                        .contains(QStringLiteral("grind_check_skip"))) {
+                        record.summary.beverageType, record.flow, pourStart, pourEnd)) {
                 newGrindIssue = ShotAnalysis::detectGrindIssue(
-                    record.flow, record.flowGoal, pourStart, pourEnd);
+                    record.flow, record.flowGoal, record.phases,
+                    pourStart, pourEnd, record.summary.beverageType,
+                    ShotSummarizer::getAnalysisFlags(record.profileKbId));
             }
 
             // Skip-first-frame detection from phase markers
@@ -1763,7 +1781,8 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 QSqlQuery q(db);
                 q.prepare("UPDATE shots SET channeling_detected=:c,"
                           " temperature_unstable=:t, grind_issue_detected=:g,"
-                          " skip_first_frame_detected=:s WHERE id=:id");
+                          " skip_first_frame_detected=:s,"
+                          " updated_at = strftime('%s', 'now') WHERE id=:id");
                 q.bindValue(":c", newChanneling ? 1 : 0);
                 q.bindValue(":t", newTempUnstable ? 1 : 0);
                 q.bindValue(":g", newGrindIssue ? 1 : 0);
@@ -1982,64 +2001,26 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 
 void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
 {
-    qsizetype n = qMin(record.pressure.size(), record.flow.size());
+    const qsizetype n = qMin(record.pressure.size(), record.flow.size());
     if (n < 3) return;
 
-    // Compute conductance (F^2/P) and Darcy resistance (P/F^2)
-    record.conductance.reserve(n);
+    // Share the conductance + derivative formulas with ShotDataModel (live path)
+    // and shot_eval (offline) so all three agree on kernel / clamp / scaling.
+    record.conductance = Conductance::fromPressureFlow(record.pressure, record.flow);
+
+    // Darcy resistance (P/F²) isn't exposed via Conductance yet — retain the
+    // inline loop here; mirror the same thresholds and clamp the namespace uses.
+    record.darcyResistance.clear();
     record.darcyResistance.reserve(n);
     for (qsizetype i = 0; i < n; ++i) {
-        double p = record.pressure[i].y();
-        double f = record.flow[i].y();
-        double t = record.pressure[i].x();
-        double c = 0.0, dr = 0.0;
-        if (f > 0.05 && p > 0.05) {
-            c = qMin((f * f) / p, 19.0);
-            dr = qMin(p / (f * f), 19.0);
-        }
-        record.conductance.append(QPointF(t, c));
-        record.darcyResistance.append(QPointF(t, dr));
+        const double p = record.pressure[i].y();
+        const double f = record.flow[i].y();
+        double dr = 0.0;
+        if (f > 0.05 && p > 0.05) dr = qMin(p / (f * f), 19.0);
+        record.darcyResistance.append(QPointF(record.pressure[i].x(), dr));
     }
 
-    // Compute conductance derivative (dC/dt) with Gaussian smoothing
-    QVector<double> rawDeriv(n, 0.0);
-    for (qsizetype i = 1; i < n - 1; ++i) {
-        double dt = record.conductance[i + 1].x() - record.conductance[i - 1].x();
-        if (dt > 0.001) {
-            double dc = record.conductance[i + 1].y() - record.conductance[i - 1].y();
-            rawDeriv[i] = (dc / dt) * 10.0;
-        }
-    }
-    {
-        double dt = record.conductance[1].x() - record.conductance[0].x();
-        if (dt > 0.001)
-            rawDeriv[0] = ((record.conductance[1].y() - record.conductance[0].y()) / dt) * 10.0;
-        dt = record.conductance[n - 1].x() - record.conductance[n - 2].x();
-        if (dt > 0.001)
-            rawDeriv[n - 1] = ((record.conductance[n - 1].y() - record.conductance[n - 2].y()) / dt) * 10.0;
-    }
-
-    static constexpr double GAUSSIAN[] = {
-        0.048297, 0.08393, 0.124548, 0.157829, 0.170793,
-        0.157829, 0.124548, 0.08393, 0.048297
-    };
-    static constexpr qsizetype KERNEL_HALF = 4;
-
-    record.conductanceDerivative.reserve(n);
-    for (qsizetype i = 0; i < n; ++i) {
-        double smoothed = 0.0;
-        double wSum = 0.0;
-        for (qsizetype k = -KERNEL_HALF; k <= KERNEL_HALF; ++k) {
-            qsizetype idx = i + k;
-            if (idx >= 0 && idx < n) {
-                double w = GAUSSIAN[k + KERNEL_HALF];
-                smoothed += rawDeriv[idx] * w;
-                wSum += w;
-            }
-        }
-        if (wSum > 0.0) smoothed /= wSum;
-        record.conductanceDerivative.append(QPointF(record.conductance[i].x(), qBound(-5.0, smoothed, 19.0)));
-    }
+    record.conductanceDerivative = Conductance::derivative(record.conductance);
 }
 
 void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
@@ -2244,8 +2225,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         record.channelingDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("channeling_expected"))) {
+            const auto windows = ShotAnalysis::buildChannelingWindows(
+                record.pressure, record.flow,
+                record.pressureGoal, record.flowGoal,
+                record.phases, pourStart, pourEnd);
             auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                record.conductanceDerivative, pourStart, pourEnd);
+                record.conductanceDerivative, pourStart, pourEnd, windows);
             record.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
         }
 
@@ -2274,10 +2259,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
             }
         }
-        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
-            && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("grind_check_skip"))) {
+        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
-                record.flow, record.flowGoal, pourStart, pourEnd);
+                record.flow, record.flowGoal, record.phases,
+                pourStart, pourEnd, record.summary.beverageType,
+                ShotSummarizer::getAnalysisFlags(record.profileKbId));
         }
     }
 
@@ -3440,7 +3426,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     QString type = doc.object().value("beverage_type").toString();
                     if (!type.isEmpty() && type != "espresso") {
                         QSqlQuery update(destDb);
-                        update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
+                        update.prepare("UPDATE shots SET beverage_type = ?, "
+                                       "updated_at = strftime('%s', 'now') WHERE id = ?");
                         update.addBindValue(type);
                         update.addBindValue(id);
                         update.exec();
@@ -3761,7 +3748,8 @@ void ShotHistoryStorage::backfillBeverageType()
         QString type = doc.object().value("beverage_type").toString();
         if (!type.isEmpty() && type != "espresso") {
             QSqlQuery update(m_db);
-            update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
+            update.prepare("UPDATE shots SET beverage_type = ?, "
+                           "updated_at = strftime('%s', 'now') WHERE id = ?");
             update.bindValue(0, type);
             update.bindValue(1, id);
             update.exec();
@@ -3819,7 +3807,8 @@ void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, con
         int count = 0;
         withTempDb(dbPath, "shs_grinder_update", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
-            query.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? "
+            query.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ?, "
+                          "updated_at = strftime('%s', 'now') "
                           "WHERE grinder_brand = ? AND grinder_model = ?");
             query.bindValue(0, newBrand);
             query.bindValue(1, newModel);

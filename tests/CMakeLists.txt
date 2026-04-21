@@ -153,6 +153,23 @@ add_decenza_test(tst_shotanalysis
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
 )
 
+# --- shot_corpus_regression: run shot_eval --validate against the curated
+# corpus under tests/data/shots/. Ensures future ShotAnalysis changes don't
+# silently flip any of the golden verdicts (e.g., re-introduce a lever-ramp
+# false positive, or stop catching shot-868-style puck failures).
+#
+# The shot_eval target lives in the root CMakeLists.txt developer-tools
+# block, which runs AFTER add_subdirectory(tests) — so TARGET shot_eval is
+# not defined here yet. Use the same desktop-only gate that declares it.
+if(NOT ANDROID AND NOT IOS)
+    # Use $<TARGET_FILE:...> so CTest gets the absolute path explicitly,
+    # regardless of the working directory or generator.
+    add_test(NAME shot_corpus_regression
+        COMMAND $<TARGET_FILE:shot_eval> --validate
+            ${CMAKE_CURRENT_SOURCE_DIR}/data/shots/manifest.json
+    )
+endif()
+
 # --- tst_shotsettings: ShotSettings BLE wire format ---
 add_decenza_test(tst_shotsettings
     tst_shotsettings.cpp
@@ -230,6 +247,7 @@ target_compile_definitions(tst_blefidelity PRIVATE
 set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/controllers/profilemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/profilestorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
@@ -241,6 +259,7 @@ set(PROFILEMANAGER_SOURCES
 # History sources (ShotHistoryStorage + transitive deps)
 set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
@@ -296,6 +315,7 @@ add_decenza_test(tst_saw
 find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
 add_decenza_test(tst_settling
     tst_settling.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h

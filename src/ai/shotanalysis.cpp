@@ -2,24 +2,91 @@
 #include "history/shothistorystorage.h"  // HistoryPhaseMarker
 
 #include <QVariantMap>
+#include <algorithm>
 #include <cmath>
+
+namespace {
+
+// Locate the HistoryPhaseMarker span that contains time `t`. Returns the
+// phase's isFlowMode flag via out param. Falls back to the last phase for
+// times past all markers. Returns false when phases is empty (no mode known).
+bool phaseAtTime(const QList<HistoryPhaseMarker>& phases, double t, bool* outIsFlowMode)
+{
+    if (phases.isEmpty()) return false;
+    const HistoryPhaseMarker* active = &phases.first();
+    for (const auto& phase : phases) {
+        if (phase.time <= t) active = &phase;
+        else break;
+    }
+    if (outIsFlowMode) *outIsFlowMode = active->isFlowMode;
+    return true;
+}
+
+// Interpolate value from a (time, value) series at time t. Returns std::nan
+// when the series is empty or t falls outside [first.x, last.x] — callers
+// treat that as "no goal data for this moment."
+double lookupOrNaN(const QVector<QPointF>& data, double t)
+{
+    if (data.isEmpty()) return std::nan("");
+    if (t < data.first().x() || t > data.last().x()) return std::nan("");
+    // Linear interpolation between the nearest bracketing samples.
+    for (qsizetype i = 1; i < data.size(); ++i) {
+        if (data[i].x() >= t) {
+            const double x0 = data[i - 1].x();
+            const double x1 = data[i].x();
+            const double y0 = data[i - 1].y();
+            const double y1 = data[i].y();
+            if (x1 <= x0) return y1;
+            const double alpha = (t - x0) / (x1 - x0);
+            return y0 + alpha * (y1 - y0);
+        }
+    }
+    return data.last().y();
+}
+
+} // namespace
 
 ShotAnalysis::ChannelingSeverity ShotAnalysis::detectChannelingFromDerivative(
     const QVector<QPointF>& conductanceDerivative,
     double pourStart, double pourEnd,
+    const QVector<DetectionWindow>& windows,
     double* outMaxSpikeTime)
 {
     if (outMaxSpikeTime) *outMaxSpikeTime = 0.0;
     if (conductanceDerivative.isEmpty()) return ChannelingSeverity::None;
 
+    // Empty windows mean either (a) buildChannelingWindows had phase data
+    // but found no stationary+converged time range — the shot was all-ramp,
+    // no reliable analysis possible — or (b) the caller explicitly wants
+    // silence. Either way, return None rather than silently falling back
+    // to an unrestricted detector that would re-flag every lever/ramp shot.
+    // Callers that want unrestricted detection should pass a single
+    // whole-pour window explicitly (see buildChannelingWindows, which emits
+    // that when phase data is absent).
+    if (windows.isEmpty()) return ChannelingSeverity::None;
+
     const double analysisStart = pourStart + CHANNELING_DC_POUR_SKIP_SEC;
+    // Trim the final CHANNELING_DC_POUR_SKIP_END_SEC of pour. Flat-pressure
+    // profiles (E61, Classic Italian) naturally see dC/dt climb at the end
+    // because flow keeps rising from puck erosion — that's a dialing
+    // observation, not a puck-integrity failure. Mirror the existing
+    // start-skip so both transition fringes are excluded.
+    const double analysisEnd = pourEnd - CHANNELING_DC_POUR_SKIP_END_SEC;
     double maxSpike = 0.0;
     double maxSpikeTime = 0.0;
     int sustainedCount = 0;
 
+    auto inAnyWindow = [&windows](double t) {
+        for (const auto& w : windows) {
+            if (t >= w.start && t <= w.end) return true;
+        }
+        return false;
+    };
+
     for (const auto& pt : conductanceDerivative) {
         if (pt.x() < analysisStart) continue;
-        if (pt.x() > pourEnd) break;
+        if (pt.x() > analysisEnd) break;
+        if (!inAnyWindow(pt.x())) continue;
         const double v = std::abs(pt.y());
         if (v > maxSpike) {
             maxSpike = v;
@@ -37,12 +104,126 @@ ShotAnalysis::ChannelingSeverity ShotAnalysis::detectChannelingFromDerivative(
     return ChannelingSeverity::None;
 }
 
+QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
+    const QVector<QPointF>& pressure,
+    const QVector<QPointF>& flow,
+    const QVector<QPointF>& pressureGoal,
+    const QVector<QPointF>& flowGoal,
+    const QList<HistoryPhaseMarker>& phases,
+    double pourStart, double pourEnd)
+{
+    QVector<DetectionWindow> windows;
+    if (pourEnd <= pourStart) return windows;
+
+    // No phase data: return a single whole-pour window so
+    // detectChannelingFromDerivative runs unrestricted. This preserves
+    // detector coverage on legacy shots that predate phase-marker storage.
+    // An empty return is reserved for "phases exist but no stationary
+    // window qualifies" — the detector treats that as a silent deliberate
+    // pass instead of falling back to unrestricted false positives.
+    if (phases.isEmpty()) {
+        windows.append({pourStart, pourEnd});
+        return windows;
+    }
+
+    // Walk pressure samples as the "time grid" for evaluation. Pressure is
+    // always populated and runs the full shot. Flow samples may be missing
+    // during early fill on some scales; pressure gives a stable time axis.
+    const QVector<QPointF>& grid = !pressure.isEmpty() ? pressure : flow;
+    if (grid.isEmpty()) return windows;
+
+    DetectionWindow current{-1.0, -1.0};
+    auto flushCurrent = [&]() {
+        if (current.start >= 0 && current.end > current.start) {
+            // Merge into previous window if the gap is small (≤ WINDOW_GAP_MERGE_SEC).
+            if (!windows.isEmpty()
+                && current.start - windows.last().end <= WINDOW_GAP_MERGE_SEC) {
+                windows.last().end = current.end;
+            } else {
+                windows.append(current);
+            }
+        }
+        current = {-1.0, -1.0};
+    };
+
+    // Trim both ends of the pour so the window bounds match what
+    // detectChannelingFromDerivative will actually analyze — otherwise
+    // windows silently overstate their coverage by up to
+    // CHANNELING_DC_POUR_SKIP_END_SEC at the tail.
+    const double analysisStart = pourStart + CHANNELING_DC_POUR_SKIP_SEC;
+    const double analysisEnd = pourEnd - CHANNELING_DC_POUR_SKIP_END_SEC;
+
+    for (const auto& pt : grid) {
+        const double t = pt.x();
+        if (t < analysisStart) continue;
+        if (t > analysisEnd) break;
+
+        bool isFlowMode = false;
+        if (!phaseAtTime(phases, t, &isFlowMode)) {
+            flushCurrent();
+            continue;
+        }
+
+        const QVector<QPointF>& goalSeries = isFlowMode ? flowGoal : pressureGoal;
+        const QVector<QPointF>& actualSeries = isFlowMode ? flow : pressure;
+
+        const double goalNow = lookupOrNaN(goalSeries, t);
+        const double goalPast = lookupOrNaN(goalSeries, t - WINDOW_HALF_SEC);
+        const double goalFut = lookupOrNaN(goalSeries, t + WINDOW_HALF_SEC);
+        const double actual = lookupOrNaN(actualSeries, t);
+
+        // No goal data at this moment (outside series bounds or sentinel) → skip.
+        if (std::isnan(goalNow) || std::isnan(goalPast) || std::isnan(goalFut)
+            || std::isnan(actual)) {
+            flushCurrent();
+            continue;
+        }
+        if (goalNow < WINDOW_MIN_GOAL) {
+            // Goal is zero/sentinel here — no active control → skip.
+            flushCurrent();
+            continue;
+        }
+
+        // Stationarity: both past and future goal values within WINDOW_STATIONARY_REL of goalNow.
+        const double relPast = std::abs(goalPast - goalNow) / goalNow;
+        const double relFut = std::abs(goalFut - goalNow) / goalNow;
+        if (relPast > WINDOW_STATIONARY_REL || relFut > WINDOW_STATIONARY_REL) {
+            flushCurrent();
+            continue;
+        }
+
+        // Convergence: actual within WINDOW_CONVERGED_REL of goalNow.
+        const double convergenceErr = std::abs(actual - goalNow) / goalNow;
+        if (convergenceErr > WINDOW_CONVERGED_REL) {
+            flushCurrent();
+            continue;
+        }
+
+        // Sample qualifies. Extend or start the current window.
+        if (current.start < 0) {
+            current.start = t;
+        }
+        current.end = t;
+    }
+    flushCurrent();
+
+    return windows;
+}
+
 bool ShotAnalysis::shouldSkipChannelingCheck(const QString& beverageType,
                                                const QVector<QPointF>& flowData,
                                                double pourStart, double pourEnd)
 {
     QString bev = beverageType.toLower();
-    if (bev == QStringLiteral("filter") || bev == QStringLiteral("pourover"))
+    // Non-espresso modes: filter/pourover brew through a paper filter, tea
+    // steeps, steam is a manual health check, cleaning/calibration flow hot
+    // water through an empty portafilter. None of these have a puck whose
+    // integrity dC/dt can meaningfully score.
+    if (bev == QStringLiteral("filter")
+        || bev == QStringLiteral("pourover")
+        || bev == QStringLiteral("tea")
+        || bev == QStringLiteral("steam")
+        || bev == QStringLiteral("cleaning"))
         return true;
 
     // Check for turbo: avg flow during extraction > threshold
@@ -117,26 +298,119 @@ double ShotAnalysis::findValueAtTime(const QVector<QPointF>& data, double time)
     return data.last().y();
 }
 
-bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
-                                     const QVector<QPointF>& flowGoal,
-                                     double pourStart, double pourEnd)
+ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
+    const QVector<QPointF>& flow,
+    const QVector<QPointF>& flowGoal,
+    const QList<HistoryPhaseMarker>& phases,
+    double pourStart, double pourEnd,
+    const QString& beverageType,
+    const QStringList& analysisFlags)
 {
+    GrindCheck result;
+
+    const QString bev = beverageType.toLower();
+    const bool bevSkip = (bev == QStringLiteral("filter")
+                          || bev == QStringLiteral("pourover")
+                          || bev == QStringLiteral("tea")
+                          || bev == QStringLiteral("steam")
+                          || bev == QStringLiteral("cleaning"));
+    if (analysisFlags.contains(QStringLiteral("grind_check_skip")) || bevSkip) {
+        result.skipped = true;
+        return result;
+    }
+
     if (pourStart >= pourEnd || flow.isEmpty() || flowGoal.isEmpty())
+        return result;
+
+    // Build inclusive flow-mode time ranges from phase markers. A sample at
+    // time t qualifies only when it falls inside a flow-mode phase; this
+    // gates out pressure-controlled phases whose "flow goal" is really a
+    // safety limiter (80's Espresso rise+decline, Cremina lever, Londinium
+    // pour, etc.) — comparing actual flow against that ceiling is the
+    // canonical false-positive source.
+    struct Range { double start; double end; };
+    QVector<Range> flowModeRanges;
+    if (!phases.isEmpty()) {
+        for (qsizetype i = 0; i < phases.size(); ++i) {
+            if (!phases[i].isFlowMode) continue;
+            const double start = phases[i].time;
+            const double end = (i + 1 < phases.size()) ? phases[i + 1].time : pourEnd;
+            if (end > start) flowModeRanges.append({start, end});
+        }
+    }
+    if (flowModeRanges.isEmpty()) {
+        // No flow-mode phase present in the pour — check cannot run.
+        return result;
+    }
+
+    auto inFlowMode = [&flowModeRanges](double t) {
+        for (const auto& r : flowModeRanges) {
+            if (t >= r.start && t <= r.end) return true;
+        }
         return false;
+    };
+
     double actualSum = 0, goalSum = 0;
-    int count = 0;
+    qsizetype count = 0;
     for (const auto& fp : flow) {
         if (fp.x() < pourStart || fp.x() > pourEnd) continue;
+        if (!inFlowMode(fp.x())) continue;
         double goal = findValueAtTime(flowGoal, fp.x());
-        if (goal < FLOW_GOAL_MIN_AVG) continue;
+        if (goal < FLOW_GOAL_MIN_AVG) continue;  // preinfusion sentinel / unset goal
         actualSum += fp.y();
         goalSum += goal;
         ++count;
     }
-    if (count < 5)
+
+    result.sampleCount = count;
+    if (count < 5) return result;
+
+    result.hasData = true;
+    result.delta = (actualSum / count) - (goalSum / count);
+    return result;
+}
+
+bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
+                                     const QVector<QPointF>& flowGoal,
+                                     const QList<HistoryPhaseMarker>& phases,
+                                     double pourStart, double pourEnd,
+                                     const QString& beverageType,
+                                     const QStringList& analysisFlags)
+{
+    const GrindCheck r = analyzeFlowVsGoal(flow, flowGoal, phases, pourStart, pourEnd,
+                                            beverageType, analysisFlags);
+    if (r.skipped || !r.hasData) return false;
+    return std::abs(r.delta) > FLOW_DEVIATION_THRESHOLD;
+}
+
+bool ShotAnalysis::detectPourTruncated(const QVector<QPointF>& pressure,
+                                        double pourStart, double pourEnd,
+                                        const QString& beverageType)
+{
+    // Non-espresso modes legitimately run below PRESSURE_FLOOR_BAR (tea
+    // steeps cold, pourover runs at a few bar max, cleaning just flushes).
+    // Skip entirely — same rule the channeling/grind detectors use.
+    const QString bev = beverageType.toLower();
+    if (bev == QStringLiteral("filter")
+        || bev == QStringLiteral("pourover")
+        || bev == QStringLiteral("tea")
+        || bev == QStringLiteral("steam")
+        || bev == QStringLiteral("cleaning"))
         return false;
-    double delta = (actualSum / count) - (goalSum / count);
-    return std::abs(delta) > FLOW_DEVIATION_THRESHOLD;
+
+    if (pressure.size() < 10 || pourEnd <= pourStart) return false;
+
+    // Scan the pour window for peak pressure. We look only inside the pour
+    // (not the entire sample range) because some profiles briefly spike
+    // during fill before the puck is engaged — that's not diagnostic of
+    // whether extraction actually built pressure.
+    double peakBar = 0.0;
+    for (const auto& pt : pressure) {
+        if (pt.x() < pourStart) continue;
+        if (pt.x() > pourEnd) break;
+        if (pt.y() > peakBar) peakBar = pt.y();
+    }
+    return peakBar < PRESSURE_FLOOR_BAR;
 }
 
 bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
@@ -218,9 +492,19 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         || analysisFlags.contains(QStringLiteral("channeling_expected"));
 
     if (!skipChanneling && !conductanceDerivative.isEmpty()) {
+        // Build mode-aware inclusion windows. Pressure-mode phases with a
+        // ramping pressureGoal (lever decline, post-preinfusion pour ramps)
+        // are excluded; flow-mode phases with a stationary flowGoal qualify.
+        // buildChannelingWindows emits a whole-pour fallback when phases is
+        // empty so legacy shots still get analyzed; when phases are present
+        // but nothing qualifies (all-ramp shot) it returns empty and the
+        // detector stays silent rather than re-flagging on noise.
+        const QVector<DetectionWindow> windows = buildChannelingWindows(
+            pressure, flow, pressureGoal, flowGoal, phases, pourStart, pourEnd);
+
         double spikeTime = 0.0;
         ChannelingSeverity severity = detectChannelingFromDerivative(
-            conductanceDerivative, pourStart, pourEnd, &spikeTime);
+            conductanceDerivative, pourStart, pourEnd, windows, &spikeTime);
 
         QVariantMap line;
         if (severity == ChannelingSeverity::Sustained) {
@@ -296,43 +580,41 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     // --- Flow vs goal (grind direction) ---
-    // Only analyze during the pour phase where flow goal is meaningful (> FLOW_GOAL_MIN_AVG).
-    // A consistent gap between actual and goal flow indicates grind is off.
-    // Skip for profiles where high flow is intentional (grind_check_skip AnalysisFlag),
-    // and for filter/pourover beverage types where espresso grind signals don't apply.
-    double flowGrindDelta = 0.0;  // positive = flow above goal (coarse), negative = below (fine)
-    bool hasFlowGoalData = false;
-    bool skipGrind = analysisFlags.contains(QStringLiteral("grind_check_skip"))
-        || beverageType.toLower() == QStringLiteral("filter")
-        || beverageType.toLower() == QStringLiteral("pourover");
-    if (!skipGrind && pourStart < pourEnd && !flow.isEmpty() && !flowGoal.isEmpty()) {
-        double actualSum = 0, goalSum = 0;
-        int count = 0;
-        for (const auto& fp : flow) {
-            if (fp.x() < pourStart || fp.x() > pourEnd) continue;
-            double goal = findValueAtTime(flowGoal, fp.x());
-            if (goal < FLOW_GOAL_MIN_AVG) continue;  // skip preinfusion/low-target periods
-            actualSum += fp.y();
-            goalSum += goal;
-            ++count;
+    // Phase-mode aware: averages only across flow-controlled phases where
+    // flow goal is an actual target (not a safety limiter riding on top of
+    // a pressure-controlled pour). See analyzeFlowVsGoal() for details.
+    const GrindCheck grind = analyzeFlowVsGoal(flow, flowGoal, phases,
+                                                pourStart, pourEnd,
+                                                beverageType, analysisFlags);
+    if (grind.hasData) {
+        if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
+            QVariantMap line;
+            line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
+                .arg(std::abs(grind.delta), 0, 'f', 1);
+            line["type"] = QStringLiteral("caution");
+            lines.append(line);
+        } else if (grind.delta > FLOW_DEVIATION_THRESHOLD) {
+            QVariantMap line;
+            line["text"] = QStringLiteral("Flow averaged %1 ml/s above target \u2014 grind may be too coarse")
+                .arg(grind.delta, 0, 'f', 1);
+            line["type"] = QStringLiteral("caution");
+            lines.append(line);
         }
-        if (count >= 5) {
-            hasFlowGoalData = true;
-            flowGrindDelta = (actualSum / count) - (goalSum / count);
-            if (flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {
-                QVariantMap line;
-                line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
-                    .arg(std::abs(flowGrindDelta), 0, 'f', 1);
-                line["type"] = QStringLiteral("caution");
-                lines.append(line);
-            } else if (flowGrindDelta > FLOW_DEVIATION_THRESHOLD) {
-                QVariantMap line;
-                line["text"] = QStringLiteral("Flow averaged %1 ml/s above target \u2014 grind may be too coarse")
-                    .arg(flowGrindDelta, 0, 'f', 1);
-                line["type"] = QStringLiteral("caution");
-                lines.append(line);
-            }
-        }
+    }
+
+    // --- Pour truncated (puck failure) ---
+    // Catches shots that the channeling + grind detectors miss: pressure
+    // never builds, conductance saturates, flow tracks preinfusion goal, so
+    // every normal detector stays silent. Looking straight at peak pressure
+    // exposes the failure. Emits its own warning line (not a verdict — the
+    // existing verdict machinery covers that below).
+    const bool pourTruncated = detectPourTruncated(pressure, pourStart, pourEnd, beverageType);
+    if (pourTruncated) {
+        QVariantMap line;
+        line["text"] = QStringLiteral("Pour never pressurized \u2014 puck failed "
+            "(massive channel, missing puck, or grind radically too coarse)");
+        line["type"] = QStringLiteral("warning");
+        lines.append(line);
     }
 
     // --- Skip-first-frame ---
@@ -358,24 +640,47 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     QVariantMap verdict;
-    if (skipFirstFrame) {
+    if (pourTruncated) {
+        // Dominates over every other signal — if the puck failed to build
+        // pressure, channeling / grind direction / temperature advice are
+        // all irrelevant. User needs to know the puck failed.
+        verdict["text"] = QStringLiteral("Verdict: Puck failed \u2014 pour never "
+            "pressurized. Check dose, distribution, and whether grind is drastically too coarse.");
+    } else if (skipFirstFrame) {
         // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice
         // so the user isn't told to adjust grind when the real fix is a power-cycle.
         verdict["text"] = QStringLiteral("Verdict: First profile step was skipped \u2014 "
             "power-cycle the machine to fix a firmware bug, "
             "or review the profile's first step settings.");
     } else if (hasWarning) {
-        // Channeling detected — direction depends on whether flow was running slow or fast.
-        // Too-fine grind can cause puck collapse and channeling just as much as too-coarse.
-        if (hasFlowGoalData && flowGrindDelta < -FLOW_DEVIATION_THRESHOLD) {
-            verdict["text"] = QStringLiteral("Verdict: Puck collapsed \u2014 grind too fine. Try coarser and improve distribution.");
-        } else if (hasFlowGoalData && flowGrindDelta > FLOW_DEVIATION_THRESHOLD) {
-            verdict["text"] = QStringLiteral("Verdict: Puck integrity issues \u2014 improve distribution. Grind appears coarse \u2014 try finer.");
+        // Channeling is a puck-prep finding. The flow-vs-goal grind direction
+        // signal is independent — it only indicates direction when it fired
+        // on its own. Do not collapse the two into "Puck collapsed — grind
+        // too fine": sustained dC/dt elevation doesn't tell us which
+        // direction grind is off, and a real collapse would show as a
+        // gusher, not the slow shot that the old heuristic often matched.
+        const bool grindFine = grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD;
+        const bool grindCoarse = grind.hasData && grind.delta > FLOW_DEVIATION_THRESHOLD;
+        if (grindFine) {
+            verdict["text"] = QStringLiteral("Verdict: Puck integrity issue \u2014 improve distribution. Grind is running fine \u2014 try coarser.");
+        } else if (grindCoarse) {
+            verdict["text"] = QStringLiteral("Verdict: Puck integrity issue \u2014 improve distribution. Grind is running coarse \u2014 try finer.");
         } else {
-            verdict["text"] = QStringLiteral("Verdict: Puck integrity issues \u2014 improve distribution, consider grinding finer.");
+            verdict["text"] = QStringLiteral("Verdict: Puck integrity issue \u2014 improve distribution.");
         }
     } else if (hasCaution) {
-        verdict["text"] = QStringLiteral("Verdict: Decent shot with minor issues to watch.");
+        // No puck-integrity warning: if the only caution is a grind direction,
+        // name the direction explicitly rather than giving a generic "minor
+        // issues" verdict.
+        const bool grindFine = grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD;
+        const bool grindCoarse = grind.hasData && grind.delta > FLOW_DEVIATION_THRESHOLD;
+        if (grindFine) {
+            verdict["text"] = QStringLiteral("Verdict: Grind appears too fine \u2014 try coarser.");
+        } else if (grindCoarse) {
+            verdict["text"] = QStringLiteral("Verdict: Grind appears too coarse \u2014 try finer.");
+        } else {
+            verdict["text"] = QStringLiteral("Verdict: Decent shot with minor issues to watch.");
+        }
     } else {
         verdict["text"] = QStringLiteral("Verdict: Clean shot. Puck held well.");
     }

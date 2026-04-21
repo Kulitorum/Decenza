@@ -135,7 +135,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 |----------|-------------|
 | `CI_CD.md` | Release process, GitHub Actions workflows, version bumping |
 | `RECIPE_PROFILES.md` | Recipe Editor, D-Flow/A-Flow/Pressure/Flow types, frame generation |
-| `TESTING.md` | Test framework, mock strategy, adding new tests |
+| `TESTING.md` | Test framework, mock strategy, adding new tests, **`shot_eval` harness + regression corpus** |
 | `BLE_PROTOCOL.md` | BLE UUIDs, retry mechanism, shot debug logging, battery/steam control |
 | `VISUALIZER.md` | DYE metadata, profile import/export, ProfileSaveHelper, filename generation |
 | `DATA_MIGRATION.md` | Device-to-device transfer architecture and REST endpoints |
@@ -564,7 +564,7 @@ See `docs/CLAUDE_MD/VISUALIZER.md` for DYE metadata, profile import, visualizer 
 
 ## Unit Testing
 
-See `docs/CLAUDE_MD/TESTING.md` for the test framework, architecture, mock strategy, and how to add new tests. Tests use Qt Test (QTest) with `friend class` access behind `#ifdef DECENZA_TESTING`. Build with `-DBUILD_TESTS=ON`.
+See `docs/CLAUDE_MD/TESTING.md` for the test framework, architecture, mock strategy, and how to add new tests. Tests use Qt Test (QTest) with `friend class` access behind `#ifdef DECENZA_TESTING`. Build with `-DBUILD_TESTS=ON`. The `shot_eval` CLI harness and `tests/data/shots/` regression corpus are also documented there.
 
 ## BLE Protocol Notes
 

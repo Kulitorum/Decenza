@@ -266,6 +266,93 @@ When in doubt, fix it rather than suppress it. The goal of a passing test run is
 - **Do not suppress by substring-matching `"failed"` or `"error"`** — that's too broad and will hide genuine regressions.
 - **Do not amend an existing `ScopedWarningFilter` regex to make a new warning go away without adding a comment explaining the scenario.**
 
+## Shot Analysis Regression Tool (shot_eval)
+
+`tools/shot_eval/` is a CLI harness for exercising the real `ShotAnalysis` heuristics (channeling, grind direction, pour truncation) against a corpus of shot data. Links the production `src/ai/shotanalysis.cpp` and `src/ai/conductance.cpp` directly — changes to the live detector automatically flow through. Use it whenever you touch a detection heuristic to see how verdicts shift across a known set of shots.
+
+### Building
+
+Built as part of the desktop-only `tools/` block in the root `CMakeLists.txt`. Target name: `shot_eval`. No special flags needed — it's compiled alongside the main app.
+
+```bash
+cmake --build <build-dir> --target shot_eval
+```
+
+### Running
+
+```bash
+# Single shot
+./shot_eval shot.json
+
+# Directory of shots
+./shot_eval ~/shot_corpus/
+
+# Glob / multiple paths
+./shot_eval visualizer_public/*.json
+
+# Machine-readable output for diffing
+./shot_eval --json ~/shot_corpus/ > results.json
+```
+
+Accepts two JSON shapes:
+
+| Format | Where it comes from | Shape |
+|---|---|---|
+| **Upload / local export** | `~/Library/Application Support/DecentEspresso/Decenza/profiles/history/*.json` (when `Settings::exportShotsToFile` is on); same payload Decenza uploads to visualizer.coffee | Nested `pressure: { pressure, goal }`, `flow: { flow, goal }`, top-level `elapsed[]`, `profile.steps[]` |
+| **Visualizer download** | `https://visualizer.coffee/api/shots/<uuid>/download` after visualizer transforms the uploaded payload | Flat `data: { espresso_pressure, espresso_flow, espresso_pressure_goal, ... }` + `timeframe[]` |
+
+The tool autodetects based on the root-level keys. Both include enough goal data for mode-aware phase inference.
+
+### Workflow for validating algorithm changes
+
+1. Maintain a local `~/shot_corpus/` with representative shots from your own history and a few public visualizer shots covering profile families you care about (lever, flat-pressure, flow-mode, blooming, turbo, etc.).
+2. Before a change: `./shot_eval ~/shot_corpus/*.json > before.txt`.
+3. Apply the change, rebuild shot_eval.
+4. After the change: `./shot_eval ~/shot_corpus/*.json > after.txt`.
+5. `diff before.txt after.txt` — any verdict flips should be intentional; surprises indicate a regression.
+
+### Regression corpus — `tests/data/shots/`
+
+A 12-shot golden set lives in the repo with a `manifest.json` listing expected verdicts per shot. Each shot targets a specific detector path — lever-ramp false-positive suppression, flat-pressure happy path, end-skip guard, grind-direction firing, catastrophic puck failure, Blooming expected-transient, etc.
+
+Runs automatically as a CTest entry:
+
+```bash
+ctest -R shot_corpus_regression
+```
+
+Which is equivalent to:
+
+```bash
+./shot_eval --validate tests/data/shots/manifest.json
+```
+
+The command reads the manifest, runs each shot through the full production detector path (including `shouldSkipChannelingCheck`, beverage-type short-circuits, and mode-aware masking), compares verdicts against the expected values in the manifest, and returns non-zero on any mismatch. Add new shots to the corpus whenever you fix a detector bug so future refactors can't silently reintroduce it.
+
+### Adding shots to the corpus
+
+1. **Pick something that exercises a path** not already covered — e.g. a new false-positive you fixed, a new true-positive class, a profile family the existing corpus doesn't hit.
+2. **Strip personal metadata** if copying from your local export directory. Redact `meta.bean.brand`, `meta.bean.type`, `meta.shot.barista`, `meta.shot.notes`, `meta.shot.uuid`. Public visualizer shots can be copied as-is.
+3. **Run the shot through `shot_eval`** to capture its current verdicts.
+4. **Add an entry to `manifest.json`** with a `description` (why this shot matters) and an `expect` block with only the invariants you want to enforce — leave fields out of `expect` if you don't care about asserting them.
+
+Manifest entry format:
+```json
+{
+  "file": "my_new_shot.json",
+  "description": "Short explanation of why this shot matters and what path it exercises",
+  "expect": {
+    "channeling": "None",          // or "Transient" / "Sustained"
+    "grindIssue": false,           // optional
+    "pourTruncated": false         // optional
+  }
+}
+```
+
+### Conductance math and the `src/ai/conductance.h` boundary
+
+Both `ShotDataModel` (live per-sample) and `shot_eval` (batch offline) share `src/ai/conductance.{h,cpp}` for the conductance + dC/dt formulas. A change there automatically flows to both — don't duplicate the math.
+
 ## Conventions
 
 - Test class names: `tst_FeatureName` (Qt convention)

@@ -275,6 +275,7 @@ set(SOURCES
     src/ai/aimanager.cpp
     src/ai/aiprovider.cpp
     src/ai/aiconversation.cpp
+    src/ai/conductance.cpp
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/history/shothistorystorage.cpp
@@ -425,6 +426,7 @@ set(HEADERS
     src/network/visualizerimporter.h
     src/ai/aimanager.h
     src/ai/aiprovider.h
+    src/ai/conductance.h
     src/ai/shotanalysis.h
     src/ai/shotsummarizer.h
     src/history/shothistorystorage.h
@@ -972,4 +974,20 @@ if(NOT ANDROID AND NOT IOS)
     )
     target_link_libraries(profile_sync PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
     target_include_directories(profile_sync PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    # shot_eval: offline evaluation harness for ShotAnalysis. Links the real
+    # production sources (shotanalysis.cpp + conductance.cpp) so results
+    # match live-shot behavior exactly. Usage:
+    #   curl https://visualizer.coffee/api/shots/<uuid>/download > shot.json
+    #   ./shot_eval shot.json [more.json ...]
+    add_executable(shot_eval
+        tools/shot_eval/main.cpp
+        src/ai/shotanalysis.cpp
+        src/ai/conductance.cpp
+    )
+    # Qt6::Sql is linked for the QSqlDatabase include pulled in via
+    # history/shothistorystorage.h (where HistoryPhaseMarker lives). The
+    # tool itself doesn't open any databases.
+    target_link_libraries(shot_eval PRIVATE Qt6::Core Qt6::Sql)
+    target_include_directories(shot_eval PRIVATE ${CMAKE_SOURCE_DIR}/src)
 endif()
