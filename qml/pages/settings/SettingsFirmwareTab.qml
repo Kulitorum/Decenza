@@ -119,7 +119,7 @@ Item {
                           : TranslationManager.translate(
                                 "firmware.tab.updateNow", "Update now")
                     accessibleName: text
-                    enabled: fw && fw.updateAvailable && !firmwareTab.isWorking
+                    enabled: fw && fw.updateAvailable && !firmwareTab.isWorking && !fw.isSimulated
                     onClicked: if (fw) fw.startUpdate()
                 }
             }
@@ -169,6 +169,34 @@ Item {
                         wrapMode: Text.Wrap
                     }
                 }
+            }
+        }
+
+        // ----- Simulator notice ------------------------------------
+        // Shown whenever the app is wired to the DE1 simulator. The page
+        // is still functional (check, channel toggle, version surfaces)
+        // but flashing is disabled — no real DE1 to write to.
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(50)
+            visible: fw && fw.isSimulated
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.textSecondaryColor
+            border.width: 1
+
+            Text {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                text: TranslationManager.translate(
+                          "firmware.tab.simulatorNote",
+                          "Simulator connected — flashing is disabled. " +
+                          "Check and channel selection still work for testing.")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(12)
+                wrapMode: Text.Wrap
+                verticalAlignment: Text.AlignVCenter
             }
         }
 
@@ -327,6 +355,7 @@ Item {
                                     "firmware.tab.nightlyChannel",
                                     "Use nightly firmware channel")
                 Accessible.focusable: true
+                Accessible.onPressAction: nightlyChannelSwitch.toggle()
             }
         }
 

@@ -32,6 +32,10 @@ class FirmwareUpdater : public QObject {
     Q_PROPERTY(QString stateText READ stateText NOTIFY stateChanged)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY availabilityChanged)
     Q_PROPERTY(bool isDowngrade READ isDowngrade NOTIFY availabilityChanged)
+    // True while wired to the DE1 simulator (no real BLE). The check,
+    // download, and version surfaces still run so the page is usable;
+    // only the flash itself is blocked.
+    Q_PROPERTY(bool isSimulated READ isSimulated NOTIFY isSimulatedChanged)
     Q_PROPERTY(int availableVersion READ availableVersion NOTIFY availabilityChanged)
     Q_PROPERTY(int installedVersion READ installedVersion NOTIFY installedVersionChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
@@ -88,6 +92,7 @@ public:
     // Mirrors de1app's "Firmware downgrade available" affordance: the user
     // is allowed to flash it, but the UI should label it as a downgrade.
     bool isDowngrade() const { return m_isDowngrade; }
+    bool isSimulated() const;
     int availableVersion() const { return static_cast<int>(m_availableVersion); }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
@@ -106,6 +111,7 @@ signals:
     void availabilityChanged();
     void progressChanged();
     void installedVersionChanged();
+    void isSimulatedChanged();
 
 private slots:
     void onCheckFinished(DE1::Firmware::FirmwareAssetCache::CheckResult result);

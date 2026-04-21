@@ -107,6 +107,8 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
         // DE1 has long since reported its version.
         connect(m_device, &DE1Device::firmwareVersionChanged,
                 this, &FirmwareUpdater::onDeviceFirmwareVersionChanged);
+        connect(m_device, &DE1Device::simulationModeChanged,
+                this, &FirmwareUpdater::isSimulatedChanged);
         // The writeComplete subscription is deferred to beginUploadPhase —
         // at construction time m_device->transport() is still null (the
         // BLE transport is attached later, when the user connects the DE1),
@@ -216,6 +218,10 @@ int FirmwareUpdater::installedVersion() const {
     return static_cast<int>(m_installedVersion);
 }
 
+bool FirmwareUpdater::isSimulated() const {
+    return m_device && m_device->simulationMode();
+}
+
 QString FirmwareUpdater::stateText() const {
     switch (m_state) {
         case State::Idle:        return QStringLiteral("Idle");
@@ -256,11 +262,9 @@ void FirmwareUpdater::setProgress(double p) {
 
 void FirmwareUpdater::checkForUpdate() {
     if (!m_cache) return;
-    // Simulator suppresses the entire update flow — see startUpdate too.
-    if (m_device && m_device->simulationMode()) {
-        qCDebug(firmwareLog) << "[firmware] check skipped (simulator)";
-        return;
-    }
+    // Simulator: allow the check so the page populates (installed/available
+    // versions, channel state). Only the actual flash is blocked — see
+    // startUpdate().
     if (m_state == State::Checking) return;
     if (!m_updateTimer.isValid()) m_updateTimer.start();  // reset for a fresh check
     const uint32_t installed = m_installedVersionProvider
@@ -277,10 +281,10 @@ void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
 
     // Simulator: refuse any flash so we don't stream fake bytes onto a
-    // pretend BLE channel and confuse the state machine. The UI hides
-    // updateAvailable in simulator mode (see onCheckFinished) so this
-    // branch primarily protects against direct invocation from QML or
-    // tests.
+    // pretend BLE channel and confuse the state machine. The QML gates
+    // the Update button on `isSimulated` so this path is normally
+    // unreachable via the UI — but keep the guard as a hard safety net
+    // against direct invocation (MCP, tests, remote control).
     if (m_device->simulationMode()) {
         qCDebug(firmwareLog) << "[firmware] startUpdate refused (simulator)";
         return;
@@ -331,12 +335,12 @@ void FirmwareUpdater::dismissAvailability() {
 void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     if (m_state != State::Checking && m_state != State::Idle) return;
     m_availableVersion = result.remoteVersion;
-    // Simulator never offers updates regardless of remote state — the DE1
-    // simulator class isn't a real flashable device and we'd hang trying.
-    const bool simulator = m_device && m_device->simulationMode();
+    // updateAvailable reflects the pure version comparison: the simulator
+    // gate lives in startUpdate() and in the QML (`isSimulated`) so users
+    // can still see what *would* be flashable against a real DE1.
     const bool offersFlash =
         (result.kind == FirmwareAssetCache::CheckResult::Newer ||
-         result.kind == FirmwareAssetCache::CheckResult::Older) && !simulator;
+         result.kind == FirmwareAssetCache::CheckResult::Older);
     m_isDowngrade = (result.kind == FirmwareAssetCache::CheckResult::Older);
     if (offersFlash) {
         // The dismissed-version pin applies to both directions: once the

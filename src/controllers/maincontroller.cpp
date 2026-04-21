@@ -320,6 +320,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     m_firmwareUpdater->setInstalledVersionProvider([this]() -> uint32_t {
         if (!m_device) return 0;
+        // Simulator: pretend to be on an ancient firmware so both the
+        // stable and nightly channels always register as "update available",
+        // letting a developer exercise the Firmware page end-to-end without
+        // a real DE1 to flash. The simulator never ships a firmware
+        // build-number, so this is the only signal the page has anyway.
+        if (m_device->simulationMode()) {
+            return 1u;
+        }
         const int bn = m_device->firmwareBuildNumber();
         return bn > 0 ? static_cast<uint32_t>(bn) : 0;
     });

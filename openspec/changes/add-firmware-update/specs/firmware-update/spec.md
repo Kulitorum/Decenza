@@ -48,7 +48,7 @@ The check SHALL be performed at app startup (30 s after the main window is shown
 
 - **WHEN** the user taps the dismiss control on the availability banner
 - **THEN** `firmware/dismissedVersion` in `QSettings` is set to the current remote version
-- **AND** the banner does not reappear until a strictly newer remote version is detected
+- **AND** the banner does not reappear until the remote version changes (in either direction — a different upgrade target, or a channel swap that produces a downgrade offer)
 
 #### Scenario: Channel switch invalidates cache
 
@@ -172,7 +172,7 @@ The system SHALL treat any interruption during flash as a non-destructive failur
 
 ### Requirement: User control over availability
 
-The system SHALL respect user dismissal of availability banners on a per-version basis. The system SHALL NOT display a dismissed banner again until a strictly newer remote firmware version is detected.
+The system SHALL respect user dismissal of availability banners on a per-version basis. The system SHALL NOT display a dismissed banner again until the remote firmware version changes in either direction (e.g. a strictly newer upgrade target, or a channel swap that produces a downgrade offer for a previously-unseen version).
 
 #### Scenario: Dismissal persists within a version
 
