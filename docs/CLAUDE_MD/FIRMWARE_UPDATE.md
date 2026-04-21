@@ -101,7 +101,12 @@ Failure log lines include the phase, chunk progress (`acked/queued/total`), retr
 
 ## Simulator behaviour
 
-When the DE1 simulator is active (`DE1Device::simulationMode() == true`), the firmware tab reports `updateAvailable = false` regardless of remote state, and `startUpdate` is a no-op. We don't pretend to flash a fake device.
+When the DE1 simulator is active (`DE1Device::simulationMode() == true`), the firmware tab is fully usable for UI development — only the flash itself is blocked:
+
+- `checkForUpdate` and `onCheckFinished` run normally against the live CDN, so the Available / Installed version surfaces populate.
+- `MainController`'s `installedVersionProvider` returns `1` while in simulation mode, so both the stable and nightly channels register as "update available" (exercising the channel toggle + the downgrade path).
+- `FirmwareUpdater::isSimulated` is exposed as a Q_PROPERTY; the QML gates the "Update now" button on `!fw.isSimulated` and shows a grey "Simulator connected — flashing is disabled" strip on the tab.
+- `FirmwareUpdater::startUpdate` refuses unconditionally when `DE1Device::simulationMode()` is true, as a hard safety net against direct invocation from MCP/tests/remote-control paths that bypass the UI gate.
 
 ## Cross-platform notes
 

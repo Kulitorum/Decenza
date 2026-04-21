@@ -151,9 +151,11 @@ public:
     // of the erase/upload/verify sequence so writeMMR() / writeMMRUrgent() /
     // writeMMRVerified() can drop incoming MMR writes — otherwise a stray
     // MMR packet on the WRITE_TO_MMR characteristic (length byte 4) would
-    // interleave with in-flight firmware chunks (length byte 16) on A006 and
-    // corrupt the image. Mirrors de1app's `currently_erasing_firmware` gate
-    // in `mmr_write` (de1_comms.tcl:1026).
+    // interleave with in-flight firmware chunks (length byte 16) on A006
+    // and force a failed verify + full retry. Analogous to de1app's
+    // `currently_erasing_firmware` gate in `mmr_write`; we gate all three
+    // phases (erase/upload/verify) rather than erase-only since chunk
+    // writes and MMR writes share the same characteristic during upload.
     bool firmwareFlashInProgress() const { return m_firmwareFlashInProgress; }
     void setFirmwareFlashInProgress(bool inProgress);
 
@@ -342,6 +344,15 @@ protected:
 private:
     // Build the 20-byte MMR payload without sending it (shared by writeMMR/writeMMRUrgent)
     static QByteArray buildMMRPayload(uint32_t address, uint32_t value);
+
+    // Firmware-flash guard shared by writeMMR / writeMMRUrgent /
+    // writeMMRVerified. Returns true (and logs a qWarning) when the caller
+    // should bail because a flash is in progress; false means "proceed".
+    // `label` distinguishes the variant in the log line ("write", "write urgent",
+    // "write verified").
+    bool dropIfFirmwareFlashInProgress(uint32_t address, uint32_t value,
+                                       const QString& reason,
+                                       const char* label) const;
 
     // Transport signal handlers
     void onTransportConnected();

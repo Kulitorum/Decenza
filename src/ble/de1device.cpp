@@ -1130,6 +1130,19 @@ void DE1Device::setFirmwareFlashInProgress(bool inProgress) {
              << (inProgress ? "ENGAGED" : "cleared");
 }
 
+bool DE1Device::dropIfFirmwareFlashInProgress(uint32_t address, uint32_t value,
+                                              const QString& reason,
+                                              const char* label) const {
+    if (!m_firmwareFlashInProgress) return false;
+    qWarning().noquote() << QString(
+        "[MMR] %1 DROPPED (firmware flash in progress): 0x%2 = %3%4")
+        .arg(QString::fromLatin1(label))
+        .arg(address, 6, 16, QLatin1Char('0'))
+        .arg(value)
+        .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+    return true;
+}
+
 void DE1Device::writeMMR(uint32_t address, uint32_t value,
                          const QString& reason, bool force) {
     if (!m_transport) return;
@@ -1138,15 +1151,13 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     // characteristic (A006) that carries firmware chunks. An MMR packet
     // (length byte 4) landing mid-stream between firmware chunks
     // (length byte 16) would corrupt the bootloader's address tracking
-    // and brick the flash. Drop the write noisily so any regression —
-    // e.g. a future periodic MMR writer fired from a timer — shows up
-    // in the logs rather than silently killing an update.
-    if (m_firmwareFlashInProgress) {
-        qWarning().noquote() << QString(
-            "[MMR] write DROPPED (firmware flash in progress): 0x%1 = %2%3")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(value)
-            .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+    // and force a failed verify + full retry. Drop the write noisily so
+    // any regression — e.g. a future periodic MMR writer fired from a
+    // timer — shows up in the logs rather than silently killing an
+    // update. Dual-bank flash makes a corrupted upload recoverable
+    // (active bank is untouched), but forcing the user through a second
+    // 15-minute upload over BLE is still worth preventing.
+    if (dropIfFirmwareFlashInProgress(address, value, reason, "write")) {
         return;
     }
 
@@ -1184,12 +1195,7 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
 void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& reason) {
     if (!m_transport) return;
 
-    if (m_firmwareFlashInProgress) {
-        qWarning().noquote() << QString(
-            "[MMR] write urgent DROPPED (firmware flash in progress): 0x%1 = %2%3")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(value)
-            .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+    if (dropIfFirmwareFlashInProgress(address, value, reason, "write urgent")) {
         return;
     }
 
@@ -1247,14 +1253,9 @@ void DE1Device::writeMMRVerified(uint32_t address, uint32_t value,
                                   const QString& reason, int maxRetries) {
     if (!m_transport) return;
 
-    if (m_firmwareFlashInProgress) {
-        // Drop the whole verified-write request — both the initial write
-        // and its scheduled read-back would fire into the flash stream.
-        qWarning().noquote() << QString(
-            "[MMR] write verified DROPPED (firmware flash in progress): 0x%1 = %2%3")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(value)
-            .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+    // Drop the whole verified-write request — both the initial write and
+    // its scheduled read-back would fire into the flash stream.
+    if (dropIfFirmwareFlashInProgress(address, value, reason, "write verified")) {
         return;
     }
 

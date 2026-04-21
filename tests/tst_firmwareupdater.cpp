@@ -190,6 +190,93 @@ private slots:
         QVERIFY(!sawEraseReq);
     }
 
+    // ===== §4b+: firmware-flash MMR-write guard =====
+
+    void firmwareGuard_engagedDuringFlash_andClearedOnSuccess() {
+        Fixture f;
+        const QByteArray blob = makeFirmwareBlob(/*version*/ 1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
+
+        QVERIFY(!f.device.firmwareFlashInProgress());
+        f.updater.startUpdate();
+
+        // Guard should be engaged as soon as we hit Erasing.
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        QVERIFY(f.device.firmwareFlashInProgress());
+
+        // Drive the flash to completion.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000100000000"));
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001000000"));
+        simulateFullUpload(f.transport, blob);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001FFFFFD"));
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Succeeded);
+
+        // Guard must be cleared once we reach Succeeded — otherwise every
+        // subsequent MMR write would be silently dropped.
+        QVERIFY(!f.device.firmwareFlashInProgress());
+    }
+
+    void firmwareGuard_clearedOnFailure() {
+        Fixture f;
+        f.updater.setEraseTimeoutMs(50);
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        QVERIFY(f.device.firmwareFlashInProgress());
+
+        // Let the erase timeout fire → failWith must clear the guard.
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Failed, 2000);
+        QVERIFY(!f.device.firmwareFlashInProgress());
+    }
+
+    void firmwareGuard_dropsMMRWrites() {
+        Fixture f;
+        // Baseline: a normal writeMMR goes through to the transport.
+        f.device.writeMMR(0x80000C, 42, QStringLiteral("baseline"));
+        const qsizetype baselineWrites = f.transport.writes.size();
+        QVERIFY(baselineWrites > 0);
+
+        // Engage the guard directly (avoid the full flash flow here — this
+        // test targets only the DE1Device write gate).
+        f.device.setFirmwareFlashInProgress(true);
+
+        // All three MMR write paths must now drop their packets. We call
+        // each with a distinct address so dedup can't mask the drop via an
+        // unchanged-value short-circuit.
+        f.device.writeMMR(0x80000D, 42, QStringLiteral("blocked"));
+        f.device.writeMMRUrgent(0x80000E, 42, QStringLiteral("blocked"));
+        f.device.writeMMRVerified(0x80000F, 42, QStringLiteral("blocked"));
+
+        QCOMPARE(f.transport.writes.size(), baselineWrites);
+
+        // Once the guard clears, writes go through again.
+        f.device.setFirmwareFlashInProgress(false);
+        f.device.writeMMR(0x800010, 42, QStringLiteral("post-flash"));
+        QVERIFY(f.transport.writes.size() > baselineWrites);
+    }
+
+    void startUpdate_isNoOpOnSimulator() {
+        Fixture f;
+        f.device.setSimulationMode(true);
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+
+        f.updater.startUpdate();
+
+        // Sim-mode gate in startUpdate() means we never leave Idle and no
+        // BLE traffic is issued.
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Idle);
+        QVERIFY(!f.device.firmwareFlashInProgress());
+        for (const auto& w : f.transport.writes) {
+            QVERIFY2(w.first != DE1::Characteristic::FW_MAP_REQUEST,
+                     "simulator must not have issued any FWMapRequest");
+        }
+    }
+
     // ===== §4c: retry, dismiss, verify-disconnect retroactive success =====
 
     void retryAfterFailure_restartsFromErase() {

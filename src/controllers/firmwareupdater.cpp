@@ -178,7 +178,16 @@ void FirmwareUpdater::onVerifyDisconnectGrace() {
              /*retryable*/ true);
 }
 
-FirmwareUpdater::~FirmwareUpdater() = default;
+FirmwareUpdater::~FirmwareUpdater() {
+    // If we're torn down mid-flash (e.g. app shutdown, test cleanup), the
+    // DE1Device likely outlives us — it's owned separately by main.cpp.
+    // Leaving m_firmwareFlashInProgress stuck on would silently drop every
+    // subsequent MMR write for the life of the process, with no obvious
+    // symptom at teardown time.
+    if (m_device && m_device->firmwareFlashInProgress()) {
+        m_device->setFirmwareFlashInProgress(false);
+    }
+}
 
 // ---- Injection hooks ----------------------------------------------------
 
