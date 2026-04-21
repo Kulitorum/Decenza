@@ -95,14 +95,11 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
         // DE1 has long since reported its version.
         connect(m_device, &DE1Device::firmwareVersionChanged,
                 this, &FirmwareUpdater::onDeviceFirmwareVersionChanged);
-        // Listen to the transport's per-write ACK so we can show the user
-        // real upload progress (what the DE1 has actually received) rather
-        // than queued-but-unsent progress, and so we can trigger verify only
-        // after the wire has truly caught up.
-        if (auto* t = m_device->transport()) {
-            connect(t, &DE1Transport::writeComplete,
-                    this, &FirmwareUpdater::onFirmwareWriteAcked);
-        }
+        // The writeComplete subscription is deferred to beginUploadPhase —
+        // at construction time m_device->transport() is still null (the
+        // BLE transport is attached later, when the user connects the DE1),
+        // so a connect here would silently no-op and we'd never receive
+        // ACK signals.
     }
 }
 
@@ -431,6 +428,24 @@ void FirmwareUpdater::beginUploadPhase() {
     m_chunksTotal  = (m_firmwareBytes.size() + 15) / 16;  // ceil to 16-byte blocks
     m_chunksQueued = 0;
     m_chunksAcked  = 0;
+
+    // Subscribe to the transport's per-write ACK now. Deferred to this
+    // point because m_device->transport() is not guaranteed to be set at
+    // FirmwareUpdater construction time — the transport is attached when
+    // the DE1 first connects, which may be after MainController wired us
+    // up. By the time we reach beginUploadPhase the transport is alive
+    // (we just completed the erase handshake through it). Use a
+    // Qt::UniqueConnection so repeated updates (retry, second firmware
+    // cycle) don't stack handlers.
+    if (auto* t = m_device ? m_device->transport() : nullptr) {
+        connect(t, &DE1Transport::writeComplete,
+                this, &FirmwareUpdater::onFirmwareWriteAcked,
+                Qt::UniqueConnection);
+    } else {
+        qCWarning(firmwareLog) << "[firmware] beginUploadPhase: no transport — "
+                                  "progress/verify will stall";
+    }
+
     setState(State::Uploading);
     setProgress(PROGRESS_ERASE_MAX);
     m_chunkPumpTimer.start();
