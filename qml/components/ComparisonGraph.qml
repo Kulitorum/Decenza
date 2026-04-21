@@ -78,8 +78,8 @@ ChartView {
         // Fit time axis to data
         timeAxis.max = Math.max(15, comparisonModel.maxTime + 0.5)
 
-        // Fit dC/dt axis to data. Reserve ~20% of the axis below zero so
-        // negative dips remain visible (exact values via crosshair).
+        // Fit dC/dt axis to data. Min extends below zero only when the data
+        // actually dips negative (exact values via crosshair).
         var dCdtMax = 0, dCdtMin = 0
         var dCdtSeries = [conductanceDerivative1, conductanceDerivative2, conductanceDerivative3]
         for (var s = 0; s < dCdtSeries.length; s++) {
@@ -98,7 +98,7 @@ ChartView {
         else if (padded <= 10) posMax = 10
         else posMax = Math.ceil(padded / 5) * 5
         dCdtAxis.max = posMax
-        dCdtAxis.min = -Math.max(Math.abs(dCdtMin) * 1.15, posMax / 4)
+        dCdtAxis.min = dCdtMin < 0 ? -Math.abs(dCdtMin) * 1.15 : 0
 
         // Build phase marker list (phaseIndex = stable color index per unique label)
         var phases = []
@@ -288,8 +288,8 @@ ChartView {
     }
 
     // Hidden axis for dC/dt so it doesn't distort the pressure/flow axis.
-    // Negative dC/dt values clip at the bottom (the interesting signal is
-    // positive spikes for channeling detection).
+    // Range is set dynamically in loadData() — min extends below zero only
+    // when the data dips negative. Exact values via the inspect crosshair.
     ValueAxis {
         id: dCdtAxis
         min: 0

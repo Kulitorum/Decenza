@@ -360,10 +360,9 @@ ChartView {
     }
 
     // Hidden axis for dC/dt so it doesn't distort the pressure/flow axis.
-    // Range is dynamic: max snaps up from the data peak, min reserves ~20% of
-    // the axis for negative dips so they remain visible (matches the old
-    // behavior of dC/dt going below zero without warping pressure labels).
-    // Exact values are read via the inspect crosshair, not axis labels.
+    // Range is dynamic: max snaps up from the data peak; min extends below
+    // zero only when the data actually dips negative. Exact values are read
+    // via the inspect crosshair, not axis labels.
     property double dCdtAxisMax: {
         var maxVal = 0
         for (var i = 0; i < conductanceDerivativeData.length; i++) {
@@ -383,8 +382,7 @@ ChartView {
         for (var i = 0; i < conductanceDerivativeData.length; i++) {
             if (conductanceDerivativeData[i].y < minVal) minVal = conductanceDerivativeData[i].y
         }
-        var reserved = dCdtAxisMax / 4  // 20% of plot below zero
-        return -Math.max(Math.abs(minVal) * 1.15, reserved)
+        return minVal < 0 ? -Math.abs(minVal) * 1.15 : 0
     }
 
     ValueAxis {
