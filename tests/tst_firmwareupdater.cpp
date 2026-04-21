@@ -102,7 +102,12 @@ private slots:
 
     void eraseTimeout_failsRetryable() {
         Fixture f;
-        f.updater.setEraseTimeoutMs(50);                // short timeout
+        // Erase-timeout path requires that the post-erase wait does NOT fire
+        // first — otherwise state transitions Erasing → Uploading and the
+        // timeout's early-return guard (state != Erasing) means no Failed.
+        // Set wait >> timeout so the timeout is the first thing to fire.
+        f.updater.setEraseTimeoutMs(50);
+        f.updater.setPostEraseWaitMs(5000);
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
         f.updater.startUpdate();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
@@ -117,11 +122,10 @@ private slots:
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352, 4096));  // more chunks
         f.updater.setChunkPumpIntervalMs(5);            // slow enough to catch mid-upload
         f.updater.startUpdate();
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000100000000"));
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000001000000"));
+        // Fixture's postEraseWaitMs=0 races past Erasing synchronously —
+        // observe Uploading directly. The erase notifications that used to
+        // live here were informational (didn't trigger the transition) so
+        // dropping them doesn't change behavior.
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         // Yank the BLE transport mid-upload.
         f.transport.setConnectedSim(false);
@@ -135,11 +139,8 @@ private slots:
         const QByteArray blob = makeFirmwareBlob(1352);
         writeCachedBlob(&f.updater, &f.cache, blob);
         f.updater.startUpdate();
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000100000000"));
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000001000000"));
+        // postEraseWaitMs=0 races past Erasing — observe Uploading directly.
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
         // Non-success firstError: {0x12, 0x34, 0x56} (arbitrary non-success)
@@ -200,15 +201,15 @@ private slots:
         QVERIFY(!f.device.firmwareFlashInProgress());
         f.updater.startUpdate();
 
-        // Guard should be engaged as soon as we hit Erasing.
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        // The guard is engaged inside beginErasePhase, before setState(Erasing).
+        // With the fixture's postEraseWaitMs=0 the state machine transitions
+        // Erasing → Uploading synchronously, so we check the guard once state
+        // settles in Uploading (the first state that persists long enough for
+        // QTRY_COMPARE to observe).
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         QVERIFY(f.device.firmwareFlashInProgress());
 
         // Drive the flash to completion.
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000100000000"));
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000001000000"));
         simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
@@ -222,13 +223,17 @@ private slots:
 
     void firmwareGuard_clearedOnFailure() {
         Fixture f;
-        f.updater.setEraseTimeoutMs(50);
-        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        // More chunks + slow pump so the upload is still in flight when we
+        // yank the transport. A disconnect mid-upload routes through
+        // failWith(), which is the path we want to cover here.
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352, 4096));
+        f.updater.setChunkPumpIntervalMs(5);
         f.updater.startUpdate();
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         QVERIFY(f.device.firmwareFlashInProgress());
 
-        // Let the erase timeout fire → failWith must clear the guard.
+        // Yank BLE → failWith fires → guard must be cleared.
+        f.transport.setConnectedSim(false);
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
                                   FirmwareUpdater::State::Failed, 2000);
         QVERIFY(!f.device.firmwareFlashInProgress());
@@ -282,14 +287,18 @@ private slots:
     void retryAfterFailure_restartsFromErase() {
         Fixture f;
         writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
-        // Short erase timeout so the first attempt fails fast.
+        // Short erase timeout so the first attempt fails fast. Bump the
+        // post-erase wait past the timeout so the timeout actually fires
+        // before the synchronous transition to Uploading would mask it.
         f.updater.setEraseTimeoutMs(50);
+        f.updater.setPostEraseWaitMs(5000);
         f.updater.startUpdate();
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
                                   FirmwareUpdater::State::Failed, 2000);
         QVERIFY(f.updater.retryAvailable());
 
         // Restore a sensible erase timeout so retry has room to succeed.
+        // Leave postEraseWaitMs large so retry observably re-enters Erasing.
         f.updater.setEraseTimeoutMs(5000);
         f.transport.clearWrites();
 
@@ -370,11 +379,9 @@ private slots:
         writeCachedBlob(&f.updater, &f.cache, blob);
 
         f.updater.startUpdate();
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000100000000"));
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000001000000"));
+        // postEraseWaitMs=0 races past Erasing synchronously — observe
+        // Uploading directly.
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
 
@@ -399,11 +406,8 @@ private slots:
         const QByteArray blob = makeFirmwareBlob(1352);
         writeCachedBlob(&f.updater, &f.cache, blob);
         f.updater.startUpdate();
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000100000000"));
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000001000000"));
+        // postEraseWaitMs=0 races past Erasing — observe Uploading directly.
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         simulateFullUpload(f.transport, blob);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
 
@@ -427,10 +431,12 @@ private slots:
         f.updater.startUpdate();
 
         // Downloading should finish synchronously (cache short-circuits when
-        // the file already exists and validates).
-        // We then expect the state to progress to Erasing and a
-        // writeFWMapRequest(1,1) packet to be queued on A009.
-        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Erasing, 2000);
+        // the file already exists and validates), and with postEraseWaitMs=0
+        // the state machine transitions Downloading → Ready → Erasing →
+        // Uploading synchronously inside the startUpdate() call chain. So we
+        // observe Uploading directly — the intermediate Erasing packet is
+        // verified below by inspecting the wire log, not by catching state.
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Uploading, 2000);
 
         // Verify the erase packet landed on A009.
         bool sawEraseReq = false;
@@ -444,15 +450,6 @@ private slots:
 
         // Verify the firmware notifications characteristic was subscribed.
         QVERIFY(f.transport.subscribes.contains(DE1::Characteristic::FW_MAP_REQUEST));
-
-        // Simulate the DE1's Phase 1 notifications.
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000100000000"));  // erase started
-        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
-                                      QByteArray::fromHex("00000001000000"));  // erase done
-
-        // Post-erase wait is 0 ms → pumps the event loop, reaches Uploading.
-        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Uploading, 2000);
 
         // Wait for all chunks to land in MockTransport (the pump queues them
         // synchronously with a 0 ms interval). The expected write count is
