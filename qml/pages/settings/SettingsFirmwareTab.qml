@@ -237,9 +237,12 @@ Item {
                     color: Theme.warningColor
                     font.pixelSize: Theme.scaled(12)
                     font.bold: true
+                    wrapMode: Text.Wrap
                     text: TranslationManager.translate(
                               "firmware.tab.doNotDisconnect",
-                              "Do not disconnect the DE1 — flashing in progress")
+                              "Do not disconnect the DE1. Keep Decenza open and " +
+                              "in the foreground until the update completes — " +
+                              "backgrounding the app can suspend BLE.")
                 }
             }
         }

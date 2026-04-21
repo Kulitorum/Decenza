@@ -165,6 +165,10 @@ ApplicationWindow {
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
         var phase = MachineState.phase
+        // Treat an in-progress firmware flash as an active operation so the
+        // auto-sleep countdown can't fire mid-upload and cut BLE.
+        var fw = MainController.firmwareUpdater
+        if (fw && fw.isFlashing) return true
         return phase === MachineStateType.Phase.EspressoPreheating ||
                phase === MachineStateType.Phase.Preinfusion ||
                phase === MachineStateType.Phase.Pouring ||

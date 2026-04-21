@@ -36,6 +36,11 @@ class FirmwareUpdater : public QObject {
     // download, and version surfaces still run so the page is usable;
     // only the flash itself is blocked.
     Q_PROPERTY(bool isSimulated READ isSimulated NOTIFY isSimulatedChanged)
+    // True while the state machine is actively talking to the DE1 over
+    // BLE (Erasing, Uploading, or Verifying). Used by the root QML to
+    // suppress the sleep countdown / screensaver for the ~15-minute
+    // flash duration.
+    Q_PROPERTY(bool isFlashing READ isFlashing NOTIFY stateChanged)
     Q_PROPERTY(int availableVersion READ availableVersion NOTIFY availabilityChanged)
     Q_PROPERTY(int installedVersion READ installedVersion NOTIFY installedVersionChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
@@ -93,6 +98,11 @@ public:
     // is allowed to flash it, but the UI should label it as a downgrade.
     bool isDowngrade() const { return m_isDowngrade; }
     bool isSimulated() const;
+    bool isFlashing() const {
+        return m_state == State::Erasing ||
+               m_state == State::Uploading ||
+               m_state == State::Verifying;
+    }
     int availableVersion() const { return static_cast<int>(m_availableVersion); }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
