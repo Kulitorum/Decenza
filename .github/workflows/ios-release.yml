@@ -54,7 +54,7 @@ jobs:
           cache-key-prefix: 'qt-ios-v4'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.22
+        uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: ios-arm64
           max-size: 500M
