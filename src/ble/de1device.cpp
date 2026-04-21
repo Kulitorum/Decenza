@@ -156,10 +156,13 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
     } else if (uuid == DE1::Characteristic::READ_FROM_MMR) {
         parseMMRResponse(data);
     } else if (uuid == DE1::Characteristic::FW_MAP_REQUEST) {
+        qDebug().noquote() << "[firmware] A009 notify:" << data.toHex(' ');
         auto parsed = DE1::Firmware::parseFWMapNotification(data);
         if (parsed) {
             emit fwMapResponse(parsed->fwToErase, parsed->fwToMap,
                                QByteArray(reinterpret_cast<const char*>(parsed->firstError.data()), 3));
+        } else {
+            qWarning().noquote() << "[firmware] A009 notify too short to parse:" << data.size() << "bytes";
         }
     }
 }
@@ -1176,9 +1179,13 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 
 void DE1Device::writeFWMapRequest(uint8_t fwToErase, uint8_t fwToMap,
                                   std::array<uint8_t, 3> firstError) {
-    if (!m_transport) return;
-    m_transport->write(DE1::Characteristic::FW_MAP_REQUEST,
-                       DE1::Firmware::buildFWMapRequest(fwToErase, fwToMap, firstError));
+    if (!m_transport) {
+        qWarning() << "[firmware] writeFWMapRequest dropped: no transport";
+        return;
+    }
+    const QByteArray packet = DE1::Firmware::buildFWMapRequest(fwToErase, fwToMap, firstError);
+    qDebug().noquote() << "[firmware] A009 write FWMapRequest:" << packet.toHex(' ');
+    m_transport->write(DE1::Characteristic::FW_MAP_REQUEST, packet);
 }
 
 void DE1Device::writeFirmwareChunk(uint32_t address, const QByteArray& payload16) {
@@ -1196,7 +1203,11 @@ void DE1Device::writeFirmwareChunk(uint32_t address, const QByteArray& payload16
 }
 
 void DE1Device::subscribeFirmwareNotifications() {
-    if (!m_transport) return;
+    if (!m_transport) {
+        qWarning() << "[firmware] subscribeFirmwareNotifications dropped: no transport";
+        return;
+    }
+    qDebug() << "[firmware] subscribing to A009 (FW_MAP_REQUEST) notifications";
     m_transport->subscribe(DE1::Characteristic::FW_MAP_REQUEST);
 }
 

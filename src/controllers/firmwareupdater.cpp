@@ -371,8 +371,28 @@ void FirmwareUpdater::beginErasePhase() {
     setState(State::Erasing);
     m_device->subscribeFirmwareNotifications();
     m_device->writeFWMapRequest(/*erase*/ 1, /*map*/ 1);
-    m_eraseTimeoutTimer.start(m_eraseTimeoutMs);
     setProgress(0.02);  // visible motion as Phase 1 starts
+
+    // Match de1app's behaviour: don't gate the next phase on receiving the
+    // erase-complete notification. de1app sends the erase command and waits
+    // a fixed OS-appropriate delay (10 s Android / 1 s other) before
+    // starting the chunk pump — see de1_comms.tcl:913 / :920. The
+    // notifications are informational; if Android BLE drops the CCCD
+    // subscription or the DE1 doesn't emit them on this firmware, we
+    // would otherwise hang in Erasing forever waiting for a signal that
+    // never arrives. Use the post-erase timer as the single source of
+    // truth for "erase done, start uploading".
+    qCDebug(firmwareLog) << "[firmware] erase command sent, waiting"
+                         << m_postEraseWaitMs << "ms before chunk pump";
+    if (m_postEraseWaitMs <= 0) {
+        onPostEraseWaitComplete();
+    } else {
+        m_postEraseWaitTimer.start(m_postEraseWaitMs);
+    }
+    // Belt-and-suspenders: if even the post-erase wait expires without us
+    // having moved on (shouldn't happen, but a safety net), the erase
+    // timeout still fires.
+    m_eraseTimeoutTimer.start(m_eraseTimeoutMs);
 }
 
 void FirmwareUpdater::onEraseTimeout() {
@@ -452,24 +472,19 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
                                      QByteArray firstError) {
     Q_UNUSED(fwToMap);
 
+    qCDebug(firmwareLog).noquote()
+        << "[firmware] fwMapResponse received: erase=" << fwToErase
+        << "map=" << fwToMap << "firstError=" << firstError.toHex(' ');
+
     if (m_state == State::Erasing) {
+        // Per de1app, these are informational during the erase phase — we
+        // don't gate the post-erase wait on them anymore. Logged so we can
+        // see whether the DE1 is actually sending them on this firmware
+        // generation, and tracked so verify-phase logic can use the flag
+        // if needed.
         if (fwToErase == 1) {
-            // Erase started. Wait for the "erase complete" notify next.
             m_eraseInProgressSeen = true;
-            return;
         }
-        if (fwToErase == 0 && m_eraseInProgressSeen) {
-            // Erase complete. Wait for the OS-appropriate settle delay,
-            // then start streaming chunks.
-            m_eraseTimeoutTimer.stop();
-            if (m_postEraseWaitMs <= 0) {
-                onPostEraseWaitComplete();
-            } else {
-                m_postEraseWaitTimer.start(m_postEraseWaitMs);
-            }
-            return;
-        }
-        // Unexpected erase-notify shape — ignore.
         return;
     }
 
