@@ -325,7 +325,7 @@ ChartView {
     // Pressure/Flow axis (left Y)
     ValueAxis {
         id: pressureAxis
-        min: (chart.showConductanceDerivative && chart.advancedMode) ? -5 : 0
+        min: 0
         max: pressureAxisMax
         tickCount: 5
         labelFormat: "%.0f"
@@ -357,6 +357,41 @@ ChartView {
         visible: false
         min: 0
         max: maxWeight
+    }
+
+    // Hidden axis for dC/dt so it doesn't distort the pressure/flow axis.
+    // Range is dynamic: max snaps up from the data peak, min reserves ~20% of
+    // the axis for negative dips so they remain visible (matches the old
+    // behavior of dC/dt going below zero without warping pressure labels).
+    // Exact values are read via the inspect crosshair, not axis labels.
+    property double dCdtAxisMax: {
+        var maxVal = 0
+        for (var i = 0; i < conductanceDerivativeData.length; i++) {
+            if (conductanceDerivativeData[i].y > maxVal) maxVal = conductanceDerivativeData[i].y
+        }
+        var padded = maxVal * 1.15
+        if (padded <= 2) return 2
+        if (padded <= 3) return 3
+        if (padded <= 5) return 5
+        if (padded <= 8) return 8
+        if (padded <= 10) return 10
+        return Math.ceil(padded / 5) * 5
+    }
+
+    property double dCdtAxisMin: {
+        var minVal = 0
+        for (var i = 0; i < conductanceDerivativeData.length; i++) {
+            if (conductanceDerivativeData[i].y < minVal) minVal = conductanceDerivativeData[i].y
+        }
+        var reserved = dCdtAxisMax / 4  // 20% of plot below zero
+        return -Math.max(Math.abs(minVal) * 1.15, reserved)
+    }
+
+    ValueAxis {
+        id: dCdtAxis
+        visible: false
+        min: dCdtAxisMin
+        max: dCdtAxisMax
     }
 
     // === EXTRACTION START / STOP MARKERS (styled differently from frame markers) ===
@@ -507,7 +542,7 @@ ChartView {
         color: Theme.conductanceDerivativeColor
         width: Theme.scaled(2)
         axisX: timeAxis
-        axisY: pressureAxis
+        axisYRight: dCdtAxis
         visible: chart.showConductanceDerivative && chart.advancedMode
     }
 
