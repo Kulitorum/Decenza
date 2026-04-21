@@ -80,7 +80,7 @@ public:
     QString stateText() const;
     bool updateAvailable() const { return m_updateAvailable; }
     int availableVersion() const { return static_cast<int>(m_availableVersion); }
-    int installedVersion() const { return static_cast<int>(m_installedVersion); }
+    int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
     QString errorMessage() const { return m_errorMessage; }
     bool retryAvailable() const { return m_retryAvailable; }

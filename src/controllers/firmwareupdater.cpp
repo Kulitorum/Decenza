@@ -160,10 +160,14 @@ void FirmwareUpdater::setInstalledVersionProvider(std::function<uint32_t()> fn) 
     // fires once and is gone — there's no replay).
     if (m_installedVersionProvider) {
         const uint32_t v = m_installedVersionProvider();
+        qCDebug(firmwareLog) << "[firmware] provider wired, immediate pull returned"
+                             << v << "(was" << m_installedVersion << ")";
         if (v != m_installedVersion) {
             m_installedVersion = v;
             emit installedVersionChanged();
         }
+    } else {
+        qCDebug(firmwareLog) << "[firmware] provider cleared";
     }
 }
 
@@ -183,6 +187,12 @@ void FirmwareUpdater::setVerifyTimeoutMs(int ms)           { m_verifyTimeoutMs  
 void FirmwareUpdater::setVerifyDisconnectGraceMs(int ms)   { m_verifyDisconnectGraceMs   = ms; }
 
 // ---- Read-only state helpers -------------------------------------------
+
+int FirmwareUpdater::installedVersion() const {
+    qCDebug(firmwareLog) << "[firmware] installedVersion getter called, returning"
+                         << m_installedVersion;
+    return static_cast<int>(m_installedVersion);
+}
 
 QString FirmwareUpdater::stateText() const {
     switch (m_state) {

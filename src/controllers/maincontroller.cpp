@@ -299,6 +299,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_firmwareAssetCache = new DE1::Firmware::FirmwareAssetCache(this);
     m_firmwareAssetCache->setNetworkManager(m_networkManager);
     m_firmwareUpdater    = new FirmwareUpdater(m_device, m_firmwareAssetCache, this);
+    qDebug() << "[firmware] MainController wired FirmwareUpdater"
+             << "device=" << (m_device ? "ok" : "null")
+             << "device.firmwareBuildNumber=" << (m_device ? m_device->firmwareBuildNumber() : -1);
 
     m_firmwareUpdater->setInstalledVersionProvider([this]() -> uint32_t {
         if (!m_device) return 0;

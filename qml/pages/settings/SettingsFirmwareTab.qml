@@ -18,6 +18,11 @@ Item {
     readonly property var fw: typeof mainController !== "undefined" && mainController
                               ? mainController.firmwareUpdater : null
 
+    Component.onCompleted: {
+        console.log("[firmware] SettingsFirmwareTab loaded, fw=",
+                    fw, "installedVersion=", fw ? fw.installedVersion : "(no fw)")
+    }
+
     // FirmwareUpdater::State enum values (kept in sync with the C++ side
     // — Q_ENUM exposes them but using the integer is the simplest binding)
     readonly property int stateIdle:        0
