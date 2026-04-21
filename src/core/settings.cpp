@@ -3364,6 +3364,17 @@ void Settings::setBetaUpdatesEnabled(bool enabled) {
     }
 }
 
+bool Settings::firmwareNightlyChannel() const {
+    return m_settings.value("firmware/nightlyChannel", false).toBool();
+}
+
+void Settings::setFirmwareNightlyChannel(bool enabled) {
+    if (firmwareNightlyChannel() != enabled) {
+        m_settings.setValue("firmware/nightlyChannel", enabled);
+        emit firmwareNightlyChannelChanged();
+    }
+}
+
 int Settings::dailyBackupHour() const {
     return m_settings.value("backup/dailyBackupHour", -1).toInt();  // -1 = off
 }

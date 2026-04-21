@@ -191,6 +191,12 @@ class Settings : public QObject {
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
 
+    // DE1 firmware update channel. When false (default), firmware comes
+    // from fast.decentespresso.com/download/sync/de1plus; when true,
+    // from .../de1nightly. Independent from betaUpdatesEnabled, which
+    // controls the Decenza *app* update channel.
+    Q_PROPERTY(bool firmwareNightlyChannel READ firmwareNightlyChannel WRITE setFirmwareNightlyChannel NOTIFY firmwareNightlyChannelChanged)
+
     // Daily backup settings
     Q_PROPERTY(int dailyBackupHour READ dailyBackupHour WRITE setDailyBackupHour NOTIFY dailyBackupHourChanged)
 
@@ -712,6 +718,8 @@ public:
     void setAutoCheckUpdates(bool enabled);
     bool betaUpdatesEnabled() const;
     void setBetaUpdatesEnabled(bool enabled);
+    bool firmwareNightlyChannel() const;
+    void setFirmwareNightlyChannel(bool enabled);
 
     // Daily backup
     int dailyBackupHour() const;
@@ -1006,6 +1014,7 @@ signals:
     void autoFavoritesHideUnratedChanged();
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
+    void firmwareNightlyChannelChanged();
     void dailyBackupHourChanged();
     void exportShotsToFileChanged();
     void waterLevelDisplayUnitChanged();

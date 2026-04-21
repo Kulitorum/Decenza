@@ -298,6 +298,21 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // QProperty for QML.
     m_firmwareAssetCache = new DE1::Firmware::FirmwareAssetCache(this);
     m_firmwareAssetCache->setNetworkManager(m_networkManager);
+    if (m_settings) {
+        m_firmwareAssetCache->setChannel(m_settings->firmwareNightlyChannel()
+            ? DE1::Firmware::FirmwareAssetCache::Channel::Nightly
+            : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
+        connect(m_settings, &Settings::firmwareNightlyChannelChanged,
+                this, [this]() {
+            if (!m_firmwareAssetCache) return;
+            m_firmwareAssetCache->setChannel(m_settings->firmwareNightlyChannel()
+                ? DE1::Firmware::FirmwareAssetCache::Channel::Nightly
+                : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
+            // Re-check immediately so the UI reflects the new channel's
+            // available version without waiting for the weekly poll.
+            if (m_firmwareUpdater) m_firmwareUpdater->checkForUpdate();
+        });
+    }
     m_firmwareUpdater    = new FirmwareUpdater(m_device, m_firmwareAssetCache, this);
     qDebug() << "[firmware] MainController wired FirmwareUpdater"
              << "device=" << (m_device ? "ok" : "null")

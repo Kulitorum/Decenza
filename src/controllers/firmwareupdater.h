@@ -31,6 +31,7 @@ class FirmwareUpdater : public QObject {
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(QString stateText READ stateText NOTIFY stateChanged)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY availabilityChanged)
+    Q_PROPERTY(bool isDowngrade READ isDowngrade NOTIFY availabilityChanged)
     Q_PROPERTY(int availableVersion READ availableVersion NOTIFY availabilityChanged)
     Q_PROPERTY(int installedVersion READ installedVersion NOTIFY installedVersionChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
@@ -83,6 +84,10 @@ public:
     State state() const { return m_state; }
     QString stateText() const;
     bool updateAvailable() const { return m_updateAvailable; }
+    // True when the available firmware is *older* than what's installed.
+    // Mirrors de1app's "Firmware downgrade available" affordance: the user
+    // is allowed to flash it, but the UI should label it as a downgrade.
+    bool isDowngrade() const { return m_isDowngrade; }
     int availableVersion() const { return static_cast<int>(m_availableVersion); }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
@@ -132,6 +137,7 @@ private:
 
     State       m_state            = State::Idle;
     bool        m_updateAvailable  = false;
+    bool        m_isDowngrade      = false;
     uint32_t    m_availableVersion = 0;
     uint32_t    m_installedVersion = 0;
     double      m_progress         = 0.0;

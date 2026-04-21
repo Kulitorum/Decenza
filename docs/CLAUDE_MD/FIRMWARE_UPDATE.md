@@ -8,12 +8,12 @@ Decenza ships a built-in DE1 firmware updater that mirrors what the original `de
 
 Two buttons:
 
-- **Check now** — forces a check against Decent's GitHub for a newer firmware. Bypasses the once-per-week throttle.
+- **Check now** — forces a check against Decent's update CDN for a newer firmware. Bypasses the once-per-week throttle.
 - **Update now** — runs the three-phase flash. Disabled until a check has confirmed there's a new version available, and disabled mid-shot.
 
 ## What happens automatically
 
-- 30 seconds after the app starts (and at most once per 168 hours), Decenza checks `https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat` for a newer version. The check is a lightweight HTTP HEAD; on ETag change, a `Range: bytes=0-63` GET fetches only the 64-byte header for version comparison. The full body is only downloaded when you tap "Update now".
+- 30 seconds after the app starts (and at most once per 168 hours), Decenza checks the active firmware channel on `fast.decentespresso.com` for a newer version. The default (stable) channel is `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat`; the nightly channel, opt-in via the toggle in Settings → Firmware, is `.../de1nightly/fw/bootfwupdate.dat`. The check is a lightweight HTTP HEAD; on ETag change, a `Range: bytes=0-63` GET fetches only the 64-byte header for version comparison. The full body is only downloaded when you tap "Update now".
 - The remote `Version` is compared against `MMR 0x800010` (the firmware build number the DE1 reports over BLE). Strictly greater = newer.
 - Persistence: `firmware/lastCheckedAt` (epoch seconds) lives in `QSettings`.
 
@@ -53,14 +53,23 @@ Failure types and what they mean:
 | "Verification failed at block A.B.C" | DE1 detected corruption at byte offset A·B·C during verify | Retry. If it repeats, this is worth a bug report — include the block offset. |
 | "DE1 did not reconnect after verify" | Disconnected during verify, didn't come back within the 15 s ambiguous-verify grace window | Power-cycle the DE1 and reconnect; if the version reads as the new build, the update actually succeeded and we just missed the confirmation. |
 | "No response from DE1 during verify" | The 60 s verify timeout fired without a notification | Most commonly a missing subscribe before verify (fixed) or a bootloader that validated and rebooted without emitting a response (the ambiguous-verify path will catch this via post-reconnect version check). Retry is usually correct. |
-| "The firmware file is not valid. Please report this." | Downloaded `.dat` failed BoardMarker check | **Non-retryable.** GitHub probably served a corrupted file — this should never happen. Report it. |
+| "The firmware file is not valid. Please report this." | Downloaded `.dat` failed BoardMarker check | **Non-retryable.** The CDN probably served a corrupted file — this should never happen. Report it. |
 | "Finish current operation first" | Tried to update mid-shot/steam/flush/descale | End the current operation and tap Retry. |
 
 ## Where the firmware comes from
 
-`https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat` — Decent's own repository, no mirrors.
+Decent's own update CDN, the same host Tcl de1app uses. Two channels:
 
-The downloaded file is cached at `QStandardPaths::AppDataLocation/firmware/bootfwupdate.dat` with a sidecar `.meta.json` storing `{etag, version, downloadedAtEpoch}`. A subsequent check returns `304 Not Modified` from GitHub when the ETag hasn't changed, and we don't re-download.
+| Channel | URL | Who should pick it |
+|---|---|---|
+| Stable (default) | `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat` | Everyone, unless you have a reason to opt into pre-release firmware. |
+| Nightly (opt-in) | `https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat` | Testers who want what Decent's de1app users on the nightly channel get. |
+
+Decent's own `de1beta` channel is not wired — in practice it has not been updated reliably for a long time and tracks stable. Switching channels via the toggle wipes the local cache so the next check contacts the new endpoint fresh.
+
+**Downgrades are allowed**, matching de1app. If the remote firmware on the selected channel is *older* than what's on the DE1 (e.g. you flip nightly → stable after having flashed a nightly build), the Firmware tab labels the action as "Downgrade now" and shows a yellow strip with both the installed and the available version. `FirmwareUpdater::isDowngrade` exposes this to QML. The three-phase flash procedure is direction-agnostic: it writes whatever's in the cached `.dat`. The equality-only pre-flight guard at the start of Phase 1 only short-circuits when installed == downloaded.
+
+The downloaded file is cached at `QStandardPaths::AppDataLocation/firmware/bootfwupdate.dat` with a sidecar `.meta.json` storing `{etag, version, downloadedAtEpoch}`. A subsequent check returns `304 Not Modified` from the CDN when the ETag hasn't changed, and we don't re-download.
 
 ## What's validated client-side
 

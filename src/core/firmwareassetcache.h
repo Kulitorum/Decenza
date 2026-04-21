@@ -13,7 +13,11 @@
 #include "core/firmwareheader.h"
 
 // Downloads, caches, and validates the DE1 bootfwupdate.dat firmware
-// binary from Decent's GitHub (main branch of decentespresso/de1app).
+// binary from Decent's update CDN (fast.decentespresso.com), the same
+// host Tcl de1app uses. Two channels are exposed: Stable (de1plus) and
+// Nightly (de1nightly). Decent's "de1beta" channel is not wired because
+// Decent has stopped updating it reliably.
+//
 // A sidecar .meta.json file tracks the server ETag plus the version we
 // parsed out of the header, so subsequent checks can answer "is there
 // something new?" with a single HEAD + If-None-Match request.
@@ -120,14 +124,28 @@ class FirmwareAssetCache : public QObject {
     Q_OBJECT
 
 public:
-    // Upstream source — Decent's main branch. Kept here so tests and
-    // integration code can reference the same string, and so that a
-    // future change to the URL is a one-line edit.
-    static constexpr const char* FIRMWARE_URL =
-        "https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat";
+    // Release channel on fast.decentespresso.com. Mirrors the channel
+    // Tcl de1app selects via its app_updates_beta_enabled setting
+    // (Stable = de1plus, Nightly = de1nightly).
+    enum class Channel {
+        Stable  = 0,
+        Nightly = 1,
+    };
+    Q_ENUM(Channel)
+
+    // Upstream URLs for each channel. Kept here so a future change is a
+    // one-line edit and so the active URL can be inspected from tests.
+    static constexpr const char* FIRMWARE_URL_STABLE =
+        "https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat";
+    static constexpr const char* FIRMWARE_URL_NIGHTLY =
+        "https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat";
 
     struct CheckResult {
-        enum Kind { Newer, Same, Error };
+        // Newer: remote > installed (upgrade offered).
+        // Older: remote < installed (downgrade offered — matches de1app).
+        // Same:  remote == installed (nothing to do).
+        // Error: network/parse failure; errorDetail populated.
+        enum Kind { Newer, Same, Older, Error };
         Kind     kind          = Error;
         uint32_t remoteVersion = 0;
         QString  errorDetail;                // empty on success
@@ -146,6 +164,16 @@ public:
     // QStandardPaths::AppDataLocation/firmware). Tests point this at a
     // QTemporaryDir to isolate from the user's real cache.
     void setCacheRoot(const QString& absolutePath);
+
+    // Release channel. Switching channels wipes the on-disk cache so the
+    // next checkForUpdate()/downloadIfNeeded() contacts the new source.
+    // Default is Channel::Stable.
+    Channel channel() const { return m_channel; }
+    void setChannel(Channel channel);
+
+    // Current upstream URL (whichever channel is active). Exposed for
+    // diagnostics/tests; callers normally don't need to read this.
+    const char* currentUrl() const;
 
     QString cachePath() const;                // <root>/bootfwupdate.dat
     QString metaPath() const;                 // <root>/bootfwupdate.dat.meta.json
@@ -199,6 +227,7 @@ private:
     QFile*         m_downloadFile = nullptr;
     QByteArray     m_pendingEtag;             // ETag of in-flight HEAD response
     uint32_t       m_installedVersion = 0;
+    Channel        m_channel = Channel::Stable;
 };
 
 }  // namespace DE1::Firmware

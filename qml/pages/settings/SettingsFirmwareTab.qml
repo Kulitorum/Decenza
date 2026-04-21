@@ -80,11 +80,21 @@ Item {
                     }
                     Text {
                         visible: fw && fw.availableVersion > 0
-                        text: TranslationManager.translate(
-                                  "firmware.tab.available", "Available: v%1")
-                              .arg(fw ? fw.availableVersion : "—")
+                        text: {
+                            if (!fw) return ""
+                            if (fw.isDowngrade) {
+                                return TranslationManager.translate(
+                                    "firmware.tab.availableDowngrade",
+                                    "Available: v%1 (downgrade)")
+                                    .arg(fw.availableVersion)
+                            }
+                            return TranslationManager.translate(
+                                "firmware.tab.available", "Available: v%1")
+                                .arg(fw.availableVersion)
+                        }
                         color: fw && fw.updateAvailable
-                               ? Theme.accentColor : Theme.textSecondaryColor
+                               ? (fw.isDowngrade ? Theme.warningColor : Theme.accentColor)
+                               : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                         font.bold: fw && fw.updateAvailable
                     }
@@ -103,11 +113,61 @@ Item {
                 AccessibleButton {
                     Layout.preferredWidth: Theme.scaled(140)
                     Layout.preferredHeight: Theme.scaled(40)
-                    text: TranslationManager.translate(
-                              "firmware.tab.updateNow", "Update now")
+                    text: fw && fw.isDowngrade
+                          ? TranslationManager.translate(
+                                "firmware.tab.downgradeNow", "Downgrade now")
+                          : TranslationManager.translate(
+                                "firmware.tab.updateNow", "Update now")
                     accessibleName: text
                     enabled: fw && fw.updateAvailable && !firmwareTab.isWorking
                     onClicked: if (fw) fw.startUpdate()
+                }
+            }
+        }
+
+        // ----- Downgrade warning strip -----------------------------
+        // Surfaced whenever the available blob is older than what's
+        // installed, so a user flipping the channel toggle (e.g. nightly
+        // → stable) sees clearly that flashing will roll the DE1 back.
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(70)
+            visible: fw && fw.updateAvailable && fw.isDowngrade
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.warningColor
+            border.width: 1
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+
+                    Tr {
+                        key: "firmware.tab.downgradeHeader"
+                        fallback: "This is a downgrade"
+                        color: Theme.warningColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate(
+                                  "firmware.tab.downgradeDetail",
+                                  "Installed v%1 → available v%2. " +
+                                  "Flashing will roll the DE1 back. " +
+                                  "Continue only if you know why.")
+                              .arg(fw && fw.installedVersion > 0 ? fw.installedVersion : "—")
+                              .arg(fw ? fw.availableVersion : "—")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.Wrap
+                    }
                 }
             }
         }
@@ -226,6 +286,50 @@ Item {
             }
         }
 
+        // ----- Channel toggle --------------------------------------
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Theme.spacingMedium
+            spacing: Theme.spacingMedium
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(2)
+
+                Tr {
+                    key: "firmware.tab.nightlyChannel"
+                    fallback: "Use nightly firmware channel"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(13)
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate(
+                              "firmware.tab.nightlyChannelNote",
+                              "Off: stable (de1plus). On: nightly (de1nightly). " +
+                              "Nightly may include unreleased firmware that Decent " +
+                              "has not yet promoted to the stable channel.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    wrapMode: Text.Wrap
+                }
+            }
+
+            Switch {
+                id: nightlyChannelSwitch
+                checked: Settings.firmwareNightlyChannel
+                enabled: !firmwareTab.isWorking
+                onToggled: Settings.firmwareNightlyChannel = checked
+                Accessible.role: Accessible.CheckBox
+                Accessible.name: TranslationManager.translate(
+                                    "firmware.tab.nightlyChannel",
+                                    "Use nightly firmware channel")
+                Accessible.focusable: true
+            }
+        }
+
         // ----- Source / explanatory note --------------------------
 
         Text {
@@ -233,8 +337,8 @@ Item {
             Layout.topMargin: Theme.spacingMedium
             text: TranslationManager.translate(
                       "firmware.tab.sourceNote",
-                      "Firmware comes from Decent's official GitHub repository " +
-                      "(decentespresso/de1app). Auto-checks run weekly. " +
+                      "Firmware is fetched from Decent's update CDN " +
+                      "(fast.decentespresso.com). Auto-checks run weekly. " +
                       "The upload takes several minutes over Bluetooth — " +
                       "keep the app open and the DE1 connected until the " +
                       "update completes.")

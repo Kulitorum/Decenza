@@ -8,7 +8,7 @@ Decenza aims to be a complete replacement for Decent's original `de1app` (Tcl/Tk
 
 - Add a **firmware update capability**: detect, download, validate, and flash new DE1 firmware over BLE
 - Add `FirmwareUpdater` controller that owns the three-phase state machine (erase → upload → verify) as a peer of `SteamCalibrator` and `UpdateChecker` under `MainController`
-- Add `FirmwareAssetCache` service that downloads the firmware binary from Decent's GitHub (`main` branch of `decentespresso/de1app`), validates its 64-byte header (`BoardMarker == 0xDE100001` plus file-size ≥ `ByteCount + 64`), and caches it under `QStandardPaths::AppDataLocation/firmware/`. Payload-level checksum validation is deferred pending a protocol question to Decent (`TODO(firmware-crc)` marker); the DE1's own verify-phase response is the authoritative correctness check
+- Add `FirmwareAssetCache` service that downloads the firmware binary from Decent's update CDN (`fast.decentespresso.com`, the same host Tcl de1app uses), validates its 64-byte header (`BoardMarker == 0xDE100001` plus file-size ≥ `ByteCount + 64`), and caches it under `QStandardPaths::AppDataLocation/firmware/`. Two channels are exposed: **Stable** (`de1plus`, default) and **Nightly** (`de1nightly`, opt-in). Decent's `de1beta` channel is omitted because it is not updated reliably. Payload-level checksum validation is deferred pending a protocol question to Decent (`TODO(firmware-crc)` marker); the DE1's own verify-phase response is the authoritative correctness check
 - Add packet builders (`src/ble/protocol/firmwarepackets.h`) for `FWMapRequest` (A009) and firmware chunks (A006, opcode `0x10`)
 - Extend `DE1Device` with `writeFWMapRequest()`, `writeFirmwareChunk()`, on-demand A009 subscribe/unsubscribe, and an `fwMapResponse` signal — **no state-machine logic inside `DE1Device`**
 - Add home-screen **`FirmwareBanner.qml`** (dismissible, per-version) and **`SettingsFirmwareTab.qml`** (full flow with progress, retry, error surfaces)
@@ -36,5 +36,5 @@ Decenza aims to be a complete replacement for Decent's original `de1app` (Tcl/Tk
   - `docs/CLAUDE_MD/FIRMWARE_UPDATE.md` (new operator reference)
   - `docs/DE1_BLE_PROTOCOL.md` (extend with A009 section)
 - **Non-breaking:** zero changes to existing shot processing, profile system, or BLE flows.
-- **New outbound network dependency:** `raw.githubusercontent.com` (for firmware download). Worth noting in any privacy / release documentation.
+- **New outbound network dependency:** `fast.decentespresso.com` (for firmware download). Worth noting in any privacy / release documentation.
 - **Binary size:** unchanged — firmware is downloaded on demand, not bundled.

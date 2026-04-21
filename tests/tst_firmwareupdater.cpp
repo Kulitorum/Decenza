@@ -242,6 +242,23 @@ private slots:
         QVERIFY(!f.updater.updateAvailable());
     }
 
+    void olderRemoteSetsDowngradeAvailability() {
+        // Mirrors de1app's "Firmware downgrade available" UX: when the
+        // cached firmware is strictly older than what's on the DE1 (e.g.
+        // user flipped channel nightly → stable), updateAvailable still
+        // becomes true and isDowngrade is set.
+        Fixture f;
+        f.updater.setInstalledVersionProvider([]{ return uint32_t(1352); });
+        DE1::Firmware::FirmwareAssetCache::CheckResult r;
+        r.kind          = DE1::Firmware::FirmwareAssetCache::CheckResult::Older;
+        r.remoteVersion = 1333;
+        emit f.cache.checkFinished(r);
+
+        QVERIFY(f.updater.updateAvailable());
+        QVERIFY(f.updater.isDowngrade());
+        QCOMPARE(f.updater.availableVersion(), 1333);
+    }
+
     void dismissedBannerReappearsOnNewerVersion() {
         Fixture f;
         DE1::Firmware::FirmwareAssetCache::CheckResult r;

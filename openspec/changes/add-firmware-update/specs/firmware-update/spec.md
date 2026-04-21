@@ -4,7 +4,12 @@
 
 ### Requirement: Firmware availability detection
 
-The system SHALL periodically check for new DE1 firmware on the upstream source (`https://raw.githubusercontent.com/decentespresso/de1app/main/de1plus/fw/bootfwupdate.dat`) and compare the remote firmware version against the connected DE1's installed version (read from `MMR 0x800010`). The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running. The check SHALL minimise bandwidth: an `HTTP HEAD` with `If-None-Match` SHALL be issued first, and only when the `ETag` has changed SHALL the system fetch the 64-byte firmware header via `Range: bytes=0-63` to read the remote `BoardMarker` and `Version`. The full firmware payload SHALL NOT be downloaded until the user initiates an update.
+The system SHALL periodically check for new DE1 firmware on Decent's update CDN and compare the remote firmware version against the connected DE1's installed version (read from `MMR 0x800010`). Two channels are supported:
+
+- **Stable** (default): `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat`
+- **Nightly** (opt-in via the `firmware/nightlyChannel` setting): `https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat`
+
+The check SHALL be performed at app startup (30 s after the main window is shown) and once per 168 hours thereafter while the app is running. The check SHALL minimise bandwidth: an `HTTP HEAD` with `If-None-Match` SHALL be issued first, and only when the `ETag` has changed SHALL the system fetch the 64-byte firmware header via `Range: bytes=0-63` to read the remote `BoardMarker` and `Version`. The full firmware payload SHALL NOT be downloaded until the user initiates an update.
 
 #### Scenario: Newer firmware available
 
@@ -17,6 +22,13 @@ The system SHALL periodically check for new DE1 firmware on the upstream source 
 - **WHEN** the remote file's header version equals the installed version
 - **THEN** no banner is shown
 - **AND** no user-visible state changes
+
+#### Scenario: Older firmware on remote (downgrade offered)
+
+- **WHEN** the remote file's header version is strictly less than the installed version (for example, after the user toggles the channel from nightly to stable)
+- **THEN** `firmwareUpdater.updateAvailable` evaluates to `true`
+- **AND** `firmwareUpdater.isDowngrade` evaluates to `true`
+- **AND** the UI labels the action as a downgrade and displays both the installed and the available versions so the user understands what flashing will do
 
 #### Scenario: Network unavailable during check
 
@@ -37,6 +49,14 @@ The system SHALL periodically check for new DE1 firmware on the upstream source 
 - **WHEN** the user taps the dismiss control on the availability banner
 - **THEN** `firmware/dismissedVersion` in `QSettings` is set to the current remote version
 - **AND** the banner does not reappear until a strictly newer remote version is detected
+
+#### Scenario: Channel switch invalidates cache
+
+- **GIVEN** the cache holds a firmware blob downloaded from the previously-selected channel
+- **WHEN** the user toggles `firmware/nightlyChannel`
+- **THEN** the cached firmware file and its `.meta.json` sidecar are deleted
+- **AND** the next availability check contacts the newly-selected channel's URL
+- **AND** the `ETag`/`Version` from the old channel is not reused against the new channel
 
 ### Requirement: Firmware download and validation
 
@@ -99,9 +119,10 @@ The system SHALL execute a three-phase flash procedure (erase, upload, verify) a
 
 #### Scenario: Precondition — version race
 
-- **WHEN** the pre-flight re-read of `MMR 0x800010` shows the installed version already matches or exceeds the downloaded version
+- **WHEN** the pre-flight re-read of `MMR 0x800010` shows the installed version exactly equals the downloaded version
 - **THEN** the flow transitions to `Succeeded` without issuing an erase
 - **AND** the banner is cleared
+- **NOTE:** an installed version that is *greater* than the downloaded version is a deliberate downgrade and SHALL proceed with the flash.
 - **AND** the outcome is logged as `race` to aid future debugging
 
 #### Scenario: Progress reporting

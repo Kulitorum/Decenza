@@ -334,8 +334,15 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     // Simulator never offers updates regardless of remote state — the DE1
     // simulator class isn't a real flashable device and we'd hang trying.
     const bool simulator = m_device && m_device->simulationMode();
-    if (result.kind == FirmwareAssetCache::CheckResult::Newer && !simulator) {
-        if (result.remoteVersion > m_dismissedVersion) {
+    const bool offersFlash =
+        (result.kind == FirmwareAssetCache::CheckResult::Newer ||
+         result.kind == FirmwareAssetCache::CheckResult::Older) && !simulator;
+    m_isDowngrade = (result.kind == FirmwareAssetCache::CheckResult::Older);
+    if (offersFlash) {
+        // The dismissed-version pin applies to both directions: once the
+        // user hides the banner for a given remote version, don't re-open
+        // it until the remote version changes (in either direction).
+        if (result.remoteVersion != m_dismissedVersion) {
             m_dismissedVersion = 0;
             m_updateAvailable  = true;
         } else {
@@ -347,9 +354,11 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
     qCDebug(firmwareLog).noquote()
         << "[firmware] check finished: remote=" << result.remoteVersion
         << " kind=" << (result.kind == FirmwareAssetCache::CheckResult::Newer ? "Newer"
+                       : result.kind == FirmwareAssetCache::CheckResult::Older ? "Older"
                        : result.kind == FirmwareAssetCache::CheckResult::Same  ? "Same"
                                                                                 : "Error")
         << " updateAvailable=" << m_updateAvailable
+        << " isDowngrade=" << m_isDowngrade
         << (result.errorDetail.isEmpty() ? QString() : QStringLiteral(" err=") + result.errorDetail);
     emit availabilityChanged();
     setState(State::Idle);
@@ -360,11 +369,15 @@ void FirmwareUpdater::onDownloadFinished(QString path, Header header) {
     Q_UNUSED(header);
     if (m_state != State::Downloading) return;
 
-    // Race guard: re-read installed version; if already >= available, skip.
+    // Race guard: re-read installed version. If it *equals* the cached
+    // header's version, there's nothing to do — short-circuit to Succeeded.
+    // A strict mismatch (newer *or* older) proceeds: de1app allows
+    // downgrades (matching channel swap: nightly → stable), so we only
+    // bail on true equality, not on "installed >= available".
     const uint32_t currentInstalled = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
     m_installedVersion = currentInstalled;
-    if (currentInstalled >= header.version) {
+    if (currentInstalled == header.version) {
         m_updateAvailable = false;
         emit availabilityChanged();
         setState(State::Succeeded);

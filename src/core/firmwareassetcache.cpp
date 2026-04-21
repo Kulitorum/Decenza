@@ -53,6 +53,20 @@ void FirmwareAssetCache::setCacheRoot(const QString& absolutePath) {
     m_cacheRoot = absolutePath;
 }
 
+const char* FirmwareAssetCache::currentUrl() const {
+    return m_channel == Channel::Nightly ? FIRMWARE_URL_NIGHTLY
+                                         : FIRMWARE_URL_STABLE;
+}
+
+void FirmwareAssetCache::setChannel(Channel channel) {
+    if (m_channel == channel) return;
+    m_channel = channel;
+    // Switching channels invalidates any cached blob: the two endpoints
+    // serve different firmware revisions, and their ETags are unrelated.
+    // Wipe everything so the next check/download starts from scratch.
+    clearCache();
+}
+
 QString FirmwareAssetCache::cachePath() const {
     ensureCacheDir();
     return QDir(m_cacheRoot).filePath(QStringLiteral("bootfwupdate.dat"));
@@ -157,7 +171,7 @@ void FirmwareAssetCache::checkForUpdate(uint32_t installedVersion) {
         m_ownsManager = true;
     }
 
-    QNetworkRequest req{QUrl(QString::fromLatin1(FIRMWARE_URL))};
+    QNetworkRequest req{QUrl(QString::fromLatin1(currentUrl()))};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     if (!m_meta.etag.isEmpty()) {
@@ -199,7 +213,10 @@ void FirmwareAssetCache::onHeadReplyFinished() {
         reply->deleteLater();
         CheckResult r;
         r.kind          = (m_meta.version > m_installedVersion)
-                          ? CheckResult::Newer : CheckResult::Same;
+                          ? CheckResult::Newer
+                          : (m_meta.version < m_installedVersion)
+                            ? CheckResult::Older
+                            : CheckResult::Same;
         r.remoteVersion = m_meta.version;
         emit checkFinished(r);
         return;
@@ -213,7 +230,7 @@ void FirmwareAssetCache::onHeadReplyFinished() {
 }
 
 void FirmwareAssetCache::issueHeaderRangeRequest(const QByteArray& newEtag) {
-    QNetworkRequest req{QUrl(QString::fromLatin1(FIRMWARE_URL))};
+    QNetworkRequest req{QUrl(QString::fromLatin1(currentUrl()))};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setRawHeader("Range", headerRangeBytes());
@@ -258,7 +275,10 @@ void FirmwareAssetCache::onHeaderRangeReplyFinished() {
     CheckResult r;
     r.remoteVersion = parsed->version;
     r.kind = (parsed->version > m_installedVersion)
-             ? CheckResult::Newer : CheckResult::Same;
+             ? CheckResult::Newer
+             : (parsed->version < m_installedVersion)
+               ? CheckResult::Older
+               : CheckResult::Same;
     emit checkFinished(r);
 }
 
@@ -285,7 +305,7 @@ void FirmwareAssetCache::downloadIfNeeded() {
         m_ownsManager = true;
     }
 
-    QNetworkRequest req{QUrl(QString::fromLatin1(FIRMWARE_URL))};
+    QNetworkRequest req{QUrl(QString::fromLatin1(currentUrl()))};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
 
