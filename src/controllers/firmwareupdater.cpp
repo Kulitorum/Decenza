@@ -348,6 +348,23 @@ void FirmwareUpdater::checkForUpdate() {
     // versions, channel state). Only the actual flash is blocked — see
     // startUpdate().
     if (m_state == State::Checking) return;
+    // Refuse while a flash is actually running. The periodic check fires
+    // 30 s after app launch — if the user tapped "Update now" within that
+    // window (as happens on first use after an app self-update), the check
+    // would setState(Checking), blow away the in-flight Erasing/Uploading/
+    // Verifying/AwaitingReboot state machine, leave the DE1Device
+    // firmware-flash MMR guard stuck engaged, and silently stall the flash
+    // while the user thinks it's running. Skip the check — the user will
+    // see fresh installed/available numbers on the next tick after the
+    // flash completes.
+    if (m_state == State::Erasing || m_state == State::Uploading ||
+        m_state == State::Verifying || m_state == State::AwaitingReboot) {
+        qCDebug(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] check skipped (flash in progress, state="
+            << stateText() << ")";
+        return;
+    }
     if (!m_updateTimer.isValid()) m_updateTimer.start();  // reset for a fresh check
     const uint32_t installed = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
