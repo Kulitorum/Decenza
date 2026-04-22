@@ -23,7 +23,11 @@ function getSearchEntries(tr) {
           description: tr("settings.search.scaleConnectionDesc", "Pair a Bluetooth scale or refractometer"),
           keywords: ["scale", "acaia", "decent", "felicita", "weight", "pair", "tds", "refractometer", "atago"] },
 
-        // Screensaver (auto-sleep and auto-wake moved from Machine tab)
+        // Screensaver — auto-sleep and auto-wake also live on the Screensaver tab
+        { tabId: "screensaver", cardId: "screensaver",
+          title: tr("settings.screensaver.settings", "Screensaver Settings"),
+          description: tr("settings.search.screensaverDesc", "Choose screensaver type and settings"),
+          keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim"] },
         { tabId: "screensaver", cardId: "autoSleep",
           title: tr("settings.preferences.autoSleep", "Auto-Sleep"),
           description: tr("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity"),
@@ -162,12 +166,6 @@ function getSearchEntries(tr) {
           title: tr("settings.layout.title", "Home Screen Layout"),
           description: tr("settings.search.layoutDesc", "Customize idle screen widgets and zones"),
           keywords: ["layout", "widget", "zone", "customize", "idle", "home", "editor"] },
-
-        // Screensaver
-        { tabId: "screensaver", cardId: "screensaver",
-          title: tr("settings.screensaver.settings", "Screensaver Settings"),
-          description: tr("settings.search.screensaverDesc", "Choose screensaver type and settings"),
-          keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim"] },
 
         // Visualizer
         { tabId: "visualizer", cardId: "visualizer",

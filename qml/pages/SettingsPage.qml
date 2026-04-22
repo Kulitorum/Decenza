@@ -194,7 +194,6 @@ Page {
         }
     }
 
-    // Tab content area - all tabs preload in background
     StackLayout {
         id: tabContent
         anchors.top: tabBar.bottom
@@ -283,6 +282,15 @@ Page {
             keyboardOffset = 0
         }
 
+        function doSave(name) {
+            Settings.saveCurrentTheme(name)
+            var themesLoader = tabLoaders.itemAt(SettingsTabs.indexOf("themes"))
+            if (themesLoader && themesLoader.item && themesLoader.item.refreshPresets) {
+                themesLoader.item.refreshPresets()
+            }
+            saveThemeDialog.close()
+        }
+
         ColumnLayout {
             anchors.fill: parent
             spacing: Theme.spacingMedium
@@ -303,10 +311,9 @@ Page {
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
                     Qt.inputMethod.commit()
-                    if (saveThemeDialog.themeName.trim().length > 0) {
-                        Settings.saveCurrentTheme(saveThemeDialog.themeName.trim())
-                        if (themesLoader.item) themesLoader.item.refreshPresets()
-                        saveThemeDialog.close()
+                    var name = saveThemeDialog.themeName.trim()
+                    if (name.length > 0 && name !== "Default") {
+                        saveThemeDialog.doSave(name)
                     }
                 }
             }
@@ -332,9 +339,7 @@ Page {
                         Qt.inputMethod.commit()
                         var name = saveThemeDialog.themeName.trim()
                         if (name.length > 0 && name !== "Default") {
-                            Settings.saveCurrentTheme(name)
-                            if (themesLoader.item) themesLoader.item.refreshPresets()
-                            saveThemeDialog.close()
+                            saveThemeDialog.doSave(name)
                         }
                     }
                 }
