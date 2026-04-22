@@ -46,6 +46,10 @@ class FirmwareUpdater : public QObject {
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged)
     Q_PROPERTY(bool retryAvailable READ retryAvailable NOTIFY stateChanged)
+    // True when we're in AwaitingReboot and the auto-reboot grace window
+    // has expired without the DE1 disconnecting. The UI surfaces a
+    // "power-cycle the DE1" instruction when this is true.
+    Q_PROPERTY(bool needsManualReboot READ needsManualReboot NOTIFY needsManualRebootChanged)
 
 public:
     enum class State {
@@ -57,7 +61,15 @@ public:
         Uploading,
         Verifying,
         Succeeded,
-        Failed
+        Failed,
+        // The bootloader confirmed the new bank verifies, but the DE1 hasn't
+        // actually booted into it yet. Modern firmware auto-reboots on
+        // upgrade; downgrades (and possibly other edge cases) don't, and
+        // require the user to power-cycle the machine. We stay in this state
+        // until the DE1 disconnects + reconnects reporting the expected
+        // version. Added after #822 — appending rather than inserting so
+        // existing numeric values are stable for QML/tests.
+        AwaitingReboot
     };
     Q_ENUM(State)
 
@@ -87,6 +99,7 @@ public:
     void setVerifyTimeoutMs(int ms);          // default 60000
     void setVerifyDisconnectGraceMs(int ms);  // default 15000
     void setPostUploadSettleMs(int ms);       // default 1500
+    void setAutoRebootWaitMs(int ms);         // default 30000
 
     // Read-only state -----------------------------------------------
 
@@ -101,8 +114,10 @@ public:
     bool isFlashing() const {
         return m_state == State::Erasing ||
                m_state == State::Uploading ||
-               m_state == State::Verifying;
+               m_state == State::Verifying ||
+               m_state == State::AwaitingReboot;
     }
+    bool needsManualReboot() const { return m_needsManualReboot; }
     int availableVersion() const { return static_cast<int>(m_availableVersion); }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
@@ -129,6 +144,7 @@ signals:
     void progressChanged();
     void installedVersionChanged();
     void isSimulatedChanged();
+    void needsManualRebootChanged();
 
 private slots:
     void onCheckFinished(DE1::Firmware::FirmwareAssetCache::CheckResult result);
@@ -144,6 +160,7 @@ private slots:
     void onEraseTimeout();
     void onVerifyTimeout();
     void onVerifyDisconnectGrace();
+    void onAutoRebootWaitTimeout();
 
 private:
     void setState(State newState);
@@ -199,6 +216,14 @@ private:
     bool        m_verifyingAmbiguous    = false;
     QTimer      m_verifyDisconnectGrace;
     int         m_verifyDisconnectGraceMs = 15000;
+
+    // Auto-reboot wait: after verify succeeds, we wait this long for the
+    // DE1 to disconnect on its own (signalling auto-reboot). If it stays
+    // connected past the window, needsManualReboot flips true so the UI
+    // prompts the user to power-cycle.
+    QTimer      m_autoRebootWaitTimer;
+    int         m_autoRebootWaitMs     = 30000;
+    bool        m_needsManualReboot    = false;
 
     QTimer      m_postEraseWaitTimer;
     QTimer      m_chunkPumpTimer;

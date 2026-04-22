@@ -70,6 +70,7 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
     m_eraseTimeoutTimer.setSingleShot(true);
     m_verifyTimeoutTimer.setSingleShot(true);
     m_verifyDisconnectGrace.setSingleShot(true);
+    m_autoRebootWaitTimer.setSingleShot(true);
     m_chunkPumpTimer.setInterval(m_chunkPumpIntervalMs);
 
     connect(&m_postEraseWaitTimer, &QTimer::timeout,
@@ -82,6 +83,8 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
             this, &FirmwareUpdater::onVerifyTimeout);
     connect(&m_verifyDisconnectGrace, &QTimer::timeout,
             this, &FirmwareUpdater::onVerifyDisconnectGrace);
+    connect(&m_autoRebootWaitTimer, &QTimer::timeout,
+            this, &FirmwareUpdater::onAutoRebootWaitTimeout);
 
     if (m_cache) {
         connect(m_cache, &FirmwareAssetCache::checkFinished,
@@ -125,6 +128,38 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
         qCDebug(firmwareLog) << "[firmware] installed version refreshed:" << v;
         emit installedVersionChanged();
     }
+
+    // Post-reboot version arrival confirms AwaitingReboot/verify-reconnect
+    // outcome. onDeviceConnectionChanged runs at BLE connect, but on a real
+    // DE1 the MMR 0x800010 read that feeds this version number lands after
+    // the connect signal, so the connect-time check misses it. Catch the
+    // version arrival here so we don't time out the grace window while the
+    // DE1 is actually running the new firmware — or while it's running the
+    // old firmware and we should tell the user to power-cycle.
+    if (m_verifyingAmbiguous && v > 0) {
+        if (v >= m_availableVersion) {
+            completeSuccess();  // clears flags + timers
+        } else {
+            // DE1 booted into the old firmware. Escalate to power-cycle
+            // prompt rather than waiting for the grace-timeout failure.
+            m_verifyDisconnectGrace.stop();
+            m_autoRebootWaitTimer.stop();
+            if (m_state != State::AwaitingReboot) {
+                setProgress(1.0);
+                setState(State::AwaitingReboot);
+            }
+            if (!m_needsManualReboot) {
+                m_needsManualReboot = true;
+                emit needsManualRebootChanged();
+                qCWarning(firmwareLog).noquote()
+                    << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+                    << "[firmware] DE1 reports old version" << v
+                    << "after flash — prompting user to power-cycle";
+            }
+            // Leave m_verifyingAmbiguous=true so a later disconnect+
+            // reconnect after the user power-cycles re-runs the check.
+        }
+    }
 }
 
 void FirmwareUpdater::onDeviceConnectionChanged() {
@@ -133,18 +168,45 @@ void FirmwareUpdater::onDeviceConnectionChanged() {
     // Reconnect path. If we were in ambiguous-verify (disconnected during
     // the verify phase, which commonly means a successful post-flash
     // reboot rather than a real failure), re-read the installed version
-    // and decide: match → retroactive success; mismatch → keep waiting
-    // for more version updates; timeout → fail.
+    // and decide: match → retroactive success; still old version →
+    // escalate to "please power-cycle" rather than failing silently. The
+    // installed version here may lag by a few hundred ms while the
+    // post-reconnect MMR 0x800010 read completes; onDeviceFirmwareVersionChanged
+    // provides the later confirmation path for the racy case.
     if (m_device->isConnected()) {
         if (m_verifyingAmbiguous) {
             const uint32_t installed = m_installedVersionProvider
                 ? m_installedVersionProvider() : m_installedVersion;
             m_installedVersion = installed;
-            if (installed >= m_availableVersion) {
-                m_verifyingAmbiguous = false;
+            if (installed >= m_availableVersion && installed > 0) {
+                completeSuccess();  // clears m_verifyingAmbiguous + timers
+            } else if (installed > 0 && installed < m_availableVersion) {
+                // Flash succeeded at the protocol level (verify returned
+                // FFFFFD), DE1 disconnected and reconnected — but it's
+                // running the old firmware. Common for downgrades where
+                // the bootloader won't auto-swap. Don't fail: tell the
+                // user to power-cycle and wait for the next disconnect.
                 m_verifyDisconnectGrace.stop();
-                completeSuccess();
+                m_autoRebootWaitTimer.stop();
+                if (m_state != State::AwaitingReboot) {
+                    setProgress(1.0);
+                    setState(State::AwaitingReboot);
+                }
+                if (!m_needsManualReboot) {
+                    m_needsManualReboot = true;
+                    emit needsManualRebootChanged();
+                    qCWarning(firmwareLog).noquote()
+                        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+                        << "[firmware] reconnected with old version"
+                        << installed << "— prompting user to power-cycle";
+                }
+                // Leave m_verifyingAmbiguous=true so the next disconnect+
+                // reconnect (after the user power-cycles) runs the check
+                // again via this same path.
             }
+            // installed == 0: MMR not yet read. Wait for
+            // onDeviceFirmwareVersionChanged or verifyDisconnectGrace
+            // to decide.
         }
         return;
     }
@@ -158,12 +220,14 @@ void FirmwareUpdater::onDeviceConnectionChanged() {
                      /*retryable*/ true);
             break;
         case State::Verifying:
-            // Ambiguous — don't classify yet. Open a 15 s grace window to
-            // see whether the device comes back reporting the new version
-            // (successful reboot) or stays away / comes back with the old
-            // version (genuine failure).
+        case State::AwaitingReboot:
+            // Ambiguous — don't classify yet. Open the grace window to see
+            // whether the device comes back reporting the new version
+            // (successful reboot, either auto or user-initiated) or stays
+            // away / comes back with the old version (genuine failure).
             m_verifyingAmbiguous = true;
             m_verifyTimeoutTimer.stop();
+            m_autoRebootWaitTimer.stop();
             m_verifyDisconnectGrace.start(m_verifyDisconnectGraceMs);
             break;
         default:
@@ -220,6 +284,7 @@ void FirmwareUpdater::setEraseTimeoutMs(int ms)            { m_eraseTimeoutMs   
 void FirmwareUpdater::setVerifyTimeoutMs(int ms)           { m_verifyTimeoutMs           = ms; }
 void FirmwareUpdater::setVerifyDisconnectGraceMs(int ms)   { m_verifyDisconnectGraceMs   = ms; }
 void FirmwareUpdater::setPostUploadSettleMs(int ms)        { m_postUploadSettleMs        = ms; }
+void FirmwareUpdater::setAutoRebootWaitMs(int ms)          { m_autoRebootWaitMs          = ms; }
 
 // ---- Read-only state helpers -------------------------------------------
 
@@ -233,15 +298,16 @@ bool FirmwareUpdater::isSimulated() const {
 
 QString FirmwareUpdater::stateText() const {
     switch (m_state) {
-        case State::Idle:        return QStringLiteral("Idle");
-        case State::Checking:    return QStringLiteral("Checking for update");
-        case State::Downloading: return QStringLiteral("Downloading firmware");
-        case State::Ready:       return QStringLiteral("Ready to install");
-        case State::Erasing:     return QStringLiteral("Erasing flash");
-        case State::Uploading:   return QStringLiteral("Uploading firmware");
-        case State::Verifying:   return QStringLiteral("Verifying");
-        case State::Succeeded:   return QStringLiteral("Update complete");
-        case State::Failed:      return QStringLiteral("Update failed");
+        case State::Idle:           return QStringLiteral("Idle");
+        case State::Checking:       return QStringLiteral("Checking for update");
+        case State::Downloading:    return QStringLiteral("Downloading firmware");
+        case State::Ready:           return QStringLiteral("Ready to install");
+        case State::Erasing:        return QStringLiteral("Erasing flash");
+        case State::Uploading:      return QStringLiteral("Uploading firmware");
+        case State::Verifying:      return QStringLiteral("Verifying");
+        case State::Succeeded:      return QStringLiteral("Update complete");
+        case State::Failed:         return QStringLiteral("Update failed");
+        case State::AwaitingReboot: return QStringLiteral("Waiting for DE1 to restart");
     }
     return QString();
 }
@@ -288,6 +354,17 @@ void FirmwareUpdater::checkForUpdate() {
 
 void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
+
+    // Reset carry-over state from any prior attempt (e.g. a previous
+    // verify-disconnect-grace failure) so residual flags don't corrupt the
+    // next cycle's ambiguous-verify/AwaitingReboot logic.
+    m_verifyingAmbiguous = false;
+    m_verifyDisconnectGrace.stop();
+    m_autoRebootWaitTimer.stop();
+    if (m_needsManualReboot) {
+        m_needsManualReboot = false;
+        emit needsManualRebootChanged();
+    }
 
     // Simulator: refuse any flash so we don't stream fake bytes onto a
     // pretend BLE channel and confuse the state machine. The QML gates
@@ -641,7 +718,16 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
         m_verifyTimeoutTimer.stop();
         const QByteArray expected = QByteArray::fromHex("FFFFFD");
         if (firstError == expected) {
-            completeSuccess();
+            // Don't claim success yet. The bootloader says the new bank
+            // verifies, but modern firmware only auto-reboots on upgrades —
+            // downgrades (and possibly other edge cases) stay on the old
+            // firmware until the user power-cycles. Enter AwaitingReboot
+            // and wait for an actual disconnect + reconnect with the
+            // expected version before calling completeSuccess().
+            m_verifyingAmbiguous = true;
+            m_autoRebootWaitTimer.start(m_autoRebootWaitMs);
+            setProgress(1.0);
+            setState(State::AwaitingReboot);
         } else {
             const QString detail = QStringLiteral(
                 "Verification failed at block %1.%2.%3"
@@ -654,6 +740,20 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
     }
 }
 
+void FirmwareUpdater::onAutoRebootWaitTimeout() {
+    // We're still connected after the auto-reboot window. The DE1 isn't
+    // going to reboot on its own — tell the user to power-cycle. When they
+    // do, the disconnect handler picks it up via the same
+    // verifyingAmbiguous path as a clean auto-reboot.
+    if (m_state != State::AwaitingReboot) return;
+    if (m_needsManualReboot) return;
+    m_needsManualReboot = true;
+    emit needsManualRebootChanged();
+    qCWarning(firmwareLog).noquote()
+        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+        << "[firmware] auto-reboot window expired — prompting user to power-cycle";
+}
+
 void FirmwareUpdater::onPostEraseWaitComplete() {
     if (m_state != State::Erasing) return;
     beginUploadPhase();
@@ -661,6 +761,13 @@ void FirmwareUpdater::onPostEraseWaitComplete() {
 
 void FirmwareUpdater::completeSuccess() {
     if (m_device) m_device->setFirmwareFlashInProgress(false);
+    m_autoRebootWaitTimer.stop();
+    m_verifyDisconnectGrace.stop();
+    m_verifyingAmbiguous = false;
+    if (m_needsManualReboot) {
+        m_needsManualReboot = false;
+        emit needsManualRebootChanged();
+    }
     setProgress(1.0);
     setState(State::Succeeded);
     m_updateAvailable = false;
@@ -683,6 +790,13 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
     m_verifyTimeoutTimer.stop();
     m_postEraseWaitTimer.stop();
     m_chunkPumpTimer.stop();
+    m_autoRebootWaitTimer.stop();
+    m_verifyDisconnectGrace.stop();
+    m_verifyingAmbiguous = false;
+    if (m_needsManualReboot) {
+        m_needsManualReboot = false;
+        emit needsManualRebootChanged();
+    }
     m_errorMessage   = reason;
     m_retryAvailable = retryable;
     setState(State::Failed);
