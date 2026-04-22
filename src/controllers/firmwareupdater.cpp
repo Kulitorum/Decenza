@@ -128,6 +128,19 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
         qCDebug(firmwareLog) << "[firmware] installed version refreshed:" << v;
         emit installedVersionChanged();
     }
+
+    // Post-reboot version confirms AwaitingReboot/verify-reconnect success.
+    // onDeviceConnectionChanged runs at BLE connect, but on a real DE1 the
+    // MMR 0x800010 read that feeds this version number lands after the
+    // connect signal, so the connect-time check misses it. Catch the
+    // version arrival here too so we don't time out the grace window while
+    // the DE1 is actually running the new firmware.
+    if (m_verifyingAmbiguous && v >= m_availableVersion && v > 0) {
+        m_verifyingAmbiguous = false;
+        m_verifyDisconnectGrace.stop();
+        m_autoRebootWaitTimer.stop();
+        completeSuccess();
+    }
 }
 
 void FirmwareUpdater::onDeviceConnectionChanged() {
@@ -295,6 +308,17 @@ void FirmwareUpdater::checkForUpdate() {
 
 void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
+
+    // Reset carry-over state from any prior attempt (e.g. a previous
+    // verify-disconnect-grace failure) so residual flags don't corrupt the
+    // next cycle's ambiguous-verify/AwaitingReboot logic.
+    m_verifyingAmbiguous = false;
+    m_verifyDisconnectGrace.stop();
+    m_autoRebootWaitTimer.stop();
+    if (m_needsManualReboot) {
+        m_needsManualReboot = false;
+        emit needsManualRebootChanged();
+    }
 
     // Simulator: refuse any flash so we don't stream fake bytes onto a
     // pretend BLE channel and confuse the state machine. The QML gates
@@ -692,6 +716,8 @@ void FirmwareUpdater::onPostEraseWaitComplete() {
 void FirmwareUpdater::completeSuccess() {
     if (m_device) m_device->setFirmwareFlashInProgress(false);
     m_autoRebootWaitTimer.stop();
+    m_verifyDisconnectGrace.stop();
+    m_verifyingAmbiguous = false;
     if (m_needsManualReboot) {
         m_needsManualReboot = false;
         emit needsManualRebootChanged();
@@ -719,6 +745,8 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
     m_postEraseWaitTimer.stop();
     m_chunkPumpTimer.stop();
     m_autoRebootWaitTimer.stop();
+    m_verifyDisconnectGrace.stop();
+    m_verifyingAmbiguous = false;
     if (m_needsManualReboot) {
         m_needsManualReboot = false;
         emit needsManualRebootChanged();
