@@ -328,6 +328,29 @@ void FirmwareUpdater::setState(State newState) {
             const QString s = stateText(); m_state = old;
             return s;
         }();
+
+    // Defense in depth: the MMR-write guard on DE1Device is engaged by
+    // beginErasePhase() and cleared by completeSuccess()/failWith(). If
+    // anything else ever transitions out of an active-flash state (e.g.
+    // a future code path, test harness, or new caller), make sure the
+    // guard follows. Otherwise the guard stays engaged after the flash
+    // dies and every MMR write is silently dropped for the rest of the
+    // session.
+    const bool wasActiveFlash =
+        m_state == State::Erasing || m_state == State::Uploading ||
+        m_state == State::Verifying || m_state == State::AwaitingReboot;
+    const bool nowActiveFlash =
+        newState == State::Erasing || newState == State::Uploading ||
+        newState == State::Verifying || newState == State::AwaitingReboot;
+    if (wasActiveFlash && !nowActiveFlash && m_device &&
+        m_device->firmwareFlashInProgress()) {
+        qCWarning(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] leaving active-flash state without completeSuccess/"
+               "failWith — clearing MMR guard as a safety net";
+        m_device->setFirmwareFlashInProgress(false);
+    }
+
     m_state = newState;
     emit stateChanged();
 }
@@ -348,6 +371,25 @@ void FirmwareUpdater::checkForUpdate() {
     // versions, channel state). Only the actual flash is blocked — see
     // startUpdate().
     if (m_state == State::Checking) return;
+    // Refuse while a flash is actually running. The periodic check schedule
+    // (see MainController::MainController: 30 s after first launch, then
+    // once per week) can fire at any point — including mid-flash if the
+    // user started an update after the tablet had been idle long enough
+    // for the weekly cadence to elapse. Without this guard, the check
+    // would setState(Checking), blow away the in-flight Erasing/Uploading/
+    // Verifying/AwaitingReboot state machine, leave the DE1Device
+    // firmware-flash MMR guard stuck engaged, and silently stall the flash
+    // while the user thinks it's running. Skip the check — the user will
+    // see fresh installed/available numbers on the next tick after the
+    // flash completes.
+    if (m_state == State::Erasing || m_state == State::Uploading ||
+        m_state == State::Verifying || m_state == State::AwaitingReboot) {
+        qCDebug(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] check skipped (flash in progress, state="
+            << stateText() << ")";
+        return;
+    }
     if (!m_updateTimer.isValid()) m_updateTimer.start();  // reset for a fresh check
     const uint32_t installed = m_installedVersionProvider
         ? m_installedVersionProvider() : m_installedVersion;
@@ -361,6 +403,21 @@ void FirmwareUpdater::checkForUpdate() {
 
 void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
+
+    // Refuse to re-enter while a flash is already running. Same reasoning as
+    // checkForUpdate() — a stray invocation (MCP, double-tapped UI button,
+    // remote control) would reset the flags, setState(Downloading), and
+    // bulldoze the in-flight state machine without cleanly tearing down
+    // the BLE chunk pump or clearing DE1Device's MMR-write guard.
+    if (m_state == State::Erasing || m_state == State::Uploading ||
+        m_state == State::Verifying || m_state == State::AwaitingReboot ||
+        m_state == State::Downloading) {
+        qCWarning(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] startUpdate ignored (flash already in progress, state="
+            << stateText() << ")";
+        return;
+    }
 
     // Reset carry-over state from any prior attempt (e.g. a previous
     // verify-disconnect-grace failure) so residual flags don't corrupt the
