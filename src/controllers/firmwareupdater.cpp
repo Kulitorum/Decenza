@@ -70,7 +70,6 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
     m_eraseTimeoutTimer.setSingleShot(true);
     m_verifyTimeoutTimer.setSingleShot(true);
     m_verifyDisconnectGrace.setSingleShot(true);
-    m_autoRebootWaitTimer.setSingleShot(true);
     m_chunkPumpTimer.setInterval(m_chunkPumpIntervalMs);
 
     connect(&m_postEraseWaitTimer, &QTimer::timeout,
@@ -83,8 +82,6 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
             this, &FirmwareUpdater::onVerifyTimeout);
     connect(&m_verifyDisconnectGrace, &QTimer::timeout,
             this, &FirmwareUpdater::onVerifyDisconnectGrace);
-    connect(&m_autoRebootWaitTimer, &QTimer::timeout,
-            this, &FirmwareUpdater::onAutoRebootWaitTimeout);
 
     if (m_cache) {
         connect(m_cache, &FirmwareAssetCache::checkFinished,
@@ -166,7 +163,6 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
             // failure. Covers upgrades stuck on old (v < target) AND
             // downgrades stuck on old (v > target).
             m_verifyDisconnectGrace.stop();
-            m_autoRebootWaitTimer.stop();
             if (m_state != State::AwaitingReboot) {
                 setProgress(1.0);
                 setState(State::AwaitingReboot);
@@ -230,11 +226,10 @@ void FirmwareUpdater::onDeviceConnectionChanged() {
         case State::AwaitingReboot:
             // Ambiguous — don't classify yet. Open the grace window to see
             // whether the device comes back reporting the new version
-            // (successful reboot, either auto or user-initiated) or stays
-            // away / comes back with the old version (genuine failure).
+            // (user power-cycled) or stays away / comes back with the old
+            // version (genuine failure).
             m_verifyingAmbiguous = true;
             m_verifyTimeoutTimer.stop();
-            m_autoRebootWaitTimer.stop();
             m_verifyDisconnectGrace.start(m_verifyDisconnectGraceMs);
             break;
         default:
@@ -291,7 +286,6 @@ void FirmwareUpdater::setEraseTimeoutMs(int ms)            { m_eraseTimeoutMs   
 void FirmwareUpdater::setVerifyTimeoutMs(int ms)           { m_verifyTimeoutMs           = ms; }
 void FirmwareUpdater::setVerifyDisconnectGraceMs(int ms)   { m_verifyDisconnectGraceMs   = ms; }
 void FirmwareUpdater::setPostUploadSettleMs(int ms)        { m_postUploadSettleMs        = ms; }
-void FirmwareUpdater::setAutoRebootWaitMs(int ms)          { m_autoRebootWaitMs          = ms; }
 
 // ---- Read-only state helpers -------------------------------------------
 
@@ -314,7 +308,7 @@ QString FirmwareUpdater::stateText() const {
         case State::Verifying:      return QStringLiteral("Verifying");
         case State::Succeeded:      return QStringLiteral("Update complete");
         case State::Failed:         return QStringLiteral("Update failed");
-        case State::AwaitingReboot: return QStringLiteral("Waiting for DE1 to restart");
+        case State::AwaitingReboot: return QStringLiteral("Power-cycle the DE1 to load new firmware");
     }
     return QString();
 }
@@ -425,7 +419,6 @@ void FirmwareUpdater::startUpdate() {
     m_verifyingAmbiguous = false;
     m_flashCompleted = false;
     m_verifyDisconnectGrace.stop();
-    m_autoRebootWaitTimer.stop();
     if (m_needsManualReboot) {
         m_needsManualReboot = false;
         emit needsManualRebootChanged();
@@ -784,11 +777,12 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
         const QByteArray expected = QByteArray::fromHex("FFFFFD");
         if (firstError == expected) {
             // Don't claim success yet. The bootloader says the new bank
-            // verifies, but modern firmware only auto-reboots on upgrades —
-            // downgrades (and possibly other edge cases) stay on the old
-            // firmware until the user power-cycles. Enter AwaitingReboot
-            // and wait for an actual disconnect + reconnect with the
-            // expected version before calling completeSuccess().
+            // verifies, but in practice the DE1 doesn't auto-reboot — on
+            // every captured flash (both upgrade and downgrade) the
+            // machine stays on the old firmware until the user power-
+            // cycles. Prompt immediately; we still wait for an actual
+            // disconnect + reconnect with the expected version before
+            // calling completeSuccess().
             //
             // m_flashCompleted persists through a spurious Failed if the
             // grace window times out mid-boot — lets us retroactively
@@ -796,7 +790,11 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
             // firmware (vs. forcing the user to re-flash via Retry).
             m_verifyingAmbiguous = true;
             m_flashCompleted = true;
-            m_autoRebootWaitTimer.start(m_autoRebootWaitMs);
+            m_needsManualReboot = true;
+            emit needsManualRebootChanged();
+            qCDebug(firmwareLog).noquote()
+                << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+                << "[firmware] verify OK — prompting user to power-cycle";
             setProgress(1.0);
             setState(State::AwaitingReboot);
         } else {
@@ -811,20 +809,6 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
     }
 }
 
-void FirmwareUpdater::onAutoRebootWaitTimeout() {
-    // We're still connected after the auto-reboot window. The DE1 isn't
-    // going to reboot on its own — tell the user to power-cycle. When they
-    // do, the disconnect handler picks it up via the same
-    // verifyingAmbiguous path as a clean auto-reboot.
-    if (m_state != State::AwaitingReboot) return;
-    if (m_needsManualReboot) return;
-    m_needsManualReboot = true;
-    emit needsManualRebootChanged();
-    qCWarning(firmwareLog).noquote()
-        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-        << "[firmware] auto-reboot window expired — prompting user to power-cycle";
-}
-
 void FirmwareUpdater::onPostEraseWaitComplete() {
     if (m_state != State::Erasing) return;
     beginUploadPhase();
@@ -832,7 +816,6 @@ void FirmwareUpdater::onPostEraseWaitComplete() {
 
 void FirmwareUpdater::completeSuccess() {
     if (m_device) m_device->setFirmwareFlashInProgress(false);
-    m_autoRebootWaitTimer.stop();
     m_verifyDisconnectGrace.stop();
     m_verifyingAmbiguous = false;
     m_flashCompleted = false;
@@ -862,7 +845,6 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
     m_verifyTimeoutTimer.stop();
     m_postEraseWaitTimer.stop();
     m_chunkPumpTimer.stop();
-    m_autoRebootWaitTimer.stop();
     m_verifyDisconnectGrace.stop();
     m_verifyingAmbiguous = false;
     if (m_needsManualReboot) {

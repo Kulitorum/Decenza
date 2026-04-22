@@ -295,9 +295,9 @@ public slots:
     // Subscribe to FW_MAP_REQUEST notifications. Done on demand at the
     // start of a firmware update rather than always-on, because A009 is
     // silent during normal operation and leaving a handler active adds
-    // nothing. There is no unsubscribe on the transport; BLE disconnect
-    // and/or the DE1 auto-reboot at the end of verify implicitly
-    // terminate the subscription.
+    // nothing. There is no unsubscribe on the transport; the user power-
+    // cycling the DE1 at the end of verify disconnects BLE and implicitly
+    // terminates the subscription.
     void subscribeFirmwareNotifications();
 
 signals:

@@ -325,10 +325,8 @@ Item {
         }
 
         // ----- Awaiting-reboot strip ------------------------------
-        // Shown after verify succeeds, while we wait for the DE1 to
-        // actually boot into the new firmware. Text escalates from
-        // "restarting" to "please power-cycle" once the auto-reboot
-        // grace window expires.
+        // Shown after verify succeeds, while we wait for the user to
+        // power-cycle the DE1 so it boots into the new firmware.
 
         Rectangle {
             Layout.fillWidth: true
@@ -336,19 +334,15 @@ Item {
             visible: fw && fw.state === firmwareTab.stateAwaitingReboot
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.color: fw && fw.needsManualReboot ? Theme.warningColor : Theme.accentColor
+            border.color: Theme.warningColor
             border.width: 1
 
             Text {
                 anchors.fill: parent
                 anchors.margins: Theme.spacingMedium
-                text: fw && fw.needsManualReboot
-                          ? TranslationManager.translate(
-                                "firmware.tab.awaitingManualReboot",
-                                "Firmware flashed — please power-cycle the DE1 to boot into the new version.")
-                          : TranslationManager.translate(
-                                "firmware.tab.awaitingAutoReboot",
-                                "Firmware flashed — waiting for the DE1 to restart.")
+                text: TranslationManager.translate(
+                          "firmware.tab.awaitingManualReboot",
+                          "Firmware flashed — please power-cycle the DE1 to boot into the new version.")
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(14)
                 wrapMode: Text.Wrap
