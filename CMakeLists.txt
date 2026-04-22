@@ -352,6 +352,7 @@ endif()
 if(APPLE)
     list(APPEND SOURCES
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm
+        src/ble/applebtstate.mm
         src/screensaver/iosbrightness.mm
     )
 endif()
@@ -485,6 +486,7 @@ endif()
 if(APPLE)
     list(APPEND HEADERS
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.h
+        src/ble/applebtstate.h
     )
 endif()
 

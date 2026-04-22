@@ -15,6 +15,9 @@
 
 class ScaleDevice;
 class DiFluidR2;
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+class AppleBtState;
+#endif
 
 // Helper to get device identifier - iOS uses UUID, others use MAC address
 inline QString getDeviceIdentifier(const QBluetoothDeviceInfo& device) {
@@ -163,6 +166,12 @@ private:
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
+#endif
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    // Lazy — created on the first non-simulator isBluetoothAvailable()
+    // query so CoreBluetooth initialisation (and its permission prompt)
+    // doesn't fire at app launch when the user has simulator mode on.
+    mutable AppleBtState* m_appleBtState = nullptr;
 #endif
     QBluetoothDeviceDiscoveryAgent* m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_de1Devices;
