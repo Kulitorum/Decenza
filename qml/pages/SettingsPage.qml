@@ -12,8 +12,8 @@ Page {
 
     Component.onCompleted: root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
 
-    // Requested tab to switch to (set before pushing page)
-    property int requestedTabIndex: -1
+    // Requested tab to switch to (set before pushing page). Symbolic id from SettingsTabs.
+    property string requestedTabId: ""
 
     // Card to highlight after search navigation (cleared after use)
     property string highlightCardId: ""
@@ -32,19 +32,19 @@ Page {
     }
 
     StackView.onActivating: {
-        if (requestedTabIndex >= 0) {
-            markTabLoaded(requestedTabIndex)
-        }
+        var idx = requestedTabId.length > 0 ? SettingsTabs.indexOf(requestedTabId) : -1
+        if (idx >= 0) markTabLoaded(idx)
     }
 
     // Switch to requested tab after page transition completes (page is fully laid out)
     StackView.onActivated: {
         root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
-        if (requestedTabIndex >= 0) {
-            markTabLoaded(requestedTabIndex)
-            tabBar.currentIndex = requestedTabIndex
-            requestedTabIndex = -1
+        var idx = requestedTabId.length > 0 ? SettingsTabs.indexOf(requestedTabId) : -1
+        if (idx >= 0) {
+            markTabLoaded(idx)
+            tabBar.currentIndex = idx
         }
+        requestedTabId = ""
     }
 
     // Search button (left end of tab bar)
@@ -101,22 +101,7 @@ Page {
             settingsPage.markTabLoaded(currentIndex)
 
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                // Build tab names based on which tabs are visible
-                var tabNames = [
-                    TranslationManager.translate("settings.tab.connections", "Connections"),
-                    TranslationManager.translate("settings.tab.machine", "Machine"),
-                    TranslationManager.translate("settings.tab.calibration", "Calibration"),
-                    TranslationManager.translate("settings.tab.historyData", "History & Data"),
-                    TranslationManager.translate("settings.tab.themes", "Themes"),
-                    TranslationManager.translate("settings.tab.layout", "Layout"),
-                    TranslationManager.translate("settings.tab.screensaver", "Screensaver"),
-                    TranslationManager.translate("settings.tab.visualizer", "Visualizer"),
-                    TranslationManager.translate("settings.tab.ai", "AI"),
-                    TranslationManager.translate("settings.tab.mqtt", "MQTT"),
-                    TranslationManager.translate("settings.tab.languageAccess", "Language & Access")
-                ]
-                tabNames.push(TranslationManager.translate("settings.tab.about", "About"))
-                if (Settings.isDebugBuild) tabNames.push(TranslationManager.translate("settings.tab.debug", "Debug"))
+                var tabNames = SettingsTabs.visibleTabNames()
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(TranslationManager.translate("settings.accessible.tabAnnounce", "%1 tab").arg(tabNames[currentIndex]))
                 }
@@ -148,119 +133,67 @@ Page {
             }
         }
 
-        StyledTabButton {
-            id: connectionsTab
-            text: TranslationManager.translate("settings.tab.connections", "Connections")
-            tabLabel: TranslationManager.translate("settings.tab.connections", "Connections")
-        }
+        Repeater {
+            model: SettingsTabs.visibleTabs()
 
-        StyledTabButton {
-            id: machineTabButton
-            text: TranslationManager.translate("settings.tab.machine", "Machine")
-            tabLabel: TranslationManager.translate("settings.tab.machine", "Machine")
-        }
+            StyledTabButton {
+                id: tabBtn
+                required property var modelData
+                readonly property string tabId: modelData.id
+                readonly property bool isLanguageTab: modelData.id === "languageAccess"
 
-        StyledTabButton {
-            id: calibrationTabButton
-            text: TranslationManager.translate("settings.tab.calibration", "Calibration")
-            tabLabel: TranslationManager.translate("settings.tab.calibration", "Calibration")
-        }
-
-        StyledTabButton {
-            id: historyDataTabButton
-            text: TranslationManager.translate("settings.tab.historyData", "History & Data")
-            tabLabel: TranslationManager.translate("settings.tab.historyData", "History & Data")
-        }
-
-        StyledTabButton {
-            id: themesTabButton
-            text: TranslationManager.translate("settings.tab.themes", "Themes")
-            tabLabel: TranslationManager.translate("settings.tab.themes", "Themes")
-        }
-
-        StyledTabButton {
-            id: layoutTabButton
-            text: TranslationManager.translate("settings.tab.layout", "Layout")
-            tabLabel: TranslationManager.translate("settings.tab.layout", "Layout")
-        }
-
-        StyledTabButton {
-            id: screensaverTab
-            text: TranslationManager.translate("settings.tab.screensaver", "Screensaver")
-            tabLabel: TranslationManager.translate("settings.tab.screensaver", "Screensaver")
-        }
-
-        StyledTabButton {
-            id: visualizerTabButton
-            text: TranslationManager.translate("settings.tab.visualizer", "Visualizer")
-            tabLabel: TranslationManager.translate("settings.tab.visualizer", "Visualizer")
-        }
-
-        StyledTabButton {
-            id: aiTabButton
-            text: TranslationManager.translate("settings.tab.ai", "AI")
-            tabLabel: TranslationManager.translate("settings.tab.ai", "AI")
-        }
-
-        StyledTabButton {
-            id: mqttTabButton
-            text: TranslationManager.translate("settings.tab.mqtt", "MQTT")
-            tabLabel: TranslationManager.translate("settings.tab.mqtt", "MQTT")
-        }
-
-        // Language & Access tab with badge for untranslated strings
-        StyledTabButton {
-            id: languageTabButton
-            text: TranslationManager.translate("settings.tab.languageAccess", "Lang & Access")
-            tabLabel: TranslationManager.translate("settings.tab.languageAccess.full", "Language & Access")
-
-            // Override contentItem to add badge
-            contentItem: Row {
-                spacing: Theme.scaled(4)
-                Text {
-                    text: languageTabButton.text
-                    font: languageTabButton.font
-                    color: languageTabButton.checked ? Theme.textColor : Theme.textSecondaryColor
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    anchors.verticalCenter: parent.verticalCenter
+                // Referencing translationVersion forces the language-tab branch below to re-
+                // evaluate on language change (the other branch goes through tabLabels, which
+                // already depends on translationVersion).
+                text: {
+                    var v = TranslationManager.translationVersion
+                    return isLanguageTab
+                        ? TranslationManager.translate("settings.tab.languageAccess", "Lang & Access")
+                        : SettingsTabs.tabLabels[tabId]
                 }
-                Rectangle {
-                    visible: TranslationManager.currentLanguage !== "en" && TranslationManager.untranslatedCount > 0
-                    width: badgeText.width + 8
-                    height: Theme.scaled(16)
-                    radius: Theme.scaled(8)
-                    color: Theme.warningColor
-                    anchors.verticalCenter: parent.verticalCenter
+                tabLabel: {
+                    var v = TranslationManager.translationVersion
+                    return isLanguageTab
+                        ? TranslationManager.translate("settings.tab.languageAccess.full", "Language & Access")
+                        : SettingsTabs.tabLabels[tabId]
+                }
 
+                // Shared Row contentItem: the badge is only visible on the Language & Access tab
+                // (Row ignores invisible children in its layout, so width matches plain-text tabs).
+                contentItem: Row {
+                    spacing: Theme.scaled(4)
                     Text {
-                        id: badgeText
-                        anchors.centerIn: parent
-                        text: TranslationManager.untranslatedCount > 99 ? "99+" : TranslationManager.untranslatedCount
-                        font.pixelSize: Theme.scaled(10)
-                        font.bold: true
-                        color: Theme.primaryContrastColor
+                        text: tabBtn.text
+                        font: tabBtn.font
+                        color: tabBtn.checked ? Theme.textColor : Theme.textSecondaryColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Rectangle {
+                        visible: tabBtn.isLanguageTab
+                                 && TranslationManager.currentLanguage !== "en"
+                                 && TranslationManager.untranslatedCount > 0
+                        width: badgeText.width + 8
+                        height: Theme.scaled(16)
+                        radius: Theme.scaled(8)
+                        color: Theme.warningColor
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Text {
+                            id: badgeText
+                            anchors.centerIn: parent
+                            text: TranslationManager.untranslatedCount > 99 ? "99+" : TranslationManager.untranslatedCount
+                            font.pixelSize: Theme.scaled(10)
+                            font.bold: true
+                            color: Theme.primaryContrastColor
+                        }
                     }
                 }
             }
         }
-
-        StyledTabButton {
-            id: aboutTabButton
-            text: TranslationManager.translate("settings.tab.about", "About")
-            tabLabel: TranslationManager.translate("settings.tab.about", "About")
-        }
-
-        StyledTabButton {
-            id: debugTabButton
-            visible: Settings.isDebugBuild
-            text: TranslationManager.translate("settings.tab.debug", "Debug")
-            tabLabel: TranslationManager.translate("settings.tab.debug", "Debug")
-            width: visible ? implicitWidth : 0
-        }
     }
 
-    // Tab content area - all tabs preload in background
     StackLayout {
         id: tabContent
         anchors.top: tabBar.bottom
@@ -274,113 +207,30 @@ Page {
 
         currentIndex: tabBar.currentIndex
 
-        // Tab 0: Connections - loads synchronously (first tab appears instantly)
-        Loader {
-            id: connectionsLoader
-            active: true
-            asynchronous: false
-            source: "settings/SettingsConnectionsTab.qml"
-        }
+        // One Loader per visible tab, in SettingsTabs order.
+        // Tabs with loadSync=true are loaded eagerly; others lazy-load on first visit.
+        Repeater {
+            id: tabLoaders
+            model: SettingsTabs.visibleTabs()
 
-        // Tab 1: Machine - lazy loaded on first visit
-        Loader {
-            id: machineLoader
-            active: 1 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsMachineTab.qml"
-        }
+            Loader {
+                required property var modelData
+                required property int index
+                readonly property string tabId: modelData.id
 
-        // Tab 2: Calibration - lazy loaded on first visit
-        Loader {
-            id: calibrationLoader
-            active: 2 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsCalibrationTab.qml"
-        }
+                active: modelData.loadSync || (index in settingsPage.loadedTabs)
+                asynchronous: !modelData.loadSync
+                source: modelData.source
 
-        // Tab 3: History & Data - lazy loaded on first visit
-        Loader {
-            id: historyDataLoader
-            active: 3 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsHistoryDataTab.qml"
-        }
-
-        // Tab 4: Themes - lazy loaded on first visit
-        Loader {
-            id: themesLoader
-            active: 4 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsThemesTab.qml"
-            onLoaded: {
-                item.openSaveThemeDialog.connect(function() {
-                    saveThemeDialog.open()
-                })
+                onLoaded: {
+                    // Themes tab emits a signal requesting the Save Theme dialog
+                    if (tabId === "themes" && item) {
+                        item.openSaveThemeDialog.connect(function() {
+                            saveThemeDialog.open()
+                        })
+                    }
+                }
             }
-        }
-
-        // Tab 5: Layout - lazy loaded on first visit
-        Loader {
-            id: layoutLoader
-            active: 5 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsLayoutTab.qml"
-        }
-
-        // Tab 6: Screensaver - lazy loaded on first visit
-        Loader {
-            id: screensaverLoader
-            active: 6 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsScreensaverTab.qml"
-        }
-
-        // Tab 7: Visualizer - lazy loaded on first visit
-        Loader {
-            id: visualizerLoader
-            active: 7 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsVisualizerTab.qml"
-        }
-
-        // Tab 8: AI - lazy loaded on first visit
-        Loader {
-            id: aiLoader
-            active: 8 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsAITab.qml"
-        }
-
-        // Tab 9: MQTT / Home Automation - lazy loaded on first visit
-        Loader {
-            id: homeAutomationLoader
-            active: 9 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsHomeAutomationTab.qml"
-        }
-
-        // Tab 10: Language & Access - lazy loaded on first visit
-        Loader {
-            id: languageLoader
-            active: 10 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsLanguageTab.qml"
-        }
-
-        // Tab 11: About (Updates, Firmware, About) - lazy loaded on first visit
-        Loader {
-            id: aboutLoader
-            active: 11 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsUpdateTab.qml"
-        }
-
-        // Tab 12: Debug - only in debug builds, lazy loaded on first visit
-        Loader {
-            id: debugLoader
-            active: Settings.isDebugBuild && (12 in settingsPage.loadedTabs)
-            asynchronous: true
-            source: "settings/SettingsDebugTab.qml"
         }
     }
 
@@ -432,6 +282,15 @@ Page {
             keyboardOffset = 0
         }
 
+        function doSave(name) {
+            Settings.saveCurrentTheme(name)
+            var themesLoader = tabLoaders.itemAt(SettingsTabs.indexOf("themes"))
+            if (themesLoader && themesLoader.item && themesLoader.item.refreshPresets) {
+                themesLoader.item.refreshPresets()
+            }
+            saveThemeDialog.close()
+        }
+
         ColumnLayout {
             anchors.fill: parent
             spacing: Theme.spacingMedium
@@ -452,10 +311,9 @@ Page {
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
                     Qt.inputMethod.commit()
-                    if (saveThemeDialog.themeName.trim().length > 0) {
-                        Settings.saveCurrentTheme(saveThemeDialog.themeName.trim())
-                        if (themesLoader.item) themesLoader.item.refreshPresets()
-                        saveThemeDialog.close()
+                    var name = saveThemeDialog.themeName.trim()
+                    if (name.length > 0 && name !== "Default") {
+                        saveThemeDialog.doSave(name)
                     }
                 }
             }
@@ -481,9 +339,7 @@ Page {
                         Qt.inputMethod.commit()
                         var name = saveThemeDialog.themeName.trim()
                         if (name.length > 0 && name !== "Default") {
-                            Settings.saveCurrentTheme(name)
-                            if (themesLoader.item) themesLoader.item.refreshPresets()
-                            saveThemeDialog.close()
+                            saveThemeDialog.doSave(name)
                         }
                     }
                 }
@@ -494,7 +350,9 @@ Page {
     // Settings search dialog
     SettingsSearchDialog {
         id: settingsSearchDialog
-        onResultSelected: function(tabIndex, cardId) {
+        onResultSelected: function(tabId, cardId) {
+            var tabIndex = SettingsTabs.indexOf(tabId)
+            if (tabIndex < 0) return
             settingsPage.highlightCardId = cardId || ""
             settingsPage.markTabLoaded(tabIndex)
             tabBar.currentIndex = tabIndex
@@ -504,7 +362,7 @@ Page {
 
     // Scroll-to-card after search navigation (event-based, no timer)
     function scrollToCard(tabIndex, cardId) {
-        var loader = tabContent.children[tabIndex]
+        var loader = tabLoaders.itemAt(tabIndex)
         if (!loader) return
 
         if (loader.item) {

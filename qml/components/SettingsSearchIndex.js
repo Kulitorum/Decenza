@@ -1,31 +1,11 @@
-// Settings search index — maps setting cards to tab indices for search navigation
-// Each entry: { tabIndex, cardId, title, description, keywords }
-// tabIndex matches the tab order in SettingsPage.qml:
-//   0=Connections, 1=Machine, 2=Calibration, 3=History & Data,
-//   4=Themes, 5=Layout, 6=Screensaver, 7=Visualizer, 8=AI,
-//   9=MQTT, 10=Language & Access, 11=About, 12=Debug (debug builds only, no search entries)
-// cardId matches the objectName on the card Rectangle in the tab QML
-// title/description are translated; keywords are English fallbacks for cross-language search
-
-function getTabName(index, tr) {
-    if (!tr) tr = function(key, fallback) { return fallback }
-    var names = [
-        tr("settings.tab.connections", "Connections"),
-        tr("settings.tab.machine", "Machine"),
-        tr("settings.tab.calibration", "Calibration"),
-        tr("settings.tab.historyData", "History & Data"),
-        tr("settings.tab.themes", "Themes"),
-        tr("settings.tab.layout", "Layout"),
-        tr("settings.tab.screensaver", "Screensaver"),
-        tr("settings.tab.visualizer", "Visualizer"),
-        tr("settings.tab.ai", "AI"),
-        tr("settings.tab.mqtt", "MQTT"),
-        tr("settings.tab.languageAccess", "Language & Access"),
-        tr("settings.tab.about", "About"),
-        tr("settings.tab.debug", "Debug")
-    ]
-    return index < names.length ? names[index] : ""
-}
+// Settings search index — maps setting cards to tabs for search navigation.
+// Each entry: { tabId, cardId, title, description, keywords }
+//   tabId    matches an id in SettingsTabs.qml (e.g. "connections", "machine", "about")
+//   cardId   matches the objectName on the card Rectangle in the tab QML
+//   title / description are translated; keywords are English fallbacks for cross-language search
+//
+// Tab ordering and localized names are resolved via the SettingsTabs singleton —
+// this file does not need to know anything about tab indexes.
 
 function getSearchEntries(tr) {
     // tr = TranslationManager.translate function
@@ -33,214 +13,214 @@ function getSearchEntries(tr) {
     if (!tr) tr = function(key, fallback) { return fallback }
 
     return [
-        // Tab 0: Connections
-        { tabIndex: 0, cardId: "machineConnection",
+        // Connections
+        { tabId: "connections", cardId: "machineConnection",
           title: tr("settings.bluetooth.machine", "Machine"),
           description: tr("settings.search.machineConnectionDesc", "Connect to DE1 via Bluetooth or USB"),
           keywords: ["ble", "bluetooth", "usb", "pair", "connect", "device", "machine"] },
-        { tabIndex: 0, cardId: "scaleConnection",
+        { tabId: "connections", cardId: "scaleConnection",
           title: tr("settings.bluetooth.scalesRefractometer", "Scales / Refractometer"),
           description: tr("settings.search.scaleConnectionDesc", "Pair a Bluetooth scale or refractometer"),
           keywords: ["scale", "acaia", "decent", "felicita", "weight", "pair", "tds", "refractometer", "atago"] },
 
-        // Tab 6: Screensaver (auto-sleep and auto-wake moved from Machine tab)
-        { tabIndex: 6, cardId: "autoSleep",
+        // Screensaver — auto-sleep and auto-wake also live on the Screensaver tab
+        { tabId: "screensaver", cardId: "screensaver",
+          title: tr("settings.screensaver.settings", "Screensaver Settings"),
+          description: tr("settings.search.screensaverDesc", "Choose screensaver type and settings"),
+          keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim"] },
+        { tabId: "screensaver", cardId: "autoSleep",
           title: tr("settings.preferences.autoSleep", "Auto-Sleep"),
           description: tr("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity"),
           keywords: ["sleep", "timeout", "power", "idle", "standby"] },
-        { tabIndex: 6, cardId: "screensaverDim",
+        { tabId: "screensaver", cardId: "screensaverDim",
           title: tr("settings.screensaver.screensaver", "Screensaver"),
           description: tr("settings.search.screensaverDimDesc", "Dim the screen after inactivity"),
           keywords: ["dim", "brightness", "screensaver", "display", "darkness"] },
-        { tabIndex: 6, cardId: "autoWake",
+        { tabId: "screensaver", cardId: "autoWake",
           title: tr("settings.options.autoWake", "Auto-Wake Timer"),
           description: tr("settings.search.autoWakeDesc", "Schedule automatic wake-up times"),
           keywords: ["wake", "schedule", "alarm", "morning", "timer", "power"] },
-        { tabIndex: 1, cardId: "batteryCharging",
+
+        // Machine
+        { tabId: "machine", cardId: "batteryCharging",
           title: tr("settings.preferences.batteryCharging", "Battery Charging"),
           description: tr("settings.search.batteryDesc", "Smart charging mode for battery health"),
           keywords: ["battery", "charge", "usb", "power", "smart charging"] },
-        { tabIndex: 1, cardId: "shotMap",
+        { tabId: "machine", cardId: "shotMap",
           title: tr("settings.shotmap.title", "Shot Map"),
           description: tr("settings.shotmap.description", "Share your shots on the global map at decenza.coffee"),
           keywords: ["map", "location", "gps", "share", "global"] },
-        { tabIndex: 1, cardId: "themeMode",
+        { tabId: "machine", cardId: "themeMode",
           title: tr("settings.preferences.themeMode", "Theme Mode"),
           description: tr("settings.search.themeModeDesc", "Dark mode, light mode, follow system"),
           keywords: ["dark", "light", "theme", "mode", "appearance", "system"] },
-        { tabIndex: 1, cardId: "extractionView",
+        { tabId: "machine", cardId: "extractionView",
           title: tr("settings.preferences.extractionView", "Extraction View"),
           description: tr("settings.preferences.extractionViewDesc", "Visualization during espresso extraction"),
           keywords: ["chart", "cup", "graph", "extraction", "view"] },
-        { tabIndex: 1, cardId: "shotReviewTimer",
+        { tabId: "machine", cardId: "shotReviewTimer",
           title: tr("settings.machine.shotReviewTimer", "Shot Review Timer"),
           description: tr("settings.machine.shotReviewTimerDesc", "Return to idle after reviewing shot"),
           keywords: ["review", "post-shot", "timeout", "close", "auto"] },
-        { tabIndex: 1, cardId: "screenZoom",
+        { tabId: "machine", cardId: "screenZoom",
           title: tr("settings.machine.screenZoom", "Screen Zoom"),
           description: tr("settings.machine.screenZoomDesc", "Adjust UI scale individually for each screen to optimize readability."),
           keywords: ["zoom", "scale", "size", "ui", "display", "dpi"] },
-        { tabIndex: 1, cardId: "launcherMode",
+        { tabId: "machine", cardId: "launcherMode",
           title: tr("settings.options.launcherMode", "Launcher Mode"),
           description: tr("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher."),
           keywords: ["launcher", "home", "android", "kiosk"] },
-        { tabIndex: 1, cardId: "waterLevel",
+        { tabId: "machine", cardId: "waterLevel",
           title: tr("settings.options.waterLevel", "Water Level"),
           description: tr("settings.search.waterLevelDesc", "Water tank level and refill threshold"),
           keywords: ["water", "tank", "level", "refill"] },
-        { tabIndex: 1, cardId: "waterRefillThreshold",
+        { tabId: "machine", cardId: "waterRefillThreshold",
           title: tr("settings.options.waterRefillLevel", "Water Refill Threshold"),
           description: tr("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill"),
           keywords: ["water", "refill", "threshold", "warning"] },
-        { tabIndex: 1, cardId: "refillKit",
+        { tabId: "machine", cardId: "refillKit",
           title: tr("settings.preferences.refillKit", "Refill Kit"),
           description: tr("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit"),
           keywords: ["refill", "kit", "plumb", "water", "auto"] },
-        { tabIndex: 1, cardId: "steamHeater",
+        { tabId: "machine", cardId: "steamHeater",
           title: tr("settings.preferences.steamHeater", "Steam Heater"),
           description: tr("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming"),
           keywords: ["steam", "heater", "flush", "auto", "temperature", "two-tap", "two tap", "purge", "stop", "headless"] },
-        { tabIndex: 1, cardId: "simulationMode",
+        { tabId: "machine", cardId: "simulationMode",
           title: tr("settings.machine.simulationModeTitle", "Simulation Mode"),
           description: tr("settings.machine.simulationModeDesc", "Use the app without a connected DE1 machine"),
           keywords: ["offline", "simulation", "demo", "unlock", "gui", "disconnect"] },
-        { tabIndex: 1, cardId: "pocketIntegration",
+        { tabId: "machine", cardId: "pocketIntegration",
           title: tr("settings.machine.pocketIntegrationTitle", "Pocket Integration"),
           description: tr("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing."),
           keywords: ["pocket", "remote", "pair", "control", "screen"] },
 
-        // Tab 2: Calibration
-        { tabIndex: 2, cardId: "flowCalibration",
+        // Calibration
+        { tabId: "calibration", cardId: "flowCalibration",
           title: tr("settings.preferences.flowCalibration", "Flow Calibration"),
           description: tr("settings.search.flowCalDesc", "Calibrate flow sensor accuracy"),
           keywords: ["flow", "calibration", "sensor", "auto", "multiplier"] },
-        { tabIndex: 2, cardId: "weightStopTiming",
+        { tabId: "calibration", cardId: "weightStopTiming",
           title: tr("settings.calibration.weightStopTiming", "Weight Stop Timing"),
           description: tr("settings.search.weightStopDesc", "Auto-learned stop-at-weight lag timing"),
           keywords: ["weight", "stop", "saw", "lag", "timing", "scale"] },
-        { tabIndex: 2, cardId: "heaterCalibration",
+        { tabId: "calibration", cardId: "heaterCalibration",
           title: tr("settings.calibration.title", "Heater Calibration"),
           description: tr("settings.search.heaterCalDesc", "Idle temp, warmup flow rates, timeout"),
           keywords: ["heater", "temperature", "warmup", "calibrate", "idle"] },
-        { tabIndex: 2, cardId: "virtualScale",
+        { tabId: "calibration", cardId: "virtualScale",
           title: tr("settings.preferences.virtualScale", "Virtual Scale"),
           description: tr("settings.search.virtualScaleDesc", "Estimate weight from flow sensor"),
           keywords: ["virtual", "scale", "flow", "weight", "estimate", "fallback"] },
-        { tabIndex: 2, cardId: "preferWeight",
+        { tabId: "calibration", cardId: "preferWeight",
           title: tr("settings.calibration.preferWeightOverVolume", "Prefer Weight over Volume"),
           description: tr("settings.search.preferWeightDesc", "Ignore volume limit when scale is paired"),
           keywords: ["weight", "volume", "sav", "ignore", "scale", "stop"] },
 
-        // Tab 3: History & Data
-        { tabIndex: 3, cardId: "shotHistory",
+        // History & Data
+        { tabId: "historyData", cardId: "shotHistory",
           title: tr("settings.search.shotHistoryTitle", "Shot History"),
           description: tr("settings.search.shotHistoryDesc", "View and manage shot history"),
           keywords: ["history", "shots", "past", "records"] },
-        { tabIndex: 3, cardId: "shotHistory",
+        { tabId: "historyData", cardId: "shotHistory",
           title: tr("settings.history.importFromDE1", "Import from DE1 App"),
           description: tr("settings.search.importDE1Desc", "Import shot history from DE1 tablet app"),
           keywords: ["import", "de1", "migrate", "transfer"] },
-        { tabIndex: 3, cardId: "dailyBackup",
+        { tabId: "historyData", cardId: "dailyBackup",
           title: tr("settings.data.dailybackup", "Daily Backup"),
           description: tr("settings.search.dailyBackupDesc", "Auto-backup shots, settings, profiles daily"),
           keywords: ["backup", "restore", "save", "data", "auto"] },
-        { tabIndex: 3, cardId: "enableServer",
+        { tabId: "historyData", cardId: "enableServer",
           title: tr("settings.history.enableserver", "Enable Server"),
           description: tr("settings.data.enableserverdesc", "Access shot data, layout editor, and AI from your browser"),
           keywords: ["server", "http", "web", "remote", "network", "share"] },
-        { tabIndex: 3, cardId: "enableServer",
+        { tabId: "historyData", cardId: "enableServer",
           title: tr("settings.data.enablesecurity", "Enable Security"),
           description: tr("settings.data.enablesecuritydesc", "Encrypt connections and require a code from your authenticator app"),
           keywords: ["security", "https", "totp", "authenticator", "password", "encryption"] },
-        { tabIndex: 3, cardId: "shotHistory",
+        { tabId: "historyData", cardId: "shotHistory",
           title: tr("settings.data.importfrom", "Import from Another Device"),
           description: tr("settings.search.deviceMigrationDesc", "Import from another Decenza device on WiFi"),
           keywords: ["migration", "transfer", "device", "import", "wifi", "sync"] },
-        { tabIndex: 3, cardId: "enableServer",
+        { tabId: "historyData", cardId: "enableServer",
           title: tr("settings.search.factoryResetTitle", "Factory Reset"),
           description: tr("settings.search.factoryResetDesc", "Remove all data and uninstall"),
           keywords: ["reset", "factory", "delete", "clear", "uninstall", "wipe"] },
-        { tabIndex: 3, cardId: "exportShotsCard",
+        { tabId: "historyData", cardId: "exportShotsCard",
           title: tr("settings.data.exportshots", "Export Shots to File"),
           description: tr("settings.search.exportShotsDesc", "Mirror shots to JSON files for external tools"),
           keywords: ["export", "json", "shots", "mirror", "backup", "files"] },
 
-        // Tab 4: Themes
-        { tabIndex: 4, cardId: "themeColors",
+        // Themes
+        { tabId: "themes", cardId: "themeColors",
           title: tr("settings.search.themeColorsTitle", "Theme Colors"),
           description: tr("settings.search.themeColorsDesc", "Customize app color palette"),
           keywords: ["color", "theme", "palette", "customize", "dark", "light"] },
-        { tabIndex: 4, cardId: "saveTheme",
+        { tabId: "themes", cardId: "saveTheme",
           title: tr("settings.search.saveThemeTitle", "Save Theme"),
           description: tr("settings.search.saveThemeDesc", "Save current color scheme as named theme"),
           keywords: ["save", "theme", "preset", "custom"] },
 
-        // Tab 5: Layout
-        { tabIndex: 5, cardId: "layoutEditor",
+        // Layout
+        { tabId: "layout", cardId: "layoutEditor",
           title: tr("settings.layout.title", "Home Screen Layout"),
           description: tr("settings.search.layoutDesc", "Customize idle screen widgets and zones"),
           keywords: ["layout", "widget", "zone", "customize", "idle", "home", "editor"] },
 
-        // Tab 6: Screensaver
-        { tabIndex: 6, cardId: "screensaver",
-          title: tr("settings.screensaver.settings", "Screensaver Settings"),
-          description: tr("settings.search.screensaverDesc", "Choose screensaver type and settings"),
-          keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim"] },
-
-        // Tab 7: Visualizer
-        { tabIndex: 7, cardId: "visualizer",
+        // Visualizer
+        { tabId: "visualizer", cardId: "visualizer",
           title: tr("settings.visualizer.account", "Visualizer.coffee Account"),
           description: tr("settings.search.visualizerDesc", "Connect to visualizer.coffee for shot sharing"),
           keywords: ["visualizer", "coffee", "upload", "share", "account"] },
 
-        // Tab 8: AI
-        { tabIndex: 8, cardId: "aiProvider",
+        // AI
+        { tabId: "ai", cardId: "aiProvider",
           title: tr("settings.ai.section.provider", "AI Provider"),
           description: tr("settings.search.aiProviderDesc", "Configure AI for shot analysis"),
           keywords: ["ai", "openai", "anthropic", "gemini", "ollama", "api", "key", "model"] },
-        { tabIndex: 8, cardId: "mcpServer",
+        { tabId: "ai", cardId: "mcpServer",
           title: tr("settings.ai.mcp.enable", "Enable MCP Server"),
           description: tr("settings.search.mcpDesc", "Model Context Protocol server for Claude"),
           keywords: ["mcp", "claude", "server", "protocol", "discuss"] },
 
-        // Tab 9: MQTT
-        { tabIndex: 9, cardId: "mqtt",
+        // MQTT
+        { tabId: "mqtt", cardId: "mqtt",
           title: tr("mqtt.title", "MQTT"),
           description: tr("settings.search.mqttDesc", "Home automation broker connection"),
           keywords: ["mqtt", "home", "assistant", "automation", "broker", "ha"] },
 
-        // Tab 10: Language & Access
-        { tabIndex: 10, cardId: "language",
+        // Language & Access
+        { tabId: "languageAccess", cardId: "language",
           title: tr("language.languages", "Languages"),
           description: tr("settings.search.languageDesc", "Select app language"),
           keywords: ["language", "translate", "locale", "i18n"] },
-        { tabIndex: 10, cardId: "accessibility",
+        { tabId: "languageAccess", cardId: "accessibility",
           title: tr("settings.accessibility.title", "Accessibility"),
           description: tr("settings.accessibility.desc", "Screen reader support and audio feedback for blind and visually impaired users"),
           keywords: ["accessibility", "talkback", "voiceover", "screen reader", "tts", "blind"] },
-        { tabIndex: 10, cardId: "accessibility",
+        { tabId: "languageAccess", cardId: "accessibility",
           title: tr("settings.accessibility.voiceAnnouncements", "Voice Announcements"),
           description: tr("settings.accessibility.voiceAnnouncementsDesc", "Speak shot progress aloud"),
           keywords: ["voice", "speech", "tts", "announce", "talk"] },
-        { tabIndex: 10, cardId: "accessibility",
+        { tabId: "languageAccess", cardId: "accessibility",
           title: tr("settings.accessibility.frameTick", "Frame Tick Sound"),
           description: tr("settings.accessibility.frameTickDesc", "Play a tick when the machine moves to the next extraction step"),
           keywords: ["tick", "sound", "audio", "frame", "beep"] },
 
-        // Tab 11: About
-        { tabIndex: 11, cardId: "checkUpdates",
+        // About
+        { tabId: "about", cardId: "checkUpdates",
           title: tr("settings.update.currentversion", "Current Version"),
           description: tr("settings.search.checkUpdatesDesc", "Auto-check and download app updates"),
           keywords: ["update", "version", "download", "beta", "release"] },
-        { tabIndex: 11, cardId: "firmwareUpdate",
+        { tabId: "about", cardId: "firmwareUpdate",
           title: tr("firmware.card.title", "DE1 Firmware"),
           description: tr("settings.search.firmwareDesc", "Check, update, or downgrade the DE1 machine firmware"),
           keywords: ["firmware", "de1", "update", "downgrade", "nightly", "stable", "flash"] },
-        { tabIndex: 11, cardId: "releaseNotes",
+        { tabId: "about", cardId: "releaseNotes",
           title: tr("settings.search.releaseNotesTitle", "Release Notes"),
           description: tr("settings.search.releaseNotesDesc", "What's new in this version"),
           keywords: ["release", "notes", "changelog", "new", "version"] },
-        { tabIndex: 11, cardId: "checkUpdates",
+        { tabId: "about", cardId: "checkUpdates",
           title: tr("about.supportProject", "Support This Project"),
           description: tr("settings.search.donateDesc", "Support Decenza development via PayPal"),
           keywords: ["donate", "paypal", "support", "money", "tip"] },
