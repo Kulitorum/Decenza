@@ -470,6 +470,7 @@ bool ShotServer::start()
     if (m_discoverySocket->bind(QHostAddress::Any, DISCOVERY_PORT, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
         connect(m_discoverySocket, &QUdpSocket::readyRead, this, &ShotServer::onDiscoveryDatagram);
         qDebug() << "ShotServer: Discovery listener started on UDP port" << DISCOVERY_PORT;
+        acquireDiscoveryMulticastLock();
     } else {
         qWarning() << "ShotServer: Failed to bind discovery socket on port" << DISCOVERY_PORT << m_discoverySocket->errorString();
         delete m_discoverySocket;
@@ -493,6 +494,7 @@ void ShotServer::stop()
         delete m_discoverySocket;
         m_discoverySocket = nullptr;
     }
+    releaseDiscoveryMulticastLock();
 
     if (m_server) {
         m_cleanupTimer->stop();
@@ -953,6 +955,62 @@ void ShotServer::onDiscoveryDatagram()
             qDebug() << "ShotServer: Sent discovery response to" << senderAddress.toString();
         }
     }
+}
+
+void ShotServer::acquireDiscoveryMulticastLock()
+{
+#ifdef Q_OS_ANDROID
+    if (m_multicastLock.isValid()) {
+        return;
+    }
+
+    QJniObject context = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "activity",
+        "()Landroid/app/Activity;");
+    if (!context.isValid()) {
+        qWarning() << "ShotServer: Cannot acquire MulticastLock - no Android activity";
+        return;
+    }
+
+    QJniObject service = QJniObject::fromString("wifi");
+    QJniObject wifiManager = context.callObjectMethod(
+        "getSystemService",
+        "(Ljava/lang/String;)Ljava/lang/Object;",
+        service.object<jstring>());
+    if (!wifiManager.isValid()) {
+        qWarning() << "ShotServer: Cannot acquire MulticastLock - WifiManager unavailable";
+        return;
+    }
+
+    QJniObject tag = QJniObject::fromString("DecenzaDiscovery");
+    m_multicastLock = wifiManager.callObjectMethod(
+        "createMulticastLock",
+        "(Ljava/lang/String;)Landroid/net/wifi/WifiManager$MulticastLock;",
+        tag.object<jstring>());
+    if (!m_multicastLock.isValid()) {
+        qWarning() << "ShotServer: Failed to create MulticastLock";
+        return;
+    }
+
+    m_multicastLock.callMethod<void>("setReferenceCounted", "(Z)V", jboolean(false));
+    m_multicastLock.callMethod<void>("acquire");
+    qDebug() << "ShotServer: Acquired Wi-Fi MulticastLock for discovery";
+#endif
+}
+
+void ShotServer::releaseDiscoveryMulticastLock()
+{
+#ifdef Q_OS_ANDROID
+    if (!m_multicastLock.isValid()) {
+        return;
+    }
+    if (m_multicastLock.callMethod<jboolean>("isHeld")) {
+        m_multicastLock.callMethod<void>("release");
+        qDebug() << "ShotServer: Released Wi-Fi MulticastLock";
+    }
+    m_multicastLock = QJniObject();
+#endif
 }
 
 void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)

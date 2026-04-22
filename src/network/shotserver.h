@@ -18,6 +18,9 @@
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <memory>
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
 
 class ShotHistoryStorage;
 struct ShotRecord;
@@ -121,6 +124,13 @@ private slots:
     void onThemeChanged();
 
 private:
+    // On Android, Wi-Fi filters incoming UDP broadcast and multicast frames
+    // unless the app holds a WifiManager.MulticastLock. Without this, discovery
+    // requests silently fail to reach us — see DataMigrationClient retransmit
+    // logic in src/core/datamigrationclient.cpp. No-op on other platforms.
+    void acquireDiscoveryMulticastLock();
+    void releaseDiscoveryMulticastLock();
+
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
     void sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
                       const QByteArray& body, const QByteArray& extraHeaders = QByteArray());
@@ -225,6 +235,9 @@ private:
 
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
+#ifdef Q_OS_ANDROID
+    QJniObject m_multicastLock;
+#endif
     ShotHistoryStorage* m_storage = nullptr;
     DE1Device* m_device = nullptr;
     ScreensaverVideoManager* m_screensaverManager = nullptr;

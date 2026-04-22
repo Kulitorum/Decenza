@@ -1054,22 +1054,52 @@ void DataMigrationClient::startDiscovery()
 
     connect(m_discoverySocket, &QUdpSocket::readyRead, this, &DataMigrationClient::onDiscoveryDatagram);
 
-    // Send broadcast discovery message
-    QByteArray discoveryMessage = "DECENZA_DISCOVER";
+    // Send the first broadcast burst immediately, then retransmit a few times
+    // during the discovery window to cover UDP packet loss.
+    m_discoveryRetransmitIndex = 0;
+    sendDiscoveryBroadcasts();
+    m_discoveryRetransmitIndex = 1;
 
-    // Send to broadcast address
+    if (!m_discoveryRetransmitTimer) {
+        m_discoveryRetransmitTimer = new QTimer(this);
+        m_discoveryRetransmitTimer->setSingleShot(true);
+        connect(m_discoveryRetransmitTimer, &QTimer::timeout, this, &DataMigrationClient::onDiscoveryRetransmit);
+    }
+    constexpr int retransmitCount = sizeof(DISCOVERY_RETRANSMIT_SCHEDULE_MS) / sizeof(DISCOVERY_RETRANSMIT_SCHEDULE_MS[0]);
+    if (m_discoveryRetransmitIndex < retransmitCount) {
+        m_discoveryRetransmitTimer->start(DISCOVERY_RETRANSMIT_SCHEDULE_MS[m_discoveryRetransmitIndex]);
+    }
+
+    // Set up overall timeout timer
+    if (!m_discoveryTimer) {
+        m_discoveryTimer = new QTimer(this);
+        m_discoveryTimer->setSingleShot(true);
+        connect(m_discoveryTimer, &QTimer::timeout, this, &DataMigrationClient::onDiscoveryTimeout);
+    }
+    m_discoveryTimer->start(DISCOVERY_TIMEOUT_MS);
+}
+
+void DataMigrationClient::sendDiscoveryBroadcasts()
+{
+    if (!m_discoverySocket) {
+        return;
+    }
+
+    QByteArray discoveryMessage = "DECENZA_DISCOVER";
+    const int burst = m_discoveryRetransmitIndex;
+
+    // Send to global broadcast address
     qint64 sent = m_discoverySocket->writeDatagram(discoveryMessage, QHostAddress::Broadcast, DISCOVERY_PORT);
     if (sent == -1) {
-        qWarning() << "DataMigrationClient: Failed to send broadcast:" << m_discoverySocket->errorString();
+        qWarning() << "DataMigrationClient: Failed to send broadcast (burst" << burst << "):" << m_discoverySocket->errorString();
         qWarning() << "DataMigrationClient: This may be due to firewall, network configuration, or missing permissions";
     } else {
         qDebug() << "DataMigrationClient: Sent discovery broadcast to 255.255.255.255"
-                 << "port" << DISCOVERY_PORT << "(" << sent << "bytes)";
+                 << "port" << DISCOVERY_PORT << "(burst" << burst << "," << sent << "bytes)";
     }
 
-    // Also try sending to common subnet broadcast addresses (255.255.255.255 may not work on all networks)
-    // Get local addresses and compute their broadcast addresses
-    qDebug() << "DataMigrationClient: Scanning network interfaces for subnet broadcast addresses...";
+    // Also send to directed subnet broadcast addresses for every up interface —
+    // 255.255.255.255 is filtered on many networks, but 192.168.x.255 usually gets through.
     int interfaceCount = 0;
     for (const QNetworkInterface& interface : QNetworkInterface::allInterfaces()) {
         if (!(interface.flags() & QNetworkInterface::IsUp) ||
@@ -1079,41 +1109,60 @@ void DataMigrationClient::startDiscovery()
         }
 
         interfaceCount++;
-        qDebug() << "DataMigrationClient: Interface" << interface.name() << "is up";
+        if (burst == 0) {
+            qDebug() << "DataMigrationClient: Interface" << interface.name() << "is up";
+        }
 
         for (const QNetworkAddressEntry& entry : interface.addressEntries()) {
             if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
                 QHostAddress broadcast = entry.broadcast();
-                qDebug() << "DataMigrationClient:   Local IP:" << entry.ip().toString()
-                         << "Broadcast:" << (broadcast.isNull() ? "none" : broadcast.toString());
+                if (burst == 0) {
+                    qDebug() << "DataMigrationClient:   Local IP:" << entry.ip().toString()
+                             << "Broadcast:" << (broadcast.isNull() ? "none" : broadcast.toString());
+                }
                 if (!broadcast.isNull() && broadcast != QHostAddress::Broadcast) {
                     qint64 sent = m_discoverySocket->writeDatagram(discoveryMessage, broadcast, DISCOVERY_PORT);
                     if (sent > 0) {
-                        qDebug() << "DataMigrationClient:   Sent discovery to" << broadcast.toString() << "(" << sent << "bytes)";
+                        qDebug() << "DataMigrationClient:   Sent discovery to" << broadcast.toString()
+                                 << "(burst" << burst << "," << sent << "bytes)";
                     } else {
-                        qWarning() << "DataMigrationClient:   Failed to send to" << broadcast.toString() << ":" << m_discoverySocket->errorString();
+                        qWarning() << "DataMigrationClient:   Failed to send to" << broadcast.toString()
+                                   << "(burst" << burst << "):" << m_discoverySocket->errorString();
                     }
                 }
             }
         }
     }
-    if (interfaceCount == 0) {
+    if (interfaceCount == 0 && burst == 0) {
         qWarning() << "DataMigrationClient: No active network interfaces found!";
     }
+}
 
-    // Set up timeout timer
-    if (!m_discoveryTimer) {
-        m_discoveryTimer = new QTimer(this);
-        m_discoveryTimer->setSingleShot(true);
-        connect(m_discoveryTimer, &QTimer::timeout, this, &DataMigrationClient::onDiscoveryTimeout);
+void DataMigrationClient::onDiscoveryRetransmit()
+{
+    if (!m_searching) {
+        return;
     }
-    m_discoveryTimer->start(DISCOVERY_TIMEOUT_MS);
+
+    sendDiscoveryBroadcasts();
+    m_discoveryRetransmitIndex++;
+
+    constexpr int retransmitCount = sizeof(DISCOVERY_RETRANSMIT_SCHEDULE_MS) / sizeof(DISCOVERY_RETRANSMIT_SCHEDULE_MS[0]);
+    if (m_discoveryRetransmitIndex < retransmitCount) {
+        const int delay = DISCOVERY_RETRANSMIT_SCHEDULE_MS[m_discoveryRetransmitIndex]
+                          - DISCOVERY_RETRANSMIT_SCHEDULE_MS[m_discoveryRetransmitIndex - 1];
+        m_discoveryRetransmitTimer->start(delay);
+    }
 }
 
 void DataMigrationClient::stopDiscovery()
 {
     if (m_discoveryTimer) {
         m_discoveryTimer->stop();
+    }
+
+    if (m_discoveryRetransmitTimer) {
+        m_discoveryRetransmitTimer->stop();
     }
 
     if (m_discoverySocket) {

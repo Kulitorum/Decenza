@@ -120,6 +120,7 @@ private slots:
     void onDownloadProgress(qint64 received, qint64 total);
     void onDiscoveryDatagram();
     void onDiscoveryTimeout();
+    void onDiscoveryRetransmit();
     void onAuthReply();
 
 private:
@@ -192,10 +193,17 @@ private:
     // Device discovery
     QUdpSocket* m_discoverySocket = nullptr;
     QTimer* m_discoveryTimer = nullptr;
+    QTimer* m_discoveryRetransmitTimer = nullptr;
     QVariantList m_discoveredDevices;
     bool m_searching = false;
+    int m_discoveryRetransmitIndex = 0;
+    void sendDiscoveryBroadcasts();
     static constexpr int DISCOVERY_PORT = 8889;
-    static constexpr int DISCOVERY_TIMEOUT_MS = 3000;  // Search for 3 seconds
+    static constexpr int DISCOVERY_TIMEOUT_MS = 5000;  // Search for 5 seconds
+    // Retransmit schedule in ms from the start of discovery. First entry must be 0.
+    // UDP broadcasts can be dropped silently, especially on Wi-Fi, so we repeat a few
+    // times to improve the chance every responder gets at least one request.
+    static constexpr int DISCOVERY_RETRANSMIT_SCHEDULE_MS[] = {0, 500, 1200, 2500};
 
     // Authentication
     bool m_needsAuthentication = false;
