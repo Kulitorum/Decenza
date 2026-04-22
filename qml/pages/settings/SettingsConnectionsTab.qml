@@ -732,7 +732,7 @@ Item {
                         QtObject {
                             id: scaleStatusHelper
                             property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
-                            property bool isSimulated: ScaleDevice && ScaleDevice.name === "Simulated Scale"
+                            property bool isSimulated: ScaleDevice && ScaleDevice.isSimulated
                             // FlowScale fallback after physical disconnect — treat as disconnected
                             property bool isDisconnectedFallback: ScaleDevice && ScaleDevice.isFlowScale && !Settings.useFlowScale
                             property bool isConnected: ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback
@@ -865,7 +865,7 @@ Item {
                         color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                         border.color: Theme.warningColor
                         border.width: 1
-                        visible: ScaleDevice && ScaleDevice.name === "Simulated Scale"
+                        visible: ScaleDevice && ScaleDevice.isSimulated
 
                         Text {
                             id: simScaleNotice

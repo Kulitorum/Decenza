@@ -16,6 +16,7 @@ class ScaleDevice : public QObject {
     Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY batteryLevelChanged)
     Q_PROPERTY(QString name READ name CONSTANT)
     Q_PROPERTY(bool isFlowScale READ isFlowScale CONSTANT)
+    Q_PROPERTY(bool isSimulated READ isSimulated CONSTANT)
 
 public:
     explicit ScaleDevice(QObject* parent = nullptr);
@@ -30,6 +31,7 @@ public:
     virtual QString name() const { return QString(); }
     virtual QString type() const { return QString(); }
     virtual bool isFlowScale() const { return false; }
+    virtual bool isSimulated() const { return false; }
 
     bool simulationMode() const { return m_simulationMode; }
     void setSimulationMode(bool enabled);

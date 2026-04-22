@@ -18,6 +18,7 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return "Simulated Scale"; }
     QString type() const override { return "simulated"; }
+    bool isSimulated() const override { return true; }
 
 public slots:
     void tare() override;
