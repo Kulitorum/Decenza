@@ -47,10 +47,16 @@
     }
 }
 
+- (void)dealloc {
+    [_manager release];
+    [super dealloc];
+}
+
 @end
 
 // This TU is compiled in MRC (non-ARC) mode, so __bridge_* casts would be
-// no-ops and emit warnings. We use plain casts and explicit release/retain.
+// no-ops and emit warnings. We use plain casts and explicit [release] to
+// balance the +1 retain from alloc.
 
 AppleBtState::AppleBtState(QObject* parent) : QObject(parent) {
     m_observer = (void*)[[DecenzaBtStateObserver alloc] initWithOwner:this];
