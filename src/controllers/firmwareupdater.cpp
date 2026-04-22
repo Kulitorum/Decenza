@@ -144,7 +144,13 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
     const bool retroactiveFromFailed =
         m_state == State::Failed && m_flashCompleted;
     if ((m_verifyingAmbiguous || retroactiveFromFailed) && v > 0) {
-        if (v >= m_availableVersion) {
+        // Exact match, not >=. For a downgrade (target < old), the
+        // `>= target` test passes on the *stale* pre-flash version and
+        // flips the state to Succeeded before the DE1 has actually
+        // rebooted — the installed UI then briefly shows the wrong number
+        // when the real MMR read arrives. Only the exact target version
+        // is proof the DE1 has booted into the new bank.
+        if (v == m_availableVersion) {
             if (retroactiveFromFailed) {
                 qCWarning(firmwareLog).noquote()
                     << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
@@ -155,8 +161,10 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
             }
             completeSuccess();  // clears flags + timers
         } else if (m_verifyingAmbiguous) {
-            // DE1 booted into the old firmware. Escalate to power-cycle
-            // prompt rather than waiting for the grace-timeout failure.
+            // DE1 booted into something other than target firmware.
+            // Prompt power-cycle rather than waiting for the grace-timeout
+            // failure. Covers upgrades stuck on old (v < target) AND
+            // downgrades stuck on old (v > target).
             m_verifyDisconnectGrace.stop();
             m_autoRebootWaitTimer.stop();
             if (m_state != State::AwaitingReboot) {
@@ -181,47 +189,31 @@ void FirmwareUpdater::onDeviceConnectionChanged() {
     if (!m_device) return;
 
     // Reconnect path. If we were in ambiguous-verify (disconnected during
-    // the verify phase, which commonly means a successful post-flash
-    // reboot rather than a real failure), re-read the installed version
-    // and decide: match → retroactive success; still old version →
-    // escalate to "please power-cycle" rather than failing silently. The
-    // installed version here may lag by a few hundred ms while the
-    // post-reconnect MMR 0x800010 read completes; onDeviceFirmwareVersionChanged
-    // provides the later confirmation path for the racy case.
+    // the verify or AwaitingReboot phase), confirm success only when the
+    // installed version exactly matches the target. On a real DE1 the
+    // `firmwareBuildNumber` at reconnect time is the *cached* pre-flash
+    // value — it only refreshes once the post-reconnect MMR 0x800010 read
+    // lands (hundreds of ms later). An earlier `>=` check here flipped
+    // downgrades to Succeeded off the stale cached value, so the UI
+    // briefly showed the wrong installed version. Let
+    // onDeviceFirmwareVersionChanged handle the actual decision once a
+    // fresh read arrives. We only short-circuit to success here if the
+    // cached value already happens to match the target (e.g. race-guard
+    // path, or a very fast MMR refresh).
     if (m_device->isConnected()) {
         if (m_verifyingAmbiguous) {
             const uint32_t installed = m_installedVersionProvider
                 ? m_installedVersionProvider() : m_installedVersion;
             m_installedVersion = installed;
-            if (installed >= m_availableVersion && installed > 0) {
+            if (installed == m_availableVersion && installed > 0) {
+                // Cached value already matches target — either a very
+                // fast MMR refresh or a race-guard-style no-op flash.
                 completeSuccess();  // clears m_verifyingAmbiguous + timers
-            } else if (installed > 0 && installed < m_availableVersion) {
-                // Flash succeeded at the protocol level (verify returned
-                // FFFFFD), DE1 disconnected and reconnected — but it's
-                // running the old firmware. Common for downgrades where
-                // the bootloader won't auto-swap. Don't fail: tell the
-                // user to power-cycle and wait for the next disconnect.
-                m_verifyDisconnectGrace.stop();
-                m_autoRebootWaitTimer.stop();
-                if (m_state != State::AwaitingReboot) {
-                    setProgress(1.0);
-                    setState(State::AwaitingReboot);
-                }
-                if (!m_needsManualReboot) {
-                    m_needsManualReboot = true;
-                    emit needsManualRebootChanged();
-                    qCWarning(firmwareLog).noquote()
-                        << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
-                        << "[firmware] reconnected with old version"
-                        << installed << "— prompting user to power-cycle";
-                }
-                // Leave m_verifyingAmbiguous=true so the next disconnect+
-                // reconnect (after the user power-cycles) runs the check
-                // again via this same path.
             }
-            // installed == 0: MMR not yet read. Wait for
-            // onDeviceFirmwareVersionChanged or verifyDisconnectGrace
-            // to decide.
+            // Otherwise: defer to onDeviceFirmwareVersionChanged once a
+            // fresh MMR read arrives. Mismatch decision (stuck on old
+            // firmware → prompt power-cycle) lives there too, where v
+            // is guaranteed to be a fresh post-reconnect read.
         }
         return;
     }
