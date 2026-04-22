@@ -328,6 +328,29 @@ void FirmwareUpdater::setState(State newState) {
             const QString s = stateText(); m_state = old;
             return s;
         }();
+
+    // Defense in depth: the MMR-write guard on DE1Device is engaged by
+    // beginErasePhase() and cleared by completeSuccess()/failWith(). If
+    // anything else ever transitions out of an active-flash state (e.g.
+    // a future code path, test harness, or new caller), make sure the
+    // guard follows. Otherwise the guard stays engaged after the flash
+    // dies and every MMR write is silently dropped for the rest of the
+    // session.
+    const bool wasActiveFlash =
+        m_state == State::Erasing || m_state == State::Uploading ||
+        m_state == State::Verifying || m_state == State::AwaitingReboot;
+    const bool nowActiveFlash =
+        newState == State::Erasing || newState == State::Uploading ||
+        newState == State::Verifying || newState == State::AwaitingReboot;
+    if (wasActiveFlash && !nowActiveFlash && m_device &&
+        m_device->firmwareFlashInProgress()) {
+        qCWarning(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] leaving active-flash state without completeSuccess/"
+               "failWith — clearing MMR guard as a safety net";
+        m_device->setFirmwareFlashInProgress(false);
+    }
+
     m_state = newState;
     emit stateChanged();
 }
@@ -378,6 +401,21 @@ void FirmwareUpdater::checkForUpdate() {
 
 void FirmwareUpdater::startUpdate() {
     if (!m_cache || !m_device) return;
+
+    // Refuse to re-enter while a flash is already running. Same reasoning as
+    // checkForUpdate() — a stray invocation (MCP, double-tapped UI button,
+    // remote control) would reset the flags, setState(Downloading), and
+    // bulldoze the in-flight state machine without cleanly tearing down
+    // the BLE chunk pump or clearing DE1Device's MMR-write guard.
+    if (m_state == State::Erasing || m_state == State::Uploading ||
+        m_state == State::Verifying || m_state == State::AwaitingReboot ||
+        m_state == State::Downloading) {
+        qCWarning(firmwareLog).noquote()
+            << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+            << "[firmware] startUpdate ignored (flash already in progress, state="
+            << stateText() << ")";
+        return;
+    }
 
     // Reset carry-over state from any prior attempt (e.g. a previous
     // verify-disconnect-grace failure) so residual flags don't corrupt the
