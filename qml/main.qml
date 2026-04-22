@@ -174,6 +174,11 @@ ApplicationWindow {
                 wrapMode: Text.Wrap
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
+                // Dialog announces title + message via
+                // AccessibilityManager.announce() in onOpened; ignore
+                // the visible Text nodes so TalkBack/VoiceOver doesn't
+                // re-read them on linear swipe.
+                Accessible.ignored: true
             }
 
             Text {
@@ -182,6 +187,7 @@ ApplicationWindow {
                 width: parent.width
                 font: Theme.bodyFont
                 color: Theme.textColor
+                Accessible.ignored: true
             }
 
             Row {
@@ -274,6 +280,11 @@ ApplicationWindow {
                 wrapMode: Text.Wrap
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
+                // Dialog announces title + message via
+                // AccessibilityManager.announce() in onOpened; ignore
+                // the visible Text nodes so TalkBack/VoiceOver doesn't
+                // re-read them on linear swipe.
+                Accessible.ignored: true
             }
 
             Text {
@@ -285,6 +296,7 @@ ApplicationWindow {
                 font: Theme.subtitleFont
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
+                Accessible.ignored: true
             }
 
             Row {
