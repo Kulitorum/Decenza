@@ -586,8 +586,9 @@ if(IOS)
     target_include_directories(Decenza PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ios)
 endif()
 
-# QML module - mark Theme.qml as singleton
+# QML module - mark singletons
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
 set(QML_FILES
@@ -711,6 +712,7 @@ set(QML_FILES
     qml/components/DateUtils.js
     qml/components/qrcode.js
     qml/components/SettingsSearchIndex.js
+    qml/components/SettingsTabs.qml
 
     qml/components/layout/LayoutItemDelegate.qml
     qml/components/layout/LayoutBarZone.qml

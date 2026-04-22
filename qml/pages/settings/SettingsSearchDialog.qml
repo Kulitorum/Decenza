@@ -16,7 +16,7 @@ Dialog {
     padding: Theme.scaled(16)
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
-    signal resultSelected(int tabIndex, string cardId)
+    signal resultSelected(string tabId, string cardId)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -169,7 +169,7 @@ Dialog {
                 radius: Theme.scaled(6)
 
                 Accessible.role: Accessible.Button
-                Accessible.name: modelData.title + ", " + SearchIndex.getTabName(modelData.tabIndex, TranslationManager.translate.bind(TranslationManager)) + " tab"
+                Accessible.name: modelData.title + ", " + SettingsTabs.tabName(modelData.tabId) + " tab"
                 Accessible.focusable: true
                 Accessible.onPressAction: resultMouseArea.clicked(null)
 
@@ -214,7 +214,7 @@ Dialog {
                         Text {
                             id: tabBadgeText
                             anchors.centerIn: parent
-                            text: SearchIndex.getTabName(modelData.tabIndex, TranslationManager.translate.bind(TranslationManager))
+                            text: SettingsTabs.tabName(modelData.tabId)
                             color: Theme.primaryColor
                             font.pixelSize: Theme.scaled(10)
                             font.bold: true
@@ -229,7 +229,7 @@ Dialog {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        searchDialog.resultSelected(modelData.tabIndex, modelData.cardId || "")
+                        searchDialog.resultSelected(modelData.tabId, modelData.cardId || "")
                         searchDialog.close()
                     }
                 }

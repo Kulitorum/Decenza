@@ -1637,7 +1637,7 @@ ApplicationWindow {
                             MainController.updateChecker.downloadAndInstall()
                         }
                         updateDialog.close()
-                        goToSettings(11)  // Navigate to About tab (has update controls)
+                        goToSettings("about")  // About tab has the update controls
 
                     }
                 }
@@ -2677,10 +2677,10 @@ ApplicationWindow {
         }
     }
 
-    function goToSettings(tabIndex) {
+    function goToSettings(tabId) {
         if (!startNavigation()) return
-        if (tabIndex !== undefined && tabIndex >= 0) {
-            pageStack.push(settingsPage, {requestedTabIndex: tabIndex})
+        if (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0) {
+            pageStack.push(settingsPage, {requestedTabId: tabId})
         } else {
             pageStack.push(settingsPage)
         }
@@ -3647,7 +3647,7 @@ ApplicationWindow {
                     onClicked: {
                         emptyDatabaseDialog.close();
                         startBluetoothScan();
-                        goToSettings(3);  // Navigate to History & Data tab
+                        goToSettings("historyData");  // History & Data tab has restore
                     }
                 }
             }
