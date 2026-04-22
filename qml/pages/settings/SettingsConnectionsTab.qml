@@ -426,8 +426,15 @@ Item {
                         Tr {
                             key: "settings.bluetooth.connected"
                             fallback: "Connected"
-                            visible: DE1Device.connected
+                            visible: DE1Device.connected && !DE1Device.simulationMode
                             color: Theme.successColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.simulated"
+                            fallback: "Simulated"
+                            visible: DE1Device.connected && DE1Device.simulationMode
+                            color: Theme.warningColor
                         }
 
                         Tr {
@@ -442,7 +449,7 @@ Item {
                     Text {
                         text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
                         color: Theme.textSecondaryColor
-                        visible: DE1Device.connected
+                        visible: DE1Device.connected && !DE1Device.simulationMode
                     }
 
                     ListView {
