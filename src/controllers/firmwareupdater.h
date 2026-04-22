@@ -215,7 +215,21 @@ private:
     // what we just flashed before classifying the outcome.
     bool        m_verifyingAmbiguous    = false;
     QTimer      m_verifyDisconnectGrace;
-    int         m_verifyDisconnectGraceMs = 15000;
+    // Generous default so a manual power-cycle (user sees prompt, walks to
+    // machine, flips switch, waits for DE1 BLE stack to come back) doesn't
+    // trip a spurious "did not reconnect after verify" failure. Real-world
+    // DE1 boot + BLE rediscovery is typically 30–60 s; 180 s leaves room
+    // for slow reconnects on Android. Tests override via setter to keep
+    // runtime short.
+    int         m_verifyDisconnectGraceMs = 180000;
+
+    // True between verify-success notification and the final Succeeded
+    // transition. Persists through a spurious Failed state so that if the
+    // DE1 eventually comes back on the new firmware (e.g. a boot took
+    // longer than the grace window), onDeviceFirmwareVersionChanged can
+    // retroactively flip to Succeeded instead of the user re-flashing via
+    // Retry.
+    bool        m_flashCompleted       = false;
 
     // Auto-reboot wait: after verify succeeds, we wait this long for the
     // DE1 to disconnect on its own (signalling auto-reboot). If it stays

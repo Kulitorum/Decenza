@@ -136,10 +136,25 @@ void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
     // version arrival here so we don't time out the grace window while the
     // DE1 is actually running the new firmware — or while it's running the
     // old firmware and we should tell the user to power-cycle.
-    if (m_verifyingAmbiguous && v > 0) {
+    //
+    // m_flashCompleted=true ensures we can retroactively succeed from the
+    // Failed state too: if the grace window expired while the DE1 was
+    // booting and the user eventually gets the new firmware, flip to
+    // Succeeded rather than forcing a re-flash.
+    const bool retroactiveFromFailed =
+        m_state == State::Failed && m_flashCompleted;
+    if ((m_verifyingAmbiguous || retroactiveFromFailed) && v > 0) {
         if (v >= m_availableVersion) {
+            if (retroactiveFromFailed) {
+                qCWarning(firmwareLog).noquote()
+                    << formatElapsed(m_updateTimer.isValid() ? m_updateTimer.elapsed() : -1)
+                    << "[firmware] retroactive success: DE1 reconnected on v" << v
+                    << "after failure — flashing actually worked";
+                m_errorMessage.clear();
+                m_retryAvailable = false;
+            }
             completeSuccess();  // clears flags + timers
-        } else {
+        } else if (m_verifyingAmbiguous) {
             // DE1 booted into the old firmware. Escalate to power-cycle
             // prompt rather than waiting for the grace-timeout failure.
             m_verifyDisconnectGrace.stop();
@@ -359,6 +374,7 @@ void FirmwareUpdater::startUpdate() {
     // verify-disconnect-grace failure) so residual flags don't corrupt the
     // next cycle's ambiguous-verify/AwaitingReboot logic.
     m_verifyingAmbiguous = false;
+    m_flashCompleted = false;
     m_verifyDisconnectGrace.stop();
     m_autoRebootWaitTimer.stop();
     if (m_needsManualReboot) {
@@ -724,7 +740,13 @@ void FirmwareUpdater::onFwMapResponse(uint8_t fwToErase, uint8_t fwToMap,
             // firmware until the user power-cycles. Enter AwaitingReboot
             // and wait for an actual disconnect + reconnect with the
             // expected version before calling completeSuccess().
+            //
+            // m_flashCompleted persists through a spurious Failed if the
+            // grace window times out mid-boot — lets us retroactively
+            // succeed when the DE1 eventually does come back on the new
+            // firmware (vs. forcing the user to re-flash via Retry).
             m_verifyingAmbiguous = true;
+            m_flashCompleted = true;
             m_autoRebootWaitTimer.start(m_autoRebootWaitMs);
             setProgress(1.0);
             setState(State::AwaitingReboot);
@@ -764,6 +786,7 @@ void FirmwareUpdater::completeSuccess() {
     m_autoRebootWaitTimer.stop();
     m_verifyDisconnectGrace.stop();
     m_verifyingAmbiguous = false;
+    m_flashCompleted = false;
     if (m_needsManualReboot) {
         m_needsManualReboot = false;
         emit needsManualRebootChanged();
