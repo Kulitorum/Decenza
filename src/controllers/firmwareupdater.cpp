@@ -226,8 +226,8 @@ void FirmwareUpdater::onDeviceConnectionChanged() {
         case State::AwaitingReboot:
             // Ambiguous — don't classify yet. Open the grace window to see
             // whether the device comes back reporting the new version
-            // (successful reboot, either auto or user-initiated) or stays
-            // away / comes back with the old version (genuine failure).
+            // (user power-cycled) or stays away / comes back with the old
+            // version (genuine failure).
             m_verifyingAmbiguous = true;
             m_verifyTimeoutTimer.stop();
             m_verifyDisconnectGrace.start(m_verifyDisconnectGraceMs);
@@ -308,7 +308,7 @@ QString FirmwareUpdater::stateText() const {
         case State::Verifying:      return QStringLiteral("Verifying");
         case State::Succeeded:      return QStringLiteral("Update complete");
         case State::Failed:         return QStringLiteral("Update failed");
-        case State::AwaitingReboot: return QStringLiteral("Waiting for DE1 to restart");
+        case State::AwaitingReboot: return QStringLiteral("Power-cycle the DE1 to load new firmware");
     }
     return QString();
 }

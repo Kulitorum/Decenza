@@ -209,12 +209,15 @@ private:
     uint32_t    m_dismissedVersion = 0;
 
     // Verify-disconnect grace window: when the DE1 disconnects during
-    // Verifying (which commonly means a successful reboot rather than a
-    // failure), we wait briefly to see if the post-reboot version matches
-    // what we just flashed before classifying the outcome.
+    // Verifying or AwaitingReboot, we wait briefly to see if the
+    // post-reconnect version matches what we just flashed before
+    // classifying the outcome. This is the primary success path under
+    // the current model — the DE1 doesn't auto-reboot, so completion
+    // runs through a user power-cycle + reconnect, not a direct
+    // verify → Succeeded transition.
     bool        m_verifyingAmbiguous    = false;
     QTimer      m_verifyDisconnectGrace;
-    // Generous default so a manual power-cycle (user sees prompt, walks to
+    // Generous default so a user power-cycle (sees prompt, walks to the
     // machine, flips switch, waits for DE1 BLE stack to come back) doesn't
     // trip a spurious "did not reconnect after verify" failure. Real-world
     // DE1 boot + BLE rediscovery is typically 30–60 s; 180 s leaves room
