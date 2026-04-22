@@ -34,6 +34,7 @@ DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, 
 DataMigrationClient::~DataMigrationClient()
 {
     *m_destroyed = true;
+    stopDiscovery();
     cancel();
     delete m_tempDir;
 }
