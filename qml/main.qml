@@ -264,10 +264,11 @@ ApplicationWindow {
             spacing: Theme.spacingLarge
 
             Text {
+                // titleFont (24, bold) for emphasis — larger than the
+                // subtitleFont other dialogs use because the power-cycle
+                // instruction must be unmissable.
                 text: trFwRebootTitle.text
-                font.family: Theme.subtitleFont.family
-                font.pixelSize: Math.round(Theme.subtitleFont.pixelSize * 1.1)
-                font.bold: true
+                font: Theme.titleFont
                 color: Theme.warningColor
                 anchors.horizontalCenter: parent.horizontalCenter
                 wrapMode: Text.Wrap
@@ -276,11 +277,12 @@ ApplicationWindow {
             }
 
             Text {
+                // subtitleFont (18, bold) for body — bolder than the
+                // plain bodyFont used in other dialogs.
                 text: trFwRebootMessage.text
                 wrapMode: Text.Wrap
                 width: parent.width
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Math.round(Theme.bodyFont.pixelSize * 1.1)
+                font: Theme.subtitleFont
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
             }

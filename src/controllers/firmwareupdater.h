@@ -97,7 +97,7 @@ public:
     void setChunkPumpIntervalMs(int ms);      // default 1
     void setEraseTimeoutMs(int ms);           // default 30000
     void setVerifyTimeoutMs(int ms);          // default 60000
-    void setVerifyDisconnectGraceMs(int ms);  // default 15000
+    void setVerifyDisconnectGraceMs(int ms);  // default 180000 (3 min)
     void setPostUploadSettleMs(int ms);       // default 1500
     void setAutoRebootWaitMs(int ms);         // default 30000
 
