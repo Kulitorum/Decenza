@@ -354,6 +354,12 @@ private:
                                        const QString& reason,
                                        const char* label) const;
 
+    // Generic "drop this DE1 write mid-flash" guard for command paths that
+    // don't go through writeMMR (state changes, profile upload, shot
+    // settings, water levels, etc.). Returns true (and logs a qWarning)
+    // when a flash is in progress so the caller should bail.
+    bool dropDeviceWriteIfFirmwareFlash(const char* label) const;
+
     // Transport signal handlers
     void onTransportConnected();
     void onTransportDisconnected();

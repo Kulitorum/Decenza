@@ -738,6 +738,7 @@ void DE1Device::requestState(DE1::State state) {
 #endif
 
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     QByteArray data(1, static_cast<char>(state));
     m_transport->write(DE1::Characteristic::REQUESTED_STATE, data);
 }
@@ -809,6 +810,7 @@ void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
     }
 #endif
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("stopOperationUrgent")) return;
     clearCommandQueue();
     if (sawTriggerMs > 0) {
         m_lastSawTriggerMs = sawTriggerMs;
@@ -906,6 +908,7 @@ void DE1Device::uploadProfile(const Profile& profile) {
 #endif
 
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("uploadProfile")) return;
 
     // Attach the ACK listener BEFORE queuing writes so we observe every
     // writeComplete for this upload.
@@ -926,6 +929,7 @@ void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
 #endif
 
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("uploadProfileAndStartEspresso")) return;
 
     QList<QByteArray> frames = profile.toFrameBytes();
     startProfileUploadTracking(profile.title(), frames, /*expectEspressoStart=*/true);
@@ -1106,11 +1110,13 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
 
 void DE1Device::writeHeader(const QByteArray& headerData) {
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("writeHeader")) return;
     m_transport->write(DE1::Characteristic::HEADER_WRITE, headerData);
 }
 
 void DE1Device::writeFrame(const QByteArray& frameData) {
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("writeFrame")) return;
     m_transport->write(DE1::Characteristic::FRAME_WRITE, frameData);
 }
 
@@ -1137,6 +1143,13 @@ void DE1Device::setFirmwareFlashInProgress(bool inProgress) {
     m_firmwareFlashInProgress = inProgress;
     qDebug() << "[firmware] DE1Device MMR-write guard"
              << (inProgress ? "ENGAGED" : "cleared");
+}
+
+bool DE1Device::dropDeviceWriteIfFirmwareFlash(const char* label) const {
+    if (!m_firmwareFlashInProgress) return false;
+    qWarning().noquote() << QString("[DE1] %1 DROPPED (firmware flash in progress)")
+        .arg(QString::fromLatin1(label));
+    return true;
 }
 
 bool DE1Device::dropIfFirmwareFlashInProgress(uint32_t address, uint32_t value,
@@ -1374,6 +1387,7 @@ void DE1Device::setUsbChargerOnUrgent(bool on) {
 
 void DE1Device::setWaterRefillLevel(int refillPointMm) {
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("setWaterRefillLevel")) return;
     QByteArray data;
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(0)));
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(static_cast<double>(refillPointMm))));
@@ -1509,6 +1523,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     }
 #endif
     if (!m_transport) return;
+    if (dropDeviceWriteIfFirmwareFlash("setShotSettings")) return;
     QByteArray data(9, 0);
     data[0] = 0;  // SteamSettings flags
     data[1] = BinaryCodec::encodeU8P0(steamTemp);
@@ -1626,6 +1641,7 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
 
 void DE1Device::resendLastShotSettings() {
     if (!m_transport || m_lastShotSettingsPayload.isEmpty()) return;
+    if (dropDeviceWriteIfFirmwareFlash("resendLastShotSettings")) return;
     qDebug().noquote() << QString(
         "[ShotSettings] resend: repeating last payload (steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C)")
         .arg(m_commandedSteamTargetC, 0, 'f', 1)
