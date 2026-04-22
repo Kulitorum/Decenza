@@ -211,6 +211,94 @@ ApplicationWindow {
         }
     }
 
+    // Firmware power-cycle prompt. Opens globally (not just on the Firmware
+    // tab) when the auto-reboot grace window expires or the DE1 reconnects
+    // still running the old firmware after a flash. Auto-dismisses once the
+    // updater transitions out of AwaitingReboot (success or failure).
+    Connections {
+        target: MainController.firmwareUpdater
+        function onNeedsManualRebootChanged() {
+            if (MainController.firmwareUpdater.needsManualReboot) {
+                firmwareRebootRequiredDialog.open()
+            } else {
+                firmwareRebootRequiredDialog.close()
+            }
+        }
+        function onStateChanged() {
+            // Belt-and-suspenders: if we leave AwaitingReboot for any reason,
+            // close the dialog so it doesn't linger on Succeeded/Failed.
+            if (!MainController.firmwareUpdater.needsManualReboot) {
+                firmwareRebootRequiredDialog.close()
+            }
+        }
+    }
+
+    Dialog {
+        id: firmwareRebootRequiredDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        closePolicy: Dialog.NoAutoClose
+        padding: Theme.dialogPadding
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.warningColor
+        }
+
+        Tr { id: trFwRebootTitle; key: "main.dialog.firmwareRebootRequired.title"; fallback: "Power-cycle the DE1"; visible: false }
+        Tr { id: trFwRebootMessage; key: "main.dialog.firmwareRebootRequired.message"; fallback: "The firmware is flashed but the DE1 didn't restart on its own. Switch the DE1 off (back-panel switch or unplug), wait a few seconds, then switch it back on. Decenza will finish the update automatically once the DE1 reconnects."; visible: false }
+        Tr { id: trFwRebootAck; key: "main.dialog.firmwareRebootRequired.ack"; fallback: "OK, I'll do it"; visible: false }
+
+        onOpened: {
+            fwRebootAckButton.forceActiveFocus()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trFwRebootTitle.text + ". " + trFwRebootMessage.text, true)
+            }
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trFwRebootTitle.text
+                font.family: Theme.subtitleFont.family
+                font.pixelSize: Math.round(Theme.subtitleFont.pixelSize * 1.1)
+                font.bold: true
+                color: Theme.warningColor
+                anchors.horizontalCenter: parent.horizontalCenter
+                wrapMode: Text.Wrap
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                text: trFwRebootMessage.text
+                wrapMode: Text.Wrap
+                width: parent.width
+                font.family: Theme.bodyFont.family
+                font.pixelSize: Math.round(Theme.bodyFont.pixelSize * 1.1)
+                color: Theme.textColor
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Row {
+                spacing: Theme.spacingMedium
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                AccessibleButton {
+                    id: fwRebootAckButton
+                    text: trFwRebootAck.text
+                    accessibleName: trFwRebootAck.text
+                    onClicked: firmwareRebootRequiredDialog.close()
+                }
+            }
+        }
+    }
+
     Timer {
         id: scaleSleepTimer
         interval: 150  // Give scale sleep command time to send
