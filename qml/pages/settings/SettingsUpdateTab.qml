@@ -366,7 +366,9 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
-                    // Hidden while the status area is showing its own progress UI
+                    // False while the status area shows its own progress UI, and
+                    // on platforms where canCheckForUpdates is false (e.g. iOS,
+                    // which handles app updates through the App Store).
                     readonly property bool idleState: MainController.updateChecker.canCheckForUpdates
                                                       && !MainController.updateChecker.checking
                                                       && !MainController.updateChecker.downloading
@@ -620,7 +622,13 @@ Item {
         modal: true
         dim: true
         padding: 0
-        closePolicy: Dialog.CloseOnEscape
+        // Block Escape while a flash is in progress — otherwise the user can
+        // dismiss the dialog and lose sight of the progress UI while the BLE
+        // upload keeps running in the background. The close (×) button is
+        // gated the same way below.
+        closePolicy: (firmwarePanelLoader.item && firmwarePanelLoader.item.isFlashing)
+                     ? Dialog.NoAutoClose
+                     : Dialog.CloseOnEscape
 
         // Latch: keep the panel loaded after the first open so state/progress
         // isn't lost when the user closes and reopens the dialog.

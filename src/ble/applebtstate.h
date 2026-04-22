@@ -16,9 +16,12 @@
 // delegate fires whenever the state transitions (e.g. the user toggles
 // BT, revokes permission, or airplane mode flips).
 //
-// Header compiles everywhere so blemanager.h can forward-declare it
-// without platform guards; the implementation in applebtstate.mm is only
-// wired into the build on APPLE targets (see CMakeLists.txt).
+// This header is a plain QObject declaration and compiles on every
+// platform. The implementation in applebtstate.mm is Apple-only and is
+// only wired into the build on APPLE targets (see CMakeLists.txt); the
+// forward declaration in blemanager.h is correspondingly guarded so
+// non-Apple translation units don't reference a symbol that will never
+// link.
 class AppleBtState : public QObject {
     Q_OBJECT
 public:
