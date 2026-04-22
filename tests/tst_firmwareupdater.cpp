@@ -207,6 +207,8 @@ private slots:
 
     void firmwareGuard_engagedDuringFlash_andClearedOnSuccess() {
         Fixture f;
+        auto installed = std::make_shared<uint32_t>(1200);
+        f.updater.setInstalledVersionProvider([installed]{ return *installed; });
         const QByteArray blob = makeFirmwareBlob(/*version*/ 1352);
         writeCachedBlob(&f.updater, &f.cache, blob);
 
@@ -226,7 +228,20 @@ private slots:
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000001FFFFFD"));
-        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Succeeded);
+
+        // Verify-success no longer jumps straight to Succeeded; it enters
+        // AwaitingReboot until the DE1 actually comes back on the new
+        // firmware. Guard stays engaged through the wait.
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::AwaitingReboot);
+        QVERIFY(f.device.firmwareFlashInProgress());
+
+        // Simulate auto-reboot: DE1 disconnects, reconnects with new version.
+        f.transport.setConnectedSim(false);
+        *installed = 1352;
+        f.transport.setConnectedSim(true);
+
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::Succeeded, 2000);
 
         // Guard must be cleared once we reach Succeeded — otherwise every
         // subsequent MMR write would be silently dropped.
@@ -449,6 +464,8 @@ private slots:
 
     void happyPath_endToEnd() {
         Fixture f;
+        auto installed = std::make_shared<uint32_t>(1200);
+        f.updater.setInstalledVersionProvider([installed]{ return *installed; });
         const QByteArray blob = makeFirmwareBlob(/*version*/ 1352);
         writeCachedBlob(&f.updater, &f.cache, blob);
 
@@ -513,9 +530,19 @@ private slots:
         QCOMPARE(chunkCount, expectedChunks);
         QVERIFY2(sawVerifyReq, "verify FWMapRequest was not written to A009");
 
-        // Simulate Phase 3 success notification.
+        // Simulate Phase 3 success notification. State should transition to
+        // AwaitingReboot first; Succeeded only lands once the DE1 actually
+        // reconnects reporting the new firmware version.
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray::fromHex("00000001FFFFFD"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(),
+                                  FirmwareUpdater::State::AwaitingReboot, 2000);
+
+        // Simulate auto-reboot: disconnect → reconnect with new version.
+        f.transport.setConnectedSim(false);
+        *installed = 1352;
+        f.transport.setConnectedSim(true);
 
         QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Succeeded, 2000);
         QCOMPARE(f.updater.progress(), 1.0);
