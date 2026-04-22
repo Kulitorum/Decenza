@@ -371,9 +371,11 @@ void FirmwareUpdater::checkForUpdate() {
     // versions, channel state). Only the actual flash is blocked — see
     // startUpdate().
     if (m_state == State::Checking) return;
-    // Refuse while a flash is actually running. The periodic check fires
-    // 30 s after app launch — if the user tapped "Update now" within that
-    // window (as happens on first use after an app self-update), the check
+    // Refuse while a flash is actually running. The periodic check schedule
+    // (see MainController::MainController: 30 s after first launch, then
+    // once per week) can fire at any point — including mid-flash if the
+    // user started an update after the tablet had been idle long enough
+    // for the weekly cadence to elapse. Without this guard, the check
     // would setState(Checking), blow away the in-flight Erasing/Uploading/
     // Verifying/AwaitingReboot state machine, leave the DE1Device
     // firmware-flash MMR guard stuck engaged, and silently stall the flash
