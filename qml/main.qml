@@ -218,7 +218,7 @@ ApplicationWindow {
     }
 
     // Firmware power-cycle prompt. Opens globally (not just on the Firmware
-    // tab) when the auto-reboot grace window expires or the DE1 reconnects
+    // tab) as soon as the flash verifies, and also if the DE1 reconnects
     // still running the old firmware after a flash. Auto-dismisses once the
     // updater transitions out of AwaitingReboot (success or failure).
     Connections {
@@ -256,7 +256,7 @@ ApplicationWindow {
         }
 
         Tr { id: trFwRebootTitle; key: "main.dialog.firmwareRebootRequired.title"; fallback: "Power-cycle the DE1"; visible: false }
-        Tr { id: trFwRebootMessage; key: "main.dialog.firmwareRebootRequired.message"; fallback: "The firmware is flashed but the DE1 didn't restart on its own. Switch the DE1 off (back-panel switch or unplug), wait a few seconds, then switch it back on. Decenza will finish the update automatically once the DE1 reconnects."; visible: false }
+        Tr { id: trFwRebootMessage; key: "main.dialog.firmwareRebootRequired.message"; fallback: "The new firmware is flashed and verified. Switch the DE1 off (back-panel switch or unplug), wait a few seconds, then switch it back on to load the new firmware. Decenza will finish the update automatically once the DE1 reconnects."; visible: false }
         Tr { id: trFwRebootAck; key: "main.dialog.firmwareRebootRequired.ack"; fallback: "OK, I'll do it"; visible: false }
 
         onOpened: {

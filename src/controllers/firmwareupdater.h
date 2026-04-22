@@ -46,9 +46,10 @@ class FirmwareUpdater : public QObject {
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged)
     Q_PROPERTY(bool retryAvailable READ retryAvailable NOTIFY stateChanged)
-    // True when we're in AwaitingReboot and the auto-reboot grace window
-    // has expired without the DE1 disconnecting. The UI surfaces a
-    // "power-cycle the DE1" instruction when this is true.
+    // True while we need the user to flip the DE1's power switch for the
+    // new firmware to take effect. Set as soon as we enter AwaitingReboot
+    // (verify succeeded) and cleared on Succeeded/Failed. The UI surfaces
+    // a "power-cycle the DE1" instruction when this is true.
     Q_PROPERTY(bool needsManualReboot READ needsManualReboot NOTIFY needsManualRebootChanged)
 
 public:
@@ -62,13 +63,13 @@ public:
         Verifying,
         Succeeded,
         Failed,
-        // The bootloader confirmed the new bank verifies, but the DE1 hasn't
-        // actually booted into it yet. Modern firmware auto-reboots on
-        // upgrade; downgrades (and possibly other edge cases) don't, and
-        // require the user to power-cycle the machine. We stay in this state
-        // until the DE1 disconnects + reconnects reporting the expected
-        // version. Added after #822 — appending rather than inserting so
-        // existing numeric values are stable for QML/tests.
+        // The bootloader confirmed the new bank verifies, but the DE1 is
+        // still running the old firmware. In practice the DE1 never auto-
+        // reboots (captured on every flash we've instrumented), so we
+        // prompt the user to power-cycle immediately and stay in this
+        // state until the DE1 disconnects + reconnects reporting the
+        // expected version. Added after #822 — appending rather than
+        // inserting so existing numeric values are stable for QML/tests.
         AwaitingReboot
     };
     Q_ENUM(State)
@@ -99,7 +100,6 @@ public:
     void setVerifyTimeoutMs(int ms);          // default 60000
     void setVerifyDisconnectGraceMs(int ms);  // default 180000 (3 min)
     void setPostUploadSettleMs(int ms);       // default 1500
-    void setAutoRebootWaitMs(int ms);         // default 30000
 
     // Read-only state -----------------------------------------------
 
@@ -160,7 +160,6 @@ private slots:
     void onEraseTimeout();
     void onVerifyTimeout();
     void onVerifyDisconnectGrace();
-    void onAutoRebootWaitTimeout();
 
 private:
     void setState(State newState);
@@ -231,12 +230,8 @@ private:
     // Retry.
     bool        m_flashCompleted       = false;
 
-    // Auto-reboot wait: after verify succeeds, we wait this long for the
-    // DE1 to disconnect on its own (signalling auto-reboot). If it stays
-    // connected past the window, needsManualReboot flips true so the UI
-    // prompts the user to power-cycle.
-    QTimer      m_autoRebootWaitTimer;
-    int         m_autoRebootWaitMs     = 30000;
+    // Set the moment verify succeeds so the UI prompts the user to
+    // power-cycle immediately. Cleared on Succeeded/Failed.
     bool        m_needsManualReboot    = false;
 
     QTimer      m_postEraseWaitTimer;
