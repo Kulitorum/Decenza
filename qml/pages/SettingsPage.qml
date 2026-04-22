@@ -115,7 +115,6 @@ Page {
                     TranslationManager.translate("settings.tab.mqtt", "MQTT"),
                     TranslationManager.translate("settings.tab.languageAccess", "Language & Access")
                 ]
-                tabNames.push(TranslationManager.translate("settings.tab.firmware", "Firmware"))
                 tabNames.push(TranslationManager.translate("settings.tab.about", "About"))
                 if (Settings.isDebugBuild) tabNames.push(TranslationManager.translate("settings.tab.debug", "Debug"))
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
@@ -247,12 +246,6 @@ Page {
         }
 
         StyledTabButton {
-            id: firmwareTabButton
-            text: TranslationManager.translate("settings.tab.firmware", "Firmware")
-            tabLabel: TranslationManager.translate("settings.tab.firmware", "Firmware")
-        }
-
-        StyledTabButton {
             id: aboutTabButton
             text: TranslationManager.translate("settings.tab.about", "About")
             tabLabel: TranslationManager.translate("settings.tab.about", "About")
@@ -374,26 +367,18 @@ Page {
             source: "settings/SettingsLanguageTab.qml"
         }
 
-        // Tab 11: Firmware (DE1 firmware update) - lazy loaded on first visit
-        Loader {
-            id: firmwareLoader
-            active: 11 in settingsPage.loadedTabs
-            asynchronous: true
-            source: "settings/SettingsFirmwareTab.qml"
-        }
-
-        // Tab 12: About (merged Update + About) - lazy loaded on first visit
+        // Tab 11: About (Updates, Firmware, About) - lazy loaded on first visit
         Loader {
             id: aboutLoader
-            active: 12 in settingsPage.loadedTabs
+            active: 11 in settingsPage.loadedTabs
             asynchronous: true
             source: "settings/SettingsUpdateTab.qml"
         }
 
-        // Tab 13: Debug - only in debug builds, lazy loaded on first visit
+        // Tab 12: Debug - only in debug builds, lazy loaded on first visit
         Loader {
             id: debugLoader
-            active: Settings.isDebugBuild && (13 in settingsPage.loadedTabs)
+            active: Settings.isDebugBuild && (12 in settingsPage.loadedTabs)
             asynchronous: true
             source: "settings/SettingsDebugTab.qml"
         }

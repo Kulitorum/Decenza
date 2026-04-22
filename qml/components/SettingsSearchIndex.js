@@ -104,6 +104,10 @@ function getSearchEntries(tr) {
           title: tr("settings.machine.simulationModeTitle", "Simulation Mode"),
           description: tr("settings.machine.simulationModeDesc", "Use the app without a connected DE1 machine"),
           keywords: ["offline", "simulation", "demo", "unlock", "gui", "disconnect"] },
+        { tabIndex: 1, cardId: "pocketIntegration",
+          title: tr("settings.machine.pocketIntegrationTitle", "Pocket Integration"),
+          description: tr("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing."),
+          keywords: ["pocket", "remote", "pair", "control", "screen"] },
 
         // Tab 2: Calibration
         { tabIndex: 2, cardId: "flowCalibration",
@@ -156,6 +160,10 @@ function getSearchEntries(tr) {
           title: tr("settings.search.factoryResetTitle", "Factory Reset"),
           description: tr("settings.search.factoryResetDesc", "Remove all data and uninstall"),
           keywords: ["reset", "factory", "delete", "clear", "uninstall", "wipe"] },
+        { tabIndex: 3, cardId: "exportShotsCard",
+          title: tr("settings.data.exportshots", "Export Shots to File"),
+          description: tr("settings.search.exportShotsDesc", "Mirror shots to JSON files for external tools"),
+          keywords: ["export", "json", "shots", "mirror", "backup", "files"] },
 
         // Tab 4: Themes
         { tabIndex: 4, cardId: "themeColors",
@@ -224,6 +232,10 @@ function getSearchEntries(tr) {
           title: tr("settings.update.currentversion", "Current Version"),
           description: tr("settings.search.checkUpdatesDesc", "Auto-check and download app updates"),
           keywords: ["update", "version", "download", "beta", "release"] },
+        { tabIndex: 11, cardId: "firmwareUpdate",
+          title: tr("firmware.card.title", "DE1 Firmware"),
+          description: tr("settings.search.firmwareDesc", "Check, update, or downgrade the DE1 machine firmware"),
+          keywords: ["firmware", "de1", "update", "downgrade", "nightly", "stable", "flash"] },
         { tabIndex: 11, cardId: "releaseNotes",
           title: tr("settings.search.releaseNotesTitle", "Release Notes"),
           description: tr("settings.search.releaseNotesDesc", "What's new in this version"),

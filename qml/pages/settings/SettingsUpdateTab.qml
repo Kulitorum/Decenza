@@ -12,6 +12,9 @@ Item {
     property int versionTapCount: 0
     property var lastTapTime: 0
 
+    readonly property var fw: typeof MainController !== "undefined" && MainController
+                              ? MainController.firmwareUpdater : null
+
     RowLayout {
         anchors.fill: parent
         spacing: Theme.scaled(15)
@@ -223,8 +226,120 @@ Item {
             }
         }
 
-        // Right column: Update status and actions
-        Rectangle {
+        // Right column: Firmware card + Software Updates
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: Theme.scaled(8)
+
+            // Firmware card (DE1 firmware update entry point)
+            Rectangle {
+                objectName: "firmwareUpdate"
+                Layout.fillWidth: true
+                Layout.preferredHeight: firmwareCardContent.implicitHeight + Theme.scaled(16)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: firmwareCardContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(10)
+                    spacing: Theme.scaled(4)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Tr {
+                            key: "firmware.card.title"
+                            fallback: "DE1 Firmware"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        Rectangle {
+                            width: Theme.scaled(10)
+                            height: Theme.scaled(10)
+                            radius: Theme.scaled(5)
+                            Layout.leftMargin: Theme.scaled(4)
+                            color: {
+                                if (!updateTab.fw) return Theme.textSecondaryColor
+                                if (updateTab.fw.updateAvailable)
+                                    return updateTab.fw.isDowngrade ? Theme.warningColor : Theme.primaryColor
+                                if (updateTab.fw.installedVersion > 0) return Theme.successColor
+                                return Theme.textSecondaryColor
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: {
+                                if (!updateTab.fw) return ""
+                                if (updateTab.fw.updateAvailable) {
+                                    if (updateTab.fw.isDowngrade) {
+                                        return TranslationManager.translate(
+                                            "firmware.card.downgradeAvailable",
+                                            "Downgrade available: v%1 (installed v%2)")
+                                            .arg(updateTab.fw.availableVersion)
+                                            .arg(updateTab.fw.installedVersion > 0 ? updateTab.fw.installedVersion : "—")
+                                    }
+                                    return TranslationManager.translate(
+                                        "firmware.card.updateAvailable",
+                                        "Update available: v%1 (installed v%2)")
+                                        .arg(updateTab.fw.availableVersion)
+                                        .arg(updateTab.fw.installedVersion > 0 ? updateTab.fw.installedVersion : "—")
+                                }
+                                if (updateTab.fw.installedVersion > 0) {
+                                    return TranslationManager.translate(
+                                        "firmware.card.upToDate",
+                                        "Up to date — v%1")
+                                        .arg(updateTab.fw.installedVersion)
+                                }
+                                return TranslationManager.translate(
+                                    "firmware.card.unknown",
+                                    "Firmware version unknown — connect DE1 and check")
+                            }
+                            color: updateTab.fw && updateTab.fw.updateAvailable
+                                   ? (updateTab.fw.isDowngrade ? Theme.warningColor : Theme.textColor)
+                                   : Theme.textColor
+                            font.pixelSize: Theme.scaled(13)
+                            font.bold: updateTab.fw && updateTab.fw.updateAvailable
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            id: firmwareManageText
+                            text: TranslationManager.translate("firmware.card.manage", "Manage...")
+                            color: Theme.primaryColor
+                            font.pixelSize: Theme.scaled(13)
+                            Accessible.ignored: true
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.scaled(6)
+                                accessibleName: TranslationManager.translate("firmware.card.manageAccessible", "Open DE1 firmware update")
+                                accessibleItem: firmwareManageText
+                                onAccessibleClicked: firmwareDialog.open()
+                            }
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate(
+                            "firmware.card.description",
+                            "Check, update, or downgrade the DE1 firmware.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            // Software Updates card (app updates + release notes)
+            Rectangle {
             objectName: "releaseNotes"
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -233,21 +348,70 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(10)
+                anchors.margins: Theme.scaled(10)
+                spacing: Theme.scaled(6)
 
-                Tr {
-                    key: "settings.update.softwareupdates"
-                    fallback: "Software Updates"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.bold: true
+                // Title + inline action buttons
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "settings.update.softwareupdates"
+                        fallback: "Software Updates"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    // Hidden while the status area is showing its own progress UI
+                    readonly property bool idleState: MainController.updateChecker.canCheckForUpdates
+                                                      && !MainController.updateChecker.checking
+                                                      && !MainController.updateChecker.downloading
+                                                      && !MainController.updateChecker.installing
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.update.checknow", "Check Now")
+                        accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app updates")
+                        visible: parent.idleState
+                        enabled: !MainController.updateChecker.checking
+                        onClicked: MainController.updateChecker.checkForUpdates()
+                    }
+
+                    AccessibleButton {
+                        primary: true
+                        text: MainController.updateChecker.downloadReady
+                              ? TranslationManager.translate("settings.update.install", "Install")
+                              : TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
+                        accessibleName: MainController.updateChecker.downloadReady
+                              ? TranslationManager.translate("settings.update.installAccessible", "Install the downloaded update")
+                              : TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
+                        visible: parent.idleState && MainController.updateChecker.updateAvailable && MainController.updateChecker.canDownloadUpdate
+                        onClicked: MainController.updateChecker.downloadAndInstall()
+                    }
+
+                    AccessibleButton {
+                        primary: true
+                        text: TranslationManager.translate("settings.update.viewongithub", "View on GitHub")
+                        accessibleName: TranslationManager.translate("settings.update.viewOnGithubAccessible", "Open the release page on GitHub")
+                        visible: parent.idleState && MainController.updateChecker.updateAvailable && !MainController.updateChecker.canDownloadUpdate
+                        onClicked: MainController.updateChecker.openReleasePage()
+                    }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.update.whatsnew", "What's New?")
+                        accessibleName: TranslationManager.translate("settings.update.whatsNewAccessible", "View release notes for this update")
+                        visible: parent.idleState && MainController.updateChecker.releaseNotes !== ""
+                        onClicked: releaseNotesPopup.open()
+                    }
                 }
 
                 // Status area
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: statusColumn.height + 20
+                    Layout.preferredHeight: statusColumn.height + Theme.scaled(12)
                     color: Theme.backgroundColor
                     radius: Theme.scaled(8)
 
@@ -256,8 +420,8 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: Theme.scaled(10)
-                        spacing: Theme.scaled(8)
+                        anchors.margins: Theme.scaled(8)
+                        spacing: Theme.scaled(4)
 
                         // Status row
                         RowLayout {
@@ -387,49 +551,6 @@ Item {
                     wrapMode: Text.WordWrap
                 }
 
-                // Action buttons row (not shown on iOS)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
-                    visible: MainController.updateChecker.canCheckForUpdates && !MainController.updateChecker.checking && !MainController.updateChecker.downloading && !MainController.updateChecker.installing
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.update.checknow", "Check Now")
-                        accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app updates")
-                        enabled: !MainController.updateChecker.checking
-                        onClicked: MainController.updateChecker.checkForUpdates()
-                    }
-
-                    AccessibleButton {
-                        primary: true
-                        text: MainController.updateChecker.downloadReady
-                              ? TranslationManager.translate("settings.update.install", "Install")
-                              : TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
-                        accessibleName: MainController.updateChecker.downloadReady
-                              ? TranslationManager.translate("settings.update.installAccessible", "Install the downloaded update")
-                              : TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
-                        visible: MainController.updateChecker.updateAvailable && MainController.updateChecker.canDownloadUpdate
-                        onClicked: MainController.updateChecker.downloadAndInstall()
-                    }
-
-                    AccessibleButton {
-                        primary: true
-                        text: TranslationManager.translate("settings.update.viewongithub", "View on GitHub")
-                        accessibleName: TranslationManager.translate("settings.update.viewOnGithubAccessible", "Open the release page on GitHub")
-                        visible: MainController.updateChecker.updateAvailable && !MainController.updateChecker.canDownloadUpdate
-                        onClicked: MainController.updateChecker.openReleasePage()
-                    }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.update.whatsnew", "What's New?")
-                        accessibleName: TranslationManager.translate("settings.update.whatsNewAccessible", "View release notes for this update")
-                        visible: MainController.updateChecker.releaseNotes !== ""
-                        onClicked: releaseNotesPopup.open()
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
                 // Inline release notes preview
                 Rectangle {
                     Layout.fillWidth: true
@@ -484,6 +605,88 @@ Item {
                     Layout.fillHeight: true
                     visible: MainController.updateChecker.releaseNotes === ""
                 }
+            }
+            }
+        }
+    }
+
+    // Firmware update dialog (full-screen) — hosts the SettingsFirmwareTab panel
+    Dialog {
+        id: firmwareDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: parent ? parent.width - Theme.scaled(40) : Theme.scaled(800)
+        height: parent ? parent.height - Theme.scaled(40) : Theme.scaled(600)
+        modal: true
+        dim: true
+        padding: 0
+        closePolicy: Dialog.CloseOnEscape
+
+        // Latch: keep the panel loaded after the first open so state/progress
+        // isn't lost when the user closes and reopens the dialog.
+        property bool panelLoaded: false
+        onOpened: panelLoaded = true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header bar with title + close button
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(48)
+                color: Theme.backgroundColor
+                radius: Theme.cardRadius
+
+                // Square off bottom corners so header sits flush with content
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: Theme.cardRadius
+                    color: Theme.backgroundColor
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.scaled(16)
+                    anchors.rightMargin: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "firmware.dialog.title"
+                        fallback: "DE1 Firmware Update"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(15)
+                        font.bold: true
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledIconButton {
+                        text: "×"
+                        accessibleName: TranslationManager.translate("firmware.dialog.close", "Close firmware dialog")
+                        enabled: !firmwarePanelLoader.item || !firmwarePanelLoader.item.isFlashing
+                        onClicked: firmwareDialog.close()
+                    }
+                }
+            }
+
+            // Firmware panel content (lazy-loaded on first open, stays loaded)
+            Loader {
+                id: firmwarePanelLoader
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.margins: Theme.scaled(8)
+                asynchronous: true
+                active: firmwareDialog.panelLoaded
+                source: "SettingsFirmwareTab.qml"
             }
         }
     }
