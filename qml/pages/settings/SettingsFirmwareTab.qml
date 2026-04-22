@@ -405,9 +405,9 @@ Item {
                       "firmware.tab.sourceNote",
                       "Firmware is fetched from Decent's update CDN " +
                       "(fast.decentespresso.com). Auto-checks run weekly. " +
-                      "The upload takes several minutes over Bluetooth — " +
-                      "keep the app open and the DE1 connected until the " +
-                      "update completes.")
+                      "The upload usually takes less than 30 minutes over " +
+                      "Bluetooth — keep the app open and the DE1 connected " +
+                      "until the update completes.")
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.Wrap
