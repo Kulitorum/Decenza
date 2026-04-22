@@ -383,8 +383,14 @@ Item {
 
                             Image {
                                 source: "qrc:/icons/bluetooth.svg"
-                                width: Theme.scaled(18)
-                                height: Theme.scaled(18)
+                                // sourceSize is load-bearing here: bluetooth.svg has a
+                                // 649×649 viewBox, so without it the Image's implicit
+                                // size (what RowLayout uses) is 649×649, which on Linux
+                                // renders as a giant icon overflowing the banner (#830).
+                                sourceSize.width: Theme.scaled(18)
+                                sourceSize.height: Theme.scaled(18)
+                                Layout.preferredWidth: Theme.scaled(18)
+                                Layout.preferredHeight: Theme.scaled(18)
                                 fillMode: Image.PreserveAspectFit
                             }
 
