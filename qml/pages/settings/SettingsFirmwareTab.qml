@@ -20,24 +20,27 @@ Item {
 
     // FirmwareUpdater::State enum values (kept in sync with the C++ side
     // — Q_ENUM exposes them but using the integer is the simplest binding)
-    readonly property int stateIdle:        0
-    readonly property int stateChecking:    1
-    readonly property int stateDownloading: 2
-    readonly property int stateReady:       3
-    readonly property int stateErasing:     4
-    readonly property int stateUploading:   5
-    readonly property int stateVerifying:   6
-    readonly property int stateSucceeded:   7
-    readonly property int stateFailed:      8
+    readonly property int stateIdle:           0
+    readonly property int stateChecking:       1
+    readonly property int stateDownloading:    2
+    readonly property int stateReady:          3
+    readonly property int stateErasing:        4
+    readonly property int stateUploading:      5
+    readonly property int stateVerifying:      6
+    readonly property int stateSucceeded:      7
+    readonly property int stateFailed:         8
+    readonly property int stateAwaitingReboot: 9
 
     readonly property bool isWorking: fw && (fw.state === stateChecking ||
                                              fw.state === stateDownloading ||
                                              fw.state === stateErasing ||
                                              fw.state === stateUploading ||
-                                             fw.state === stateVerifying)
+                                             fw.state === stateVerifying ||
+                                             fw.state === stateAwaitingReboot)
     readonly property bool isFlashing: fw && (fw.state === stateErasing ||
                                               fw.state === stateUploading ||
-                                              fw.state === stateVerifying)
+                                              fw.state === stateVerifying ||
+                                              fw.state === stateAwaitingReboot)
 
     ColumnLayout {
         anchors.fill: parent
@@ -318,6 +321,39 @@ Item {
                       .arg(fw ? fw.installedVersion : "")
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(14)
+            }
+        }
+
+        // ----- Awaiting-reboot strip ------------------------------
+        // Shown after verify succeeds, while we wait for the DE1 to
+        // actually boot into the new firmware. Text escalates from
+        // "restarting" to "please power-cycle" once the auto-reboot
+        // grace window expires.
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(80)
+            visible: fw && fw.state === firmwareTab.stateAwaitingReboot
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: fw && fw.needsManualReboot ? Theme.warningColor : Theme.accentColor
+            border.width: 1
+
+            Text {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                text: fw && fw.needsManualReboot
+                          ? TranslationManager.translate(
+                                "firmware.tab.awaitingManualReboot",
+                                "Firmware flashed — please power-cycle the DE1 to boot into the new version.")
+                          : TranslationManager.translate(
+                                "firmware.tab.awaitingAutoReboot",
+                                "Firmware flashed — waiting for the DE1 to restart.")
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(14)
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
             }
         }
 
