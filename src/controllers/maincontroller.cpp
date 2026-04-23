@@ -517,7 +517,13 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         }
     }
 
-    emit shotMetadataLoaded(shotId, true);
+    // Queue the success signal so it fires after the queued setDyeBeanWeight above
+    // (Qt drains queued events FIFO per-thread). Otherwise AutoFavoritesPage would
+    // pop to IdlePage and auto-open the brew dialog before the dose setter ran,
+    // briefly showing the profile default instead of the bucketed dose.
+    QMetaObject::invokeMethod(this, [this, shotId]() {
+        emit shotMetadataLoaded(shotId, true);
+    }, Qt::QueuedConnection);
 }
 
 void MainController::copyToClipboard(const QString& text) {
