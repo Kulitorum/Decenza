@@ -227,8 +227,8 @@ Page {
                 if (initialFilter[field] !== undefined && initialFilter[field] !== "")
                     filter[field] = initialFilter[field]
             }
-            // Numeric range filters from the Auto-Favorites "Show" button in weight mode.
-            var numericFields = ["minDose", "maxDose", "minYield", "maxYield"]
+            // Numeric filters from the Auto-Favorites "Show" button in weight mode.
+            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "yieldOverride"]
             for (var m = 0; m < numericFields.length; m++) {
                 var nf = numericFields[m]
                 if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
@@ -500,11 +500,10 @@ Page {
                         }
                         if (initialFilter.minDose !== undefined && initialFilter.maxDose !== undefined) {
                             var mid = (initialFilter.minDose + initialFilter.maxDose) / 2
-                            parts.push(mid.toFixed(1) + "g dose")
+                            parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
                         }
-                        if (initialFilter.minYield !== undefined && initialFilter.maxYield !== undefined
-                                && initialFilter.minYield === initialFilter.maxYield) {
-                            parts.push(initialFilter.minYield.toFixed(1) + "g yield")
+                        if (initialFilter.yieldOverride !== undefined && initialFilter.yieldOverride >= 0) {
+                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(initialFilter.yieldOverride.toFixed(1)))
                         }
                         return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00b7 ")
                     }

@@ -129,8 +129,9 @@ struct ShotFilter {
     int maxEnjoyment = -1;
     double minDose = -1;
     double maxDose = -1;
-    double minYield = -1;
+    double minYield = -1;         // filters final_weight (actual pour)
     double maxYield = -1;
+    double yieldOverride = -1;    // filters yield_override (saved target) — exact match
     double minDuration = -1;
     double maxDuration = -1;
     double minTds = -1;

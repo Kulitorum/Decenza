@@ -1358,6 +1358,7 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.maxDose = filterMap.value("maxDose", -1).toDouble();
     filter.minYield = filterMap.value("minYield", -1).toDouble();
     filter.maxYield = filterMap.value("maxYield", -1).toDouble();
+    filter.yieldOverride = filterMap.value("yieldOverride", -1).toDouble();
     filter.minDuration = filterMap.value("minDuration", -1).toDouble();
     filter.maxDuration = filterMap.value("maxDuration", -1).toDouble();
     filter.minTds = filterMap.value("minTds", -1).toDouble();
@@ -1425,6 +1426,7 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     if (filter.maxDose >= 0) { conditions << "dose_weight <= ?"; bindValues << filter.maxDose; }
     if (filter.minYield >= 0) { conditions << "final_weight >= ?"; bindValues << filter.minYield; }
     if (filter.maxYield >= 0) { conditions << "final_weight <= ?"; bindValues << filter.maxYield; }
+    if (filter.yieldOverride >= 0) { conditions << "COALESCE(yield_override, 0) = ?"; bindValues << filter.yieldOverride; }
     if (filter.minDuration >= 0) { conditions << "duration_seconds >= ?"; bindValues << filter.minDuration; }
     if (filter.maxDuration >= 0) { conditions << "duration_seconds <= ?"; bindValues << filter.maxDuration; }
     if (filter.minTds >= 0) { conditions << "drink_tds >= ?"; bindValues << filter.minTds; }
@@ -2847,7 +2849,9 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("grinder_setting", grinderSetting);
         if (groupBy == "bean_profile_grinder_weight") {
             // Match requestAutoFavorites's weight-mode bucketing exactly so stats scope
-            // to the same (dose bucket, target yield) that the card represents.
+            // to the same (dose bucket, target yield) group the card belongs to. The
+            // card itself displays the latest shot's raw dose, but the group boundary
+            // is the rounded bucket.
             conditions << "ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 = ?";
             bindValues << doseBucket;
             conditions << "COALESCE(yield_override, 0) = ?";

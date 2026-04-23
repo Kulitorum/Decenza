@@ -418,11 +418,13 @@ Page {
                                         filter.minDose = bucket - 0.25
                                         filter.maxDose = bucket + 0.25
                                     }
+                                    // Match on yield_override (the saved target) rather than
+                                    // final_weight, since the card groups by exact target yield.
+                                    // minYield/maxYield would filter actual pour weight, which
+                                    // almost never equals the target to float precision.
                                     var y = model.yieldOverride || 0
-                                    if (y > 0) {
-                                        filter.minYield = y
-                                        filter.maxYield = y
-                                    }
+                                    if (y > 0)
+                                        filter.yieldOverride = y
                                 }
 
                                 var props = {}
@@ -460,7 +462,8 @@ Page {
                                 if (Settings.autoFavoritesOpenBrewSettings)
                                     root.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
-                                // Pass the bucketed dose so the loaded recipe matches the card
+                                // Pass the latest shot's raw dose so the loaded recipe matches
+                                // what the card displays (and what the user last dialled in).
                                 MainController.loadShotWithMetadata(model.shotId, model.doseWeight || 0)
                             }
                         }
