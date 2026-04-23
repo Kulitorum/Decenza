@@ -227,6 +227,13 @@ Page {
                 if (initialFilter[field] !== undefined && initialFilter[field] !== "")
                     filter[field] = initialFilter[field]
             }
+            // Numeric filters from the Auto-Favorites "Show" button in weight mode.
+            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "yieldOverride"]
+            for (var m = 0; m < numericFields.length; m++) {
+                var nf = numericFields[m]
+                if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
+                    filter[nf] = initialFilter[nf]
+            }
         }
 
         filter.sortField = sortField
@@ -490,6 +497,13 @@ Page {
                             var g = ((initialFilter.grinderBrand || "") + " " + (initialFilter.grinderModel || "")).trim()
                             if (initialFilter.grinderSetting) g += " @ " + initialFilter.grinderSetting
                             parts.push(g)
+                        }
+                        if (initialFilter.minDose !== undefined && initialFilter.maxDose !== undefined) {
+                            var mid = (initialFilter.minDose + initialFilter.maxDose) / 2
+                            parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
+                        }
+                        if (initialFilter.yieldOverride !== undefined && initialFilter.yieldOverride >= 0) {
+                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(initialFilter.yieldOverride.toFixed(1)))
                         }
                         return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00b7 ")
                     }

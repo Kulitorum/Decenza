@@ -129,8 +129,9 @@ struct ShotFilter {
     int maxEnjoyment = -1;
     double minDose = -1;
     double maxDose = -1;
-    double minYield = -1;
+    double minYield = -1;         // filters final_weight (actual pour)
     double maxYield = -1;
+    double yieldOverride = -1;    // filters yield_override (saved target) — exact match
     double minDuration = -1;
     double maxDuration = -1;
     double minTds = -1;
@@ -313,14 +314,17 @@ public:
     // Async: runs query on background thread, emits autoFavoritesReady()
     Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
 
-    // Async: runs query on background thread, emits autoFavoriteGroupDetailsReady()
+    // Async: runs query on background thread, emits autoFavoriteGroupDetailsReady().
+    // doseBucket/yieldOverride are only consulted when groupBy == "bean_profile_grinder_weight".
     Q_INVOKABLE void requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                       const QString& beanBrand,
                                                       const QString& beanType,
                                                       const QString& profileName,
                                                       const QString& grinderBrand,
                                                       const QString& grinderModel,
-                                                      const QString& grinderSetting);
+                                                      const QString& grinderSetting,
+                                                      double doseBucket = 0.0,
+                                                      double yieldOverride = 0.0);
 
     // Async: runs backup on background thread, emits backupFinished()
     Q_INVOKABLE void requestCreateBackup(const QString& destPath);

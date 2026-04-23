@@ -56,21 +56,24 @@ Page {
     // Determine which fields to include based on current groupBy setting
     function getGroupByIncludes() {
         var groupBy = Settings.autoFavoritesGroupBy
+        var hasGrinder = (groupBy === "bean_profile_grinder" || groupBy === "bean_profile_grinder_weight")
         return {
-            bean: (groupBy === "bean" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder"),
-            profile: (groupBy === "profile" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder"),
-            grinder: (groupBy === "bean_profile_grinder")
+            bean: (groupBy === "bean" || groupBy === "bean_profile" || hasGrinder),
+            profile: (groupBy === "profile" || groupBy === "bean_profile" || hasGrinder),
+            grinder: hasGrinder
         }
     }
 
-    // Target yield for the card chip. Uses yield_override when set (modern shots
-    // always save it), falling back to the last shot's finalWeight for legacy rows
-    // where it is 0. This is an approximation: applyLoadedShotMetadata only uses
-    // finalWeight as the loaded yield when the current profile's targetWeight is
-    // also 0; for a legacy row saved against a profile that has since gained a
-    // non-zero target, the card will display finalWeight while tapping loads the
-    // profile default. The mismatch is typically sub-gram and only affects stale
-    // legacy rows that somehow survive as the latest shot in their group.
+    // Target yield for the card chip. The SQL returns the latest shot's saved
+    // yield_override (weight mode uses the group's exact bucket value, which is
+    // the same number by grouping). Legacy shots with no saved override read 0
+    // here and fall back to finalWeight.
+    //
+    // Note: this is an approximation of the value applyLoadedShotMetadata will
+    // apply when Load is pressed. The loader falls back to finalWeight only
+    // when the current profile's targetWeight is 0, while this helper falls
+    // back unconditionally when yieldOverride == 0. The mismatch is typically
+    // sub-gram and only affects stale legacy rows.
     function recipeYield(yieldOverride, finalWeight) {
         return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)
     }
@@ -344,6 +347,10 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: infoButton
                             onAccessibleClicked: {
+                                // In weight mode, model.doseBucket is the group's rounded dose
+                                // (used to scope stats) while model.doseWeight is the latest
+                                // shot's raw dose (shown on the card). Pass the bucket so the
+                                // Info page's averages cover the same shots the card aggregates.
                                 pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
                                     shotId: model.shotId,
                                     groupBy: Settings.autoFavoritesGroupBy,
@@ -353,6 +360,8 @@ Page {
                                     grinderBrand: model.grinderBrand || "",
                                     grinderModel: model.grinderModel || "",
                                     grinderSetting: model.grinderSetting || "",
+                                    doseBucket: model.doseBucket || 0,
+                                    yieldOverride: model.yieldOverride || 0,
                                     avgEnjoyment: model.avgEnjoyment || 0,
                                     shotCount: model.shotCount || 0
                                 })
@@ -398,6 +407,25 @@ Page {
                                     if (model.grinderModel) filter.grinderModel = model.grinderModel
                                     if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
                                 }
+                                // In weight mode the card also represents a specific 0.5 g dose
+                                // bucket and an exact target yield. Mirror the bucket range and
+                                // yield on the ShotHistory filter so "Show" scopes to the same
+                                // shots the card aggregates, even though the card itself displays
+                                // the latest shot's raw dose.
+                                if (Settings.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
+                                    var bucket = model.doseBucket || 0
+                                    if (bucket > 0) {
+                                        filter.minDose = bucket - 0.25
+                                        filter.maxDose = bucket + 0.25
+                                    }
+                                    // Match on yield_override (the saved target) rather than
+                                    // final_weight, since the card groups by exact target yield.
+                                    // minYield/maxYield would filter actual pour weight, which
+                                    // almost never equals the target to float precision.
+                                    var y = model.yieldOverride || 0
+                                    if (y > 0)
+                                        filter.yieldOverride = y
+                                }
 
                                 var props = {}
                                 if (Object.keys(filter).length > 0)
@@ -434,7 +462,8 @@ Page {
                                 if (Settings.autoFavoritesOpenBrewSettings)
                                     root.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
-                                // Pass the bucketed dose so the loaded recipe matches the card
+                                // Pass the latest shot's raw dose so the loaded recipe matches
+                                // what the card displays (and what the user last dialled in).
                                 MainController.loadShotWithMetadata(model.shotId, model.doseWeight || 0)
                             }
                         }
@@ -514,18 +543,20 @@ Page {
                         TranslationManager.translate("autofavorites.groupby.bean", "Bean only"),
                         TranslationManager.translate("autofavorites.groupby.profile", "Profile only"),
                         TranslationManager.translate("autofavorites.groupby.beanprofile", "Bean + Profile"),
-                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grinder")
+                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grinder"),
+                        TranslationManager.translate("autofavorites.groupby.allweight", "Bean + Profile + Grinder + Weight")
                     ]
                     currentIndex: {
                         switch(Settings.autoFavoritesGroupBy) {
                             case "bean": return 0
                             case "profile": return 1
                             case "bean_profile_grinder": return 3
+                            case "bean_profile_grinder_weight": return 4
                             default: return 2  // bean_profile
                         }
                     }
                     onActivated: {
-                        var values = ["bean", "profile", "bean_profile", "bean_profile_grinder"]
+                        var values = ["bean", "profile", "bean_profile", "bean_profile_grinder", "bean_profile_grinder_weight"]
                         Settings.autoFavoritesGroupBy = values[currentIndex]
                         loadFavorites()
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {

@@ -1358,6 +1358,7 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.maxDose = filterMap.value("maxDose", -1).toDouble();
     filter.minYield = filterMap.value("minYield", -1).toDouble();
     filter.maxYield = filterMap.value("maxYield", -1).toDouble();
+    filter.yieldOverride = filterMap.value("yieldOverride", -1).toDouble();
     filter.minDuration = filterMap.value("minDuration", -1).toDouble();
     filter.maxDuration = filterMap.value("maxDuration", -1).toDouble();
     filter.minTds = filterMap.value("minTds", -1).toDouble();
@@ -1425,6 +1426,7 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     if (filter.maxDose >= 0) { conditions << "dose_weight <= ?"; bindValues << filter.maxDose; }
     if (filter.minYield >= 0) { conditions << "final_weight >= ?"; bindValues << filter.minYield; }
     if (filter.maxYield >= 0) { conditions << "final_weight <= ?"; bindValues << filter.maxYield; }
+    if (filter.yieldOverride >= 0) { conditions << "COALESCE(yield_override, 0) = ?"; bindValues << filter.yieldOverride; }
     if (filter.minDuration >= 0) { conditions << "duration_seconds >= ?"; bindValues << filter.minDuration; }
     if (filter.maxDuration >= 0) { conditions << "duration_seconds <= ?"; bindValues << filter.maxDuration; }
     if (filter.minTds >= 0) { conditions << "drink_tds >= ?"; bindValues << filter.minTds; }
@@ -2673,6 +2675,12 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     QString groupColumns;
     QString joinConditions;
 
+    // "bean_profile_grinder_weight" shares grinder-level grouping and also splits
+    // by target yield (exact) and dose rounded to the nearest 0.5 g, so shots with
+    // different dose/yield targets on the same bean + profile + grinder get their
+    // own cards.
+    const bool weightAware = (groupBy == "bean_profile_grinder_weight");
+
     if (groupBy == "bean") {
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type";
@@ -2683,7 +2691,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         selectColumns = "COALESCE(profile_name, '') AS gb_profile_name";
         groupColumns = "COALESCE(profile_name, '')";
         joinConditions = "COALESCE(s.profile_name, '') = g.gb_profile_name";
-    } else if (groupBy == "bean_profile_grinder") {
+    } else if (groupBy == "bean_profile_grinder" || weightAware) {
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type, "
                         "COALESCE(profile_name, '') AS gb_profile_name, "
@@ -2710,23 +2718,34 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                          "AND COALESCE(s.profile_name, '') = g.gb_profile_name";
     }
 
-    // Always also split cards by recipe: target yield (exact) and dose rounded
-    // to the nearest 0.5 g. The dose bucket keeps tiny tweaks like 18.1 / 18.2
-    // in a single card while still separating 18 g and 18.5 g recipes.
-    selectColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 AS gb_dose_bucket, "
-                     "COALESCE(yield_override, 0) AS gb_yield_override";
-    groupColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0, "
-                    "COALESCE(yield_override, 0)";
-    joinConditions += " AND ROUND(COALESCE(s.dose_weight, 0) * 2) / 2.0 = g.gb_dose_bucket "
-                      "AND COALESCE(s.yield_override, 0) = g.gb_yield_override";
+    if (weightAware) {
+        selectColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 AS gb_dose_bucket, "
+                         "COALESCE(yield_override, 0) AS gb_yield_override";
+        groupColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0, "
+                        "COALESCE(yield_override, 0)";
+        joinConditions += " AND ROUND(COALESCE(s.dose_weight, 0) * 2) / 2.0 = g.gb_dose_bucket "
+                          "AND COALESCE(s.yield_override, 0) = g.gb_yield_override";
+    }
 
-    // Outer SELECT returns the bucket for dose_weight and the group's exact yield_override
-    // so the displayed values match what tapping the favorite will load.
+    // dose_weight is always the raw latest shot's dose so dialing-in users see
+    // (and load) their most recent setting, even while the 0.5 g bucket keeps
+    // 18.1 / 18.2 shots collapsed into one card in weight mode.
+    //
+    // yield_override is the latest shot's saved target yield (for the chip's
+    // "dose → yield" display). Weight mode substitutes the group's exact bucket
+    // value, which is the same number by grouping. When the latest shot has no
+    // saved override (legacy rows), QML's recipeYield() helper falls back to
+    // finalWeight.
+    //
+    // dose_bucket exposes the group's rounded dose separately so Info / Show
+    // can filter by the bucket range even though the card displays raw dose.
+    const QString yieldCol = weightAware ? "g.gb_yield_override AS yield_override" : "s.yield_override";
+    const QString bucketCol = weightAware ? "g.gb_dose_bucket AS dose_bucket" : "0 AS dose_bucket";
+
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
         "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
-        "g.gb_dose_bucket AS dose_weight, s.final_weight, "
-        "g.gb_yield_override AS yield_override, "
+        "s.dose_weight, s.final_weight, %5, %6, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2740,7 +2759,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         ") g ON s.timestamp = g.max_ts AND %3 "
         "ORDER BY s.timestamp DESC "
         "LIMIT %4"
-    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems);
+    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(yieldCol, bucketCol);
 
     QThread* thread = QThread::create([this, dbPath, sql, destroyed]() {
         QVariantList results;
@@ -2760,6 +2779,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["doseWeight"] = query.value("dose_weight").toDouble();
                     entry["finalWeight"] = query.value("final_weight").toDouble();
                     entry["yieldOverride"] = query.value("yield_override").toDouble();
+                    entry["doseBucket"] = query.value("dose_bucket").toDouble();
                     entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();
                     entry["shotCount"] = query.value("shot_count").toInt();
                     entry["avgEnjoyment"] = query.value("avg_enjoyment").toInt();
@@ -2796,7 +2816,9 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                           const QString& profileName,
                                                           const QString& grinderBrand,
                                                           const QString& grinderModel,
-                                                          const QString& grinderSetting)
+                                                          const QString& grinderSetting,
+                                                          double doseBucket,
+                                                          double yieldOverride)
 {
     if (!m_ready) {
         emit autoFavoriteGroupDetailsReady(QVariantMap());
@@ -2820,13 +2842,23 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("bean_type", beanType);
     } else if (groupBy == "profile") {
         addCondition("profile_name", profileName);
-    } else if (groupBy == "bean_profile_grinder") {
+    } else if (groupBy == "bean_profile_grinder" || groupBy == "bean_profile_grinder_weight") {
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
         addCondition("grinder_brand", grinderBrand);
         addCondition("grinder_model", grinderModel);
         addCondition("grinder_setting", grinderSetting);
+        if (groupBy == "bean_profile_grinder_weight") {
+            // Match requestAutoFavorites's weight-mode bucketing exactly so stats scope
+            // to the same (dose bucket, target yield) group the card belongs to. The
+            // card itself displays the latest shot's raw dose, but the group boundary
+            // is the rounded bucket.
+            conditions << "ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 = ?";
+            bindValues << doseBucket;
+            conditions << "COALESCE(yield_override, 0) = ?";
+            bindValues << yieldOverride;
+        }
     } else {
         // bean_profile (default)
         addCondition("bean_brand", beanBrand);
