@@ -27,6 +27,7 @@ Text {
     property string roastDate: Settings.dyeRoastDate
     property string grindSize: Settings.dyeGrinderSetting
     property double dose: Settings.dyeBeanWeight
+    property double profileYield: ProfileManager.profileTargetWeight
     property double targetWeight: ProfileManager.targetWeight
 
     text: {
@@ -52,7 +53,14 @@ Text {
         if (showDoseYield && (dose > 0 || targetWeight > 0)) {
             var yieldParts = []
             if (dose > 0) yieldParts.push(dose.toFixed(1) + "g in")
-            if (targetWeight > 0) yieldParts.push(targetWeight.toFixed(1) + "g out")
+            if (targetWeight > 0) {
+                var yieldStr = targetWeight.toFixed(1) + "g out"
+                if (Settings.hasBrewYieldOverride && profileYield > 0
+                        && Math.abs(targetWeight - profileYield) > 0.1) {
+                    yieldStr = profileYield.toFixed(1) + " → " + targetWeight.toFixed(1) + "g out"
+                }
+                yieldParts.push(yieldStr)
+            }
             parts.push(yieldParts.join(", "))
         }
         return parts.length > 0 ? parts.join(" \u00B7 ") : ""
