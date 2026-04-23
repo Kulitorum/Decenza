@@ -63,8 +63,20 @@ Page {
         }
     }
 
+    // Target yield for the card chip. Uses yield_override when set (modern shots
+    // always save it), falling back to the last shot's finalWeight for legacy rows
+    // where it is 0. This is an approximation: applyLoadedShotMetadata only uses
+    // finalWeight as the loaded yield when the current profile's targetWeight is
+    // also 0; for a legacy row saved against a profile that has since gained a
+    // non-zero target, the card will display finalWeight while tapping loads the
+    // profile default. The mismatch is typically sub-gram and only affects stale
+    // legacy rows that somehow survive as the latest shot in their group.
+    function recipeYield(yieldOverride, finalWeight) {
+        return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)
+    }
+
     // Build accessible text based on current groupBy setting
-    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, finalWeight, shotCount, avgEnjoyment) {
+    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, yieldOverride, finalWeight, shotCount, avgEnjoyment) {
         var includes = getGroupByIncludes()
         var parts = []
 
@@ -85,7 +97,7 @@ Page {
         }
 
         // Always include recipe summary
-        parts.push((doseWeight || 0).toFixed(1) + "g to " + (finalWeight || 0).toFixed(1) + "g")
+        parts.push((doseWeight || 0).toFixed(1) + "g to " + recipeYield(yieldOverride, finalWeight).toFixed(1) + "g")
         parts.push(shotCount + " " + TranslationManager.translate("autofavorites.shots", "shots"))
         if (avgEnjoyment > 0)
             parts.push(avgEnjoyment + "% enjoyment")
@@ -196,7 +208,8 @@ Page {
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
                     model.beanBrand, model.beanType, model.profileName,
                     model.grinderBrand, model.grinderModel, model.grinderSetting,
-                    model.doseWeight, model.finalWeight, model.shotCount, model.avgEnjoyment)
+                    model.doseWeight, model.yieldOverride, model.finalWeight,
+                    model.shotCount, model.avgEnjoyment)
 
                 // Whole card announces full details based on groupBy setting
                 AccessibleMouseArea {
@@ -280,7 +293,7 @@ Page {
 
                             Text {
                                 text: (model.doseWeight || 0).toFixed(1) + "g \u2192 " +
-                                      (model.finalWeight || 0).toFixed(1) + "g"
+                                      autoFavoritesPage.recipeYield(model.yieldOverride, model.finalWeight).toFixed(1) + "g"
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
@@ -421,7 +434,8 @@ Page {
                                 if (Settings.autoFavoritesOpenBrewSettings)
                                     root.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
-                                MainController.loadShotWithMetadata(model.shotId)
+                                // Pass the bucketed dose so the loaded recipe matches the card
+                                MainController.loadShotWithMetadata(model.shotId, model.doseWeight || 0)
                             }
                         }
                     }

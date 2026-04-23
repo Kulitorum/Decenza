@@ -122,7 +122,10 @@ public:
     // For simulator integration
     void handleShotSample(const ShotSample& sample) { onShotSampleReceived(sample); }
 
-    Q_INVOKABLE void loadShotWithMetadata(qint64 shotId);  // Uses shot history
+    // Uses shot history. `doseOverride`, when > 0, overrides the shot record's dose
+    // so the loaded recipe matches the auto-favorite card (which buckets dose to
+    // the nearest 0.5 g). Pass 0 to use the shot's saved dose unchanged.
+    Q_INVOKABLE void loadShotWithMetadata(qint64 shotId, double doseOverride = 0);
 
     // Clipboard
     Q_INVOKABLE void copyToClipboard(const QString& text);
@@ -216,7 +219,7 @@ private slots:
 
 private:
     void applyAllSettings();
-    void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord);
+    void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0);
     void applyWaterRefillLevel();
     void applyRefillKitOverride();
     void applyHeaterTweaks();

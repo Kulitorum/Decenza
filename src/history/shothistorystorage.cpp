@@ -2710,10 +2710,23 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                          "AND COALESCE(s.profile_name, '') = g.gb_profile_name";
     }
 
+    // Always also split cards by recipe: target yield (exact) and dose rounded
+    // to the nearest 0.5 g. The dose bucket keeps tiny tweaks like 18.1 / 18.2
+    // in a single card while still separating 18 g and 18.5 g recipes.
+    selectColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 AS gb_dose_bucket, "
+                     "COALESCE(yield_override, 0) AS gb_yield_override";
+    groupColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0, "
+                    "COALESCE(yield_override, 0)";
+    joinConditions += " AND ROUND(COALESCE(s.dose_weight, 0) * 2) / 2.0 = g.gb_dose_bucket "
+                      "AND COALESCE(s.yield_override, 0) = g.gb_yield_override";
+
+    // Outer SELECT returns the bucket for dose_weight and the group's exact yield_override
+    // so the displayed values match what tapping the favorite will load.
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
         "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
-        "s.dose_weight, s.final_weight, "
+        "g.gb_dose_bucket AS dose_weight, s.final_weight, "
+        "g.gb_yield_override AS yield_override, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2746,6 +2759,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["grinderSetting"] = query.value("grinder_setting").toString();
                     entry["doseWeight"] = query.value("dose_weight").toDouble();
                     entry["finalWeight"] = query.value("final_weight").toDouble();
+                    entry["yieldOverride"] = query.value("yield_override").toDouble();
                     entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();
                     entry["shotCount"] = query.value("shot_count").toInt();
                     entry["avgEnjoyment"] = query.value("avg_enjoyment").toInt();
