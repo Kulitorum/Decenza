@@ -64,14 +64,16 @@ Page {
         }
     }
 
-    // Target yield for the card chip. Uses yield_override when set (modern shots
-    // always save it), falling back to the last shot's finalWeight for legacy rows
-    // where it is 0. This is an approximation: applyLoadedShotMetadata only uses
-    // finalWeight as the loaded yield when the current profile's targetWeight is
-    // also 0; for a legacy row saved against a profile that has since gained a
-    // non-zero target, the card will display finalWeight while tapping loads the
-    // profile default. The mismatch is typically sub-gram and only affects stale
-    // legacy rows that somehow survive as the latest shot in their group.
+    // Target yield for the card chip. In weight mode the SQL returns the group's
+    // exact yield_override (or 0 for legacy shots that never saved one); in every
+    // other Group by mode the SQL hardcodes 0, so the finalWeight fallback is the
+    // normal path and the chip shows the latest shot's actual pour weight.
+    //
+    // When yield_override IS set, note that this is only an approximation of the
+    // value applyLoadedShotMetadata will apply on tap: the loader falls back to
+    // finalWeight when the current profile's targetWeight is 0, while this helper
+    // falls back unconditionally when yieldOverride == 0. The mismatch is typically
+    // sub-gram and only affects stale legacy rows.
     function recipeYield(yieldOverride, finalWeight) {
         return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)
     }
@@ -345,6 +347,9 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: infoButton
                             onAccessibleClicked: {
+                                // In weight mode, model.doseWeight is the group's bucketed dose
+                                // and model.yieldOverride is the group's exact target yield — pass
+                                // them through so the Info page can scope stats to the same bucket.
                                 pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
                                     shotId: model.shotId,
                                     groupBy: Settings.autoFavoritesGroupBy,
@@ -354,6 +359,8 @@ Page {
                                     grinderBrand: model.grinderBrand || "",
                                     grinderModel: model.grinderModel || "",
                                     grinderSetting: model.grinderSetting || "",
+                                    doseBucket: model.doseWeight || 0,
+                                    yieldOverride: model.yieldOverride || 0,
                                     avgEnjoyment: model.avgEnjoyment || 0,
                                     shotCount: model.shotCount || 0
                                 })
@@ -398,6 +405,21 @@ Page {
                                     if (model.grinderBrand) filter.grinderBrand = model.grinderBrand
                                     if (model.grinderModel) filter.grinderModel = model.grinderModel
                                     if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
+                                }
+                                // In weight mode the card also represents a specific 0.5 g dose
+                                // bucket and an exact target yield. Mirror that on the ShotHistory
+                                // filter so "Show" scopes to the same shots the card aggregates.
+                                if (Settings.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
+                                    var bucket = model.doseWeight || 0
+                                    if (bucket > 0) {
+                                        filter.minDose = bucket - 0.25
+                                        filter.maxDose = bucket + 0.25
+                                    }
+                                    var y = model.yieldOverride || 0
+                                    if (y > 0) {
+                                        filter.minYield = y
+                                        filter.maxYield = y
+                                    }
                                 }
 
                                 var props = {}

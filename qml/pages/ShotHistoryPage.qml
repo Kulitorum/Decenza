@@ -227,6 +227,13 @@ Page {
                 if (initialFilter[field] !== undefined && initialFilter[field] !== "")
                     filter[field] = initialFilter[field]
             }
+            // Numeric range filters from the Auto-Favorites "Show" button in weight mode.
+            var numericFields = ["minDose", "maxDose", "minYield", "maxYield"]
+            for (var m = 0; m < numericFields.length; m++) {
+                var nf = numericFields[m]
+                if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
+                    filter[nf] = initialFilter[nf]
+            }
         }
 
         filter.sortField = sortField
@@ -490,6 +497,14 @@ Page {
                             var g = ((initialFilter.grinderBrand || "") + " " + (initialFilter.grinderModel || "")).trim()
                             if (initialFilter.grinderSetting) g += " @ " + initialFilter.grinderSetting
                             parts.push(g)
+                        }
+                        if (initialFilter.minDose !== undefined && initialFilter.maxDose !== undefined) {
+                            var mid = (initialFilter.minDose + initialFilter.maxDose) / 2
+                            parts.push(mid.toFixed(1) + "g dose")
+                        }
+                        if (initialFilter.minYield !== undefined && initialFilter.maxYield !== undefined
+                                && initialFilter.minYield === initialFilter.maxYield) {
+                            parts.push(initialFilter.minYield.toFixed(1) + "g yield")
                         }
                         return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00b7 ")
                     }

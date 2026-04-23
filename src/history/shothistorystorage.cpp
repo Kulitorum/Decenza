@@ -2727,7 +2727,8 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
 
     // In weight mode, return the bucketed dose and the group's exact yield_override
     // so the chip matches what tapping the favorite will load. Other modes return
-    // the latest shot's raw dose and actual final weight, matching previous behavior.
+    // the latest shot's raw dose and hardcode yield_override to 0 so the QML's
+    // recipeYield() helper falls back to finalWeight (pre-#838 chip behaviour).
     const QString doseCol = weightAware ? "g.gb_dose_bucket AS dose_weight" : "s.dose_weight";
     const QString yieldCol = weightAware ? "g.gb_yield_override AS yield_override" : "0 AS yield_override";
 
@@ -2804,7 +2805,9 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                           const QString& profileName,
                                                           const QString& grinderBrand,
                                                           const QString& grinderModel,
-                                                          const QString& grinderSetting)
+                                                          const QString& grinderSetting,
+                                                          double doseBucket,
+                                                          double yieldOverride)
 {
     if (!m_ready) {
         emit autoFavoriteGroupDetailsReady(QVariantMap());
@@ -2828,13 +2831,21 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("bean_type", beanType);
     } else if (groupBy == "profile") {
         addCondition("profile_name", profileName);
-    } else if (groupBy == "bean_profile_grinder") {
+    } else if (groupBy == "bean_profile_grinder" || groupBy == "bean_profile_grinder_weight") {
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
         addCondition("grinder_brand", grinderBrand);
         addCondition("grinder_model", grinderModel);
         addCondition("grinder_setting", grinderSetting);
+        if (groupBy == "bean_profile_grinder_weight") {
+            // Match requestAutoFavorites's weight-mode bucketing exactly so stats scope
+            // to the same (dose bucket, target yield) that the card represents.
+            conditions << "ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 = ?";
+            bindValues << doseBucket;
+            conditions << "COALESCE(yield_override, 0) = ?";
+            bindValues << yieldOverride;
+        }
     } else {
         // bean_profile (default)
         addCondition("bean_brand", beanBrand);

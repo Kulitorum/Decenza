@@ -313,14 +313,17 @@ public:
     // Async: runs query on background thread, emits autoFavoritesReady()
     Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
 
-    // Async: runs query on background thread, emits autoFavoriteGroupDetailsReady()
+    // Async: runs query on background thread, emits autoFavoriteGroupDetailsReady().
+    // doseBucket/yieldOverride are only consulted when groupBy == "bean_profile_grinder_weight".
     Q_INVOKABLE void requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                       const QString& beanBrand,
                                                       const QString& beanType,
                                                       const QString& profileName,
                                                       const QString& grinderBrand,
                                                       const QString& grinderModel,
-                                                      const QString& grinderSetting);
+                                                      const QString& grinderSetting,
+                                                      double doseBucket = 0.0,
+                                                      double yieldOverride = 0.0);
 
     // Async: runs backup on background thread, emits backupFinished()
     Q_INVOKABLE void requestCreateBackup(const QString& destPath);
