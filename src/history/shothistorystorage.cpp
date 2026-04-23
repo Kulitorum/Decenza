@@ -2713,7 +2713,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
         "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
-        "s.dose_weight, s.final_weight, "
+        "s.dose_weight, s.final_weight, s.yield_override, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2746,6 +2746,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["grinderSetting"] = query.value("grinder_setting").toString();
                     entry["doseWeight"] = query.value("dose_weight").toDouble();
                     entry["finalWeight"] = query.value("final_weight").toDouble();
+                    entry["yieldOverride"] = query.value("yield_override").toDouble();
                     entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();
                     entry["shotCount"] = query.value("shot_count").toInt();
                     entry["avgEnjoyment"] = query.value("avg_enjoyment").toInt();

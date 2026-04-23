@@ -63,8 +63,15 @@ Page {
         }
     }
 
+    // Target yield that will be loaded when this favorite is tapped — matches the
+    // priority applied in applyLoadedShotMetadata: yield_override if > 0, else the
+    // last shot's finalWeight (the old-volume-profile fallback).
+    function recipeYield(yieldOverride, finalWeight) {
+        return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)
+    }
+
     // Build accessible text based on current groupBy setting
-    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, finalWeight, shotCount, avgEnjoyment) {
+    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, yieldOverride, finalWeight, shotCount, avgEnjoyment) {
         var includes = getGroupByIncludes()
         var parts = []
 
@@ -85,7 +92,7 @@ Page {
         }
 
         // Always include recipe summary
-        parts.push((doseWeight || 0).toFixed(1) + "g to " + (finalWeight || 0).toFixed(1) + "g")
+        parts.push((doseWeight || 0).toFixed(1) + "g to " + recipeYield(yieldOverride, finalWeight).toFixed(1) + "g")
         parts.push(shotCount + " " + TranslationManager.translate("autofavorites.shots", "shots"))
         if (avgEnjoyment > 0)
             parts.push(avgEnjoyment + "% enjoyment")
@@ -196,7 +203,8 @@ Page {
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
                     model.beanBrand, model.beanType, model.profileName,
                     model.grinderBrand, model.grinderModel, model.grinderSetting,
-                    model.doseWeight, model.finalWeight, model.shotCount, model.avgEnjoyment)
+                    model.doseWeight, model.yieldOverride, model.finalWeight,
+                    model.shotCount, model.avgEnjoyment)
 
                 // Whole card announces full details based on groupBy setting
                 AccessibleMouseArea {
@@ -280,7 +288,7 @@ Page {
 
                             Text {
                                 text: (model.doseWeight || 0).toFixed(1) + "g \u2192 " +
-                                      (model.finalWeight || 0).toFixed(1) + "g"
+                                      autoFavoritesPage.recipeYield(model.yieldOverride, model.finalWeight).toFixed(1) + "g"
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
