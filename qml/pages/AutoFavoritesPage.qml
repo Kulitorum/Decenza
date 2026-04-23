@@ -347,9 +347,10 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: infoButton
                             onAccessibleClicked: {
-                                // In weight mode, model.doseWeight is the group's bucketed dose
-                                // and model.yieldOverride is the group's exact target yield — pass
-                                // them through so the Info page can scope stats to the same bucket.
+                                // In weight mode, model.doseBucket is the group's rounded dose
+                                // (used to scope stats) while model.doseWeight is the latest
+                                // shot's raw dose (shown on the card). Pass the bucket so the
+                                // Info page's averages cover the same shots the card aggregates.
                                 pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
                                     shotId: model.shotId,
                                     groupBy: Settings.autoFavoritesGroupBy,
@@ -359,7 +360,7 @@ Page {
                                     grinderBrand: model.grinderBrand || "",
                                     grinderModel: model.grinderModel || "",
                                     grinderSetting: model.grinderSetting || "",
-                                    doseBucket: model.doseWeight || 0,
+                                    doseBucket: model.doseBucket || 0,
                                     yieldOverride: model.yieldOverride || 0,
                                     avgEnjoyment: model.avgEnjoyment || 0,
                                     shotCount: model.shotCount || 0
@@ -407,10 +408,12 @@ Page {
                                     if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
                                 }
                                 // In weight mode the card also represents a specific 0.5 g dose
-                                // bucket and an exact target yield. Mirror that on the ShotHistory
-                                // filter so "Show" scopes to the same shots the card aggregates.
+                                // bucket and an exact target yield. Mirror the bucket range and
+                                // yield on the ShotHistory filter so "Show" scopes to the same
+                                // shots the card aggregates, even though the card itself displays
+                                // the latest shot's raw dose.
                                 if (Settings.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
-                                    var bucket = model.doseWeight || 0
+                                    var bucket = model.doseBucket || 0
                                     if (bucket > 0) {
                                         filter.minDose = bucket - 0.25
                                         filter.maxDose = bucket + 0.25

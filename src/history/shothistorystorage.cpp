@@ -2725,17 +2725,23 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                           "AND COALESCE(s.yield_override, 0) = g.gb_yield_override";
     }
 
-    // In weight mode, return the bucketed dose and the group's exact yield_override
-    // so the chip matches what tapping the favorite will load. Other modes return
-    // the latest shot's raw dose and hardcode yield_override to 0 so the QML's
-    // recipeYield() helper falls back to finalWeight (pre-#838 chip behaviour).
-    const QString doseCol = weightAware ? "g.gb_dose_bucket AS dose_weight" : "s.dose_weight";
+    // dose_weight is always the raw latest shot's dose so dialing-in users see
+    // (and load) their most recent setting, even while the 0.5 g bucket keeps
+    // 18.1 / 18.2 shots collapsed into one card in weight mode.
+    //
+    // yield_override mirrors the group in weight mode and is hardcoded to 0
+    // elsewhere so the QML's recipeYield() helper falls back to finalWeight
+    // (pre-#838 chip behaviour).
+    //
+    // dose_bucket exposes the group's rounded dose separately so Info / Show
+    // can filter by the bucket range even though the card displays raw dose.
     const QString yieldCol = weightAware ? "g.gb_yield_override AS yield_override" : "0 AS yield_override";
+    const QString bucketCol = weightAware ? "g.gb_dose_bucket AS dose_bucket" : "0 AS dose_bucket";
 
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
         "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
-        "%5, s.final_weight, %6, "
+        "s.dose_weight, s.final_weight, %5, %6, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2749,7 +2755,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         ") g ON s.timestamp = g.max_ts AND %3 "
         "ORDER BY s.timestamp DESC "
         "LIMIT %4"
-    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(doseCol, yieldCol);
+    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(yieldCol, bucketCol);
 
     QThread* thread = QThread::create([this, dbPath, sql, destroyed]() {
         QVariantList results;
@@ -2769,6 +2775,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["doseWeight"] = query.value("dose_weight").toDouble();
                     entry["finalWeight"] = query.value("final_weight").toDouble();
                     entry["yieldOverride"] = query.value("yield_override").toDouble();
+                    entry["doseBucket"] = query.value("dose_bucket").toDouble();
                     entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();
                     entry["shotCount"] = query.value("shot_count").toInt();
                     entry["avgEnjoyment"] = query.value("avg_enjoyment").toInt();
