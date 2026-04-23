@@ -429,7 +429,8 @@ Page {
                                 if (Settings.autoFavoritesOpenBrewSettings)
                                     root.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
-                                MainController.loadShotWithMetadata(model.shotId)
+                                // Pass the bucketed dose so the loaded recipe matches the card
+                                MainController.loadShotWithMetadata(model.shotId, model.doseWeight || 0)
                             }
                         }
                     }

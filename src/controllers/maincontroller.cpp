@@ -395,7 +395,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     });
 }
 
-void MainController::loadShotWithMetadata(qint64 shotId) {
+void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
     if (!m_shotHistory) {
         qWarning() << "loadShotWithMetadata: No shot history storage";
         emit shotMetadataLoaded(shotId, false);
@@ -410,7 +410,7 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
     // event loop. The background thread captures `self` by value but MUST NOT dereference
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
-    QThread* thread = QThread::create([self, dbPath, shotId]() {
+    QThread* thread = QThread::create([self, dbPath, shotId, doseOverride]() {
         ShotRecord record;
         if (!withTempDb(dbPath, "load_meta", [&](QSqlDatabase& db) {
             record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
@@ -419,8 +419,8 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
         }
 
         // Apply metadata on main thread (interacts with QML state and BLE)
-        QMetaObject::invokeMethod(qApp, [self, shotId, record = std::move(record)]() {
-            if (self) self->applyLoadedShotMetadata(shotId, record);
+        QMetaObject::invokeMethod(qApp, [self, shotId, doseOverride, record = std::move(record)]() {
+            if (self) self->applyLoadedShotMetadata(shotId, record, doseOverride);
         }, Qt::QueuedConnection);
     });
 
@@ -428,7 +428,7 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
     thread->start();
 }
 
-void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord) {
+void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride) {
     if (shotRecord.summary.id <= 0) {
         qWarning() << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
         emit shotMetadataLoaded(shotId, false);
@@ -461,9 +461,17 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         m_settings->setDyeGrinderSetting(shotRecord.grinderSetting);
         m_settings->setDyeBarista(shotRecord.barista);
 
-        // Restore dose (input parameter, not a result)
-        if (shotRecord.summary.doseWeight > 0) {
-            m_settings->setDyeBeanWeight(shotRecord.summary.doseWeight);
+        // Restore dose (input parameter, not a result). When loading an auto-favorite,
+        // `doseOverride` holds the bucketed dose shown on the card — apply that instead
+        // of the shot's raw saved dose so what-you-see is what-gets-loaded. The override
+        // is queued to run after ProfileManager::loadProfile's own deferred
+        // setDyeBeanWeight(recommendedDose) (also a QueuedConnection), so ours wins.
+        double doseToLoad = doseOverride > 0 ? doseOverride : shotRecord.summary.doseWeight;
+        if (doseToLoad > 0) {
+            QPointer<Settings> settings(m_settings);
+            QMetaObject::invokeMethod(this, [settings, doseToLoad]() {
+                if (settings) settings->setDyeBeanWeight(doseToLoad);
+            }, Qt::QueuedConnection);
         }
         // Note: Don't copy finalWeight/TDS/EY - those are shot results, not inputs
 
