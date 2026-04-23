@@ -87,9 +87,16 @@ jobs:
         id: openssl
         shell: powershell
         run: |
-          choco install openssl -y --no-progress
+          # Qt 6.10.3 for Windows is built against the OpenSSL 3 ABI. If Chocolatey's
+          # default openssl package bumps to 4.x, Qt's network stack will break at
+          # runtime even though a 4.x install would otherwise succeed. Pin to a
+          # known-good 3.x release and verify the 3-series DLLs are present.
+          choco install openssl --version=3.5.4 -y --no-progress
 
-          # Find libssl-3-x64.dll - Chocolatey may install to different paths
+          # Check the canonical Chocolatey install locations only. No recursive
+          # search — GitHub runners ship Git-for-Windows (with its own bundled
+          # libssl-3) and a stray DLL would silently pass this step while the
+          # installer actually copied a mismatched build.
           $candidates = @(
             "C:\Program Files\OpenSSL-Win64\bin",
             "C:\Program Files\OpenSSL\bin",
@@ -98,27 +105,19 @@ jobs:
 
           $opensslBin = $null
           foreach ($dir in $candidates) {
-            if (Test-Path "$dir\libssl-3-x64.dll") {
+            if ((Test-Path "$dir\libssl-3-x64.dll") -and (Test-Path "$dir\libcrypto-3-x64.dll")) {
               $opensslBin = $dir
               break
             }
           }
 
-          # Fallback: search Program Files for the DLL
           if (-not $opensslBin) {
-            $found = Get-ChildItem "C:\Program Files" -Recurse -Filter "libssl-3-x64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) {
-              $opensslBin = $found.DirectoryName
-            }
-          }
-
-          if ($opensslBin) {
-            Write-Host "OpenSSL 3 found at: $opensslBin"
-            echo "dir=$opensslBin" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Error "libssl-3-x64.dll not found in any known location"
+            Write-Error "OpenSSL 3 DLLs not found in any canonical Chocolatey install path. Did the package layout change, or did version 3.5.4 become unavailable on the community feed?"
             exit 1
           }
+
+          Write-Host "OpenSSL 3 found at: $opensslBin"
+          echo "dir=$opensslBin" >> $env:GITHUB_OUTPUT
 
       - name: Configure CMake
         run: |
