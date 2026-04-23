@@ -59,9 +59,10 @@
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
 #include "ble/refractometers/difluidr2.h"
-#include "ble/transport/qtscalebletransport.h"
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-#include "ble/transport/corebluetooth/corebluetoothscalebletransport.h"
+#include "ble/transport/corebluetooth/corebluetoothscalebletransport.h" // IWYU pragma: keep
+#else
+#include "ble/transport/qtscalebletransport.h" // IWYU pragma: keep
 #endif
 #include "machine/machinestate.h"
 #include "machine/weightprocessor.h"
@@ -623,7 +624,7 @@ int main(int argc, char *argv[])
                          QString scaleType = settings.scaleType();
                          bool converged = settings.isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;
-                         auto entries = settings.sawLearningEntries(scaleType, maxEntries);
+                         const auto entries = settings.sawLearningEntries(scaleType, maxEntries);
                          QVector<double> drips, flows;
                          drips.reserve(entries.size());
                          flows.reserve(entries.size());
@@ -1619,7 +1620,7 @@ int main(int argc, char *argv[])
 
     // Give RelayClient a handle to the main window for screen capture
     if (!engine.rootObjects().isEmpty()) {
-        QQuickWindow* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+        QQuickWindow* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
         if (window) {
             relayClient.setWindow(window);
         }
@@ -2119,7 +2120,7 @@ int main(int argc, char *argv[])
         // Qt.quit() does NOT trigger ApplicationWindow.onClosing, so the QML-side
         // shuttingDown flag may not be set. Setting it here covers all exit paths.
         if (!engine.rootObjects().isEmpty()) {
-            engine.rootObjects().first()->setProperty("shuttingDown", true);
+            engine.rootObjects().constFirst()->setProperty("shuttingDown", true);
         }
 
         // Stop weight processor thread first (before BLE shutdown).
