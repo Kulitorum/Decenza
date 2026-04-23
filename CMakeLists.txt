@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 1.7.1 LANGUAGES CXX)
+project(Decenza VERSION 1.7.2 LANGUAGES CXX)
 
 message(STATUS "Developer note: executable target is now 'Decenza'. If Qt Creator shows 'No executable specified', re-run CMake and select the 'Decenza' Run configuration.")
 
