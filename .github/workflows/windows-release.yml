@@ -83,20 +83,21 @@ jobs:
           key: sccache-windows-x64-qt6.10.3
           max-size: 500M
 
-      - name: Install OpenSSL
+      - name: Locate OpenSSL 3
         id: openssl
         shell: powershell
         run: |
-          # Qt 6.10.3 for Windows is built against the OpenSSL 3 ABI. If Chocolatey's
-          # default openssl package bumps to 4.x, Qt's network stack will break at
-          # runtime even though a 4.x install would otherwise succeed. Pin to a
-          # known-good 3.x release and verify the 3-series DLLs are present.
-          choco install openssl --version=3.5.4 -y --no-progress
+          # Qt 6.10.3 for Windows is built against the OpenSSL 3 ABI, so the installer
+          # must ship libssl-3-x64.dll + libcrypto-3-x64.dll. We previously installed
+          # OpenSSL via `choco install openssl`, but:
+          #   - Unpinned, Chocolatey will ship OpenSSL 4.x which has an incompatible ABI.
+          #   - The chocolatey package downloads from slproweb.com/download/Win64OpenSSL-<ver>.exe,
+          #     and Shining Light Productions removes old 3.x installers when new ones
+          #     ship — so even `--version=3.5.4` breaks with a 404 from their CDN.
+          # GitHub's windows-latest runner image already pre-installs OpenSSL 3.x at
+          # C:\Program Files\OpenSSL\bin. Use that and explicitly verify the major
+          # version via openssl.exe to catch any future runner-image bump to 4.x.
 
-          # Check the canonical Chocolatey install locations only. No recursive
-          # search — GitHub runners ship Git-for-Windows (with its own bundled
-          # libssl-3) and a stray DLL would silently pass this step while the
-          # installer actually copied a mismatched build.
           $candidates = @(
             "C:\Program Files\OpenSSL-Win64\bin",
             "C:\Program Files\OpenSSL\bin",
@@ -105,18 +106,24 @@ jobs:
 
           $opensslBin = $null
           foreach ($dir in $candidates) {
-            if ((Test-Path "$dir\libssl-3-x64.dll") -and (Test-Path "$dir\libcrypto-3-x64.dll")) {
-              $opensslBin = $dir
-              break
+            if ((Test-Path "$dir\libssl-3-x64.dll") -and
+                (Test-Path "$dir\libcrypto-3-x64.dll") -and
+                (Test-Path "$dir\openssl.exe")) {
+              $version = & "$dir\openssl.exe" version 2>$null
+              if ($version -match "^OpenSSL 3\.") {
+                Write-Host "$version at $dir"
+                $opensslBin = $dir
+                break
+              }
+              Write-Host "Skipping $dir (version: $version)"
             }
           }
 
           if (-not $opensslBin) {
-            Write-Error "OpenSSL 3 DLLs not found in any canonical Chocolatey install path. Did the package layout change, or did version 3.5.4 become unavailable on the community feed?"
+            Write-Error "OpenSSL 3.x runtime not found in any canonical install path on this runner. The GitHub windows-latest image may have removed its bundled OpenSSL, or bumped it to 4.x (which is ABI-incompatible with Qt 6.10.3)."
             exit 1
           }
 
-          Write-Host "OpenSSL 3 found at: $opensslBin"
           echo "dir=$opensslBin" >> $env:GITHUB_OUTPUT
 
       - name: Configure CMake
