@@ -2673,6 +2673,12 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     QString groupColumns;
     QString joinConditions;
 
+    // "bean_profile_grinder_weight" shares grinder-level grouping and also splits
+    // by target yield (exact) and dose rounded to the nearest 0.5 g, so shots with
+    // different dose/yield targets on the same bean + profile + grinder get their
+    // own cards.
+    const bool weightAware = (groupBy == "bean_profile_grinder_weight");
+
     if (groupBy == "bean") {
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type";
@@ -2683,7 +2689,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         selectColumns = "COALESCE(profile_name, '') AS gb_profile_name";
         groupColumns = "COALESCE(profile_name, '')";
         joinConditions = "COALESCE(s.profile_name, '') = g.gb_profile_name";
-    } else if (groupBy == "bean_profile_grinder") {
+    } else if (groupBy == "bean_profile_grinder" || weightAware) {
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type, "
                         "COALESCE(profile_name, '') AS gb_profile_name, "
@@ -2710,23 +2716,25 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                          "AND COALESCE(s.profile_name, '') = g.gb_profile_name";
     }
 
-    // Always also split cards by recipe: target yield (exact) and dose rounded
-    // to the nearest 0.5 g. The dose bucket keeps tiny tweaks like 18.1 / 18.2
-    // in a single card while still separating 18 g and 18.5 g recipes.
-    selectColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 AS gb_dose_bucket, "
-                     "COALESCE(yield_override, 0) AS gb_yield_override";
-    groupColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0, "
-                    "COALESCE(yield_override, 0)";
-    joinConditions += " AND ROUND(COALESCE(s.dose_weight, 0) * 2) / 2.0 = g.gb_dose_bucket "
-                      "AND COALESCE(s.yield_override, 0) = g.gb_yield_override";
+    if (weightAware) {
+        selectColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 AS gb_dose_bucket, "
+                         "COALESCE(yield_override, 0) AS gb_yield_override";
+        groupColumns += ", ROUND(COALESCE(dose_weight, 0) * 2) / 2.0, "
+                        "COALESCE(yield_override, 0)";
+        joinConditions += " AND ROUND(COALESCE(s.dose_weight, 0) * 2) / 2.0 = g.gb_dose_bucket "
+                          "AND COALESCE(s.yield_override, 0) = g.gb_yield_override";
+    }
 
-    // Outer SELECT returns the bucket for dose_weight and the group's exact yield_override
-    // so the displayed values match what tapping the favorite will load.
+    // In weight mode, return the bucketed dose and the group's exact yield_override
+    // so the chip matches what tapping the favorite will load. Other modes return
+    // the latest shot's raw dose and actual final weight, matching previous behavior.
+    const QString doseCol = weightAware ? "g.gb_dose_bucket AS dose_weight" : "s.dose_weight";
+    const QString yieldCol = weightAware ? "g.gb_yield_override AS yield_override" : "0 AS yield_override";
+
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
         "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
-        "g.gb_dose_bucket AS dose_weight, s.final_weight, "
-        "g.gb_yield_override AS yield_override, "
+        "%5, s.final_weight, %6, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2740,7 +2748,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         ") g ON s.timestamp = g.max_ts AND %3 "
         "ORDER BY s.timestamp DESC "
         "LIMIT %4"
-    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems);
+    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(doseCol, yieldCol);
 
     QThread* thread = QThread::create([this, dbPath, sql, destroyed]() {
         QVariantList results;

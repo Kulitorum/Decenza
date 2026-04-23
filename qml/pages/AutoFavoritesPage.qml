@@ -56,10 +56,11 @@ Page {
     // Determine which fields to include based on current groupBy setting
     function getGroupByIncludes() {
         var groupBy = Settings.autoFavoritesGroupBy
+        var hasGrinder = (groupBy === "bean_profile_grinder" || groupBy === "bean_profile_grinder_weight")
         return {
-            bean: (groupBy === "bean" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder"),
-            profile: (groupBy === "profile" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder"),
-            grinder: (groupBy === "bean_profile_grinder")
+            bean: (groupBy === "bean" || groupBy === "bean_profile" || hasGrinder),
+            profile: (groupBy === "profile" || groupBy === "bean_profile" || hasGrinder),
+            grinder: hasGrinder
         }
     }
 
@@ -514,18 +515,20 @@ Page {
                         TranslationManager.translate("autofavorites.groupby.bean", "Bean only"),
                         TranslationManager.translate("autofavorites.groupby.profile", "Profile only"),
                         TranslationManager.translate("autofavorites.groupby.beanprofile", "Bean + Profile"),
-                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grinder")
+                        TranslationManager.translate("autofavorites.groupby.all", "Bean + Profile + Grinder"),
+                        TranslationManager.translate("autofavorites.groupby.allweight", "Bean + Profile + Grinder + Weight")
                     ]
                     currentIndex: {
                         switch(Settings.autoFavoritesGroupBy) {
                             case "bean": return 0
                             case "profile": return 1
                             case "bean_profile_grinder": return 3
+                            case "bean_profile_grinder_weight": return 4
                             default: return 2  // bean_profile
                         }
                     }
                     onActivated: {
-                        var values = ["bean", "profile", "bean_profile", "bean_profile_grinder"]
+                        var values = ["bean", "profile", "bean_profile", "bean_profile_grinder", "bean_profile_grinder_weight"]
                         Settings.autoFavoritesGroupBy = values[currentIndex]
                         loadFavorites()
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
