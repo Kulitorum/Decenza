@@ -64,15 +64,15 @@ Page {
         }
     }
 
-    // Target yield for the card chip. In weight mode the SQL returns the group's
-    // exact yield_override (or 0 for legacy shots that never saved one); in every
-    // other Group by mode the SQL hardcodes 0, so the finalWeight fallback is the
-    // normal path and the chip shows the latest shot's actual pour weight.
+    // Target yield for the card chip. The SQL returns the latest shot's saved
+    // yield_override (weight mode uses the group's exact bucket value, which is
+    // the same number by grouping). Legacy shots with no saved override read 0
+    // here and fall back to finalWeight.
     //
-    // When yield_override IS set, note that this is only an approximation of the
-    // value applyLoadedShotMetadata will apply on tap: the loader falls back to
-    // finalWeight when the current profile's targetWeight is 0, while this helper
-    // falls back unconditionally when yieldOverride == 0. The mismatch is typically
+    // Note: this is an approximation of the value applyLoadedShotMetadata will
+    // apply when Load is pressed. The loader falls back to finalWeight only
+    // when the current profile's targetWeight is 0, while this helper falls
+    // back unconditionally when yieldOverride == 0. The mismatch is typically
     // sub-gram and only affects stale legacy rows.
     function recipeYield(yieldOverride, finalWeight) {
         return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)

@@ -2731,13 +2731,15 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     // (and load) their most recent setting, even while the 0.5 g bucket keeps
     // 18.1 / 18.2 shots collapsed into one card in weight mode.
     //
-    // yield_override mirrors the group in weight mode and is hardcoded to 0
-    // elsewhere so the QML's recipeYield() helper falls back to finalWeight
-    // (pre-#838 chip behaviour).
+    // yield_override is the latest shot's saved target yield (for the chip's
+    // "dose → yield" display). Weight mode substitutes the group's exact bucket
+    // value, which is the same number by grouping. When the latest shot has no
+    // saved override (legacy rows), QML's recipeYield() helper falls back to
+    // finalWeight.
     //
     // dose_bucket exposes the group's rounded dose separately so Info / Show
     // can filter by the bucket range even though the card displays raw dose.
-    const QString yieldCol = weightAware ? "g.gb_yield_override AS yield_override" : "0 AS yield_override";
+    const QString yieldCol = weightAware ? "g.gb_yield_override AS yield_override" : "s.yield_override";
     const QString bucketCol = weightAware ? "g.gb_dose_bucket AS dose_bucket" : "0 AS dose_bucket";
 
     QString sql = QString(
