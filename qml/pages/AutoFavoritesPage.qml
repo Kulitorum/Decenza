@@ -63,9 +63,14 @@ Page {
         }
     }
 
-    // Target yield that will be loaded when this favorite is tapped — matches the
-    // priority applied in applyLoadedShotMetadata: yield_override if > 0, else the
-    // last shot's finalWeight (the old-volume-profile fallback).
+    // Target yield for the card chip. Uses yield_override when set (modern shots
+    // always save it), falling back to the last shot's finalWeight for legacy rows
+    // where it is 0. This is an approximation: applyLoadedShotMetadata only uses
+    // finalWeight as the loaded yield when the current profile's targetWeight is
+    // also 0; for a legacy row saved against a profile that has since gained a
+    // non-zero target, the card will display finalWeight while tapping loads the
+    // profile default. The mismatch is typically sub-gram and only affects stale
+    // legacy rows that somehow survive as the latest shot in their group.
     function recipeYield(yieldOverride, finalWeight) {
         return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)
     }
