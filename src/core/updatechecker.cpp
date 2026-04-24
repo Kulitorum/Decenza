@@ -313,9 +313,15 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 #endif
 
     if (m_updateAvailable != wasAvailable) {
-        // If update is no longer available (e.g. user is now on a newer beta),
-        // invalidate any cached APK so it can't be installed accidentally.
-        if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
+        // If an update that was previously available is no longer available
+        // (e.g. user sideloaded a newer build, switched to a channel whose
+        // latest version is not newer, or a re-check finds they are now
+        // current), clear the cached APK path so it can't be installed
+        // accidentally. The file itself is left for OS cleanup — a
+        // PackageInstaller session may still hold it open.
+        // NOTE: dismissUpdate() and onInstallStatus() contain equivalent
+        // cleanup; all three must be kept consistent.
+        if (!m_updateAvailable && !m_downloading && !m_downloadedApkPath.isEmpty()) {
             m_downloadedApkPath.clear();
             m_expectedDownloadSize = 0;
             emit downloadReadyChanged();
@@ -387,7 +393,10 @@ void UpdateChecker::downloadAndInstall()
 {
     if (!m_updateAvailable) {
         qWarning() << "UpdateChecker: downloadAndInstall called but no update available (current:"
-                   << currentVersion() << "latest:" << m_latestVersion << ")";
+                   << currentVersion() << "latest:" << m_latestVersion
+                   << "downloadUrl:" << (m_downloadUrl.isEmpty() ? "<empty>" : m_downloadUrl) << ")";
+        m_errorMessage = "No update available";
+        emit errorMessageChanged();
         return;
     }
     if (m_downloading || m_checking) return;
