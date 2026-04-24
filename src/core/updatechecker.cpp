@@ -313,6 +313,13 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 #endif
 
     if (m_updateAvailable != wasAvailable) {
+        // If update is no longer available (e.g. user is now on a newer beta),
+        // invalidate any cached APK so it can't be installed accidentally.
+        if (!m_updateAvailable && !m_downloadedApkPath.isEmpty()) {
+            m_downloadedApkPath.clear();
+            m_expectedDownloadSize = 0;
+            emit downloadReadyChanged();
+        }
         emit updateAvailableChanged();
     }
     // canDownloadUpdate is derived from m_downloadUrl on desktop; fire when it
@@ -378,6 +385,11 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 
 void UpdateChecker::downloadAndInstall()
 {
+    if (!m_updateAvailable) {
+        qWarning() << "UpdateChecker: downloadAndInstall called but no update available (current:"
+                   << currentVersion() << "latest:" << m_latestVersion << ")";
+        return;
+    }
     if (m_downloading || m_checking) return;
     if (m_installInFlight) {
         m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "

@@ -222,6 +222,15 @@ Page {
                 asynchronous: !modelData.loadSync
                 source: modelData.source
 
+                onStatusChanged: {
+                    if (status === Loader.Loading)
+                        console.log("SettingsPage: async loading tab", tabId)
+                    else if (status === Loader.Ready)
+                        console.log("SettingsPage: tab ready", tabId)
+                    else if (status === Loader.Error)
+                        console.log("SettingsPage: tab load error", tabId)
+                }
+
                 onLoaded: {
                     // Themes tab emits a signal requesting the Save Theme dialog
                     if (tabId === "themes" && item) {
