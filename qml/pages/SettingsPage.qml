@@ -228,7 +228,7 @@ Page {
                     else if (status === Loader.Ready)
                         console.log("SettingsPage: tab ready", tabId)
                     else if (status === Loader.Error)
-                        console.log("SettingsPage: tab load error", tabId)
+                        console.warn("SettingsPage: tab load error", tabId)
                 }
 
                 onLoaded: {
