@@ -204,6 +204,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
         m_errorMessage = "Invalid response from GitHub";
+        qWarning() << "UpdateChecker:" << m_errorMessage << "- response:" << data.left(200);
         emit errorMessageChanged();
         return;
     }
@@ -289,6 +290,11 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
         }
 #endif
         // iOS doesn't download from GitHub - updates come from App Store
+    }
+
+    if (m_downloadUrl.isEmpty()) {
+        qWarning() << "UpdateChecker: release" << m_releaseTag
+                   << "found but no platform asset available";
     }
 
     // Check if update is available using display version comparison,
@@ -530,7 +536,7 @@ void UpdateChecker::onDownloadFinished()
     if (!m_currentReply || !m_downloadFile) {
         qWarning() << "UpdateChecker: onDownloadFinished called with null reply or file"
                     << "reply=" << m_currentReply << "file=" << m_downloadFile;
-        m_errorMessage = "Download failed unexpectedly";
+        m_errorMessage = "Download failed unexpectedly. Please try again.";
         emit errorMessageChanged();
         m_downloading = false;
         emit downloadingChanged();
