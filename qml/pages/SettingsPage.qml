@@ -219,14 +219,19 @@ Page {
                 readonly property string tabId: modelData.id
 
                 active: modelData.loadSync || (index in settingsPage.loadedTabs)
-                asynchronous: !modelData.loadSync
+                // Synchronous instantiation: Android crash reports showed QQmlConnections
+                // crashing inside QQmlIncubationController while browsing settings. Forcing
+                // asynchronous: false eliminates the incubation path entirely. Tabs remain
+                // lazy-loaded (active is gated by loadedTabs); loadSync only controls whether
+                // a tab is pre-activated on page open vs. activated on first visit.
+                asynchronous: false
                 source: modelData.source
 
                 onStatusChanged: {
                     if (status === Loader.Loading)
-                        console.log("SettingsPage: async loading tab", tabId)
+                        console.log("SettingsPage: loading tab", tabId)  // TODO: remove after #844 confirmed resolved
                     else if (status === Loader.Ready)
-                        console.log("SettingsPage: tab ready", tabId)
+                        console.log("SettingsPage: tab ready", tabId)  // TODO: remove after #844 confirmed resolved
                     else if (status === Loader.Error)
                         console.warn("SettingsPage: tab load error", tabId)
                 }
@@ -378,7 +383,10 @@ Page {
             // Tab already loaded — scroll immediately
             doScrollAndHighlight(loader.item, cardId)
         } else {
-            // Wait for async Loader to finish via statusChanged signal
+            // Tab not yet instantiated — connect statusChanged; with asynchronous: false
+            // loading is synchronous but item is only valid after active flips, so
+            // statusChanged is still the correct hook when scrollToCard is called
+            // before the loader's active binding has re-evaluated
             var conn = function() {
                 if (loader.status === Loader.Ready && loader.item) {
                     loader.statusChanged.disconnect(conn)
