@@ -44,6 +44,9 @@
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settings_mcp.h"
+#include "core/settings_brew.h"
+#include "core/settings_dye.h"
+#include "core/settings_network.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -1633,6 +1636,12 @@ int main(int argc, char *argv[])
         "SettingsVisualizer is created in C++");
     qmlRegisterUncreatableType<SettingsMcp>("Decenza", 1, 0, "SettingsMcpType",
         "SettingsMcp is created in C++");
+    qmlRegisterUncreatableType<SettingsBrew>("Decenza", 1, 0, "SettingsBrewType",
+        "SettingsBrew is created in C++");
+    qmlRegisterUncreatableType<SettingsDye>("Decenza", 1, 0, "SettingsDyeType",
+        "SettingsDye is created in C++");
+    qmlRegisterUncreatableType<SettingsNetwork>("Decenza", 1, 0, "SettingsNetworkType",
+        "SettingsNetwork is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");
@@ -1706,18 +1715,18 @@ int main(int argc, char *argv[])
         de1Simulator.setProfile(pm->currentProfileObject());
 
         // Connect dose from settings (affects puck resistance simulation)
-        QObject::connect(&settings, &Settings::dyeBeanWeightChanged, [&de1Simulator, &settings]() {
-            de1Simulator.setDose(settings.dyeBeanWeight());
+        QObject::connect(settings.dye(), &SettingsDye::dyeBeanWeightChanged, [&de1Simulator, &settings]() {
+            de1Simulator.setDose(settings.dye()->dyeBeanWeight());
         });
         // Set initial dose
-        de1Simulator.setDose(settings.dyeBeanWeight());
+        de1Simulator.setDose(settings.dye()->dyeBeanWeight());
 
         // Connect grind setting (finer grind = more resistance, can choke machine)
-        QObject::connect(&settings, &Settings::dyeGrinderSettingChanged, [&de1Simulator, &settings]() {
-            de1Simulator.setGrindSetting(settings.dyeGrinderSetting());
+        QObject::connect(settings.dye(), &SettingsDye::dyeGrinderSettingChanged, [&de1Simulator, &settings]() {
+            de1Simulator.setGrindSetting(settings.dye()->dyeGrinderSetting());
         });
         // Set initial grind
-        de1Simulator.setGrindSetting(settings.dyeGrinderSetting());
+        de1Simulator.setGrindSetting(settings.dye()->dyeGrinderSetting());
 
         // Connect simulator state changes to DE1Device (which will emit to MachineState)
         QObject::connect(&de1Simulator, &DE1Simulator::stateChanged, [&de1Simulator, &de1Device]() {

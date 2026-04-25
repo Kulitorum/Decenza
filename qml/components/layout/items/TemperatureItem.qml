@@ -8,11 +8,11 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
-    readonly property double effectiveTargetTemp: Settings.hasTemperatureOverride
-        ? Settings.temperatureOverride
+    readonly property double effectiveTargetTemp: Settings.brew.hasTemperatureOverride
+        ? Settings.brew.temperatureOverride
         : ProfileManager.profileTargetTemperature
-    readonly property bool isRealOverride: Settings.hasTemperatureOverride &&
-        Math.abs(Settings.temperatureOverride - ProfileManager.profileTargetTemperature) > 0.1
+    readonly property bool isRealOverride: Settings.brew.hasTemperatureOverride &&
+        Math.abs(Settings.brew.temperatureOverride - ProfileManager.profileTargetTemperature) > 0.1
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

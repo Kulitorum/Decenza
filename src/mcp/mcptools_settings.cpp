@@ -1,6 +1,9 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../core/settings.h"
+#include "../core/settings_brew.h"
+#include "../core/settings_dye.h"
+#include "../core/settings_network.h"
 #include "../core/settings_mqtt.h"
 #include "../core/settings_autowake.h"
 #include "../core/settings_hardware.h"
@@ -73,8 +76,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("lightThemeName", "machine")) result["lightThemeName"] = settings->theme()->lightThemeName();
             if (include("autoSleepMinutes", "machine")) result["autoSleepMinutes"] = settings->value("autoSleepMinutes", 60).toInt();
             if (include("postShotReviewTimeout", "machine")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
-            if (include("keepSteamHeaterOn", "machine")) result["keepSteamHeaterOn"] = settings->keepSteamHeaterOn();
-            if (include("steamAutoFlushSeconds", "machine")) result["steamAutoFlushSeconds"] = settings->steamAutoFlushSeconds();
+            if (include("keepSteamHeaterOn", "machine")) result["keepSteamHeaterOn"] = settings->brew()->keepSteamHeaterOn();
+            if (include("steamAutoFlushSeconds", "machine")) result["steamAutoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
             if (include("refillKitOverride", "machine")) result["refillKitOverride"] = settings->refillKitOverride();
             if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->waterRefillPoint();
             if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
@@ -92,7 +95,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("useFlowScale", "calibration")) result["useFlowScale"] = settings->useFlowScale();
             if (include("flowCalibrationMultiplier", "calibration")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
             if (include("autoFlowCalibration", "calibration")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
-            if (include("ignoreVolumeWithScale", "calibration")) result["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
+            if (include("ignoreVolumeWithScale", "calibration")) result["ignoreVolumeWithScale"] = settings->brew()->ignoreVolumeWithScale();
             if (include("steamTwoTapStop", "machine")) result["steamTwoTapStop"] = settings->hardware()->steamTwoTapStop();
 
             // === Connections ===
@@ -147,48 +150,48 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("mcpEnabled", "ai")) result["mcpEnabled"] = settings->mcp()->mcpEnabled();
             if (include("mcpAccessLevel", "ai")) result["mcpAccessLevel"] = settings->mcp()->mcpAccessLevel();
             if (include("mcpConfirmationLevel", "ai")) result["mcpConfirmationLevel"] = settings->mcp()->mcpConfirmationLevel();
-            if (include("discussShotApp", "ai")) result["discussShotApp"] = settings->discussShotApp();
-            if (include("discussShotCustomUrl", "ai")) result["discussShotCustomUrl"] = settings->discussShotCustomUrl();
+            if (include("discussShotApp", "ai")) result["discussShotApp"] = settings->network()->discussShotApp();
+            if (include("discussShotCustomUrl", "ai")) result["discussShotCustomUrl"] = settings->network()->discussShotCustomUrl();
             // API keys excluded — sensitive
 
             // === Espresso ===
-            if (include("espressoTemperature", "espresso")) result["espressoTemperatureC"] = settings->espressoTemperature();
-            if (include("targetWeight", "espresso")) result["targetWeightG"] = settings->targetWeight();
-            if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = settings->lastUsedRatio();
+            if (include("espressoTemperature", "espresso")) result["espressoTemperatureC"] = settings->brew()->espressoTemperature();
+            if (include("targetWeight", "espresso")) result["targetWeightG"] = settings->brew()->targetWeight();
+            if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = settings->brew()->lastUsedRatio();
             if (include("currentProfile", "espresso")) result["currentProfile"] = settings->currentProfile();
 
             // === Steam ===
-            if (include("steamTemperature", "steam")) result["steamTemperatureC"] = settings->steamTemperature();
-            if (include("steamTimeout", "steam")) result["steamTimeoutSec"] = settings->steamTimeout();
-            if (include("steamFlow", "steam")) result["steamFlowMlPerSec"] = settings->steamFlow() / 100.0;
-            if (include("steamDisabled", "steam")) result["steamDisabled"] = settings->steamDisabled();
+            if (include("steamTemperature", "steam")) result["steamTemperatureC"] = settings->brew()->steamTemperature();
+            if (include("steamTimeout", "steam")) result["steamTimeoutSec"] = settings->brew()->steamTimeout();
+            if (include("steamFlow", "steam")) result["steamFlowMlPerSec"] = settings->brew()->steamFlow() / 100.0;
+            if (include("steamDisabled", "steam")) result["steamDisabled"] = settings->brew()->steamDisabled();
 
             // === Hot Water ===
-            if (include("waterTemperature", "water")) result["waterTemperatureC"] = settings->waterTemperature();
-            if (include("waterVolume", "water")) result["waterVolumeMl"] = settings->waterVolume();
-            if (include("waterVolumeMode", "water")) result["waterVolumeMode"] = settings->waterVolumeMode();
+            if (include("waterTemperature", "water")) result["waterTemperatureC"] = settings->brew()->waterTemperature();
+            if (include("waterVolume", "water")) result["waterVolumeMl"] = settings->brew()->waterVolume();
+            if (include("waterVolumeMode", "water")) result["waterVolumeMode"] = settings->brew()->waterVolumeMode();
             if (include("hotWaterFlowRate", "water")) result["hotWaterFlowRateMlPerSec"] = settings->hardware()->hotWaterFlowRate() / 10.0;
 
             // === Flush ===
-            if (include("flushFlow", "flush")) result["flushFlowMlPerSec"] = settings->flushFlow();
-            if (include("flushSeconds", "flush")) result["flushSeconds"] = settings->flushSeconds();
+            if (include("flushFlow", "flush")) result["flushFlowMlPerSec"] = settings->brew()->flushFlow();
+            if (include("flushSeconds", "flush")) result["flushSeconds"] = settings->brew()->flushSeconds();
 
             // === DYE (bean/grinder metadata) ===
-            if (include("dyeBeanBrand", "dye")) result["dyeBeanBrand"] = settings->dyeBeanBrand();
-            if (include("dyeBeanType", "dye")) result["dyeBeanType"] = settings->dyeBeanType();
-            if (include("dyeRoastDate", "dye")) result["dyeRoastDate"] = settings->dyeRoastDate();
-            if (include("dyeRoastLevel", "dye")) result["dyeRoastLevel"] = settings->dyeRoastLevel();
-            if (include("dyeGrinderBrand", "dye")) result["dyeGrinderBrand"] = settings->dyeGrinderBrand();
-            if (include("dyeGrinderModel", "dye")) result["dyeGrinderModel"] = settings->dyeGrinderModel();
-            if (include("dyeGrinderBurrs", "dye")) result["dyeGrinderBurrs"] = settings->dyeGrinderBurrs();
-            if (include("dyeGrinderSetting", "dye")) result["dyeGrinderSetting"] = settings->dyeGrinderSetting();
-            if (include("dyeBeanWeight", "dye")) result["dyeBeanWeight"] = settings->dyeBeanWeight();
-            if (include("dyeDrinkWeight", "dye")) result["dyeDrinkWeight"] = settings->dyeDrinkWeight();
-            if (include("dyeDrinkTds", "dye")) result["dyeDrinkTds"] = settings->dyeDrinkTds();
-            if (include("dyeDrinkEy", "dye")) result["dyeDrinkEy"] = settings->dyeDrinkEy();
-            if (include("dyeEspressoEnjoyment", "dye")) result["dyeEspressoEnjoyment"] = settings->dyeEspressoEnjoyment();
-            if (include("dyeShotNotes", "dye")) result["dyeShotNotes"] = settings->dyeShotNotes();
-            if (include("dyeBarista", "dye")) result["dyeBarista"] = settings->dyeBarista();
+            if (include("dyeBeanBrand", "dye")) result["dyeBeanBrand"] = settings->dye()->dyeBeanBrand();
+            if (include("dyeBeanType", "dye")) result["dyeBeanType"] = settings->dye()->dyeBeanType();
+            if (include("dyeRoastDate", "dye")) result["dyeRoastDate"] = settings->dye()->dyeRoastDate();
+            if (include("dyeRoastLevel", "dye")) result["dyeRoastLevel"] = settings->dye()->dyeRoastLevel();
+            if (include("dyeGrinderBrand", "dye")) result["dyeGrinderBrand"] = settings->dye()->dyeGrinderBrand();
+            if (include("dyeGrinderModel", "dye")) result["dyeGrinderModel"] = settings->dye()->dyeGrinderModel();
+            if (include("dyeGrinderBurrs", "dye")) result["dyeGrinderBurrs"] = settings->dye()->dyeGrinderBurrs();
+            if (include("dyeGrinderSetting", "dye")) result["dyeGrinderSetting"] = settings->dye()->dyeGrinderSetting();
+            if (include("dyeBeanWeight", "dye")) result["dyeBeanWeight"] = settings->dye()->dyeBeanWeight();
+            if (include("dyeDrinkWeight", "dye")) result["dyeDrinkWeight"] = settings->dye()->dyeDrinkWeight();
+            if (include("dyeDrinkTds", "dye")) result["dyeDrinkTds"] = settings->dye()->dyeDrinkTds();
+            if (include("dyeDrinkEy", "dye")) result["dyeDrinkEy"] = settings->dye()->dyeDrinkEy();
+            if (include("dyeEspressoEnjoyment", "dye")) result["dyeEspressoEnjoyment"] = settings->dye()->dyeEspressoEnjoyment();
+            if (include("dyeShotNotes", "dye")) result["dyeShotNotes"] = settings->dye()->dyeShotNotes();
+            if (include("dyeBarista", "dye")) result["dyeBarista"] = settings->dye()->dyeBarista();
 
             // === MQTT ===
             {
@@ -224,14 +227,14 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("betaUpdatesEnabled", "update")) result["betaUpdatesEnabled"] = settings->betaUpdatesEnabled();
 
             // === Data ===
-            if (include("webSecurityEnabled", "data")) result["webSecurityEnabled"] = settings->webSecurityEnabled();
+            if (include("webSecurityEnabled", "data")) result["webSecurityEnabled"] = settings->network()->webSecurityEnabled();
             if (include("dailyBackupHour", "data")) result["dailyBackupHour"] = settings->dailyBackupHour();
-            if (include("shotServerEnabled", "data")) result["shotServerEnabled"] = settings->shotServerEnabled();
-            if (include("shotServerPort", "data")) result["shotServerPort"] = settings->shotServerPort();
+            if (include("shotServerEnabled", "data")) result["shotServerEnabled"] = settings->network()->shotServerEnabled();
+            if (include("shotServerPort", "data")) result["shotServerPort"] = settings->network()->shotServerPort();
 
             // === History ===
-            if (include("shotHistorySortField", "history")) result["shotHistorySortField"] = settings->shotHistorySortField();
-            if (include("shotHistorySortDirection", "history")) result["shotHistorySortDirection"] = settings->shotHistorySortDirection();
+            if (include("shotHistorySortField", "history")) result["shotHistorySortField"] = settings->network()->shotHistorySortField();
+            if (include("shotHistorySortDirection", "history")) result["shotHistorySortDirection"] = settings->network()->shotHistorySortDirection();
 
             // === Language ===
             if (translation) {
@@ -259,10 +262,10 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             }
 
             // === Auto-favorites ===
-            if (include("autoFavoritesGroupBy", "autofavorites")) result["autoFavoritesGroupBy"] = settings->autoFavoritesGroupBy();
-            if (include("autoFavoritesMaxItems", "autofavorites")) result["autoFavoritesMaxItems"] = settings->autoFavoritesMaxItems();
-            if (include("autoFavoritesOpenBrewSettings", "autofavorites")) result["autoFavoritesOpenBrewSettings"] = settings->autoFavoritesOpenBrewSettings();
-            if (include("autoFavoritesHideUnrated", "autofavorites")) result["autoFavoritesHideUnrated"] = settings->autoFavoritesHideUnrated();
+            if (include("autoFavoritesGroupBy", "autofavorites")) result["autoFavoritesGroupBy"] = settings->network()->autoFavoritesGroupBy();
+            if (include("autoFavoritesMaxItems", "autofavorites")) result["autoFavoritesMaxItems"] = settings->network()->autoFavoritesMaxItems();
+            if (include("autoFavoritesOpenBrewSettings", "autofavorites")) result["autoFavoritesOpenBrewSettings"] = settings->network()->autoFavoritesOpenBrewSettings();
+            if (include("autoFavoritesHideUnrated", "autofavorites")) result["autoFavoritesHideUnrated"] = settings->network()->autoFavoritesHideUnrated();
 
             return result;
         },

@@ -2,6 +2,9 @@
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
 #include "../core/settings.h"
+#include "../core/settings_brew.h"
+#include "../core/settings_dye.h"
+#include "../core/settings_network.h"
 #include "../core/settings_mqtt.h"
 #include "../core/settings_hardware.h"
 #include "../core/settings_visualizer.h"
@@ -137,9 +140,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
             auto phase = m_machineState->phase();
             if ((phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Disconnected)
-                && m_settings && m_settings->steamDisabled()) {
+                && m_settings && m_settings->brew()->steamDisabled()) {
                 qDebug() << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
-                m_settings->setSteamDisabled(false);
+                m_settings->brew()->setSteamDisabled(false);
             }
 
             // Steam session ended — run post-session analysis. m_steamStartTime
@@ -150,8 +153,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 if (m_steamHealthTracker && m_steamDataModel) {
                     m_steamHealthTracker->onSessionComplete(
                         m_steamDataModel,
-                        m_settings->steamFlow(),
-                        static_cast<int>(m_settings->steamTemperature()));
+                        m_settings->brew()->steamFlow(),
+                        static_cast<int>(m_settings->brew()->steamTemperature()));
                 }
                 m_steamStartTime = 0;
                 if (m_steamHealthTracker)
@@ -189,37 +192,37 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_shotServer->setSettings(m_settings);
     m_shotServer->setProfileStorage(m_profileStorage);
     if (m_settings) {
-        m_shotServer->setPort(m_settings->shotServerPort());
+        m_shotServer->setPort(m_settings->network()->shotServerPort());
 
         // Start server if enabled in settings
-        if (m_settings->shotServerEnabled()) {
+        if (m_settings->network()->shotServerEnabled()) {
             m_shotServer->start();
         }
 
         // React to settings changes
-        connect(m_settings, &Settings::shotServerEnabledChanged, this, [this]() {
-            if (m_settings->shotServerEnabled()) {
+        connect(m_settings->network(), &SettingsNetwork::shotServerEnabledChanged, this, [this]() {
+            if (m_settings->network()->shotServerEnabled()) {
                 m_shotServer->start();
             } else {
                 m_shotServer->stop();
             }
         });
-        connect(m_settings, &Settings::shotServerPortChanged, this, [this]() {
+        connect(m_settings->network(), &SettingsNetwork::shotServerPortChanged, this, [this]() {
             bool wasRunning = m_shotServer->isRunning();
             if (wasRunning) {
                 m_shotServer->stop();
             }
-            m_shotServer->setPort(m_settings->shotServerPort());
+            m_shotServer->setPort(m_settings->network()->shotServerPort());
             if (wasRunning) {
                 m_shotServer->start();
             }
         });
-        connect(m_settings, &Settings::webSecurityEnabledChanged, this, [this]() {
+        connect(m_settings->network(), &SettingsNetwork::webSecurityEnabledChanged, this, [this]() {
             bool wasRunning = m_shotServer->isRunning();
             if (wasRunning) {
                 m_shotServer->stop();
             }
-            if (wasRunning || m_settings->shotServerEnabled()) {
+            if (wasRunning || m_settings->network()->shotServerEnabled()) {
                 m_shotServer->start();
             }
         });
@@ -269,8 +272,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     });
 
     // Steam settings changes -> republish state
-    connect(m_settings, &Settings::steamDisabledChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
-    connect(m_settings, &Settings::keepSteamHeaterOnChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
+    connect(m_settings->brew(), &SettingsBrew::steamDisabledChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
+    connect(m_settings->brew(), &SettingsBrew::keepSteamHeaterOnChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
 
     // Auto-connect MQTT if enabled
     if (m_settings && m_settings->mqtt()->mqttEnabled() && !m_settings->mqtt()->mqttBrokerHost().isEmpty()) {
@@ -455,15 +458,15 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 
     // Copy metadata to DYE settings
     if (m_settings) {
-        m_settings->setDyeBeanBrand(shotRecord.summary.beanBrand);
-        m_settings->setDyeBeanType(shotRecord.summary.beanType);
-        m_settings->setDyeRoastDate(shotRecord.roastDate);
-        m_settings->setDyeRoastLevel(shotRecord.roastLevel);
-        m_settings->setDyeGrinderBrand(shotRecord.grinderBrand);
-        m_settings->setDyeGrinderModel(shotRecord.grinderModel);
-        m_settings->setDyeGrinderBurrs(shotRecord.grinderBurrs);
-        m_settings->setDyeGrinderSetting(shotRecord.grinderSetting);
-        m_settings->setDyeBarista(shotRecord.barista);
+        m_settings->dye()->setDyeBeanBrand(shotRecord.summary.beanBrand);
+        m_settings->dye()->setDyeBeanType(shotRecord.summary.beanType);
+        m_settings->dye()->setDyeRoastDate(shotRecord.roastDate);
+        m_settings->dye()->setDyeRoastLevel(shotRecord.roastLevel);
+        m_settings->dye()->setDyeGrinderBrand(shotRecord.grinderBrand);
+        m_settings->dye()->setDyeGrinderModel(shotRecord.grinderModel);
+        m_settings->dye()->setDyeGrinderBurrs(shotRecord.grinderBurrs);
+        m_settings->dye()->setDyeGrinderSetting(shotRecord.grinderSetting);
+        m_settings->dye()->setDyeBarista(shotRecord.barista);
 
         // Restore dose (input parameter, not a result). When loading an auto-favorite,
         // `doseOverride` holds the bucketed dose shown on the card — apply that instead
@@ -474,33 +477,33 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         if (doseToLoad > 0) {
             QPointer<Settings> settings(m_settings);
             QMetaObject::invokeMethod(this, [settings, doseToLoad]() {
-                if (settings) settings->setDyeBeanWeight(doseToLoad);
+                if (settings) settings->dye()->setDyeBeanWeight(doseToLoad);
             }, Qt::QueuedConnection);
         }
         // Note: Don't copy finalWeight/TDS/EY - those are shot results, not inputs
 
         // Find matching bean preset or set to -1 for guest bean
-        int beanPresetIndex = m_settings->findBeanPresetByContent(
+        int beanPresetIndex = m_settings->dye()->findBeanPresetByContent(
             shotRecord.summary.beanBrand, shotRecord.summary.beanType);
         qDebug() << "applyLoadedShotMetadata: Looking for bean preset - brand:" << shotRecord.summary.beanBrand
                  << "type:" << shotRecord.summary.beanType << "-> found index:" << beanPresetIndex;
-        m_settings->setSelectedBeanPreset(beanPresetIndex);
+        m_settings->dye()->setSelectedBeanPreset(beanPresetIndex);
 
         // Apply brew overrides from history on top of profile defaults (set by loadProfile)
         // Values > 0 indicate overrides were used (0 means no override or old shot)
         bool hasOverrides = false;
         if (shotRecord.temperatureOverride > 0) {
-            m_settings->setTemperatureOverride(shotRecord.temperatureOverride);
+            m_settings->brew()->setTemperatureOverride(shotRecord.temperatureOverride);
             hasOverrides = true;
         }
 
         if (shotRecord.yieldOverride > 0) {
-            m_settings->setBrewYieldOverride(shotRecord.yieldOverride);
+            m_settings->brew()->setBrewYieldOverride(shotRecord.yieldOverride);
             hasOverrides = true;
         } else if (shotRecord.summary.finalWeight > 0 && m_profileManager->currentProfile().targetWeight() <= 0) {
             // Old shots from volume/timer-based profiles were saved with yieldOverride=0.
             // Use the actual yield so the user gets a meaningful weight target.
-            m_settings->setBrewYieldOverride(shotRecord.summary.finalWeight);
+            m_settings->brew()->setBrewYieldOverride(shotRecord.summary.finalWeight);
             hasOverrides = true;
         }
 
@@ -737,18 +740,18 @@ void MainController::sendMachineSettings(const QString& reason) {
     // / SteamItem applySteamSettings paths (which don't call startSteamHeating)
     // would leave the flag set and the heater off until the user opened
     // SteamPage.
-    const QVariantMap currentPitcher = m_settings->getSteamPitcherPreset(m_settings->selectedSteamPitcher());
+    const QVariantMap currentPitcher = m_settings->brew()->getSteamPitcherPreset(m_settings->brew()->selectedSteamPitcher());
     const bool currentPitcherDisabled = currentPitcher.value("disabled").toBool();
-    if (!currentPitcherDisabled && m_settings->steamDisabled()) {
-        m_settings->setSteamDisabled(false);
+    if (!currentPitcherDisabled && m_settings->brew()->steamDisabled()) {
+        m_settings->brew()->setSteamDisabled(false);
     }
     double steamTemp;
-    if (currentPitcherDisabled || m_settings->steamDisabled()) {
+    if (currentPitcherDisabled || m_settings->brew()->steamDisabled()) {
         steamTemp = 0.0;
-    } else if (!m_settings->keepSteamHeaterOn()) {
+    } else if (!m_settings->brew()->keepSteamHeaterOn()) {
         steamTemp = 0.0;
     } else {
-        steamTemp = m_settings->steamTemperature();
+        steamTemp = m_settings->brew()->steamTemperature();
     }
 
     double groupTemp = getGroupTemperature();
@@ -759,9 +762,9 @@ void MainController::sendMachineSettings(const QString& reason) {
     // so onShotSettingsReported() can compare reported against commanded.
     m_device->setShotSettings(
         steamTemp,
-        m_settings->steamTimeout(),
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->steamTimeout(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         reason.isEmpty() ? QStringLiteral("sendMachineSettings") : reason
     );
@@ -770,14 +773,14 @@ void MainController::sendMachineSettings(const QString& reason) {
         ? QStringLiteral("sendMachineSettings") : reason;
 
     // 2. Steam flow MMR
-    m_device->writeMMR(0x803828, m_settings->steamFlow(), mmrReason);
+    m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(), mmrReason);
 
     // 3. Flush flow MMR (value × 10)
-    int flowValue = static_cast<int>(m_settings->flushFlow() * 10);
+    int flowValue = static_cast<int>(m_settings->brew()->flushFlow() * 10);
     m_device->writeMMR(0x803840, flowValue, mmrReason);
 
     // 4. Flush timeout MMR (value × 10)
-    int secondsValue = static_cast<int>(m_settings->flushSeconds() * 10);
+    int secondsValue = static_cast<int>(m_settings->brew()->flushSeconds() * 10);
     m_device->writeMMR(0x803848, secondsValue, mmrReason);
 }
 
@@ -1365,8 +1368,8 @@ void MainController::applyHeaterTweaks() {
 }
 
 double MainController::getGroupTemperature() const {
-    if (m_settings && m_settings->hasTemperatureOverride()) {
-        double temp = m_settings->temperatureOverride();
+    if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
+        double temp = m_settings->brew()->temperatureOverride();
         qDebug() << "getGroupTemperature: using override" << temp << "°C";
         return temp;
     }
@@ -1376,11 +1379,11 @@ double MainController::getGroupTemperature() const {
 void MainController::setSteamTemperatureImmediate(double temp) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_settings->setSteamTemperature(temp);
+    m_settings->brew()->setSteamTemperature(temp);
 
     // Clear steamDisabled flag when user actively changes temperature
-    if (m_settings->steamDisabled()) {
-        m_settings->setSteamDisabled(false);
+    if (m_settings->brew()->steamDisabled()) {
+        m_settings->brew()->setSteamDisabled(false);
     }
 
     double groupTemp = getGroupTemperature();
@@ -1388,9 +1391,9 @@ void MainController::setSteamTemperatureImmediate(double temp) {
     // Send all shot settings with updated temperature
     m_device->setShotSettings(
         temp,
-        m_settings->steamTimeout(),
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->steamTimeout(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         QStringLiteral("setSteamTemperatureImmediate")
     );
@@ -1416,7 +1419,7 @@ void MainController::sendSteamTemperature(double temp) {
     // Update steamDisabled flag based on temperature
     // 0°C means disabled, any other temp means enabled
     if (m_settings) {
-        m_settings->setSteamDisabled(temp == 0);
+        m_settings->brew()->setSteamDisabled(temp == 0);
     }
 
     if (!m_device) {
@@ -1436,17 +1439,17 @@ void MainController::sendSteamTemperature(double temp) {
 
     logToFile(QString("Sending: steamTemp=%1 timeout=%2 waterTemp=%3 waterVol=%4 groupTemp=%5")
               .arg(temp)
-              .arg(m_settings->steamTimeout())
-              .arg(m_settings->waterTemperature())
-              .arg(m_settings->effectiveHotWaterVolume())
+              .arg(m_settings->brew()->steamTimeout())
+              .arg(m_settings->brew()->waterTemperature())
+              .arg(m_settings->brew()->effectiveHotWaterVolume())
               .arg(groupTemp));
 
     // Send to machine without saving to settings (for enable/disable toggle)
     m_device->setShotSettings(
         temp,
-        m_settings->steamTimeout(),
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->steamTimeout(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         QStringLiteral("sendSteamTemperature")
     );
@@ -1458,24 +1461,24 @@ void MainController::startSteamHeating(const QString& reason) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     // Clear steamDisabled flag - we're explicitly starting steam heating
-    m_settings->setSteamDisabled(false);
+    m_settings->brew()->setSteamDisabled(false);
 
     // Always send the configured steam temperature
-    double steamTemp = m_settings->steamTemperature();
+    double steamTemp = m_settings->brew()->steamTemperature();
 
     double groupTemp = getGroupTemperature();
 
     m_device->setShotSettings(
         steamTemp,
-        m_settings->steamTimeout(),
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->steamTimeout(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         reason.isEmpty() ? QStringLiteral("startSteamHeating") : reason
     );
 
     // Also send steam flow via MMR
-    m_device->writeMMR(0x803828, m_settings->steamFlow(),
+    m_device->writeMMR(0x803828, m_settings->brew()->steamFlow(),
                        QStringLiteral("startSteamHeating"));
 
     qDebug() << "Started steam heating to" << steamTemp << "°C"
@@ -1486,16 +1489,16 @@ void MainController::turnOffSteamHeater() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     // Set steamDisabled flag - this ensures consistent state management
-    m_settings->setSteamDisabled(true);
+    m_settings->brew()->setSteamDisabled(true);
 
     double groupTemp = getGroupTemperature();
 
     // Send 0°C to turn off steam heater
     m_device->setShotSettings(
         0.0,
-        m_settings->steamTimeout(),
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->steamTimeout(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         QStringLiteral("turnOffSteamHeater")
     );
@@ -1517,7 +1520,7 @@ void MainController::setHotWaterFlowRateImmediate(int flow) {
 void MainController::setSteamFlowImmediate(int flow) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_settings->setSteamFlow(flow);
+    m_settings->brew()->setSteamFlow(flow);
 
     // Verify-and-retry as defensive insurance: a single MMR write should be
     // enough (on-device testing showed zero retries needed across many slider
@@ -1533,16 +1536,16 @@ void MainController::setSteamFlowImmediate(int flow) {
 void MainController::setSteamTimeoutImmediate(int timeout) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_settings->setSteamTimeout(timeout);
+    m_settings->brew()->setSteamTimeout(timeout);
 
     double groupTemp = getGroupTemperature();
 
     // Send all shot settings with updated timeout
     m_device->setShotSettings(
-        m_settings->steamTemperature(),
+        m_settings->brew()->steamTemperature(),
         timeout,
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         QStringLiteral("setSteamTimeoutImmediate")
     );
@@ -1559,10 +1562,10 @@ void MainController::softStopSteam() {
     // This stops steam without triggering the purge sequence (which requestIdle() would do)
     // Does NOT save to settings - just sends the command
     m_device->setShotSettings(
-        m_settings->steamTemperature(),
+        m_settings->brew()->steamTemperature(),
         1,  // 1 second - any elapsed time > 1 will trigger stop
-        m_settings->waterTemperature(),
-        m_settings->effectiveHotWaterVolume(),
+        m_settings->brew()->waterTemperature(),
+        m_settings->brew()->effectiveHotWaterVolume(),
         groupTemp,
         QStringLiteral("softStopSteam")
     );
@@ -1643,7 +1646,7 @@ void MainController::onEspressoCycleStarted() {
     // Reset FlowScale and set dose for puck absorption compensation
     if (m_flowScale) {
         m_flowScale->reset();
-        double dose = m_settings ? m_settings->dyeBeanWeight() : 0.0;
+        double dose = m_settings ? m_settings->dye()->dyeBeanWeight() : 0.0;
         m_flowScale->setDose(dose);
     }
 
@@ -1660,7 +1663,7 @@ void MainController::onEspressoCycleStarted() {
 
     // Clear shot notes if setting is enabled
     if (m_settings && m_settings->visualizer()->visualizerClearNotesOnStart()) {
-        m_settings->setDyeShotNotes("");
+        m_settings->dye()->setDyeShotNotes("");
     }
 }
 
@@ -1686,15 +1689,15 @@ void MainController::onShotEnded() {
 
     if (m_settings) {
         // Temperature: user override OR profile's espresso temperature
-        if (m_settings->hasTemperatureOverride()) {
-            shotTemperatureOverride = m_settings->temperatureOverride();
+        if (m_settings->brew()->hasTemperatureOverride()) {
+            shotTemperatureOverride = m_settings->brew()->temperatureOverride();
         } else {
             shotTemperatureOverride = m_profileManager->currentProfile().espressoTemperature();
         }
 
         // Yield: user override OR profile's target weight (0 for volume-based profiles)
-        if (m_settings->hasBrewYieldOverride()) {
-            shotYieldOverride = m_settings->brewYieldOverride();
+        if (m_settings->brew()->hasBrewYieldOverride()) {
+            shotYieldOverride = m_settings->brew()->brewYieldOverride();
         } else if (m_profileManager->currentProfile().targetWeight() > 0) {
             shotYieldOverride = m_profileManager->currentProfile().targetWeight();
         }
@@ -1716,7 +1719,7 @@ void MainController::onShotEnded() {
         ? m_timingController->extractionDuration()
         : m_shotDataModel->rawTime();
 
-    double doseWeight = m_settings->dyeBeanWeight();
+    double doseWeight = m_settings->dye()->dyeBeanWeight();
     // If DYE dose is unset (0), fall back to profile's recommended dose
     if (doseWeight <= 0 && m_profileManager->currentProfile().hasRecommendedDose())
         doseWeight = m_profileManager->currentProfile().recommendedDose();
@@ -1774,21 +1777,21 @@ void MainController::onShotEnded() {
 
     // Build metadata for history
     ShotMetadata metadata;
-    metadata.beanBrand = m_settings->dyeBeanBrand();
-    metadata.beanType = m_settings->dyeBeanType();
-    metadata.roastDate = m_settings->dyeRoastDate();
-    metadata.roastLevel = m_settings->dyeRoastLevel();
-    metadata.grinderBrand = m_settings->dyeGrinderBrand();
-    metadata.grinderModel = m_settings->dyeGrinderModel();
-    metadata.grinderBurrs = m_settings->dyeGrinderBurrs();
-    metadata.grinderSetting = m_settings->dyeGrinderSetting();
-    metadata.beanWeight = m_settings->dyeBeanWeight();
-    metadata.drinkWeight = m_settings->dyeDrinkWeight();
-    metadata.drinkTds = m_settings->dyeDrinkTds();
-    metadata.drinkEy = m_settings->dyeDrinkEy();
-    metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
-    metadata.espressoNotes = m_settings->dyeShotNotes();
-    metadata.barista = m_settings->dyeBarista();
+    metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
+    metadata.beanType = m_settings->dye()->dyeBeanType();
+    metadata.roastDate = m_settings->dye()->dyeRoastDate();
+    metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
+    metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
+    metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
+    metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
+    metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
+    metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
+    metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
+    metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
+    metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
+    metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
+    metadata.barista = m_settings->dye()->dyeBarista();
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
@@ -1823,19 +1826,19 @@ void MainController::onShotEnded() {
                     emit lastSavedShotIdChanged();
 
                     // Set shot date/time for display on metadata page
-                    m_settings->setDyeShotDateTime(shotDateTime);
+                    m_settings->dye()->setDyeShotDateTime(shotDateTime);
                     qDebug() << "[metadata] Set dyeShotDateTime to:" << shotDateTime;
 
                     // Update the drink weight with actual final weight from this shot
-                    m_settings->setDyeDrinkWeight(finalWeight);
+                    m_settings->dye()->setDyeDrinkWeight(finalWeight);
                     qDebug() << "[metadata] Set dyeDrinkWeight to:" << finalWeight;
 
                     // Reset shot-specific metadata for the next shot
                     // Bean/grinder info persists (sticky), but per-shot fields reset
-                    m_settings->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
-                    m_settings->setDyeShotNotes("");
-                    m_settings->setDyeDrinkTds(0);
-                    m_settings->setDyeDrinkEy(0);
+                    m_settings->dye()->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
+                    m_settings->dye()->setDyeShotNotes("");
+                    m_settings->dye()->setDyeDrinkTds(0);
+                    m_settings->dye()->setDyeDrinkEy(0);
                     qDebug() << "[metadata] Reset enjoyment, notes, TDS, EY for next shot";
 
                     // Force QSettings to sync to disk immediately
@@ -1920,23 +1923,23 @@ void MainController::uploadPendingShot() {
 
     // Build metadata from current settings
     ShotMetadata metadata;
-    metadata.beanBrand = m_settings->dyeBeanBrand();
-    metadata.beanType = m_settings->dyeBeanType();
-    metadata.roastDate = m_settings->dyeRoastDate();
-    metadata.roastLevel = m_settings->dyeRoastLevel();
-    metadata.grinderBrand = m_settings->dyeGrinderBrand();
-    metadata.grinderModel = m_settings->dyeGrinderModel();
-    metadata.grinderBurrs = m_settings->dyeGrinderBurrs();
-    metadata.grinderSetting = m_settings->dyeGrinderSetting();
-    metadata.beanWeight = m_settings->dyeBeanWeight();
-    metadata.drinkWeight = m_settings->dyeDrinkWeight();
-    metadata.drinkTds = m_settings->dyeDrinkTds();
-    metadata.drinkEy = m_settings->dyeDrinkEy();
-    metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
-    metadata.barista = m_settings->dyeBarista();
+    metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
+    metadata.beanType = m_settings->dye()->dyeBeanType();
+    metadata.roastDate = m_settings->dye()->dyeRoastDate();
+    metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
+    metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
+    metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
+    metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
+    metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
+    metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
+    metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
+    metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
+    metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
+    metadata.barista = m_settings->dye()->dyeBarista();
 
     // Build notes: user notes + AI recommendation (if any)
-    QString notes = m_settings->dyeShotNotes();
+    QString notes = m_settings->dye()->dyeShotNotes();
     if (m_aiManager && !m_aiManager->lastRecommendation().isEmpty()) {
         QString aiRec = m_aiManager->lastRecommendation();
         QString provider = m_aiManager->selectedProvider();
@@ -2066,21 +2069,21 @@ void MainController::generateFakeShotData() {
             m_savingShot = true;
 
             ShotMetadata metadata;
-            metadata.beanBrand = m_settings->dyeBeanBrand();
-            metadata.beanType = m_settings->dyeBeanType();
-            metadata.roastDate = m_settings->dyeRoastDate();
-            metadata.roastLevel = m_settings->dyeRoastLevel();
-            metadata.grinderBrand = m_settings->dyeGrinderBrand();
-            metadata.grinderModel = m_settings->dyeGrinderModel();
-            metadata.grinderBurrs = m_settings->dyeGrinderBurrs();
-            metadata.grinderSetting = m_settings->dyeGrinderSetting();
+            metadata.beanBrand = m_settings->dye()->dyeBeanBrand();
+            metadata.beanType = m_settings->dye()->dyeBeanType();
+            metadata.roastDate = m_settings->dye()->dyeRoastDate();
+            metadata.roastLevel = m_settings->dye()->dyeRoastLevel();
+            metadata.grinderBrand = m_settings->dye()->dyeGrinderBrand();
+            metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
+            metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
+            metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
             metadata.beanWeight = m_pendingShotDoseWeight;
-            metadata.drinkWeight = m_settings->dyeDrinkWeight();
-            metadata.drinkTds = m_settings->dyeDrinkTds();
-            metadata.drinkEy = m_settings->dyeDrinkEy();
-            metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
-            metadata.espressoNotes = m_settings->dyeShotNotes();
-            metadata.barista = m_settings->dyeBarista();
+            metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
+            metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
+            metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
+            metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
+            metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
+            metadata.barista = m_settings->dye()->dyeBarista();
 
             // Use current profile's temperature and target weight as overrides
             double temperatureOverride = m_profileManager->currentProfile().espressoTemperature();
@@ -2096,13 +2099,13 @@ void MainController::generateFakeShotData() {
                     emit lastSavedShotIdChanged();
 
                     // Update drink weight
-                    m_settings->setDyeDrinkWeight(pendingFinalWeight);
+                    m_settings->dye()->setDyeDrinkWeight(pendingFinalWeight);
 
                     // Reset shot-specific metadata for next shot
-                    m_settings->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
-                    m_settings->setDyeShotNotes("");
-                    m_settings->setDyeDrinkTds(0);
-                    m_settings->setDyeDrinkEy(0);
+                    m_settings->dye()->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
+                    m_settings->dye()->setDyeShotNotes("");
+                    m_settings->dye()->setDyeDrinkTds(0);
+                    m_settings->dye()->setDyeDrinkEy(0);
                     m_settings->sync();
                 } else {
                     qWarning() << "DEV: Failed to save simulated shot to history";
@@ -2211,9 +2214,9 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             m_steamStartTime = sample.timer;
             m_steamDataModel->clear();
             // Add flow goal line from current settings
-            double flowGoal = m_settings->steamFlow() / 100.0;
+            double flowGoal = m_settings->brew()->steamFlow() / 100.0;
             m_steamDataModel->addFlowGoalPoint(0, flowGoal);
-            m_steamDataModel->addFlowGoalPoint(m_settings->steamTimeout(), flowGoal);
+            m_steamDataModel->addFlowGoalPoint(m_settings->brew()->steamTimeout(), flowGoal);
             if (m_steamHealthTracker)
                 m_steamHealthTracker->resetSession();
         }
@@ -2456,7 +2459,7 @@ void MainController::setRefractometer(DiFluidR2* refractometer) {
     connect(m_refractometer, &DiFluidR2::tdsChanged, this, [this](double tds) {
         if (tds > 0 && m_settings) {
             qDebug() << "[Refractometer] TDS received:" << tds << "- populating DYE field";
-            m_settings->setDyeDrinkTds(tds);
+            m_settings->dye()->setDyeDrinkTds(tds);
         }
     });
 }

@@ -22,7 +22,7 @@ Dialog {
 
     // Dose value (editable, default 18g)
     property double doseValue: 18.0
-    property double ratio: Settings.lastUsedRatio
+    property double ratio: Settings.brew.lastUsedRatio
 
     // Target (yield) value and tracking
     property double targetValue: doseValue * ratio
@@ -78,7 +78,7 @@ Dialog {
 
     function getGrinderBrandSuggestions() {
         var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBrands() : []
-        var known = Settings.knownGrinderBrands()
+        var known = Settings.dye.knownGrinderBrands()
         var merged = history.slice()
         for (var i = 0; i < known.length; i++) {
             if (merged.indexOf(known[i]) < 0) merged.push(known[i])
@@ -88,7 +88,7 @@ Dialog {
 
     function getGrinderModelSuggestions() {
         var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderModelsForBrand(root.grinderBrand) : []
-        var known = Settings.knownGrinderModels(root.grinderBrand)
+        var known = Settings.dye.knownGrinderModels(root.grinderBrand)
         var merged = history.slice()
         for (var i = 0; i < known.length; i++) {
             if (merged.indexOf(known[i]) < 0) merged.push(known[i])
@@ -97,8 +97,14 @@ Dialog {
     }
 
     function getGrinderBurrsSuggestions() {
+        var known = Settings.dye.suggestedBurrs(root.grinderBrand, root.grinderModel)
+        // Non-swappable grinders (e.g. Niche Duo) ship with fixed burrs — don't
+        // pollute the suggestion list with stale history entries from a different
+        // grinder model on the same brand.
+        if (!Settings.dye.isBurrSwappable(root.grinderBrand, root.grinderModel)) {
+            return known
+        }
         var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBurrsForModel(root.grinderBrand, root.grinderModel) : []
-        var known = Settings.suggestedBurrs(root.grinderBrand, root.grinderModel)
         var merged = history.slice()
         for (var i = 0; i < known.length; i++) {
             if (merged.indexOf(known[i]) < 0) merged.push(known[i])
@@ -108,8 +114,8 @@ Dialog {
 
     function getGrinderSettingSuggestions() {
         var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(root.grinderModel) : []
-        if (Settings.dyeGrinderSetting.length > 0 && suggestions.indexOf(Settings.dyeGrinderSetting) === -1) {
-            suggestions.unshift(Settings.dyeGrinderSetting)
+        if (Settings.dye.dyeGrinderSetting.length > 0 && suggestions.indexOf(Settings.dye.dyeGrinderSetting) === -1) {
+            suggestions.unshift(Settings.dye.dyeGrinderSetting)
         }
         return suggestions
     }
@@ -161,35 +167,35 @@ Dialog {
         // Announce dialog for accessibility
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
             var announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + ProfileManager.currentProfileName
-            if (Settings.dyeBeanBrand.length > 0)
-                announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + Settings.dyeBeanBrand
-            if (Settings.dyeBeanType.length > 0)
-                announcement += ". " + TranslationManager.translate("brewDialog.coffeeAnnouncementLabel", "Coffee: ") + Settings.dyeBeanType
+            if (Settings.dye.dyeBeanBrand.length > 0)
+                announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + Settings.dye.dyeBeanBrand
+            if (Settings.dye.dyeBeanType.length > 0)
+                announcement += ". " + TranslationManager.translate("brewDialog.coffeeAnnouncementLabel", "Coffee: ") + Settings.dye.dyeBeanType
             AccessibilityManager.announce(announcement)
         }
 
         // Update profile temperature, use override if active
         profileTemperature = ProfileManager.profileTargetTemperature
         profileTargetWeight = ProfileManager.profileTargetWeight
-        temperatureValue = Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemperature
+        temperatureValue = Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : profileTemperature
 
         // Use DYE fields for dose and grind (source of truth)
-        doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
-        grinderBrand = Settings.dyeGrinderBrand
-        grinderModel = Settings.dyeGrinderModel
-        grinderBurrs = Settings.dyeGrinderBurrs
-        grindSetting = Settings.dyeGrinderSetting
-        beanBrand = Settings.dyeBeanBrand
-        beanType = Settings.dyeBeanType
-        roastDate = Settings.dyeRoastDate
+        doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
+        grinderBrand = Settings.dye.dyeGrinderBrand
+        grinderModel = Settings.dye.dyeGrinderModel
+        grinderBurrs = Settings.dye.dyeGrinderBurrs
+        grindSetting = Settings.dye.dyeGrinderSetting
+        beanBrand = Settings.dye.dyeBeanBrand
+        beanType = Settings.dye.dyeBeanType
+        roastDate = Settings.dye.dyeRoastDate
         selectedProfileTitle = ProfileManager.currentProfileName
         originalProfileFilename = Settings.currentProfile
         showScaleWarning = false
 
         // Yield: use override if active, otherwise use profile default
-        targetValue = Settings.hasBrewYieldOverride ? Settings.brewYieldOverride : profileTargetWeight
-        ratio = doseValue > 0 ? targetValue / doseValue : Settings.lastUsedRatio
-        targetManuallySet = Settings.hasBrewYieldOverride
+        targetValue = Settings.brew.hasBrewYieldOverride ? Settings.brew.brewYieldOverride : profileTargetWeight
+        ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
+        targetManuallySet = Settings.brew.hasBrewYieldOverride
     }
 
     background: Rectangle {
@@ -727,10 +733,10 @@ Dialog {
                     onSuggestionSelected: function(t) {
                         root.grinderModel = ""
                         root.grinderBurrs = ""
-                        var models = Settings.knownGrinderModels(t)
+                        var models = Settings.dye.knownGrinderModels(t)
                         if (models.length === 1) {
                             root.grinderModel = models[0]
-                            var burrs = Settings.suggestedBurrs(t, models[0])
+                            var burrs = Settings.dye.suggestedBurrs(t, models[0])
                             if (burrs.length === 1) root.grinderBurrs = burrs[0]
                         }
                     }
@@ -746,7 +752,7 @@ Dialog {
                     suggestions: _distinctCacheVersion >= 0 ? root.getGrinderModelSuggestions() : []
                     onTextEdited: function(t) { root.grinderModel = t }
                     onSuggestionSelected: function(t) {
-                        var burrs = Settings.suggestedBurrs(root.grinderBrand, t)
+                        var burrs = Settings.dye.suggestedBurrs(root.grinderBrand, t)
                         if (burrs.length === 1) root.grinderBurrs = burrs[0]
                     }
                 }
@@ -818,19 +824,19 @@ Dialog {
                     root.profileTargetWeight = ProfileManager.profileTargetWeight
 
                     // Use bean preset dose if available, otherwise default 18g
-                    root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
-                    root.beanBrand = Settings.dyeBeanBrand
-                    root.beanType = Settings.dyeBeanType
-                    root.roastDate = Settings.dyeRoastDate
+                    root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
+                    root.beanBrand = Settings.dye.dyeBeanBrand
+                    root.beanType = Settings.dye.dyeBeanType
+                    root.roastDate = Settings.dye.dyeRoastDate
                     root.selectedProfileTitle = ProfileManager.currentProfileName
-                    root.grinderBrand = Settings.dyeGrinderBrand
-                    root.grinderModel = Settings.dyeGrinderModel
-                    root.grinderBurrs = Settings.dyeGrinderBurrs
-                    root.grindSetting = Settings.dyeGrinderSetting
+                    root.grinderBrand = Settings.dye.dyeGrinderBrand
+                    root.grinderModel = Settings.dye.dyeGrinderModel
+                    root.grinderBurrs = Settings.dye.dyeGrinderBurrs
+                    root.grindSetting = Settings.dye.dyeGrinderSetting
 
                     // Calculate ratio from profile target weight / dose
                     var profileTarget = ProfileManager.profileTargetWeight
-                    root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.lastUsedRatio
+                    root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
                     root.targetManuallySet = false
                     root.targetValue = root.doseValue * root.ratio
                 }
@@ -879,14 +885,14 @@ Dialog {
                 accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
                 onClicked: {
                     Qt.inputMethod.commit()
-                    Settings.lastUsedRatio = root.ratio
-                    Settings.dyeBeanBrand = root.beanBrand
-                    Settings.dyeBeanType = root.beanType
-                    Settings.dyeRoastDate = root.roastDate
-                    Settings.dyeGrinderBrand = root.grinderBrand
-                    Settings.dyeGrinderModel = root.grinderModel
-                    Settings.dyeGrinderBurrs = root.grinderBurrs
-                    Settings.dyeGrinderSetting = root.grindSetting
+                    Settings.brew.lastUsedRatio = root.ratio
+                    Settings.dye.dyeBeanBrand = root.beanBrand
+                    Settings.dye.dyeBeanType = root.beanType
+                    Settings.dye.dyeRoastDate = root.roastDate
+                    Settings.dye.dyeGrinderBrand = root.grinderBrand
+                    Settings.dye.dyeGrinderModel = root.grinderModel
+                    Settings.dye.dyeGrinderBurrs = root.grinderBurrs
+                    Settings.dye.dyeGrinderSetting = root.grindSetting
                     // Use the new activateBrewWithOverrides method
                     ProfileManager.activateBrewWithOverrides(
                         root.doseValue,

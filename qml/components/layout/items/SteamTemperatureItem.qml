@@ -9,7 +9,7 @@ Item {
     property string itemId: ""
 
     readonly property real currentTemp: DE1Device.steamTemperature
-    readonly property real targetTemp: Settings.steamTemperature
+    readonly property real targetTemp: Settings.brew.steamTemperature
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

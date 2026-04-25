@@ -50,6 +50,9 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_visualizer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_dye.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
 )
 
 set(CONTROLLER_SOURCES

@@ -121,15 +121,15 @@ Item {
         // path, so announce here directly to keep feature parity for screen-reader users.
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.flushPresets
+            var presets = Settings.brew.flushPresets
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            if (Settings.selectedFlushPreset >= 0 && Settings.selectedFlushPreset < presets.length) {
-                selectedName = presets[Settings.selectedFlushPreset].name
+            if (Settings.brew.selectedFlushPreset >= 0 && Settings.brew.selectedFlushPreset < presets.length) {
+                selectedName = presets[Settings.brew.selectedFlushPreset].name
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -181,16 +181,16 @@ Item {
 
         contentItem: PresetPillRow {
             maxWidth: Theme.scaled(600)
-            presets: Settings.flushPresets
-            selectedIndex: Settings.selectedFlushPreset
+            presets: Settings.brew.flushPresets
+            selectedIndex: Settings.brew.selectedFlushPreset
 
             onPresetSelected: function(index) {
-                var wasAlreadySelected = (index === Settings.selectedFlushPreset)
-                Settings.selectedFlushPreset = index
-                var preset = Settings.getFlushPreset(index)
+                var wasAlreadySelected = (index === Settings.brew.selectedFlushPreset)
+                Settings.brew.selectedFlushPreset = index
+                var preset = Settings.brew.getFlushPreset(index)
                 if (preset) {
-                    Settings.flushFlow = preset.flow
-                    Settings.flushSeconds = preset.seconds
+                    Settings.brew.flushFlow = preset.flow
+                    Settings.brew.flushSeconds = preset.seconds
                 }
                 MainController.applyFlushSettings()
 

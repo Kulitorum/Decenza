@@ -22,7 +22,7 @@ Page {
     StackView.onActivated: {
         root.currentPageTitle = pageTitle
         if (!isSteaming) {
-            var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+            var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             if (preset && preset.disabled) {
                 // Selected preset is an "Off" pill — leave the heater off rather
                 // than kicking it on as the page activates. Don't forceActiveFocus
@@ -31,8 +31,8 @@ Page {
                 MainController.turnOffSteamHeater()
             } else {
                 // Sync Settings with selected preset
-                Settings.steamTimeout = getCurrentPitcherDuration()
-                Settings.steamFlow = getCurrentPitcherFlow()
+                Settings.brew.steamTimeout = getCurrentPitcherDuration()
+                Settings.brew.steamFlow = getCurrentPitcherFlow()
                 // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
                 // startSteamHeating clears steamDisabled flag automatically
                 MainController.startSteamHeating("steampage-activated")
@@ -48,7 +48,7 @@ Page {
 
     // Check if steam heater needs heating
     readonly property real currentSteamTemp: DE1Device.steamTemperature
-    readonly property real targetSteamTemp: Settings.steamTemperature
+    readonly property real targetSteamTemp: Settings.brew.steamTemperature
     readonly property bool isHeatingUp: !isSteaming && currentSteamTemp < (targetSteamTemp - 5)  // 5°C tolerance
 
     // Check if DE1 is in Steam state but still heating (FinalHeating/Heating substate)
@@ -64,9 +64,9 @@ Page {
     // References selectedSteamPitcher and steamPitcherPresets so the binding
     // re-evaluates on selection change or when the preset list itself is edited.
     readonly property bool currentPitcherDisabled: {
-        var _selected = Settings.selectedSteamPitcher
-        var _list = Settings.steamPitcherPresets
-        var preset = Settings.getSteamPitcherPreset(_selected)
+        var _selected = Settings.brew.selectedSteamPitcher
+        var _list = Settings.brew.steamPitcherPresets
+        var preset = Settings.brew.getSteamPitcherPreset(_selected)
         return preset ? preset.disabled === true : false
     }
 
@@ -116,15 +116,15 @@ Page {
                 //
                 // When keepSteamHeaterOn=false the sendSteamTemperature(0) call
                 // below re-writes ShotSettings with the reset timeout as a side
-                // effect (it reads Settings.steamTimeout after the assignment),
+                // effect (it reads Settings.brew.steamTimeout after the assignment),
                 // so the DE1 is in sync immediately. When keepSteamHeaterOn=true
                 // the reset just persists to Settings; the next session's
                 // onStateChanged->startSteamHeating picks it up and writes it
                 // (the DE1's commanded state between sessions is idle anyway,
                 // so the lag is invisible).
-                Settings.steamTimeout = getCurrentPitcherDuration()
-                Settings.steamFlow = getCurrentPitcherFlow()
-                if (!Settings.keepSteamHeaterOn) {
+                Settings.brew.steamTimeout = getCurrentPitcherDuration()
+                Settings.brew.steamFlow = getCurrentPitcherFlow()
+                if (!Settings.brew.keepSteamHeaterOn) {
                     console.log("SteamPage: Turning off steam heater (keepSteamHeaterOn=false)")
                     MainController.sendSteamTemperature(0)  // also sets steamDisabled=true
                 }
@@ -146,24 +146,24 @@ Page {
     // don't carry duration/flow, so fall back to the current Settings so the
     // sliders don't jump when the user switches to an Off preset.
     function getCurrentPitcherDuration() {
-        var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.steamTimeout ?? 30
+        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        if (!preset || preset.disabled) return Settings.brew.steamTimeout ?? 30
         return preset.duration
     }
 
     function getCurrentPitcherFlow() {
-        var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.steamFlow ?? 150
+        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        if (!preset || preset.disabled) return Settings.brew.steamFlow ?? 150
         return (preset.flow !== undefined) ? preset.flow : 150
     }
 
     function getCurrentPitcherName() {
-        var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         return preset ? preset.name : ""
     }
 
     function isCurrentPitcherDisabled() {
-        var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         return preset ? preset.disabled === true : false
     }
 
@@ -173,7 +173,7 @@ Page {
     function saveCurrentPitcher(duration, flow) {
         var name = getCurrentPitcherName()
         if (name && !isCurrentPitcherDisabled()) {
-            Settings.updateSteamPitcherPreset(Settings.selectedSteamPitcher, name, duration, flow)
+            Settings.brew.updateSteamPitcherPreset(Settings.brew.selectedSteamPitcher, name, duration, flow)
         }
     }
 
@@ -295,12 +295,12 @@ Page {
 
                     Repeater {
                         id: livePresetRepeater
-                        model: Settings.steamPitcherPresets
+                        model: Settings.brew.steamPitcherPresets
 
                         Rectangle {
                             id: livePitcherPill
                             readonly property bool pitcherDisabled: modelData.disabled === true
-                            readonly property bool pitcherSelected: index === Settings.selectedSteamPitcher
+                            readonly property bool pitcherSelected: index === Settings.brew.selectedSteamPitcher
 
                             // Hide "Off" presets from the mid-session preset row — there's no
                             // meaningful action when tapped mid-steam, so don't show the pill.
@@ -378,26 +378,26 @@ Page {
                                     // Off pills are hidden during steaming (visible binding
                                     // above), so ignore any tap that slips through mid-session.
                                     if (isSteaming && livePitcherPill.pitcherDisabled) return
-                                    Settings.selectedSteamPitcher = index
+                                    Settings.brew.selectedSteamPitcher = index
                                     if (livePitcherPill.pitcherDisabled) {
                                         MainController.turnOffSteamHeater()
                                         return
                                     }
                                     var flow = modelData.flow !== undefined ? modelData.flow : 150
-                                    Settings.steamTimeout = modelData.duration
-                                    Settings.steamFlow = flow
+                                    Settings.brew.steamTimeout = modelData.duration
+                                    Settings.brew.steamFlow = flow
                                     if (!isSteaming) {
                                         MainController.startSteamHeating("live-pitcher-click")
                                     } else {
-                                        // Re-bind the live slider to Settings.steamFlow using
+                                        // Re-bind the live slider to Settings.brew.steamFlow using
                                         // Qt.binding. The user's first drag on the slider
                                         // imperatively writes value=newVal in onValueModified,
                                         // which permanently destroys the original declarative
-                                        // binding — any later Settings.steamFlow change (like
+                                        // binding — any later Settings.brew.steamFlow change (like
                                         // this preset tap) won't reach the slider. Qt.binding
                                         // restores reactivity without falling back to a bare
                                         // imperative assignment.
-                                        steamingFlowSlider.value = Qt.binding(function() { return Settings.steamFlow })
+                                        steamingFlowSlider.value = Qt.binding(function() { return Settings.brew.steamFlow })
                                         // Push the new flow over BLE. Don't push timeout — the
                                         // DE1's session timer is already running on the prior
                                         // value and a mid-session timeout change risks an
@@ -550,8 +550,8 @@ Page {
                             id: decreaseMouseArea
                             anchors.fill: parent
                             onClicked: {
-                                var newTime = Math.max(5, Settings.steamTimeout - 5)
-                                Settings.steamTimeout = newTime
+                                var newTime = Math.max(5, Settings.brew.steamTimeout - 5)
+                                Settings.brew.steamTimeout = newTime
                                 if (isSteaming)
                                     MainController.setSteamTimeoutImmediate(newTime)
                                 else
@@ -567,9 +567,9 @@ Page {
                             if (isSteamHeating) {
                                 return Math.round(currentSteamTemp) + "°C / " + Math.round(targetSteamTemp) + "°C"
                             } else if (isPuffing && root.steamAutoFlushCountdown > 0) {
-                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.steamAutoFlushSeconds + "s"
+                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
-                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.steamTimeout + "s"
+                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.steamTimeout + "s"
                             }
                         }
                         color: Theme.textColor
@@ -610,8 +610,8 @@ Page {
                             id: increaseMouseArea
                             anchors.fill: parent
                             onClicked: {
-                                var newTime = Math.min(120, Settings.steamTimeout + 5)
-                                Settings.steamTimeout = newTime
+                                var newTime = Math.min(120, Settings.brew.steamTimeout + 5)
+                                Settings.brew.steamTimeout = newTime
                                 if (isSteaming)
                                     MainController.setSteamTimeoutImmediate(newTime)
                                 else
@@ -634,11 +634,11 @@ Page {
                         width: {
                             if (isSteamHeating) {
                                 return parent.width * Math.min(1, currentSteamTemp / targetSteamTemp)
-                            } else if (isPuffing && Settings.steamAutoFlushSeconds > 0) {
+                            } else if (isPuffing && Settings.brew.steamAutoFlushSeconds > 0) {
                                 // Countdown: progress goes from full to empty
-                                return parent.width * Math.min(1, root.steamAutoFlushCountdown / Settings.steamAutoFlushSeconds)
+                                return parent.width * Math.min(1, root.steamAutoFlushCountdown / Settings.brew.steamAutoFlushSeconds)
                             } else {
-                                return parent.width * Math.min(1, MachineState.shotTime / Settings.steamTimeout)
+                                return parent.width * Math.min(1, MachineState.shotTime / Settings.brew.steamTimeout)
                             }
                         }
                         height: parent.height
@@ -673,7 +673,7 @@ Page {
                     to: 250
                     stepSize: 5
                     decimals: 0
-                    value: Settings.steamFlow
+                    value: Settings.brew.steamFlow
                     displayText: flowToDisplay(value)
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                     KeyNavigation.tab: steamStopButton.visible ? steamStopButton : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider)
@@ -726,9 +726,9 @@ Page {
                             if (isSteamHeating) {
                                 return Math.round(currentSteamTemp) + "°C / " + Math.round(targetSteamTemp) + "°C"
                             } else if (isPuffing && root.steamAutoFlushCountdown > 0) {
-                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.steamAutoFlushSeconds + "s"
+                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
-                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.steamTimeout + "s"
+                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.steamTimeout + "s"
                             }
                         }
                         color: Theme.textColor
@@ -737,7 +737,7 @@ Page {
                     }
 
                     Text {
-                        text: flowToDisplay(Settings.steamFlow) + " mL/s"
+                        text: flowToDisplay(Settings.brew.steamFlow) + " mL/s"
                         color: Theme.flowColor
                         font: Theme.subtitleFont
                         Accessible.ignored: true
@@ -921,7 +921,7 @@ Page {
 
                         Repeater {
                             id: pitcherRepeater
-                            model: Settings.steamPitcherPresets
+                            model: Settings.brew.steamPitcherPresets
 
                             Item {
                                 id: pitcherDelegate
@@ -934,7 +934,7 @@ Page {
                                 Rectangle {
                                     id: pitcherPill
                                     readonly property bool pitcherDisabled: modelData.disabled === true
-                                    readonly property bool pitcherSelected: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher
+                                    readonly property bool pitcherSelected: pitcherDelegate.pitcherIndex === Settings.brew.selectedSteamPitcher
 
                                     width: pitcherText.implicitWidth + 24
                                     height: Theme.scaled(36)
@@ -947,7 +947,7 @@ Page {
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     function applyPitcher(reason) {
-                                        Settings.selectedSteamPitcher = pitcherDelegate.pitcherIndex
+                                        Settings.brew.selectedSteamPitcher = pitcherDelegate.pitcherIndex
                                         if (pitcherDisabled) {
                                             MainController.turnOffSteamHeater()
                                             return
@@ -955,8 +955,8 @@ Page {
                                         var flow = modelData.flow !== undefined ? modelData.flow : 150
                                         durationSlider.value = modelData.duration
                                         flowSlider.value = flow
-                                        Settings.steamTimeout = modelData.duration
-                                        Settings.steamFlow = flow
+                                        Settings.brew.steamTimeout = modelData.duration
+                                        Settings.brew.steamFlow = flow
                                         MainController.startSteamHeating(reason)
                                     }
 
@@ -1093,7 +1093,7 @@ Page {
                                         var fromIndex = drag.source.pitcherIndex
                                         var toIndex = pitcherDelegate.pitcherIndex
                                         if (fromIndex !== toIndex) {
-                                            Settings.moveSteamPitcherPreset(fromIndex, toIndex)
+                                            Settings.brew.moveSteamPitcherPreset(fromIndex, toIndex)
                                         }
                                     }
                                 }
@@ -1207,7 +1207,7 @@ Page {
                             KeyNavigation.backtab: addPitcherButton
                             onValueModified: function(newValue) {
                                 durationSlider.value = newValue
-                                Settings.steamTimeout = newValue
+                                Settings.brew.steamTimeout = newValue
                                 saveCurrentPitcher(newValue, flowSlider.value)
                             }
                         }
@@ -1294,7 +1294,7 @@ Page {
                             stepSize: 1
                             decimals: 0
                             suffix: "°C"
-                            value: Settings.steamTemperature
+                            value: Settings.brew.steamTemperature
                             valueColor: Theme.temperatureColor
                             accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
                             KeyNavigation.tab: ScaleDevice.connected && !ScaleDevice.isFlowScale ? tareBtn : (pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton)
@@ -1330,8 +1330,8 @@ Page {
                                 font: Theme.labelFont
                                 text: {
                                     // Read steamPitcherPresets property to track changes via steamPitcherPresetsChanged signal
-                                    var _ = Settings.steamPitcherPresets
-                                    var preset = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+                                    var _ = Settings.brew.steamPitcherPresets
+                                    var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
                                     var saved = preset ? (preset.pitcherWeightG ?? 0) : 0
                                     if (saved > 0)
                                         return TranslationManager.translate("steam.hint.pitcherWeightSaved", "Pitcher") + ": " + saved.toFixed(0) + "g"
@@ -1431,7 +1431,7 @@ Page {
                                     id: savePitcherWtMa
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.setSteamPitcherWeight(Settings.selectedSteamPitcher,
+                                        Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher,
                                             savePitcherWeightBtn.isClear ? 0.0 : MachineState.scaleWeight)
                                     }
                                 }
@@ -1499,7 +1499,7 @@ Page {
         title: getCurrentPitcherName() || noPitcherText.text
         onBackClicked: {
             // Turn off heater if keepSteamHeaterOn is false, otherwise keep it warm
-            if (!Settings.keepSteamHeaterOn) {
+            if (!Settings.brew.keepSteamHeaterOn) {
                 MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
             } else {
                 MainController.applySteamSettings()
@@ -1629,7 +1629,7 @@ Page {
                     KeyNavigation.tab: editCancelButton
                     KeyNavigation.backtab: editPitcherNameInput
                     onClicked: {
-                        Settings.removeSteamPitcherPreset(editingPitcherIndex)
+                        Settings.brew.removeSteamPitcherPreset(editingPitcherIndex)
                         editPitcherPopup.close()
                     }
                 }
@@ -1654,8 +1654,8 @@ Page {
                     KeyNavigation.backtab: editCancelButton
                     onClicked: {
                         Qt.inputMethod.commit()
-                        var preset = Settings.getSteamPitcherPreset(editingPitcherIndex)
-                        Settings.updateSteamPitcherPreset(editingPitcherIndex, editPitcherNameInput.text, preset.duration, preset.flow)
+                        var preset = Settings.brew.getSteamPitcherPreset(editingPitcherIndex)
+                        Settings.brew.updateSteamPitcherPreset(editingPitcherIndex, editPitcherNameInput.text, preset.duration, preset.flow)
                         editPitcherPopup.close()
                     }
                 }
@@ -1771,9 +1771,9 @@ Page {
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newPitcherName.text.trim() !== "") {
-                            var presetCount = Settings.steamPitcherPresets.length
-                            Settings.addSteamPitcherPresetDisabled(newPitcherName.text.trim())
-                            Settings.selectedSteamPitcher = presetCount
+                            var presetCount = Settings.brew.steamPitcherPresets.length
+                            Settings.brew.addSteamPitcherPresetDisabled(newPitcherName.text.trim())
+                            Settings.brew.selectedSteamPitcher = presetCount
                             newPitcherName.text = ""
                             addPitcherDialog.close()
                         }
@@ -1790,9 +1790,9 @@ Page {
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newPitcherName.text.trim() !== "") {
-                            var presetCount = Settings.steamPitcherPresets.length
-                            Settings.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150)
-                            Settings.selectedSteamPitcher = presetCount
+                            var presetCount = Settings.brew.steamPitcherPresets.length
+                            Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150)
+                            Settings.brew.selectedSteamPitcher = presetCount
                             newPitcherName.text = ""
                             addPitcherDialog.close()
                         }
@@ -1804,7 +1804,7 @@ Page {
 
     // Update sliders when selected pitcher changes
     Connections {
-        target: Settings
+        target: Settings.brew
         function onSelectedSteamPitcherChanged() {
             durationSlider.value = getCurrentPitcherDuration()
             flowSlider.value = getCurrentPitcherFlow()

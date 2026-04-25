@@ -4,6 +4,7 @@
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
 #include "core/settings.h"
+#include "core/settings_brew.h"
 #include "mocks/MockScaleDevice.h"
 
 // Test SAV (stop-at-volume) logic across all 4 profile types.
@@ -218,7 +219,7 @@ private slots:
         TestFixture f;
         f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
-        f.settings.setIgnoreVolumeWithScale(false);
+        f.settings.brew()->setIgnoreVolumeWithScale(false);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(40.0);
@@ -242,7 +243,7 @@ private slots:
         TestFixture f;
         f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
-        f.settings.setIgnoreVolumeWithScale(true);
+        f.settings.brew()->setIgnoreVolumeWithScale(true);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(40.0);
@@ -266,7 +267,7 @@ private slots:
         TestFixture f;
         f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("");
-        f.settings.setIgnoreVolumeWithScale(true);
+        f.settings.brew()->setIgnoreVolumeWithScale(true);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(40.0);
@@ -290,7 +291,7 @@ private slots:
         TestFixture f;
         f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
-        f.settings.setIgnoreVolumeWithScale(false);
+        f.settings.brew()->setIgnoreVolumeWithScale(false);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(40.0);
@@ -305,8 +306,8 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
-        f.settings.setWaterVolume(200);
-        f.settings.setIgnoreVolumeWithScale(true);  // ON — but hot water should still work
+        f.settings.brew()->setWaterVolume(200);
+        f.settings.brew()->setIgnoreVolumeWithScale(true);  // ON — but hot water should still work
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         // Safety net = max(200+50, 250) = 250
@@ -322,7 +323,7 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
-        f.settings.setWaterVolume(200);
+        f.settings.brew()->setWaterVolume(200);
         // Safety net = max(200+50, 250) = 250
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
@@ -344,7 +345,7 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
-        f.settings.setWaterVolume(300);
+        f.settings.brew()->setWaterVolume(300);
         // Safety net = max(300+50, 250) = 350
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
@@ -366,7 +367,7 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("");
-        f.settings.setWaterVolume(200);
+        f.settings.brew()->setWaterVolume(200);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
 
@@ -386,7 +387,7 @@ private slots:
         f.prepareForHotWaterSAV();
         f.state.m_tareCompleted = false;
         f.settings.setScaleAddress("");
-        f.settings.setWaterVolume(200);
+        f.settings.brew()->setWaterVolume(200);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(300.0);
@@ -401,7 +402,7 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("");
-        f.settings.setWaterVolume(200);
+        f.settings.brew()->setWaterVolume(200);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(200.0);
@@ -418,7 +419,7 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("");
-        f.settings.setWaterVolume(0);
+        f.settings.brew()->setWaterVolume(0);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
         f.addPourVolume(500.0);
@@ -454,7 +455,7 @@ private slots:
         f.state.m_phase = MachineState::Phase::HotWater;
         f.state.m_tareCompleted = true;
         f.settings.setScaleAddress("");
-        f.settings.setWaterVolume(100);
+        f.settings.brew()->setWaterVolume(100);
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
 

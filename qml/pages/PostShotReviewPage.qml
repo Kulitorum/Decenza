@@ -122,7 +122,7 @@ Page {
                 editBarista = editShotData.barista || ""
                 // Fall back to last-used DYE dose when the shot has no stored dose,
                 // so EY can be computed immediately when TDS arrives.
-                editDoseWeight = (editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dyeBeanWeight
+                editDoseWeight = (editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dye.dyeBeanWeight
                 editDrinkWeight = editShotData.finalWeight ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
@@ -227,7 +227,7 @@ Page {
         editGrinderBurrs !== (editShotData.grinderBurrs || "") ||
         editGrinderSetting !== (editShotData.grinderSetting || "") ||
         editBarista !== (editShotData.barista || "") ||
-        editDoseWeight !== ((editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dyeBeanWeight) ||
+        editDoseWeight !== ((editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dye.dyeBeanWeight) ||
         editDrinkWeight !== (editShotData.finalWeight ?? 0) ||
         editDrinkTds !== (editShotData.drinkTds ?? 0) ||
         editDrinkEy !== (editShotData.drinkEy ?? 0) ||
@@ -264,17 +264,17 @@ Page {
         // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise they
         // would leak into the next shot's metadata, since MainController builds shot
         // metadata from these Settings values at shot end.
-        Settings.dyeBeanBrand = editBeanBrand
-        Settings.dyeBeanType = editBeanType
-        Settings.dyeRoastDate = editRoastDate
-        Settings.dyeRoastLevel = editRoastLevel
-        Settings.dyeGrinderBrand = editGrinderBrand
-        Settings.dyeGrinderModel = editGrinderModel
-        Settings.dyeGrinderBurrs = editGrinderBurrs
-        Settings.dyeGrinderSetting = editGrinderSetting
-        Settings.dyeBarista = editBarista
-        if (editDoseWeight > 0) Settings.dyeBeanWeight = editDoseWeight
-        if (editDrinkWeight > 0) Settings.dyeDrinkWeight = editDrinkWeight
+        Settings.dye.dyeBeanBrand = editBeanBrand
+        Settings.dye.dyeBeanType = editBeanType
+        Settings.dye.dyeRoastDate = editRoastDate
+        Settings.dye.dyeRoastLevel = editRoastLevel
+        Settings.dye.dyeGrinderBrand = editGrinderBrand
+        Settings.dye.dyeGrinderModel = editGrinderModel
+        Settings.dye.dyeGrinderBurrs = editGrinderBurrs
+        Settings.dye.dyeGrinderSetting = editGrinderSetting
+        Settings.dye.dyeBarista = editBarista
+        if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
+        if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
         // Note: reload deferred to onShotMetadataUpdated to avoid race with async write
     }
 
@@ -993,7 +993,7 @@ Page {
                     text: editGrinderBrand
                     suggestions: {
                         var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderBrands() : []
-                        var known = Settings.knownGrinderBrands()
+                        var known = Settings.dye.knownGrinderBrands()
                         var merged = history.slice()
                         for (var i = 0; i < known.length; i++) {
                             if (merged.indexOf(known[i]) < 0) merged.push(known[i])
@@ -1004,10 +1004,10 @@ Page {
                     onSuggestionSelected: function(t) {
                         editGrinderModel = ""
                         editGrinderBurrs = ""
-                        var models = Settings.knownGrinderModels(t)
+                        var models = Settings.dye.knownGrinderModels(t)
                         if (models.length === 1) {
                             editGrinderModel = models[0]
-                            var burrs = Settings.suggestedBurrs(t, models[0])
+                            var burrs = Settings.dye.suggestedBurrs(t, models[0])
                             if (burrs.length === 1) editGrinderBurrs = burrs[0]
                         }
                     }
@@ -1020,7 +1020,7 @@ Page {
                     text: editGrinderModel
                     suggestions: {
                         var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderModelsForBrand(editGrinderBrand) : []
-                        var known = Settings.knownGrinderModels(editGrinderBrand)
+                        var known = Settings.dye.knownGrinderModels(editGrinderBrand)
                         var merged = history.slice()
                         for (var i = 0; i < known.length; i++) {
                             if (merged.indexOf(known[i]) < 0) merged.push(known[i])
@@ -1029,7 +1029,7 @@ Page {
                     }
                     onTextEdited: function(t) { editGrinderModel = t }
                     onSuggestionSelected: function(t) {
-                        var burrs = Settings.suggestedBurrs(editGrinderBrand, t)
+                        var burrs = Settings.dye.suggestedBurrs(editGrinderBrand, t)
                         if (burrs.length === 1) editGrinderBurrs = burrs[0]
                     }
                 }
@@ -1042,7 +1042,7 @@ Page {
                     text: editGrinderBurrs
                     suggestions: {
                         var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderBurrsForModel(editGrinderBrand, editGrinderModel) : []
-                        var known = Settings.suggestedBurrs(editGrinderBrand, editGrinderModel)
+                        var known = Settings.dye.suggestedBurrs(editGrinderBrand, editGrinderModel)
                         var merged = history.slice()
                         for (var i = 0; i < known.length; i++) {
                             if (merged.indexOf(known[i]) < 0) merged.push(known[i])
@@ -1435,9 +1435,9 @@ Page {
         Rectangle {
             id: discussButton
             readonly property bool isClaudeDesktopReady:
-                Settings.discussShotApp !== Settings.discussAppClaudeDesktop
-                || Settings.claudeRcSessionUrl.length > 0
-            visible: editShotData.duration > 0 && Settings.discussShotApp !== Settings.discussAppNone
+                Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
+                || Settings.network.claudeRcSessionUrl.length > 0
+            visible: editShotData.duration > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
             opacity: enabled ? 1.0 : 0.5
             Layout.preferredWidth: discussContent.width + 32
@@ -1492,8 +1492,8 @@ Page {
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }
                     // Open configured AI app
-                    var url = Settings.discussShotUrl()
-                    if (url.length > 0) Settings.openDiscussUrl(url)
+                    var url = Settings.network.discussShotUrl()
+                    if (url.length > 0) Settings.network.openDiscussUrl(url)
                 }
             }
         }

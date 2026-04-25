@@ -21,12 +21,12 @@ Text {
 
     property string profileName: ProfileManager.currentProfileName
     property double profileTemp: ProfileManager.profileTargetTemperature
-    property double overrideTemp: Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemp
-    property string roasterBrand: Settings.dyeBeanBrand || ""
-    property string coffeeName: Settings.dyeBeanType || ""
-    property string roastDate: Settings.dyeRoastDate
-    property string grindSize: Settings.dyeGrinderSetting
-    property double dose: Settings.dyeBeanWeight
+    property double overrideTemp: Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : profileTemp
+    property string roasterBrand: Settings.dye.dyeBeanBrand || ""
+    property string coffeeName: Settings.dye.dyeBeanType || ""
+    property string roastDate: Settings.dye.dyeRoastDate
+    property string grindSize: Settings.dye.dyeGrinderSetting
+    property double dose: Settings.dye.dyeBeanWeight
     property double profileYield: ProfileManager.profileTargetWeight
     property double targetWeight: ProfileManager.targetWeight
 
@@ -34,7 +34,7 @@ Text {
         var parts = []
         if (showProfile && profileName) {
             var tempStr = profileTemp > 0 ? profileTemp.toFixed(0) + "\u00B0C" : ""
-            if (Settings.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1) {
+            if (Settings.brew.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1) {
                 tempStr = profileTemp.toFixed(0) + " \u2192 " + overrideTemp.toFixed(0) + "\u00B0C"
             }
             parts.push(profileName + (tempStr ? " (" + tempStr + ")" : ""))
@@ -55,7 +55,7 @@ Text {
             if (dose > 0) yieldParts.push(dose.toFixed(1) + "g in")
             if (targetWeight > 0) {
                 var yieldStr = targetWeight.toFixed(1) + "g out"
-                if (Settings.hasBrewYieldOverride && profileYield > 0
+                if (Settings.brew.hasBrewYieldOverride && profileYield > 0
                         && Math.abs(targetWeight - profileYield) > 0.1) {
                     yieldStr = profileYield.toFixed(1) + " → " + targetWeight.toFixed(1) + "g out"
                 }

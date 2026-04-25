@@ -62,7 +62,7 @@ Page {
 
     // Parse layout and extract zone items
     property var layoutConfig: {
-        var raw = Settings.layoutConfiguration
+        var raw = Settings.network.layoutConfiguration
         try {
             return JSON.parse(raw)
         } catch(e) {
@@ -114,27 +114,27 @@ Page {
                     }
                     break
                 case "steam":
-                    presets = Settings.steamPitcherPresets
-                    if (Settings.selectedSteamPitcher >= 0 && Settings.selectedSteamPitcher < presets.length) {
-                        selectedName = presets[Settings.selectedSteamPitcher].name
+                    presets = Settings.brew.steamPitcherPresets
+                    if (Settings.brew.selectedSteamPitcher >= 0 && Settings.brew.selectedSteamPitcher < presets.length) {
+                        selectedName = presets[Settings.brew.selectedSteamPitcher].name
                     }
                     break
                 case "hotwater":
-                    presets = Settings.waterVesselPresets
-                    if (Settings.selectedWaterVessel >= 0 && Settings.selectedWaterVessel < presets.length) {
-                        selectedName = presets[Settings.selectedWaterVessel].name
+                    presets = Settings.brew.waterVesselPresets
+                    if (Settings.brew.selectedWaterVessel >= 0 && Settings.brew.selectedWaterVessel < presets.length) {
+                        selectedName = presets[Settings.brew.selectedWaterVessel].name
                     }
                     break
                 case "flush":
-                    presets = Settings.flushPresets
-                    if (Settings.selectedFlushPreset >= 0 && Settings.selectedFlushPreset < presets.length) {
-                        selectedName = presets[Settings.selectedFlushPreset].name
+                    presets = Settings.brew.flushPresets
+                    if (Settings.brew.selectedFlushPreset >= 0 && Settings.brew.selectedFlushPreset < presets.length) {
+                        selectedName = presets[Settings.brew.selectedFlushPreset].name
                     }
                     break
                 case "beans":
-                    presets = Settings.idleBeanPresets
+                    presets = Settings.dye.idleBeanPresets
                     for (var bi = 0; bi < presets.length; ++bi) {
-                        if (presets[bi].originalIndex === Settings.selectedBeanPreset) {
+                        if (presets[bi].originalIndex === Settings.dye.selectedBeanPreset) {
                             selectedName = presets[bi].name
                             break
                         }
@@ -274,14 +274,14 @@ Page {
 
                 sourceComponent: PresetPillRow {
                     maxWidth: steamPresetLoader.width
-                    presets: Settings.steamPitcherPresets
-                    selectedIndex: Settings.selectedSteamPitcher
+                    presets: Settings.brew.steamPitcherPresets
+                    selectedIndex: Settings.brew.selectedSteamPitcher
                     pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                     pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
 
                     pillSuffixFn: function(index) {
                         if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
-                        var preset = Settings.steamPitcherPresets[index]
+                        var preset = Settings.brew.steamPitcherPresets[index]
                         if (!preset) return ""
                         var pitcherWeight = preset.pitcherWeightG ?? 0
                         if (pitcherWeight <= 0) return ""
@@ -290,9 +290,9 @@ Page {
                     }
 
                     onPresetSelected: function(index) {
-                        var wasAlreadySelected = (index === Settings.selectedSteamPitcher)
-                        Settings.selectedSteamPitcher = index
-                        var preset = Settings.getSteamPitcherPreset(index)
+                        var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
+                        Settings.brew.selectedSteamPitcher = index
+                        var preset = Settings.brew.getSteamPitcherPreset(index)
                         if (preset && preset.disabled) {
                             // "Off" preset — disable the steam heater; don't touch
                             // steamTimeout/steamFlow (preset.duration/flow are undefined
@@ -302,8 +302,8 @@ Page {
                             return
                         }
                         if (preset) {
-                            Settings.steamTimeout = preset.duration
-                            Settings.steamFlow = preset.flow !== undefined ? preset.flow : 150
+                            Settings.brew.steamTimeout = preset.duration
+                            Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                         }
                         MainController.applySteamSettings()
 
@@ -444,15 +444,15 @@ Page {
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: hotWaterPresetLoader.width
-                    presets: Settings.waterVesselPresets
-                    selectedIndex: Settings.selectedWaterVessel
+                    presets: Settings.brew.waterVesselPresets
+                    selectedIndex: Settings.brew.selectedWaterVessel
 
                     onPresetSelected: function(index) {
-                        var wasAlreadySelected = (index === Settings.selectedWaterVessel)
-                        Settings.selectedWaterVessel = index
-                        var preset = Settings.getWaterVesselPreset(index)
+                        var wasAlreadySelected = (index === Settings.brew.selectedWaterVessel)
+                        Settings.brew.selectedWaterVessel = index
+                        var preset = Settings.brew.getWaterVesselPreset(index)
                         if (preset) {
-                            Settings.waterVolume = preset.volume
+                            Settings.brew.waterVolume = preset.volume
                         }
                         MainController.applyHotWaterSettings()
 
@@ -477,16 +477,16 @@ Page {
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: flushPresetLoader.width
-                    presets: Settings.flushPresets
-                    selectedIndex: Settings.selectedFlushPreset
+                    presets: Settings.brew.flushPresets
+                    selectedIndex: Settings.brew.selectedFlushPreset
 
                     onPresetSelected: function(index) {
-                        var wasAlreadySelected = (index === Settings.selectedFlushPreset)
-                        Settings.selectedFlushPreset = index
-                        var preset = Settings.getFlushPreset(index)
+                        var wasAlreadySelected = (index === Settings.brew.selectedFlushPreset)
+                        Settings.brew.selectedFlushPreset = index
+                        var preset = Settings.brew.getFlushPreset(index)
                         if (preset) {
-                            Settings.flushFlow = preset.flow
-                            Settings.flushSeconds = preset.seconds
+                            Settings.brew.flushFlow = preset.flow
+                            Settings.brew.flushSeconds = preset.seconds
                         }
                         MainController.applyFlushSettings()
 
@@ -512,12 +512,12 @@ Page {
                 sourceComponent: PresetPillRow {
                     id: inlineBeanPresetRow
                     maxWidth: beanPresetLoader.width
-                    presets: Settings.idleBeanPresets
-                    modified: Settings.beansModified
+                    presets: Settings.dye.idleBeanPresets
+                    modified: Settings.dye.beansModified
                     selectedIndex: {
-                        var list = Settings.idleBeanPresets
+                        var list = Settings.dye.idleBeanPresets
                         for (var i = 0; i < list.length; ++i) {
-                            if (list[i].originalIndex === Settings.selectedBeanPreset) return i
+                            if (list[i].originalIndex === Settings.dye.selectedBeanPreset) return i
                         }
                         return -1
                     }
@@ -526,8 +526,8 @@ Page {
                         var row = inlineBeanPresetRow.presets[index]
                         if (!row) return
                         var originalIndex = row.originalIndex !== undefined ? row.originalIndex : index
-                        Settings.selectedBeanPreset = originalIndex
-                        Settings.applyBeanPreset(originalIndex)
+                        Settings.dye.selectedBeanPreset = originalIndex
+                        Settings.dye.applyBeanPreset(originalIndex)
                     }
                 }
             }

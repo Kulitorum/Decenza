@@ -12,6 +12,8 @@
 #include <QRegularExpression>
 
 #include "mocks/McpTestFixture.h"
+#include "core/settings_brew.h"
+#include "core/settings_dye.h"
 #include "mcp/mcpresourceregistry.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/binarycodec.h"
@@ -250,8 +252,8 @@ private slots:
         {
             McpTestFixture f;
             loadDFlowProfile(f);
-            f.settings.setWaterVolumeMode("weight");
-            f.settings.setWaterVolume(65);
+            f.settings.brew()->setWaterVolumeMode("weight");
+            f.settings.brew()->setWaterVolume(65);
             f.transport.clearWrites();
             f.device.m_lastShotSettingsPayload.clear();
 
@@ -264,12 +266,12 @@ private slots:
             QCOMPARE(static_cast<uint8_t>(data[4]), static_cast<uint8_t>(0));
         }
 
-        // --- Volume mode: vol byte must echo settings.waterVolume() ---
+        // --- Volume mode: vol byte must echo settings.brew()->waterVolume() ---
         {
             McpTestFixture f;
             loadDFlowProfile(f);
-            f.settings.setWaterVolumeMode("volume");
-            f.settings.setWaterVolume(65);
+            f.settings.brew()->setWaterVolumeMode("volume");
+            f.settings.brew()->setWaterVolume(65);
             f.transport.clearWrites();
             f.device.m_lastShotSettingsPayload.clear();
 
@@ -416,7 +418,7 @@ private slots:
         loadDFlowProfile(f, "Test", 36.0, 90.0);
 
         // Set a temperature override
-        f.settings.setTemperatureOverride(95.0);
+        f.settings.brew()->setTemperatureOverride(95.0);
         f.transport.clearWrites();
         f.device.m_lastShotSettingsPayload.clear();
         f.profileManager.uploadCurrentProfile();
@@ -815,7 +817,7 @@ private slots:
         loadDFlowProfile(f, "Test", 36.0);
 
         // Set a yield override different from profile's 36.0
-        f.settings.setBrewYieldOverride(54.0);
+        f.settings.brew()->setBrewYieldOverride(54.0);
         QVERIFY(f.profileManager.brewByRatioActive());
     }
 
@@ -823,8 +825,8 @@ private slots:
         McpTestFixture f;
         loadDFlowProfile(f, "Test", 36.0);
 
-        f.settings.setDyeBeanWeight(18.0);
-        f.settings.setBrewYieldOverride(36.0);
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewYieldOverride(36.0);
 
         QCOMPARE(f.profileManager.brewByRatio(), 2.0);
     }
@@ -839,8 +841,8 @@ private slots:
         // Clear should reset to profile defaults
         f.profileManager.clearBrewOverrides();
 
-        QCOMPARE(f.settings.brewYieldOverride(), 36.0);
-        QCOMPARE(f.settings.temperatureOverride(), 93.0);
+        QCOMPARE(f.settings.brew()->brewYieldOverride(), 36.0);
+        QCOMPARE(f.settings.brew()->temperatureOverride(), 93.0);
     }
 
     // === activateBrewWithOverrides ===
@@ -851,10 +853,10 @@ private slots:
 
         f.profileManager.activateBrewWithOverrides(18.0, 40.0, 95.0, "14");
 
-        QCOMPARE(f.settings.dyeBeanWeight(), 18.0);
-        QCOMPARE(f.settings.brewYieldOverride(), 40.0);
-        QCOMPARE(f.settings.temperatureOverride(), 95.0);
-        QCOMPARE(f.settings.dyeGrinderSetting(), "14");
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 18.0);
+        QCOMPARE(f.settings.brew()->brewYieldOverride(), 40.0);
+        QCOMPARE(f.settings.brew()->temperatureOverride(), 95.0);
+        QCOMPARE(f.settings.dye()->dyeGrinderSetting(), "14");
     }
 
     void activateBrewWithOverridesTriggersUpload() {

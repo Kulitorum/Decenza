@@ -1,5 +1,8 @@
 #include "settingsserializer.h"
 #include "settings.h"
+#include "settings_brew.h"
+#include "settings_dye.h"
+#include "settings_network.h"
 #include "settings_mqtt.h"
 #include "settings_autowake.h"
 #include "settings_hardware.h"
@@ -46,25 +49,25 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Espresso settings
     QJsonObject espresso;
-    espresso["temperature"] = settings->espressoTemperature();
-    espresso["targetWeight"] = settings->targetWeight();
-    espresso["lastUsedRatio"] = settings->lastUsedRatio();
+    espresso["temperature"] = settings->brew()->espressoTemperature();
+    espresso["targetWeight"] = settings->brew()->targetWeight();
+    espresso["lastUsedRatio"] = settings->brew()->lastUsedRatio();
     root["espresso"] = espresso;
 
     // Steam settings
     QJsonObject steam;
-    steam["temperature"] = settings->steamTemperature();
-    steam["timeout"] = settings->steamTimeout();
-    steam["flow"] = settings->steamFlow();
-    steam["keepHeaterOn"] = settings->keepSteamHeaterOn();
-    steam["disabled"] = settings->steamDisabled();
-    steam["autoFlushSeconds"] = settings->steamAutoFlushSeconds();
+    steam["temperature"] = settings->brew()->steamTemperature();
+    steam["timeout"] = settings->brew()->steamTimeout();
+    steam["flow"] = settings->brew()->steamFlow();
+    steam["keepHeaterOn"] = settings->brew()->keepSteamHeaterOn();
+    steam["disabled"] = settings->brew()->steamDisabled();
+    steam["autoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
-    steam["selectedPitcher"] = settings->selectedSteamPitcher();
+    steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
-    for (const QVariant& preset : settings->steamPitcherPresets()) {
+    for (const QVariant& preset : settings->brew()->steamPitcherPresets()) {
         QJsonObject p;
         QVariantMap m = preset.toMap();
         p["name"] = m["name"].toString();
@@ -80,14 +83,14 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Hot water settings
     QJsonObject water;
-    water["temperature"] = settings->waterTemperature();
-    water["volume"] = settings->waterVolume();
-    water["volumeMode"] = settings->waterVolumeMode();
-    water["selectedVessel"] = settings->selectedWaterVessel();
+    water["temperature"] = settings->brew()->waterTemperature();
+    water["volume"] = settings->brew()->waterVolume();
+    water["volumeMode"] = settings->brew()->waterVolumeMode();
+    water["selectedVessel"] = settings->brew()->selectedWaterVessel();
 
     // Water vessel presets
     QJsonArray vesselPresets;
-    for (const QVariant& preset : settings->waterVesselPresets()) {
+    for (const QVariant& preset : settings->brew()->waterVesselPresets()) {
         QJsonObject p;
         QVariantMap m = preset.toMap();
         p["name"] = m["name"].toString();
@@ -101,13 +104,13 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Flush settings
     QJsonObject flush;
-    flush["flow"] = settings->flushFlow();
-    flush["seconds"] = settings->flushSeconds();
-    flush["selectedPreset"] = settings->selectedFlushPreset();
+    flush["flow"] = settings->brew()->flushFlow();
+    flush["seconds"] = settings->brew()->flushSeconds();
+    flush["selectedPreset"] = settings->brew()->selectedFlushPreset();
 
     // Flush presets
     QJsonArray flushPresets;
-    for (const QVariant& preset : settings->flushPresets()) {
+    for (const QVariant& preset : settings->brew()->flushPresets()) {
         QJsonObject p;
         QVariantMap m = preset.toMap();
         p["name"] = m["name"].toString();
@@ -120,7 +123,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Bean presets
     QJsonArray beanPresets;
-    for (const QVariant& preset : settings->beanPresets()) {
+    for (const QVariant& preset : settings->dye()->beanPresets()) {
         QJsonObject p;
         QVariantMap m = preset.toMap();
         p["name"] = m["name"].toString();
@@ -137,7 +140,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     QJsonObject beans;
     beans["presets"] = beanPresets;
-    beans["selectedPreset"] = settings->selectedBeanPreset();
+    beans["selectedPreset"] = settings->dye()->selectedBeanPreset();
     root["beans"] = beans;
 
     // Profile favorites
@@ -171,12 +174,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // Shot history settings
     QJsonObject shotHistory;
     QJsonArray savedSearchesArr;
-    for (const QString& s : settings->savedSearches()) {
+    for (const QString& s : settings->network()->savedSearches()) {
         savedSearchesArr.append(s);
     }
     shotHistory["savedSearches"] = savedSearchesArr;
-    shotHistory["sortField"] = settings->shotHistorySortField();
-    shotHistory["sortDirection"] = settings->shotHistorySortDirection();
+    shotHistory["sortField"] = settings->network()->shotHistorySortField();
+    shotHistory["sortDirection"] = settings->network()->shotHistorySortDirection();
     root["shotHistory"] = shotHistory;
 
     // UI settings
@@ -269,30 +272,30 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // DYE (Describe Your Espresso) metadata
     QJsonObject dye;
-    dye["beanBrand"] = settings->dyeBeanBrand();
-    dye["beanType"] = settings->dyeBeanType();
-    dye["roastDate"] = settings->dyeRoastDate();
-    dye["roastLevel"] = settings->dyeRoastLevel();
-    dye["grinderBrand"] = settings->dyeGrinderBrand();
-    dye["grinderModel"] = settings->dyeGrinderModel();
-    dye["grinderBurrs"] = settings->dyeGrinderBurrs();
-    dye["grinderSetting"] = settings->dyeGrinderSetting();
-    dye["beanWeight"] = settings->dyeBeanWeight();
-    dye["drinkWeight"] = settings->dyeDrinkWeight();
-    dye["drinkTds"] = settings->dyeDrinkTds();
-    dye["drinkEy"] = settings->dyeDrinkEy();
-    dye["espressoEnjoyment"] = settings->dyeEspressoEnjoyment();
-    dye["shotNotes"] = settings->dyeShotNotes();
-    dye["barista"] = settings->dyeBarista();
-    dye["shotDateTime"] = settings->dyeShotDateTime();
+    dye["beanBrand"] = settings->dye()->dyeBeanBrand();
+    dye["beanType"] = settings->dye()->dyeBeanType();
+    dye["roastDate"] = settings->dye()->dyeRoastDate();
+    dye["roastLevel"] = settings->dye()->dyeRoastLevel();
+    dye["grinderBrand"] = settings->dye()->dyeGrinderBrand();
+    dye["grinderModel"] = settings->dye()->dyeGrinderModel();
+    dye["grinderBurrs"] = settings->dye()->dyeGrinderBurrs();
+    dye["grinderSetting"] = settings->dye()->dyeGrinderSetting();
+    dye["beanWeight"] = settings->dye()->dyeBeanWeight();
+    dye["drinkWeight"] = settings->dye()->dyeDrinkWeight();
+    dye["drinkTds"] = settings->dye()->dyeDrinkTds();
+    dye["drinkEy"] = settings->dye()->dyeDrinkEy();
+    dye["espressoEnjoyment"] = settings->dye()->dyeEspressoEnjoyment();
+    dye["shotNotes"] = settings->dye()->dyeShotNotes();
+    dye["barista"] = settings->dye()->dyeBarista();
+    dye["shotDateTime"] = settings->dye()->dyeShotDateTime();
     root["dye"] = dye;
 
     // Shot server settings
     QJsonObject shotServer;
-    shotServer["enabled"] = settings->shotServerEnabled();
-    shotServer["hostname"] = settings->shotServerHostname();
-    shotServer["port"] = settings->shotServerPort();
-    shotServer["webSecurityEnabled"] = settings->webSecurityEnabled();
+    shotServer["enabled"] = settings->network()->shotServerEnabled();
+    shotServer["hostname"] = settings->network()->shotServerHostname();
+    shotServer["port"] = settings->network()->shotServerPort();
+    shotServer["webSecurityEnabled"] = settings->network()->webSecurityEnabled();
     root["shotServer"] = shotServer;
 
     // Auto-update settings
@@ -318,10 +321,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Auto-favorites settings
     QJsonObject autoFavorites;
-    autoFavorites["groupBy"] = settings->autoFavoritesGroupBy();
-    autoFavorites["maxItems"] = settings->autoFavoritesMaxItems();
-    autoFavorites["openBrewSettings"] = settings->autoFavoritesOpenBrewSettings();
-    autoFavorites["hideUnrated"] = settings->autoFavoritesHideUnrated();
+    autoFavorites["groupBy"] = settings->network()->autoFavoritesGroupBy();
+    autoFavorites["maxItems"] = settings->network()->autoFavoritesMaxItems();
+    autoFavorites["openBrewSettings"] = settings->network()->autoFavoritesOpenBrewSettings();
+    autoFavorites["hideUnrated"] = settings->network()->autoFavoritesHideUnrated();
     root["autoFavorites"] = autoFavorites;
 
     // MQTT settings (Home Automation)
@@ -342,7 +345,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     root["mqtt"] = mqtt;
 
     // Layout configuration
-    root["layoutConfiguration"] = settings->layoutConfiguration();
+    root["layoutConfiguration"] = settings->network()->layoutConfiguration();
 
     // Machine tuning
     QJsonObject machineTuning;
@@ -358,7 +361,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
     machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
-    machineTuning["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
+    machineTuning["ignoreVolumeWithScale"] = settings->brew()->ignoreVolumeWithScale();
     QJsonObject perProfileMap = settings->allProfileFlowCalibrations();
     if (!perProfileMap.isEmpty()) {
         machineTuning["perProfileFlowCalibration"] = perProfileMap;
@@ -401,35 +404,35 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Espresso settings
     if (json.contains("espresso") && !excludeKeys.contains("espresso")) {
         QJsonObject espresso = json["espresso"].toObject();
-        if (espresso.contains("temperature")) settings->setEspressoTemperature(espresso["temperature"].toDouble());
-        if (espresso.contains("targetWeight")) settings->setTargetWeight(espresso["targetWeight"].toDouble());
-        if (espresso.contains("lastUsedRatio")) settings->setLastUsedRatio(espresso["lastUsedRatio"].toDouble());
+        if (espresso.contains("temperature")) settings->brew()->setEspressoTemperature(espresso["temperature"].toDouble());
+        if (espresso.contains("targetWeight")) settings->brew()->setTargetWeight(espresso["targetWeight"].toDouble());
+        if (espresso.contains("lastUsedRatio")) settings->brew()->setLastUsedRatio(espresso["lastUsedRatio"].toDouble());
     }
 
     // Steam settings
     if (json.contains("steam") && !excludeKeys.contains("steam")) {
         QJsonObject steam = json["steam"].toObject();
-        if (steam.contains("temperature")) settings->setSteamTemperature(steam["temperature"].toDouble());
-        if (steam.contains("timeout")) settings->setSteamTimeout(steam["timeout"].toInt());
-        if (steam.contains("flow")) settings->setSteamFlow(steam["flow"].toInt());
-        if (steam.contains("keepHeaterOn")) settings->setKeepSteamHeaterOn(steam["keepHeaterOn"].toBool());
-        if (steam.contains("disabled")) settings->setSteamDisabled(steam["disabled"].toBool());
-        if (steam.contains("autoFlushSeconds")) settings->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
+        if (steam.contains("temperature")) settings->brew()->setSteamTemperature(steam["temperature"].toDouble());
+        if (steam.contains("timeout")) settings->brew()->setSteamTimeout(steam["timeout"].toInt());
+        if (steam.contains("flow")) settings->brew()->setSteamFlow(steam["flow"].toInt());
+        if (steam.contains("keepHeaterOn")) settings->brew()->setKeepSteamHeaterOn(steam["keepHeaterOn"].toBool());
+        if (steam.contains("disabled")) settings->brew()->setSteamDisabled(steam["disabled"].toBool());
+        if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
         if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
-        if (steam.contains("selectedPitcher")) settings->setSelectedSteamCup(steam["selectedPitcher"].toInt());
+        if (steam.contains("selectedPitcher")) settings->brew()->setSelectedSteamCup(steam["selectedPitcher"].toInt());
 
         // Import pitcher presets
         if (steam.contains("pitcherPresets")) {
             // Clear existing presets first by removing them in reverse order
-            QVariantList existingPresets = settings->steamPitcherPresets();
+            QVariantList existingPresets = settings->brew()->steamPitcherPresets();
             for (qsizetype i = existingPresets.size() - 1; i >= 0; --i) {
-                settings->removeSteamPitcherPreset(static_cast<int>(i));
+                settings->brew()->removeSteamPitcherPreset(static_cast<int>(i));
             }
             // Add imported presets
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                settings->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
+                settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
             }
         }
     }
@@ -459,21 +462,21 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Hot water settings
     if (json.contains("water") && !excludeKeys.contains("water")) {
         QJsonObject water = json["water"].toObject();
-        if (water.contains("temperature")) settings->setWaterTemperature(water["temperature"].toDouble());
-        if (water.contains("volume")) settings->setWaterVolume(water["volume"].toInt());
-        if (water.contains("volumeMode")) settings->setWaterVolumeMode(water["volumeMode"].toString());
-        if (water.contains("selectedVessel")) settings->setSelectedWaterCup(water["selectedVessel"].toInt());
+        if (water.contains("temperature")) settings->brew()->setWaterTemperature(water["temperature"].toDouble());
+        if (water.contains("volume")) settings->brew()->setWaterVolume(water["volume"].toInt());
+        if (water.contains("volumeMode")) settings->brew()->setWaterVolumeMode(water["volumeMode"].toString());
+        if (water.contains("selectedVessel")) settings->brew()->setSelectedWaterCup(water["selectedVessel"].toInt());
 
         // Import vessel presets
         if (water.contains("vesselPresets")) {
-            QVariantList existingPresets = settings->waterVesselPresets();
+            QVariantList existingPresets = settings->brew()->waterVesselPresets();
             for (qsizetype i = existingPresets.size() - 1; i >= 0; --i) {
-                settings->removeWaterVesselPreset(static_cast<int>(i));
+                settings->brew()->removeWaterVesselPreset(static_cast<int>(i));
             }
             QJsonArray presets = water["vesselPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                settings->addWaterVesselPreset(p["name"].toString(), p["volume"].toInt(),
+                settings->brew()->addWaterVesselPreset(p["name"].toString(), p["volume"].toInt(),
                                                p["mode"].toString("weight"), p["flowRate"].toInt(40));
             }
         }
@@ -482,20 +485,20 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Flush settings
     if (json.contains("flush") && !excludeKeys.contains("flush")) {
         QJsonObject flush = json["flush"].toObject();
-        if (flush.contains("flow")) settings->setFlushFlow(flush["flow"].toDouble());
-        if (flush.contains("seconds")) settings->setFlushSeconds(flush["seconds"].toDouble());
-        if (flush.contains("selectedPreset")) settings->setSelectedFlushPreset(flush["selectedPreset"].toInt());
+        if (flush.contains("flow")) settings->brew()->setFlushFlow(flush["flow"].toDouble());
+        if (flush.contains("seconds")) settings->brew()->setFlushSeconds(flush["seconds"].toDouble());
+        if (flush.contains("selectedPreset")) settings->brew()->setSelectedFlushPreset(flush["selectedPreset"].toInt());
 
         // Import flush presets
         if (flush.contains("presets")) {
-            QVariantList existingPresets = settings->flushPresets();
+            QVariantList existingPresets = settings->brew()->flushPresets();
             for (qsizetype i = existingPresets.size() - 1; i >= 0; --i) {
-                settings->removeFlushPreset(static_cast<int>(i));
+                settings->brew()->removeFlushPreset(static_cast<int>(i));
             }
             QJsonArray presets = flush["presets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                settings->addFlushPreset(p["name"].toString(), p["flow"].toDouble(), p["seconds"].toDouble());
+                settings->brew()->addFlushPreset(p["name"].toString(), p["flow"].toDouble(), p["seconds"].toDouble());
             }
         }
     }
@@ -503,17 +506,17 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Bean presets
     if (json.contains("beans") && !excludeKeys.contains("beans")) {
         QJsonObject beans = json["beans"].toObject();
-        if (beans.contains("selectedPreset")) settings->setSelectedBeanPreset(beans["selectedPreset"].toInt());
+        if (beans.contains("selectedPreset")) settings->dye()->setSelectedBeanPreset(beans["selectedPreset"].toInt());
 
         if (beans.contains("presets")) {
-            QVariantList existingPresets = settings->beanPresets();
+            QVariantList existingPresets = settings->dye()->beanPresets();
             for (qsizetype i = existingPresets.size() - 1; i >= 0; --i) {
-                settings->removeBeanPreset(static_cast<int>(i));
+                settings->dye()->removeBeanPreset(static_cast<int>(i));
             }
             QJsonArray presets = beans["presets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                settings->addBeanPreset(
+                settings->dye()->addBeanPreset(
                     p["name"].toString(),
                     p["brand"].toString(),
                     p["type"].toString(),
@@ -578,12 +581,12 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (const QJsonValue& v : arr) {
                 searches.append(v.toString());
             }
-            settings->setSavedSearches(searches);
+            settings->network()->setSavedSearches(searches);
         }
         if (shotHistory.contains("sortField"))
-            settings->setShotHistorySortField(shotHistory["sortField"].toString());
+            settings->network()->setShotHistorySortField(shotHistory["sortField"].toString());
         if (shotHistory.contains("sortDirection"))
-            settings->setShotHistorySortDirection(shotHistory["sortDirection"].toString());
+            settings->network()->setShotHistorySortDirection(shotHistory["sortDirection"].toString());
     }
 
     // UI settings
@@ -682,33 +685,33 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // DYE metadata
     if (json.contains("dye") && !excludeKeys.contains("dye")) {
         QJsonObject dye = json["dye"].toObject();
-        if (dye.contains("beanBrand")) settings->setDyeBeanBrand(dye["beanBrand"].toString());
-        if (dye.contains("beanType")) settings->setDyeBeanType(dye["beanType"].toString());
-        if (dye.contains("roastDate")) settings->setDyeRoastDate(dye["roastDate"].toString());
-        if (dye.contains("roastLevel")) settings->setDyeRoastLevel(dye["roastLevel"].toString());
-        if (dye.contains("grinderBrand")) settings->setDyeGrinderBrand(dye["grinderBrand"].toString());
-        if (dye.contains("grinderModel")) settings->setDyeGrinderModel(dye["grinderModel"].toString());
-        if (dye.contains("grinderBurrs")) settings->setDyeGrinderBurrs(dye["grinderBurrs"].toString());
-        if (dye.contains("grinderSetting")) settings->setDyeGrinderSetting(dye["grinderSetting"].toString());
-        if (dye.contains("beanWeight")) settings->setDyeBeanWeight(dye["beanWeight"].toDouble());
-        if (dye.contains("drinkWeight")) settings->setDyeDrinkWeight(dye["drinkWeight"].toDouble());
-        if (dye.contains("drinkTds")) settings->setDyeDrinkTds(dye["drinkTds"].toDouble());
-        if (dye.contains("drinkEy")) settings->setDyeDrinkEy(dye["drinkEy"].toDouble());
-        if (dye.contains("espressoEnjoyment")) settings->setDyeEspressoEnjoyment(dye["espressoEnjoyment"].toInt());
+        if (dye.contains("beanBrand")) settings->dye()->setDyeBeanBrand(dye["beanBrand"].toString());
+        if (dye.contains("beanType")) settings->dye()->setDyeBeanType(dye["beanType"].toString());
+        if (dye.contains("roastDate")) settings->dye()->setDyeRoastDate(dye["roastDate"].toString());
+        if (dye.contains("roastLevel")) settings->dye()->setDyeRoastLevel(dye["roastLevel"].toString());
+        if (dye.contains("grinderBrand")) settings->dye()->setDyeGrinderBrand(dye["grinderBrand"].toString());
+        if (dye.contains("grinderModel")) settings->dye()->setDyeGrinderModel(dye["grinderModel"].toString());
+        if (dye.contains("grinderBurrs")) settings->dye()->setDyeGrinderBurrs(dye["grinderBurrs"].toString());
+        if (dye.contains("grinderSetting")) settings->dye()->setDyeGrinderSetting(dye["grinderSetting"].toString());
+        if (dye.contains("beanWeight")) settings->dye()->setDyeBeanWeight(dye["beanWeight"].toDouble());
+        if (dye.contains("drinkWeight")) settings->dye()->setDyeDrinkWeight(dye["drinkWeight"].toDouble());
+        if (dye.contains("drinkTds")) settings->dye()->setDyeDrinkTds(dye["drinkTds"].toDouble());
+        if (dye.contains("drinkEy")) settings->dye()->setDyeDrinkEy(dye["drinkEy"].toDouble());
+        if (dye.contains("espressoEnjoyment")) settings->dye()->setDyeEspressoEnjoyment(dye["espressoEnjoyment"].toInt());
         // Shot notes: try new key first, fall back to old key
-        if (dye.contains("shotNotes")) settings->setDyeShotNotes(dye["shotNotes"].toString());
-        else if (dye.contains("espressoNotes")) settings->setDyeShotNotes(dye["espressoNotes"].toString());
-        if (dye.contains("barista")) settings->setDyeBarista(dye["barista"].toString());
-        if (dye.contains("shotDateTime")) settings->setDyeShotDateTime(dye["shotDateTime"].toString());
+        if (dye.contains("shotNotes")) settings->dye()->setDyeShotNotes(dye["shotNotes"].toString());
+        else if (dye.contains("espressoNotes")) settings->dye()->setDyeShotNotes(dye["espressoNotes"].toString());
+        if (dye.contains("barista")) settings->dye()->setDyeBarista(dye["barista"].toString());
+        if (dye.contains("shotDateTime")) settings->dye()->setDyeShotDateTime(dye["shotDateTime"].toString());
     }
 
     // Shot server settings
     if (json.contains("shotServer") && !excludeKeys.contains("shotServer")) {
         QJsonObject shotServer = json["shotServer"].toObject();
-        if (shotServer.contains("enabled")) settings->setShotServerEnabled(shotServer["enabled"].toBool());
-        if (shotServer.contains("hostname")) settings->setShotServerHostname(shotServer["hostname"].toString());
-        if (shotServer.contains("port")) settings->setShotServerPort(shotServer["port"].toInt());
-        if (shotServer.contains("webSecurityEnabled")) settings->setWebSecurityEnabled(shotServer["webSecurityEnabled"].toBool());
+        if (shotServer.contains("enabled")) settings->network()->setShotServerEnabled(shotServer["enabled"].toBool());
+        if (shotServer.contains("hostname")) settings->network()->setShotServerHostname(shotServer["hostname"].toString());
+        if (shotServer.contains("port")) settings->network()->setShotServerPort(shotServer["port"].toInt());
+        if (shotServer.contains("webSecurityEnabled")) settings->network()->setWebSecurityEnabled(shotServer["webSecurityEnabled"].toBool());
     }
 
     // Auto-update settings
@@ -746,10 +749,10 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Auto-favorites settings
     if (json.contains("autoFavorites") && !excludeKeys.contains("autoFavorites")) {
         QJsonObject af = json["autoFavorites"].toObject();
-        if (af.contains("groupBy")) settings->setAutoFavoritesGroupBy(af["groupBy"].toString());
-        if (af.contains("maxItems")) settings->setAutoFavoritesMaxItems(af["maxItems"].toInt());
-        if (af.contains("openBrewSettings")) settings->setAutoFavoritesOpenBrewSettings(af["openBrewSettings"].toBool());
-        if (af.contains("hideUnrated")) settings->setAutoFavoritesHideUnrated(af["hideUnrated"].toBool());
+        if (af.contains("groupBy")) settings->network()->setAutoFavoritesGroupBy(af["groupBy"].toString());
+        if (af.contains("maxItems")) settings->network()->setAutoFavoritesMaxItems(af["maxItems"].toInt());
+        if (af.contains("openBrewSettings")) settings->network()->setAutoFavoritesOpenBrewSettings(af["openBrewSettings"].toBool());
+        if (af.contains("hideUnrated")) settings->network()->setAutoFavoritesHideUnrated(af["hideUnrated"].toBool());
     }
 
     // MQTT settings
@@ -772,7 +775,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
 
     // Layout configuration
     if (json.contains("layoutConfiguration") && !excludeKeys.contains("layoutConfiguration")) {
-        settings->setLayoutConfiguration(json["layoutConfiguration"].toString());
+        settings->network()->setLayoutConfiguration(json["layoutConfiguration"].toString());
     }
 
     // Machine tuning
@@ -797,7 +800,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
         }
         if (mt.contains("ignoreVolumeWithScale")) {
-            settings->setIgnoreVolumeWithScale(mt["ignoreVolumeWithScale"].toBool());
+            settings->brew()->setIgnoreVolumeWithScale(mt["ignoreVolumeWithScale"].toBool());
         }
         if (mt.contains("perProfileFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
             QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();

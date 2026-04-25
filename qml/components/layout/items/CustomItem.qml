@@ -118,7 +118,7 @@ Item {
             void(ScaleDevice.name); void(ScaleDevice.connected)
         }
         if (_needsSettingsData && typeof Settings !== "undefined") {
-            void(Settings.dyeGrinderSetting); void(Settings.dyeGrinderModel)
+            void(Settings.dye.dyeGrinderSetting); void(Settings.dye.dyeGrinderModel)
         }
         return substituteVariables(_c)
     }
@@ -182,8 +182,8 @@ Item {
         // Scale device
         result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
         // Grinder
-        result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings.dyeGrinderSetting ? Settings.dyeGrinderSetting : "—")
-        result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dyeGrinderModel ? Settings.dyeGrinderModel : "—")
+        result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
+        result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
         // Machine ready status
         var machineReady = typeof MachineState !== "undefined" && MachineState.isReady
         result = result.replace(/%MACHINE_READY%/g, machineReady ? TranslationManager.translate("customitem.status.ready", "Ready") : TranslationManager.translate("customitem.status.notReady", "Not ready"))
@@ -333,7 +333,7 @@ Item {
                     break
                 case "tempToggleSteam":
                     if (typeof Settings !== "undefined" && typeof MainController !== "undefined") {
-                        if (Settings.steamDisabled)
+                        if (Settings.brew.steamDisabled)
                             MainController.startSteamHeating("custom-widget-toggle")
                         else
                             MainController.turnOffSteamHeater()

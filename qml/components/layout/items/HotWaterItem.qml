@@ -121,15 +121,15 @@ Item {
         // path, so announce here directly to keep feature parity for screen-reader users.
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.waterVesselPresets
+            var presets = Settings.brew.waterVesselPresets
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            if (Settings.selectedWaterVessel >= 0 && Settings.selectedWaterVessel < presets.length) {
-                selectedName = presets[Settings.selectedWaterVessel].name
+            if (Settings.brew.selectedWaterVessel >= 0 && Settings.brew.selectedWaterVessel < presets.length) {
+                selectedName = presets[Settings.brew.selectedWaterVessel].name
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -181,15 +181,15 @@ Item {
 
         contentItem: PresetPillRow {
             maxWidth: Theme.scaled(600)
-            presets: Settings.waterVesselPresets
-            selectedIndex: Settings.selectedWaterVessel
+            presets: Settings.brew.waterVesselPresets
+            selectedIndex: Settings.brew.selectedWaterVessel
 
             onPresetSelected: function(index) {
-                var wasAlreadySelected = (index === Settings.selectedWaterVessel)
-                Settings.selectedWaterVessel = index
-                var preset = Settings.getWaterVesselPreset(index)
+                var wasAlreadySelected = (index === Settings.brew.selectedWaterVessel)
+                Settings.brew.selectedWaterVessel = index
+                var preset = Settings.brew.getWaterVesselPreset(index)
                 if (preset) {
-                    Settings.waterVolume = preset.volume
+                    Settings.brew.waterVolume = preset.volume
                 }
                 MainController.applyHotWaterSettings()
 

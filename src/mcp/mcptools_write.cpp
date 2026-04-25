@@ -3,6 +3,9 @@
 #include "../history/shothistorystorage.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
+#include "../core/settings_brew.h"
+#include "../core/settings_dye.h"
+#include "../core/settings_network.h"
 #include "../core/settings_mqtt.h"
 #include "../core/settings_autowake.h"
 #include "../core/settings_hardware.h"
@@ -427,35 +430,35 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // uploadRecipeProfile/uploadProfile update the profile object but
                 // don't write to QSettings (issue #527).
                 if (args.contains("espressoTemperature") && settings)
-                    settings->setEspressoTemperature(args["espressoTemperature"].toDouble());
+                    settings->brew()->setEspressoTemperature(args["espressoTemperature"].toDouble());
                 if (args.contains("targetWeight") && settings)
-                    settings->setTargetWeight(args["targetWeight"].toDouble());
+                    settings->brew()->setTargetWeight(args["targetWeight"].toDouble());
             }
 
             // === Steam ===
             if (args.contains("steamTemperature")) {
                 double v = args["steamTemperature"].toDouble();
-                addSetter([settings, v]() { settings->setSteamTemperature(v); });
+                addSetter([settings, v]() { settings->brew()->setSteamTemperature(v); });
                 updated << "steamTemperature";
             }
             if (args.contains("steamTimeout")) {
                 int v = args["steamTimeout"].toInt();
-                addSetter([settings, v]() { settings->setSteamTimeout(v); });
+                addSetter([settings, v]() { settings->brew()->setSteamTimeout(v); });
                 updated << "steamTimeout";
             }
             if (args.contains("steamFlowMlPerSec")) {
                 int v = static_cast<int>(args["steamFlowMlPerSec"].toDouble() * 100.0);
-                addSetter([settings, v]() { settings->setSteamFlow(v); });
+                addSetter([settings, v]() { settings->brew()->setSteamFlow(v); });
                 updated << "steamFlowMlPerSec";
             }
             if (args.contains("keepSteamHeaterOn")) {
                 bool v = args["keepSteamHeaterOn"].toBool();
-                addSetter([settings, v]() { settings->setKeepSteamHeaterOn(v); });
+                addSetter([settings, v]() { settings->brew()->setKeepSteamHeaterOn(v); });
                 updated << "keepSteamHeaterOn";
             }
             if (args.contains("steamAutoFlushSeconds")) {
                 int v = args["steamAutoFlushSeconds"].toInt();
-                addSetter([settings, v]() { settings->setSteamAutoFlushSeconds(v); });
+                addSetter([settings, v]() { settings->brew()->setSteamAutoFlushSeconds(v); });
                 updated << "steamAutoFlushSeconds";
             }
             if (args.contains("steamTwoTapStop")) {
@@ -468,17 +471,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Hot water ===
             if (args.contains("waterTemperature")) {
                 double v = args["waterTemperature"].toDouble();
-                addSetter([settings, v]() { settings->setWaterTemperature(v); });
+                addSetter([settings, v]() { settings->brew()->setWaterTemperature(v); });
                 updated << "waterTemperature";
             }
             if (args.contains("waterVolume")) {
                 int v = args["waterVolume"].toInt();
-                addSetter([settings, v]() { settings->setWaterVolume(v); });
+                addSetter([settings, v]() { settings->brew()->setWaterVolume(v); });
                 updated << "waterVolume";
             }
             if (args.contains("waterVolumeMode")) {
                 QString v = args["waterVolumeMode"].toString();
-                addSetter([settings, v]() { settings->setWaterVolumeMode(v); });
+                addSetter([settings, v]() { settings->brew()->setWaterVolumeMode(v); });
                 updated << "waterVolumeMode";
             }
             if (args.contains("hotWaterFlowRateMlPerSec")) {
@@ -491,89 +494,89 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Flush ===
             if (args.contains("flushFlowMlPerSec")) {
                 double v = args["flushFlowMlPerSec"].toDouble();
-                addSetter([settings, v]() { settings->setFlushFlow(v); });
+                addSetter([settings, v]() { settings->brew()->setFlushFlow(v); });
                 updated << "flushFlowMlPerSec";
             }
             if (args.contains("flushSeconds")) {
                 double v = args["flushSeconds"].toDouble();
-                addSetter([settings, v]() { settings->setFlushSeconds(v); });
+                addSetter([settings, v]() { settings->brew()->setFlushSeconds(v); });
                 updated << "flushSeconds";
             }
 
             // === DYE metadata ===
             if (args.contains("dyeBeanBrand")) {
                 QString v = args["dyeBeanBrand"].toString();
-                addSetter([settings, v]() { settings->setDyeBeanBrand(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeBeanBrand(v); });
                 updated << "dyeBeanBrand";
             }
             if (args.contains("dyeBeanType")) {
                 QString v = args["dyeBeanType"].toString();
-                addSetter([settings, v]() { settings->setDyeBeanType(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeBeanType(v); });
                 updated << "dyeBeanType";
             }
             if (args.contains("dyeRoastDate")) {
                 QString v = args["dyeRoastDate"].toString();
-                addSetter([settings, v]() { settings->setDyeRoastDate(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeRoastDate(v); });
                 updated << "dyeRoastDate";
             }
             if (args.contains("dyeRoastLevel")) {
                 QString v = args["dyeRoastLevel"].toString();
-                addSetter([settings, v]() { settings->setDyeRoastLevel(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeRoastLevel(v); });
                 updated << "dyeRoastLevel";
             }
             if (args.contains("dyeGrinderBrand")) {
                 QString v = args["dyeGrinderBrand"].toString();
-                addSetter([settings, v]() { settings->setDyeGrinderBrand(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeGrinderBrand(v); });
                 updated << "dyeGrinderBrand";
             }
             if (args.contains("dyeGrinderModel")) {
                 QString v = args["dyeGrinderModel"].toString();
-                addSetter([settings, v]() { settings->setDyeGrinderModel(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeGrinderModel(v); });
                 updated << "dyeGrinderModel";
             }
             if (args.contains("dyeGrinderBurrs")) {
                 QString v = args["dyeGrinderBurrs"].toString();
-                addSetter([settings, v]() { settings->setDyeGrinderBurrs(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeGrinderBurrs(v); });
                 updated << "dyeGrinderBurrs";
             }
             if (args.contains("dyeGrinderSetting")) {
                 QString v = args["dyeGrinderSetting"].toString();
-                addSetter([settings, v]() { settings->setDyeGrinderSetting(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeGrinderSetting(v); });
                 updated << "dyeGrinderSetting";
             }
             if (args.contains("dyeBeanWeight")) {
                 double v = args["dyeBeanWeight"].toDouble();
-                addSetter([settings, v]() { settings->setDyeBeanWeight(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeBeanWeight(v); });
                 updated << "dyeBeanWeight";
             }
             if (args.contains("dyeDrinkWeight")) {
                 double v = args["dyeDrinkWeight"].toDouble();
-                addSetter([settings, v]() { settings->setDyeDrinkWeight(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeDrinkWeight(v); });
                 updated << "dyeDrinkWeight";
             }
             if (args.contains("dyeDrinkTds")) {
                 double v = args["dyeDrinkTds"].toDouble();
-                addSetter([settings, v]() { settings->setDyeDrinkTds(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeDrinkTds(v); });
                 updated << "dyeDrinkTds";
             }
             if (args.contains("dyeDrinkEy")) {
                 double v = args["dyeDrinkEy"].toDouble();
-                addSetter([settings, v]() { settings->setDyeDrinkEy(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeDrinkEy(v); });
                 updated << "dyeDrinkEy";
             }
             if (args.contains("dyeEspressoEnjoyment")) {
                 int v = qBound(0, args["dyeEspressoEnjoyment"].toInt(), 100);
-                addSetter([settings, v]() { settings->setDyeEspressoEnjoyment(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeEspressoEnjoyment(v); });
                 updated << "dyeEspressoEnjoyment";
             }
             if (args.contains("dyeShotNotes")) {
                 QString v = args["dyeShotNotes"].toString();
-                addSetter([settings, v]() { settings->setDyeShotNotes(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeShotNotes(v); });
                 updated << "dyeShotNotes";
             }
             if (args.contains("dyeBarista")) {
                 QString v = args["dyeBarista"].toString();
-                addSetter([settings, v]() { settings->setDyeBarista(v); });
+                addSetter([settings, v]() { settings->dye()->setDyeBarista(v); });
                 updated << "dyeBarista";
             }
 
@@ -650,7 +653,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("ignoreVolumeWithScale")) {
                 bool v = args["ignoreVolumeWithScale"].toBool();
-                addSetter([settings, v]() { settings->setIgnoreVolumeWithScale(v); });
+                addSetter([settings, v]() { settings->brew()->setIgnoreVolumeWithScale(v); });
                 updated << "ignoreVolumeWithScale";
             }
             {
@@ -857,13 +860,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 updated << "mcpConfirmationLevel";
             }
             if (args.contains("discussShotApp")) {
-                int v = qBound(0, args["discussShotApp"].toInt(), settings->discussAppClaudeDesktop());
-                addSetter([settings, v]() { settings->setDiscussShotApp(v); });
+                int v = qBound(0, args["discussShotApp"].toInt(), settings->network()->discussAppClaudeDesktop());
+                addSetter([settings, v]() { settings->network()->setDiscussShotApp(v); });
                 updated << "discussShotApp";
             }
             if (args.contains("discussShotCustomUrl")) {
                 QString v = args["discussShotCustomUrl"].toString();
-                addSetter([settings, v]() { settings->setDiscussShotCustomUrl(v); });
+                addSetter([settings, v]() { settings->network()->setDiscussShotCustomUrl(v); });
                 updated << "discussShotCustomUrl";
             }
 
@@ -973,7 +976,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Data ===
             if (args.contains("webSecurityEnabled")) {
                 bool v = args["webSecurityEnabled"].toBool();
-                addSetter([settings, v]() { settings->setWebSecurityEnabled(v); });
+                addSetter([settings, v]() { settings->network()->setWebSecurityEnabled(v); });
                 updated << "webSecurityEnabled";
             }
             if (args.contains("dailyBackupHour")) {
@@ -983,24 +986,24 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("shotServerEnabled")) {
                 bool v = args["shotServerEnabled"].toBool();
-                addSetter([settings, v]() { settings->setShotServerEnabled(v); });
+                addSetter([settings, v]() { settings->network()->setShotServerEnabled(v); });
                 updated << "shotServerEnabled";
             }
             if (args.contains("shotServerPort")) {
                 int v = args["shotServerPort"].toInt();
-                addSetter([settings, v]() { settings->setShotServerPort(v); });
+                addSetter([settings, v]() { settings->network()->setShotServerPort(v); });
                 updated << "shotServerPort";
             }
 
             // === History ===
             if (args.contains("shotHistorySortField")) {
                 QString v = args["shotHistorySortField"].toString();
-                addSetter([settings, v]() { settings->setShotHistorySortField(v); });
+                addSetter([settings, v]() { settings->network()->setShotHistorySortField(v); });
                 updated << "shotHistorySortField";
             }
             if (args.contains("shotHistorySortDirection")) {
                 QString v = args["shotHistorySortDirection"].toString();
-                addSetter([settings, v]() { settings->setShotHistorySortDirection(v); });
+                addSetter([settings, v]() { settings->network()->setShotHistorySortDirection(v); });
                 updated << "shotHistorySortDirection";
             }
 
@@ -1053,22 +1056,22 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Auto-favorites ===
             if (args.contains("autoFavoritesGroupBy")) {
                 QString v = args["autoFavoritesGroupBy"].toString();
-                addSetter([settings, v]() { settings->setAutoFavoritesGroupBy(v); });
+                addSetter([settings, v]() { settings->network()->setAutoFavoritesGroupBy(v); });
                 updated << "autoFavoritesGroupBy";
             }
             if (args.contains("autoFavoritesMaxItems")) {
                 int v = args["autoFavoritesMaxItems"].toInt();
-                addSetter([settings, v]() { settings->setAutoFavoritesMaxItems(v); });
+                addSetter([settings, v]() { settings->network()->setAutoFavoritesMaxItems(v); });
                 updated << "autoFavoritesMaxItems";
             }
             if (args.contains("autoFavoritesOpenBrewSettings")) {
                 bool v = args["autoFavoritesOpenBrewSettings"].toBool();
-                addSetter([settings, v]() { settings->setAutoFavoritesOpenBrewSettings(v); });
+                addSetter([settings, v]() { settings->network()->setAutoFavoritesOpenBrewSettings(v); });
                 updated << "autoFavoritesOpenBrewSettings";
             }
             if (args.contains("autoFavoritesHideUnrated")) {
                 bool v = args["autoFavoritesHideUnrated"].toBool();
-                addSetter([settings, v]() { settings->setAutoFavoritesHideUnrated(v); });
+                addSetter([settings, v]() { settings->network()->setAutoFavoritesHideUnrated(v); });
                 updated << "autoFavoritesHideUnrated";
             }
 

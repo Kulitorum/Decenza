@@ -14,7 +14,7 @@ Page {
 
     // Restore normal operation when leaving descale page
     Component.onDestruction: {
-        Settings.steamDisabled = false
+        Settings.brew.steamDisabled = false
         ProfileManager.uploadCurrentProfile()
     }
 
@@ -613,20 +613,20 @@ Page {
                             AccessibleButton {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(36)
-                                primary: Settings.steamDisabled
-                                destructive: !Settings.steamDisabled
-                                text: Settings.steamDisabled
+                                primary: Settings.brew.steamDisabled
+                                destructive: !Settings.brew.steamDisabled
+                                text: Settings.brew.steamDisabled
                                     ? TranslationManager.translate("descaling.steam.enable", "Enable")
                                     : TranslationManager.translate("descaling.steam.disable", "Disable")
-                                accessibleName: Settings.steamDisabled
+                                accessibleName: Settings.brew.steamDisabled
                                     ? TranslationManager.translate("descaling.steam.enable", "Enable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
                                     : TranslationManager.translate("descaling.steam.disable", "Disable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
                                 _customFontSize: Theme.scaled(14)
                                 _customFontWeight: Font.Bold
                                 onClicked: {
-                                    if (Settings.steamDisabled) {
+                                    if (Settings.brew.steamDisabled) {
                                         // Enable: restore saved temperature (sendSteamTemperature clears flag)
-                                        MainController.sendSteamTemperature(Settings.steamTemperature)
+                                        MainController.sendSteamTemperature(Settings.brew.steamTemperature)
                                     } else {
                                         // Disable: send 0 temp (sendSteamTemperature sets flag)
                                         MainController.sendSteamTemperature(0)

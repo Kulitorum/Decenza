@@ -2,6 +2,8 @@
 #include <QSignalSpy>
 
 #include "core/settings.h"
+#include "core/settings_brew.h"
+#include "core/settings_dye.h"
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 
@@ -29,24 +31,24 @@ private slots:
 
     void init() {
         // Save all originals before each test
-        m_origTargetWeight = m_settings.targetWeight();
-        m_origSteamTemp = m_settings.steamTemperature();
+        m_origTargetWeight = m_settings.brew()->targetWeight();
+        m_origSteamTemp = m_settings.brew()->steamTemperature();
         m_origScaleAddress = m_settings.scaleAddress();
         m_origThemeMode = m_settings.theme()->themeMode();
         m_origShotRating = m_settings.visualizer()->defaultShotRating();
-        m_origIgnoreVolume = m_settings.ignoreVolumeWithScale();
-        m_origDyeBeanBrand = m_settings.dyeBeanBrand();
+        m_origIgnoreVolume = m_settings.brew()->ignoreVolumeWithScale();
+        m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
     }
 
     void cleanup() {
         // Restore all originals after each test (runs even on assertion failure)
-        m_settings.setTargetWeight(m_origTargetWeight);
-        m_settings.setSteamTemperature(m_origSteamTemp);
+        m_settings.brew()->setTargetWeight(m_origTargetWeight);
+        m_settings.brew()->setSteamTemperature(m_origSteamTemp);
         m_settings.setScaleAddress(m_origScaleAddress);
         m_settings.theme()->setThemeMode(m_origThemeMode);
         m_settings.visualizer()->setDefaultShotRating(m_origShotRating);
-        m_settings.setIgnoreVolumeWithScale(m_origIgnoreVolume);
-        m_settings.setDyeBeanBrand(m_origDyeBeanBrand);
+        m_settings.brew()->setIgnoreVolumeWithScale(m_origIgnoreVolume);
+        m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
     }
 
     // ==========================================
@@ -54,13 +56,13 @@ private slots:
     // ==========================================
 
     void targetWeightRoundTrip() {
-        m_settings.setTargetWeight(42.5);
-        QCOMPARE(m_settings.targetWeight(), 42.5);
+        m_settings.brew()->setTargetWeight(42.5);
+        QCOMPARE(m_settings.brew()->targetWeight(), 42.5);
     }
 
     void steamTemperatureRoundTrip() {
-        m_settings.setSteamTemperature(155.0);
-        QCOMPARE(m_settings.steamTemperature(), 155.0);
+        m_settings.brew()->setSteamTemperature(155.0);
+        QCOMPARE(m_settings.brew()->steamTemperature(), 155.0);
     }
 
     void scaleAddressRoundTrip() {
@@ -79,9 +81,9 @@ private slots:
     }
 
     void ignoreVolumeWithScaleRoundTrip() {
-        bool original = m_settings.ignoreVolumeWithScale();
-        m_settings.setIgnoreVolumeWithScale(!original);
-        QCOMPARE(m_settings.ignoreVolumeWithScale(), !original);
+        bool original = m_settings.brew()->ignoreVolumeWithScale();
+        m_settings.brew()->setIgnoreVolumeWithScale(!original);
+        QCOMPARE(m_settings.brew()->ignoreVolumeWithScale(), !original);
     }
 
     // ==========================================
@@ -89,8 +91,8 @@ private slots:
     // ==========================================
 
     void dyeFieldsRoundTrip() {
-        m_settings.setDyeBeanBrand("Square Mile");
-        QCOMPARE(m_settings.dyeBeanBrand(), QString("Square Mile"));
+        m_settings.dye()->setDyeBeanBrand("Square Mile");
+        QCOMPARE(m_settings.dye()->dyeBeanBrand(), QString("Square Mile"));
     }
 
     // ==========================================
@@ -98,8 +100,8 @@ private slots:
     // ==========================================
 
     void targetWeightSignalEmitted() {
-        QSignalSpy spy(&m_settings, &Settings::targetWeightChanged);
-        m_settings.setTargetWeight(m_origTargetWeight + 1.0);
+        QSignalSpy spy(m_settings.brew(), &SettingsBrew::targetWeightChanged);
+        m_settings.brew()->setTargetWeight(m_origTargetWeight + 1.0);
         QVERIFY(spy.count() >= 1);
     }
 
@@ -111,13 +113,70 @@ private slots:
     }
 
     // ==========================================
+    // Cross-domain wiring (Visualizer -> Dye)
+    // ==========================================
+
+    void defaultShotRatingPropagatesToDyeEnjoyment() {
+        // Settings::Settings() wires defaultShotRatingChanged -> setDyeEspressoEnjoyment
+        // so any caller of SettingsVisualizer::setDefaultShotRating sees the new
+        // value reflected in dye/espressoEnjoyment without going through Settings.
+        const int origEnjoyment = m_settings.dye()->dyeEspressoEnjoyment();
+        const int newRating = (m_origShotRating == 42) ? 43 : 42;
+        m_settings.visualizer()->setDefaultShotRating(newRating);
+        QCOMPARE(m_settings.dye()->dyeEspressoEnjoyment(), newRating);
+        // Restore (cleanup() also restores defaultShotRating, but enjoyment is
+        // a derived persisted value — leave it consistent for the next test).
+        m_settings.dye()->setDyeEspressoEnjoyment(origEnjoyment);
+    }
+
+    // ==========================================
+    // beansModified recompute chain
+    // ==========================================
+
+    void dyeBeanWeightDoesNotAffectBeansModified() {
+        // dyeBeanWeight is NOT one of the fields recomputeBeansModified compares
+        // against the selected preset (only brand/type/roast/grinder*/barista).
+        // This documents the contract: changing bean weight on a saved preset
+        // doesn't flag it as modified.
+        QSignalSpy spy(m_settings.dye(), &SettingsDye::beansModifiedChanged);
+        const double orig = m_settings.dye()->dyeBeanWeight();
+        m_settings.dye()->setDyeBeanWeight(orig + 0.5);
+        QCOMPARE(spy.count(), 0);
+        m_settings.dye()->setDyeBeanWeight(orig);
+    }
+
+    void dyeBeanBrandFiresBeansModifiedChain() {
+        // Proves the dyeBeanBrandChanged -> recomputeBeansModified -> beansModifiedChanged
+        // wiring is intact after the split (was previously inside Settings::Settings()).
+        // Set up: select a preset whose brand differs from current dye.
+        const QString origBrand = m_settings.dye()->dyeBeanBrand();
+        m_settings.dye()->addBeanPreset("__test_preset__", "BrandA", "TypeA",
+                                        "", "", "", "", "", "", "");
+        const int idx = m_settings.dye()->findBeanPresetByName("__test_preset__");
+        QVERIFY(idx >= 0);
+        m_settings.dye()->setSelectedBeanPreset(idx);
+        m_settings.dye()->applyBeanPreset(idx);  // dye now matches preset, beansModified=false
+        QVERIFY(!m_settings.dye()->beansModified());
+
+        QSignalSpy spy(m_settings.dye(), &SettingsDye::beansModifiedChanged);
+        m_settings.dye()->setDyeBeanBrand("BrandB");
+        QVERIFY(spy.count() >= 1);
+        QVERIFY(m_settings.dye()->beansModified());
+
+        // Cleanup
+        m_settings.dye()->setSelectedBeanPreset(-1);
+        m_settings.dye()->removeBeanPreset(idx);
+        m_settings.dye()->setDyeBeanBrand(origBrand);
+    }
+
+    // ==========================================
     // Edge cases
     // ==========================================
 
     void targetWeightZeroIsValid() {
         // 0 means disabled (no SAW)
-        m_settings.setTargetWeight(0.0);
-        QCOMPARE(m_settings.targetWeight(), 0.0);
+        m_settings.brew()->setTargetWeight(0.0);
+        QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
     }
 
     void emptyScaleAddressIsValid() {
@@ -130,33 +189,33 @@ private slots:
     // ==========================================
 
     void effectiveHotWaterVolumeRespectsMode() {
-        QString origMode = m_settings.waterVolumeMode();
-        int origVol = m_settings.waterVolume();
+        QString origMode = m_settings.brew()->waterVolumeMode();
+        int origVol = m_settings.brew()->waterVolume();
 
-        m_settings.setWaterVolume(65);
+        m_settings.brew()->setWaterVolume(65);
 
-        m_settings.setWaterVolumeMode("weight");
-        QCOMPARE(m_settings.effectiveHotWaterVolume(), 0);
+        m_settings.brew()->setWaterVolumeMode("weight");
+        QCOMPARE(m_settings.brew()->effectiveHotWaterVolume(), 0);
 
-        m_settings.setWaterVolumeMode("volume");
-        QCOMPARE(m_settings.effectiveHotWaterVolume(), 65);
+        m_settings.brew()->setWaterVolumeMode("volume");
+        QCOMPARE(m_settings.brew()->effectiveHotWaterVolume(), 65);
 
         // Anything other than "volume" is treated as weight mode.
-        m_settings.setWaterVolumeMode("something-else");
-        QCOMPARE(m_settings.effectiveHotWaterVolume(), 0);
+        m_settings.brew()->setWaterVolumeMode("something-else");
+        QCOMPARE(m_settings.brew()->effectiveHotWaterVolume(), 0);
 
         // Lower bound: negative values from corrupted storage must clamp to 0,
         // not wrap to 255 after uint8 cast.
-        m_settings.setWaterVolumeMode("volume");
-        m_settings.setWaterVolume(-1);
-        QCOMPARE(m_settings.effectiveHotWaterVolume(), 0);
+        m_settings.brew()->setWaterVolumeMode("volume");
+        m_settings.brew()->setWaterVolume(-1);
+        QCOMPARE(m_settings.brew()->effectiveHotWaterVolume(), 0);
 
         // Upper bound: values above 255 clamp to the BLE uint8 max.
-        m_settings.setWaterVolume(500);
-        QCOMPARE(m_settings.effectiveHotWaterVolume(), 255);
+        m_settings.brew()->setWaterVolume(500);
+        QCOMPARE(m_settings.brew()->effectiveHotWaterVolume(), 255);
 
-        m_settings.setWaterVolumeMode(origMode);
-        m_settings.setWaterVolume(origVol);
+        m_settings.brew()->setWaterVolumeMode(origMode);
+        m_settings.brew()->setWaterVolume(origVol);
     }
 };
 

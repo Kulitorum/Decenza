@@ -381,9 +381,9 @@ Item {
                             }
 
                             StyledSwitch {
-                                checked: Settings.ignoreVolumeWithScale
+                                checked: Settings.brew.ignoreVolumeWithScale
                                 accessibleName: TranslationManager.translate("settings.calibration.preferWeightOverVolume", "Prefer weight over volume")
-                                onToggled: Settings.ignoreVolumeWithScale = checked
+                                onToggled: Settings.brew.ignoreVolumeWithScale = checked
                             }
                         }
                     }

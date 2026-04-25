@@ -19,8 +19,8 @@ Page {
         root.currentPageTitle = pageTitle
         if (!isFlushing) {
             // Sync Settings with selected preset
-            Settings.flushFlow = getCurrentPresetFlow()
-            Settings.flushSeconds = getCurrentPresetSeconds()
+            Settings.brew.flushFlow = getCurrentPresetFlow()
+            Settings.brew.flushSeconds = getCurrentPresetSeconds()
             MainController.applyFlushSettings()
             secondsInput.forceActiveFocus()
         }
@@ -38,17 +38,17 @@ Page {
 
     // Get current preset values
     function getCurrentPresetFlow() {
-        var preset = Settings.getFlushPreset(Settings.selectedFlushPreset)
+        var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
         return preset ? preset.flow : 6.0
     }
 
     function getCurrentPresetSeconds() {
-        var preset = Settings.getFlushPreset(Settings.selectedFlushPreset)
+        var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
         return preset ? preset.seconds : 5.0
     }
 
     function getCurrentPresetName() {
-        var preset = Settings.getFlushPreset(Settings.selectedFlushPreset)
+        var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
         return preset ? preset.name : ""
     }
 
@@ -56,7 +56,7 @@ Page {
     function saveCurrentPreset(flow, seconds) {
         var name = getCurrentPresetName()
         if (name) {
-            Settings.updateFlushPreset(Settings.selectedFlushPreset, name, flow, seconds)
+            Settings.brew.updateFlushPreset(Settings.brew.selectedFlushPreset, name, flow, seconds)
         }
     }
 
@@ -81,20 +81,20 @@ Page {
 
                 Repeater {
                     id: livePresetRepeater
-                    model: Settings.flushPresets
+                    model: Settings.brew.flushPresets
 
                     Rectangle {
                         width: livePresetText.implicitWidth + 24
                         height: Theme.scaled(36)
                         radius: Theme.scaled(18)
-                        color: index === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.surfaceColor
-                        border.color: index === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                        color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
-                                         (index === Settings.selectedFlushPreset ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                         (index === Settings.brew.selectedFlushPreset ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: livePresetArea.clicked(null)
 
@@ -131,7 +131,7 @@ Page {
                             id: livePresetText
                             anchors.centerIn: parent
                             text: modelData.name
-                            color: index === Settings.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
+                            color: index === Settings.brew.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.bodyFont
                             Accessible.ignored: true
                         }
@@ -140,9 +140,9 @@ Page {
                             id: livePresetArea
                             anchors.fill: parent
                             onClicked: {
-                                Settings.selectedFlushPreset = index
-                                Settings.flushFlow = modelData.flow
-                                Settings.flushSeconds = modelData.seconds
+                                Settings.brew.selectedFlushPreset = index
+                                Settings.brew.flushFlow = modelData.flow
+                                Settings.brew.flushSeconds = modelData.seconds
                                 MainController.applyFlushSettings()
                             }
                         }
@@ -164,7 +164,7 @@ Page {
                     Text {
                         id: flushProgressText
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: MachineState.shotTime.toFixed(1) + "s / " + Settings.flushSeconds.toFixed(0) + "s"
+                        text: MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.flushSeconds.toFixed(0) + "s"
                         color: Theme.textColor
                         font: Theme.timerFont
                     }
@@ -178,7 +178,7 @@ Page {
                         color: Theme.surfaceColor
 
                         Rectangle {
-                            width: parent.width * Math.min(1, MachineState.shotTime / Settings.flushSeconds)
+                            width: parent.width * Math.min(1, MachineState.shotTime / Settings.brew.flushSeconds)
                             height: parent.height
                             radius: Theme.scaled(4)
                             color: Theme.primaryColor
@@ -273,7 +273,7 @@ Page {
 
                         Repeater {
                             id: presetRepeater
-                            model: Settings.flushPresets
+                            model: Settings.brew.flushPresets
 
                             Item {
                                 id: presetDelegate
@@ -288,42 +288,42 @@ Page {
                                     width: presetText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.backgroundColor
-                                    border.color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.backgroundColor
+                                    border.color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
-                                                     (presetDelegate.presetIndex === Settings.selectedFlushPreset ?
+                                                     (presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.description: TranslationManager.translate("flush.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
-                                        Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                        Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
                                         flowInput.value = modelData.flow
                                         secondsInput.value = modelData.seconds
-                                        Settings.flushFlow = modelData.flow
-                                        Settings.flushSeconds = modelData.seconds
+                                        Settings.brew.flushFlow = modelData.flow
+                                        Settings.brew.flushSeconds = modelData.seconds
                                         MainController.applyFlushSettings()
                                     }
 
                                     Keys.onReturnPressed: {
-                                        Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                        Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
                                         flowInput.value = modelData.flow
                                         secondsInput.value = modelData.seconds
-                                        Settings.flushFlow = modelData.flow
-                                        Settings.flushSeconds = modelData.seconds
+                                        Settings.brew.flushFlow = modelData.flow
+                                        Settings.brew.flushSeconds = modelData.seconds
                                         MainController.applyFlushSettings()
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: {
-                                        Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                        Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
                                         flowInput.value = modelData.flow
                                         secondsInput.value = modelData.seconds
-                                        Settings.flushFlow = modelData.flow
-                                        Settings.flushSeconds = modelData.seconds
+                                        Settings.brew.flushFlow = modelData.flow
+                                        Settings.brew.flushSeconds = modelData.seconds
                                         MainController.applyFlushSettings()
                                         event.accepted = true
                                     }
@@ -365,7 +365,7 @@ Page {
                                         id: presetText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
+                                        color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -389,11 +389,11 @@ Page {
                                             holdTimer.stop()
                                             if (!moved && !held) {
                                                 // Simple click - select the preset
-                                                Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                                Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
                                                 flowInput.value = modelData.flow
                                                 secondsInput.value = modelData.seconds
-                                                Settings.flushFlow = modelData.flow
-                                                Settings.flushSeconds = modelData.seconds
+                                                Settings.brew.flushFlow = modelData.flow
+                                                Settings.brew.flushSeconds = modelData.seconds
                                                 MainController.applyFlushSettings()
                                             }
                                             presetPill.Drag.drop()
@@ -436,7 +436,7 @@ Page {
                                         var fromIndex = drag.source.presetIndex
                                         var toIndex = presetDelegate.presetIndex
                                         if (fromIndex !== toIndex) {
-                                            Settings.moveFlushPreset(fromIndex, toIndex)
+                                            Settings.brew.moveFlushPreset(fromIndex, toIndex)
                                         }
                                     }
                                 }
@@ -534,7 +534,7 @@ Page {
                             // to onValueCommitted which fires once on release.
                             onValueModified: function(newValue) {
                                 secondsInput.value = newValue
-                                Settings.flushSeconds = newValue
+                                Settings.brew.flushSeconds = newValue
                                 saveCurrentPreset(flowInput.value, newValue)
                             }
                             onValueCommitted: MainController.applyFlushSettings()
@@ -576,7 +576,7 @@ Page {
                             // onValueCommitted: BLE write once at interaction end.
                             onValueModified: function(newValue) {
                                 flowInput.value = newValue
-                                Settings.flushFlow = newValue
+                                Settings.brew.flushFlow = newValue
                                 saveCurrentPreset(newValue, secondsInput.value)
                             }
                             onValueCommitted: MainController.applyFlushSettings()
@@ -708,7 +708,7 @@ Page {
                     KeyNavigation.tab: cancelEditButton
                     KeyNavigation.backtab: editPresetNameInput
                     onClicked: {
-                        Settings.removeFlushPreset(editingPresetIndex)
+                        Settings.brew.removeFlushPreset(editingPresetIndex)
                         editPresetPopup.close()
                     }
                 }
@@ -733,8 +733,8 @@ Page {
                     KeyNavigation.backtab: cancelEditButton
                     onClicked: {
                         Qt.inputMethod.commit()
-                        var preset = Settings.getFlushPreset(editingPresetIndex)
-                        Settings.updateFlushPreset(editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
+                        var preset = Settings.brew.getFlushPreset(editingPresetIndex)
+                        Settings.brew.updateFlushPreset(editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
                         editPresetPopup.close()
                     }
                 }
@@ -847,7 +847,7 @@ Page {
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newPresetNameInput.text.length > 0) {
-                            Settings.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)
+                            Settings.brew.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)
                             newPresetNameInput.text = ""
                             addPresetDialog.close()
                         }

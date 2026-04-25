@@ -17,8 +17,8 @@ Page {
         root.currentPageTitle = pageTitleText.text
         if (!isDispensing) {
             // Sync Settings with selected preset
-            Settings.waterVolume = getCurrentVesselVolume()
-            Settings.waterVolumeMode = getCurrentVesselMode()
+            Settings.brew.waterVolume = getCurrentVesselVolume()
+            Settings.brew.waterVolumeMode = getCurrentVesselMode()
             Settings.hardware.hotWaterFlowRate = getCurrentVesselFlowRate()
             MainController.applyHotWaterSettings()
             // Tare immediately so display shows 0g instead of current scale weight.
@@ -35,26 +35,26 @@ Page {
     property bool isDispensing: MachineState.phase === MachineStateType.Phase.HotWater || root.debugLiveView
     property int editingVesselIndex: -1
 
-    property bool isVolumeMode: Settings.waterVolumeMode === "volume"
+    property bool isVolumeMode: Settings.brew.waterVolumeMode === "volume"
 
     // Get current vessel's volume
     function getCurrentVesselVolume() {
-        var preset = Settings.getWaterVesselPreset(Settings.selectedWaterVessel)
+        var preset = Settings.brew.getWaterVesselPreset(Settings.brew.selectedWaterVessel)
         return preset ? preset.volume : 200
     }
 
     function getCurrentVesselName() {
-        var preset = Settings.getWaterVesselPreset(Settings.selectedWaterVessel)
+        var preset = Settings.brew.getWaterVesselPreset(Settings.brew.selectedWaterVessel)
         return preset ? preset.name : ""
     }
 
     function getCurrentVesselMode() {
-        var preset = Settings.getWaterVesselPreset(Settings.selectedWaterVessel)
+        var preset = Settings.brew.getWaterVesselPreset(Settings.brew.selectedWaterVessel)
         return (preset && preset.mode) ? preset.mode : "weight"
     }
 
     function getCurrentVesselFlowRate() {
-        var preset = Settings.getWaterVesselPreset(Settings.selectedWaterVessel)
+        var preset = Settings.brew.getWaterVesselPreset(Settings.brew.selectedWaterVessel)
         return (preset && preset.flowRate !== undefined) ? preset.flowRate : 40
     }
 
@@ -62,7 +62,7 @@ Page {
     function saveCurrentVessel(volume, flowRate) {
         var name = getCurrentVesselName()
         if (name) {
-            Settings.updateWaterVesselPreset(Settings.selectedWaterVessel, name, volume, Settings.waterVolumeMode, flowRate)
+            Settings.brew.updateWaterVesselPreset(Settings.brew.selectedWaterVessel, name, volume, Settings.brew.waterVolumeMode, flowRate)
         }
     }
 
@@ -87,20 +87,20 @@ Page {
 
                 Repeater {
                     id: liveVesselRepeater
-                    model: Settings.waterVesselPresets
+                    model: Settings.brew.waterVesselPresets
 
                     Rectangle {
                         width: liveVesselText.implicitWidth + 24
                         height: Theme.scaled(36)
                         radius: Theme.scaled(18)
-                        color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.surfaceColor
-                        border.color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
+                        color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.vessel", "vessel") +
-                                         (index === Settings.selectedWaterVessel ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                         (index === Settings.brew.selectedWaterVessel ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: liveVesselArea.clicked(null)
 
@@ -137,7 +137,7 @@ Page {
                             id: liveVesselText
                             anchors.centerIn: parent
                             text: modelData.name
-                            color: index === Settings.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
+                            color: index === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.bodyFont
                             Accessible.ignored: true
                         }
@@ -146,9 +146,9 @@ Page {
                             id: liveVesselArea
                             anchors.fill: parent
                             onClicked: {
-                                Settings.selectedWaterVessel = index
-                                Settings.waterVolume = modelData.volume
-                                Settings.waterVolumeMode = (modelData.mode ?? "weight")
+                                Settings.brew.selectedWaterVessel = index
+                                Settings.brew.waterVolume = modelData.volume
+                                Settings.brew.waterVolumeMode = (modelData.mode ?? "weight")
                                 Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                 MainController.applyHotWaterSettings()
                             }
@@ -173,7 +173,7 @@ Page {
                         id: hotWaterProgressText
                         visible: !isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Math.max(0, MachineState.scaleWeight).toFixed(0) + "g / " + Settings.waterVolume + "g"
+                        text: Math.max(0, MachineState.scaleWeight).toFixed(0) + "g / " + Settings.brew.waterVolume + "g"
                         color: Theme.textColor
                         font: Theme.timerFont
                     }
@@ -183,7 +183,7 @@ Page {
                         id: hotWaterVolumeText
                         visible: isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Settings.waterVolume + " ml"
+                        text: Settings.brew.waterVolume + " ml"
                         color: Theme.textColor
                         font: Theme.timerFont
                     }
@@ -207,7 +207,7 @@ Page {
                         color: Theme.surfaceColor
 
                         Rectangle {
-                            width: parent.width * Math.min(1, Math.max(0, MachineState.scaleWeight) / Settings.waterVolume)
+                            width: parent.width * Math.min(1, Math.max(0, MachineState.scaleWeight) / Settings.brew.waterVolume)
                             height: parent.height
                             radius: Theme.scaled(4)
                             color: Theme.primaryColor
@@ -332,7 +332,7 @@ Page {
 
                         Repeater {
                             id: vesselRepeater
-                            model: Settings.waterVesselPresets
+                            model: Settings.brew.waterVesselPresets
 
                             Item {
                                 id: vesselDelegate
@@ -347,44 +347,44 @@ Page {
                                     width: vesselText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: vesselDelegate.vesselIndex === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.backgroundColor
-                                    border.color: vesselDelegate.vesselIndex === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.backgroundColor
+                                    border.color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.preset", "preset") +
-                                                     (vesselDelegate.vesselIndex === Settings.selectedWaterVessel ?
+                                                     (vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.description: TranslationManager.translate("hotwater.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
-                                        Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                        Settings.brew.selectedWaterVessel = vesselDelegate.vesselIndex
                                         volumeInput.value = modelData.volume
                                         flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                        Settings.waterVolume = modelData.volume
-                                        Settings.waterVolumeMode = (modelData.mode || "weight")
+                                        Settings.brew.waterVolume = modelData.volume
+                                        Settings.brew.waterVolumeMode = (modelData.mode || "weight")
                                         Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         MainController.applyHotWaterSettings()
                                     }
 
                                     Keys.onReturnPressed: {
-                                        Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                        Settings.brew.selectedWaterVessel = vesselDelegate.vesselIndex
                                         volumeInput.value = modelData.volume
                                         flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                        Settings.waterVolume = modelData.volume
-                                        Settings.waterVolumeMode = (modelData.mode || "weight")
+                                        Settings.brew.waterVolume = modelData.volume
+                                        Settings.brew.waterVolumeMode = (modelData.mode || "weight")
                                         Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         MainController.applyHotWaterSettings()
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: {
-                                        Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                        Settings.brew.selectedWaterVessel = vesselDelegate.vesselIndex
                                         volumeInput.value = modelData.volume
                                         flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                        Settings.waterVolume = modelData.volume
-                                        Settings.waterVolumeMode = (modelData.mode || "weight")
+                                        Settings.brew.waterVolume = modelData.volume
+                                        Settings.brew.waterVolumeMode = (modelData.mode || "weight")
                                         Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         MainController.applyHotWaterSettings()
                                         event.accepted = true
@@ -427,7 +427,7 @@ Page {
                                         id: vesselText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: vesselDelegate.vesselIndex === Settings.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
+                                        color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -451,11 +451,11 @@ Page {
                                             holdTimer.stop()
                                             if (!moved && !held) {
                                                 // Simple click - select the vessel
-                                                Settings.selectedWaterVessel = vesselDelegate.vesselIndex
+                                                Settings.brew.selectedWaterVessel = vesselDelegate.vesselIndex
                                                 volumeInput.value = modelData.volume
                                                 flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                                Settings.waterVolume = modelData.volume
-                                                Settings.waterVolumeMode = (modelData.mode || "weight")
+                                                Settings.brew.waterVolume = modelData.volume
+                                                Settings.brew.waterVolumeMode = (modelData.mode || "weight")
                                                 Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                                 MainController.applyHotWaterSettings()
                                             }
@@ -499,7 +499,7 @@ Page {
                                         var fromIndex = drag.source.vesselIndex
                                         var toIndex = vesselDelegate.vesselIndex
                                         if (fromIndex !== toIndex) {
-                                            Settings.moveWaterVesselPreset(fromIndex, toIndex)
+                                            Settings.brew.moveWaterVesselPreset(fromIndex, toIndex)
                                         }
                                     }
                                 }
@@ -607,7 +607,7 @@ Page {
                                     id: weightModeArea
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.waterVolumeMode = "weight"
+                                        Settings.brew.waterVolumeMode = "weight"
                                         saveCurrentVessel(volumeInput.value, flowRateInput.value)
                                         MainController.applyHotWaterSettings()
                                     }
@@ -647,11 +647,11 @@ Page {
                                     id: volumeModeArea
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.waterVolumeMode = "volume"
+                                        Settings.brew.waterVolumeMode = "volume"
                                         // Clamp value to 255ml max for volume mode
                                         if (volumeInput.value > 255) {
                                             volumeInput.value = 255
-                                            Settings.waterVolume = 255
+                                            Settings.brew.waterVolume = 255
                                             saveCurrentVessel(255, flowRateInput.value)
                                         } else {
                                             saveCurrentVessel(volumeInput.value, flowRateInput.value)
@@ -682,7 +682,7 @@ Page {
 
                             onValueModified: function(newValue) {
                                 volumeInput.value = newValue
-                                Settings.waterVolume = newValue
+                                Settings.brew.waterVolume = newValue
                                 saveCurrentVessel(newValue, flowRateInput.value)
                             }
                             onValueCommitted: MainController.applyHotWaterSettings()
@@ -708,7 +708,7 @@ Page {
                         ValueInput {
                             id: temperatureInput
                             Layout.preferredWidth: Theme.scaled(180)
-                            value: Settings.waterTemperature
+                            value: Settings.brew.waterTemperature
                             from: 40
                             to: 100
                             stepSize: 1
@@ -720,7 +720,7 @@ Page {
 
                             onValueModified: function(newValue) {
                                 temperatureInput.value = newValue
-                                Settings.waterTemperature = newValue
+                                Settings.brew.waterTemperature = newValue
                             }
                             onValueCommitted: MainController.applyHotWaterSettings()
                         }
@@ -895,7 +895,7 @@ Page {
                     KeyNavigation.tab: cancelEditVesselButton
                     KeyNavigation.backtab: editVesselNameInput
                     onClicked: {
-                        Settings.removeWaterVesselPreset(editingVesselIndex)
+                        Settings.brew.removeWaterVesselPreset(editingVesselIndex)
                         editVesselPopup.close()
                     }
                 }
@@ -920,8 +920,8 @@ Page {
                     KeyNavigation.backtab: cancelEditVesselButton
                     onClicked: {
                         Qt.inputMethod.commit()
-                        var preset = Settings.getWaterVesselPreset(editingVesselIndex)
-                        Settings.updateWaterVesselPreset(editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight", (preset.flowRate !== undefined) ? preset.flowRate : 40)
+                        var preset = Settings.brew.getWaterVesselPreset(editingVesselIndex)
+                        Settings.brew.updateWaterVesselPreset(editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight", (preset.flowRate !== undefined) ? preset.flowRate : 40)
                         editVesselPopup.close()
                     }
                 }
@@ -1034,7 +1034,7 @@ Page {
                     onClicked: {
                         Qt.inputMethod.commit()
                         if (newVesselNameInput.text.length > 0) {
-                            Settings.addWaterVesselPreset(newVesselNameInput.text, 200, "weight", 40)
+                            Settings.brew.addWaterVesselPreset(newVesselNameInput.text, 200, "weight", 40)
                             newVesselNameInput.text = ""
                             addVesselDialog.close()
                         }

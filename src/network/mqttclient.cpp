@@ -2,6 +2,7 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../core/settings.h"
+#include "../core/settings_brew.h"
 #include "../core/settings_mqtt.h"
 #include "../controllers/maincontroller.h"
 #include "version.h"
@@ -786,11 +787,11 @@ void MqttClient::publishState()
     QString steamMode;
     if (!m_device || !m_settings || m_device->stateString() == "Sleep") {
         steamMode = "Off";
-    } else if (m_settings->steamDisabled()) {
+    } else if (m_settings->brew()->steamDisabled()) {
         steamMode = "Off";
     } else if (phase == "Ready" || phase == "Steaming") {
         steamMode = "On";
-    } else if (!m_settings->keepSteamHeaterOn()) {
+    } else if (!m_settings->brew()->keepSteamHeaterOn()) {
         steamMode = "Off";
     } else {
         steamMode = "On";

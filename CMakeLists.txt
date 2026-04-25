@@ -220,6 +220,9 @@ set(SOURCES
     src/core/settings_theme.cpp
     src/core/settings_visualizer.cpp
     src/core/settings_mcp.cpp
+    src/core/settings_brew.cpp
+    src/core/settings_dye.cpp
+    src/core/settings_network.cpp
     src/core/widgetlibrary.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
@@ -378,6 +381,9 @@ set(HEADERS
     src/core/settings_theme.h
     src/core/settings_visualizer.h
     src/core/settings_mcp.h
+    src/core/settings_brew.h
+    src/core/settings_dye.h
+    src/core/settings_network.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h

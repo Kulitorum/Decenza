@@ -290,10 +290,10 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 id: steamHeaterSwitch
-                                checked: Settings.keepSteamHeaterOn
+                                checked: Settings.brew.keepSteamHeaterOn
                                 accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
                                 onClicked: {
-                                    Settings.keepSteamHeaterOn = checked
+                                    Settings.brew.keepSteamHeaterOn = checked
                                     MainController.applySteamSettings()
                                 }
                             }
@@ -316,12 +316,12 @@ KeyboardAwareContainer {
                                 to: 60
                                 stepSize: 1
                                 decimals: 0
-                                value: Settings.steamAutoFlushSeconds
+                                value: Settings.brew.steamAutoFlushSeconds
                                 valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
                                 displayText: value === 0 ? TranslationManager.translate("common.off", "Off") : value + TranslationManager.translate("common.unit.seconds", "s")
                                 accessibleName: TranslationManager.translate("settings.preferences.autoFlushDuration", "Auto flush duration")
                                 onValueModified: function(newValue) {
-                                    Settings.steamAutoFlushSeconds = newValue
+                                    Settings.brew.steamAutoFlushSeconds = newValue
                                 }
                             }
                         }

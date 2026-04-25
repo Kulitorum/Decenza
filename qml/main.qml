@@ -414,7 +414,7 @@ ApplicationWindow {
                 // turnOffSteamHeater). The DE1 still enters Steam state on GHC press, but
                 // with TargetSteamTemp=0 no steam is produced — consistent with the user's
                 // intent to keep the boiler off.
-                var currentPitcher = Settings.getSteamPitcherPreset(Settings.selectedSteamPitcher)
+                var currentPitcher = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
                 var currentPitcherDisabled = currentPitcher && currentPitcher.disabled === true
                 if (currentPitcherDisabled) {
                     console.log("DE1 entered Steam state but Off preset selected — heater stays off")
@@ -436,9 +436,9 @@ ApplicationWindow {
             // When entering Puffing, start the auto-flush countdown if enabled
             if (DE1Device.state === 5 && DE1Device.subState === 20) {
                 console.log("DE1 entered Puffing substate")
-                if (Settings.steamAutoFlushSeconds > 0) {
-                    console.log("Starting auto-flush countdown:", Settings.steamAutoFlushSeconds, "seconds")
-                    root.steamAutoFlushCountdown = Settings.steamAutoFlushSeconds
+                if (Settings.brew.steamAutoFlushSeconds > 0) {
+                    console.log("Starting auto-flush countdown:", Settings.brew.steamAutoFlushSeconds, "seconds")
+                    root.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
                     steamAutoFlushTimer.restart()
                 }
             }
@@ -595,7 +595,7 @@ ApplicationWindow {
                 steamAutoFlushTimer.stop()
                 console.log("Steam auto-flush countdown complete, requesting Idle state")
                 // Turn off steam heater if keepSteamHeaterOn is false
-                if (!Settings.keepSteamHeaterOn) {
+                if (!Settings.brew.keepSteamHeaterOn) {
                     console.log("Auto-flush complete, turning off steam heater (keepSteamHeaterOn=false)")
                     MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
                 }
@@ -688,10 +688,10 @@ ApplicationWindow {
 
         // Auto-match current bean data to a preset so the bean button
         // doesn't appear yellow when the data already matches a saved preset
-        if (Settings.selectedBeanPreset === -1 && Settings.dyeBeanBrand.length > 0) {
-            var matchIndex = Settings.findBeanPresetByContent(Settings.dyeBeanBrand, Settings.dyeBeanType)
+        if (Settings.dye.selectedBeanPreset === -1 && Settings.dye.dyeBeanBrand.length > 0) {
+            var matchIndex = Settings.dye.findBeanPresetByContent(Settings.dye.dyeBeanBrand, Settings.dye.dyeBeanType)
             if (matchIndex >= 0) {
-                Settings.selectedBeanPreset = matchIndex
+                Settings.dye.selectedBeanPreset = matchIndex
             }
         }
 
@@ -2524,7 +2524,7 @@ ApplicationWindow {
             let wasSteamingBefore = (root.previousPhase === MachineStateType.Phase.Steaming)
             if (wasSteamingBefore && (phase === MachineStateType.Phase.Idle || phase === MachineStateType.Phase.Ready)) {
                 // Turn off steam heater if keepSteamHeaterOn is false
-                if (!Settings.keepSteamHeaterOn) {
+                if (!Settings.brew.keepSteamHeaterOn) {
                     console.log("Steaming ended, turning off steam heater (keepSteamHeaterOn=false)")
                     MainController.sendSteamTemperature(0)  // This sets steamDisabled=true
                 }
@@ -2846,7 +2846,7 @@ ApplicationWindow {
 
         // Dismiss any in-app Safari view (iOS Claude Desktop discuss overlay)
         // so the screensaver can render without being covered by a modal.
-        if (Qt.platform.os === "ios") Settings.dismissDiscussOverlay()
+        if (Qt.platform.os === "ios") Settings.network.dismissDiscussOverlay()
 
         // Navigate to screensaver page for all modes (including "disabled")
         // For "disabled" mode, ScreensaverPage dims the backlight to minimum
@@ -3221,7 +3221,7 @@ ApplicationWindow {
 
     // ============ SHOT EXPORT BULK COMPLETION TOAST ============
     // Shown once the initial "export all shots" pass triggered by enabling
-    // Settings.exportShotsToFile has finished writing files to the user
+    // Settings.network.exportShotsToFile has finished writing files to the user
     // history folder. Silent-until-done so the toggle behaves like a plain
     // boolean preference.
     property string shotExportToastText: ""

@@ -123,15 +123,15 @@ Item {
             // announces the preset list to TalkBack. The compact-mode popup bypasses
             // that path, so announce here directly to keep feature parity.
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.steamPitcherPresets
+            var presets = Settings.brew.steamPitcherPresets
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            if (Settings.selectedSteamPitcher >= 0 && Settings.selectedSteamPitcher < presets.length) {
-                selectedName = presets[Settings.selectedSteamPitcher].name
+            if (Settings.brew.selectedSteamPitcher >= 0 && Settings.brew.selectedSteamPitcher < presets.length) {
+                selectedName = presets[Settings.brew.selectedSteamPitcher].name
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -197,14 +197,14 @@ Item {
             PresetPillRow {
                 id: popupPillRow
                 maxWidth: Theme.scaled(600)
-                presets: Settings.steamPitcherPresets
-                selectedIndex: Settings.selectedSteamPitcher
+                presets: Settings.brew.steamPitcherPresets
+                selectedIndex: Settings.brew.selectedSteamPitcher
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
 
                 pillSuffixFn: function(index) {
                     if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
-                    var preset = Settings.steamPitcherPresets[index]
+                    var preset = Settings.brew.steamPitcherPresets[index]
                     if (!preset) return ""
                     var pitcherWeight = preset.pitcherWeightG ?? 0
                     if (pitcherWeight <= 0) return ""
@@ -213,9 +213,9 @@ Item {
                 }
 
                 onPresetSelected: function(index) {
-                    var wasAlreadySelected = (index === Settings.selectedSteamPitcher)
-                    Settings.selectedSteamPitcher = index
-                    var preset = Settings.getSteamPitcherPreset(index)
+                    var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
+                    Settings.brew.selectedSteamPitcher = index
+                    var preset = Settings.brew.getSteamPitcherPreset(index)
                     if (preset && preset.disabled) {
                         // "Off" preset — disable the steam heater. Don't write
                         // undefined preset.duration/flow into int Settings, and
@@ -225,8 +225,8 @@ Item {
                         return
                     }
                     if (preset) {
-                        Settings.steamTimeout = preset.duration
-                        Settings.steamFlow = preset.flow !== undefined ? preset.flow : 150
+                        Settings.brew.steamTimeout = preset.duration
+                        Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                     }
                     MainController.applySteamSettings()
 
