@@ -219,12 +219,16 @@ Page {
                 readonly property string tabId: modelData.id
 
                 active: modelData.loadSync || (index in settingsPage.loadedTabs)
-                asynchronous: !modelData.loadSync
+                // Keep settings tabs lazy-loaded, but instantiate them synchronously.
+                // Android crash reports have shown QQmlConnections crashing inside
+                // QQmlIncubationController while browsing settings; avoiding async
+                // incubation keeps Connections setup on the tab-switch event.
+                asynchronous: false
                 source: modelData.source
 
                 onStatusChanged: {
                     if (status === Loader.Loading)
-                        console.log("SettingsPage: async loading tab", tabId)
+                        console.log("SettingsPage: loading tab", tabId)
                     else if (status === Loader.Ready)
                         console.log("SettingsPage: tab ready", tabId)
                     else if (status === Loader.Error)

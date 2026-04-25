@@ -12,7 +12,7 @@ QtObject {
     // key       — TranslationManager key for the localized tab label
     // fallback  — English fallback used when no translation is available
     // source    — QML source loaded into the tab's StackLayout page
-    // loadSync  — if true, the Loader loads synchronously on startup (first tab only)
+    // loadSync  — if true, the Loader loads eagerly on startup (first tab only)
     // debugOnly — if true, the tab is hidden unless Settings.isDebugBuild is set
     readonly property var tabs: [
         { id: "connections",    key: "settings.tab.connections",    fallback: "Connections",       source: "settings/SettingsConnectionsTab.qml",     loadSync: true,  debugOnly: false },
