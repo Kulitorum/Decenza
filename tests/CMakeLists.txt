@@ -130,6 +130,12 @@ add_decenza_test(tst_settings
     ${CORE_SOURCES}
 )
 
+# --- tst_saw_settings: per-(profile, scale) SAW learning + batch + bootstrap ---
+add_decenza_test(tst_saw_settings
+    tst_saw_settings.cpp
+    ${CORE_SOURCES}
+)
+
 # --- tst_tclimport: TCL profile import round-trip against de1app profiles ---
 add_decenza_test(tst_tclimport
     tst_tclimport.cpp

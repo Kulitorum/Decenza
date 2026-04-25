@@ -145,6 +145,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets |
 | `ACCESSIBILITY.md` | TalkBack/VoiceOver rules, focus order, anti-patterns, implementation plan |
 | `AUTO_FLOW_CALIBRATION.md` | Auto flow calibration algorithm, batched median updates, windowing, convergence |
+| `SAW_LEARNING.md` | Per-(profile, scale) stop-at-weight learning — analysis, batched median commits, IQR dispersion rejection, global bootstrap |
 | `FIRMWARE_UPDATE.md` | DE1 firmware update flow, source URL, validation rules, failure modes, simulator behaviour |
 
 Also in `docs/`:

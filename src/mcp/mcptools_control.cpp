@@ -259,8 +259,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     // reset_saw_learning
     registry->registerTool(
         "reset_saw_learning",
-        "Reset stop-at-weight learning data. Useful when switching beans or grind settings, "
-        "as the learned flow deceleration curve may not apply to the new setup.",
+        "Reset stop-at-weight learning data. Clears the global pool, all per-(profile, scale) "
+        "histories and pending batches, and the global bootstrap. Useful when switching beans "
+        "or grind settings, as the learned flow deceleration curve may not apply to the new setup.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
         }}},
@@ -273,6 +274,42 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             settings->resetSawLearning();
             result["success"] = true;
             result["message"] = "SAW learning data reset";
+            return result;
+        },
+        "settings");
+
+    // reset_saw_learning_for_profile
+    registry->registerTool(
+        "reset_saw_learning_for_profile",
+        "Reset stop-at-weight learning for a single (profile, scale) pair only. Other pairs "
+        "and the global bootstrap are preserved. Defaults to the active profile and the "
+        "configured scale type when arguments are omitted.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename (defaults to active profile)"}}},
+            {"scaleType", QJsonObject{{"type", "string"}, {"description", "Scale type (defaults to configured scaleType)"}}},
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
+        [settings, profileManager](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!settings) {
+                result["error"] = "Settings not available";
+                return result;
+            }
+            QString filename = args["profileFilename"].toString();
+            if (filename.isEmpty() && profileManager) {
+                filename = profileManager->baseProfileName();
+            }
+            if (filename.isEmpty()) {
+                result["error"] = "No profile filename specified and no active profile";
+                return result;
+            }
+            QString scale = args["scaleType"].toString();
+            if (scale.isEmpty()) scale = settings->scaleType();
+            settings->resetSawLearningForProfile(filename, scale);
+            result["success"] = true;
+            result["profileFilename"] = filename;
+            result["scaleType"] = scale;
+            result["message"] = QString("SAW learning reset for %1 on %2").arg(filename, scale);
             return result;
         },
         "settings");

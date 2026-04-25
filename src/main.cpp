@@ -508,14 +508,24 @@ int main(int argc, char *argv[])
     // WeightProcessor signals (stopNow, skipFrame) wired below.
     // ShotTimingController::stopAtWeightReached and perFrameWeightReached are no longer emitted.
 
-    // Connect SAW learning signal to settings persistence
+    // Connect SAW learning signal to settings persistence.
+    // Logs the predicted-vs-actual drip ("accuracy" line) before persisting, so any single
+    // shot's debug log records whether SAW hit its target. addSawLearningPoint then routes
+    // the entry through the per-(profile, scale) batch accumulator and emits the
+    // "accumulated"/"committed"/"batch rejected" qDebug line that ShotDebugLogger captures.
     QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
-                     [&settings](double drip, double flowAtStop, double overshoot) {
-                         QString scaleType = settings.scaleType();
-                         settings.addSawLearningPoint(drip, flowAtStop, scaleType, overshoot);
-                         qDebug() << "[SAW] Learning point saved: drip=" << drip
-                                  << "flow=" << flowAtStop << "overshoot=" << overshoot
-                                  << "scale=" << scaleType;
+                     [&settings, &mainController](double drip, double flowAtStop, double overshoot) {
+                         const QString scaleType = settings.scaleType();
+                         const QString profileFilename = mainController.profileManager()->baseProfileName();
+                         const double predictedDrip = settings.getExpectedDripFor(profileFilename, scaleType, flowAtStop);
+                         qDebug() << "[SAW] accuracy: predictedDrip=" << predictedDrip
+                                  << "actualDrip=" << drip
+                                  << "delta=" << (drip - predictedDrip)
+                                  << "overshoot=" << overshoot
+                                  << "flow=" << flowAtStop
+                                  << "scale=" << scaleType
+                                  << "profile=" << profileFilename;
+                         settings.addSawLearningPoint(drip, flowAtStop, scaleType, overshoot, profileFilename);
                      });
 
     // Forward sawSettling state to MainController for QML binding
@@ -619,12 +629,24 @@ int main(int argc, char *argv[])
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
                      [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
-                         // Build snapshot of learning data and configuration
+                         // Build snapshot of learning data and configuration.
+                         // Per-(profile, scale) lookup falls back to the global pool / scale
+                         // default automatically when the pair has not yet graduated (< 3
+                         // committed batches). The "model:" log line records which source
+                         // is driving this shot's predictions for later accuracy analysis.
                          double targetWeight = machineState.targetWeight();
                          QString scaleType = settings.scaleType();
+                         QString profileFilename = mainController.profileManager()->baseProfileName();
                          bool converged = settings.isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;
-                         const auto entries = settings.sawLearningEntries(scaleType, maxEntries);
+                         const auto entries = settings.sawLearningEntriesFor(profileFilename, scaleType, maxEntries);
+                         const QString modelSource = settings.sawModelSource(profileFilename, scaleType);
+                         const double currentLag = settings.sawLearnedLagFor(profileFilename, scaleType);
+                         qDebug() << "[SAW] model: source=" << modelSource
+                                  << "lag=" << currentLag
+                                  << "profile=" << profileFilename
+                                  << "scale=" << scaleType
+                                  << "historyN=" << entries.size();
                          QVector<double> drips, flows;
                          drips.reserve(entries.size());
                          flows.reserve(entries.size());
