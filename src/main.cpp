@@ -37,9 +37,13 @@
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
 #include "core/settings.h"
+#include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
 #include "core/settings_hardware.h"
+#include "core/settings_ai.h"
 #include "core/settings_theme.h"
+#include "core/settings_visualizer.h"
+#include "core/settings_mcp.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -1608,6 +1612,25 @@ int main(int argc, char *argv[])
     // property — this type registration is only needed for enum access.
     qmlRegisterUncreatableType<SteamHealthTracker>("Decenza", 1, 0, "SteamHealthTrackerType",
         "SteamHealthTracker is created in C++");
+
+    // Register Settings sub-object types so QML can introspect their properties
+    // when accessed via Settings.mqtt, Settings.theme, etc. Without these, the
+    // pointers come through as opaque (Q_DECLARE_OPAQUE_POINTER in settings.h)
+    // and QML reports `customThemeColors` etc. as `undefined`.
+    qmlRegisterUncreatableType<SettingsMqtt>("Decenza", 1, 0, "SettingsMqttType",
+        "SettingsMqtt is created in C++");
+    qmlRegisterUncreatableType<SettingsAutoWake>("Decenza", 1, 0, "SettingsAutoWakeType",
+        "SettingsAutoWake is created in C++");
+    qmlRegisterUncreatableType<SettingsHardware>("Decenza", 1, 0, "SettingsHardwareType",
+        "SettingsHardware is created in C++");
+    qmlRegisterUncreatableType<SettingsAI>("Decenza", 1, 0, "SettingsAIType",
+        "SettingsAI is created in C++");
+    qmlRegisterUncreatableType<SettingsTheme>("Decenza", 1, 0, "SettingsThemeType",
+        "SettingsTheme is created in C++");
+    qmlRegisterUncreatableType<SettingsVisualizer>("Decenza", 1, 0, "SettingsVisualizerType",
+        "SettingsVisualizer is created in C++");
+    qmlRegisterUncreatableType<SettingsMcp>("Decenza", 1, 0, "SettingsMcpType",
+        "SettingsMcp is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");
