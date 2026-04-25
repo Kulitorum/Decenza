@@ -753,7 +753,7 @@ Page {
             }
 
             // Stop button for headless machines.
-            // When Settings.steamTwoTapStop is on (default off), behaves as a
+            // When Settings.hardware.steamTwoTapStop is on (default off), behaves as a
             // two-stage button: first tap soft-stops, second tap purges.
             // When off, a single tap stops and triggers the hose purge.
             Rectangle {
@@ -764,8 +764,8 @@ Page {
                 visible: DE1Device.isHeadless
                 radius: Theme.cardRadius
                 color: stopTapHandler.isPressed
-                    ? Qt.darker((steamSoftStopped && Settings.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor, 1.2)
-                    : ((steamSoftStopped && Settings.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor)
+                    ? Qt.darker((steamSoftStopped && Settings.hardware.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor, 1.2)
+                    : ((steamSoftStopped && Settings.hardware.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor)
                 border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
@@ -784,7 +784,7 @@ Page {
                 Text {
                     id: stopButtonText
                     anchors.centerIn: parent
-                    text: (steamSoftStopped && Settings.steamTwoTapStop) ? "PURGE" : "STOP"
+                    text: (steamSoftStopped && Settings.hardware.steamTwoTapStop) ? "PURGE" : "STOP"
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
@@ -798,7 +798,7 @@ Page {
                     accessibleName: steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
                     accessibleItem: steamStopButton
                     onAccessibleClicked: {
-                        if (!Settings.steamTwoTapStop) {
+                        if (!Settings.hardware.steamTwoTapStop) {
                             // Single-tap mode: stop immediately and trigger auto-purge
                             DE1Device.requestIdle()
                             root.goToIdle()

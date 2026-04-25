@@ -1,6 +1,7 @@
 #include "visualizeruploader.h"
 #include "../models/shotdatamodel.h"
 #include "../core/settings.h"
+#include "../core/settings_visualizer.h"
 #include "../profile/profile.h"
 #include "../ble/de1device.h"
 #include "version.h"

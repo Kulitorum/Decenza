@@ -213,6 +213,13 @@ endif()
 set(SOURCES
     src/main.cpp
     src/core/settings.cpp
+    src/core/settings_mqtt.cpp
+    src/core/settings_autowake.cpp
+    src/core/settings_hardware.cpp
+    src/core/settings_ai.cpp
+    src/core/settings_theme.cpp
+    src/core/settings_visualizer.cpp
+    src/core/settings_mcp.cpp
     src/core/widgetlibrary.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
@@ -364,6 +371,13 @@ endif()
 
 set(HEADERS
     src/core/settings.h
+    src/core/settings_mqtt.h
+    src/core/settings_autowake.h
+    src/core/settings_hardware.h
+    src/core/settings_ai.h
+    src/core/settings_theme.h
+    src/core/settings_visualizer.h
+    src/core/settings_mcp.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
@@ -430,6 +444,7 @@ set(HEADERS
     src/ai/conductance.h
     src/ai/shotanalysis.h
     src/ai/shotsummarizer.h
+    src/history/shothistory_types.h
     src/history/shothistorystorage.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h

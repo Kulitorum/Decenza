@@ -32,7 +32,7 @@ private:
 };
 
 class Profile;
-class Settings;
+class SettingsHardware;
 class DE1Transport;
 class BleTransport;
 
@@ -170,8 +170,8 @@ public:
     void setSimulator(DE1Simulator* simulator) { m_simulator = simulator; }
 #endif
 
-    // Settings for water level calibration persistence
-    void setSettings(Settings* settings);
+    // Hardware settings (heater calibration sent to firmware)
+    void setSettings(SettingsHardware* settings);
 
 public slots:
     void connectToDevice(const QString& address);
@@ -462,7 +462,7 @@ private:
 #ifdef QT_DEBUG
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
 #endif
-    Settings* m_settings = nullptr;       // For water level calibration persistence
+    SettingsHardware* m_settings = nullptr;  // Heater calibration sent to firmware
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
 

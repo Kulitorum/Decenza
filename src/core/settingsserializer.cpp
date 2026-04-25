@@ -1,5 +1,11 @@
 #include "settingsserializer.h"
 #include "settings.h"
+#include "settings_mqtt.h"
+#include "settings_autowake.h"
+#include "settings_hardware.h"
+#include "settings_ai.h"
+#include "settings_theme.h"
+#include "settings_visualizer.h"
 #include <QJsonArray>
 #include <QDebug>
 
@@ -53,7 +59,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["keepHeaterOn"] = settings->keepSteamHeaterOn();
     steam["disabled"] = settings->steamDisabled();
     steam["autoFlushSeconds"] = settings->steamAutoFlushSeconds();
-    steam["twoTapStop"] = settings->steamTwoTapStop();
+    steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->selectedSteamPitcher();
 
     // Steam pitcher presets
@@ -175,7 +181,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // UI settings
     QJsonObject ui;
-    ui["skin"] = settings->skin();
+    ui["skin"] = settings->theme()->skin();
     // screenBrightness is intentionally NOT exported — it's a device-local
     // runtime state (e.g. dimmed during screensaver) that would cause the
     // importing device to inherit an inappropriate brightness level (#495)
@@ -183,16 +189,16 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Custom font sizes
     QJsonObject fontSizes;
-    QVariantMap sizes = settings->customFontSizes();
+    QVariantMap sizes = settings->theme()->customFontSizes();
     for (auto it = sizes.begin(); it != sizes.end(); ++it) {
         fontSizes[it.key()] = it.value().toDouble();
     }
     ui["customFontSizes"] = fontSizes;
 
     // Shader settings
-    ui["activeShader"] = settings->activeShader();
+    ui["activeShader"] = settings->theme()->activeShader();
     QJsonObject shaderParams;
-    QVariantMap params = settings->shaderParams();
+    QVariantMap params = settings->theme()->shaderParams();
     for (auto it = params.begin(); it != params.end(); ++it) {
         shaderParams[it.key()] = QJsonValue::fromVariant(it.value());
     }
@@ -201,12 +207,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Theme settings
     QJsonObject theme;
-    theme["activeThemeName"] = settings->activeThemeName();
-    theme["themeMode"] = settings->themeMode();
+    theme["activeThemeName"] = settings->theme()->activeThemeName();
+    theme["themeMode"] = settings->theme()->themeMode();
 
     // Export active palette as customColors (backward compat) plus both palettes
     QJsonObject customColors;
-    QVariantMap colors = settings->customThemeColors();
+    QVariantMap colors = settings->theme()->customThemeColors();
     for (auto it = colors.begin(); it != colors.end(); ++it) {
         customColors[it.key()] = it.value().toString();
     }
@@ -224,7 +230,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Color groups
     QJsonArray colorGroups;
-    for (const QVariant& group : settings->colorGroups()) {
+    for (const QVariant& group : settings->theme()->colorGroups()) {
         colorGroups.append(QJsonValue::fromVariant(group));
     }
     theme["colorGroups"] = colorGroups;
@@ -232,32 +238,33 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Visualizer settings
     QJsonObject visualizer;
-    visualizer["username"] = settings->visualizerUsername();
+    visualizer["username"] = settings->visualizer()->visualizerUsername();
     if (includeSensitive) {
-        visualizer["password"] = settings->visualizerPassword();
+        visualizer["password"] = settings->visualizer()->visualizerPassword();
     }
-    visualizer["autoUpload"] = settings->visualizerAutoUpload();
-    visualizer["minDuration"] = settings->visualizerMinDuration();
-    visualizer["extendedMetadata"] = settings->visualizerExtendedMetadata();
-    visualizer["showAfterShot"] = settings->visualizerShowAfterShot();
-    visualizer["clearNotesOnStart"] = settings->visualizerClearNotesOnStart();
-    visualizer["defaultShotRating"] = settings->defaultShotRating();
+    visualizer["autoUpload"] = settings->visualizer()->visualizerAutoUpload();
+    visualizer["minDuration"] = settings->visualizer()->visualizerMinDuration();
+    visualizer["extendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
+    visualizer["showAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
+    visualizer["clearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
+    visualizer["defaultShotRating"] = settings->visualizer()->defaultShotRating();
     root["visualizer"] = visualizer;
 
     // AI settings
     QJsonObject ai;
-    ai["provider"] = settings->aiProvider();
+    auto* aiSettings = settings->ai();
+    ai["provider"] = aiSettings->aiProvider();
     if (includeSensitive) {
-        ai["openaiApiKey"] = settings->openaiApiKey();
-        ai["anthropicApiKey"] = settings->anthropicApiKey();
-        ai["geminiApiKey"] = settings->geminiApiKey();
+        ai["openaiApiKey"] = aiSettings->openaiApiKey();
+        ai["anthropicApiKey"] = aiSettings->anthropicApiKey();
+        ai["geminiApiKey"] = aiSettings->geminiApiKey();
     }
-    ai["ollamaEndpoint"] = settings->ollamaEndpoint();
-    ai["ollamaModel"] = settings->ollamaModel();
+    ai["ollamaEndpoint"] = aiSettings->ollamaEndpoint();
+    ai["ollamaModel"] = aiSettings->ollamaModel();
     if (includeSensitive) {
-        ai["openrouterApiKey"] = settings->openrouterApiKey();
+        ai["openrouterApiKey"] = aiSettings->openrouterApiKey();
     }
-    ai["openrouterModel"] = settings->openrouterModel();
+    ai["openrouterModel"] = aiSettings->openrouterModel();
     root["ai"] = ai;
 
     // DYE (Describe Your Espresso) metadata
@@ -298,14 +305,15 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Auto-wake schedule
     QJsonObject autoWake;
-    autoWake["enabled"] = settings->autoWakeEnabled();
+    auto* autoWakeSettings = settings->autoWake();
+    autoWake["enabled"] = autoWakeSettings->autoWakeEnabled();
     QJsonArray schedule;
-    for (const QVariant& day : settings->autoWakeSchedule()) {
+    for (const QVariant& day : autoWakeSettings->autoWakeSchedule()) {
         schedule.append(QJsonValue::fromVariant(day));
     }
     autoWake["schedule"] = schedule;
-    autoWake["stayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();
-    autoWake["stayAwakeMinutes"] = settings->autoWakeStayAwakeMinutes();
+    autoWake["stayAwakeEnabled"] = autoWakeSettings->autoWakeStayAwakeEnabled();
+    autoWake["stayAwakeMinutes"] = autoWakeSettings->autoWakeStayAwakeMinutes();
     root["autoWake"] = autoWake;
 
     // Auto-favorites settings
@@ -318,18 +326,19 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // MQTT settings (Home Automation)
     QJsonObject mqtt;
-    mqtt["enabled"] = settings->mqttEnabled();
-    mqtt["brokerHost"] = settings->mqttBrokerHost();
-    mqtt["brokerPort"] = settings->mqttBrokerPort();
-    mqtt["username"] = settings->mqttUsername();
+    auto* mqttSettings = settings->mqtt();
+    mqtt["enabled"] = mqttSettings->mqttEnabled();
+    mqtt["brokerHost"] = mqttSettings->mqttBrokerHost();
+    mqtt["brokerPort"] = mqttSettings->mqttBrokerPort();
+    mqtt["username"] = mqttSettings->mqttUsername();
     if (includeSensitive) {
-        mqtt["password"] = settings->mqttPassword();
+        mqtt["password"] = mqttSettings->mqttPassword();
     }
-    mqtt["baseTopic"] = settings->mqttBaseTopic();
-    mqtt["publishInterval"] = settings->mqttPublishInterval();
-    mqtt["retainMessages"] = settings->mqttRetainMessages();
-    mqtt["homeAssistantDiscovery"] = settings->mqttHomeAssistantDiscovery();
-    mqtt["clientId"] = settings->mqttClientId();
+    mqtt["baseTopic"] = mqttSettings->mqttBaseTopic();
+    mqtt["publishInterval"] = mqttSettings->mqttPublishInterval();
+    mqtt["retainMessages"] = mqttSettings->mqttRetainMessages();
+    mqtt["homeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
+    mqtt["clientId"] = mqttSettings->mqttClientId();
     root["mqtt"] = mqtt;
 
     // Layout configuration
@@ -339,11 +348,14 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     QJsonObject machineTuning;
     machineTuning["waterRefillPoint"] = settings->waterRefillPoint();
     machineTuning["refillKitOverride"] = settings->refillKitOverride();
-    machineTuning["heaterIdleTemp"] = settings->heaterIdleTemp();
-    machineTuning["heaterWarmupFlow"] = settings->heaterWarmupFlow();
-    machineTuning["heaterTestFlow"] = settings->heaterTestFlow();
-    machineTuning["heaterWarmupTimeout"] = settings->heaterWarmupTimeout();
-    machineTuning["hotWaterFlowRate"] = settings->hotWaterFlowRate();
+    {
+        auto* hw = settings->hardware();
+        machineTuning["heaterIdleTemp"] = hw->heaterIdleTemp();
+        machineTuning["heaterWarmupFlow"] = hw->heaterWarmupFlow();
+        machineTuning["heaterTestFlow"] = hw->heaterTestFlow();
+        machineTuning["heaterWarmupTimeout"] = hw->heaterWarmupTimeout();
+        machineTuning["hotWaterFlowRate"] = hw->hotWaterFlowRate();
+    }
     machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
     machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
     machineTuning["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
@@ -403,7 +415,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("keepHeaterOn")) settings->setKeepSteamHeaterOn(steam["keepHeaterOn"].toBool());
         if (steam.contains("disabled")) settings->setSteamDisabled(steam["disabled"].toBool());
         if (steam.contains("autoFlushSeconds")) settings->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
-        if (steam.contains("twoTapStop")) settings->setSteamTwoTapStop(steam["twoTapStop"].toBool());
+        if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
         if (steam.contains("selectedPitcher")) settings->setSelectedSteamCup(steam["selectedPitcher"].toInt());
 
         // Import pitcher presets
@@ -435,7 +447,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             && !steamObj.contains("twoTapStop")) {
         QJsonObject headless = json["headless"].toObject();
         if (headless.contains("skipPurgeConfirm")) {
-            settings->setSteamTwoTapStop(!headless["skipPurgeConfirm"].toBool());
+            settings->hardware()->setSteamTwoTapStop(!headless["skipPurgeConfirm"].toBool());
         }
     }
 
@@ -577,7 +589,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // UI settings
     if (json.contains("ui") && !excludeKeys.contains("ui")) {
         QJsonObject ui = json["ui"].toObject();
-        if (ui.contains("skin")) settings->setSkin(ui["skin"].toString());
+        if (ui.contains("skin")) settings->theme()->setSkin(ui["skin"].toString());
         // screenBrightness intentionally skipped on import — device-local runtime state (#495)
         if (ui.contains("waterLevelDisplayUnit")) settings->setWaterLevelDisplayUnit(ui["waterLevelDisplayUnit"].toString());
 
@@ -587,14 +599,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (auto it = fontSizes.begin(); it != fontSizes.end(); ++it) {
                 sizes[it.key()] = it.value().toDouble();
             }
-            settings->setCustomFontSizes(sizes);
+            settings->theme()->setCustomFontSizes(sizes);
         }
 
-        if (ui.contains("activeShader")) settings->setActiveShader(ui["activeShader"].toString());
+        if (ui.contains("activeShader")) settings->theme()->setActiveShader(ui["activeShader"].toString());
         if (ui.contains("shaderParams")) {
             QJsonObject sp = ui["shaderParams"].toObject();
             for (auto it = sp.begin(); it != sp.end(); ++it) {
-                settings->setShaderParam(it.key(), it.value().toDouble());
+                settings->theme()->setShaderParam(it.key(), it.value().toDouble());
             }
         }
     }
@@ -602,8 +614,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Theme settings
     if (json.contains("theme") && !excludeKeys.contains("theme")) {
         QJsonObject theme = json["theme"].toObject();
-        if (theme.contains("activeThemeName")) settings->setActiveThemeName(theme["activeThemeName"].toString());
-        if (theme.contains("themeMode")) settings->setThemeMode(theme["themeMode"].toString());
+        if (theme.contains("activeThemeName")) settings->theme()->setActiveThemeName(theme["activeThemeName"].toString());
+        if (theme.contains("themeMode")) settings->theme()->setThemeMode(theme["themeMode"].toString());
 
         // Restore dual palettes if present (new format)
         if (theme.contains("customColorsDark")) {
@@ -626,44 +638,45 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (const QJsonValue& v : arr) {
                 groups.append(v.toVariant());
             }
-            settings->setColorGroups(groups);
+            settings->theme()->setColorGroups(groups);
         }
     }
 
     // Visualizer settings
     if (json.contains("visualizer") && !excludeKeys.contains("visualizer")) {
         QJsonObject visualizer = json["visualizer"].toObject();
-        if (visualizer.contains("username")) settings->setVisualizerUsername(visualizer["username"].toString());
+        if (visualizer.contains("username")) settings->visualizer()->setVisualizerUsername(visualizer["username"].toString());
         if (visualizer.contains("password") && !excludeKeys.contains("visualizerPassword")) {
-            settings->setVisualizerPassword(visualizer["password"].toString());
+            settings->visualizer()->setVisualizerPassword(visualizer["password"].toString());
         }
-        if (visualizer.contains("autoUpload")) settings->setVisualizerAutoUpload(visualizer["autoUpload"].toBool());
-        if (visualizer.contains("minDuration")) settings->setVisualizerMinDuration(visualizer["minDuration"].toDouble());
-        if (visualizer.contains("extendedMetadata")) settings->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
-        if (visualizer.contains("showAfterShot")) settings->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
-        if (visualizer.contains("clearNotesOnStart")) settings->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
-        if (visualizer.contains("defaultShotRating")) settings->setDefaultShotRating(visualizer["defaultShotRating"].toInt());
+        if (visualizer.contains("autoUpload")) settings->visualizer()->setVisualizerAutoUpload(visualizer["autoUpload"].toBool());
+        if (visualizer.contains("minDuration")) settings->visualizer()->setVisualizerMinDuration(visualizer["minDuration"].toDouble());
+        if (visualizer.contains("extendedMetadata")) settings->visualizer()->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
+        if (visualizer.contains("showAfterShot")) settings->visualizer()->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
+        if (visualizer.contains("clearNotesOnStart")) settings->visualizer()->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
+        if (visualizer.contains("defaultShotRating")) settings->visualizer()->setDefaultShotRating(visualizer["defaultShotRating"].toInt());
     }
 
     // AI settings
     if (json.contains("ai") && !excludeKeys.contains("ai")) {
         QJsonObject ai = json["ai"].toObject();
-        if (ai.contains("provider")) settings->setAiProvider(ai["provider"].toString());
+        auto* aiSettings = settings->ai();
+        if (ai.contains("provider")) aiSettings->setAiProvider(ai["provider"].toString());
         if (ai.contains("openaiApiKey") && !excludeKeys.contains("openaiApiKey")) {
-            settings->setOpenaiApiKey(ai["openaiApiKey"].toString());
+            aiSettings->setOpenaiApiKey(ai["openaiApiKey"].toString());
         }
         if (ai.contains("anthropicApiKey") && !excludeKeys.contains("anthropicApiKey")) {
-            settings->setAnthropicApiKey(ai["anthropicApiKey"].toString());
+            aiSettings->setAnthropicApiKey(ai["anthropicApiKey"].toString());
         }
         if (ai.contains("geminiApiKey") && !excludeKeys.contains("geminiApiKey")) {
-            settings->setGeminiApiKey(ai["geminiApiKey"].toString());
+            aiSettings->setGeminiApiKey(ai["geminiApiKey"].toString());
         }
-        if (ai.contains("ollamaEndpoint")) settings->setOllamaEndpoint(ai["ollamaEndpoint"].toString());
-        if (ai.contains("ollamaModel")) settings->setOllamaModel(ai["ollamaModel"].toString());
+        if (ai.contains("ollamaEndpoint")) aiSettings->setOllamaEndpoint(ai["ollamaEndpoint"].toString());
+        if (ai.contains("ollamaModel")) aiSettings->setOllamaModel(ai["ollamaModel"].toString());
         if (ai.contains("openrouterApiKey") && !excludeKeys.contains("openrouterApiKey")) {
-            settings->setOpenrouterApiKey(ai["openrouterApiKey"].toString());
+            aiSettings->setOpenrouterApiKey(ai["openrouterApiKey"].toString());
         }
-        if (ai.contains("openrouterModel")) settings->setOpenrouterModel(ai["openrouterModel"].toString());
+        if (ai.contains("openrouterModel")) aiSettings->setOpenrouterModel(ai["openrouterModel"].toString());
     }
 
     // DYE metadata
@@ -716,17 +729,18 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Auto-wake schedule
     if (json.contains("autoWake") && !excludeKeys.contains("autoWake")) {
         QJsonObject autoWake = json["autoWake"].toObject();
-        if (autoWake.contains("enabled")) settings->setAutoWakeEnabled(autoWake["enabled"].toBool());
+        auto* autoWakeSettings = settings->autoWake();
+        if (autoWake.contains("enabled")) autoWakeSettings->setAutoWakeEnabled(autoWake["enabled"].toBool());
         if (autoWake.contains("schedule")) {
             QVariantList schedule;
             QJsonArray arr = autoWake["schedule"].toArray();
             for (const QJsonValue& v : arr) {
                 schedule.append(v.toVariant());
             }
-            settings->setAutoWakeSchedule(schedule);
+            autoWakeSettings->setAutoWakeSchedule(schedule);
         }
-        if (autoWake.contains("stayAwakeEnabled")) settings->setAutoWakeStayAwakeEnabled(autoWake["stayAwakeEnabled"].toBool());
-        if (autoWake.contains("stayAwakeMinutes")) settings->setAutoWakeStayAwakeMinutes(autoWake["stayAwakeMinutes"].toInt());
+        if (autoWake.contains("stayAwakeEnabled")) autoWakeSettings->setAutoWakeStayAwakeEnabled(autoWake["stayAwakeEnabled"].toBool());
+        if (autoWake.contains("stayAwakeMinutes")) autoWakeSettings->setAutoWakeStayAwakeMinutes(autoWake["stayAwakeMinutes"].toInt());
     }
 
     // Auto-favorites settings
@@ -741,18 +755,19 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // MQTT settings
     if (json.contains("mqtt") && !excludeKeys.contains("mqtt")) {
         QJsonObject mqtt = json["mqtt"].toObject();
-        if (mqtt.contains("enabled")) settings->setMqttEnabled(mqtt["enabled"].toBool());
-        if (mqtt.contains("brokerHost")) settings->setMqttBrokerHost(mqtt["brokerHost"].toString());
-        if (mqtt.contains("brokerPort")) settings->setMqttBrokerPort(mqtt["brokerPort"].toInt());
-        if (mqtt.contains("username")) settings->setMqttUsername(mqtt["username"].toString());
+        auto* mqttSettings = settings->mqtt();
+        if (mqtt.contains("enabled")) mqttSettings->setMqttEnabled(mqtt["enabled"].toBool());
+        if (mqtt.contains("brokerHost")) mqttSettings->setMqttBrokerHost(mqtt["brokerHost"].toString());
+        if (mqtt.contains("brokerPort")) mqttSettings->setMqttBrokerPort(mqtt["brokerPort"].toInt());
+        if (mqtt.contains("username")) mqttSettings->setMqttUsername(mqtt["username"].toString());
         if (mqtt.contains("password") && !excludeKeys.contains("mqttPassword")) {
-            settings->setMqttPassword(mqtt["password"].toString());
+            mqttSettings->setMqttPassword(mqtt["password"].toString());
         }
-        if (mqtt.contains("baseTopic")) settings->setMqttBaseTopic(mqtt["baseTopic"].toString());
-        if (mqtt.contains("publishInterval")) settings->setMqttPublishInterval(mqtt["publishInterval"].toInt());
-        if (mqtt.contains("retainMessages")) settings->setMqttRetainMessages(mqtt["retainMessages"].toBool());
-        if (mqtt.contains("homeAssistantDiscovery")) settings->setMqttHomeAssistantDiscovery(mqtt["homeAssistantDiscovery"].toBool());
-        if (mqtt.contains("clientId")) settings->setMqttClientId(mqtt["clientId"].toString());
+        if (mqtt.contains("baseTopic")) mqttSettings->setMqttBaseTopic(mqtt["baseTopic"].toString());
+        if (mqtt.contains("publishInterval")) mqttSettings->setMqttPublishInterval(mqtt["publishInterval"].toInt());
+        if (mqtt.contains("retainMessages")) mqttSettings->setMqttRetainMessages(mqtt["retainMessages"].toBool());
+        if (mqtt.contains("homeAssistantDiscovery")) mqttSettings->setMqttHomeAssistantDiscovery(mqtt["homeAssistantDiscovery"].toBool());
+        if (mqtt.contains("clientId")) mqttSettings->setMqttClientId(mqtt["clientId"].toString());
     }
 
     // Layout configuration
@@ -765,11 +780,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         QJsonObject mt = json["machineTuning"].toObject();
         if (mt.contains("waterRefillPoint")) settings->setWaterRefillPoint(mt["waterRefillPoint"].toInt());
         if (mt.contains("refillKitOverride")) settings->setRefillKitOverride(mt["refillKitOverride"].toInt());
-        if (mt.contains("heaterIdleTemp")) settings->setHeaterIdleTemp(mt["heaterIdleTemp"].toInt());
-        if (mt.contains("heaterWarmupFlow")) settings->setHeaterWarmupFlow(mt["heaterWarmupFlow"].toInt());
-        if (mt.contains("heaterTestFlow")) settings->setHeaterTestFlow(mt["heaterTestFlow"].toInt());
-        if (mt.contains("heaterWarmupTimeout")) settings->setHeaterWarmupTimeout(mt["heaterWarmupTimeout"].toInt());
-        if (mt.contains("hotWaterFlowRate")) settings->setHotWaterFlowRate(mt["hotWaterFlowRate"].toInt());
+        {
+            auto* hw = settings->hardware();
+            if (mt.contains("heaterIdleTemp")) hw->setHeaterIdleTemp(mt["heaterIdleTemp"].toInt());
+            if (mt.contains("heaterWarmupFlow")) hw->setHeaterWarmupFlow(mt["heaterWarmupFlow"].toInt());
+            if (mt.contains("heaterTestFlow")) hw->setHeaterTestFlow(mt["heaterTestFlow"].toInt());
+            if (mt.contains("heaterWarmupTimeout")) hw->setHeaterWarmupTimeout(mt["heaterWarmupTimeout"].toInt());
+            if (mt.contains("hotWaterFlowRate")) hw->setHotWaterFlowRate(mt["hotWaterFlowRate"].toInt());
+        }
         // Flow calibration is machine-specific — skip during cross-device migration
         // but restore from same-machine backups (caller passes excludeKeys to control this)
         if (mt.contains("flowCalibrationMultiplier") && !excludeKeys.contains("flowCalibration")) {

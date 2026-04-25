@@ -5,6 +5,7 @@
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
+#include "../core/settings_theme.h"
 #include "../core/databasebackupmanager.h"
 #include "../network/mqttclient.h"
 
@@ -366,7 +367,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Theme name is required";
                 return result;
             }
-            settings->applyPresetTheme(name);
+            settings->theme()->applyPresetTheme(name);
             result["success"] = true;
             result["message"] = "Applied theme: " + name;
             return result;

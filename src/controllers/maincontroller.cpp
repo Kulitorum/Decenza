@@ -2,6 +2,9 @@
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
 #include "../core/settings.h"
+#include "../core/settings_mqtt.h"
+#include "../core/settings_hardware.h"
+#include "../core/settings_visualizer.h"
 #include "../core/profilestorage.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -107,12 +110,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     if (m_settings && m_device) {
         auto startHeaterTimer = [this]() { m_heaterTweaksTimer.start(); };
-        connect(m_settings, &Settings::heaterIdleTempChanged, this, startHeaterTimer);
-        connect(m_settings, &Settings::heaterWarmupFlowChanged, this, startHeaterTimer);
-        connect(m_settings, &Settings::heaterTestFlowChanged, this, startHeaterTimer);
-        connect(m_settings, &Settings::heaterWarmupTimeoutChanged, this, startHeaterTimer);
-        connect(m_settings, &Settings::hotWaterFlowRateChanged, this, startHeaterTimer);
-        connect(m_settings, &Settings::steamTwoTapStopChanged, this, startHeaterTimer);
+        auto* hw = m_settings->hardware();
+        connect(hw, &SettingsHardware::heaterIdleTempChanged, this, startHeaterTimer);
+        connect(hw, &SettingsHardware::heaterWarmupFlowChanged, this, startHeaterTimer);
+        connect(hw, &SettingsHardware::heaterTestFlowChanged, this, startHeaterTimer);
+        connect(hw, &SettingsHardware::heaterWarmupTimeoutChanged, this, startHeaterTimer);
+        connect(hw, &SettingsHardware::hotWaterFlowRateChanged, this, startHeaterTimer);
+        connect(hw, &SettingsHardware::steamTwoTapStopChanged, this, startHeaterTimer);
     }
     // Connect to machine state events
     if (m_machineState) {
@@ -227,7 +231,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Emit remoteSleepRequested when sleep command received via REST API
     connect(m_shotServer, &ShotServer::sleepRequested, this, &MainController::remoteSleepRequested);
     // Create MQTT client for home automation
-    m_mqttClient = new MqttClient(m_device, m_machineState, m_settings, this);
+    m_mqttClient = new MqttClient(m_device, m_machineState, m_settings, m_settings->mqtt(), this);
 
     // Pass MainController reference for shot history access
     m_mqttClient->setMainController(this);
@@ -269,11 +273,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     connect(m_settings, &Settings::keepSteamHeaterOnChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
 
     // Auto-connect MQTT if enabled
-    if (m_settings && m_settings->mqttEnabled() && !m_settings->mqttBrokerHost().isEmpty()) {
+    if (m_settings && m_settings->mqtt()->mqttEnabled() && !m_settings->mqtt()->mqttBrokerHost().isEmpty()) {
         // Deferred call ensures construction completes first.
         // MQTT connects to an external broker over TCP — no BLE dependency.
         QMetaObject::invokeMethod(this, [this]() {
-            if (m_settings->mqttEnabled()) {
+            if (m_settings->mqtt()->mqttEnabled()) {
                 m_mqttClient->connectToBroker();
             }
         }, Qt::QueuedConnection);
@@ -785,7 +789,7 @@ void MainController::applyHotWaterSettings() {
     sendMachineSettings(QStringLiteral("applyHotWaterSettings"));
     if (m_device && m_device->isConnected())
         m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE,
-                           m_settings->hotWaterFlowRate(),
+                           m_settings->hardware()->hotWaterFlowRate(),
                            QStringLiteral("applyHotWaterSettings"));
 }
 
@@ -1352,12 +1356,12 @@ void MainController::applyHeaterTweaks() {
     }
 
     const QString reason = QStringLiteral("applyHeaterTweaks");
-    m_device->writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow(), reason);
-    m_device->writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow(), reason);
-    m_device->writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp(), reason);
-    m_device->writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout(), reason);
-    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate(), reason);
-    m_device->writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0, reason);
+    m_device->writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->hardware()->heaterWarmupFlow(), reason);
+    m_device->writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->hardware()->heaterTestFlow(), reason);
+    m_device->writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->hardware()->heaterIdleTemp(), reason);
+    m_device->writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->hardware()->heaterWarmupTimeout(), reason);
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hardware()->hotWaterFlowRate(), reason);
+    m_device->writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->hardware()->steamTwoTapStop() ? 1 : 0, reason);
 }
 
 double MainController::getGroupTemperature() const {
@@ -1502,7 +1506,7 @@ void MainController::turnOffSteamHeater() {
 void MainController::setHotWaterFlowRateImmediate(int flow) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_settings->setHotWaterFlowRate(flow);
+    m_settings->hardware()->setHotWaterFlowRate(flow);
 
     m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, flow,
                        QStringLiteral("setHotWaterFlowRateImmediate"));
@@ -1655,7 +1659,7 @@ void MainController::onEspressoCycleStarted() {
     }
 
     // Clear shot notes if setting is enabled
-    if (m_settings && m_settings->visualizerClearNotesOnStart()) {
+    if (m_settings && m_settings->visualizer()->visualizerClearNotesOnStart()) {
         m_settings->setDyeShotNotes("");
     }
 }
@@ -1793,7 +1797,7 @@ void MainController::onShotEnded() {
     }
 
     // Capture once so both the async callback and synchronous code use the same value
-    bool showPostShot = m_settings->visualizerShowAfterShot();
+    bool showPostShot = m_settings->visualizer()->visualizerShowAfterShot();
 
     // Always save shot to local history (async — DB work runs on background thread)
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
@@ -1828,7 +1832,7 @@ void MainController::onShotEnded() {
 
                     // Reset shot-specific metadata for the next shot
                     // Bean/grinder info persists (sticky), but per-shot fields reset
-                    m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
+                    m_settings->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
                     m_settings->setDyeShotNotes("");
                     m_settings->setDyeDrinkTds(0);
                     m_settings->setDyeDrinkEy(0);
@@ -1887,7 +1891,7 @@ void MainController::onShotEnded() {
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
     // Auto-upload if enabled (do this first, before showing metadata page)
-    if (m_settings->visualizerAutoUpload() && m_visualizer) {
+    if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
         qDebug() << "  -> Auto-uploading to visualizer";
         m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata, debugLog, m_pendingShotEpoch);
     }
@@ -2095,7 +2099,7 @@ void MainController::generateFakeShotData() {
                     m_settings->setDyeDrinkWeight(pendingFinalWeight);
 
                     // Reset shot-specific metadata for next shot
-                    m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
+                    m_settings->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
                     m_settings->setDyeShotNotes("");
                     m_settings->setDyeDrinkTds(0);
                     m_settings->setDyeDrinkEy(0);

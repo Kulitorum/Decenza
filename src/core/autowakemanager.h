@@ -6,7 +6,7 @@
 #include <QTime>
 #include <QMap>
 
-class Settings;
+class SettingsAutoWake;
 
 /**
  * @brief Manages automatic wake-up scheduling for the DE1 machine.
@@ -20,7 +20,7 @@ class AutoWakeManager : public QObject {
     Q_OBJECT
 
 public:
-    explicit AutoWakeManager(Settings* settings, QObject* parent = nullptr);
+    explicit AutoWakeManager(SettingsAutoWake* settings, QObject* parent = nullptr);
 
     /// Start the wake schedule checker (call after app initialization)
     void start();
@@ -37,7 +37,7 @@ private slots:
 
 private:
     void scheduleNextWake();
-    Settings* m_settings;
+    SettingsAutoWake* m_settings;
     QTimer* m_checkTimer;
 
     // Track which days we've already triggered (0=Monday, 6=Sunday)

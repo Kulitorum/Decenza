@@ -3,6 +3,7 @@
 #include "mcptoolregistry.h"
 #include "mcpresourceregistry.h"
 #include "../core/settings.h"
+#include "../core/settings_mcp.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../controllers/maincontroller.h"
@@ -429,7 +430,7 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* se
     Q_UNUSED(params)
     Q_UNUSED(session)
 
-    int accessLevel = m_settings ? m_settings->mcpAccessLevel() : 0;
+    int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
 
     QJsonObject result;
     result["tools"] = m_toolRegistry->listTools(accessLevel);
@@ -442,7 +443,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     QString toolName = params["name"].toString();
     QJsonObject arguments = params["arguments"].toObject();
 
-    int accessLevel = m_settings ? m_settings->mcpAccessLevel() : 0;
+    int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
 
     // Rate limiting for control + settings tools
     QString category = m_toolRegistry->toolCategory(toolName);
@@ -864,7 +865,7 @@ void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVarian
 bool McpServer::needsInAppConfirmation(const QString& toolName) const
 {
     if (!m_settings) return false;
-    int level = m_settings->mcpConfirmationLevel();
+    int level = m_settings->mcp()->mcpConfirmationLevel();
     if (level == 0) return false;
     // machine_start_* requires in-app confirmation at any non-zero confirmation level
     return toolName.startsWith("machine_start_");
@@ -873,7 +874,7 @@ bool McpServer::needsInAppConfirmation(const QString& toolName) const
 bool McpServer::needsChatConfirmation(const QString& toolName) const
 {
     if (!m_settings) return false;
-    int level = m_settings->mcpConfirmationLevel();
+    int level = m_settings->mcp()->mcpConfirmationLevel();
     if (level == 0) return false;
 
     // All non-zero levels: settings/profile/dial-in write ops

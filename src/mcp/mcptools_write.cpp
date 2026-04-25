@@ -3,6 +3,13 @@
 #include "../history/shothistorystorage.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
+#include "../core/settings_mqtt.h"
+#include "../core/settings_autowake.h"
+#include "../core/settings_hardware.h"
+#include "../core/settings_ai.h"
+#include "../core/settings_theme.h"
+#include "../core/settings_visualizer.h"
+#include "../core/settings_mcp.h"
 #include "../core/accessibilitymanager.h"
 #include "../core/translationmanager.h"
 #include "../core/batterymanager.h"
@@ -453,7 +460,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("steamTwoTapStop")) {
                 bool v = args["steamTwoTapStop"].toBool();
-                addSetter([settings, v]() { settings->setSteamTwoTapStop(v); });
+                auto* hw = settings->hardware();
+                addSetter([hw, v]() { hw->setSteamTwoTapStop(v); });
                 updated << "steamTwoTapStop";
             }
 
@@ -475,7 +483,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("hotWaterFlowRateMlPerSec")) {
                 int v = static_cast<int>(args["hotWaterFlowRateMlPerSec"].toDouble() * 10.0);
-                addSetter([settings, v]() { settings->setHotWaterFlowRate(v); });
+                auto* hw = settings->hardware();
+                addSetter([hw, v]() { hw->setHotWaterFlowRate(v); });
                 updated << "hotWaterFlowRateMlPerSec";
             }
 
@@ -571,17 +580,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Machine ===
             if (args.contains("themeMode")) {
                 QString v = args["themeMode"].toString();
-                addSetter([settings, v]() { settings->setThemeMode(v); });
+                addSetter([settings, v]() { settings->theme()->setThemeMode(v); });
                 updated << "themeMode";
             }
             if (args.contains("darkThemeName")) {
                 QString v = args["darkThemeName"].toString();
-                addSetter([settings, v]() { settings->setDarkThemeName(v); });
+                addSetter([settings, v]() { settings->theme()->setDarkThemeName(v); });
                 updated << "darkThemeName";
             }
             if (args.contains("lightThemeName")) {
                 QString v = args["lightThemeName"].toString();
-                addSetter([settings, v]() { settings->setLightThemeName(v); });
+                addSetter([settings, v]() { settings->theme()->setLightThemeName(v); });
                 updated << "lightThemeName";
             }
             if (args.contains("autoSleepMinutes")) {
@@ -616,12 +625,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("screenBrightness")) {
                 double v = args["screenBrightness"].toDouble();
-                addSetter([settings, v]() { settings->setScreenBrightness(v); });
+                addSetter([settings, v]() { settings->theme()->setScreenBrightness(v); });
                 updated << "screenBrightness";
             }
             if (args.contains("defaultShotRating")) {
                 int v = qBound(0, args["defaultShotRating"].toInt(), 100);
-                addSetter([settings, v]() { settings->setDefaultShotRating(v); });
+                addSetter([settings, v]() { settings->visualizer()->setDefaultShotRating(v); });
                 updated << "defaultShotRating";
             }
             if (args.contains("launcherMode")) {
@@ -644,20 +653,23 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 addSetter([settings, v]() { settings->setIgnoreVolumeWithScale(v); });
                 updated << "ignoreVolumeWithScale";
             }
-            if (args.contains("autoWakeEnabled")) {
-                bool v = args["autoWakeEnabled"].toBool();
-                addSetter([settings, v]() { settings->setAutoWakeEnabled(v); });
-                updated << "autoWakeEnabled";
-            }
-            if (args.contains("autoWakeStayAwakeEnabled")) {
-                bool v = args["autoWakeStayAwakeEnabled"].toBool();
-                addSetter([settings, v]() { settings->setAutoWakeStayAwakeEnabled(v); });
-                updated << "autoWakeStayAwakeEnabled";
-            }
-            if (args.contains("autoWakeStayAwakeMinutes")) {
-                int v = args["autoWakeStayAwakeMinutes"].toInt();
-                addSetter([settings, v]() { settings->setAutoWakeStayAwakeMinutes(v); });
-                updated << "autoWakeStayAwakeMinutes";
+            {
+                auto* aw = settings->autoWake();
+                if (args.contains("autoWakeEnabled")) {
+                    bool v = args["autoWakeEnabled"].toBool();
+                    addSetter([aw, v]() { aw->setAutoWakeEnabled(v); });
+                    updated << "autoWakeEnabled";
+                }
+                if (args.contains("autoWakeStayAwakeEnabled")) {
+                    bool v = args["autoWakeStayAwakeEnabled"].toBool();
+                    addSetter([aw, v]() { aw->setAutoWakeStayAwakeEnabled(v); });
+                    updated << "autoWakeStayAwakeEnabled";
+                }
+                if (args.contains("autoWakeStayAwakeMinutes")) {
+                    int v = args["autoWakeStayAwakeMinutes"].toInt();
+                    addSetter([aw, v]() { aw->setAutoWakeStayAwakeMinutes(v); });
+                    updated << "autoWakeStayAwakeMinutes";
+                }
             }
 
             // === Connections ===
@@ -806,24 +818,42 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
 
             // === AI ===
-            if (args.contains("aiProvider")) {
-                QString v = args["aiProvider"].toString();
-                addSetter([settings, v]() { settings->setAiProvider(v); });
-                updated << "aiProvider";
+            {
+                auto* a = settings->ai();
+                if (args.contains("aiProvider")) {
+                    QString v = args["aiProvider"].toString();
+                    addSetter([a, v]() { a->setAiProvider(v); });
+                    updated << "aiProvider";
+                }
+                if (args.contains("ollamaEndpoint")) {
+                    QString v = args["ollamaEndpoint"].toString();
+                    addSetter([a, v]() { a->setOllamaEndpoint(v); });
+                    updated << "ollamaEndpoint";
+                }
+                if (args.contains("ollamaModel")) {
+                    QString v = args["ollamaModel"].toString();
+                    addSetter([a, v]() { a->setOllamaModel(v); });
+                    updated << "ollamaModel";
+                }
+                if (args.contains("openrouterModel")) {
+                    QString v = args["openrouterModel"].toString();
+                    addSetter([a, v]() { a->setOpenrouterModel(v); });
+                    updated << "openrouterModel";
+                }
             }
             if (args.contains("mcpEnabled")) {
                 bool v = args["mcpEnabled"].toBool();
-                addSetter([settings, v]() { settings->setMcpEnabled(v); });
+                addSetter([settings, v]() { settings->mcp()->setMcpEnabled(v); });
                 updated << "mcpEnabled";
             }
             if (args.contains("mcpAccessLevel")) {
                 int v = qBound(0, args["mcpAccessLevel"].toInt(), 2);
-                addSetter([settings, v]() { settings->setMcpAccessLevel(v); });
+                addSetter([settings, v]() { settings->mcp()->setMcpAccessLevel(v); });
                 updated << "mcpAccessLevel";
             }
             if (args.contains("mcpConfirmationLevel")) {
                 int v = qBound(0, args["mcpConfirmationLevel"].toInt(), 2);
-                addSetter([settings, v]() { settings->setMcpConfirmationLevel(v); });
+                addSetter([settings, v]() { settings->mcp()->setMcpConfirmationLevel(v); });
                 updated << "mcpConfirmationLevel";
             }
             if (args.contains("discussShotApp")) {
@@ -836,106 +866,94 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 addSetter([settings, v]() { settings->setDiscussShotCustomUrl(v); });
                 updated << "discussShotCustomUrl";
             }
-            if (args.contains("ollamaEndpoint")) {
-                QString v = args["ollamaEndpoint"].toString();
-                addSetter([settings, v]() { settings->setOllamaEndpoint(v); });
-                updated << "ollamaEndpoint";
-            }
-            if (args.contains("ollamaModel")) {
-                QString v = args["ollamaModel"].toString();
-                addSetter([settings, v]() { settings->setOllamaModel(v); });
-                updated << "ollamaModel";
-            }
-            if (args.contains("openrouterModel")) {
-                QString v = args["openrouterModel"].toString();
-                addSetter([settings, v]() { settings->setOpenrouterModel(v); });
-                updated << "openrouterModel";
-            }
 
             // === MQTT ===
-            if (args.contains("mqttEnabled")) {
-                bool v = args["mqttEnabled"].toBool();
-                addSetter([settings, v]() { settings->setMqttEnabled(v); });
-                updated << "mqttEnabled";
+            {
+                auto* m = settings->mqtt();
+                if (args.contains("mqttEnabled")) {
+                    bool v = args["mqttEnabled"].toBool();
+                    addSetter([m, v]() { m->setMqttEnabled(v); });
+                    updated << "mqttEnabled";
+                }
+                if (args.contains("mqttBrokerHost")) {
+                    QString v = args["mqttBrokerHost"].toString();
+                    addSetter([m, v]() { m->setMqttBrokerHost(v); });
+                    updated << "mqttBrokerHost";
+                }
+                if (args.contains("mqttBrokerPort")) {
+                    int v = args["mqttBrokerPort"].toInt();
+                    addSetter([m, v]() { m->setMqttBrokerPort(v); });
+                    updated << "mqttBrokerPort";
+                }
+                if (args.contains("mqttUsername")) {
+                    QString v = args["mqttUsername"].toString();
+                    addSetter([m, v]() { m->setMqttUsername(v); });
+                    updated << "mqttUsername";
+                }
+                if (args.contains("mqttBaseTopic")) {
+                    QString v = args["mqttBaseTopic"].toString();
+                    addSetter([m, v]() { m->setMqttBaseTopic(v); });
+                    updated << "mqttBaseTopic";
+                }
+                if (args.contains("mqttPublishInterval")) {
+                    int v = args["mqttPublishInterval"].toInt();
+                    addSetter([m, v]() { m->setMqttPublishInterval(v); });
+                    updated << "mqttPublishInterval";
+                }
+                if (args.contains("mqttRetainMessages")) {
+                    bool v = args["mqttRetainMessages"].toBool();
+                    addSetter([m, v]() { m->setMqttRetainMessages(v); });
+                    updated << "mqttRetainMessages";
+                }
+                if (args.contains("mqttHomeAssistantDiscovery")) {
+                    bool v = args["mqttHomeAssistantDiscovery"].toBool();
+                    addSetter([m, v]() { m->setMqttHomeAssistantDiscovery(v); });
+                    updated << "mqttHomeAssistantDiscovery";
+                }
+                if (args.contains("mqttClientId")) {
+                    QString v = args["mqttClientId"].toString();
+                    addSetter([m, v]() { m->setMqttClientId(v); });
+                    updated << "mqttClientId";
+                }
+                // mqttPassword excluded — sensitive
             }
-            if (args.contains("mqttBrokerHost")) {
-                QString v = args["mqttBrokerHost"].toString();
-                addSetter([settings, v]() { settings->setMqttBrokerHost(v); });
-                updated << "mqttBrokerHost";
-            }
-            if (args.contains("mqttBrokerPort")) {
-                int v = args["mqttBrokerPort"].toInt();
-                addSetter([settings, v]() { settings->setMqttBrokerPort(v); });
-                updated << "mqttBrokerPort";
-            }
-            if (args.contains("mqttUsername")) {
-                QString v = args["mqttUsername"].toString();
-                addSetter([settings, v]() { settings->setMqttUsername(v); });
-                updated << "mqttUsername";
-            }
-            if (args.contains("mqttBaseTopic")) {
-                QString v = args["mqttBaseTopic"].toString();
-                addSetter([settings, v]() { settings->setMqttBaseTopic(v); });
-                updated << "mqttBaseTopic";
-            }
-            if (args.contains("mqttPublishInterval")) {
-                int v = args["mqttPublishInterval"].toInt();
-                addSetter([settings, v]() { settings->setMqttPublishInterval(v); });
-                updated << "mqttPublishInterval";
-            }
-            if (args.contains("mqttRetainMessages")) {
-                bool v = args["mqttRetainMessages"].toBool();
-                addSetter([settings, v]() { settings->setMqttRetainMessages(v); });
-                updated << "mqttRetainMessages";
-            }
-            if (args.contains("mqttHomeAssistantDiscovery")) {
-                bool v = args["mqttHomeAssistantDiscovery"].toBool();
-                addSetter([settings, v]() { settings->setMqttHomeAssistantDiscovery(v); });
-                updated << "mqttHomeAssistantDiscovery";
-            }
-            if (args.contains("mqttClientId")) {
-                QString v = args["mqttClientId"].toString();
-                addSetter([settings, v]() { settings->setMqttClientId(v); });
-                updated << "mqttClientId";
-            }
-            // mqttPassword excluded — sensitive
 
             // === Themes ===
             if (args.contains("activeThemeName")) {
                 QString v = args["activeThemeName"].toString();
-                addSetter([settings, v]() { settings->setActiveThemeName(v); });
+                addSetter([settings, v]() { settings->theme()->setActiveThemeName(v); });
                 updated << "activeThemeName";
             }
             if (args.contains("activeShader")) {
                 QString v = args["activeShader"].toString();
-                addSetter([settings, v]() { settings->setActiveShader(v); });
+                addSetter([settings, v]() { settings->theme()->setActiveShader(v); });
                 updated << "activeShader";
             }
 
             // === Visualizer ===
             if (args.contains("visualizerAutoUpload")) {
                 bool v = args["visualizerAutoUpload"].toBool();
-                addSetter([settings, v]() { settings->setVisualizerAutoUpload(v); });
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpload(v); });
                 updated << "visualizerAutoUpload";
             }
             if (args.contains("visualizerMinDuration")) {
                 double v = args["visualizerMinDuration"].toDouble();
-                addSetter([settings, v]() { settings->setVisualizerMinDuration(v); });
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerMinDuration(v); });
                 updated << "visualizerMinDuration";
             }
             if (args.contains("visualizerExtendedMetadata")) {
                 bool v = args["visualizerExtendedMetadata"].toBool();
-                addSetter([settings, v]() { settings->setVisualizerExtendedMetadata(v); });
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerExtendedMetadata(v); });
                 updated << "visualizerExtendedMetadata";
             }
             if (args.contains("visualizerShowAfterShot")) {
                 bool v = args["visualizerShowAfterShot"].toBool();
-                addSetter([settings, v]() { settings->setVisualizerShowAfterShot(v); });
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerShowAfterShot(v); });
                 updated << "visualizerShowAfterShot";
             }
             if (args.contains("visualizerClearNotesOnStart")) {
                 bool v = args["visualizerClearNotesOnStart"].toBool();
-                addSetter([settings, v]() { settings->setVisualizerClearNotesOnStart(v); });
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerClearNotesOnStart(v); });
                 updated << "visualizerClearNotesOnStart";
             }
             // visualizerUsername/Password excluded — sensitive
@@ -1008,25 +1026,28 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
 
             // === Heater calibration (display units × 10 = internal storage) ===
-            if (args.contains("heaterIdleTempC")) {
-                int v = static_cast<int>(args["heaterIdleTempC"].toDouble() * 10.0);
-                addSetter([settings, v]() { settings->setHeaterIdleTemp(v); });
-                updated << "heaterIdleTempC";
-            }
-            if (args.contains("heaterWarmupFlowMlPerSec")) {
-                int v = static_cast<int>(args["heaterWarmupFlowMlPerSec"].toDouble() * 10.0);
-                addSetter([settings, v]() { settings->setHeaterWarmupFlow(v); });
-                updated << "heaterWarmupFlowMlPerSec";
-            }
-            if (args.contains("heaterTestFlowMlPerSec")) {
-                int v = static_cast<int>(args["heaterTestFlowMlPerSec"].toDouble() * 10.0);
-                addSetter([settings, v]() { settings->setHeaterTestFlow(v); });
-                updated << "heaterTestFlowMlPerSec";
-            }
-            if (args.contains("heaterWarmupTimeoutSec")) {
-                int v = static_cast<int>(args["heaterWarmupTimeoutSec"].toDouble() * 10.0);
-                addSetter([settings, v]() { settings->setHeaterWarmupTimeout(v); });
-                updated << "heaterWarmupTimeoutSec";
+            {
+                auto* hw = settings->hardware();
+                if (args.contains("heaterIdleTempC")) {
+                    int v = static_cast<int>(args["heaterIdleTempC"].toDouble() * 10.0);
+                    addSetter([hw, v]() { hw->setHeaterIdleTemp(v); });
+                    updated << "heaterIdleTempC";
+                }
+                if (args.contains("heaterWarmupFlowMlPerSec")) {
+                    int v = static_cast<int>(args["heaterWarmupFlowMlPerSec"].toDouble() * 10.0);
+                    addSetter([hw, v]() { hw->setHeaterWarmupFlow(v); });
+                    updated << "heaterWarmupFlowMlPerSec";
+                }
+                if (args.contains("heaterTestFlowMlPerSec")) {
+                    int v = static_cast<int>(args["heaterTestFlowMlPerSec"].toDouble() * 10.0);
+                    addSetter([hw, v]() { hw->setHeaterTestFlow(v); });
+                    updated << "heaterTestFlowMlPerSec";
+                }
+                if (args.contains("heaterWarmupTimeoutSec")) {
+                    int v = static_cast<int>(args["heaterWarmupTimeoutSec"].toDouble() * 10.0);
+                    addSetter([hw, v]() { hw->setHeaterWarmupTimeout(v); });
+                    updated << "heaterWarmupTimeoutSec";
+                }
             }
 
             // === Auto-favorites ===

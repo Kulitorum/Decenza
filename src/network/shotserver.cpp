@@ -8,6 +8,8 @@
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
+#include "../core/settings_theme.h"
+#include "../core/settings_mcp.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../core/dbutils.h"
@@ -333,17 +335,18 @@ void ShotServer::setSettings(Settings* settings)
     if (m_settings) {
         connect(m_settings, &Settings::layoutConfigurationChanged,
                 this, &ShotServer::onLayoutChanged);
-        connect(m_settings, &Settings::customThemeColorsChanged,
+        auto* theme = m_settings->theme();
+        connect(theme, &SettingsTheme::customThemeColorsChanged,
                 this, &ShotServer::onThemeChanged);
-        connect(m_settings, &Settings::customFontSizesChanged,
+        connect(theme, &SettingsTheme::customFontSizesChanged,
                 this, &ShotServer::onThemeChanged);
-        connect(m_settings, &Settings::activeThemeNameChanged,
+        connect(theme, &SettingsTheme::activeThemeNameChanged,
                 this, &ShotServer::onThemeChanged);
-        connect(m_settings, &Settings::currentPageColorsChanged,
+        connect(theme, &SettingsTheme::currentPageColorsChanged,
                 this, &ShotServer::onThemeChanged);
-        connect(m_settings, &Settings::themeModeChanged,
+        connect(theme, &SettingsTheme::themeModeChanged,
                 this, &ShotServer::onThemeChanged);
-        connect(m_settings, &Settings::editingPaletteChanged,
+        connect(theme, &SettingsTheme::editingPaletteChanged,
                 this, &ShotServer::onThemeChanged);
     }
 }
@@ -1052,7 +1055,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             }
             if (authHeader.startsWith("Bearer ", Qt::CaseInsensitive)) {
                 QString token = authHeader.mid(7).trimmed();
-                if (!token.isEmpty() && token == m_settings->mcpApiKey()) {
+                if (!token.isEmpty() && token == m_settings->mcp()->mcpApiKey()) {
                     exempt = true;  // Valid API key — skip TOTP check
                 }
             }
@@ -1535,7 +1538,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 </script>
 </body></html>)HTML");
 
-            bool mcpOn = m_settings && m_settings->mcpEnabled();
+            bool mcpOn = m_settings && m_settings->mcp()->mcpEnabled();
             // %3 is used in the JS install script URL (the MCP endpoint URL)
             QString configJson = mcpUrl;
             qsizetype toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
@@ -1549,7 +1552,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             return;
         }
 
-        if (!m_mcpServer || !m_settings || !m_settings->mcpEnabled()) {
+        if (!m_mcpServer || !m_settings || !m_settings->mcp()->mcpEnabled()) {
             sendResponse(socket, 404, "text/plain", "Not Found");
             return;
         }

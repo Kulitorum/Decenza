@@ -7,9 +7,40 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTimer>
+// Domain sub-objects are forward-declared. The QML-facing Q_PROPERTYs return
+// QObject* (a known type that QML can introspect) so this header doesn't need
+// to include the seven sub-object headers — preserving the recompile-blast
+// reduction this whole refactor is for.
+//
+// C++ callers use the typed accessor (e.g. `settings->mqtt()`) and include
+// `settings_mqtt.h` themselves where they actually dereference.
+class SettingsMqtt;
+class SettingsAutoWake;
+class SettingsHardware;
+class SettingsAI;
+class SettingsTheme;
+class SettingsVisualizer;
+class SettingsMcp;
 
 class Settings : public QObject {
     Q_OBJECT
+
+    // Domain sub-objects exposed to QML as QObject* so QML can resolve
+    // `Settings.mqtt.mqttEnabled` via the runtime metaObject (SettingsMqtt's
+    // Q_OBJECT supplies it). The typed `mqtt()` accessor below is what C++
+    // callers use.
+    //
+    // Required prerequisite: each sub-object type must be registered with the
+    // QML engine via qmlRegisterUncreatableType<SettingsXxx>(...) in main.cpp,
+    // otherwise QML can't discover the concrete type and resolves the chained
+    // property access (e.g. `.customThemeColors`) to `undefined` at runtime.
+    Q_PROPERTY(QObject* mqtt READ mqttQObject CONSTANT)
+    Q_PROPERTY(QObject* autoWake READ autoWakeQObject CONSTANT)
+    Q_PROPERTY(QObject* hardware READ hardwareQObject CONSTANT)
+    Q_PROPERTY(QObject* ai READ aiQObject CONSTANT)
+    Q_PROPERTY(QObject* theme READ themeQObject CONSTANT)
+    Q_PROPERTY(QObject* visualizer READ visualizerQObject CONSTANT)
+    Q_PROPERTY(QObject* mcp READ mcpQObject CONSTANT)
 
     // Platform capabilities
     Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT)
@@ -104,55 +135,9 @@ class Settings : public QObject {
     Q_PROPERTY(bool beansModified READ beansModified NOTIFY beansModifiedChanged)
 
     // UI settings
-    Q_PROPERTY(QString skin READ skin WRITE setSkin NOTIFY skinChanged)
-    Q_PROPERTY(QString skinPath READ skinPath NOTIFY skinChanged)
     Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged)
 
-    // Theme settings
-    Q_PROPERTY(QVariantMap customThemeColors READ customThemeColors WRITE setCustomThemeColors NOTIFY customThemeColorsChanged)
-    Q_PROPERTY(QVariantList colorGroups READ colorGroups WRITE setColorGroups NOTIFY colorGroupsChanged)
-    Q_PROPERTY(QString activeThemeName READ activeThemeName WRITE setActiveThemeName NOTIFY activeThemeNameChanged)
-    Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged)
-    Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged)
-    Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
-    Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
-    Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
 
-    // Theme mode (light/dark/system)
-    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
-    Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
-    Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged)
-
-    // Screen shaders
-    Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
-    Q_PROPERTY(QVariantMap shaderParams READ shaderParams NOTIFY shaderParamsChanged)
-
-    // Theme flash (in-memory only, for identifying colors on device)
-    Q_PROPERTY(QString flashColorName READ flashColorName NOTIFY flashColorNameChanged)
-    Q_PROPERTY(int flashPhase READ flashPhase NOTIFY flashPhaseChanged)
-
-    // Colors detected on the current page (set from QML tree walker)
-    Q_PROPERTY(QStringList currentPageColors READ currentPageColors WRITE setCurrentPageColors NOTIFY currentPageColorsChanged)
-
-    // Visualizer settings
-    Q_PROPERTY(QString visualizerUsername READ visualizerUsername WRITE setVisualizerUsername NOTIFY visualizerUsernameChanged)
-    Q_PROPERTY(QString visualizerPassword READ visualizerPassword WRITE setVisualizerPassword NOTIFY visualizerPasswordChanged)
-    Q_PROPERTY(bool visualizerAutoUpload READ visualizerAutoUpload WRITE setVisualizerAutoUpload NOTIFY visualizerAutoUploadChanged)
-    Q_PROPERTY(double visualizerMinDuration READ visualizerMinDuration WRITE setVisualizerMinDuration NOTIFY visualizerMinDurationChanged)
-    Q_PROPERTY(bool visualizerExtendedMetadata READ visualizerExtendedMetadata WRITE setVisualizerExtendedMetadata NOTIFY visualizerExtendedMetadataChanged)
-    Q_PROPERTY(bool visualizerShowAfterShot READ visualizerShowAfterShot WRITE setVisualizerShowAfterShot NOTIFY visualizerShowAfterShotChanged)
-    Q_PROPERTY(bool visualizerClearNotesOnStart READ visualizerClearNotesOnStart WRITE setVisualizerClearNotesOnStart NOTIFY visualizerClearNotesOnStartChanged)
-    Q_PROPERTY(int defaultShotRating READ defaultShotRating WRITE setDefaultShotRating NOTIFY defaultShotRatingChanged)
-
-    // AI Dialing Assistant settings
-    Q_PROPERTY(QString aiProvider READ aiProvider WRITE setAiProvider NOTIFY aiProviderChanged)
-    Q_PROPERTY(QString openaiApiKey READ openaiApiKey WRITE setOpenaiApiKey NOTIFY openaiApiKeyChanged)
-    Q_PROPERTY(QString anthropicApiKey READ anthropicApiKey WRITE setAnthropicApiKey NOTIFY anthropicApiKeyChanged)
-    Q_PROPERTY(QString geminiApiKey READ geminiApiKey WRITE setGeminiApiKey NOTIFY geminiApiKeyChanged)
-    Q_PROPERTY(QString ollamaEndpoint READ ollamaEndpoint WRITE setOllamaEndpoint NOTIFY ollamaEndpointChanged)
-    Q_PROPERTY(QString ollamaModel READ ollamaModel WRITE setOllamaModel NOTIFY ollamaModelChanged)
-    Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged)
-    Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged)
 
     // Build info
     Q_PROPERTY(bool isDebugBuild READ isDebugBuild CONSTANT)
@@ -212,13 +197,6 @@ class Settings : public QObject {
     // Refill kit override (0=force off, 1=force on, 2=auto-detect)
     Q_PROPERTY(int refillKitOverride READ refillKitOverride WRITE setRefillKitOverride NOTIFY refillKitOverrideChanged)
 
-    // Heater calibration (de1app's set_heater_tweaks — values in raw firmware units)
-    Q_PROPERTY(int heaterIdleTemp READ heaterIdleTemp WRITE setHeaterIdleTemp NOTIFY heaterIdleTempChanged)
-    Q_PROPERTY(int heaterWarmupFlow READ heaterWarmupFlow WRITE setHeaterWarmupFlow NOTIFY heaterWarmupFlowChanged)
-    Q_PROPERTY(int heaterTestFlow READ heaterTestFlow WRITE setHeaterTestFlow NOTIFY heaterTestFlowChanged)
-    Q_PROPERTY(int heaterWarmupTimeout READ heaterWarmupTimeout WRITE setHeaterWarmupTimeout NOTIFY heaterWarmupTimeoutChanged)
-    Q_PROPERTY(int hotWaterFlowRate READ hotWaterFlowRate WRITE setHotWaterFlowRate NOTIFY hotWaterFlowRateChanged)
-    Q_PROPERTY(bool steamTwoTapStop READ steamTwoTapStop WRITE setSteamTwoTapStop NOTIFY steamTwoTapStopChanged)
 
     // Developer settings
     Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
@@ -235,12 +213,6 @@ class Settings : public QObject {
     Q_PROPERTY(double brewYieldOverride READ brewYieldOverride WRITE setBrewYieldOverride NOTIFY brewOverridesChanged)
     Q_PROPERTY(bool hasBrewYieldOverride READ hasBrewYieldOverride NOTIFY brewOverridesChanged)
 
-    // Auto-wake schedule
-    Q_PROPERTY(bool autoWakeEnabled READ autoWakeEnabled WRITE setAutoWakeEnabled NOTIFY autoWakeEnabledChanged)
-    Q_PROPERTY(QVariantList autoWakeSchedule READ autoWakeSchedule WRITE setAutoWakeSchedule NOTIFY autoWakeScheduleChanged)
-    Q_PROPERTY(bool autoWakeStayAwakeEnabled READ autoWakeStayAwakeEnabled WRITE setAutoWakeStayAwakeEnabled NOTIFY autoWakeStayAwakeEnabledChanged)
-    Q_PROPERTY(int autoWakeStayAwakeMinutes READ autoWakeStayAwakeMinutes WRITE setAutoWakeStayAwakeMinutes NOTIFY autoWakeStayAwakeMinutesChanged)
-
     // Flow calibration
     Q_PROPERTY(double flowCalibrationMultiplier READ flowCalibrationMultiplier WRITE setFlowCalibrationMultiplier NOTIFY flowCalibrationMultiplierChanged)
     Q_PROPERTY(bool autoFlowCalibration READ autoFlowCalibration WRITE setAutoFlowCalibration NOTIFY autoFlowCalibrationChanged)
@@ -255,11 +227,6 @@ class Settings : public QObject {
     // Layout configuration (dynamic IdlePage layout)
     Q_PROPERTY(QString layoutConfiguration READ layoutConfiguration WRITE setLayoutConfiguration NOTIFY layoutConfigurationChanged)
 
-    // MCP Server settings
-    Q_PROPERTY(bool mcpEnabled READ mcpEnabled WRITE setMcpEnabled NOTIFY mcpEnabledChanged)
-    Q_PROPERTY(int mcpAccessLevel READ mcpAccessLevel WRITE setMcpAccessLevel NOTIFY mcpAccessLevelChanged)
-    Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfirmationLevel NOTIFY mcpConfirmationLevelChanged)
-    Q_PROPERTY(QString mcpApiKey READ mcpApiKey NOTIFY mcpApiKeyChanged)
 
     // Discuss Shot settings
     Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged)
@@ -268,20 +235,28 @@ class Settings : public QObject {
     Q_PROPERTY(int discussAppNone READ discussAppNone CONSTANT)
     Q_PROPERTY(int discussAppClaudeDesktop READ discussAppClaudeDesktop CONSTANT)
 
-    // MQTT settings (Home Automation)
-    Q_PROPERTY(bool mqttEnabled READ mqttEnabled WRITE setMqttEnabled NOTIFY mqttEnabledChanged)
-    Q_PROPERTY(QString mqttBrokerHost READ mqttBrokerHost WRITE setMqttBrokerHost NOTIFY mqttBrokerHostChanged)
-    Q_PROPERTY(int mqttBrokerPort READ mqttBrokerPort WRITE setMqttBrokerPort NOTIFY mqttBrokerPortChanged)
-    Q_PROPERTY(QString mqttUsername READ mqttUsername WRITE setMqttUsername NOTIFY mqttUsernameChanged)
-    Q_PROPERTY(QString mqttPassword READ mqttPassword WRITE setMqttPassword NOTIFY mqttPasswordChanged)
-    Q_PROPERTY(QString mqttBaseTopic READ mqttBaseTopic WRITE setMqttBaseTopic NOTIFY mqttBaseTopicChanged)
-    Q_PROPERTY(int mqttPublishInterval READ mqttPublishInterval WRITE setMqttPublishInterval NOTIFY mqttPublishIntervalChanged)
-    Q_PROPERTY(bool mqttRetainMessages READ mqttRetainMessages WRITE setMqttRetainMessages NOTIFY mqttRetainMessagesChanged)
-    Q_PROPERTY(bool mqttHomeAssistantDiscovery READ mqttHomeAssistantDiscovery WRITE setMqttHomeAssistantDiscovery NOTIFY mqttHomeAssistantDiscoveryChanged)
-    Q_PROPERTY(QString mqttClientId READ mqttClientId WRITE setMqttClientId NOTIFY mqttClientIdChanged)
-
 public:
     explicit Settings(QObject* parent = nullptr);
+
+    // Domain sub-object accessors (typed, for C++ callers — header forward-declares
+    // the types so callers must include the specific settings_<domain>.h to dereference).
+    SettingsMqtt* mqtt() const { return m_mqtt; }
+    SettingsAutoWake* autoWake() const { return m_autoWake; }
+    SettingsHardware* hardware() const { return m_hardware; }
+    SettingsAI* ai() const { return m_ai; }
+    SettingsTheme* theme() const { return m_theme; }
+    SettingsVisualizer* visualizer() const { return m_visualizer; }
+    SettingsMcp* mcp() const { return m_mcp; }
+
+    // QML-facing accessors — implemented out-of-line in settings.cpp where the
+    // SettingsXxx -> QObject* upcast is visible. QML uses these via Q_PROPERTY.
+    QObject* mqttQObject() const;
+    QObject* autoWakeQObject() const;
+    QObject* hardwareQObject() const;
+    QObject* aiQObject() const;
+    QObject* themeQObject() const;
+    QObject* visualizerQObject() const;
+    QObject* mcpQObject() const;
 
     int discussAppNone() const { return 6; }
     int discussAppClaudeDesktop() const { return 7; }
@@ -500,138 +475,9 @@ public:
 
     bool beansModified() const { return m_beansModified; }
 
-    // UI settings
-    QString skin() const;
-    void setSkin(const QString& skin);
-    QString skinPath() const;
-
     QString currentProfile() const;
     void setCurrentProfile(const QString& profile);
 
-    // Theme settings
-    QVariantMap customThemeColors() const;
-    void setCustomThemeColors(const QVariantMap& colors);
-
-    QVariantList colorGroups() const;
-    void setColorGroups(const QVariantList& groups);
-
-    QString activeThemeName() const;
-    void setActiveThemeName(const QString& name);
-
-    // Per-mode theme selection
-    QString darkThemeName() const;
-    void setDarkThemeName(const QString& name);
-    QString lightThemeName() const;
-    void setLightThemeName(const QString& name);
-    QStringList themeNames() const;
-    Q_INVOKABLE void applyDarkTheme(const QString& name);
-    Q_INVOKABLE void applyLightTheme(const QString& name);
-
-    // Theme mode (light/dark/system)
-    QString themeMode() const;
-    void setThemeMode(const QString& mode);
-    bool isDarkMode() const { return m_isDarkMode; }
-    void initSystemThemeDetection();
-
-    // Editing palette (which palette the color editor targets)
-    QString editingPalette() const { return m_editingPalette; }
-    void setEditingPalette(const QString& palette);
-    Q_INVOKABLE QVariantMap editingPaletteColors() const;
-    Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
-
-    // Light/dark default palettes
-    static const QVariantMap& darkDefaults();
-    static const QVariantMap& lightDefaults();
-
-    // Screen effects (empty string = none, "crt" = CRT/Pip-Boy, extensible for future effects)
-    QString activeShader() const;
-    void setActiveShader(const QString& shader);
-    QVariantMap shaderParams() const;  // Returns active effect's params
-    Q_INVOKABLE void setShaderParam(const QString& name, double value);  // Sets on active effect
-    Q_INVOKABLE QVariantMap effectParams(const QString& effectId) const;  // Get any effect's params
-    Q_INVOKABLE void setEffectParam(const QString& effectId, const QString& name, double value);
-    QJsonObject screenEffectJson() const;       // Build screenEffect block for theme saving
-    void applyScreenEffect(const QJsonObject& screenEffect);  // Restore from theme JSON
-
-    Q_INVOKABLE void setThemeColor(const QString& colorName, const QString& colorValue);
-    Q_INVOKABLE QString getThemeColor(const QString& colorName) const;
-    Q_INVOKABLE void resetThemeToDefault();
-    Q_INVOKABLE QVariantList getPresetThemes() const;
-    Q_INVOKABLE void applyPresetTheme(const QString& name);
-    Q_INVOKABLE void saveCurrentTheme(const QString& name);
-    Q_INVOKABLE void deleteUserTheme(const QString& name);
-    Q_INVOKABLE bool saveThemeToFile(const QString& filePath);
-    Q_INVOKABLE bool loadThemeFromFile(const QString& filePath);
-    Q_INVOKABLE QVariantMap generatePalette(double hue, double saturation, double lightness) const;
-
-    // Font size customization
-    QVariantMap customFontSizes() const;
-    void setCustomFontSizes(const QVariantMap& sizes);
-    Q_INVOKABLE void setFontSize(const QString& fontName, int size);
-    Q_INVOKABLE int getFontSize(const QString& fontName) const;
-    Q_INVOKABLE void resetFontSizesToDefault();
-
-    // Theme flash - temporarily flash a color red/black to identify it on device
-    QString flashColorName() const { return m_flashColorName; }
-    int flashPhase() const { return m_flashPhase; }
-    Q_INVOKABLE void flashThemeColor(const QString& colorName);
-
-    // Page color detection
-    QStringList currentPageColors() const { return m_currentPageColors; }
-    void setCurrentPageColors(const QStringList& colors);
-
-    double screenBrightness() const;
-    void setScreenBrightness(double brightness);
-
-    // Visualizer settings
-    QString visualizerUsername() const;
-    void setVisualizerUsername(const QString& username);
-
-    QString visualizerPassword() const;
-    void setVisualizerPassword(const QString& password);
-
-    bool visualizerAutoUpload() const;
-    void setVisualizerAutoUpload(bool enabled);
-
-    double visualizerMinDuration() const;
-    void setVisualizerMinDuration(double seconds);
-
-    bool visualizerExtendedMetadata() const;
-    void setVisualizerExtendedMetadata(bool enabled);
-
-    bool visualizerShowAfterShot() const;
-    void setVisualizerShowAfterShot(bool enabled);
-
-    bool visualizerClearNotesOnStart() const;
-    void setVisualizerClearNotesOnStart(bool enabled);
-
-    int defaultShotRating() const;
-    void setDefaultShotRating(int rating);
-
-    // AI Dialing Assistant settings
-    QString aiProvider() const;
-    void setAiProvider(const QString& provider);
-
-    QString openaiApiKey() const;
-    void setOpenaiApiKey(const QString& key);
-
-    QString anthropicApiKey() const;
-    void setAnthropicApiKey(const QString& key);
-
-    QString geminiApiKey() const;
-    void setGeminiApiKey(const QString& key);
-
-    QString ollamaEndpoint() const;
-    void setOllamaEndpoint(const QString& endpoint);
-
-    QString ollamaModel() const;
-    void setOllamaModel(const QString& model);
-
-    QString openrouterApiKey() const;
-    void setOpenrouterApiKey(const QString& key);
-
-    QString openrouterModel() const;
-    void setOpenrouterModel(const QString& model);
 
     // Build info
     bool isDebugBuild() const;
@@ -741,19 +587,6 @@ public:
     int refillKitOverride() const;
     void setRefillKitOverride(int value);
 
-    // Heater calibration
-    int heaterIdleTemp() const;
-    void setHeaterIdleTemp(int value);
-    int heaterWarmupFlow() const;
-    void setHeaterWarmupFlow(int value);
-    int heaterTestFlow() const;
-    void setHeaterTestFlow(int value);
-    int heaterWarmupTimeout() const;
-    void setHeaterWarmupTimeout(int value);
-    int hotWaterFlowRate() const;
-    void setHotWaterFlowRate(int value);
-    bool steamTwoTapStop() const;
-    void setSteamTwoTapStop(bool value);
 
     // Developer settings
     bool developerTranslationUpload() const;
@@ -783,27 +616,7 @@ public:
     bool hasBrewYieldOverride() const;
     Q_INVOKABLE void clearAllBrewOverrides();
 
-    // Auto-wake schedule
-    bool autoWakeEnabled() const;
-    void setAutoWakeEnabled(bool enabled);
-    QVariantList autoWakeSchedule() const;
-    void setAutoWakeSchedule(const QVariantList& schedule);
-    Q_INVOKABLE void setAutoWakeDayEnabled(int dayIndex, bool enabled);
-    Q_INVOKABLE void setAutoWakeDayTime(int dayIndex, int hour, int minute);
-    bool autoWakeStayAwakeEnabled() const;
-    void setAutoWakeStayAwakeEnabled(bool enabled);
-    int autoWakeStayAwakeMinutes() const;
-    void setAutoWakeStayAwakeMinutes(int minutes);
-
     // MCP Server settings
-    bool mcpEnabled() const;
-    void setMcpEnabled(bool enabled);
-    int mcpAccessLevel() const;
-    void setMcpAccessLevel(int level);
-    int mcpConfirmationLevel() const;
-    void setMcpConfirmationLevel(int level);
-    QString mcpApiKey() const;
-    Q_INVOKABLE void regenerateMcpApiKey();
 
     // Discuss Shot settings
     int discussShotApp() const;
@@ -815,28 +628,6 @@ public:
     Q_INVOKABLE QString discussShotUrl() const;
     Q_INVOKABLE void openDiscussUrl(const QString& url);
     Q_INVOKABLE void dismissDiscussOverlay();
-
-    // MQTT settings (Home Automation)
-    bool mqttEnabled() const;
-    void setMqttEnabled(bool enabled);
-    QString mqttBrokerHost() const;
-    void setMqttBrokerHost(const QString& host);
-    int mqttBrokerPort() const;
-    void setMqttBrokerPort(int port);
-    QString mqttUsername() const;
-    void setMqttUsername(const QString& username);
-    QString mqttPassword() const;
-    void setMqttPassword(const QString& password);
-    QString mqttBaseTopic() const;
-    void setMqttBaseTopic(const QString& topic);
-    int mqttPublishInterval() const;
-    void setMqttPublishInterval(int interval);
-    bool mqttRetainMessages() const;
-    void setMqttRetainMessages(bool retain);
-    bool mqttHomeAssistantDiscovery() const;
-    void setMqttHomeAssistantDiscovery(bool enabled);
-    QString mqttClientId() const;
-    void setMqttClientId(const QString& clientId);
 
     // Flow calibration
     double flowCalibrationMultiplier() const;
@@ -981,40 +772,7 @@ signals:
     void beanPresetsChanged();
     void selectedBeanPresetChanged();
     void beansModifiedChanged();
-    void skinChanged();
     void currentProfileChanged();
-    void customThemeColorsChanged();
-    void colorGroupsChanged();
-    void activeThemeNameChanged();
-    void darkThemeNameChanged();
-    void lightThemeNameChanged();
-    void themeNamesChanged();
-    void themeModeChanged();
-    void isDarkModeChanged();
-    void editingPaletteChanged();
-    void activeShaderChanged();
-    void shaderParamsChanged();
-    void customFontSizesChanged();
-    void flashColorNameChanged();
-    void flashPhaseChanged();
-    void currentPageColorsChanged();
-    void screenBrightnessChanged();
-    void visualizerUsernameChanged();
-    void visualizerPasswordChanged();
-    void visualizerAutoUploadChanged();
-    void visualizerMinDurationChanged();
-    void visualizerExtendedMetadataChanged();
-    void visualizerShowAfterShotChanged();
-    void visualizerClearNotesOnStartChanged();
-    void defaultShotRatingChanged();
-    void aiProviderChanged();
-    void openaiApiKeyChanged();
-    void anthropicApiKeyChanged();
-    void geminiApiKeyChanged();
-    void ollamaEndpointChanged();
-    void ollamaModelChanged();
-    void openrouterApiKeyChanged();
-    void openrouterModelChanged();
     void dyeBeanBrandChanged();
     void dyeBeanTypeChanged();
     void dyeRoastDateChanged();
@@ -1047,12 +805,6 @@ signals:
     void waterLevelDisplayUnitChanged();
     void waterRefillPointChanged();
     void refillKitOverrideChanged();
-    void heaterIdleTempChanged();
-    void heaterWarmupFlowChanged();
-    void heaterTestFlowChanged();
-    void heaterWarmupTimeoutChanged();
-    void hotWaterFlowRateChanged();
-    void steamTwoTapStopChanged();
     void developerTranslationUploadChanged();
     void simulationModeChanged();
     void screenCaptureEnabledChanged();
@@ -1060,27 +812,9 @@ signals:
     void simulatedScaleEnabledChanged();
     void temperatureOverrideChanged();
     void brewOverridesChanged();
-    void autoWakeEnabledChanged();
-    void autoWakeScheduleChanged();
-    void autoWakeStayAwakeEnabledChanged();
-    void autoWakeStayAwakeMinutesChanged();
-    void mcpEnabledChanged();
-    void mcpAccessLevelChanged();
-    void mcpConfirmationLevelChanged();
-    void mcpApiKeyChanged();
     void discussShotAppChanged();
     void discussShotCustomUrlChanged();
     void claudeRcSessionUrlChanged();
-    void mqttEnabledChanged();
-    void mqttBrokerHostChanged();
-    void mqttBrokerPortChanged();
-    void mqttUsernameChanged();
-    void mqttPasswordChanged();
-    void mqttBaseTopicChanged();
-    void mqttPublishIntervalChanged();
-    void mqttRetainMessagesChanged();
-    void mqttHomeAssistantDiscoveryChanged();
-    void mqttClientIdChanged();
     void flowCalibrationMultiplierChanged();
     void autoFlowCalibrationChanged();
     void ignoreVolumeWithScaleChanged();
@@ -1116,15 +850,6 @@ private:
     mutable bool m_sawHistoryCacheDirty = true;
     mutable int m_sawConvergedCache = -1;  // -1 = unknown, 0 = no, 1 = yes
     mutable QString m_sawConvergedScaleType;  // Scale type for cached convergence result
-    QString m_flashColorName;
-    int m_flashPhase = 0;
-    QTimer* m_flashTimer = nullptr;
-    QStringList m_currentPageColors;
-
-    // Theme mode
-    bool m_isDarkMode = true;
-    QString m_editingPalette = "dark";
-    void updateResolvedMode();
     mutable QJsonObject m_layoutCache;
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;
@@ -1167,4 +892,13 @@ private:
     // Brew parameter overrides (session-only)
     double m_brewYieldOverride = 0;
     bool m_hasBrewYieldOverride = false;
+
+    // Domain sub-objects (composition façade)
+    SettingsMqtt* m_mqtt = nullptr;
+    SettingsAutoWake* m_autoWake = nullptr;
+    SettingsHardware* m_hardware = nullptr;
+    SettingsAI* m_ai = nullptr;
+    SettingsTheme* m_theme = nullptr;
+    SettingsVisualizer* m_visualizer = nullptr;
+    SettingsMcp* m_mcp = nullptr;
 };

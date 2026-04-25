@@ -149,6 +149,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `FIRMWARE_UPDATE.md` | DE1 firmware update flow, source URL, validation rules, failure modes, simulator behaviour |
 | `MCP_SERVER.md` | Full MCP tool list, access levels, architecture, data conventions |
 | `AI_ADVISOR.md` | AI dialing assistant design |
+| `SETTINGS.md` | Settings architecture: 7 domain sub-objects, how to add properties/domains, QML access pattern, build-blast rules |
 
 ## Development Environment
 
@@ -406,6 +407,7 @@ ProfileManager: CRUD, activation, built-in management, ProfileStorage I/O
 ### Design Principles
 - **Never use timers as guards/workarounds.** Timers are fragile heuristics that break on slow devices and hide the real problem. Use event-based flags and conditions instead. For example, "suppress X until Y has happened" should be a boolean cleared by the Y event, not a timer. Only use timers for genuinely periodic tasks (polling, animation, heartbeats) and **UI auto-dismiss** (toasts/banners that hide after N seconds). Everything else — including debounce — should use event-based flags.
 - **Never run database or disk I/O on the main thread.** Use `QThread::create()` with a `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` callback to run queries on a background thread and deliver results back to the main thread. See `ShotHistoryStorage::requestShot()` for the canonical pattern. For database connections inside background threads, always use the `withTempDb()` helper from `src/core/dbutils.h` — it handles unique connection naming, `busy_timeout`, `foreign_keys` pragmas, and cleanup. Never manually call `QSqlDatabase::addDatabase()`/`removeDatabase()` when `withTempDb` can be used instead.
+- **Settings go in their domain sub-object, not on `Settings` directly.** `Settings` is a façade that owns 7 domain classes (`SettingsMqtt`, `SettingsTheme`, etc.). Add new properties to the matching `Settings<Domain>` class, or create a new sub-object if none fits. Never add a property back to `Settings` itself, and never `#include "settings_<domain>.h"` in `settings.h` — both undo the recompile-blast win the split was built for. New sub-objects also require `qmlRegisterUncreatableType<Settings<Domain>>(...)` in `main.cpp` or QML resolves `Settings.<domain>.<prop>` to `undefined` at runtime. QML access is **always** `Settings.<domain>.<prop>`, never the flat `Settings.<prop>`. See `docs/CLAUDE_MD/SETTINGS.md` for the full checklist.
 
 ### C++
 - Classes: `PascalCase`

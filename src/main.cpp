@@ -37,6 +37,13 @@
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
 #include "core/settings.h"
+#include "core/settings_mqtt.h"
+#include "core/settings_autowake.h"
+#include "core/settings_hardware.h"
+#include "core/settings_ai.h"
+#include "core/settings_theme.h"
+#include "core/settings_visualizer.h"
+#include "core/settings_mcp.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -444,7 +451,7 @@ int main(int argc, char *argv[])
 
     // Create core objects
     Settings settings;
-    settings.initSystemThemeDetection();
+    settings.theme()->initSystemThemeDetection();
     checkpoint("Settings");
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection
@@ -462,7 +469,7 @@ int main(int argc, char *argv[])
 #endif
 
     DE1Device de1Device;
-    de1Device.setSettings(&settings);  // For water level auto-calibration
+    de1Device.setSettings(settings.hardware());  // Heater calibration sent to firmware
     qDebug() << "Simulation mode:" << (settings.simulationMode() ? "ON" : "off");
     de1Device.setSimulationMode(settings.simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
@@ -918,7 +925,7 @@ int main(int argc, char *argv[])
     de1ReconnectTimer.setSingleShot(true);
 
     // Auto-wake manager for scheduled wake-ups
-    AutoWakeManager autoWakeManager(&settings);
+    AutoWakeManager autoWakeManager(settings.autoWake());
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
                      &de1Device, &DE1Device::wakeUp);
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
@@ -1605,6 +1612,27 @@ int main(int argc, char *argv[])
     // property — this type registration is only needed for enum access.
     qmlRegisterUncreatableType<SteamHealthTracker>("Decenza", 1, 0, "SteamHealthTrackerType",
         "SteamHealthTracker is created in C++");
+
+    // Register Settings sub-object types so QML can introspect their properties
+    // when accessed via Settings.mqtt, Settings.theme, etc. The Q_PROPERTY
+    // accessors in settings.h return QObject* (settings.h forward-declares the
+    // sub-objects to keep the recompile-blast benefit), so without these
+    // registrations QML can't resolve the concrete type and reports e.g.
+    // `Settings.theme.customThemeColors` as `undefined`.
+    qmlRegisterUncreatableType<SettingsMqtt>("Decenza", 1, 0, "SettingsMqttType",
+        "SettingsMqtt is created in C++");
+    qmlRegisterUncreatableType<SettingsAutoWake>("Decenza", 1, 0, "SettingsAutoWakeType",
+        "SettingsAutoWake is created in C++");
+    qmlRegisterUncreatableType<SettingsHardware>("Decenza", 1, 0, "SettingsHardwareType",
+        "SettingsHardware is created in C++");
+    qmlRegisterUncreatableType<SettingsAI>("Decenza", 1, 0, "SettingsAIType",
+        "SettingsAI is created in C++");
+    qmlRegisterUncreatableType<SettingsTheme>("Decenza", 1, 0, "SettingsThemeType",
+        "SettingsTheme is created in C++");
+    qmlRegisterUncreatableType<SettingsVisualizer>("Decenza", 1, 0, "SettingsVisualizerType",
+        "SettingsVisualizer is created in C++");
+    qmlRegisterUncreatableType<SettingsMcp>("Decenza", 1, 0, "SettingsMcpType",
+        "SettingsMcp is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");

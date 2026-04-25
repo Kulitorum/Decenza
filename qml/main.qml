@@ -884,7 +884,7 @@ ApplicationWindow {
         }
 
         // CRT shader: render to FBO and process through GPU shader
-        layer.enabled: Settings.activeShader === "crt"
+        layer.enabled: Settings.theme.activeShader === "crt"
         layer.effect: CrtShaderEffect {}
 
         // Default: instant transitions (no animation)
@@ -1078,7 +1078,7 @@ ApplicationWindow {
     function updatePageColors() {
         var page = pageStack.currentItem
         if (!page) {
-            Settings.currentPageColors = []
+            Settings.theme.currentPageColors = []
             return
         }
 
@@ -1120,7 +1120,7 @@ ApplicationWindow {
                 matched.push(name)
             }
         }
-        Settings.currentPageColors = matched
+        Settings.theme.currentPageColors = matched
     }
 
     // Initialize page scale after pageStack is ready
@@ -3088,12 +3088,12 @@ ApplicationWindow {
             // Arm on every auto-wake, not only when exiting screensaver — the app
             // may already be awake at the scheduled time, and skipping would let
             // the machine auto-sleep before the stay-awake window applies.
-            if (Settings.autoWakeStayAwakeEnabled && Settings.autoWakeStayAwakeMinutes > 0) {
-                root.sleepCountdownStayAwake = Settings.autoWakeStayAwakeMinutes
+            if (Settings.autoWake.autoWakeStayAwakeEnabled && Settings.autoWake.autoWakeStayAwakeMinutes > 0) {
+                root.sleepCountdownStayAwake = Settings.autoWake.autoWakeStayAwakeMinutes
                 console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
             } else {
-                console.log("Auto-wake: stayAwake not armed (enabled=" + Settings.autoWakeStayAwakeEnabled +
-                            ", minutes=" + Settings.autoWakeStayAwakeMinutes + ")")
+                console.log("Auto-wake: stayAwake not armed (enabled=" + Settings.autoWake.autoWakeStayAwakeEnabled +
+                            ", minutes=" + Settings.autoWake.autoWakeStayAwakeMinutes + ")")
             }
         }
 

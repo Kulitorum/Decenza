@@ -1,9 +1,9 @@
 #include "autowakemanager.h"
-#include "settings.h"
+#include "settings_autowake.h"
 #include <QDateTime>
 #include <QDebug>
 
-AutoWakeManager::AutoWakeManager(Settings* settings, QObject* parent)
+AutoWakeManager::AutoWakeManager(SettingsAutoWake* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
     , m_checkTimer(new QTimer(this))
@@ -12,7 +12,7 @@ AutoWakeManager::AutoWakeManager(Settings* settings, QObject* parent)
     connect(m_checkTimer, &QTimer::timeout, this, &AutoWakeManager::onTimerFired);
 
     // Reschedule when settings change
-    connect(m_settings, &Settings::autoWakeScheduleChanged, this, [this]() {
+    connect(m_settings, &SettingsAutoWake::autoWakeScheduleChanged, this, [this]() {
         qDebug() << "AutoWakeManager: Schedule changed, rescheduling";
         m_lastTriggeredDates.clear();
         scheduleNextWake();

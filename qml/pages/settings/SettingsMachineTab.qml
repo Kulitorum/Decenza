@@ -345,9 +345,9 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 id: steamTwoTapSwitch
-                                checked: Settings.steamTwoTapStop
+                                checked: Settings.hardware.steamTwoTapStop
                                 accessibleName: TranslationManager.translate("settings.preferences.steamTwoTapStop", "Two-tap to stop steaming")
-                                onClicked: Settings.steamTwoTapStop = checked
+                                onClicked: Settings.hardware.steamTwoTapStop = checked
                             }
                         }
 
@@ -569,13 +569,13 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 id: followSystemSwitch
-                                checked: Settings.themeMode === "system"
+                                checked: Settings.theme.themeMode === "system"
                                 accessibleName: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
                                 onCheckedChanged: {
                                     if (checked) {
-                                        Settings.themeMode = "system"
+                                        Settings.theme.themeMode = "system"
                                     } else {
-                                        Settings.themeMode = Settings.isDarkMode ? "dark" : "light"
+                                        Settings.theme.themeMode = Settings.theme.isDarkMode ? "dark" : "light"
                                     }
                                 }
                             }
@@ -599,9 +599,9 @@ KeyboardAwareContainer {
                                 id: darkThemeCombo
                                 Layout.preferredWidth: Theme.scaled(180)
                                 accessibleLabel: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
-                                model: Settings.themeNames
-                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.darkThemeName))
-                                onActivated: Settings.applyDarkTheme(Settings.themeNames[currentIndex])
+                                model: Settings.theme.themeNames
+                                currentIndex: Math.max(0, Settings.theme.themeNames.indexOf(Settings.theme.darkThemeName))
+                                onActivated: Settings.theme.applyDarkTheme(Settings.theme.themeNames[currentIndex])
                             }
                         }
 
@@ -623,9 +623,9 @@ KeyboardAwareContainer {
                                 id: lightThemeCombo
                                 Layout.preferredWidth: Theme.scaled(180)
                                 accessibleLabel: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
-                                model: Settings.themeNames
-                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.lightThemeName))
-                                onActivated: Settings.applyLightTheme(Settings.themeNames[currentIndex])
+                                model: Settings.theme.themeNames
+                                currentIndex: Math.max(0, Settings.theme.themeNames.indexOf(Settings.theme.lightThemeName))
+                                onActivated: Settings.theme.applyLightTheme(Settings.theme.themeNames[currentIndex])
                             }
                         }
                     }

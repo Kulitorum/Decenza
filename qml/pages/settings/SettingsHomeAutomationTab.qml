@@ -55,8 +55,8 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
-                            checked: Settings.mqttEnabled
-                            onCheckedChanged: Settings.mqttEnabled = checked
+                            checked: Settings.mqtt.mqttEnabled
+                            onCheckedChanged: Settings.mqtt.mqttEnabled = checked
                         }
                     }
 
@@ -87,8 +87,8 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: hostField
                         Layout.fillWidth: true
-                        text: Settings.mqttBrokerHost
-                        onEditingFinished: Settings.mqttBrokerHost = text
+                        text: Settings.mqtt.mqttBrokerHost
+                        onEditingFinished: Settings.mqtt.mqttBrokerHost = text
                     }
 
                     // Port
@@ -102,12 +102,12 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: portField
                         Layout.fillWidth: true
-                        text: Settings.mqttBrokerPort
+                        text: Settings.mqtt.mqttBrokerPort
                         inputMethodHints: Qt.ImhDigitsOnly
                         onEditingFinished: {
                             var port = parseInt(text)
                             if (!isNaN(port) && port > 0 && port <= 65535) {
-                                Settings.mqttBrokerPort = port
+                                Settings.mqtt.mqttBrokerPort = port
                             }
                         }
                     }
@@ -123,8 +123,8 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: usernameField
                         Layout.fillWidth: true
-                        text: Settings.mqttUsername
-                        onEditingFinished: Settings.mqttUsername = text
+                        text: Settings.mqtt.mqttUsername
+                        onEditingFinished: Settings.mqtt.mqttUsername = text
                     }
 
                     // Password
@@ -138,9 +138,9 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: passwordField
                         Layout.fillWidth: true
-                        text: Settings.mqttPassword
+                        text: Settings.mqtt.mqttPassword
                         echoMode: TextInput.Password
-                        onEditingFinished: Settings.mqttPassword = text
+                        onEditingFinished: Settings.mqtt.mqttPassword = text
                     }
 
                     // Base Topic
@@ -154,8 +154,8 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: baseTopicField
                         Layout.fillWidth: true
-                        text: Settings.mqttBaseTopic
-                        onEditingFinished: Settings.mqttBaseTopic = text
+                        text: Settings.mqtt.mqttBaseTopic
+                        onEditingFinished: Settings.mqtt.mqttBaseTopic = text
                     }
 
                     // Connection status
@@ -194,7 +194,7 @@ KeyboardAwareContainer {
                             text: TranslationManager.translate("mqtt.connect", "Connect")
                             accessibleName: TranslationManager.translate("settings.homeAutomation.connectMqtt", "Connect to MQTT broker for home automation")
                             primary: true
-                            enabled: !MainController.mqttClient.connected && Settings.mqttBrokerHost.length > 0
+                            enabled: !MainController.mqttClient.connected && Settings.mqtt.mqttBrokerHost.length > 0
                             onClicked: MainController.mqttClient.connectToBroker()
                         }
 
@@ -251,7 +251,7 @@ KeyboardAwareContainer {
                         model: ["100 ms", "500 ms", "1 second", "5 seconds"]
                         accessibleLabel: TranslationManager.translate("settings.homeautomation.publishinterval", "Publish Interval")
                         currentIndex: {
-                            var interval = Settings.mqttPublishInterval
+                            var interval = Settings.mqtt.mqttPublishInterval
                             if (interval <= 100) return 0
                             if (interval <= 500) return 1
                             if (interval <= 1000) return 2
@@ -259,7 +259,7 @@ KeyboardAwareContainer {
                         }
                         onActivated: {
                             var intervals = [100, 500, 1000, 5000]
-                            Settings.mqttPublishInterval = intervals[currentIndex]
+                            Settings.mqtt.mqttPublishInterval = intervals[currentIndex]
                         }
 
                         background: Rectangle {
@@ -292,8 +292,8 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
-                            checked: Settings.mqttRetainMessages
-                            onCheckedChanged: Settings.mqttRetainMessages = checked
+                            checked: Settings.mqtt.mqttRetainMessages
+                            onCheckedChanged: Settings.mqtt.mqttRetainMessages = checked
                         }
                     }
 
@@ -337,8 +337,8 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
-                            checked: Settings.mqttHomeAssistantDiscovery
-                            onCheckedChanged: Settings.mqttHomeAssistantDiscovery = checked
+                            checked: Settings.mqtt.mqttHomeAssistantDiscovery
+                            onCheckedChanged: Settings.mqtt.mqttHomeAssistantDiscovery = checked
                         }
                     }
 

@@ -758,19 +758,19 @@ Item {
 
                 // Heater idle temperature
                 Text { text: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); font: Theme.captionFont; color: Theme.temperatureColor }
-                ValueInput { id: heaterIdleTempSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: (value / 10).toFixed(1) + "\u00B0C"; rangeText: "0.0\u00B0C \u2014 99.0\u00B0C"; value: Settings.heaterIdleTemp; onValueModified: function(newValue) { Settings.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
+                ValueInput { id: heaterIdleTempSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: (value / 10).toFixed(1) + "\u00B0C"; rangeText: "0.0\u00B0C \u2014 99.0\u00B0C"; value: Settings.hardware.heaterIdleTemp; onValueModified: function(newValue) { Settings.hardware.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
 
                 // Heater warmup flow rate
                 Text { text: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { id: heaterWarmupFlowSlider; Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 6.0 mL/s"; value: Settings.heaterWarmupFlow; onValueModified: function(newValue) { Settings.heaterWarmupFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
+                ValueInput { id: heaterWarmupFlowSlider; Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 6.0 mL/s"; value: Settings.hardware.heaterWarmupFlow; onValueModified: function(newValue) { Settings.hardware.heaterWarmupFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
 
                 // Heater test flow rate
                 Text { text: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { id: heaterTestFlowSlider; Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 8.0 mL/s"; value: Settings.heaterTestFlow; onValueModified: function(newValue) { Settings.heaterTestFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
+                ValueInput { id: heaterTestFlowSlider; Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 8.0 mL/s"; value: Settings.hardware.heaterTestFlow; onValueModified: function(newValue) { Settings.hardware.heaterTestFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
 
                 // Heater test time-out
                 Text { text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestFlowSlider }
+                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestFlowSlider }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
@@ -782,14 +782,14 @@ Item {
                     text: TranslationManager.translate("settings.calibration.defaultsForCafe", "Defaults for cafe")
                     accessibleName: TranslationManager.translate("settings.calibration.defaultsForCafeAccessible", "Reset heater calibration to cafe defaults")
                     onClicked: {
-                        Settings.heaterIdleTemp = 990
-                        Settings.heaterWarmupFlow = 20
-                        Settings.heaterTestFlow = 40
-                        Settings.heaterWarmupTimeout = 10
+                        Settings.hardware.heaterIdleTemp = 990
+                        Settings.hardware.heaterWarmupFlow = 20
+                        Settings.hardware.heaterTestFlow = 40
+                        Settings.hardware.heaterWarmupTimeout = 10
                         // Cafe defaults force two-tap stop for safety: the first tap puts
                         // the firmware in Puffing, allowing the auto-flush timer to clear
                         // the wand reliably. Toggle UI lives in Steam Heater (Machine tab).
-                        Settings.steamTwoTapStop = true
+                        Settings.hardware.steamTwoTapStop = true
                     }
                     KeyNavigation.tab: doneButton
                     KeyNavigation.backtab: heaterTestTimeoutSlider

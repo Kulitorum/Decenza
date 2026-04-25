@@ -1,5 +1,6 @@
 #include "shotserver.h"
 #include "../core/settings.h"
+#include "../core/settings_theme.h"
 #include "../core/widgetlibrary.h"
 #include "webtemplates/theme_page.h"
 
@@ -17,34 +18,34 @@ QJsonObject ShotServer::buildThemeJson() const
     }
 
     // Active theme name
-    result["activeThemeName"] = m_settings->activeThemeName();
+    result["activeThemeName"] = m_settings->theme()->activeThemeName();
 
     // Screen effect (structured: active + per-effect params)
-    result["screenEffect"] = m_settings->screenEffectJson();
+    result["screenEffect"] = m_settings->theme()->screenEffectJson();
 
     // Theme mode
-    result["themeMode"] = m_settings->themeMode();
-    result["darkThemeName"] = m_settings->darkThemeName();
-    result["lightThemeName"] = m_settings->lightThemeName();
-    result["editingPalette"] = m_settings->editingPalette();
+    result["themeMode"] = m_settings->theme()->themeMode();
+    result["darkThemeName"] = m_settings->theme()->darkThemeName();
+    result["lightThemeName"] = m_settings->theme()->lightThemeName();
+    result["editingPalette"] = m_settings->theme()->editingPalette();
 
     // Active colors (resolved for current mode)
-    QJsonObject colors = QJsonObject::fromVariantMap(m_settings->customThemeColors());
+    QJsonObject colors = QJsonObject::fromVariantMap(m_settings->theme()->customThemeColors());
     result["colors"] = colors;
 
     // Editing palette colors (for the color grid)
-    QJsonObject editingColors = QJsonObject::fromVariantMap(m_settings->editingPaletteColors());
+    QJsonObject editingColors = QJsonObject::fromVariantMap(m_settings->theme()->editingPaletteColors());
     result["editingColors"] = editingColors;
 
     // Both palettes for reference
-    QJsonObject colorsDark = QJsonObject::fromVariantMap(m_settings->darkDefaults());
-    QJsonObject colorsLight = QJsonObject::fromVariantMap(m_settings->lightDefaults());
+    QJsonObject colorsDark = QJsonObject::fromVariantMap(SettingsTheme::darkDefaults());
+    QJsonObject colorsLight = QJsonObject::fromVariantMap(SettingsTheme::lightDefaults());
     result["colorsDark"] = colorsDark;
     result["colorsLight"] = colorsLight;
 
     // Font sizes
     QJsonObject fonts;
-    QVariantMap fontSizes = m_settings->customFontSizes();
+    QVariantMap fontSizes = m_settings->theme()->customFontSizes();
     static const QMap<QString, int> fontDefaults = {
         {"headingSize", 32},
         {"titleSize", 24},
@@ -64,7 +65,7 @@ QJsonObject ShotServer::buildThemeJson() const
 
     // Preset themes
     QJsonArray presets;
-    QVariantList presetList = m_settings->getPresetThemes();
+    QVariantList presetList = m_settings->theme()->getPresetThemes();
     for (const QVariant& v : presetList) {
         QVariantMap map = v.toMap();
         QJsonObject preset;
@@ -77,7 +78,7 @@ QJsonObject ShotServer::buildThemeJson() const
 
     // Colors detected on the current page (set by QML tree walker)
     QJsonArray pageColors;
-    for (const QString& colorName : m_settings->currentPageColors()) {
+    for (const QString& colorName : m_settings->theme()->currentPageColors()) {
         pageColors.append(colorName);
     }
     result["pageColors"] = pageColors;
@@ -103,7 +104,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
     // GET /api/theme/shader - get active shader
     if (path == "/api/theme/shader" && method == "GET") {
         QJsonObject resp;
-        resp["shader"] = m_settings->activeShader();
+        resp["shader"] = m_settings->theme()->activeShader();
         sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }
@@ -112,7 +113,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
     if (path == "/api/theme/shader" && method == "POST") {
         QJsonObject obj = QJsonDocument::fromJson(body).object();
         QString shader = obj["shader"].toString();
-        m_settings->setActiveShader(shader);
+        m_settings->theme()->setActiveShader(shader);
         QJsonObject resp;
         resp["ok"] = true;
         resp["shader"] = shader;
@@ -122,7 +123,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
 
     // GET /api/theme/shader/params - get all shader parameters
     if (path == "/api/theme/shader/params" && method == "GET") {
-        QJsonObject resp = QJsonObject::fromVariantMap(m_settings->shaderParams());
+        QJsonObject resp = QJsonObject::fromVariantMap(m_settings->theme()->shaderParams());
         sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }
@@ -131,7 +132,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
     if (path == "/api/theme/shader/params" && method == "POST") {
         QJsonObject obj = QJsonDocument::fromJson(body).object();
         for (auto it = obj.begin(); it != obj.end(); ++it) {
-            m_settings->setShaderParam(it.key(), it.value().toDouble());
+            m_settings->theme()->setShaderParam(it.key(), it.value().toDouble());
         }
         QJsonObject resp;
         resp["ok"] = true;
@@ -147,7 +148,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing name");
             return;
         }
-        m_settings->flashThemeColor(name);
+        m_settings->theme()->flashThemeColor(name);
         sendResponse(socket, 200, "application/json", "{\"ok\":true}");
         return;
     }
@@ -160,7 +161,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Invalid mode (dark/light/system)");
             return;
         }
-        m_settings->setThemeMode(mode);
+        m_settings->theme()->setThemeMode(mode);
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -170,7 +171,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
     if (path == "/api/theme/editing-palette" && method == "POST") {
         QJsonObject obj = QJsonDocument::fromJson(body).object();
         QString palette = obj["palette"].toString();
-        m_settings->setEditingPalette(palette);
+        m_settings->theme()->setEditingPalette(palette);
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -187,9 +188,9 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         }
         // Optional palette param to target a specific palette
         if (obj.contains("palette")) {
-            m_settings->setEditingPalette(obj["palette"].toString());
+            m_settings->theme()->setEditingPalette(obj["palette"].toString());
         }
-        m_settings->setEditingPaletteColor(name, value);
+        m_settings->theme()->setEditingPaletteColor(name, value);
         sendResponse(socket, 200, "application/json", "{\"ok\":true}");
         return;
     }
@@ -203,7 +204,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing name or invalid value");
             return;
         }
-        m_settings->setFontSize(name, value);
+        m_settings->theme()->setFontSize(name, value);
         sendResponse(socket, 200, "application/json", "{\"ok\":true}");
         return;
     }
@@ -216,7 +217,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing name");
             return;
         }
-        m_settings->applyPresetTheme(name);
+        m_settings->theme()->applyPresetTheme(name);
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -228,12 +229,12 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         double hue = obj["hue"].toDouble();
         double saturation = obj["saturation"].toDouble();
         double lightness = obj["lightness"].toDouble();
-        QVariantMap palette = m_settings->generatePalette(hue, saturation, lightness);
+        QVariantMap palette = m_settings->theme()->generatePalette(hue, saturation, lightness);
         // Write each color to the editing palette (not the active palette)
         for (auto it = palette.constBegin(); it != palette.constEnd(); ++it) {
-            m_settings->setEditingPaletteColor(it.key(), it.value().toString());
+            m_settings->theme()->setEditingPaletteColor(it.key(), it.value().toString());
         }
-        m_settings->setActiveThemeName("Custom");
+        m_settings->theme()->setActiveThemeName("Custom");
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -247,7 +248,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing name");
             return;
         }
-        m_settings->saveCurrentTheme(name);
+        m_settings->theme()->saveCurrentTheme(name);
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -255,8 +256,8 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
 
     // POST /api/theme/reset - reset to defaults
     if (path == "/api/theme/reset" && method == "POST") {
-        m_settings->resetThemeToDefault();
-        m_settings->resetFontSizesToDefault();
+        m_settings->theme()->resetThemeToDefault();
+        m_settings->theme()->resetFontSizesToDefault();
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -269,7 +270,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing theme name");
             return;
         }
-        m_settings->deleteUserTheme(name);
+        m_settings->theme()->deleteUserTheme(name);
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
@@ -285,7 +286,7 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         }
         QJsonObject obj = QJsonDocument::fromJson(body).object();
         QString name = obj["name"].toString();
-        if (name.isEmpty()) name = m_settings->activeThemeName();
+        if (name.isEmpty()) name = m_settings->theme()->activeThemeName();
         QString entryId = m_widgetLibrary->addCurrentTheme(name);
         if (entryId.isEmpty()) {
             sendJson(socket, R"({"error":"Failed to save theme"})");

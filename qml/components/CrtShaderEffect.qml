@@ -1,8 +1,8 @@
 import QtQuick
 
 // GPU-accelerated CRT shader effect.
-// Applied as layer.effect on the pageStack when Settings.activeShader === "crt".
-// Parameters are read from Settings.shaderParams (set via web UI sliders).
+// Applied as layer.effect on the pageStack when Settings.theme.activeShader === "crt".
+// Parameters are read from Settings.theme.shaderParams (set via web UI sliders).
 
 ShaderEffect {
     // Uniforms: time and resolution
@@ -11,7 +11,7 @@ ShaderEffect {
     property real resHeight: height > 0 ? height : 600
 
     // Shader parameters bound to Settings (with defaults)
-    property var _p: Settings.shaderParams
+    property var _p: Settings.theme.shaderParams
     property real scanlineIntensity: _p.scanlineIntensity !== undefined ? _p.scanlineIntensity : 0.36
     property real scanlineSize:      _p.scanlineSize      !== undefined ? _p.scanlineSize      : 4.5
     property real noiseIntensity:    _p.noiseIntensity    !== undefined ? _p.noiseIntensity    : 0.08
