@@ -49,5 +49,8 @@ logcat_*.txt
 -.zip
 .claude/*
 !.claude/skills/
+!.claude/agents/
+!.claude/commands/
+!.claude/hooks/
 .DS_Store
 /.codex_tmp
