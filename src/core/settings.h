@@ -7,32 +7,35 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTimer>
-// Domain sub-object headers — included (rather than forward-declared) so that
-// QML can introspect properties through Q_PROPERTY accessors. With Q_DECLARE_OPAQUE_POINTER
-// + forward declaration, QML treats the returned pointer as opaque and reports
-// `Settings.theme.customThemeColors` etc. as `undefined`.
-// Trade-off: changes to a sub-object header recompile any TU that includes settings.h.
-// Narrow consumers that take a domain pointer directly (e.g. AutoWakeManager,
-// DE1Device) avoid this by including only the specific sub-object header.
-#include "settings_mqtt.h"
-#include "settings_autowake.h"
-#include "settings_hardware.h"
-#include "settings_ai.h"
-#include "settings_theme.h"
-#include "settings_visualizer.h"
-#include "settings_mcp.h"
+// Domain sub-objects are forward-declared. The QML-facing Q_PROPERTYs return
+// QObject* (a known type that QML can introspect) so this header doesn't need
+// to include the seven sub-object headers — preserving the recompile-blast
+// reduction this whole refactor is for.
+//
+// C++ callers use the typed accessor (e.g. `settings->mqtt()`) and include
+// `settings_mqtt.h` themselves where they actually dereference.
+class SettingsMqtt;
+class SettingsAutoWake;
+class SettingsHardware;
+class SettingsAI;
+class SettingsTheme;
+class SettingsVisualizer;
+class SettingsMcp;
 
 class Settings : public QObject {
     Q_OBJECT
 
-    // Domain sub-objects (composition façade)
-    Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT)
-    Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT)
-    Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT)
-    Q_PROPERTY(SettingsAI* ai READ ai CONSTANT)
-    Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT)
-    Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT)
-    Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT)
+    // Domain sub-objects exposed to QML as QObject* so QML can resolve
+    // `Settings.mqtt.mqttEnabled` via the runtime metaObject (SettingsMqtt's
+    // Q_OBJECT supplies it). The typed `mqtt()` accessor below is what C++
+    // callers use.
+    Q_PROPERTY(QObject* mqtt READ mqttQObject CONSTANT)
+    Q_PROPERTY(QObject* autoWake READ autoWakeQObject CONSTANT)
+    Q_PROPERTY(QObject* hardware READ hardwareQObject CONSTANT)
+    Q_PROPERTY(QObject* ai READ aiQObject CONSTANT)
+    Q_PROPERTY(QObject* theme READ themeQObject CONSTANT)
+    Q_PROPERTY(QObject* visualizer READ visualizerQObject CONSTANT)
+    Q_PROPERTY(QObject* mcp READ mcpQObject CONSTANT)
 
     // Platform capabilities
     Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT)
@@ -230,7 +233,8 @@ class Settings : public QObject {
 public:
     explicit Settings(QObject* parent = nullptr);
 
-    // Domain sub-object accessors
+    // Domain sub-object accessors (typed, for C++ callers — header forward-declares
+    // the types so callers must include the specific settings_<domain>.h to dereference).
     SettingsMqtt* mqtt() const { return m_mqtt; }
     SettingsAutoWake* autoWake() const { return m_autoWake; }
     SettingsHardware* hardware() const { return m_hardware; }
@@ -238,6 +242,16 @@ public:
     SettingsTheme* theme() const { return m_theme; }
     SettingsVisualizer* visualizer() const { return m_visualizer; }
     SettingsMcp* mcp() const { return m_mcp; }
+
+    // QML-facing accessors — implemented out-of-line in settings.cpp where the
+    // SettingsXxx -> QObject* upcast is visible. QML uses these via Q_PROPERTY.
+    QObject* mqttQObject() const;
+    QObject* autoWakeQObject() const;
+    QObject* hardwareQObject() const;
+    QObject* aiQObject() const;
+    QObject* themeQObject() const;
+    QObject* visualizerQObject() const;
+    QObject* mcpQObject() const;
 
     int discussAppNone() const { return 6; }
     int discussAppClaudeDesktop() const { return 7; }
