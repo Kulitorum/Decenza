@@ -6,6 +6,7 @@
 #include "../ai/aimanager.h"
 #include "../ai/shotsummarizer.h"
 #include "../core/settings.h"
+#include "../core/settings_dye.h"
 #include "../profile/profile.h"
 
 #include <QDateTime>
@@ -223,16 +224,16 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // --- Bean/grinder metadata (current DYE settings) ---
                     if (settings) {
                         QJsonObject bean;
-                        bean["brand"] = settings->dyeBeanBrand();
-                        bean["type"] = settings->dyeBeanType();
-                        bean["roastDate"] = settings->dyeRoastDate();
-                        bean["roastLevel"] = settings->dyeRoastLevel();
-                        bean["grinderBrand"] = settings->dyeGrinderBrand();
-                        bean["grinderModel"] = settings->dyeGrinderModel();
-                        bean["grinderBurrs"] = settings->dyeGrinderBurrs();
-                        bean["grinderSetting"] = settings->dyeGrinderSetting();
-                        bean["doseWeightG"] = settings->dyeBeanWeight();
-                        QString roastDateStr = settings->dyeRoastDate();
+                        bean["brand"] = settings->dye()->dyeBeanBrand();
+                        bean["type"] = settings->dye()->dyeBeanType();
+                        bean["roastDate"] = settings->dye()->dyeRoastDate();
+                        bean["roastLevel"] = settings->dye()->dyeRoastLevel();
+                        bean["grinderBrand"] = settings->dye()->dyeGrinderBrand();
+                        bean["grinderModel"] = settings->dye()->dyeGrinderModel();
+                        bean["grinderBurrs"] = settings->dye()->dyeGrinderBurrs();
+                        bean["grinderSetting"] = settings->dye()->dyeGrinderSetting();
+                        bean["doseWeightG"] = settings->dye()->dyeBeanWeight();
+                        QString roastDateStr = settings->dye()->dyeRoastDate();
                         if (!roastDateStr.isEmpty()) {
                             QDate roastDate = QDate::fromString(roastDateStr, "yyyy-MM-dd");
                             if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, Qt::ISODate);

@@ -80,7 +80,7 @@ Item {
                 action: "togglePreset:beans",
                 longPressAction: "navigate:beaninfo",
                 doubleclickAction: "navigate:beaninfo",
-                backgroundColor: Settings.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
+                backgroundColor: Settings.dye.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
             }
             case "history": return {
                 emoji: "qrc:/icons/history.svg",

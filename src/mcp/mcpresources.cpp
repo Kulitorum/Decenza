@@ -7,6 +7,7 @@
 #include "../history/shothistorystorage.h"
 #include "../core/memorymonitor.h"
 #include "../core/settings.h"
+#include "../core/settings_dye.h"
 #include "../network/webdebuglogger.h"
 
 #include <QDateTime>
@@ -152,19 +153,19 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
             QJsonObject bean;
             QJsonObject grinder;
             if (settings) {
-                bean["brand"] = settings->dyeBeanBrand();
-                bean["type"] = settings->dyeBeanType();
+                bean["brand"] = settings->dye()->dyeBeanBrand();
+                bean["type"] = settings->dye()->dyeBeanType();
                 // Normalize roast date to ISO 8601 if parseable, otherwise pass through as user text
-                QString rawDate = settings->dyeRoastDate();
+                QString rawDate = settings->dye()->dyeRoastDate();
                 QDate parsed = QDate::fromString(rawDate, Qt::ISODate);
                 if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "yyyy-MM-dd");
                 if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "MM/dd/yyyy");
                 if (!parsed.isValid()) parsed = QDate::fromString(rawDate, "dd/MM/yyyy");
                 bean["roastDate"] = parsed.isValid() ? parsed.toString(Qt::ISODate) : rawDate;
-                bean["doseWeightG"] = settings->dyeBeanWeight();
-                grinder["brand"] = settings->dyeGrinderBrand();
-                grinder["model"] = settings->dyeGrinderModel();
-                grinder["setting"] = settings->dyeGrinderSetting();
+                bean["doseWeightG"] = settings->dye()->dyeBeanWeight();
+                grinder["brand"] = settings->dye()->dyeGrinderBrand();
+                grinder["model"] = settings->dye()->dyeGrinderModel();
+                grinder["setting"] = settings->dye()->dyeGrinderSetting();
             }
 
             QJsonObject activeProfile;

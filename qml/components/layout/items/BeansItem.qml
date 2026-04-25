@@ -25,12 +25,12 @@ Item {
 
     function togglePresets() {
         if (root.isCompact) {
-            if (Settings.idleBeanPresets.length === 0) {
+            if (Settings.dye.idleBeanPresets.length === 0) {
                 goToBeanInfo()
             } else {
                 presetPopup.visible ? presetPopup.close() : presetPopup.open()
             }
-        } else if (Settings.idleBeanPresets.length === 0) {
+        } else if (Settings.dye.idleBeanPresets.length === 0) {
             goToBeanInfo()
         } else if (root.idlePage) {
             root.idlePage.activePresetFunction =
@@ -104,7 +104,7 @@ Item {
             translationFallback: "Beans"
             iconSource: "qrc:/icons/coffeebeans.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Settings.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
+            backgroundColor: Settings.dye.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
             supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToBeanInfo()
@@ -126,13 +126,13 @@ Item {
         // announce here directly to keep feature parity for screen-reader users.
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.idleBeanPresets
+            var presets = Settings.dye.idleBeanPresets
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
-                if (presets[i].originalIndex === Settings.selectedBeanPreset) selectedName = presets[i].name
+                if (presets[i].originalIndex === Settings.dye.selectedBeanPreset) selectedName = presets[i].name
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -185,13 +185,13 @@ Item {
         contentItem: PresetPillRow {
             id: beansPillRow
             maxWidth: Theme.scaled(600)
-            presets: Settings.idleBeanPresets
-            modified: Settings.beansModified
+            presets: Settings.dye.idleBeanPresets
+            modified: Settings.dye.beansModified
             // selectedIndex refers to position within the filtered list
             selectedIndex: {
-                var list = Settings.idleBeanPresets
+                var list = Settings.dye.idleBeanPresets
                 for (var i = 0; i < list.length; ++i) {
-                    if (list[i].originalIndex === Settings.selectedBeanPreset) return i
+                    if (list[i].originalIndex === Settings.dye.selectedBeanPreset) return i
                 }
                 return -1
             }
@@ -200,8 +200,8 @@ Item {
                 var row = beansPillRow.presets[index]
                 if (!row) return
                 var originalIndex = row.originalIndex !== undefined ? row.originalIndex : index
-                Settings.selectedBeanPreset = originalIndex
-                Settings.applyBeanPreset(originalIndex)
+                Settings.dye.selectedBeanPreset = originalIndex
+                Settings.dye.applyBeanPreset(originalIndex)
                 presetPopup.close()
             }
         }
