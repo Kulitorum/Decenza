@@ -164,6 +164,7 @@ Item {
                         }
 
                         RowLayout {
+                            id: sawSourceRow
                             Layout.fillWidth: true
                             property double _modelDep: Settings.sawLearnedLag  // dep tracker for rebind
                             property string _modelSource: { void(_modelDep);
@@ -180,7 +181,7 @@ Item {
 
                             Text {
                                 text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none"))
-                                      + parent._sourceSuffix
+                                      + sawSourceRow._sourceSuffix
                                       + " · "
                                       + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
                                 color: Theme.textSecondaryColor
@@ -193,7 +194,7 @@ Item {
 
                             Text {
                                 id: resetThisProfileText
-                                visible: parent._modelSource === "perProfile"
+                                visible: sawSourceRow._modelSource === "perProfile"
                                 text: TranslationManager.translate("settings.options.resetThisProfile", "Reset this profile")
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(12)

@@ -4630,7 +4630,7 @@ double Settings::sawLearnedLagFor(const QString& profileFilename, const QString&
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
         if (pairHistory.size() >= 3) {
             double sumLag = 0;
-            int count = 0;
+            qsizetype count = 0;
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < 5; --i) {
                 QJsonObject obj = pairHistory[i].toObject();
                 double drip = obj.value("drip").toDouble();
@@ -4668,10 +4668,10 @@ double Settings::getExpectedDripFor(const QString& profileFilename,
                 double totalWeight = 0;
                 const double recencyMax = 10.0;
                 const double recencyMin = 3.0;
-                for (int i = 0; i < entries.size(); ++i) {
+                for (qsizetype i = 0; i < entries.size(); ++i) {
                     const Entry& e = entries[i];
                     double recencyWeight = recencyMax - i * (recencyMax - recencyMin)
-                                                       / qMax(1, entries.size() - 1);
+                                                       / qMax(qsizetype{1}, entries.size() - 1);
                     double flowDiff = qAbs(e.flow - currentFlowRate);
                     double flowWeight = qExp(-(flowDiff * flowDiff) / 4.5);
                     double w = recencyWeight * flowWeight;
@@ -4759,7 +4759,7 @@ void Settings::addSawPerPairEntry(double drip, double flowRate, const QString& s
     // 3. Outlier check on the batch as a whole.
     bool dispersionTooHigh = (lagIqr > kBatchMaxIqr);
     if (!dispersionTooHigh) {
-        for (double l : lags) {
+        for (double l : std::as_const(lags)) {
             if (qAbs(l - medianLag) > kBatchMaxDeviation) { dispersionTooHigh = true; break; }
         }
     }
@@ -4772,8 +4772,10 @@ void Settings::addSawPerPairEntry(double drip, double flowRate, const QString& s
     }
 
     // 4. Auto-reset: 2nd consecutive batch with median overshoot < -6g → wipe pair history,
-    //    let the new median be the sole baseline. Mirrors the single-shot auto-reset in the
-    //    legacy path, scoped per (profile, scale).
+    //    let the new median be the sole baseline. The legacy single-shot path triggers on
+    //    2 consecutive bad shots; here, since each median represents 5 shots, the threshold
+    //    is effectively 10 consecutive bad shots — intentional debouncing for the batched
+    //    update model.
     QJsonObject historyMap = loadPerProfileSawHistoryMap();
     QJsonArray pairHistory = historyMap.value(key).toArray();
     if (medianOver < -6.0 && !pairHistory.isEmpty()) {
@@ -4824,13 +4826,19 @@ void Settings::addSawPerPairEntry(double drip, double flowRate, const QString& s
              << "— n_medians=" << pairHistory.size();
 
     // 8. Recompute global bootstrap lag for this scale type so other (profile, scale)
-    //    pairs with no graduated history can use it as their first-shot default.
+    //    pairs with no per-pair history can use it as their first-shot default.
     recomputeGlobalSawBootstrap(scaleType);
 
     emit sawLearnedLagChanged();
 }
 
 void Settings::recomputeGlobalSawBootstrap(const QString& scaleType) {
+    // Bootstrap is a cold-start prior for *new* pairs: a single committed batch median
+    // (5 real shots) is already more informative than the static sensorLag() constant,
+    // so any pair with at least one committed median contributes. The IQR fence below
+    // protects against under-trained outliers if many pairs accumulate. Pairs that have
+    // crossed the per-profile graduation threshold (>= 3 medians) for the read path
+    // are a stricter bar handled in sawLearnedLagFor / sawModelSource.
     QJsonObject map = loadPerProfileSawHistoryMap();
     QVector<double> lags;
     for (auto it = map.begin(); it != map.end(); ++it) {
@@ -4845,7 +4853,7 @@ void Settings::recomputeGlobalSawBootstrap(const QString& scaleType) {
         if (flow > 0.5) lags.append(drip / flow);
     }
     if (lags.size() < 2) {
-        // Need at least 2 graduated pairs to compute a useful bootstrap median.
+        // Need at least 2 contributing pairs to compute a useful bootstrap median.
         return;
     }
     std::sort(lags.begin(), lags.end());
@@ -4858,14 +4866,14 @@ void Settings::recomputeGlobalSawBootstrap(const QString& scaleType) {
         const double lower = q1 - 1.5 * iqr;
         const double upper = q3 + 1.5 * iqr;
         QVector<double> filtered;
-        for (double v : lags) if (v >= lower && v <= upper) filtered.append(v);
+        for (double v : std::as_const(lags)) if (v >= lower && v <= upper) filtered.append(v);
         if (filtered.size() >= 2) lags = filtered;
     }
     const qsizetype n = lags.size();
     const double median = (n % 2 == 0) ? (lags[n / 2 - 1] + lags[n / 2]) / 2.0 : lags[n / 2];
     setGlobalSawBootstrapLag(scaleType, median);
     qDebug() << "[SAW] global bootstrap lag for" << scaleType
-             << "updated to" << median << "(median of" << n << "graduated pairs)";
+             << "updated to" << median << "(median of" << n << "pairs with committed history)";
 }
 
 // ============================================================

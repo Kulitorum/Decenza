@@ -58,7 +58,7 @@ Three QSettings keys, each a JSON object keyed by `"<profileFilename>::<scaleTyp
 |-----|-------|------|---------|
 | `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, ts, batchSize}` | 10 medians (~50 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the pair has graduated (≥ 3 medians). |
 | `saw/perProfileBatch` | array of pending raw entries `{drip, flow, overshoot, scale, profile, ts}` (target size 5) | 5 (commit point) | Pending accumulator; flushed on commit or rejection. |
-| `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of last committed median lag from each graduated pair on this scale. Used as first-shot default for new pairs. |
+| `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of last committed median lag from each pair on this scale with at least one committed batch-median. Used as first-shot default for new pairs. (Graduation for the per-profile *read* path is a stricter ≥ 3 medians; the bootstrap is a cold-start prior, so it accepts pairs with any committed history — IQR fencing handles the rest.) |
 
 The legacy `saw/learningHistory` key is preserved as a **global pool**: every committed batch-median is mirrored into it (trim 50). This keeps `isSawConverged()` and the legacy convergence-divergence detection working without changes, and provides a final read-path fallback for users with pre-update data.
 
