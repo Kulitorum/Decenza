@@ -622,6 +622,7 @@ Each operation page (Steam, HotWater, Flush) has:
 
 ## Git Workflow
 
+- **Standard merge: squash + delete branch.** Every PR lands on `main` as a single squashed commit, and the feature branch is deleted on the remote (and locally if you're on it). The `merge-pr` skill (`.claude/skills/merge-pr/SKILL.md`) automates this — invoke it via `/merge-pr` or whenever the user says "merge". Equivalent CLI: `gh pr merge <num> --repo Kulitorum/Decenza --squash --delete-branch`. Do not use `--merge` (true merge commit) or `--rebase` unless the user explicitly asks for them.
 - **Version codes are managed by CI** — local builds use `versioncode.txt` as-is (no auto-increment). All 6 CI workflows bump the code identically on tag push. The Android workflow commits the bumped value back to `main`.
 - You do **not** need to manually commit version code files — only `versioncode.txt` is tracked. `android/AndroidManifest.xml` and `installer/version.iss` are generated from `.in` templates by CMake at build time and are gitignored.
 

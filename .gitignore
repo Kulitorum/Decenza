@@ -47,6 +47,7 @@ screenshot.png
 # Debug/temp files
 logcat_*.txt
 -.zip
-.claude/
+.claude/*
+!.claude/skills/
 .DS_Store
 /.codex_tmp
