@@ -146,7 +146,17 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             Text {
-                                text: Settings.sawLearnedLag.toFixed(2) + TranslationManager.translate("common.unit.seconds", "s")
+                                // sawLearnedLagFor() picks per-(profile, scale) data when the
+                                // pair has graduated, otherwise falls back to global bootstrap
+                                // / global pool / scale default. void(Settings.sawLearnedLag)
+                                // makes the binding depend on sawLearnedLagChanged so that
+                                // commits/rejects/resets trigger a re-evaluation.
+                                property string _profile: ProfileManager.baseProfileName
+                                property string _scale: Settings.scaleType
+                                property double _lagDep: Settings.sawLearnedLag
+                                text: { void(_lagDep);
+                                    return Settings.sawLearnedLagFor(_profile, _scale).toFixed(2)
+                                      + TranslationManager.translate("common.unit.seconds", "s"); }
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(14)
                                 font.bold: true
@@ -154,27 +164,61 @@ Item {
                         }
 
                         RowLayout {
+                            id: sawSourceRow
                             Layout.fillWidth: true
+                            property double _modelDep: Settings.sawLearnedLag  // dep tracker for rebind
+                            property string _modelSource: { void(_modelDep);
+                                return Settings.sawModelSource(ProfileManager.baseProfileName, Settings.scaleType); }
+                            property string _sourceSuffix: {
+                                if (_modelSource === "perProfile")
+                                    return " " + TranslationManager.translate("settings.preferences.sawPerProfile", "(per-profile)");
+                                if (_modelSource === "globalBootstrap")
+                                    return " " + TranslationManager.translate("settings.preferences.sawBootstrap", "(global bootstrap)");
+                                if (_modelSource === "globalPool")
+                                    return " " + TranslationManager.translate("settings.preferences.sawGlobal", "(global)");
+                                return " " + TranslationManager.translate("settings.preferences.sawDefault", "(default)");
+                            }
 
                             Text {
-                                text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none")) + " · " + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
+                                text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none"))
+                                      + sawSourceRow._sourceSuffix
+                                      + " · "
+                                      + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
                             }
 
                             Item { Layout.fillWidth: true }
 
                             Text {
-                                id: resetText
-                                text: TranslationManager.translate("settings.options.reset", "Reset")
+                                id: resetThisProfileText
+                                visible: sawSourceRow._modelSource === "perProfile"
+                                text: TranslationManager.translate("settings.options.resetThisProfile", "Reset this profile")
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(12)
                                 Accessible.ignored: true
                                 AccessibleMouseArea {
                                     anchors.fill: parent
                                     anchors.margins: -Theme.scaled(4)
-                                    accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTiming", "Reset weight stop timing")
-                                    accessibleItem: resetText
+                                    accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingProfile", "Reset weight stop timing for current profile")
+                                    accessibleItem: resetThisProfileText
+                                    onAccessibleClicked: Settings.resetSawLearningForProfile(ProfileManager.baseProfileName, Settings.scaleType)
+                                }
+                            }
+
+                            Text {
+                                id: resetAllText
+                                text: TranslationManager.translate("settings.options.resetAll", "Reset all")
+                                color: Theme.primaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                Accessible.ignored: true
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    anchors.margins: -Theme.scaled(4)
+                                    accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingAll", "Reset all weight stop timing")
+                                    accessibleItem: resetAllText
                                     onAccessibleClicked: Settings.resetSawLearning()
                                 }
                             }

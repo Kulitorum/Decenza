@@ -862,8 +862,35 @@ public:
     // SAW (Stop-at-Weight) learning
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
     double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
-    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot);
+    // Per-(profile, scale) variant of sawLearnedLag — falls back to global bootstrap /
+    // per-scale data when the pair has not yet graduated (< 3 committed batch-medians).
+    // Pass empty profile for the legacy global-pool path. Returns the mean of drip/flow
+    // over the last 5 committed batch-medians (same numeric units as sawLearnedLag).
+    Q_INVOKABLE double sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const;
+    double getExpectedDripFor(const QString& profileFilename, const QString& scaleType, double currentFlowRate) const;
+    QList<QPair<double, double>> sawLearningEntriesFor(const QString& profileFilename, const QString& scaleType, int maxEntries) const;
+
+    // Reports which model the read path uses for (profile, scale). Strings:
+    // "perProfile" | "globalBootstrap" | "globalPool" | "scaleDefault". Used for logging.
+    Q_INVOKABLE QString sawModelSource(const QString& profileFilename, const QString& scaleType) const;
+
+    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot,
+                             const QString& profileFilename = QString());
     Q_INVOKABLE void resetSawLearning();
+    Q_INVOKABLE void resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType);
+
+    // Per-pair committed history (storage helpers; mostly for tests + bootstrap recompute).
+    // Each entry is a batch median {drip, flow, overshoot, ts}.
+    QJsonArray perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const;
+    QJsonObject allPerProfileSawHistory() const;
+
+    // Per-pair pending batch accumulator (5 entries before committing the batch median).
+    QJsonArray sawPendingBatch(const QString& profileFilename, const QString& scaleType) const;
+
+    // Global bootstrap lag for new (profile, scale) pairs without graduated history.
+    // Returns 0.0 if no bootstrap exists (caller should fall through to global pool).
+    double globalSawBootstrapLag(const QString& scaleType) const;
+    void setGlobalSawBootstrapLag(const QString& scaleType, double lag);
 
     // Per-scale BLE sensor lag (seconds). Used as first-shot SAW default before learning kicks in.
     // Values empirically derived from de1app device_scale.tcl.
@@ -1116,6 +1143,22 @@ private:
     mutable QJsonObject m_perProfileFlowCalCache;  // Cached per-profile flow calibration map
     mutable bool m_perProfileFlowCalCacheValid = false;
     void savePerProfileFlowCalMap(const QJsonObject& map);
+
+    // Per-(profile, scale) SAW history cache. INVARIANT: all writes route through
+    // savePerProfileSawHistoryMap() / savePerProfileSawBatchMap() to keep the cache
+    // and QSettings in sync (mirrors the perProfileFlowCal cache pattern).
+    mutable QJsonObject m_perProfileSawHistoryCache;
+    mutable bool m_perProfileSawHistoryCacheValid = false;
+    mutable QJsonObject m_perProfileSawBatchCache;
+    mutable bool m_perProfileSawBatchCacheValid = false;
+    QJsonObject loadPerProfileSawHistoryMap() const;
+    void savePerProfileSawHistoryMap(const QJsonObject& map);
+    QJsonObject loadPerProfileSawBatchMap() const;
+    void savePerProfileSawBatchMap(const QJsonObject& map);
+    static QString sawPairKey(const QString& profileFilename, const QString& scaleType);
+    void addSawPerPairEntry(double drip, double flowRate, const QString& scaleType,
+                            double overshoot, const QString& profileFilename);
+    void recomputeGlobalSawBootstrap(const QString& scaleType);
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot
     bool m_hasTemperatureOverride = false;  // Session-only

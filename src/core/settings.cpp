@@ -4365,7 +4365,8 @@ double Settings::sensorLag(const QString& scaleType)
     return 0.38;  // de1app default for unknown/unlisted scales
 }
 
-void Settings::addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot) {
+void Settings::addSawLearningPoint(double drip, double flowRate, const QString& scaleType,
+                                   double overshoot, const QString& profileFilename) {
     // Validate physical constraints (scale glitches can produce negative values)
     if (drip < 0 || flowRate < 0) {
         qWarning() << "[SAW] Invalid learning point rejected: drip=" << drip << "flow=" << flowRate;
@@ -4398,6 +4399,18 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
         }
     }
 
+    // When called with a profile filename, route through the per-(profile, scale) batch
+    // accumulator. The pending batch holds 5 shots before committing the median to the
+    // per-pair history AND the global pool — this reduces churn from individual shots
+    // and provides outlier rejection via the median + IQR check. See AUTO_FLOW_CALIBRATION
+    // for the same pattern applied to flow cal.
+    if (!profileFilename.isEmpty()) {
+        addSawPerPairEntry(drip, flowRate, scaleType, overshoot, profileFilename);
+        return;
+    }
+
+    // Legacy path (profile unknown): append directly to the global pool. Preserves
+    // existing behaviour for callers that have not been updated to pass a profile.
     QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
     QJsonArray arr;
     if (!data.isEmpty()) {
@@ -4463,13 +4476,404 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
 
 void Settings::resetSawLearning() {
     m_settings.remove("saw/learningHistory");
+    m_settings.remove("saw/perProfileHistory");
+    m_settings.remove("saw/perProfileBatch");
+    m_settings.remove("saw/globalBootstrapLag");
     m_sawHistoryCacheDirty = true;
     m_sawConvergedCache = -1;
+    m_perProfileSawHistoryCacheValid = false;
+    m_perProfileSawBatchCacheValid = false;
+    qDebug() << "[SAW] reset all SAW learning";
     emit sawLearnedLagChanged();
 
     // Also reset hot water SAW learning
     setHotWaterSawOffset(2.0);  // Back to default
     setHotWaterSawSampleCount(0);
+}
+
+void Settings::resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType) {
+    if (profileFilename.isEmpty()) {
+        qWarning() << "[SAW] resetSawLearningForProfile called with empty profile";
+        return;
+    }
+    const QString key = sawPairKey(profileFilename, scaleType);
+    QJsonObject historyMap = loadPerProfileSawHistoryMap();
+    QJsonObject batchMap = loadPerProfileSawBatchMap();
+    bool changed = false;
+    if (historyMap.contains(key)) {
+        historyMap.remove(key);
+        savePerProfileSawHistoryMap(historyMap);
+        changed = true;
+    }
+    if (batchMap.contains(key)) {
+        batchMap.remove(key);
+        savePerProfileSawBatchMap(batchMap);
+        changed = true;
+    }
+    if (changed) {
+        qDebug() << "[SAW] reset perProfileHistory for" << key;
+        emit sawLearnedLagChanged();
+    }
+}
+
+// ---- per-(profile, scale) helpers ----
+
+QString Settings::sawPairKey(const QString& profileFilename, const QString& scaleType) {
+    return profileFilename + QStringLiteral("::") + scaleType;
+}
+
+QJsonObject Settings::loadPerProfileSawHistoryMap() const {
+    if (m_perProfileSawHistoryCacheValid) return m_perProfileSawHistoryCache;
+    QJsonParseError parseError;
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("saw/perProfileHistory", "{}").toByteArray(),
+        &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "[SAW] corrupt perProfileHistory JSON:" << parseError.errorString()
+                   << "- per-profile SAW history lost";
+        const_cast<QSettings&>(m_settings).setValue("saw/perProfileHistory", "{}");
+        map = QJsonObject();
+    }
+    m_perProfileSawHistoryCache = map;
+    m_perProfileSawHistoryCacheValid = true;
+    return m_perProfileSawHistoryCache;
+}
+
+void Settings::savePerProfileSawHistoryMap(const QJsonObject& map) {
+    m_settings.setValue("saw/perProfileHistory",
+                        QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileSawHistoryCache = map;
+    m_perProfileSawHistoryCacheValid = true;
+}
+
+QJsonObject Settings::loadPerProfileSawBatchMap() const {
+    if (m_perProfileSawBatchCacheValid) return m_perProfileSawBatchCache;
+    QJsonParseError parseError;
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("saw/perProfileBatch", "{}").toByteArray(),
+        &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "[SAW] corrupt perProfileBatch JSON:" << parseError.errorString();
+        const_cast<QSettings&>(m_settings).setValue("saw/perProfileBatch", "{}");
+        map = QJsonObject();
+    }
+    m_perProfileSawBatchCache = map;
+    m_perProfileSawBatchCacheValid = true;
+    return m_perProfileSawBatchCache;
+}
+
+void Settings::savePerProfileSawBatchMap(const QJsonObject& map) {
+    m_settings.setValue("saw/perProfileBatch",
+                        QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileSawBatchCache = map;
+    m_perProfileSawBatchCacheValid = true;
+}
+
+QJsonArray Settings::perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const {
+    return loadPerProfileSawHistoryMap().value(sawPairKey(profileFilename, scaleType)).toArray();
+}
+
+QJsonObject Settings::allPerProfileSawHistory() const {
+    return loadPerProfileSawHistoryMap();
+}
+
+QJsonArray Settings::sawPendingBatch(const QString& profileFilename, const QString& scaleType) const {
+    return loadPerProfileSawBatchMap().value(sawPairKey(profileFilename, scaleType)).toArray();
+}
+
+double Settings::globalSawBootstrapLag(const QString& scaleType) const {
+    const QString key = QStringLiteral("saw/globalBootstrapLag/") + scaleType;
+    return m_settings.value(key, 0.0).toDouble();
+}
+
+void Settings::setGlobalSawBootstrapLag(const QString& scaleType, double lag) {
+    const QString key = QStringLiteral("saw/globalBootstrapLag/") + scaleType;
+    m_settings.setValue(key, lag);
+}
+
+// ---- per-(profile, scale) read path ----
+
+QString Settings::sawModelSource(const QString& profileFilename, const QString& scaleType) const {
+    if (!profileFilename.isEmpty()) {
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        if (pairHistory.size() >= 3) return QStringLiteral("perProfile");
+    }
+    if (globalSawBootstrapLag(scaleType) > 0.0) return QStringLiteral("globalBootstrap");
+    ensureSawCacheLoaded();
+    for (const auto& v : std::as_const(m_sawHistoryCache)) {
+        if (v.toObject().value("scale").toString() == scaleType) return QStringLiteral("globalPool");
+    }
+    return QStringLiteral("scaleDefault");
+}
+
+QList<QPair<double, double>> Settings::sawLearningEntriesFor(const QString& profileFilename,
+                                                             const QString& scaleType,
+                                                             int maxEntries) const {
+    QList<QPair<double, double>> result;
+    if (!profileFilename.isEmpty()) {
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        if (pairHistory.size() >= 3) {
+            for (qsizetype i = pairHistory.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
+                QJsonObject obj = pairHistory[i].toObject();
+                if (obj.contains("drip")) {
+                    result.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
+                }
+            }
+            if (!result.isEmpty()) return result;
+        }
+    }
+    return sawLearningEntries(scaleType, maxEntries);
+}
+
+double Settings::sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const {
+    if (!profileFilename.isEmpty()) {
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        if (pairHistory.size() >= 3) {
+            double sumLag = 0;
+            qsizetype count = 0;
+            for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < 5; --i) {
+                QJsonObject obj = pairHistory[i].toObject();
+                double drip = obj.value("drip").toDouble();
+                double flow = obj.value("flow").toDouble();
+                if (flow > 0.5) {
+                    sumLag += drip / flow;
+                    ++count;
+                }
+            }
+            if (count > 0) return sumLag / count;
+        }
+    }
+    double bootstrap = globalSawBootstrapLag(scaleType);
+    if (bootstrap > 0.0) return bootstrap;
+    return sawLearnedLag();
+}
+
+double Settings::getExpectedDripFor(const QString& profileFilename,
+                                    const QString& scaleType,
+                                    double currentFlowRate) const {
+    if (!profileFilename.isEmpty()) {
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        if (pairHistory.size() >= 3) {
+            // Weighted average using the same recency + flow-similarity scheme as the
+            // global getExpectedDrip(). Uses up to 12 medians (pair history is capped at
+            // 10, so this just consumes the lot in practice).
+            struct Entry { double drip; double flow; };
+            QVector<Entry> entries;
+            for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < 12; --i) {
+                QJsonObject obj = pairHistory[i].toObject();
+                if (obj.contains("drip")) entries.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
+            }
+            if (!entries.isEmpty()) {
+                double weightedDripSum = 0;
+                double totalWeight = 0;
+                const double recencyMax = 10.0;
+                const double recencyMin = 3.0;
+                for (qsizetype i = 0; i < entries.size(); ++i) {
+                    const Entry& e = entries[i];
+                    double recencyWeight = recencyMax - i * (recencyMax - recencyMin)
+                                                       / qMax(qsizetype{1}, entries.size() - 1);
+                    double flowDiff = qAbs(e.flow - currentFlowRate);
+                    double flowWeight = qExp(-(flowDiff * flowDiff) / 4.5);
+                    double w = recencyWeight * flowWeight;
+                    weightedDripSum += e.drip * w;
+                    totalWeight += w;
+                }
+                if (totalWeight >= 0.01) {
+                    double expected = weightedDripSum / totalWeight;
+                    return qBound(0.5, expected, 20.0);
+                }
+            }
+        }
+    }
+    double bootstrap = globalSawBootstrapLag(scaleType);
+    if (bootstrap > 0.0) {
+        return qMin(currentFlowRate * bootstrap, 8.0);
+    }
+    return getExpectedDrip(currentFlowRate);
+}
+
+// ---- per-pair batch accumulator + commit ----
+
+void Settings::addSawPerPairEntry(double drip, double flowRate, const QString& scaleType,
+                                  double overshoot, const QString& profileFilename) {
+    constexpr int kBatchSize = 5;
+    constexpr int kMaxPairHistory = 10;
+    constexpr double kBatchMaxIqr = 1.0;          // seconds — IQR of lags within a batch
+    constexpr double kBatchMaxDeviation = 1.5;    // seconds — single lag from batch median
+
+    const QString key = sawPairKey(profileFilename, scaleType);
+
+    // 1. Append entry to pending batch
+    QJsonObject batchMap = loadPerProfileSawBatchMap();
+    QJsonArray batch = batchMap.value(key).toArray();
+    QJsonObject entry;
+    entry["drip"] = drip;
+    entry["flow"] = flowRate;
+    entry["overshoot"] = overshoot;
+    entry["scale"] = scaleType;
+    entry["profile"] = profileFilename;
+    entry["ts"] = QDateTime::currentSecsSinceEpoch();
+    batch.append(entry);
+
+    if (batch.size() < kBatchSize) {
+        batchMap[key] = batch;
+        savePerProfileSawBatchMap(batchMap);
+        const double lag = (flowRate > 0.5) ? drip / flowRate : 0.0;
+        qDebug() << "[SAW] accumulated drip=" << drip << "flow=" << flowRate
+                 << "for" << key
+                 << "(" << batch.size() << "/" << kBatchSize << ") lag=" << lag;
+        return;
+    }
+
+    // 2. Batch full — compute medians of drip / flow / overshoot, plus IQR of lags.
+    QVector<double> drips, flows, overs, lags;
+    drips.reserve(batch.size()); flows.reserve(batch.size());
+    overs.reserve(batch.size()); lags.reserve(batch.size());
+    for (const auto& v : std::as_const(batch)) {
+        QJsonObject o = v.toObject();
+        drips.append(o["drip"].toDouble());
+        flows.append(o["flow"].toDouble());
+        overs.append(o["overshoot"].toDouble());
+        if (o["flow"].toDouble() > 0.5) lags.append(o["drip"].toDouble() / o["flow"].toDouble());
+    }
+
+    auto medianOf = [](QVector<double> v) -> double {
+        if (v.isEmpty()) return 0.0;
+        std::sort(v.begin(), v.end());
+        const qsizetype n = v.size();
+        return (n % 2 == 0) ? (v[n / 2 - 1] + v[n / 2]) / 2.0 : v[n / 2];
+    };
+    auto iqrOf = [](QVector<double> v) -> double {
+        if (v.size() < 4) return 0.0;
+        std::sort(v.begin(), v.end());
+        const qsizetype n = v.size();
+        return v[3 * n / 4] - v[n / 4];
+    };
+
+    const double medianDrip = medianOf(drips);
+    const double medianFlow = medianOf(flows);
+    const double medianOver = medianOf(overs);
+    const double medianLag = (medianFlow > 0.5) ? medianDrip / medianFlow : 0.0;
+    const double lagIqr = iqrOf(lags);
+
+    // 3. Outlier check on the batch as a whole.
+    bool dispersionTooHigh = (lagIqr > kBatchMaxIqr);
+    if (!dispersionTooHigh) {
+        for (double l : std::as_const(lags)) {
+            if (qAbs(l - medianLag) > kBatchMaxDeviation) { dispersionTooHigh = true; break; }
+        }
+    }
+    if (dispersionTooHigh) {
+        qWarning() << "[SAW] batch rejected — high dispersion median_lag=" << medianLag
+                   << "iqr=" << lagIqr << "for" << key << "— dropping batch";
+        batchMap.remove(key);
+        savePerProfileSawBatchMap(batchMap);
+        return;
+    }
+
+    // 4. Auto-reset: 2nd consecutive batch with median overshoot < -6g → wipe pair history,
+    //    let the new median be the sole baseline. The legacy single-shot path triggers on
+    //    2 consecutive bad shots; here, since each median represents 5 shots, the threshold
+    //    is effectively 10 consecutive bad shots — intentional debouncing for the batched
+    //    update model.
+    QJsonObject historyMap = loadPerProfileSawHistoryMap();
+    QJsonArray pairHistory = historyMap.value(key).toArray();
+    if (medianOver < -6.0 && !pairHistory.isEmpty()) {
+        QJsonObject lastMedian = pairHistory.last().toObject();
+        if (lastMedian["overshoot"].toDouble() < -6.0) {
+            qWarning() << "[SAW] 2nd consecutive overshoot<-6g for" << key
+                       << "— clearing committed history";
+            pairHistory = QJsonArray();
+        }
+    }
+
+    // 5. Commit median to per-pair history.
+    QJsonObject medianEntry;
+    medianEntry["drip"] = medianDrip;
+    medianEntry["flow"] = medianFlow;
+    medianEntry["overshoot"] = medianOver;
+    medianEntry["scale"] = scaleType;
+    medianEntry["profile"] = profileFilename;
+    medianEntry["ts"] = QDateTime::currentSecsSinceEpoch();
+    medianEntry["batchSize"] = batch.size();
+    pairHistory.append(medianEntry);
+    while (pairHistory.size() > kMaxPairHistory) pairHistory.removeFirst();
+    historyMap[key] = pairHistory;
+    savePerProfileSawHistoryMap(historyMap);
+
+    // 6. Mirror the median into the global pool so isSawConverged + the legacy
+    //    bootstrap path keep working. Trim to 50 (existing cap).
+    QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
+    QJsonArray pool;
+    if (!data.isEmpty()) {
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        if (doc.isArray()) pool = doc.array();
+    }
+    pool.append(medianEntry);
+    while (pool.size() > 50) pool.removeFirst();
+    m_settings.setValue("saw/learningHistory", QJsonDocument(pool).toJson());
+    m_sawHistoryCacheDirty = true;
+    m_sawConvergedCache = -1;
+
+    // 7. Clear pending batch.
+    batchMap.remove(key);
+    savePerProfileSawBatchMap(batchMap);
+
+    qDebug() << "[SAW] committed median lag=" << medianLag
+             << "(drip=" << medianDrip << "flow=" << medianFlow << ")"
+             << "for" << key
+             << "— n_medians=" << pairHistory.size();
+
+    // 8. Recompute global bootstrap lag for this scale type so other (profile, scale)
+    //    pairs with no per-pair history can use it as their first-shot default.
+    recomputeGlobalSawBootstrap(scaleType);
+
+    emit sawLearnedLagChanged();
+}
+
+void Settings::recomputeGlobalSawBootstrap(const QString& scaleType) {
+    // Bootstrap is a cold-start prior for *new* pairs: a single committed batch median
+    // (5 real shots) is already more informative than the static sensorLag() constant,
+    // so any pair with at least one committed median contributes. The IQR fence below
+    // protects against under-trained outliers if many pairs accumulate. Pairs that have
+    // crossed the per-profile graduation threshold (>= 3 medians) for the read path
+    // are a stricter bar handled in sawLearnedLagFor / sawModelSource.
+    QJsonObject map = loadPerProfileSawHistoryMap();
+    QVector<double> lags;
+    for (auto it = map.begin(); it != map.end(); ++it) {
+        QJsonArray pairHistory = it.value().toArray();
+        if (pairHistory.isEmpty()) continue;
+        // Median entries record their scale; only include this scale's pairs.
+        if (pairHistory.last().toObject().value("scale").toString() != scaleType) continue;
+        // Use the last committed median lag as that pair's representative.
+        QJsonObject last = pairHistory.last().toObject();
+        double drip = last.value("drip").toDouble();
+        double flow = last.value("flow").toDouble();
+        if (flow > 0.5) lags.append(drip / flow);
+    }
+    if (lags.size() < 2) {
+        // Need at least 2 contributing pairs to compute a useful bootstrap median.
+        return;
+    }
+    std::sort(lags.begin(), lags.end());
+    // IQR fence (1.5x IQR from Q1/Q3) — same outlier-removal as flow cal's global median.
+    if (lags.size() >= 4) {
+        const qsizetype n = lags.size();
+        const double q1 = lags[n / 4];
+        const double q3 = lags[3 * n / 4];
+        const double iqr = q3 - q1;
+        const double lower = q1 - 1.5 * iqr;
+        const double upper = q3 + 1.5 * iqr;
+        QVector<double> filtered;
+        for (double v : std::as_const(lags)) if (v >= lower && v <= upper) filtered.append(v);
+        if (filtered.size() >= 2) lags = filtered;
+    }
+    const qsizetype n = lags.size();
+    const double median = (n % 2 == 0) ? (lags[n / 2 - 1] + lags[n / 2]) / 2.0 : lags[n / 2];
+    setGlobalSawBootstrapLag(scaleType, median);
+    qDebug() << "[SAW] global bootstrap lag for" << scaleType
+             << "updated to" << median << "(median of" << n << "pairs with committed history)";
 }
 
 // ============================================================
