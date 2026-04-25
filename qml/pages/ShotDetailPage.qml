@@ -1400,9 +1400,9 @@ Page {
         Rectangle {
             id: discussButton
             readonly property bool isClaudeDesktopReady:
-                Settings.discussShotApp !== Settings.discussAppClaudeDesktop
-                || Settings.claudeRcSessionUrl.length > 0
-            visible: shotData.duration > 0 && Settings.discussShotApp !== Settings.discussAppNone
+                Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
+                || Settings.network.claudeRcSessionUrl.length > 0
+            visible: shotData.duration > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
             opacity: enabled ? 1.0 : 0.5
             Layout.preferredWidth: discussContent.width + 32
@@ -1448,8 +1448,8 @@ Page {
                         var summary = MainController.aiManager.generateHistoryShotSummary(shotData)
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }
-                    var url = Settings.discussShotUrl()
-                    if (url.length > 0) Settings.openDiscussUrl(url)
+                    var url = Settings.network.discussShotUrl()
+                    if (url.length > 0) Settings.network.openDiscussUrl(url)
                 }
             }
         }

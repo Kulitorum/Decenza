@@ -21,20 +21,20 @@ Item {
     // Reading layoutConfiguration establishes a QML binding dependency
     // so that callers re-evaluate when the layout changes
     function getZoneItems(zoneName) {
-        var _dep = Settings.layoutConfiguration
-        return Settings.getZoneItems(zoneName)
+        var _dep = Settings.network.layoutConfiguration
+        return Settings.network.getZoneItems(zoneName)
     }
 
     // Helper to get zone Y offset (also depends on layoutConfiguration)
     function getZoneYOffset(zoneName) {
-        var _dep = Settings.layoutConfiguration
-        return Settings.getZoneYOffset(zoneName)
+        var _dep = Settings.network.layoutConfiguration
+        return Settings.network.getZoneYOffset(zoneName)
     }
 
     // Helper to get zone scale (also depends on layoutConfiguration)
     function getZoneScale(zoneName) {
-        var _dep = Settings.layoutConfiguration
-        return Settings.getZoneScale(zoneName)
+        var _dep = Settings.network.layoutConfiguration
+        return Settings.network.getZoneScale(zoneName)
     }
 
     // Handle item tap: select or deselect
@@ -61,7 +61,7 @@ Item {
 
     // Handle item removal
     function onItemRemoved(itemId, zoneName) {
-        Settings.removeItem(itemId, zoneName)
+        Settings.network.removeItem(itemId, zoneName)
         if (selectedItemId === itemId) {
             selectedItemId = ""
             selectedFromZone = ""
@@ -70,10 +70,10 @@ Item {
 
     // Handle move left within zone
     function onMoveLeft(itemId, zoneName) {
-        var items = Settings.getZoneItems(zoneName)
+        var items = Settings.network.getZoneItems(zoneName)
         for (var i = 0; i < items.length; i++) {
             if (items[i].id === itemId && i > 0) {
-                Settings.reorderItem(zoneName, i, i - 1)
+                Settings.network.reorderItem(zoneName, i, i - 1)
                 break
             }
         }
@@ -81,17 +81,17 @@ Item {
 
     // Handle move right within zone
     function onMoveRight(itemId, zoneName) {
-        var items = Settings.getZoneItems(zoneName)
+        var items = Settings.network.getZoneItems(zoneName)
         for (var i = 0; i < items.length; i++) {
             if (items[i].id === itemId && i < items.length - 1) {
-                Settings.reorderItem(zoneName, i, i + 1)
+                Settings.network.reorderItem(zoneName, i, i + 1)
                 break
             }
         }
     }
 
     function openCustomEditor(itemId, zoneName) {
-        var props = Settings.getItemProperties(itemId)
+        var props = Settings.network.getItemProperties(itemId)
         var type = props.type || ""
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
@@ -105,17 +105,17 @@ Item {
         var zones = ["statusBar", "topLeft", "topRight", "centerStatus", "centerTop",
                      "centerMiddle", "bottomLeft", "bottomRight"]
         for (var z = 0; z < zones.length; z++) {
-            var items = Settings.getZoneItems(zones[z])
+            var items = Settings.network.getZoneItems(zones[z])
             for (var i = 0; i < items.length; i++) {
                 if (items[i].type === "settings") return
                 if (items[i].type === "custom") {
-                    var props = Settings.getItemProperties(items[i].id)
+                    var props = Settings.network.getItemProperties(items[i].id)
                     if (props.action === "navigate:settings") return
                 }
             }
         }
         // No settings access found — add a settings widget to bottom right
-        Settings.addItem("settings", "bottomRight")
+        Settings.network.addItem("settings", "bottomRight")
         console.log("SettingsLayoutTab: Added settings widget to bottomRight (no settings access found)")
     }
 
@@ -165,7 +165,7 @@ Item {
                         text: TranslationManager.translate("settings.layout.reset", "Reset to Default")
                         accessibleName: TranslationManager.translate("settings.layout.reset", "Reset to Default")
                         onClicked: {
-                            Settings.resetLayoutToDefault()
+                            Settings.network.resetLayoutToDefault()
                             layoutTab.selectedItemId = ""
                             layoutTab.selectedFromZone = ""
                             layoutTab.selectedZoneName = ""
@@ -197,7 +197,7 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "statusBar") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "statusBar") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
-                    onAddItemRequested: function(type) { Settings.addItem(type, "statusBar") }
+                    onAddItemRequested: function(type) { Settings.network.addItem(type, "statusBar") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
 
                 }
@@ -220,7 +220,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topLeft") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topLeft") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
-                        onAddItemRequested: function(type) { Settings.addItem(type, "topLeft") }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "topLeft") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
     
                     }
@@ -238,7 +238,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topRight") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topRight") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
-                        onAddItemRequested: function(type) { Settings.addItem(type, "topRight") }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "topRight") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
     
                     }
@@ -261,13 +261,13 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerStatus") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerStatus") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
-                    onAddItemRequested: function(type) { Settings.addItem(type, "centerStatus") }
+                    onAddItemRequested: function(type) { Settings.network.addItem(type, "centerStatus") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
 
-                    onMoveUp: Settings.setZoneYOffset("centerStatus", yOffset - 5)
-                    onMoveDown: Settings.setZoneYOffset("centerStatus", yOffset + 5)
-                    onScaleUp: Settings.setZoneScale("centerStatus", zoneScale + 0.05)
-                    onScaleDown: Settings.setZoneScale("centerStatus", zoneScale - 0.05)
+                    onMoveUp: Settings.network.setZoneYOffset("centerStatus", yOffset - 5)
+                    onMoveDown: Settings.network.setZoneYOffset("centerStatus", yOffset + 5)
+                    onScaleUp: Settings.network.setZoneScale("centerStatus", zoneScale + 0.05)
+                    onScaleDown: Settings.network.setZoneScale("centerStatus", zoneScale - 0.05)
                 }
 
                 // Center Top zone
@@ -287,13 +287,13 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerTop") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerTop") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
-                    onAddItemRequested: function(type) { Settings.addItem(type, "centerTop") }
+                    onAddItemRequested: function(type) { Settings.network.addItem(type, "centerTop") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
 
-                    onMoveUp: Settings.setZoneYOffset("centerTop", yOffset - 5)
-                    onMoveDown: Settings.setZoneYOffset("centerTop", yOffset + 5)
-                    onScaleUp: Settings.setZoneScale("centerTop", zoneScale + 0.05)
-                    onScaleDown: Settings.setZoneScale("centerTop", zoneScale - 0.05)
+                    onMoveUp: Settings.network.setZoneYOffset("centerTop", yOffset - 5)
+                    onMoveDown: Settings.network.setZoneYOffset("centerTop", yOffset + 5)
+                    onScaleUp: Settings.network.setZoneScale("centerTop", zoneScale + 0.05)
+                    onScaleDown: Settings.network.setZoneScale("centerTop", zoneScale - 0.05)
                 }
 
                 // Center Middle zone
@@ -313,13 +313,13 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerMiddle") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerMiddle") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
-                    onAddItemRequested: function(type) { Settings.addItem(type, "centerMiddle") }
+                    onAddItemRequested: function(type) { Settings.network.addItem(type, "centerMiddle") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
 
-                    onMoveUp: Settings.setZoneYOffset("centerMiddle", yOffset - 5)
-                    onMoveDown: Settings.setZoneYOffset("centerMiddle", yOffset + 5)
-                    onScaleUp: Settings.setZoneScale("centerMiddle", zoneScale + 0.05)
-                    onScaleDown: Settings.setZoneScale("centerMiddle", zoneScale - 0.05)
+                    onMoveUp: Settings.network.setZoneYOffset("centerMiddle", yOffset - 5)
+                    onMoveDown: Settings.network.setZoneYOffset("centerMiddle", yOffset + 5)
+                    onScaleUp: Settings.network.setZoneScale("centerMiddle", zoneScale + 0.05)
+                    onScaleDown: Settings.network.setZoneScale("centerMiddle", zoneScale - 0.05)
                 }
 
                 // Bottom bar zones
@@ -340,7 +340,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomLeft") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomLeft") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
-                        onAddItemRequested: function(type) { Settings.addItem(type, "bottomLeft") }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomLeft") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
     
                     }
@@ -358,7 +358,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomRight") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomRight") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
-                        onAddItemRequested: function(type) { Settings.addItem(type, "bottomRight") }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomRight") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
     
                     }

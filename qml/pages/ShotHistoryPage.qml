@@ -45,8 +45,8 @@ Page {
     property bool _populatingSearch: false
 
     // Sort settings
-    property string sortField: Settings.shotHistorySortField
-    property string sortDirection: Settings.shotHistorySortDirection
+    property string sortField: Settings.network.shotHistorySortField
+    property string sortDirection: Settings.network.shotHistorySortDirection
 
     readonly property var sortFieldLabels: ({
         "timestamp": TranslationManager.translate("shothistory.sort.date", "Date"),
@@ -433,15 +433,15 @@ Page {
                 text: TranslationManager.translate("shothistory.save", "Save")
                 accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
                 enabled: searchField.text.trim().length > 0
-                         && Settings.savedSearches.indexOf(searchField.text.trim()) === -1
-                onClicked: Settings.addSavedSearch(searchField.text.trim())
+                         && Settings.network.savedSearches.indexOf(searchField.text.trim()) === -1
+                onClicked: Settings.network.addSavedSearch(searchField.text.trim())
             }
 
             AccessibleButton {
                 text: TranslationManager.translate("shothistory.saved", "Saved")
                 accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
                 icon.source: "qrc:/icons/list.svg"
-                enabled: Settings.savedSearches.length > 0
+                enabled: Settings.network.savedSearches.length > 0
                 onClicked: savedSearchesDialog.open()
             }
 
@@ -460,7 +460,7 @@ Page {
                     : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
                 onClicked: {
                     sortDirection = (sortDirection === "DESC") ? "ASC" : "DESC"
-                    Settings.shotHistorySortDirection = sortDirection
+                    Settings.network.shotHistorySortDirection = sortDirection
                     loadShots()
                 }
             }
@@ -1030,7 +1030,7 @@ Page {
                 Layout.leftMargin: Theme.scaled(10)
                 Layout.rightMargin: Theme.scaled(10)
                 clip: true
-                model: Settings.savedSearches
+                model: Settings.network.savedSearches
                 spacing: Theme.scaled(2)
 
                 delegate: Rectangle {
@@ -1086,8 +1086,8 @@ Page {
                                     id: deleteArea
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.removeSavedSearch(modelData)
-                                        if (Settings.savedSearches.length === 0) {
+                                        Settings.network.removeSavedSearch(modelData)
+                                        if (Settings.network.savedSearches.length === 0) {
                                             savedSearchesDialog.close()
                                         }
                                     }
@@ -1106,8 +1106,8 @@ Page {
                             Layout.leftMargin: Theme.scaled(10)
                             Layout.rightMargin: Theme.scaled(4)
                             onClicked: {
-                                Settings.removeSavedSearch(modelData)
-                                if (Settings.savedSearches.length === 0) {
+                                Settings.network.removeSavedSearch(modelData)
+                                if (Settings.network.savedSearches.length === 0) {
                                     savedSearchesDialog.close()
                                 }
                             }
@@ -1148,8 +1148,8 @@ Page {
         onSelected: function(index, value) {
             sortField = sortFieldKeys[index]
             sortDirection = defaultSortDirections[sortFieldKeys[index]] || "DESC"
-            Settings.shotHistorySortField = sortField
-            Settings.shotHistorySortDirection = sortDirection
+            Settings.network.shotHistorySortField = sortField
+            Settings.network.shotHistorySortDirection = sortDirection
             loadShots()
         }
     }

@@ -36,8 +36,8 @@ Page {
     function loadFavorites() {
         favoritesModel.clear()
         MainController.shotHistory.requestAutoFavorites(
-            Settings.autoFavoritesGroupBy,
-            Settings.autoFavoritesMaxItems
+            Settings.network.autoFavoritesGroupBy,
+            Settings.network.autoFavoritesMaxItems
         )
     }
 
@@ -46,7 +46,7 @@ Page {
         function onAutoFavoritesReady(results) {
             favoritesModel.clear()
             for (var i = 0; i < results.length; i++) {
-                if (Settings.autoFavoritesHideUnrated && results[i].avgEnjoyment <= 0)
+                if (Settings.network.autoFavoritesHideUnrated && results[i].avgEnjoyment <= 0)
                     continue
                 favoritesModel.append(results[i])
             }
@@ -55,7 +55,7 @@ Page {
 
     // Determine which fields to include based on current groupBy setting
     function getGroupByIncludes() {
-        var groupBy = Settings.autoFavoritesGroupBy
+        var groupBy = Settings.network.autoFavoritesGroupBy
         var hasGrinder = (groupBy === "bean_profile_grinder" || groupBy === "bean_profile_grinder_weight")
         return {
             bean: (groupBy === "bean" || groupBy === "bean_profile" || hasGrinder),
@@ -202,7 +202,7 @@ Page {
                 }
                 property bool _hasBean: !!(model.beanBrand || model.beanType)
                 property bool _hasProfile: !!(model.profileName && model.profileName.length > 0)
-                property bool _hasGrinder: Settings.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
+                property bool _hasGrinder: Settings.network.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
                     !!(model.grinderBrand || model.grinderModel || model.grinderSetting)
                 property string _grinderText: {
                     var name = ((model.grinderBrand || "") + " " + (model.grinderModel || "")).trim()
@@ -353,7 +353,7 @@ Page {
                                 // Info page's averages cover the same shots the card aggregates.
                                 pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
                                     shotId: model.shotId,
-                                    groupBy: Settings.autoFavoritesGroupBy,
+                                    groupBy: Settings.network.autoFavoritesGroupBy,
                                     beanBrand: model.beanBrand || "",
                                     beanType: model.beanType || "",
                                     profileName: model.profileName || "",
@@ -412,7 +412,7 @@ Page {
                                 // yield on the ShotHistory filter so "Show" scopes to the same
                                 // shots the card aggregates, even though the card itself displays
                                 // the latest shot's raw dose.
-                                if (Settings.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
+                                if (Settings.network.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
                                     var bucket = model.doseBucket || 0
                                     if (bucket > 0) {
                                         filter.minDose = bucket - 0.25
@@ -459,7 +459,7 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: loadButton
                             onAccessibleClicked: {
-                                if (Settings.autoFavoritesOpenBrewSettings)
+                                if (Settings.network.autoFavoritesOpenBrewSettings)
                                     root.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
                                 // Pass the latest shot's raw dose so the loaded recipe matches
@@ -547,7 +547,7 @@ Page {
                         TranslationManager.translate("autofavorites.groupby.allweight", "Bean + Profile + Grinder + Weight")
                     ]
                     currentIndex: {
-                        switch(Settings.autoFavoritesGroupBy) {
+                        switch(Settings.network.autoFavoritesGroupBy) {
                             case "bean": return 0
                             case "profile": return 1
                             case "bean_profile_grinder": return 3
@@ -557,7 +557,7 @@ Page {
                     }
                     onActivated: {
                         var values = ["bean", "profile", "bean_profile", "bean_profile_grinder", "bean_profile_grinder_weight"]
-                        Settings.autoFavoritesGroupBy = values[currentIndex]
+                        Settings.network.autoFavoritesGroupBy = values[currentIndex]
                         loadFavorites()
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(
@@ -582,14 +582,14 @@ Page {
                 }
 
                 ValueInput {
-                    value: Settings.autoFavoritesMaxItems
+                    value: Settings.network.autoFavoritesMaxItems
                     from: 5
                     to: 50
                     stepSize: 5
                     accessibleName: TranslationManager.translate("autofavorites.maxitems", "Max items") +
                         ", " + value
                     onValueModified: function(newValue) {
-                        Settings.autoFavoritesMaxItems = newValue
+                        Settings.network.autoFavoritesMaxItems = newValue
                         loadFavorites()
                     }
                 }
@@ -610,10 +610,10 @@ Page {
                 }
 
                 StyledSwitch {
-                    checked: Settings.autoFavoritesHideUnrated
+                    checked: Settings.network.autoFavoritesHideUnrated
                     accessibleName: TranslationManager.translate("autofavorites.hideUnrated", "Hide unrated favorites")
                     onToggled: {
-                        Settings.autoFavoritesHideUnrated = checked
+                        Settings.network.autoFavoritesHideUnrated = checked
                         loadFavorites()
                     }
                 }
@@ -634,9 +634,9 @@ Page {
                 }
 
                 StyledSwitch {
-                    checked: Settings.autoFavoritesOpenBrewSettings
+                    checked: Settings.network.autoFavoritesOpenBrewSettings
                     accessibleName: TranslationManager.translate("autofavorites.openBrewSettings", "Open brew settings after load")
-                    onToggled: Settings.autoFavoritesOpenBrewSettings = checked
+                    onToggled: Settings.network.autoFavoritesOpenBrewSettings = checked
                 }
             }
 

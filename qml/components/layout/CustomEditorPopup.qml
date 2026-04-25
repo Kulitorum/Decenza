@@ -97,7 +97,7 @@ Dialog {
             textContent = sanitizeHtml(rawContent)
             if (textContent !== rawContent) {
                 console.warn("[CustomEditorPopup] Auto-saved sanitized content for item:", id)
-                Settings.setItemProperty(id, "content", textContent)
+                Settings.network.setItemProperty(id, "content", textContent)
             }
             contentInput.text = textContent
             console.log("[CustomEditorPopup] Loaded from HTML content:", textContent.substring(0, 80))
@@ -114,15 +114,15 @@ Dialog {
         console.log("[CustomEditorPopup] doSave html:", html)
         textContent = html || "Text"
 
-        Settings.setItemProperty(itemId, "content", textContent)
-        Settings.setItemProperty(itemId, "segments", segments)
-        Settings.setItemProperty(itemId, "align", textAlign)
-        Settings.setItemProperty(itemId, "action", textAction)
-        Settings.setItemProperty(itemId, "longPressAction", textLongPressAction)
-        Settings.setItemProperty(itemId, "doubleclickAction", textDoubleclickAction)
-        Settings.setItemProperty(itemId, "emoji", textEmoji)
-        Settings.setItemProperty(itemId, "backgroundColor", textBackgroundColor)
-        Settings.setItemProperty(itemId, "hideBackground", textHideBackground)
+        Settings.network.setItemProperty(itemId, "content", textContent)
+        Settings.network.setItemProperty(itemId, "segments", segments)
+        Settings.network.setItemProperty(itemId, "align", textAlign)
+        Settings.network.setItemProperty(itemId, "action", textAction)
+        Settings.network.setItemProperty(itemId, "longPressAction", textLongPressAction)
+        Settings.network.setItemProperty(itemId, "doubleclickAction", textDoubleclickAction)
+        Settings.network.setItemProperty(itemId, "emoji", textEmoji)
+        Settings.network.setItemProperty(itemId, "backgroundColor", textBackgroundColor)
+        Settings.network.setItemProperty(itemId, "hideBackground", textHideBackground)
         saved()
         close()
     }

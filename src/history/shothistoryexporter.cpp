@@ -3,6 +3,7 @@
 #include "shothistorystorage.h"
 #include "../core/profilestorage.h"
 #include "../core/settings.h"
+#include "../core/settings_network.h"
 #include "../core/dbutils.h"
 #include "../network/visualizeruploader.h"
 
@@ -30,7 +31,7 @@ ShotHistoryExporter::ShotHistoryExporter(Settings* settings,
     Q_ASSERT(m_profileStorage);
     Q_ASSERT(m_storage);
 
-    connect(m_settings, &Settings::exportShotsToFileChanged,
+    connect(m_settings->network(), &SettingsNetwork::exportShotsToFileChanged,
             this, &ShotHistoryExporter::onExportToggleChanged);
     connect(m_storage, &ShotHistoryStorage::shotSaved,
             this, &ShotHistoryExporter::onShotSaved);
@@ -45,7 +46,7 @@ ShotHistoryExporter::ShotHistoryExporter(Settings* settings,
     // If the toggle was already on from a previous session, re-export on
     // startup so files are self-healed even if the user cleared the folder
     // while the app was closed.
-    if (m_settings->exportShotsToFile()) {
+    if (m_settings->network()->exportShotsToFile()) {
         startBulkExport();
     }
 }
@@ -57,7 +58,7 @@ ShotHistoryExporter::~ShotHistoryExporter()
 
 void ShotHistoryExporter::onExportToggleChanged()
 {
-    if (m_settings->exportShotsToFile()) {
+    if (m_settings->network()->exportShotsToFile()) {
         startBulkExport();
     }
 }
@@ -66,7 +67,7 @@ void ShotHistoryExporter::onShotSaved(qint64 shotId)
 {
     // ShotHistoryStorage emits shotSaved(-1) on precondition failures.
     if (shotId <= 0) return;
-    if (!m_settings->exportShotsToFile()) return;
+    if (!m_settings->network()->exportShotsToFile()) return;
     // Bulk export will pick up any IDs that arrive during its run via its
     // own post-loop catch-up query, so skip the live handler to avoid races.
     if (m_bulkRunning.load()) return;
@@ -77,7 +78,7 @@ void ShotHistoryExporter::onShotMetadataUpdated(qint64 shotId, bool success)
 {
     if (!success) return;
     if (shotId <= 0) return;
-    if (!m_settings->exportShotsToFile()) return;
+    if (!m_settings->network()->exportShotsToFile()) return;
     if (m_bulkRunning.load()) return;
     exportSingleShot(shotId);
 }

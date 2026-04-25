@@ -70,22 +70,22 @@ Dialog {
 
     function save() {
         if (itemType === "screensaverFlipClock")
-            Settings.setItemProperty(itemId, "clockScale", clockScale)
+            Settings.network.setItemProperty(itemId, "clockScale", clockScale)
         if (itemType === "screensaverShotMap") {
-            Settings.setItemProperty(itemId, "mapScale", mapScale)
-            Settings.setItemProperty(itemId, "mapTexture", mapTexture)
+            Settings.network.setItemProperty(itemId, "mapScale", mapScale)
+            Settings.network.setItemProperty(itemId, "mapTexture", mapTexture)
         }
         if (itemType === "lastShot") {
-            Settings.setItemProperty(itemId, "shotScale", shotScale)
-            Settings.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
-            Settings.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
+            Settings.network.setItemProperty(itemId, "shotScale", shotScale)
+            Settings.network.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
+            Settings.network.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
         }
         if (itemType === "shotPlan") {
-            Settings.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
-            Settings.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
-            Settings.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
-            Settings.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
-            Settings.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
+            Settings.network.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
+            Settings.network.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
+            Settings.network.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
+            Settings.network.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
+            Settings.network.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
         }
         saved()
         close()

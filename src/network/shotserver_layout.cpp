@@ -6,6 +6,7 @@
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
+#include "../core/settings_network.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
@@ -49,7 +50,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
 
     // GET /api/layout — return current layout configuration
     if (method == "GET" && (path == "/api/layout" || path == "/api/layout/")) {
-        QString json = m_settings->layoutConfiguration();
+        QString json = m_settings->network()->layoutConfiguration();
         sendJson(socket, json.toUtf8());
         return;
     }
@@ -65,7 +66,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing id parameter"})");
             return;
         }
-        QVariantMap props = m_settings->getItemProperties(itemId);
+        QVariantMap props = m_settings->network()->getItemProperties(itemId);
         sendJson(socket, QJsonDocument(QJsonObject::fromVariantMap(props)).toJson(QJsonDocument::Compact));
         return;
     }
@@ -249,7 +250,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing type or zone"})");
             return;
         }
-        m_settings->addItem(type, zone, index);
+        m_settings->network()->addItem(type, zone, index);
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/remove") {
@@ -259,7 +260,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing itemId or zone"})");
             return;
         }
-        m_settings->removeItem(itemId, zone);
+        m_settings->network()->removeItem(itemId, zone);
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/move") {
@@ -271,7 +272,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing itemId, fromZone, or toZone"})");
             return;
         }
-        m_settings->moveItem(itemId, fromZone, toZone, toIndex);
+        m_settings->network()->moveItem(itemId, fromZone, toZone, toIndex);
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/reorder") {
@@ -282,11 +283,11 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
             return;
         }
-        m_settings->reorderItem(zone, fromIndex, toIndex);
+        m_settings->network()->reorderItem(zone, fromIndex, toIndex);
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/reset") {
-        m_settings->resetLayoutToDefault();
+        m_settings->network()->resetLayoutToDefault();
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/item") {
@@ -297,7 +298,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             return;
         }
         QVariant value = obj["value"].toVariant();
-        m_settings->setItemProperty(itemId, key, value);
+        m_settings->network()->setItemProperty(itemId, key, value);
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/zone-offset") {
@@ -307,7 +308,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
             return;
         }
-        m_settings->setZoneYOffset(zone, offset);
+        m_settings->network()->setZoneYOffset(zone, offset);
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/zone-scale") {
@@ -317,7 +318,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
             return;
         }
-        m_settings->setZoneScale(zone, scale);
+        m_settings->network()->setZoneScale(zone, scale);
         sendJson(socket, R"({"success":true})");
     }
     // ========== Library API (local, synchronous) ==========

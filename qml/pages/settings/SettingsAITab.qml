@@ -24,7 +24,7 @@ KeyboardAwareContainer {
         }
     }
 
-    // Discuss Shot app display names (index matches Settings.discussShotApp)
+    // Discuss Shot app display names (index matches Settings.network.discussShotApp)
     readonly property var discussAppNames: [
         TranslationManager.translate("settings.ai.discuss.app.claudeApp", "Claude App"),
         TranslationManager.translate("settings.ai.discuss.app.claudeWeb", "Claude Web"),
@@ -654,7 +654,7 @@ KeyboardAwareContainer {
                 Text {
                     visible: Settings.mcp.mcpEnabled
                     text: {
-                        var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(Settings.shotServerPort)
+                        var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(Settings.network.shotServerPort)
                         if (typeof McpServer !== "undefined" && McpServer) {
                             var sessions = McpServer.activeSessionCount
                             if (sessions > 0)
@@ -712,7 +712,7 @@ KeyboardAwareContainer {
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: aiTab.discussAppNames[Settings.discussShotApp] ?? aiTab.discussAppNames[0]
+                            text: aiTab.discussAppNames[Settings.network.discussShotApp] ?? aiTab.discussAppNames[0]
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(13)
                             Accessible.ignored: true
@@ -720,7 +720,7 @@ KeyboardAwareContainer {
 
                         AccessibleMouseArea {
                             anchors.fill: parent
-                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[Settings.discussShotApp] ?? aiTab.discussAppNames[0])
+                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[Settings.network.discussShotApp] ?? aiTab.discussAppNames[0])
                             accessibleItem: discussAppButton
                             onAccessibleClicked: discussAppDialog.open()
                         }
@@ -729,7 +729,7 @@ KeyboardAwareContainer {
 
                 // Custom URL field (only when Custom URL is selected)
                 ColumnLayout {
-                    visible: Settings.discussShotApp === 5
+                    visible: Settings.network.discussShotApp === 5
                     Layout.fillWidth: true
                     spacing: Theme.scaled(4)
 
@@ -737,15 +737,15 @@ KeyboardAwareContainer {
                         id: customUrlField
                         Layout.fillWidth: true
                         placeholder: "https://localhost:8080"
-                        text: Settings.discussShotCustomUrl
+                        text: Settings.network.discussShotCustomUrl
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onTextChanged: Settings.discussShotCustomUrl = text
+                        onTextChanged: Settings.network.discussShotCustomUrl = text
                     }
                 }
 
                 // Claude Desktop (Remote Control) setup — visible when Claude Desktop is selected
                 ColumnLayout {
-                    visible: Settings.discussShotApp === Settings.discussAppClaudeDesktop
+                    visible: Settings.network.discussShotApp === Settings.network.discussAppClaudeDesktop
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -763,9 +763,9 @@ KeyboardAwareContainer {
                         id: claudeRcUrlField
                         Layout.fillWidth: true
                         placeholder: "https://claude.ai/..."
-                        text: Settings.claudeRcSessionUrl
+                        text: Settings.network.claudeRcSessionUrl
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onTextChanged: Settings.claudeRcSessionUrl = text
+                        onTextChanged: Settings.network.claudeRcSessionUrl = text
                     }
                 }
 
@@ -968,8 +968,8 @@ KeyboardAwareContainer {
         id: discussAppDialog
         title: TranslationManager.translate("settings.ai.discuss.selectAppTitle", "Select AI App")
         options: aiTab.discussAppNames
-        currentIndex: Settings.discussShotApp
-        onSelected: function(index, value) { Settings.discussShotApp = index }
+        currentIndex: Settings.network.discussShotApp
+        onSelected: function(index, value) { Settings.network.discussShotApp = index }
     }
 
     // Conversation overlay panel

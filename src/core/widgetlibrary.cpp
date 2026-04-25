@@ -1,5 +1,6 @@
 #include "widgetlibrary.h"
 #include "settings.h"
+#include "settings_network.h"
 #include "settings_theme.h"
 #include "version.h"
 
@@ -53,7 +54,7 @@ void WidgetLibrary::setSelectedEntryId(const QString& id)
 
 QString WidgetLibrary::addItemFromLayout(const QString& itemId)
 {
-    QVariantMap props = m_settings->getItemProperties(itemId);
+    QVariantMap props = m_settings->network()->getItemProperties(itemId);
     if (props.isEmpty()) {
         qWarning() << "WidgetLibrary: Item not found:" << itemId;
         return QString();
@@ -81,7 +82,7 @@ QString WidgetLibrary::addItemFromLayout(const QString& itemId)
 
 QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
 {
-    QVariantList zoneItems = m_settings->getZoneItems(zoneName);
+    QVariantList zoneItems = m_settings->network()->getZoneItems(zoneName);
     if (zoneItems.isEmpty()) {
         qWarning() << "WidgetLibrary: Zone empty or not found:" << zoneName;
         return QString();
@@ -99,7 +100,7 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
 
     QJsonObject data;
     data["zoneName"] = zoneName;
-    data["yOffset"] = m_settings->getZoneYOffset(zoneName);
+    data["yOffset"] = m_settings->network()->getZoneYOffset(zoneName);
     data["items"] = itemsArray;
 
     QJsonObject envelope = buildEnvelope("zone", data);
@@ -115,7 +116,7 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
 QString WidgetLibrary::addCurrentLayout(bool includeTheme)
 {
     QJsonObject layoutObj = QJsonDocument::fromJson(
-        m_settings->layoutConfiguration().toUtf8()).object();
+        m_settings->network()->layoutConfiguration().toUtf8()).object();
 
     if (layoutObj.isEmpty()) {
         qWarning() << "WidgetLibrary: Current layout is empty";
@@ -455,10 +456,10 @@ bool WidgetLibrary::applyItem(const QString& entryId, const QString& targetZone)
     QString type = item["type"].toString();
 
     // Add new item to the zone
-    m_settings->addItem(type, targetZone);
+    m_settings->network()->addItem(type, targetZone);
 
     // The newly added item gets the last position - find it
-    QVariantList zoneItems = m_settings->getZoneItems(targetZone);
+    QVariantList zoneItems = m_settings->network()->getZoneItems(targetZone);
     if (zoneItems.isEmpty())
         return false;
 
@@ -468,7 +469,7 @@ bool WidgetLibrary::applyItem(const QString& entryId, const QString& targetZone)
     QStringList skipKeys = {"type", "id"};
     for (auto it = item.begin(); it != item.end(); ++it) {
         if (!skipKeys.contains(it.key())) {
-            m_settings->setItemProperty(newItemId, it.key(), it.value().toVariant());
+            m_settings->network()->setItemProperty(newItemId, it.key(), it.value().toVariant());
         }
     }
 
@@ -489,10 +490,10 @@ bool WidgetLibrary::applyZone(const QString& entryId, const QString& targetZone)
     QJsonArray items = data["items"].toArray();
 
     // Clear the target zone first - remove all existing items
-    QVariantList existingItems = m_settings->getZoneItems(targetZone);
+    QVariantList existingItems = m_settings->network()->getZoneItems(targetZone);
     for (qsizetype i = existingItems.size() - 1; i >= 0; --i) {
         QString itemId = existingItems[i].toMap()["id"].toString();
-        m_settings->removeItem(itemId, targetZone);
+        m_settings->network()->removeItem(itemId, targetZone);
     }
 
     // Add each item from the library zone
@@ -500,10 +501,10 @@ bool WidgetLibrary::applyZone(const QString& entryId, const QString& targetZone)
         QJsonObject item = val.toObject();
         QString type = item["type"].toString();
 
-        m_settings->addItem(type, targetZone);
+        m_settings->network()->addItem(type, targetZone);
 
         // Find the newly added item
-        QVariantList zoneItems = m_settings->getZoneItems(targetZone);
+        QVariantList zoneItems = m_settings->network()->getZoneItems(targetZone);
         if (zoneItems.isEmpty()) continue;
         QString newItemId = zoneItems.last().toMap()["id"].toString();
 
@@ -511,14 +512,14 @@ bool WidgetLibrary::applyZone(const QString& entryId, const QString& targetZone)
         QStringList skipKeys = {"type", "id"};
         for (auto it = item.begin(); it != item.end(); ++it) {
             if (!skipKeys.contains(it.key())) {
-                m_settings->setItemProperty(newItemId, it.key(), it.value().toVariant());
+                m_settings->network()->setItemProperty(newItemId, it.key(), it.value().toVariant());
             }
         }
     }
 
     // Apply Y offset if available
     if (data.contains("yOffset")) {
-        m_settings->setZoneYOffset(targetZone, data["yOffset"].toInt());
+        m_settings->network()->setZoneYOffset(targetZone, data["yOffset"].toInt());
     }
 
     qDebug() << "WidgetLibrary: Applied zone" << entryId
@@ -557,7 +558,7 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
 
     // Apply the full layout
     QString layoutJson = QString::fromUtf8(QJsonDocument(layoutObj).toJson(QJsonDocument::Compact));
-    m_settings->setLayoutConfiguration(layoutJson);
+    m_settings->network()->setLayoutConfiguration(layoutJson);
 
     // Apply theme if requested and available
     if (applyTheme && !data["theme"].isNull()) {

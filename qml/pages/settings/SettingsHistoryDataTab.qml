@@ -545,9 +545,9 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.shotServerEnabled
+                        checked: Settings.network.shotServerEnabled
                         accessibleName: TranslationManager.translate("settings.history.enableserver", "Enable Server")
-                        onToggled: Settings.shotServerEnabled = checked
+                        onToggled: Settings.network.shotServerEnabled = checked
                     }
                 }
 
@@ -555,10 +555,10 @@ KeyboardAwareContainer {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(6)
-                    visible: Settings.shotServerEnabled
+                    visible: Settings.network.shotServerEnabled
 
                     property bool serverRunning: MainController.shotServer && MainController.shotServer.running
-                    property bool secured: serverRunning && Settings.webSecurityEnabled &&
+                    property bool secured: serverRunning && Settings.network.webSecurityEnabled &&
                                            MainController.shotServer && MainController.shotServer.hasTotpSecret
 
                     Rectangle {
@@ -577,7 +577,7 @@ KeyboardAwareContainer {
                             var url = MainController.shotServer.url || "";
                             if (parent.secured)
                                 return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
-                            if (Settings.webSecurityEnabled)
+                            if (Settings.network.webSecurityEnabled)
                                 return url + " (HTTPS)";
                             return url;
                         }
@@ -603,7 +603,7 @@ KeyboardAwareContainer {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    visible: Settings.shotServerEnabled
+                    visible: Settings.network.shotServerEnabled
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -627,9 +627,9 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.webSecurityEnabled
+                        checked: Settings.network.webSecurityEnabled
                         accessibleName: TranslationManager.translate("settings.data.enablesecurity", "Enable Security")
-                        onToggled: Settings.webSecurityEnabled = checked
+                        onToggled: Settings.network.webSecurityEnabled = checked
                     }
                 }
 
@@ -637,7 +637,7 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(6)
-                    visible: Settings.shotServerEnabled && Settings.webSecurityEnabled
+                    visible: Settings.network.shotServerEnabled && Settings.network.webSecurityEnabled
 
                     AccessibleButton {
                         Layout.fillWidth: true
@@ -774,10 +774,10 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.exportShotsToFile
+                        checked: Settings.network.exportShotsToFile
                         accessibleName: TranslationManager.translate(
                             "settings.data.exportshots", "Export Shots to File")
-                        onToggled: Settings.exportShotsToFile = checked
+                        onToggled: Settings.network.exportShotsToFile = checked
                     }
                 }
             }

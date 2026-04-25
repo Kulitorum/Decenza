@@ -8,6 +8,7 @@
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
+#include "../core/settings_network.h"
 #include "../core/settings_theme.h"
 #include "../core/settings_mcp.h"
 #include "../core/profilestorage.h"
@@ -333,7 +334,7 @@ void ShotServer::setSettings(Settings* settings)
 {
     m_settings = settings;
     if (m_settings) {
-        connect(m_settings, &Settings::layoutConfigurationChanged,
+        connect(m_settings->network(), &SettingsNetwork::layoutConfigurationChanged,
                 this, &ShotServer::onLayoutChanged);
         auto* theme = m_settings->theme();
         connect(theme, &SettingsTheme::customThemeColorsChanged,
@@ -395,7 +396,7 @@ QString ShotServer::url() const
 
 bool ShotServer::isSecurityEnabled() const
 {
-    return m_settings && m_settings->webSecurityEnabled();
+    return m_settings && m_settings->network()->webSecurityEnabled();
 }
 
 void ShotServer::setPort(int port)
@@ -1980,7 +1981,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         if (method == "GET") {
             QJsonArray arr;
             if (m_settings) {
-                for (const QString& s : m_settings->savedSearches()) {
+                for (const QString& s : m_settings->network()->savedSearches()) {
                     arr.append(s);
                 }
             }
@@ -1996,7 +1997,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 QJsonObject obj = QJsonDocument::fromJson(body).object();
                 QString search = obj["search"].toString().trimmed();
                 if (!search.isEmpty()) {
-                    m_settings->addSavedSearch(search);
+                    m_settings->network()->addSavedSearch(search);
                     result["success"] = true;
                 } else {
                     result["error"] = "Empty search";
@@ -2020,7 +2021,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 QJsonObject obj = QJsonDocument::fromJson(body).object();
                 QString search = obj["search"].toString().trimmed();
                 if (!search.isEmpty()) {
-                    m_settings->removeSavedSearch(search);
+                    m_settings->network()->removeSavedSearch(search);
                     result["success"] = true;
                 } else {
                     result["error"] = "Empty search";

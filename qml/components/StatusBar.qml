@@ -8,7 +8,7 @@ Rectangle {
 
     // Parse statusBar zone from layout config
     property var statusBarItems: {
-        var raw = Settings.layoutConfiguration
+        var raw = Settings.network.layoutConfiguration
         try {
             var parsed = JSON.parse(raw)
             return (parsed.zones && parsed.zones.statusBar) || []
