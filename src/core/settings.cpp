@@ -4771,7 +4771,7 @@ void Settings::addSawPerPairEntry(double drip, double flowRate, const QString& s
         }
     }
     if (!rejectReason.isEmpty()) {
-        qWarning() << "[SAW] batch rejected —" << rejectReason
+        qWarning() << "[SAW] batch rejected —" << qPrintable(rejectReason)
                    << "median_lag=" << medianLag << "for" << key << "— dropping batch";
         batchMap.remove(key);
         savePerProfileSawBatchMap(batchMap);
