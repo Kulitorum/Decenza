@@ -9,7 +9,7 @@ import QtQuick
 Item {
     id: crtRoot
     anchors.fill: parent
-    visible: Settings.activeShader === "crt"
+    visible: Settings.theme.activeShader === "crt"
     enabled: false  // Pass through all input events
 
     // ── Scanlines: repeating semi-transparent horizontal bars ──

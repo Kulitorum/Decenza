@@ -37,6 +37,9 @@
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
 #include "core/settings.h"
+#include "core/settings_autowake.h"
+#include "core/settings_hardware.h"
+#include "core/settings_theme.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -444,7 +447,7 @@ int main(int argc, char *argv[])
 
     // Create core objects
     Settings settings;
-    settings.initSystemThemeDetection();
+    settings.theme()->initSystemThemeDetection();
     checkpoint("Settings");
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection
@@ -462,7 +465,7 @@ int main(int argc, char *argv[])
 #endif
 
     DE1Device de1Device;
-    de1Device.setSettings(&settings);  // For water level auto-calibration
+    de1Device.setSettings(settings.hardware());  // Heater calibration sent to firmware
     qDebug() << "Simulation mode:" << (settings.simulationMode() ? "ON" : "off");
     de1Device.setSimulationMode(settings.simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
@@ -918,7 +921,7 @@ int main(int argc, char *argv[])
     de1ReconnectTimer.setSingleShot(true);
 
     // Auto-wake manager for scheduled wake-ups
-    AutoWakeManager autoWakeManager(&settings);
+    AutoWakeManager autoWakeManager(settings.autoWake());
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
                      &de1Device, &DE1Device::wakeUp);
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,

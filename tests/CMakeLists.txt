@@ -43,6 +43,13 @@ set(PROFILE_SOURCES
 
 set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_mqtt.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_autowake.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_hardware.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_ai.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_theme.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_visualizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
 )
 
 set(CONTROLLER_SOURCES

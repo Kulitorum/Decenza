@@ -4,7 +4,7 @@
 #include "protocol/binarycodec.h"
 #include "protocol/firmwarepackets.h"
 #include "profile/profile.h"
-#include "../core/settings.h"
+#include "../core/settings_hardware.h"
 
 #ifdef QT_DEBUG
 #include "../simulator/de1simulator.h"
@@ -234,7 +234,7 @@ void DE1Device::setSimulationMode(bool enabled) {
     emit guiEnabledChanged();
 }
 
-void DE1Device::setSettings(Settings* settings) {
+void DE1Device::setSettings(SettingsHardware* settings) {
     m_settings = settings;
 }
 

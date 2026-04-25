@@ -1444,7 +1444,7 @@ Page {
                 anchors.fill: parent
                 enabled: discussButton.isClaudeDesktopReady
                 onClicked: {
-                    if (!Settings.mcpEnabled && MainController.aiManager) {
+                    if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
                         var summary = MainController.aiManager.generateHistoryShotSummary(shotData)
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }

@@ -217,54 +217,54 @@ QtObject {
 
     // Flash helper: returns red/black flash color when a color is being identified,
     // otherwise returns the normal color value. Called from web theme editor.
-    // QML's binding engine tracks Settings.flashColorName and Settings.flashPhase
+    // QML's binding engine tracks Settings.theme.flashColorName and Settings.theme.flashPhase
     // reads inside this function, so all color bindings re-evaluate on flash changes.
     function _c(name, value) {
-        if (Settings.flashColorName === name && Settings.flashPhase > 0) {
-            return Settings.flashPhase % 2 === 1 ? "#ff0000" : "#000000"
+        if (Settings.theme.flashColorName === name && Settings.theme.flashPhase > 0) {
+            return Settings.theme.flashPhase % 2 === 1 ? "#ff0000" : "#000000"
         }
         return value
     }
 
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
-    property color backgroundColor: _c("backgroundColor", Settings.customThemeColors.backgroundColor || "#1a1a2e")
-    property color surfaceColor: _c("surfaceColor", Settings.customThemeColors.surfaceColor || "#303048")
-    property color primaryColor: _c("primaryColor", Settings.customThemeColors.primaryColor || "#4e85f4")
-    property color secondaryColor: _c("secondaryColor", Settings.customThemeColors.secondaryColor || "#c0c5e3")
-    property color textColor: _c("textColor", Settings.customThemeColors.textColor || "#ffffff")
-    property color textSecondaryColor: _c("textSecondaryColor", Settings.customThemeColors.textSecondaryColor || "#a0a8b8")
-    property color accentColor: _c("accentColor", Settings.customThemeColors.accentColor || "#e94560")
-    property color successColor: _c("successColor", Settings.customThemeColors.successColor || "#00cc6d")
-    property color warningColor: _c("warningColor", Settings.customThemeColors.warningColor || "#ffaa00")
-    property color highlightColor: _c("highlightColor", Settings.customThemeColors.highlightColor || "#ffaa00")
-    property color errorColor: _c("errorColor", Settings.customThemeColors.errorColor || "#ff4444")
-    property color borderColor: _c("borderColor", Settings.customThemeColors.borderColor || "#3a3a4e")
-    property color primaryContrastColor: _c("primaryContrastColor", Settings.customThemeColors.primaryContrastColor || "#ffffff")
-    property color iconColor: _c("iconColor", Settings.customThemeColors.iconColor || "#ffffff")
-    property color bottomBarColor: _c("bottomBarColor", Settings.customThemeColors.bottomBarColor || "#4e85f4")
-    property color actionButtonContentColor: _c("actionButtonContentColor", Settings.customThemeColors.actionButtonContentColor || "#ffffff")
+    property color backgroundColor: _c("backgroundColor", Settings.theme.customThemeColors.backgroundColor || "#1a1a2e")
+    property color surfaceColor: _c("surfaceColor", Settings.theme.customThemeColors.surfaceColor || "#303048")
+    property color primaryColor: _c("primaryColor", Settings.theme.customThemeColors.primaryColor || "#4e85f4")
+    property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
+    property color textColor: _c("textColor", Settings.theme.customThemeColors.textColor || "#ffffff")
+    property color textSecondaryColor: _c("textSecondaryColor", Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8")
+    property color accentColor: _c("accentColor", Settings.theme.customThemeColors.accentColor || "#e94560")
+    property color successColor: _c("successColor", Settings.theme.customThemeColors.successColor || "#00cc6d")
+    property color warningColor: _c("warningColor", Settings.theme.customThemeColors.warningColor || "#ffaa00")
+    property color highlightColor: _c("highlightColor", Settings.theme.customThemeColors.highlightColor || "#ffaa00")
+    property color errorColor: _c("errorColor", Settings.theme.customThemeColors.errorColor || "#ff4444")
+    property color borderColor: _c("borderColor", Settings.theme.customThemeColors.borderColor || "#3a3a4e")
+    property color primaryContrastColor: _c("primaryContrastColor", Settings.theme.customThemeColors.primaryContrastColor || "#ffffff")
+    property color iconColor: _c("iconColor", Settings.theme.customThemeColors.iconColor || "#ffffff")
+    property color bottomBarColor: _c("bottomBarColor", Settings.theme.customThemeColors.bottomBarColor || "#4e85f4")
+    property color actionButtonContentColor: _c("actionButtonContentColor", Settings.theme.customThemeColors.actionButtonContentColor || "#ffffff")
 
     // Chart line colors
-    property color pressureColor: _c("pressureColor", Settings.customThemeColors.pressureColor || "#18c37e")
-    property color pressureGoalColor: _c("pressureGoalColor", Settings.customThemeColors.pressureGoalColor || "#69fdb3")
-    property color flowColor: _c("flowColor", Settings.customThemeColors.flowColor || "#4e85f4")
-    property color flowGoalColor: _c("flowGoalColor", Settings.customThemeColors.flowGoalColor || "#7aaaff")
-    property color temperatureColor: _c("temperatureColor", Settings.customThemeColors.temperatureColor || "#e73249")
-    property color temperatureGoalColor: _c("temperatureGoalColor", Settings.customThemeColors.temperatureGoalColor || "#ffa5a6")
-    property color weightColor: _c("weightColor", Settings.customThemeColors.weightColor || "#a2693d")
-    property color weightFlowColor: _c("weightFlowColor", Settings.customThemeColors.weightFlowColor || "#d4a574")
-    property color resistanceColor: _c("resistanceColor", Settings.customThemeColors.resistanceColor || "#eae83d")
-    property color conductanceColor: _c("conductanceColor", Settings.customThemeColors.conductanceColor || "#00d2d3")
-    property color conductanceDerivativeColor: _c("conductanceDerivativeColor", Settings.customThemeColors.conductanceDerivativeColor || "#e056a0")
-    property color darcyResistanceColor: _c("darcyResistanceColor", Settings.customThemeColors.darcyResistanceColor || "#f0a500")
-    property color temperatureMixColor: _c("temperatureMixColor", Settings.customThemeColors.temperatureMixColor || "#ce93d8")
-    property color waterLevelColor: _c("waterLevelColor", Settings.customThemeColors.waterLevelColor || "#4e85f4")
+    property color pressureColor: _c("pressureColor", Settings.theme.customThemeColors.pressureColor || "#18c37e")
+    property color pressureGoalColor: _c("pressureGoalColor", Settings.theme.customThemeColors.pressureGoalColor || "#69fdb3")
+    property color flowColor: _c("flowColor", Settings.theme.customThemeColors.flowColor || "#4e85f4")
+    property color flowGoalColor: _c("flowGoalColor", Settings.theme.customThemeColors.flowGoalColor || "#7aaaff")
+    property color temperatureColor: _c("temperatureColor", Settings.theme.customThemeColors.temperatureColor || "#e73249")
+    property color temperatureGoalColor: _c("temperatureGoalColor", Settings.theme.customThemeColors.temperatureGoalColor || "#ffa5a6")
+    property color weightColor: _c("weightColor", Settings.theme.customThemeColors.weightColor || "#a2693d")
+    property color weightFlowColor: _c("weightFlowColor", Settings.theme.customThemeColors.weightFlowColor || "#d4a574")
+    property color resistanceColor: _c("resistanceColor", Settings.theme.customThemeColors.resistanceColor || "#eae83d")
+    property color conductanceColor: _c("conductanceColor", Settings.theme.customThemeColors.conductanceColor || "#00d2d3")
+    property color conductanceDerivativeColor: _c("conductanceDerivativeColor", Settings.theme.customThemeColors.conductanceDerivativeColor || "#e056a0")
+    property color darcyResistanceColor: _c("darcyResistanceColor", Settings.theme.customThemeColors.darcyResistanceColor || "#f0a500")
+    property color temperatureMixColor: _c("temperatureMixColor", Settings.theme.customThemeColors.temperatureMixColor || "#ce93d8")
+    property color waterLevelColor: _c("waterLevelColor", Settings.theme.customThemeColors.waterLevelColor || "#4e85f4")
 
     // Tracking status colors (profile goal vs actual)
-    property color trackOnTargetColor: _c("trackOnTargetColor", Settings.customThemeColors.trackOnTargetColor || "#00cc6d")
-    property color trackDriftingColor: _c("trackDriftingColor", Settings.customThemeColors.trackDriftingColor || "#f0ad4e")
-    property color trackOffTargetColor: _c("trackOffTargetColor", Settings.customThemeColors.trackOffTargetColor || "#e94560")
+    property color trackOnTargetColor: _c("trackOnTargetColor", Settings.theme.customThemeColors.trackOnTargetColor || "#00cc6d")
+    property color trackDriftingColor: _c("trackDriftingColor", Settings.theme.customThemeColors.trackDriftingColor || "#f0ad4e")
+    property color trackOffTargetColor: _c("trackOffTargetColor", Settings.theme.customThemeColors.trackOffTargetColor || "#e94560")
 
     // Shared tracking color logic: proportional thresholds with floor values
     // so low goals (e.g. 0.5 mL/s flow) don't trigger red on tiny deltas.
@@ -286,20 +286,20 @@ QtObject {
     }
 
     // DYE measurement colors (Shot Info page)
-    property color dyeDoseColor: _c("dyeDoseColor", Settings.customThemeColors.dyeDoseColor || "#6F4E37")
-    property color dyeOutputColor: _c("dyeOutputColor", Settings.customThemeColors.dyeOutputColor || "#9C27B0")
-    property color dyeTdsColor: _c("dyeTdsColor", Settings.customThemeColors.dyeTdsColor || "#FF9800")
-    property color dyeEyColor: _c("dyeEyColor", Settings.customThemeColors.dyeEyColor || "#a2693d")
+    property color dyeDoseColor: _c("dyeDoseColor", Settings.theme.customThemeColors.dyeDoseColor || "#6F4E37")
+    property color dyeOutputColor: _c("dyeOutputColor", Settings.theme.customThemeColors.dyeOutputColor || "#9C27B0")
+    property color dyeTdsColor: _c("dyeTdsColor", Settings.theme.customThemeColors.dyeTdsColor || "#FF9800")
+    property color dyeEyColor: _c("dyeEyColor", Settings.theme.customThemeColors.dyeEyColor || "#a2693d")
 
-    // Scaled fonts (sizes customizable via Settings.customFontSizes)
-    readonly property font headingFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.headingSize || 32), bold: true })
-    readonly property font titleFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.titleSize || 24), bold: true })
-    readonly property font subtitleFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.subtitleSize || 18), bold: true })
-    readonly property font bodyFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.bodySize || 18) })
-    readonly property font labelFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.labelSize || 14) })
-    readonly property font captionFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.captionSize || 12) })
-    readonly property font valueFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.valueSize || 48), bold: true })
-    readonly property font timerFont: Qt.font({ pixelSize: scaled(Settings.customFontSizes.timerSize || 72), bold: true })
+    // Scaled fonts (sizes customizable via Settings.theme.customFontSizes)
+    readonly property font headingFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.headingSize || 32), bold: true })
+    readonly property font titleFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.titleSize || 24), bold: true })
+    readonly property font subtitleFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.subtitleSize || 18), bold: true })
+    readonly property font bodyFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.bodySize || 18) })
+    readonly property font labelFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.labelSize || 14) })
+    readonly property font captionFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.captionSize || 12) })
+    readonly property font valueFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.valueSize || 48), bold: true })
+    readonly property font timerFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.timerSize || 72), bold: true })
 
     // Scaled dimensions
     readonly property int buttonRadius: scaled(12)
@@ -346,24 +346,24 @@ QtObject {
     readonly property color buttonDefault: primaryColor
     readonly property color buttonHover: Qt.lighter(primaryColor, 1.1)
     readonly property color buttonPressed: Qt.darker(primaryColor, 1.1)
-    property color buttonDisabled: _c("buttonDisabled", Settings.customThemeColors.buttonDisabled || "#555555")
+    property color buttonDisabled: _c("buttonDisabled", Settings.theme.customThemeColors.buttonDisabled || "#555555")
 
     // UI indicator colors
-    property color stopMarkerColor: _c("stopMarkerColor", Settings.customThemeColors.stopMarkerColor || "#FF6B6B")
-    property color frameMarkerColor: _c("frameMarkerColor", Settings.customThemeColors.frameMarkerColor || "#66ffffff")
-    property color modifiedIndicatorColor: _c("modifiedIndicatorColor", Settings.customThemeColors.modifiedIndicatorColor || "#FFCC00")
-    property color simulationIndicatorColor: _c("simulationIndicatorColor", Settings.customThemeColors.simulationIndicatorColor || "#E65100")
-    property color warningButtonColor: _c("warningButtonColor", Settings.customThemeColors.warningButtonColor || "#FFA500")
-    property color successButtonColor: _c("successButtonColor", Settings.customThemeColors.successButtonColor || "#2E7D32")
+    property color stopMarkerColor: _c("stopMarkerColor", Settings.theme.customThemeColors.stopMarkerColor || "#FF6B6B")
+    property color frameMarkerColor: _c("frameMarkerColor", Settings.theme.customThemeColors.frameMarkerColor || "#66ffffff")
+    property color modifiedIndicatorColor: _c("modifiedIndicatorColor", Settings.theme.customThemeColors.modifiedIndicatorColor || "#FFCC00")
+    property color simulationIndicatorColor: _c("simulationIndicatorColor", Settings.theme.customThemeColors.simulationIndicatorColor || "#E65100")
+    property color warningButtonColor: _c("warningButtonColor", Settings.theme.customThemeColors.warningButtonColor || "#FFA500")
+    property color successButtonColor: _c("successButtonColor", Settings.theme.customThemeColors.successButtonColor || "#2E7D32")
 
     // List/table colors
-    property color rowAlternateColor: _c("rowAlternateColor", Settings.customThemeColors.rowAlternateColor || "#1a1a1a")
-    property color rowAlternateLightColor: _c("rowAlternateLightColor", Settings.customThemeColors.rowAlternateLightColor || "#222222")
+    property color rowAlternateColor: _c("rowAlternateColor", Settings.theme.customThemeColors.rowAlternateColor || "#1a1a1a")
+    property color rowAlternateLightColor: _c("rowAlternateLightColor", Settings.theme.customThemeColors.rowAlternateLightColor || "#222222")
 
     // Source badge colors (profile/shot import pages)
-    property color sourceBadgeBlueColor: _c("sourceBadgeBlueColor", Settings.customThemeColors.sourceBadgeBlueColor || "#4a90d9")
-    property color sourceBadgeGreenColor: _c("sourceBadgeGreenColor", Settings.customThemeColors.sourceBadgeGreenColor || "#4ad94a")
-    property color sourceBadgeOrangeColor: _c("sourceBadgeOrangeColor", Settings.customThemeColors.sourceBadgeOrangeColor || "#d9a04a")
+    property color sourceBadgeBlueColor: _c("sourceBadgeBlueColor", Settings.theme.customThemeColors.sourceBadgeBlueColor || "#4a90d9")
+    property color sourceBadgeGreenColor: _c("sourceBadgeGreenColor", Settings.theme.customThemeColors.sourceBadgeGreenColor || "#4ad94a")
+    property color sourceBadgeOrangeColor: _c("sourceBadgeOrangeColor", Settings.theme.customThemeColors.sourceBadgeOrangeColor || "#d9a04a")
 
     // Focus indicator styles
     readonly property color focusColor: primaryColor

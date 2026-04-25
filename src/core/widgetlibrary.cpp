@@ -1,5 +1,6 @@
 #include "widgetlibrary.h"
 #include "settings.h"
+#include "settings_theme.h"
 #include "version.h"
 
 #include <QStandardPaths>
@@ -141,7 +142,7 @@ QString WidgetLibrary::addCurrentLayout(bool includeTheme)
     QJsonObject data;
     data["layout"] = layoutObj;
     data["theme"] = includeTheme
-        ? QJsonObject::fromVariantMap(m_settings->customThemeColors())
+        ? QJsonObject::fromVariantMap(m_settings->theme()->customThemeColors())
         : QJsonValue(QJsonValue::Null);
 
     QJsonObject envelope = buildEnvelope("layout", data);
@@ -161,21 +162,21 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
     QJsonObject themeObj;
 
     // Colors
-    QVariantMap colors = m_settings->customThemeColors();
+    QVariantMap colors = m_settings->theme()->customThemeColors();
     QJsonObject colorsJson = QJsonObject::fromVariantMap(colors);
     themeObj["colors"] = colorsJson;
 
     // Font sizes
-    QVariantMap fonts = m_settings->customFontSizes();
+    QVariantMap fonts = m_settings->theme()->customFontSizes();
     if (!fonts.isEmpty()) {
         themeObj["fonts"] = QJsonObject::fromVariantMap(fonts);
     }
 
     // Screen effect (CRT, future effects) — always included so enable/disable state is saved
-    themeObj["screenEffect"] = m_settings->screenEffectJson();
+    themeObj["screenEffect"] = m_settings->theme()->screenEffectJson();
 
     // Theme name
-    QString themeName = name.isEmpty() ? m_settings->activeThemeName() : name;
+    QString themeName = name.isEmpty() ? m_settings->theme()->activeThemeName() : name;
     themeObj["name"] = themeName;
 
     QJsonObject data;
@@ -231,27 +232,27 @@ bool WidgetLibrary::applyThemeEntry(const QString& entryId)
     // Apply colors
     QJsonObject colorsJson = themeObj["colors"].toObject();
     if (!colorsJson.isEmpty()) {
-        m_settings->setCustomThemeColors(colorsJson.toVariantMap());
+        m_settings->theme()->setCustomThemeColors(colorsJson.toVariantMap());
     }
 
     // Apply font sizes
     QJsonObject fontsJson = themeObj["fonts"].toObject();
     if (!fontsJson.isEmpty()) {
-        m_settings->setCustomFontSizes(fontsJson.toVariantMap());
+        m_settings->theme()->setCustomFontSizes(fontsJson.toVariantMap());
     }
 
     // Apply screen effect (or disable if theme has none)
     if (themeObj.contains("screenEffect")) {
-        m_settings->applyScreenEffect(themeObj["screenEffect"].toObject());
+        m_settings->theme()->applyScreenEffect(themeObj["screenEffect"].toObject());
     } else {
-        m_settings->setActiveShader("");  // Old theme = no effect
+        m_settings->theme()->setActiveShader("");  // Old theme = no effect
     }
 
     // Apply theme name and save as preset
     QString themeName = themeObj["name"].toString();
     if (!themeName.isEmpty()) {
-        m_settings->setActiveThemeName(themeName);
-        m_settings->saveCurrentTheme(themeName);
+        m_settings->theme()->setActiveThemeName(themeName);
+        m_settings->theme()->saveCurrentTheme(themeName);
     }
 
     qDebug() << "WidgetLibrary: Applied theme" << entryId << "name:" << themeName;
@@ -562,7 +563,7 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
     if (applyTheme && !data["theme"].isNull()) {
         QVariantMap themeColors = data["theme"].toObject().toVariantMap();
         if (!themeColors.isEmpty()) {
-            m_settings->setCustomThemeColors(themeColors);
+            m_settings->theme()->setCustomThemeColors(themeColors);
         }
     }
 

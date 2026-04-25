@@ -15,11 +15,11 @@ KeyboardAwareContainer {
     // Helper function to check if provider has a key configured
     function isProviderConfigured(providerId) {
         switch(providerId) {
-            case "openai": return Settings.openaiApiKey.length > 0
-            case "anthropic": return Settings.anthropicApiKey.length > 0
-            case "gemini": return Settings.geminiApiKey.length > 0
-            case "openrouter": return Settings.openrouterApiKey.length > 0 && Settings.openrouterModel.length > 0
-            case "ollama": return Settings.ollamaEndpoint.length > 0 && Settings.ollamaModel.length > 0
+            case "openai": return Settings.ai.openaiApiKey.length > 0
+            case "anthropic": return Settings.ai.anthropicApiKey.length > 0
+            case "gemini": return Settings.ai.geminiApiKey.length > 0
+            case "openrouter": return Settings.ai.openrouterApiKey.length > 0 && Settings.ai.openrouterModel.length > 0
+            case "ollama": return Settings.ai.ollamaEndpoint.length > 0 && Settings.ai.ollamaModel.length > 0
             default: return false
         }
     }
@@ -96,7 +96,7 @@ KeyboardAwareContainer {
                                 height: Theme.scaled(56)
                                 radius: Theme.scaled(8)
 
-                                property bool isSelected: Settings.aiProvider === modelData.id
+                                property bool isSelected: Settings.ai.aiProvider === modelData.id
                                 property bool hasKey: aiTab.isProviderConfigured(modelData.id)
 
                                 color: {
@@ -142,7 +142,7 @@ KeyboardAwareContainer {
                                 MouseArea {
                                     id: providerArea
                                     anchors.fill: parent
-                                    onClicked: Settings.aiProvider = modelData.id
+                                    onClicked: Settings.ai.aiProvider = modelData.id
                                 }
                             }
                         }
@@ -172,7 +172,7 @@ KeyboardAwareContainer {
 
                 // API Key section (cloud providers)
                 ColumnLayout {
-                    visible: Settings.aiProvider !== "ollama"
+                    visible: Settings.ai.aiProvider !== "ollama"
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -190,20 +190,20 @@ KeyboardAwareContainer {
                         echoMode: TextInput.Password
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
                         text: {
-                            switch(Settings.aiProvider) {
-                                case "openai": return Settings.openaiApiKey
-                                case "anthropic": return Settings.anthropicApiKey
-                                case "gemini": return Settings.geminiApiKey
-                                case "openrouter": return Settings.openrouterApiKey
+                            switch(Settings.ai.aiProvider) {
+                                case "openai": return Settings.ai.openaiApiKey
+                                case "anthropic": return Settings.ai.anthropicApiKey
+                                case "gemini": return Settings.ai.geminiApiKey
+                                case "openrouter": return Settings.ai.openrouterApiKey
                                 default: return ""
                             }
                         }
                         onTextChanged: {
-                            switch(Settings.aiProvider) {
-                                case "openai": Settings.openaiApiKey = text; break
-                                case "anthropic": Settings.anthropicApiKey = text; break
-                                case "gemini": Settings.geminiApiKey = text; break
-                                case "openrouter": Settings.openrouterApiKey = text; break
+                            switch(Settings.ai.aiProvider) {
+                                case "openai": Settings.ai.openaiApiKey = text; break
+                                case "anthropic": Settings.ai.anthropicApiKey = text; break
+                                case "gemini": Settings.ai.geminiApiKey = text; break
+                                case "openrouter": Settings.ai.openrouterApiKey = text; break
                             }
                         }
                     }
@@ -211,7 +211,7 @@ KeyboardAwareContainer {
                     Text {
                         text: {
                             var getKey = TranslationManager.translate("settings.ai.getkey", "Get key:")
-                            switch(Settings.aiProvider) {
+                            switch(Settings.ai.aiProvider) {
                                 case "openai": return getKey + " platform.openai.com -> API Keys"
                                 case "anthropic": return getKey + " console.anthropic.com -> API Keys"
                                 case "gemini": return getKey + " aistudio.google.com -> Get API Key"
@@ -226,7 +226,7 @@ KeyboardAwareContainer {
 
                 // OpenRouter model settings
                 ColumnLayout {
-                    visible: Settings.aiProvider === "openrouter"
+                    visible: Settings.ai.aiProvider === "openrouter"
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -242,9 +242,9 @@ KeyboardAwareContainer {
                         id: openrouterModelField
                         Layout.fillWidth: true
                         placeholderText: "anthropic/claude-sonnet-4"
-                        text: Settings.openrouterModel
+                        text: Settings.ai.openrouterModel
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
-                        onTextChanged: Settings.openrouterModel = text
+                        onTextChanged: Settings.ai.openrouterModel = text
                     }
 
                     Text {
@@ -258,7 +258,7 @@ KeyboardAwareContainer {
 
                 // Ollama settings
                 ColumnLayout {
-                    visible: Settings.aiProvider === "ollama"
+                    visible: Settings.ai.aiProvider === "ollama"
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -273,9 +273,9 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: ollamaEndpointField
                         Layout.fillWidth: true
-                        text: Settings.ollamaEndpoint
+                        text: Settings.ai.ollamaEndpoint
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onTextChanged: Settings.ollamaEndpoint = text
+                        onTextChanged: Settings.ai.ollamaEndpoint = text
                     }
 
                     RowLayout {
@@ -285,8 +285,8 @@ KeyboardAwareContainer {
                         StyledComboBox {
                             Layout.fillWidth: true
                             model: MainController.aiManager ? MainController.aiManager.ollamaModels : []
-                            currentIndex: model ? model.indexOf(Settings.ollamaModel) : -1
-                            onCurrentTextChanged: if (currentText) Settings.ollamaModel = currentText
+                            currentIndex: model ? model.indexOf(Settings.ai.ollamaModel) : -1
+                            onCurrentTextChanged: if (currentText) Settings.ai.ollamaModel = currentText
                             accessibleLabel: TranslationManager.translate("settings.ai.ollamaModel", "Ollama model")
                         }
 
@@ -315,10 +315,10 @@ KeyboardAwareContainer {
 
                 // Cost info
                 Text {
-                    visible: Settings.aiProvider !== "ollama"
+                    visible: Settings.ai.aiProvider !== "ollama"
                     text: {
                         var perShot = TranslationManager.translate("settings.ai.pershot", "shot")
-                        switch(Settings.aiProvider) {
+                        switch(Settings.ai.aiProvider) {
                             case "openai": return TranslationManager.translate("settings.ai.cost.openai",
                                 "Estimated cost: ~$0.006/" + perShot + " — under $1/month at 3 shots per day")
                             case "anthropic": return TranslationManager.translate("settings.ai.cost.anthropic",
@@ -337,7 +337,7 @@ KeyboardAwareContainer {
                 }
 
                 Text {
-                    visible: Settings.aiProvider === "ollama"
+                    visible: Settings.ai.aiProvider === "ollama"
                     text: TranslationManager.translate("settings.ai.cost.ollama", "Free — runs locally on your computer")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
@@ -449,15 +449,15 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.mcpEnabled
+                        checked: Settings.mcp.mcpEnabled
                         accessibleName: TranslationManager.translate("settings.ai.mcp.enableAccessible", "Enable MCP server for AI remote control")
-                        onCheckedChanged: Settings.mcpEnabled = checked
+                        onCheckedChanged: Settings.mcp.mcpEnabled = checked
                     }
                 }
 
                 // Setup page link (visible when MCP enabled)
                 ColumnLayout {
-                    visible: Settings.mcpEnabled && MainController.shotServer
+                    visible: Settings.mcp.mcpEnabled && MainController.shotServer
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
 
@@ -494,8 +494,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    enabled: Settings.mcpEnabled
-                    opacity: Settings.mcpEnabled ? 1.0 : 0.5
+                    enabled: Settings.mcp.mcpEnabled
+                    opacity: Settings.mcp.mcpEnabled ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.ai.mcp.accessLevel"
@@ -529,8 +529,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             Layout.preferredHeight: accessDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcpAccessLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcpAccessLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
+                            color: Settings.mcp.mcpAccessLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: Settings.mcp.mcpAccessLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -564,7 +564,7 @@ KeyboardAwareContainer {
                                 anchors.fill: parent
                                 accessibleName: modelData.label + ". " + modelData.detail
                                 accessibleItem: accessDelegate
-                                onAccessibleClicked: Settings.mcpAccessLevel = modelData.level
+                                onAccessibleClicked: Settings.mcp.mcpAccessLevel = modelData.level
                             }
                         }
                     }
@@ -574,8 +574,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    enabled: Settings.mcpEnabled && Settings.mcpAccessLevel > 0
-                    opacity: (Settings.mcpEnabled && Settings.mcpAccessLevel > 0) ? 1.0 : 0.5
+                    enabled: Settings.mcp.mcpEnabled && Settings.mcp.mcpAccessLevel > 0
+                    opacity: (Settings.mcp.mcpEnabled && Settings.mcp.mcpAccessLevel > 0) ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.ai.mcp.confirmationLevel"
@@ -609,8 +609,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             Layout.preferredHeight: confirmDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcpConfirmationLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcpConfirmationLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
+                            color: Settings.mcp.mcpConfirmationLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: Settings.mcp.mcpConfirmationLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -644,7 +644,7 @@ KeyboardAwareContainer {
                                 anchors.fill: parent
                                 accessibleName: modelData.label + ". " + modelData.detail
                                 accessibleItem: confirmDelegate
-                                onAccessibleClicked: Settings.mcpConfirmationLevel = modelData.level
+                                onAccessibleClicked: Settings.mcp.mcpConfirmationLevel = modelData.level
                             }
                         }
                     }
@@ -652,7 +652,7 @@ KeyboardAwareContainer {
 
                 // MCP Status line
                 Text {
-                    visible: Settings.mcpEnabled
+                    visible: Settings.mcp.mcpEnabled
                     text: {
                         var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(Settings.shotServerPort)
                         if (typeof McpServer !== "undefined" && McpServer) {
@@ -668,7 +668,7 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                 }
                 Text {
-                    visible: !Settings.mcpEnabled
+                    visible: !Settings.mcp.mcpEnabled
                     text: TranslationManager.translate("settings.ai.mcp.status.disabled", "MCP server is disabled")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
@@ -941,7 +941,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     AccessibleButton {
-                        visible: Settings.mcpEnabled && MainController.shotServer
+                        visible: Settings.mcp.mcpEnabled && MainController.shotServer
                         text: TranslationManager.translate("settings.ai.mcp.help.openGuide", "Open Web Guide")
                         accessibleName: TranslationManager.translate("settings.ai.mcp.help.openGuideAccessible", "Open MCP setup guide in browser")
                         onClicked: {

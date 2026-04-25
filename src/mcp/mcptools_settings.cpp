@@ -1,6 +1,13 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../core/settings.h"
+#include "../core/settings_mqtt.h"
+#include "../core/settings_autowake.h"
+#include "../core/settings_hardware.h"
+#include "../core/settings_ai.h"
+#include "../core/settings_theme.h"
+#include "../core/settings_visualizer.h"
+#include "../core/settings_mcp.h"
 #include "../core/accessibilitymanager.h"
 #include "../core/translationmanager.h"
 #include "../core/batterymanager.h"
@@ -61,9 +68,9 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             };
 
             // === Machine ===
-            if (include("themeMode", "machine")) result["themeMode"] = settings->themeMode();
-            if (include("darkThemeName", "machine")) result["darkThemeName"] = settings->darkThemeName();
-            if (include("lightThemeName", "machine")) result["lightThemeName"] = settings->lightThemeName();
+            if (include("themeMode", "machine")) result["themeMode"] = settings->theme()->themeMode();
+            if (include("darkThemeName", "machine")) result["darkThemeName"] = settings->theme()->darkThemeName();
+            if (include("lightThemeName", "machine")) result["lightThemeName"] = settings->theme()->lightThemeName();
             if (include("autoSleepMinutes", "machine")) result["autoSleepMinutes"] = settings->value("autoSleepMinutes", 60).toInt();
             if (include("postShotReviewTimeout", "machine")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
             if (include("keepSteamHeaterOn", "machine")) result["keepSteamHeaterOn"] = settings->keepSteamHeaterOn();
@@ -71,19 +78,22 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("refillKitOverride", "machine")) result["refillKitOverride"] = settings->refillKitOverride();
             if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->waterRefillPoint();
             if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
-            if (include("screenBrightness", "machine")) result["screenBrightness"] = settings->screenBrightness();
-            if (include("defaultShotRating", "machine")) result["defaultShotRating"] = settings->defaultShotRating();
+            if (include("screenBrightness", "machine")) result["screenBrightness"] = settings->theme()->screenBrightness();
+            if (include("defaultShotRating", "machine")) result["defaultShotRating"] = settings->visualizer()->defaultShotRating();
             if (include("launcherMode", "machine")) result["launcherMode"] = settings->launcherMode();
-            if (include("autoWakeEnabled", "machine")) result["autoWakeEnabled"] = settings->autoWakeEnabled();
-            if (include("autoWakeStayAwakeEnabled", "machine")) result["autoWakeStayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();
-            if (include("autoWakeStayAwakeMinutes", "machine")) result["autoWakeStayAwakeMinutes"] = settings->autoWakeStayAwakeMinutes();
+            {
+                auto* aw = settings->autoWake();
+                if (include("autoWakeEnabled", "machine")) result["autoWakeEnabled"] = aw->autoWakeEnabled();
+                if (include("autoWakeStayAwakeEnabled", "machine")) result["autoWakeStayAwakeEnabled"] = aw->autoWakeStayAwakeEnabled();
+                if (include("autoWakeStayAwakeMinutes", "machine")) result["autoWakeStayAwakeMinutes"] = aw->autoWakeStayAwakeMinutes();
+            }
 
             // === Calibration ===
             if (include("useFlowScale", "calibration")) result["useFlowScale"] = settings->useFlowScale();
             if (include("flowCalibrationMultiplier", "calibration")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
             if (include("autoFlowCalibration", "calibration")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
             if (include("ignoreVolumeWithScale", "calibration")) result["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
-            if (include("steamTwoTapStop", "machine")) result["steamTwoTapStop"] = settings->steamTwoTapStop();
+            if (include("steamTwoTapStop", "machine")) result["steamTwoTapStop"] = settings->hardware()->steamTwoTapStop();
 
             // === Connections ===
             if (include("machineAddress", "connections")) result["machineAddress"] = settings->machineAddress();
@@ -127,15 +137,18 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             }
 
             // === AI ===
-            if (include("aiProvider", "ai")) result["aiProvider"] = settings->aiProvider();
-            if (include("mcpEnabled", "ai")) result["mcpEnabled"] = settings->mcpEnabled();
-            if (include("mcpAccessLevel", "ai")) result["mcpAccessLevel"] = settings->mcpAccessLevel();
-            if (include("mcpConfirmationLevel", "ai")) result["mcpConfirmationLevel"] = settings->mcpConfirmationLevel();
+            {
+                auto* a = settings->ai();
+                if (include("aiProvider", "ai")) result["aiProvider"] = a->aiProvider();
+                if (include("ollamaEndpoint", "ai")) result["ollamaEndpoint"] = a->ollamaEndpoint();
+                if (include("ollamaModel", "ai")) result["ollamaModel"] = a->ollamaModel();
+                if (include("openrouterModel", "ai")) result["openrouterModel"] = a->openrouterModel();
+            }
+            if (include("mcpEnabled", "ai")) result["mcpEnabled"] = settings->mcp()->mcpEnabled();
+            if (include("mcpAccessLevel", "ai")) result["mcpAccessLevel"] = settings->mcp()->mcpAccessLevel();
+            if (include("mcpConfirmationLevel", "ai")) result["mcpConfirmationLevel"] = settings->mcp()->mcpConfirmationLevel();
             if (include("discussShotApp", "ai")) result["discussShotApp"] = settings->discussShotApp();
             if (include("discussShotCustomUrl", "ai")) result["discussShotCustomUrl"] = settings->discussShotCustomUrl();
-            if (include("ollamaEndpoint", "ai")) result["ollamaEndpoint"] = settings->ollamaEndpoint();
-            if (include("ollamaModel", "ai")) result["ollamaModel"] = settings->ollamaModel();
-            if (include("openrouterModel", "ai")) result["openrouterModel"] = settings->openrouterModel();
             // API keys excluded — sensitive
 
             // === Espresso ===
@@ -154,7 +167,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("waterTemperature", "water")) result["waterTemperatureC"] = settings->waterTemperature();
             if (include("waterVolume", "water")) result["waterVolumeMl"] = settings->waterVolume();
             if (include("waterVolumeMode", "water")) result["waterVolumeMode"] = settings->waterVolumeMode();
-            if (include("hotWaterFlowRate", "water")) result["hotWaterFlowRateMlPerSec"] = settings->hotWaterFlowRate() / 10.0;
+            if (include("hotWaterFlowRate", "water")) result["hotWaterFlowRateMlPerSec"] = settings->hardware()->hotWaterFlowRate() / 10.0;
 
             // === Flush ===
             if (include("flushFlow", "flush")) result["flushFlowMlPerSec"] = settings->flushFlow();
@@ -178,29 +191,32 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("dyeBarista", "dye")) result["dyeBarista"] = settings->dyeBarista();
 
             // === MQTT ===
-            if (include("mqttEnabled", "mqtt")) result["mqttEnabled"] = settings->mqttEnabled();
-            if (include("mqttBrokerHost", "mqtt")) result["mqttBrokerHost"] = settings->mqttBrokerHost();
-            if (include("mqttBrokerPort", "mqtt")) result["mqttBrokerPort"] = settings->mqttBrokerPort();
-            if (include("mqttUsername", "mqtt")) result["mqttUsername"] = settings->mqttUsername();
-            if (include("mqttBaseTopic", "mqtt")) result["mqttBaseTopic"] = settings->mqttBaseTopic();
-            if (include("mqttPublishInterval", "mqtt")) result["mqttPublishInterval"] = settings->mqttPublishInterval();
-            if (include("mqttRetainMessages", "mqtt")) result["mqttRetainMessages"] = settings->mqttRetainMessages();
-            if (include("mqttHomeAssistantDiscovery", "mqtt")) result["mqttHomeAssistantDiscovery"] = settings->mqttHomeAssistantDiscovery();
-            if (include("mqttClientId", "mqtt")) result["mqttClientId"] = settings->mqttClientId();
-            // mqttPassword excluded — sensitive
+            {
+                auto* m = settings->mqtt();
+                if (include("mqttEnabled", "mqtt")) result["mqttEnabled"] = m->mqttEnabled();
+                if (include("mqttBrokerHost", "mqtt")) result["mqttBrokerHost"] = m->mqttBrokerHost();
+                if (include("mqttBrokerPort", "mqtt")) result["mqttBrokerPort"] = m->mqttBrokerPort();
+                if (include("mqttUsername", "mqtt")) result["mqttUsername"] = m->mqttUsername();
+                if (include("mqttBaseTopic", "mqtt")) result["mqttBaseTopic"] = m->mqttBaseTopic();
+                if (include("mqttPublishInterval", "mqtt")) result["mqttPublishInterval"] = m->mqttPublishInterval();
+                if (include("mqttRetainMessages", "mqtt")) result["mqttRetainMessages"] = m->mqttRetainMessages();
+                if (include("mqttHomeAssistantDiscovery", "mqtt")) result["mqttHomeAssistantDiscovery"] = m->mqttHomeAssistantDiscovery();
+                if (include("mqttClientId", "mqtt")) result["mqttClientId"] = m->mqttClientId();
+                // mqttPassword excluded — sensitive
+            }
 
             // === Themes ===
-            if (include("activeThemeName", "themes")) result["activeThemeName"] = settings->activeThemeName();
-            if (include("themeNames", "themes")) result["themeNames"] = QJsonArray::fromStringList(settings->themeNames());
-            if (include("activeShader", "themes")) result["activeShader"] = settings->activeShader();
-            if (include("isDarkMode", "themes")) result["isDarkMode"] = settings->isDarkMode();
+            if (include("activeThemeName", "themes")) result["activeThemeName"] = settings->theme()->activeThemeName();
+            if (include("themeNames", "themes")) result["themeNames"] = QJsonArray::fromStringList(settings->theme()->themeNames());
+            if (include("activeShader", "themes")) result["activeShader"] = settings->theme()->activeShader();
+            if (include("isDarkMode", "themes")) result["isDarkMode"] = settings->theme()->isDarkMode();
 
             // === Visualizer ===
-            if (include("visualizerAutoUpload", "visualizer")) result["visualizerAutoUpload"] = settings->visualizerAutoUpload();
-            if (include("visualizerMinDuration", "visualizer")) result["visualizerMinDuration"] = settings->visualizerMinDuration();
-            if (include("visualizerExtendedMetadata", "visualizer")) result["visualizerExtendedMetadata"] = settings->visualizerExtendedMetadata();
-            if (include("visualizerShowAfterShot", "visualizer")) result["visualizerShowAfterShot"] = settings->visualizerShowAfterShot();
-            if (include("visualizerClearNotesOnStart", "visualizer")) result["visualizerClearNotesOnStart"] = settings->visualizerClearNotesOnStart();
+            if (include("visualizerAutoUpload", "visualizer")) result["visualizerAutoUpload"] = settings->visualizer()->visualizerAutoUpload();
+            if (include("visualizerMinDuration", "visualizer")) result["visualizerMinDuration"] = settings->visualizer()->visualizerMinDuration();
+            if (include("visualizerExtendedMetadata", "visualizer")) result["visualizerExtendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
+            if (include("visualizerShowAfterShot", "visualizer")) result["visualizerShowAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
+            if (include("visualizerClearNotesOnStart", "visualizer")) result["visualizerClearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
             // visualizerUsername/Password excluded — sensitive
 
             // === Update ===
@@ -234,10 +250,13 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             }
 
             // === Heater calibration (stored as tenths internally — divide by 10 to match QML display) ===
-            if (include("heaterIdleTemp", "heater")) result["heaterIdleTempC"] = settings->heaterIdleTemp() / 10.0;
-            if (include("heaterWarmupFlow", "heater")) result["heaterWarmupFlowMlPerSec"] = settings->heaterWarmupFlow() / 10.0;
-            if (include("heaterTestFlow", "heater")) result["heaterTestFlowMlPerSec"] = settings->heaterTestFlow() / 10.0;
-            if (include("heaterWarmupTimeout", "heater")) result["heaterWarmupTimeoutSec"] = settings->heaterWarmupTimeout() / 10.0;
+            {
+                auto* hw = settings->hardware();
+                if (include("heaterIdleTemp", "heater")) result["heaterIdleTempC"] = hw->heaterIdleTemp() / 10.0;
+                if (include("heaterWarmupFlow", "heater")) result["heaterWarmupFlowMlPerSec"] = hw->heaterWarmupFlow() / 10.0;
+                if (include("heaterTestFlow", "heater")) result["heaterTestFlowMlPerSec"] = hw->heaterTestFlow() / 10.0;
+                if (include("heaterWarmupTimeout", "heater")) result["heaterWarmupTimeoutSec"] = hw->heaterWarmupTimeout() / 10.0;
+            }
 
             // === Auto-favorites ===
             if (include("autoFavoritesGroupBy", "autofavorites")) result["autoFavoritesGroupBy"] = settings->autoFavoritesGroupBy();

@@ -2,6 +2,7 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../core/settings.h"
+#include "../core/settings_mqtt.h"
 #include "../controllers/maincontroller.h"
 #include "version.h"
 
@@ -21,11 +22,13 @@
 #endif
 
 MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
-                       Settings* settings, QObject* parent)
+                       Settings* settings, SettingsMqtt* settingsMqtt,
+                       QObject* parent)
     : QObject(parent)
     , m_device(device)
     , m_machineState(machineState)
     , m_settings(settings)
+    , m_settingsMqtt(settingsMqtt)
 {
     // Connect internal signals for thread-safe callback handling
     connect(this, &MqttClient::internalConnected, this, &MqttClient::onInternalConnected, Qt::QueuedConnection);
@@ -46,15 +49,15 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
     }
 
     // Settings changes
-    if (m_settings) {
-        connect(m_settings, &Settings::mqttEnabledChanged, this, &MqttClient::onSettingsChanged);
-        connect(m_settings, &Settings::mqttBrokerHostChanged, this, &MqttClient::onSettingsChanged);
-        connect(m_settings, &Settings::mqttBrokerPortChanged, this, &MqttClient::onSettingsChanged);
-        connect(m_settings, &Settings::mqttUsernameChanged, this, &MqttClient::onSettingsChanged);
-        connect(m_settings, &Settings::mqttPasswordChanged, this, &MqttClient::onSettingsChanged);
-        connect(m_settings, &Settings::mqttPublishIntervalChanged, this, [this]() {
+    if (m_settingsMqtt) {
+        connect(m_settingsMqtt, &SettingsMqtt::mqttEnabledChanged, this, &MqttClient::onSettingsChanged);
+        connect(m_settingsMqtt, &SettingsMqtt::mqttBrokerHostChanged, this, &MqttClient::onSettingsChanged);
+        connect(m_settingsMqtt, &SettingsMqtt::mqttBrokerPortChanged, this, &MqttClient::onSettingsChanged);
+        connect(m_settingsMqtt, &SettingsMqtt::mqttUsernameChanged, this, &MqttClient::onSettingsChanged);
+        connect(m_settingsMqtt, &SettingsMqtt::mqttPasswordChanged, this, &MqttClient::onSettingsChanged);
+        connect(m_settingsMqtt, &SettingsMqtt::mqttPublishIntervalChanged, this, [this]() {
             if (m_publishTimer.isActive()) {
-                m_publishTimer.setInterval(m_settings->mqttPublishInterval());
+                m_publishTimer.setInterval(m_settingsMqtt->mqttPublishInterval());
             }
         });
     }
@@ -100,7 +103,7 @@ bool MqttClient::isConnected() const
 
 QString MqttClient::generateClientId()
 {
-    QString clientId = m_settings ? m_settings->mqttClientId() : "";
+    QString clientId = m_settings ? m_settingsMqtt->mqttClientId() : "";
     if (clientId.isEmpty()) {
         QString hostname = QHostInfo::localHostName();
         if (hostname.isEmpty()) {
@@ -111,7 +114,7 @@ QString MqttClient::generateClientId()
             .arg(QUuid::createUuid().toString(QUuid::Id128).left(8));
         // Persist the generated client ID so it survives app restarts/updates
         if (m_settings) {
-            m_settings->setMqttClientId(clientId);
+            m_settingsMqtt->setMqttClientId(clientId);
             qDebug() << "MqttClient: Generated and saved new client ID:" << clientId;
         }
     }
@@ -286,7 +289,7 @@ void MqttClient::connectToBroker()
         return;
     }
 
-    QString host = m_settings->mqttBrokerHost().trimmed();
+    QString host = m_settingsMqtt->mqttBrokerHost().trimmed();
     if (host.isEmpty()) {
         m_status = "Error: No broker host configured";
         emit statusChanged();
@@ -342,7 +345,7 @@ void MqttClient::connectWithHost(const QString& host)
     m_isReconnecting = false;
 
     // Build server URI
-    int port = m_settings ? m_settings->mqttBrokerPort() : 1883;
+    int port = m_settings ? m_settingsMqtt->mqttBrokerPort() : 1883;
     QString serverUri = QString("tcp://%1:%2").arg(host).arg(port);
     QByteArray serverUriBytes = serverUri.toUtf8();
 
@@ -379,8 +382,8 @@ void MqttClient::connectWithHost(const QString& host)
     connOpts.automaticReconnect = 0; // We handle reconnection ourselves
 
     // Set credentials if provided
-    QString username = m_settings->mqttUsername();
-    QString password = m_settings->mqttPassword();
+    QString username = m_settingsMqtt->mqttUsername();
+    QString password = m_settingsMqtt->mqttPassword();
     QByteArray usernameBytes = username.toUtf8();
     QByteArray passwordBytes = password.toUtf8();
     if (!username.isEmpty()) {
@@ -462,12 +465,12 @@ void MqttClient::onInternalConnected()
     setupSubscriptions();
 
     // Publish Home Assistant discovery if enabled
-    if (m_settings && m_settings->mqttHomeAssistantDiscovery()) {
+    if (m_settings && m_settingsMqtt->mqttHomeAssistantDiscovery()) {
         publishHomeAssistantDiscovery();
     }
 
     // Start publishing telemetry
-    int interval = m_settings ? m_settings->mqttPublishInterval() : 1000;
+    int interval = m_settings ? m_settingsMqtt->mqttPublishInterval() : 1000;
     m_publishTimer.start(interval);
 
     // Clear last-published values so the full state is re-sent to the broker
@@ -497,7 +500,7 @@ void MqttClient::onInternalDisconnected()
     emit connectedChanged();
 
     // Attempt reconnection with exponential backoff if MQTT is still enabled
-    if (m_settings && m_settings->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    if (m_settings && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         m_status = QString("Disconnected - reconnecting (%1/%2)...")
             .arg(m_reconnectAttempts + 1)
             .arg(MAX_RECONNECT_ATTEMPTS);
@@ -526,7 +529,7 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
     emit connectedChanged();
 
     // Attempt reconnection with exponential backoff
-    if (m_settings && m_settings->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    if (m_settings && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         int delay = reconnectDelayMs();
         qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds";
         m_reconnectTimer.start(delay);
@@ -641,7 +644,7 @@ void MqttClient::setMainController(MainController* controller)
 
 void MqttClient::onReconnectTimerTick()
 {
-    if (!m_settings || !m_settings->mqttEnabled()) {
+    if (!m_settings || !m_settingsMqtt->mqttEnabled()) {
         return;
     }
 
@@ -662,14 +665,14 @@ void MqttClient::onSettingsChanged()
         disconnectFromBroker();
     }
 
-    if (m_settings && m_settings->mqttEnabled()) {
+    if (m_settings && m_settingsMqtt->mqttEnabled()) {
         connectToBroker();
     }
 }
 
 QString MqttClient::topicPath(const QString& subtopic) const
 {
-    QString baseTopic = m_settings ? m_settings->mqttBaseTopic() : "decenza";
+    QString baseTopic = m_settings ? m_settingsMqtt->mqttBaseTopic() : "decenza";
     return baseTopic + "/" + subtopic;
 }
 
@@ -677,7 +680,7 @@ void MqttClient::publish(const QString& topic, const QString& payload, bool reta
 {
     if (!isConnected() || !m_client) return;
 
-    bool shouldRetain = retain && m_settings && m_settings->mqttRetainMessages();
+    bool shouldRetain = retain && m_settings && m_settingsMqtt->mqttRetainMessages();
 
     QByteArray topicBytes = topic.toUtf8();
     QByteArray payloadBytes = payload.toUtf8();
@@ -865,7 +868,7 @@ void MqttClient::publishHomeAssistantDiscovery()
 {
     if (!m_settings) return;
 
-    QString baseTopic = m_settings->mqttBaseTopic();
+    QString baseTopic = m_settingsMqtt->mqttBaseTopic();
     QJsonObject device = buildDeviceInfo();
 
     // State sensor

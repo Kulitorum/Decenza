@@ -12,6 +12,7 @@ extern "C" {
 class DE1Device;
 class MachineState;
 class Settings;
+class SettingsMqtt;
 class MainController;
 
 class MqttClient : public QObject {
@@ -24,7 +25,8 @@ class MqttClient : public QObject {
 
 public:
     explicit MqttClient(DE1Device* device, MachineState* machineState,
-                       Settings* settings, QObject* parent = nullptr);
+                       Settings* settings, SettingsMqtt* settingsMqtt,
+                       QObject* parent = nullptr);
     ~MqttClient();
 
     bool isConnected() const;
@@ -106,6 +108,7 @@ private:
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
     Settings* m_settings = nullptr;
+    SettingsMqtt* m_settingsMqtt = nullptr;
     MainController* m_mainController = nullptr;
 
     QTimer m_publishTimer;

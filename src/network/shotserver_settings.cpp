@@ -6,6 +6,9 @@
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
+#include "../core/settings_mqtt.h"
+#include "../core/settings_ai.h"
+#include "../core/settings_visualizer.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
@@ -47,48 +50,50 @@
 // in obj are updated; missing keys leave the current setting unchanged.
 static void applyAiSettings(Settings* s, const QJsonObject& obj)
 {
+    auto* a = s->ai();
     if (obj.contains("aiProvider"))
-        s->setAiProvider(obj["aiProvider"].toString());
+        a->setAiProvider(obj["aiProvider"].toString());
     if (obj.contains("openaiApiKey"))
-        s->setOpenaiApiKey(obj["openaiApiKey"].toString());
+        a->setOpenaiApiKey(obj["openaiApiKey"].toString());
     if (obj.contains("anthropicApiKey"))
-        s->setAnthropicApiKey(obj["anthropicApiKey"].toString());
+        a->setAnthropicApiKey(obj["anthropicApiKey"].toString());
     if (obj.contains("geminiApiKey"))
-        s->setGeminiApiKey(obj["geminiApiKey"].toString());
+        a->setGeminiApiKey(obj["geminiApiKey"].toString());
     if (obj.contains("openrouterApiKey"))
-        s->setOpenrouterApiKey(obj["openrouterApiKey"].toString());
+        a->setOpenrouterApiKey(obj["openrouterApiKey"].toString());
     if (obj.contains("openrouterModel"))
-        s->setOpenrouterModel(obj["openrouterModel"].toString());
+        a->setOpenrouterModel(obj["openrouterModel"].toString());
     if (obj.contains("ollamaEndpoint"))
-        s->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
+        a->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
     if (obj.contains("ollamaModel"))
-        s->setOllamaModel(obj["ollamaModel"].toString());
+        a->setOllamaModel(obj["ollamaModel"].toString());
 }
 
 // Apply MQTT-related fields from a JSON object to Settings. Only keys present
 // in obj are updated; missing keys leave the current setting unchanged.
 static void applyMqttSettings(Settings* s, const QJsonObject& obj)
 {
+    auto* m = s->mqtt();
     if (obj.contains("mqttEnabled"))
-        s->setMqttEnabled(obj["mqttEnabled"].toBool());
+        m->setMqttEnabled(obj["mqttEnabled"].toBool());
     if (obj.contains("mqttBrokerHost"))
-        s->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
+        m->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
     if (obj.contains("mqttBrokerPort"))
-        s->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
+        m->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
     if (obj.contains("mqttUsername"))
-        s->setMqttUsername(obj["mqttUsername"].toString());
+        m->setMqttUsername(obj["mqttUsername"].toString());
     if (obj.contains("mqttPassword"))
-        s->setMqttPassword(obj["mqttPassword"].toString());
+        m->setMqttPassword(obj["mqttPassword"].toString());
     if (obj.contains("mqttBaseTopic"))
-        s->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
+        m->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
     if (obj.contains("mqttPublishInterval"))
-        s->setMqttPublishInterval(obj["mqttPublishInterval"].toInt());
+        m->setMqttPublishInterval(obj["mqttPublishInterval"].toInt());
     if (obj.contains("mqttClientId"))
-        s->setMqttClientId(obj["mqttClientId"].toString());
+        m->setMqttClientId(obj["mqttClientId"].toString());
     if (obj.contains("mqttRetainMessages"))
-        s->setMqttRetainMessages(obj["mqttRetainMessages"].toBool());
+        m->setMqttRetainMessages(obj["mqttRetainMessages"].toBool());
     if (obj.contains("mqttHomeAssistantDiscovery"))
-        s->setMqttHomeAssistantDiscovery(obj["mqttHomeAssistantDiscovery"].toBool());
+        m->setMqttHomeAssistantDiscovery(obj["mqttHomeAssistantDiscovery"].toBool());
 }
 
 QString ShotServer::generateSettingsPage() const
@@ -888,30 +893,34 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     QJsonObject obj;
 
     // Visualizer
-    obj["visualizerUsername"] = m_settings->visualizerUsername();
-    obj["visualizerPassword"] = m_settings->visualizerPassword();
+    obj["visualizerUsername"] = m_settings->visualizer()->visualizerUsername();
+    obj["visualizerPassword"] = m_settings->visualizer()->visualizerPassword();
 
     // AI
-    obj["aiProvider"] = m_settings->aiProvider();
-    obj["openaiApiKey"] = m_settings->openaiApiKey();
-    obj["anthropicApiKey"] = m_settings->anthropicApiKey();
-    obj["geminiApiKey"] = m_settings->geminiApiKey();
-    obj["openrouterApiKey"] = m_settings->openrouterApiKey();
-    obj["openrouterModel"] = m_settings->openrouterModel();
-    obj["ollamaEndpoint"] = m_settings->ollamaEndpoint();
-    obj["ollamaModel"] = m_settings->ollamaModel();
+    {
+        auto* a = m_settings->ai();
+        obj["aiProvider"] = a->aiProvider();
+        obj["openaiApiKey"] = a->openaiApiKey();
+        obj["anthropicApiKey"] = a->anthropicApiKey();
+        obj["geminiApiKey"] = a->geminiApiKey();
+        obj["openrouterApiKey"] = a->openrouterApiKey();
+        obj["openrouterModel"] = a->openrouterModel();
+        obj["ollamaEndpoint"] = a->ollamaEndpoint();
+        obj["ollamaModel"] = a->ollamaModel();
+    }
 
     // MQTT
-    obj["mqttEnabled"] = m_settings->mqttEnabled();
-    obj["mqttBrokerHost"] = m_settings->mqttBrokerHost();
-    obj["mqttBrokerPort"] = m_settings->mqttBrokerPort();
-    obj["mqttUsername"] = m_settings->mqttUsername();
-    obj["mqttPassword"] = m_settings->mqttPassword();
-    obj["mqttBaseTopic"] = m_settings->mqttBaseTopic();
-    obj["mqttPublishInterval"] = m_settings->mqttPublishInterval();
-    obj["mqttClientId"] = m_settings->mqttClientId();
-    obj["mqttRetainMessages"] = m_settings->mqttRetainMessages();
-    obj["mqttHomeAssistantDiscovery"] = m_settings->mqttHomeAssistantDiscovery();
+    auto* mqttSettings = m_settings->mqtt();
+    obj["mqttEnabled"] = mqttSettings->mqttEnabled();
+    obj["mqttBrokerHost"] = mqttSettings->mqttBrokerHost();
+    obj["mqttBrokerPort"] = mqttSettings->mqttBrokerPort();
+    obj["mqttUsername"] = mqttSettings->mqttUsername();
+    obj["mqttPassword"] = mqttSettings->mqttPassword();
+    obj["mqttBaseTopic"] = mqttSettings->mqttBaseTopic();
+    obj["mqttPublishInterval"] = mqttSettings->mqttPublishInterval();
+    obj["mqttClientId"] = mqttSettings->mqttClientId();
+    obj["mqttRetainMessages"] = mqttSettings->mqttRetainMessages();
+    obj["mqttHomeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
 
     sendJson(socket, QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
@@ -934,9 +943,9 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
 
     // Visualizer
     if (obj.contains("visualizerUsername"))
-        m_settings->setVisualizerUsername(obj["visualizerUsername"].toString());
+        m_settings->visualizer()->setVisualizerUsername(obj["visualizerUsername"].toString());
     if (obj.contains("visualizerPassword"))
-        m_settings->setVisualizerPassword(obj["visualizerPassword"].toString());
+        m_settings->visualizer()->setVisualizerPassword(obj["visualizerPassword"].toString());
 
     // AI
     applyAiSettings(m_settings, obj);

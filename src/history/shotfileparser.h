@@ -4,7 +4,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QVariantMap>
-#include "shothistorystorage.h"
+#include "shothistory_types.h"
 
 /**
  * Parser for DE1 app .shot files (Tcl format)

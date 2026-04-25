@@ -1487,7 +1487,7 @@ Page {
                 enabled: discussButton.isClaudeDesktopReady
                 onClicked: {
                     // Copy shot summary to clipboard if MCP is not connected
-                    if (!Settings.mcpEnabled && MainController.aiManager) {
+                    if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
                         var summary = MainController.aiManager.generateHistoryShotSummary(editShotData)
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }

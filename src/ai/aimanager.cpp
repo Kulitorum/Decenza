@@ -3,6 +3,7 @@
 #include "aiconversation.h"
 #include "shotsummarizer.h"
 #include "../core/settings.h"
+#include "../core/settings_ai.h"
 #include "../core/grinderaliases.h"
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
@@ -48,7 +49,7 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     loadMostRecentConversation();
 
     // Connect to settings changes
-    connect(m_settings, &Settings::valueChanged, this, &AIManager::onSettingsChanged);
+    connect(m_settings->ai(), &SettingsAI::configurationChanged, this, &AIManager::onSettingsChanged);
 }
 
 AIManager::~AIManager() = default;
@@ -56,7 +57,7 @@ AIManager::~AIManager() = default;
 void AIManager::createProviders()
 {
     // Create OpenAI provider
-    QString openaiKey = m_settings->value("ai/openaiKey").toString();
+    QString openaiKey = m_settings->ai()->openaiApiKey();
     auto* openai = new OpenAIProvider(m_networkManager, openaiKey, this);
     connect(openai, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openai, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -64,7 +65,7 @@ void AIManager::createProviders()
     m_openaiProvider.reset(openai);
 
     // Create Anthropic provider
-    QString anthropicKey = m_settings->value("ai/anthropicKey").toString();
+    QString anthropicKey = m_settings->ai()->anthropicApiKey();
     auto* anthropic = new AnthropicProvider(m_networkManager, anthropicKey, this);
     connect(anthropic, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(anthropic, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -72,7 +73,7 @@ void AIManager::createProviders()
     m_anthropicProvider.reset(anthropic);
 
     // Create Gemini provider
-    QString geminiKey = m_settings->value("ai/geminiKey").toString();
+    QString geminiKey = m_settings->ai()->geminiApiKey();
     auto* gemini = new GeminiProvider(m_networkManager, geminiKey, this);
     connect(gemini, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(gemini, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -80,8 +81,8 @@ void AIManager::createProviders()
     m_geminiProvider.reset(gemini);
 
     // Create OpenRouter provider
-    QString openrouterKey = m_settings->value("ai/openrouterKey").toString();
-    QString openrouterModel = m_settings->value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString();
+    QString openrouterKey = m_settings->ai()->openrouterApiKey();
+    QString openrouterModel = m_settings->ai()->openrouterModel();
     auto* openrouter = new OpenRouterProvider(m_networkManager, openrouterKey, openrouterModel, this);
     connect(openrouter, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openrouter, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -89,8 +90,8 @@ void AIManager::createProviders()
     m_openrouterProvider.reset(openrouter);
 
     // Create Ollama provider
-    QString ollamaEndpoint = m_settings->value("ai/ollamaEndpoint", "").toString();
-    QString ollamaModel = m_settings->value("ai/ollamaModel").toString();
+    QString ollamaEndpoint = m_settings->ai()->ollamaEndpoint();
+    QString ollamaModel = m_settings->ai()->ollamaModel();
     auto* ollama = new OllamaProvider(m_networkManager, ollamaEndpoint, ollamaModel, this);
     connect(ollama, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(ollama, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
@@ -101,7 +102,7 @@ void AIManager::createProviders()
 
 QString AIManager::selectedProvider() const
 {
-    return m_settings->value("ai/provider", "openai").toString();
+    return m_settings->ai()->aiProvider();
 }
 
 QString AIManager::currentModelName() const
@@ -119,7 +120,7 @@ QString AIManager::modelDisplayName(const QString& providerId) const
 void AIManager::setSelectedProvider(const QString& provider)
 {
     if (selectedProvider() != provider) {
-        m_settings->setValue("ai/provider", provider);
+        m_settings->ai()->setAiProvider(provider);
         emit providerChanged();
         emit configurationChanged();
     }
@@ -710,29 +711,29 @@ void AIManager::onSettingsChanged()
     // Update providers with new settings
     auto* openai = dynamic_cast<OpenAIProvider*>(m_openaiProvider.get());
     if (openai) {
-        openai->setApiKey(m_settings->value("ai/openaiKey").toString());
+        openai->setApiKey(m_settings->ai()->openaiApiKey());
     }
 
     auto* anthropic = dynamic_cast<AnthropicProvider*>(m_anthropicProvider.get());
     if (anthropic) {
-        anthropic->setApiKey(m_settings->value("ai/anthropicKey").toString());
+        anthropic->setApiKey(m_settings->ai()->anthropicApiKey());
     }
 
     auto* gemini = dynamic_cast<GeminiProvider*>(m_geminiProvider.get());
     if (gemini) {
-        gemini->setApiKey(m_settings->value("ai/geminiKey").toString());
+        gemini->setApiKey(m_settings->ai()->geminiApiKey());
     }
 
     auto* openrouter = dynamic_cast<OpenRouterProvider*>(m_openrouterProvider.get());
     if (openrouter) {
-        openrouter->setApiKey(m_settings->value("ai/openrouterKey").toString());
-        openrouter->setModel(m_settings->value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString());
+        openrouter->setApiKey(m_settings->ai()->openrouterApiKey());
+        openrouter->setModel(m_settings->ai()->openrouterModel());
     }
 
     auto* ollama = dynamic_cast<OllamaProvider*>(m_ollamaProvider.get());
     if (ollama) {
-        ollama->setEndpoint(m_settings->value("ai/ollamaEndpoint", "").toString());
-        ollama->setModel(m_settings->value("ai/ollamaModel").toString());
+        ollama->setEndpoint(m_settings->ai()->ollamaEndpoint());
+        ollama->setModel(m_settings->ai()->ollamaModel());
     }
 
     emit configurationChanged();

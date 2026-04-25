@@ -64,10 +64,10 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: usernameField
                         Layout.fillWidth: true
-                        text: Settings.visualizerUsername
+                        text: Settings.visualizer.visualizerUsername
                         placeholder: TranslationManager.translate("settings.visualizer.username", "Username / Email")
                         inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
-                        onTextChanged: Settings.visualizerUsername = text
+                        onTextChanged: Settings.visualizer.visualizerUsername = text
                         // Enter jumps to password field
                         Keys.onReturnPressed: function(event) { passwordField.forceActiveFocus() }
                         Keys.onEnterPressed: function(event) { passwordField.forceActiveFocus() }
@@ -89,11 +89,11 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: passwordField
                         Layout.fillWidth: true
-                        text: Settings.visualizerPassword
+                        text: Settings.visualizer.visualizerPassword
                         echoMode: TextInput.Password
                         placeholder: TranslationManager.translate("settings.visualizer.password", "Password")
                         inputMethodHints: Qt.ImhNoAutoUppercase
-                        onTextChanged: Settings.visualizerPassword = text
+                        onTextChanged: Settings.visualizer.visualizerPassword = text
                     }
                 }
 
@@ -202,9 +202,9 @@ KeyboardAwareContainer {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.visualizerAutoUpload
+                        checked: Settings.visualizer.visualizerAutoUpload
                         accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
-                        onCheckedChanged: Settings.visualizerAutoUpload = checked
+                        onCheckedChanged: Settings.visualizer.visualizerAutoUpload = checked
                     }
                 }
 
@@ -238,7 +238,7 @@ KeyboardAwareContainer {
 
                     ValueInput {
                         id: minDurationInput
-                        value: Settings.visualizerMinDuration
+                        value: Settings.visualizer.visualizerMinDuration
                         from: 0
                         to: 30
                         stepSize: 1
@@ -246,7 +246,7 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("settings.visualizer.minUploadDuration", "Minimum upload duration")
 
                         onValueModified: function(newValue) {
-                            Settings.visualizerMinDuration = newValue
+                            Settings.visualizer.visualizerMinDuration = newValue
                         }
                     }
                 }
@@ -282,9 +282,9 @@ KeyboardAwareContainer {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.visualizerShowAfterShot
+                        checked: Settings.visualizer.visualizerShowAfterShot
                         accessibleName: TranslationManager.translate("settings.visualizer.editAfterShot", "Edit After Shot")
-                        onCheckedChanged: Settings.visualizerShowAfterShot = checked
+                        onCheckedChanged: Settings.visualizer.visualizerShowAfterShot = checked
                     }
                 }
 
@@ -317,9 +317,9 @@ KeyboardAwareContainer {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.visualizerClearNotesOnStart
+                        checked: Settings.visualizer.visualizerClearNotesOnStart
                         accessibleName: TranslationManager.translate("settings.visualizer.clearNotesOnStart", "Clear Notes on Start")
-                        onCheckedChanged: Settings.visualizerClearNotesOnStart = checked
+                        onCheckedChanged: Settings.visualizer.visualizerClearNotesOnStart = checked
                     }
                 }
 
@@ -354,11 +354,11 @@ KeyboardAwareContainer {
                         Layout.preferredWidth: Theme.scaled(220)
                         height: Theme.scaled(40)
                         compact: true
-                        value: Settings.defaultShotRating
+                        value: Settings.visualizer.defaultShotRating
                         accessibleName: TranslationManager.translate("settings.visualizer.defaultRating", "Default Shot Rating")
 
                         onValueModified: function(newValue) {
-                            Settings.defaultShotRating = newValue
+                            Settings.visualizer.defaultShotRating = newValue
                         }
                     }
                 }

@@ -1,5 +1,6 @@
 #include "translationmanager.h"
 #include "settings.h"
+#include "settings_ai.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QDirIterator>
@@ -1528,11 +1529,11 @@ bool TranslationManager::canAutoTranslate() const
     if (m_currentLanguage == "en") return false;
     if (m_autoTranslating) return false;
 
-    QString provider = m_settings->aiProvider();
-    if (provider == "openai" && !m_settings->openaiApiKey().isEmpty()) return true;
-    if (provider == "anthropic" && !m_settings->anthropicApiKey().isEmpty()) return true;
-    if (provider == "gemini" && !m_settings->geminiApiKey().isEmpty()) return true;
-    if (provider == "ollama" && !m_settings->ollamaEndpoint().isEmpty() && !m_settings->ollamaModel().isEmpty()) return true;
+    QString provider = m_settings->ai()->aiProvider();
+    if (provider == "openai" && !m_settings->ai()->openaiApiKey().isEmpty()) return true;
+    if (provider == "anthropic" && !m_settings->ai()->anthropicApiKey().isEmpty()) return true;
+    if (provider == "gemini" && !m_settings->ai()->geminiApiKey().isEmpty()) return true;
+    if (provider == "ollama" && !m_settings->ai()->ollamaEndpoint().isEmpty() && !m_settings->ai()->ollamaModel().isEmpty()) return true;
 
     return false;
 }
@@ -1643,7 +1644,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
     if (provider == "openai") {
         request.setUrl(QUrl("https://api.openai.com/v1/chat/completions"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-        request.setRawHeader("Authorization", ("Bearer " + m_settings->openaiApiKey()).toUtf8());
+        request.setRawHeader("Authorization", ("Bearer " + m_settings->ai()->openaiApiKey()).toUtf8());
 
         QJsonObject json;
         json["model"] = "gpt-4o-mini";  // Use mini for translation - cheaper and fast
@@ -1659,7 +1660,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
     } else if (provider == "anthropic") {
         request.setUrl(QUrl("https://api.anthropic.com/v1/messages"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-        request.setRawHeader("x-api-key", m_settings->anthropicApiKey().toUtf8());
+        request.setRawHeader("x-api-key", m_settings->ai()->anthropicApiKey().toUtf8());
         request.setRawHeader("anthropic-version", "2023-06-01");
 
         QJsonObject json;
@@ -1674,7 +1675,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "gemini") {
-        QString apiKey = m_settings->geminiApiKey();
+        QString apiKey = m_settings->ai()->geminiApiKey();
         request.setUrl(QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         request.setRawHeader("x-goog-api-key", apiKey.toUtf8());
@@ -1692,13 +1693,13 @@ void TranslationManager::sendNextAutoTranslateBatch()
         postData = QJsonDocument(json).toJson();
 
     } else if (provider == "ollama") {
-        QString endpoint = m_settings->ollamaEndpoint();
+        QString endpoint = m_settings->ai()->ollamaEndpoint();
         if (!endpoint.endsWith("/")) endpoint += "/";
         request.setUrl(QUrl(endpoint + "api/generate"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
         QJsonObject json;
-        json["model"] = m_settings->ollamaModel();
+        json["model"] = m_settings->ai()->ollamaModel();
         json["prompt"] = prompt;
         json["stream"] = false;
         postData = QJsonDocument(json).toJson();
@@ -2226,8 +2227,8 @@ QStringList TranslationManager::getConfiguredProviders() const
     // Gemini excluded due to aggressive rate limiting
     // Each provider fills in gaps left by previous ones
     QStringList providers;
-    if (!m_settings->anthropicApiKey().isEmpty()) providers << "anthropic";
-    if (!m_settings->openaiApiKey().isEmpty()) providers << "openai";
+    if (!m_settings->ai()->anthropicApiKey().isEmpty()) providers << "anthropic";
+    if (!m_settings->ai()->openaiApiKey().isEmpty()) providers << "openai";
     // Gemini excluded from auto-discovery due to aggressive rate limiting.
     // Ollama excluded — requires explicit user configuration (endpoint + model).
     // Both work when explicitly selected by the user in settings.
@@ -2241,7 +2242,7 @@ QString TranslationManager::getActiveProvider() const
         return m_batchCurrentProvider;
     }
     // Otherwise use the normal settings value
-    return m_settings->aiProvider();
+    return m_settings->ai()->aiProvider();
 }
 
 void TranslationManager::translateAndUploadAllLanguages()
@@ -2261,7 +2262,7 @@ void TranslationManager::translateAndUploadAllLanguages()
     }
 
     // Save original provider to restore later
-    m_originalProvider = m_settings->aiProvider();
+    m_originalProvider = m_settings->ai()->aiProvider();
 
     // Ensure all strings are scanned first
     if (!m_scanning) {
@@ -2289,7 +2290,7 @@ void TranslationManager::translateAndUploadAllLanguages()
     // Start with first provider, queue all languages for it
     QString firstProvider = m_batchProviderQueue.takeFirst();
     m_batchCurrentProvider = firstProvider;  // Bypass QSettings cache
-    m_settings->setAiProvider(firstProvider);  // Still set for UI consistency
+    m_settings->ai()->setAiProvider(firstProvider);  // Still set for UI consistency
     m_batchLanguageQueue = allLanguages;
 
     qDebug() << "Batch: Starting with provider:" << firstProvider << "(m_batchCurrentProvider set)";
@@ -2308,7 +2309,7 @@ void TranslationManager::translateAndUploadAllLanguages()
             m_batchProviderQueue = getConfiguredProviders();
             if (!m_batchProviderQueue.isEmpty()) {
                 m_batchCurrentProvider = m_batchProviderQueue.takeFirst();
-                m_settings->setAiProvider(m_batchCurrentProvider);
+                m_settings->ai()->setAiProvider(m_batchCurrentProvider);
             }
             QString nextLang = m_batchLanguageQueue.takeFirst();
             qDebug() << "Batch: Processing language:" << nextLang << "with provider:" << m_batchCurrentProvider;
@@ -2333,7 +2334,7 @@ void TranslationManager::translateAndUploadAllLanguages()
         } else {
             // All done - restore original provider and clear batch state
             m_batchCurrentProvider.clear();
-            m_settings->setAiProvider(m_originalProvider);
+            m_settings->ai()->setAiProvider(m_originalProvider);
             m_batchProcessing = false;
             disconnect(*autoConn);
             disconnect(*submitConn);
@@ -2368,7 +2369,7 @@ void TranslationManager::translateAndUploadAllLanguages()
                 // Try next provider for the SAME language
                 QString nextProvider = m_batchProviderQueue.takeFirst();
                 m_batchCurrentProvider = nextProvider;
-                m_settings->setAiProvider(nextProvider);
+                m_settings->ai()->setAiProvider(nextProvider);
                 qDebug() << "Batch: Rate limited/error, trying provider:" << nextProvider << "for" << m_currentLanguage;
                 autoTranslate();
             } else {

@@ -283,7 +283,7 @@ Page {
         }
 
         onOpened: {
-            var current = Settings.activeThemeName
+            var current = Settings.theme.activeThemeName
             // Don't pre-fill built-in names or "Custom"
             var name = (current === "Default Dark" || current === "Default Light" || current === "Custom") ? "" : current
             themeName = name
@@ -297,7 +297,7 @@ Page {
         }
 
         function doSave(name) {
-            Settings.saveCurrentTheme(name)
+            Settings.theme.saveCurrentTheme(name)
             var themesLoader = tabLoaders.itemAt(SettingsTabs.indexOf("themes"))
             if (themesLoader && themesLoader.item && themesLoader.item.refreshPresets) {
                 themesLoader.item.refreshPresets()

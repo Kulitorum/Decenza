@@ -64,8 +64,8 @@ Page {
                         Layout.maximumWidth: Theme.scaled(500)
                         height: Theme.scaled(70)
                         radius: Theme.buttonRadius
-                        color: Settings.aiProvider === modelData.id ? Theme.primaryColor : Theme.surfaceColor
-                        border.color: Settings.aiProvider === modelData.id ? Theme.primaryColor : Theme.borderColor
+                        color: Settings.ai.aiProvider === modelData.id ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: Settings.ai.aiProvider === modelData.id ? Theme.primaryColor : Theme.borderColor
                         border.width: 1
 
                         RowLayout {
@@ -96,7 +96,7 @@ Page {
                                 width: Theme.scaled(24)
                                 height: Theme.scaled(24)
                                 radius: Theme.scaled(12)
-                                visible: Settings.aiProvider === modelData.id
+                                visible: Settings.ai.aiProvider === modelData.id
                                 color: "transparent"
                                 border.color: Theme.textColor
                                 border.width: 2
@@ -113,7 +113,7 @@ Page {
 
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: Settings.aiProvider = modelData.id
+                            onClicked: Settings.ai.aiProvider = modelData.id
                         }
                     }
                 }
@@ -130,7 +130,7 @@ Page {
 
                 // API Key section (for cloud providers)
                 ColumnLayout {
-                    visible: Settings.aiProvider !== "ollama"
+                    visible: Settings.ai.aiProvider !== "ollama"
                     Layout.fillWidth: true
                     spacing: Theme.scaled(4)
 
@@ -147,18 +147,18 @@ Page {
                         echoMode: TextInput.Password
                         placeholderText: TranslationManager.translate("aisettings.placeholder.apikey", "Paste your API key here")
                         text: {
-                            switch(Settings.aiProvider) {
-                                case "openai": return Settings.openaiApiKey
-                                case "anthropic": return Settings.anthropicApiKey
-                                case "gemini": return Settings.geminiApiKey
+                            switch(Settings.ai.aiProvider) {
+                                case "openai": return Settings.ai.openaiApiKey
+                                case "anthropic": return Settings.ai.anthropicApiKey
+                                case "gemini": return Settings.ai.geminiApiKey
                                 default: return ""
                             }
                         }
                         onTextChanged: {
-                            switch(Settings.aiProvider) {
-                                case "openai": Settings.openaiApiKey = text; break
-                                case "anthropic": Settings.anthropicApiKey = text; break
-                                case "gemini": Settings.geminiApiKey = text; break
+                            switch(Settings.ai.aiProvider) {
+                                case "openai": Settings.ai.openaiApiKey = text; break
+                                case "anthropic": Settings.ai.anthropicApiKey = text; break
+                                case "gemini": Settings.ai.geminiApiKey = text; break
                             }
                         }
                     }
@@ -166,7 +166,7 @@ Page {
 
                 // Ollama settings
                 ColumnLayout {
-                    visible: Settings.aiProvider === "ollama"
+                    visible: Settings.ai.aiProvider === "ollama"
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
 
@@ -181,8 +181,8 @@ Page {
                         id: ollamaEndpointField
                         Layout.fillWidth: true
                         placeholderText: "http://localhost:11434"
-                        text: Settings.ollamaEndpoint
-                        onTextChanged: Settings.ollamaEndpoint = text
+                        text: Settings.ai.ollamaEndpoint
+                        onTextChanged: Settings.ai.ollamaEndpoint = text
                     }
 
                     Item { height: Theme.spacingSmall }
@@ -203,8 +203,8 @@ Page {
                             Layout.fillWidth: true
                             accessibleLabel: TranslationManager.translate("aisettings.label.model", "Model")
                             model: MainController.aiManager ? MainController.aiManager.ollamaModels : []
-                            currentIndex: model.indexOf(Settings.ollamaModel)
-                            onCurrentTextChanged: if (currentText) Settings.ollamaModel = currentText
+                            currentIndex: model.indexOf(Settings.ai.ollamaModel)
+                            onCurrentTextChanged: if (currentText) Settings.ai.ollamaModel = currentText
 
                             background: Rectangle {
                                 color: Theme.backgroundColor
@@ -274,7 +274,7 @@ Page {
 
                 Text {
                     text: {
-                        switch(Settings.aiProvider) {
+                        switch(Settings.ai.aiProvider) {
                             case "openai": return TranslationManager.translate("aisettings.help.openai", "1. Visit platform.openai.com\n2. Create an account or sign in\n3. Go to API Keys section\n4. Create a new key and paste it above")
                             case "anthropic": return TranslationManager.translate("aisettings.help.anthropic", "1. Visit console.anthropic.com\n2. Create an account or sign in\n3. Go to API Keys section\n4. Create a new key and paste it above")
                             case "gemini": return TranslationManager.translate("aisettings.help.gemini", "1. Visit aistudio.google.com\n2. Sign in with your Google account\n3. Click 'Get API Key'\n4. Create a key and paste it above")
@@ -315,7 +315,7 @@ Page {
                         Text {
                             text: {
                                 var modelName = MainController.aiManager ? MainController.aiManager.currentModelName : ""
-                                switch(Settings.aiProvider) {
+                                switch(Settings.ai.aiProvider) {
                                     case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.006 per analysis") + " (" + modelName + ")"
                                     case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01 per analysis") + " (" + modelName + ")"
                                     case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "<$0.001 per analysis") + " (" + modelName + ")"
@@ -328,9 +328,9 @@ Page {
                         }
 
                         Text {
-                            visible: Settings.aiProvider !== "ollama"
+                            visible: Settings.ai.aiProvider !== "ollama"
                             text: {
-                                switch(Settings.aiProvider) {
+                                switch(Settings.ai.aiProvider) {
                                     case "openai": return TranslationManager.translate("aisettings.cost.monthly.openai", "Under $1/month at 3 shots per day")
                                     case "anthropic": return TranslationManager.translate("aisettings.cost.monthly.anthropic", "Under $1/month at 3 shots per day")
                                     case "gemini": return TranslationManager.translate("aisettings.cost.monthly.gemini", "About $0.05/month at 3 shots per day — practically free")

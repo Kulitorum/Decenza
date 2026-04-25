@@ -19,7 +19,7 @@ Page {
             // Sync Settings with selected preset
             Settings.waterVolume = getCurrentVesselVolume()
             Settings.waterVolumeMode = getCurrentVesselMode()
-            Settings.hotWaterFlowRate = getCurrentVesselFlowRate()
+            Settings.hardware.hotWaterFlowRate = getCurrentVesselFlowRate()
             MainController.applyHotWaterSettings()
             // Tare immediately so display shows 0g instead of current scale weight.
             if (!isVolumeMode) {
@@ -149,7 +149,7 @@ Page {
                                 Settings.selectedWaterVessel = index
                                 Settings.waterVolume = modelData.volume
                                 Settings.waterVolumeMode = (modelData.mode ?? "weight")
-                                Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                 MainController.applyHotWaterSettings()
                             }
                         }
@@ -221,7 +221,7 @@ Page {
                 id: liveFlowRateInput
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: Theme.scaled(180)
-                value: Settings.hotWaterFlowRate
+                value: Settings.hardware.hotWaterFlowRate
                 from: 5
                 to: 100
                 stepSize: 5
@@ -237,7 +237,7 @@ Page {
                 // self-mutate root.value — without a consumer writing the
                 // bound source, the displayed value stays pinned.
                 onValueModified: function(newValue) {
-                    Settings.hotWaterFlowRate = Math.round(newValue)
+                    Settings.hardware.hotWaterFlowRate = Math.round(newValue)
                 }
                 // BLE write deferred to commit so holding +/- doesn't
                 // spam the flow-rate MMR register every 80 ms.
@@ -365,7 +365,7 @@ Page {
                                         flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         Settings.waterVolume = modelData.volume
                                         Settings.waterVolumeMode = (modelData.mode || "weight")
-                                        Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         MainController.applyHotWaterSettings()
                                     }
 
@@ -375,7 +375,7 @@ Page {
                                         flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         Settings.waterVolume = modelData.volume
                                         Settings.waterVolumeMode = (modelData.mode || "weight")
-                                        Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         MainController.applyHotWaterSettings()
                                         event.accepted = true
                                     }
@@ -385,7 +385,7 @@ Page {
                                         flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         Settings.waterVolume = modelData.volume
                                         Settings.waterVolumeMode = (modelData.mode || "weight")
-                                        Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                        Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                         MainController.applyHotWaterSettings()
                                         event.accepted = true
                                     }
@@ -456,7 +456,7 @@ Page {
                                                 flowRateInput.value = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                                 Settings.waterVolume = modelData.volume
                                                 Settings.waterVolumeMode = (modelData.mode || "weight")
-                                                Settings.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                                Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
                                                 MainController.applyHotWaterSettings()
                                             }
                                             vesselPill.Drag.drop()
@@ -759,7 +759,7 @@ Page {
 
                             onValueModified: function(newValue) {
                                 flowRateInput.value = Math.round(newValue)
-                                Settings.hotWaterFlowRate = Math.round(newValue)
+                                Settings.hardware.hotWaterFlowRate = Math.round(newValue)
                                 saveCurrentVessel(volumeInput.value, Math.round(newValue))
                             }
                         }

@@ -437,7 +437,7 @@ Item {
                         spacing: Theme.scaled(8)
 
                         property int selectedDay: 0
-                        property var schedule: Settings.autoWakeSchedule
+                        property var schedule: Settings.autoWake.autoWakeSchedule
                         property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
 
                         Text {
@@ -463,7 +463,7 @@ Item {
 
                                     property bool isSelected: autoWakeContent.selectedDay === index
                                     property bool isEnabled: {
-                                        var sched = Settings.autoWakeSchedule
+                                        var sched = Settings.autoWake.autoWakeSchedule
                                         return sched[index] ? sched[index].enabled : false
                                     }
 
@@ -524,7 +524,7 @@ Item {
                             StyledSwitch {
                                 checked: autoWakeContent.selectedDayData.enabled || false
                                 accessibleName: TranslationManager.translate("settings.preferences.wakeEnabledForDay", "Wake enabled for selected day")
-                                onToggled: Settings.setAutoWakeDayEnabled(autoWakeContent.selectedDay, checked)
+                                onToggled: Settings.autoWake.setAutoWakeDayEnabled(autoWakeContent.selectedDay, checked)
                             }
 
                             Item { Layout.fillWidth: true }
@@ -542,7 +542,7 @@ Item {
                                 displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
                                 accessibleName: TranslationManager.translate("settings.options.wakeHour", "Wake hour")
                                 onValueModified: function(newValue) {
-                                    Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, newValue, autoWakeContent.selectedDayData.minute ?? 0)
+                                    Settings.autoWake.setAutoWakeDayTime(autoWakeContent.selectedDay, newValue, autoWakeContent.selectedDayData.minute ?? 0)
                                 }
                             }
 
@@ -566,7 +566,7 @@ Item {
                                 displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
                                 accessibleName: TranslationManager.translate("settings.options.wakeMinute", "Wake minute")
                                 onValueModified: function(newValue) {
-                                    Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, autoWakeContent.selectedDayData.hour ?? 7, newValue)
+                                    Settings.autoWake.setAutoWakeDayTime(autoWakeContent.selectedDay, autoWakeContent.selectedDayData.hour ?? 7, newValue)
                                 }
                             }
                         }
@@ -584,22 +584,22 @@ Item {
 
                             StyledSwitch {
                                 id: stayAwakeSwitch
-                                checked: Settings.autoWakeStayAwakeEnabled
+                                checked: Settings.autoWake.autoWakeStayAwakeEnabled
                                 accessibleName: TranslationManager.translate("settings.preferences.stayAwakeAfterWake", "Stay awake after auto-wake")
-                                onToggled: Settings.autoWakeStayAwakeEnabled = checked
+                                onToggled: Settings.autoWake.autoWakeStayAwakeEnabled = checked
                             }
 
                             Item { Layout.fillWidth: true }
 
                             ValueInput {
-                                visible: Settings.autoWakeStayAwakeEnabled
+                                visible: Settings.autoWake.autoWakeStayAwakeEnabled
                                 Layout.preferredWidth: Theme.scaled(80)
                                 Layout.preferredHeight: Theme.scaled(34)
                                 from: 15
                                 to: 480
                                 stepSize: 15
                                 decimals: 0
-                                value: Settings.autoWakeStayAwakeMinutes
+                                value: Settings.autoWake.autoWakeStayAwakeMinutes
                                 valueColor: Theme.primaryColor
                                 displayText: {
                                     var mins = value
@@ -612,7 +612,7 @@ Item {
                                     return mins + " " + TranslationManager.translate("common.unit.min", "min")
                                 }
                                 accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
-                                onValueModified: function(newValue) { Settings.autoWakeStayAwakeMinutes = newValue }
+                                onValueModified: function(newValue) { Settings.autoWake.autoWakeStayAwakeMinutes = newValue }
                             }
                         }
                     }

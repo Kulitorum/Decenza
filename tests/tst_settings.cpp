@@ -2,6 +2,8 @@
 #include <QSignalSpy>
 
 #include "core/settings.h"
+#include "core/settings_theme.h"
+#include "core/settings_visualizer.h"
 
 // Test Settings property round-trip and signal emission.
 // Settings uses QSettings("DecentEspresso", "DE1Qt") which reads/writes to
@@ -30,8 +32,8 @@ private slots:
         m_origTargetWeight = m_settings.targetWeight();
         m_origSteamTemp = m_settings.steamTemperature();
         m_origScaleAddress = m_settings.scaleAddress();
-        m_origThemeMode = m_settings.themeMode();
-        m_origShotRating = m_settings.defaultShotRating();
+        m_origThemeMode = m_settings.theme()->themeMode();
+        m_origShotRating = m_settings.visualizer()->defaultShotRating();
         m_origIgnoreVolume = m_settings.ignoreVolumeWithScale();
         m_origDyeBeanBrand = m_settings.dyeBeanBrand();
     }
@@ -41,8 +43,8 @@ private slots:
         m_settings.setTargetWeight(m_origTargetWeight);
         m_settings.setSteamTemperature(m_origSteamTemp);
         m_settings.setScaleAddress(m_origScaleAddress);
-        m_settings.setThemeMode(m_origThemeMode);
-        m_settings.setDefaultShotRating(m_origShotRating);
+        m_settings.theme()->setThemeMode(m_origThemeMode);
+        m_settings.visualizer()->setDefaultShotRating(m_origShotRating);
         m_settings.setIgnoreVolumeWithScale(m_origIgnoreVolume);
         m_settings.setDyeBeanBrand(m_origDyeBeanBrand);
     }
@@ -67,13 +69,13 @@ private slots:
     }
 
     void themeModeRoundTrip() {
-        m_settings.setThemeMode("light");
-        QCOMPARE(m_settings.themeMode(), QString("light"));
+        m_settings.theme()->setThemeMode("light");
+        QCOMPARE(m_settings.theme()->themeMode(), QString("light"));
     }
 
     void defaultShotRatingRoundTrip() {
-        m_settings.setDefaultShotRating(50);
-        QCOMPARE(m_settings.defaultShotRating(), 50);
+        m_settings.visualizer()->setDefaultShotRating(50);
+        QCOMPARE(m_settings.visualizer()->defaultShotRating(), 50);
     }
 
     void ignoreVolumeWithScaleRoundTrip() {
@@ -103,8 +105,8 @@ private slots:
 
     void themeModeSignalEmitted() {
         QString newMode = (m_origThemeMode == "dark") ? "light" : "dark";
-        QSignalSpy spy(&m_settings, &Settings::themeModeChanged);
-        m_settings.setThemeMode(newMode);
+        QSignalSpy spy(m_settings.theme(), &SettingsTheme::themeModeChanged);
+        m_settings.theme()->setThemeMode(newMode);
         QVERIFY(spy.count() >= 1);
     }
 

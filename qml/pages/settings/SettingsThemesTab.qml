@@ -62,7 +62,7 @@ KeyboardAwareContainer {
 
     function getColorValue(colorName) {
         var _v = _paletteVersion  // reactive dependency
-        var editColors = Settings.editingPaletteColors()
+        var editColors = Settings.theme.editingPaletteColors()
         return editColors[colorName] || Theme[colorName] || "#ffffff"
     }
 
@@ -82,12 +82,12 @@ KeyboardAwareContainer {
     property bool _updatingFromHex: false
 
     function applyColorChange(newColor) {
-        Settings.setEditingPaletteColor(selectedColorName, colorToHex(newColor))
+        Settings.theme.setEditingPaletteColor(selectedColorName, colorToHex(newColor))
         selectedColorValue = newColor
     }
 
     // Sync editing palette with active theme mode
-    Component.onCompleted: Settings.editingPalette = Settings.isDarkMode ? "dark" : "light"
+    Component.onCompleted: Settings.theme.editingPalette = Settings.theme.isDarkMode ? "dark" : "light"
 
     // Refresh all swatches and selected color when editing palette changes
     Connections {
@@ -101,7 +101,7 @@ KeyboardAwareContainer {
             themesTab.selectColor(themesTab.selectedColorName)
         }
         function onIsDarkModeChanged() {
-            Settings.editingPalette = Settings.isDarkMode ? "dark" : "light"
+            Settings.theme.editingPalette = Settings.theme.isDarkMode ? "dark" : "light"
         }
     }
 
@@ -155,7 +155,7 @@ KeyboardAwareContainer {
                     spacing: Theme.spacingSmall
 
                     Text {
-                        text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.activeThemeName
+                        text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.theme.activeThemeName
                         color: Theme.textColor
                         font: Theme.subtitleFont
                     }
@@ -338,18 +338,18 @@ KeyboardAwareContainer {
 
                             Repeater {
                                 id: presetRepeater
-                                model: Settings.getPresetThemes()
+                                model: Settings.theme.getPresetThemes()
 
                                 Rectangle {
                                     height: Theme.scaled(36)
                                     width: presetRow.width + (modelData.isBuiltIn ? 0 : deleteBtn.width + 4)
                                     color: modelData.primaryColor
                                     radius: Theme.buttonRadius
-                                    border.color: Settings.activeThemeName === modelData.name ? Theme.primaryContrastColor : "transparent"
+                                    border.color: Settings.theme.activeThemeName === modelData.name ? Theme.primaryContrastColor : "transparent"
                                     border.width: 2
 
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: Settings.activeThemeName === modelData.name
+                                    Accessible.name: Settings.theme.activeThemeName === modelData.name
                                         ? modelData.name + ", " + TranslationManager.translate("accessibility.selected", "selected")
                                         : modelData.name
                                     Accessible.focusable: true
@@ -361,7 +361,7 @@ KeyboardAwareContainer {
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
                                         anchors.right: deleteBtn.visible ? deleteBtn.left : parent.right
-                                        onClicked: Settings.applyPresetTheme(modelData.name)
+                                        onClicked: Settings.theme.applyPresetTheme(modelData.name)
                                     }
 
                                     Row {
@@ -410,8 +410,8 @@ KeyboardAwareContainer {
                                             id: deleteArea
                                             anchors.fill: parent
                                             onClicked: {
-                                                Settings.deleteUserTheme(modelData.name)
-                                                presetRepeater.model = Settings.getPresetThemes()
+                                                Settings.theme.deleteUserTheme(modelData.name)
+                                                presetRepeater.model = Settings.theme.getPresetThemes()
                                             }
                                         }
                                     }
@@ -459,9 +459,9 @@ KeyboardAwareContainer {
                                 var randomHue = Math.random() * 360
                                 var randomSat = 65 + Math.random() * 20  // 65-85%
                                 var randomLight = 50 + Math.random() * 10  // 50-60%
-                                var palette = Settings.generatePalette(randomHue, randomSat, randomLight)
-                                Settings.customThemeColors = palette
-                                Settings.activeThemeName = "Custom"
+                                var palette = Settings.theme.generatePalette(randomHue, randomSat, randomLight)
+                                Settings.theme.customThemeColors = palette
+                                Settings.theme.activeThemeName = "Custom"
                             }
                             background: Rectangle {
                                 gradient: Gradient {
@@ -492,6 +492,6 @@ KeyboardAwareContainer {
 
     // Function to refresh preset themes (called by parent after saving)
     function refreshPresets() {
-        presetRepeater.model = Settings.getPresetThemes()
+        presetRepeater.model = Settings.theme.getPresetThemes()
     }
 }
