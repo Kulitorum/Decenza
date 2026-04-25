@@ -4388,7 +4388,7 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
     // wrong and must accept the new baseline rather than defending the stale converged model.
     bool isAutoResetCandidate = (overshoot < -6.0);
     if (!isAutoResetCandidate && isSawConverged(scaleType)) {
-        double expectedDrip = getExpectedDrip(flowRate);
+        double expectedDrip = getExpectedDripFor(profileFilename, scaleType, flowRate);
         double threshold = qMax(3.0, expectedDrip);  // Reject if deviation exceeds expected drip (or 3g floor)
         if (qAbs(drip - expectedDrip) > threshold) {
             qWarning() << "[SAW] Outlier rejected: drip=" << drip
@@ -4689,7 +4689,7 @@ double Settings::getExpectedDripFor(const QString& profileFilename,
     if (bootstrap > 0.0) {
         return qMin(currentFlowRate * bootstrap, 8.0);
     }
-    return getExpectedDrip(currentFlowRate);
+    return qMin(currentFlowRate * (sensorLag(scaleType) + 0.1), 8.0);
 }
 
 // ---- per-pair batch accumulator + commit ----
