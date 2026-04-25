@@ -80,7 +80,7 @@ Imports legacy `.shot` files from de1app and JSON files exported by other Decenz
 - **`HistoryShotGraph.qml`** — static graph for a single historical shot. Binds to the `QVector<QPointF>` series returned via `shotReady`.
 - **`ComparisonGraph.qml`** — multi-shot overlay. Takes a `ShotComparisonModel` and renders 2–3 color-coded series.
 - **`ComparisonDataTable.qml`, `ComparisonShotTable.qml`, `ComparisonInspectBar.qml`** — side-by-side metrics tables and scrub-to-inspect UI.
-- **`ShotAnalysisDialog.qml`** — AI-driven analysis triggered from the detail or post-shot pages. See `docs/AI_ADVISOR.md`.
+- **`ShotAnalysisDialog.qml`** — AI-driven analysis triggered from the detail or post-shot pages. See `docs/CLAUDE_MD/AI_ADVISOR.md`.
 - **`GraphInspectBar.qml`, `GraphLegend.qml`** — shared inspect/legend widgets.
 
 ## Write path (shot save)
@@ -109,4 +109,4 @@ Device-to-device transfer uses `requestImportDatabase(filePath, merge)` with ded
 - `docs/CLAUDE_MD/DATA_MIGRATION.md` — device-to-device transfer REST protocol and import options.
 - `docs/CLAUDE_MD/VISUALIZER.md` — shot upload to visualizer.coffee and DYE metadata.
 - `docs/CLAUDE_MD/TESTING.md` — how to test storage changes (including the `withTempDb` pattern).
-- `docs/AI_ADVISOR.md` — AI assistant that reads shot history for dialing-in guidance.
+- `docs/CLAUDE_MD/AI_ADVISOR.md` — AI assistant that reads shot history for dialing-in guidance.

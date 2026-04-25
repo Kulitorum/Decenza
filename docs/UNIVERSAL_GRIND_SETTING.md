@@ -507,7 +507,7 @@ shots), and provider-specific prompt caching.
 - Profile-specific KB injection (31 stock profiles with KB IDs)
 - Grinder/burr awareness, bean knowledge, flavor problem diagnosis
 
-**Current gaps** (from `docs/AI_ADVISOR.md` roadmap):
+**Current gaps** (from `docs/CLAUDE_MD/AI_ADVISOR.md` roadmap):
 - No recipe-aware interpretation rules (caused incorrect D-Flow advice in March 2026)
 - Dial-in reference tables not yet integrated into the system prompt
 - No cross-profile awareness (can't recommend switching profiles)
@@ -533,7 +533,7 @@ MCP-compatible client setup.
 
 **Recommendation:** Both paths should support dial-in. The in-app advisor is primary for
 most users. The highest-impact improvement is completing the Phase 0 roadmap items from
-`docs/AI_ADVISOR.md` — particularly recipe-aware interpretation rules and integrating the
+`docs/CLAUDE_MD/AI_ADVISOR.md` — particularly recipe-aware interpretation rules and integrating the
 dial-in reference tables.
 
 ---

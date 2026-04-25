@@ -273,7 +273,7 @@ without needing to ask the AI or interpret raw curves.
 intentional temperature stepping (e.g., D-Flow's 84°C→94°C). Before surfacing it,
 make the flag recipe-aware: only flag instability when the temperature deviates from
 the *goal curve*, not from a flat average. This is listed as Phase 0 item 4 in
-`docs/AI_ADVISOR.md`.
+`docs/CLAUDE_MD/AI_ADVISOR.md`.
 
 #### 1.3 Phase Summary Panel ✅
 

@@ -1,10 +1,10 @@
 # Change: Migrate Charting from Qt Charts to Qt Graphs
 
-## Status: DEFERRED — MONITOR UPSTREAM
+## Status: READY TO START — PENDING Qt 6.11.1 UPGRADE
 
-**This change is not ready to start.** Qt Graphs (Decenza's intended successor to Qt Charts) has upstream blockers that prevent a clean migration today. This proposal captures the plan, the blocking conditions, and the monitoring cadence so the work isn't forgotten and can be picked up as soon as upstream gates pass.
+**Gates are clear.** QTBUG-142046 is closed and fixed in Qt 6.11.0 (released 2026-03-23) via new `visualMin`/`visualMax` read-only properties on `QValueAxis` and `QDateTimeAxis`. Decenza plans to upgrade to Qt 6.11.1 when it releases. Stage 0 can begin as soon as the upgrade lands.
 
-**Earliest re-evaluation: after Qt 6.11.1 is released.** See the "Gate Conditions" section below.
+**Note on crosshair logic**: the fix is a new API (`visualMin`/`visualMax`) rather than a change to `min`/`max` behavior. `ShotGraph.qml`'s crosshair pixel↔data mapping must be updated to use `visualMin`/`visualMax` instead of `min`/`max`.
 
 ## Why
 
@@ -16,13 +16,13 @@ Qt Charts will not be removed imminently: per the Qt forum consensus it remains 
 
 Stage 0 SHALL NOT begin until **all** of the following are true. Each condition is verifiable without ambiguity.
 
-1. **[QTBUG-142046](https://bugreports.qt.io/browse/QTBUG-142046)** — *Axis range properties on `GraphsView` return stale/constant values regardless of zoom/pan* — is closed as fixed in a released Qt version, AND that Qt version ships with the functionality fix verified via a 10-line QML reproducer (`ValueAxis.min` updates after programmatic range change). This bug is a **hard blocker** because `ShotGraph.qml`'s crosshair/inspect feature relies on reading the current axis range to map pixel↔data coordinates. Without a correct axis range API, the crosshair cannot be migrated.
+1. ✅ **[QTBUG-142046](https://qt-project.atlassian.net/browse/QTBUG-142046)** — *Axis range properties on `GraphsView` return stale/constant values regardless of zoom/pan* — **CLOSED. Fixed in Qt 6.11.0** (commit `12e2be474191195448d3a0ca73d14e0543a266a4` in `qt/qtgraphs`). Fix adds `visualMin`/`visualMax` read-only properties to `QValueAxis` and `QDateTimeAxis`. Not backported to 6.10.x. Crosshair logic in `ShotGraph.qml` must use `visualMin`/`visualMax` instead of `min`/`max`.
 
 2. **Qt Graphs 2D migration guide** ([doc.qt.io/qt-6/qtgraphs-migration-guide-2d.html](https://doc.qt.io/qt-6/qtgraphs-migration-guide-2d.html)) no longer contains a "Missing features" or equivalent caveat section for the features Decenza uses: built-in legend (or a sanctioned bridge pattern), axis auto-ranging (or sanctioned bridge pattern), dash/dot line strokes, and an approved pixel↔data coordinate mapping API.
 
 3. **`QXYSeries::replace(QList<QPointF>)` or equivalent bulk-update API** is officially supported in Qt Graphs and documented. Decenza's C++ data models (`ShotDataModel`, `SteamDataModel`, `ShotComparisonModel`) rely on this for efficient series population at ~5 Hz during live extraction; per-point `append()` is not performant enough.
 
-4. **Qt 6.11.1 is released** (earliest re-evaluation window). 6.11.0 release notes are insufficient on their own — patch releases typically land the bug fixes that accumulate during the .0's stability period.
+4. **Qt 6.11.1 is released and Decenza upgrades to it** (planned). Decenza will upgrade to Qt 6.11.1 when it releases; Stage 0 begins after the upgrade lands.
 
 ### Re-evaluation cadence (until all gates pass)
 

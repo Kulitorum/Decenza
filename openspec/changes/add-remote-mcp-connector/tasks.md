@@ -76,6 +76,6 @@
 
 ## 8. Documentation
 
-- [ ] 8.1 Update `docs/MCP_SERVER.md` with remote-connector setup steps (both relay and BYO tunnel).
+- [ ] 8.1 Update `docs/CLAUDE_MD/MCP_SERVER.md` with remote-connector setup steps (both relay and BYO tunnel).
 - [ ] 8.2 Add screenshots of consent dialog and settings tab.
 - [ ] 8.3 Note security model: what scopes grant, where tokens live, how to revoke.

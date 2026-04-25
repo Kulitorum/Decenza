@@ -8,7 +8,7 @@
 - [x] 1.2 Create `SettingsSearchDialog.qml` — modal Dialog with text field, filtered results list using `AccessibleButton` delegates, tab badge per result
 - [x] 1.3 Add search icon to tab bar in `SettingsPage.qml` (right end of tab bar)
 - [x] 1.4 Implement navigate-to-tab on result tap
-- [ ] 1.5 Add scroll-to-card + highlight behavior within tab after navigation (requires `objectName` on cards)
+- [x] 1.5 Add scroll-to-card + highlight behavior within tab after navigation (requires `objectName` on cards)
 - [x] 1.6 Add new files to `CMakeLists.txt`
 
 ## 2. Rename Preferences → Machine
@@ -43,50 +43,50 @@
 - [x] 6.3 Move Device Migration to a dialog (`DeviceMigrationDialog.qml`) — "Import from Another Device..." button in Shot History column
 - [x] 6.4 Keep Factory Reset at bottom of Server & Data column
 - [x] 6.5 Update tab button text and translation keys
-- [ ] 6.6 Delete old `SettingsShotHistoryTab.qml` and `SettingsDataTab.qml` from repo
+- [x] 6.6 Delete old `SettingsShotHistoryTab.qml` and `SettingsDataTab.qml` from repo
 
 ## 7. Merge Update + About
 - [x] 7.1 Add About content (story, donate button, PayPal QR, credits) to left column of Update tab, below update toggles, separated by divider
 - [x] 7.2 Keep release notes in right column at full width — no shrinkage
 - [x] 7.3 Rename tab from "Update" to "About"
 - [x] 7.4 Update translation keys
-- [ ] 7.5 Delete `SettingsAboutTab.qml` from repo
+- [x] 7.5 Delete `SettingsAboutTab.qml` from repo
 
 ## 8. Merge Language + Accessibility
 - [x] 8.1 Add Accessibility content (TTS toggle, tick sounds, extraction announcements) to Language tab as third column
 - [x] 8.2 Rename tab from "Language" to "Language & Access"
 - [x] 8.3 Update translation keys
-- [ ] 8.4 Delete `SettingsAccessibilityTab.qml` from repo
+- [x] 8.4 Delete `SettingsAccessibilityTab.qml` from repo
 
 ## 9. Update Tab Bar
 - [x] 9.1 Reorder tabs in `SettingsPage.qml`: Connections, Machine, Calibration, History & Data, Themes, Layout, Screensaver, Visualizer, AI, MQTT, Language & Access, About, (Debug)
 - [x] 9.2 Update lazy loading indices
 - [x] 9.3 Update accessibility tab name announcements array
 - [x] 9.4 Update `goToSettings()` tab indices in `main.qml` for deep-links
-- [ ] 9.5 Update cross-tab reference strings ("Settings → Shot History" → "Settings → History & Data", etc.)
+- [x] 9.5 Update cross-tab reference strings ("Settings → Shot History" → "Settings → History & Data", etc.)
 
 ## 10. Update MCP
 - [x] 10.1 Rename "preferences" category to "machine" in `settings_get` and `settings_set`
 - [x] 10.2 Split calibration settings into new "calibration" category
 - [x] 10.3 Update tool descriptions and category lists
-- [ ] 10.4 Update `docs/MCP_SERVER.md` with new category names
+- [x] 10.4 Update `docs/CLAUDE_MD/MCP_SERVER.md` with new category names
 
 ## 11. Cleanup
-- [ ] 11.1 Delete old tab files from repo: `SettingsPreferencesTab.qml`, `SettingsShotHistoryTab.qml`, `SettingsDataTab.qml`, `SettingsAboutTab.qml`, `SettingsAccessibilityTab.qml`
-- [ ] 11.2 Verify all settings bindings still work (every Q_PROPERTY referenced in old tabs is referenced in new tabs)
-- [ ] 11.3 Verify all dialogs still open correctly from their new locations (TOTP setup, factory reset, restore confirm, heater calibration warning)
-- [ ] 11.4 Remove any orphaned translation keys
-- [ ] 11.5 Clean up build directory (`build/mac-test`)
+- [x] 11.1 Delete old tab files from repo: `SettingsPreferencesTab.qml`, `SettingsShotHistoryTab.qml`, `SettingsDataTab.qml`, `SettingsAboutTab.qml`, `SettingsAccessibilityTab.qml`
+- [x] 11.2 Verify all settings bindings still work (every Q_PROPERTY referenced in old tabs is referenced in new tabs)
+- [x] 11.3 Verify all dialogs still open correctly from their new locations (TOTP setup, factory reset, restore confirm, heater calibration warning)
+- [x] 11.4 Remove any orphaned translation keys
+- [x] 11.5 Clean up build directory (`build/mac-test`)
 
 ## 12. Testing
-- [ ] 12.1 Manual test: settings search — type partial matches, verify navigate to correct tab
-- [ ] 12.2 Manual test: settings search accessibility — TalkBack/VoiceOver navigate results, activate with double-tap
-- [ ] 12.3 Manual test: Machine tab — all ~12 cards read and write correctly, renamed cards show new labels
-- [ ] 12.4 Manual test: Calibration tab — all 5 cards read and write correctly, renamed cards show new labels
-- [ ] 12.5 Manual test: merged History & Data tab — server toggle, security, backup, DE1 import, device migration dialog
-- [ ] 12.6 Manual test: merged About tab — version info, update controls, release notes scroll, donate button, credits
-- [ ] 12.7 Manual test: merged Language & Access tab — language selection, accessibility toggles
-- [ ] 12.8 Manual test: no duplicate server toggle exists anywhere
-- [ ] 12.9 Accessibility: all moved elements retain Accessible properties; search dialog is keyboard/TalkBack navigable
-- [ ] 12.10 Manual test: deep-links from other pages (e.g., "Settings → History & Data") navigate to correct tab
-- [ ] 12.11 Manual test: Device Migration dialog — full flow (search → connect → auth → manifest → import)
+- [x] 12.1 Manual test: settings search — type partial matches, verify navigate to correct tab
+- [x] 12.2 Manual test: settings search accessibility — TalkBack/VoiceOver navigate results, activate with double-tap
+- [x] 12.3 Manual test: Machine tab — all ~12 cards read and write correctly, renamed cards show new labels
+- [x] 12.4 Manual test: Calibration tab — all 5 cards read and write correctly, renamed cards show new labels
+- [x] 12.5 Manual test: merged History & Data tab — server toggle, security, backup, DE1 import, device migration dialog
+- [x] 12.6 Manual test: merged About tab — version info, update controls, release notes scroll, donate button, credits
+- [x] 12.7 Manual test: merged Language & Access tab — language selection, accessibility toggles
+- [x] 12.8 Manual test: no duplicate server toggle exists anywhere
+- [x] 12.9 Accessibility: all moved elements retain Accessible properties; search dialog is keyboard/TalkBack navigable
+- [x] 12.10 Manual test: deep-links from other pages (e.g., "Settings → History & Data") navigate to correct tab
+- [x] 12.11 Manual test: Device Migration dialog — full flow (search → connect → auth → manifest → import)

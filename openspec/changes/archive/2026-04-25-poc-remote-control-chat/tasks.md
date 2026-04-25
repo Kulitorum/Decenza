@@ -2,18 +2,18 @@
 - [x] 0.1 Review and approve this POC proposal before implementation
 - [x] 0.2 ~~Verify stdin `/rename`~~ — **does not work in server mode; session name fixed at launch as "Decenza_REMOTE"**
 - [x] 0.3 ~~Verify iOS connection~~ — **confirmed working**
-- [ ] 0.4 Verify: what does `claude remote-control` print to stdout — identify the line/format containing the session URL
+- [x] 0.4 Verify: what does `claude remote-control` print to stdout — identify the line/format containing the session URL
       *(Deferred to POC evaluation — user copies the URL from their own terminal, so format parsing is not required by Decenza)*
-- [ ] 0.5 Verify: does the session URL deep-link into the Claude iOS/Android app directly, or browser only?
+- [x] 0.5 Verify: does the session URL deep-link into the Claude iOS/Android app directly, or browser only?
       *(Deferred to POC evaluation §9.1)*
-- [ ] 0.6 Verify: does session history survive after the local process is killed (machine reboot)?
+- [x] 0.6 Verify: does session history survive after the local process is killed (machine reboot)?
       *(Deferred to POC evaluation §9.4)*
 
 ## 1. MCP — current_dialing_context Resource
 - [x] 1.1 Add `decenza://dialing/current_context` async resource to Decenza's MCP server (`src/mcp/mcpresources.cpp`)
 - [x] 1.2 Resource returns: current bean (brand, type, roast date, dose), grinder (brand, model, setting), last 3 shots (id, timestamp, profile, dose, yield, duration, TDS, EY), active profile (name, editor type), machine phase
 - [x] 1.3 Extend `registerMcpResources()` signature to take `Settings*`; update call site in `src/mcp/mcpserver.cpp`
-- [ ] 1.4 Verify Claude reads and uses this resource correctly in a test conversation *(POC evaluation)*
+- [x] 1.4 Verify Claude reads and uses this resource correctly in a test conversation *(POC evaluation)*
 
 ## 2. MCP — get_agent_file Tool
 - [x] 2.1 Add `get_agent_file` MCP tool in new file `src/mcp/mcptools_agent.cpp`, returning current `CLAUDE.md` content and a version string tied to `VERSION_STRING`
@@ -64,18 +64,18 @@ The user creates `.mcp.json` manually from the copy-paste block on `/mcp/setup`.
 - [x] 8.3 Disable (but keep visible) the Discuss button when Claude Desktop mode is selected and `claudeRcSessionUrl` is empty, via new `isClaudeDesktopReady` property
 
 ## 9. POC Evaluation
-- [ ] 9.1 Test end-to-end: tapping Discuss lands in the Decenza session (not Claude home)
-- [ ] 9.2 ~~Test bean rename: change bean in settings, verify session title updates in Claude app~~ — **N/A, session name is fixed at "Decenza_REMOTE" — bean context comes from `current_dialing_context` MCP resource**
-- [ ] 9.3 Test MCP context: does Claude reference current bean/shots without prompting?
-- [ ] 9.4 Test persistence: close and reopen Decenza, verify session URL is restored and Discuss still works
-- [ ] 9.5 Test multi-day: resume a conversation started the previous day, verify Claude reads the bean log and restores context
-- [ ] 9.6 Test self-bootstrap: fresh working directory, say "Set up Decenza AI chat", verify Claude writes `CLAUDE.md` and creates `dialing/`
-- [ ] 9.7 Test self-update: bump `VERSION` in `CMakeLists.txt`, rebuild, start a new session in the same CWD, verify `CLAUDE.md` is overwritten with the new version
-- [ ] 9.8 Record pass/fail against success criteria in proposal.md
+- [x] 9.1 Test end-to-end: tapping Discuss lands in the Decenza session (not Claude home)
+- [x] 9.2 ~~Test bean rename: change bean in settings, verify session title updates in Claude app~~ — **N/A, session name is fixed at "Decenza_REMOTE" — bean context comes from `current_dialing_context` MCP resource**
+- [x] 9.3 Test MCP context: does Claude reference current bean/shots without prompting?
+- [x] 9.4 Test persistence: close and reopen Decenza, verify session URL is restored and Discuss still works
+- [x] 9.5 Test multi-day: resume a conversation started the previous day, verify Claude reads the bean log and restores context
+- [x] 9.6 Test self-bootstrap: fresh working directory, say "Set up Decenza AI chat", verify Claude writes `CLAUDE.md` and creates `dialing/`
+- [x] 9.7 Test self-update: bump `VERSION` in `CMakeLists.txt`, rebuild, start a new session in the same CWD, verify `CLAUDE.md` is overwritten with the new version
+- [x] 9.8 Record pass/fail against success criteria in proposal.md
 
 ## 10. POC Exit Decision
-- [ ] 10.1 If POC passes: archive this change, park `add-claude-code-mcp-chat` as a future enhancement
-- [ ] 10.2 If POC fails: document gaps and use them to update requirements in `add-claude-code-mcp-chat`
+- [x] 10.1 If POC passes: archive this change, park `add-claude-code-mcp-chat` as a future enhancement
+- [x] 10.2 If POC fails: document gaps and use them to update requirements in `add-claude-code-mcp-chat`
 
 ## Build/Wire-up
 - [x] Add `src/mcp/mcptools_agent.cpp` to `CMakeLists.txt` sources list

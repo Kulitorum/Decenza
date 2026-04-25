@@ -1,49 +1,26 @@
-## ADDED Requirements
+# brew-overrides Specification
 
+## Purpose
+TBD - created by archiving change add-brew-overrides. Update Purpose after archive.
+## Requirements
 ### Requirement: Persistent Brew Overrides
-The system SHALL provide persistent overrides for brew parameters: temperature, dose weight, yield weight, and grind setting. These overrides are stored in QSettings and survive app restarts. The overrides SHALL NOT modify the saved profile and SHALL be cleared when the user switches profiles or explicitly clears them via the BrewDialog.
 
-#### Scenario: User sets temperature override
-- **WHEN** the user sets a brew temperature different from the profile default in the BrewDialog
-- **THEN** the system stores a persistent temperature override in QSettings
-- **AND** the IdlePage displays the override as an arrow (e.g., "88 → 90°C")
-- **AND** the DE1 machine uses the overridden temperature for the next shot
-- **AND** the override persists between app sessions until explicitly cleared
+Temperature overrides SHALL be applied as a delta offset relative to the profile's reference temperature (first frame / `espressoTemperature`). The delta is computed as `override - espressoTemperature` and added to each frame's individual temperature, preserving relative temperature differences between frames.
 
-#### Scenario: User sets dose and yield overrides
-- **WHEN** the user configures dose and yield in the BrewDialog and confirms
-- **THEN** the system activates brew-by-ratio mode with the specified dose and calculated ratio
-- **AND** the shot plan line on IdlePage shows the configured dose and yield
+**Storage:** Temperature overrides are persistent (stored in QSettings) and survive app restarts. They are stored in shot history as dedicated `temperature_override` database columns.
 
-#### Scenario: Overrides persist after a shot
-- **WHEN** a shot ends (espresso cycle completes)
+#### Scenario: User sets temperature override with multi-temp profile
+- **WHEN** the profile has frames with temperatures [93, 93, 88, 88] (espressoTemperature = 93)
+- **AND** the user sets a brew temperature of 95°C in the BrewDialog
+- **THEN** the delta is +2°C (95 - 93)
+- **AND** the uploaded profile frames have temperatures [95, 95, 90, 90]
+- **AND** the IdlePage displays the override as "93 → 95°C"
 
-#### Scenario: Profile loaded from profile presets
-- **WHEN** the user loads a profile from the profile presets list
-- **THEN** the temperature override is cleared
-- **AND** the dose is reset to the DYE bean weight (default 18g)
-- **AND** the yield is reset based on the profile's target weight
-- **AND** the ratio is recalculated as yield / dose
-
-#### Scenario: Profile loaded from shot history with overrides
-- **WHEN** the user loads a shot from history that has recorded brew overrides
-- **THEN** the dose is set from the history override
-- **AND** the yield is set from the history override
-- **AND** the ratio is recalculated from the loaded dose and yield
-
-#### Scenario: Profile loaded from shot history without overrides
-- **WHEN** the user loads a shot from history that has no recorded brew overrides
-- **THEN** the yield is set from the profile's target weight
-- **AND** the dose is set from the DYE bean weight (default 18g)
-- **AND** the ratio is recalculated as yield / dose
-
-#### Scenario: Grind and dose overrides cleared on bean switch
-- **WHEN** the user loads a different bean preset
-- **THEN** the grind setting and dose overrides are cleared
-- **AND** the yield override is cleared
-- **AND** the grind setting is the one configured from the bean
-- **AND** the dose is the default 18g
-- **AND** the yield and ratio are recalculated from the profile's target weight
+#### Scenario: User sets temperature override lower than profile default
+- **WHEN** the profile has frames with temperatures [90, 90, 85] (espressoTemperature = 90)
+- **AND** the user sets a brew temperature of 88°C in the BrewDialog
+- **THEN** the delta is -2°C (88 - 90)
+- **AND** the uploaded profile frames have temperatures [88, 88, 83]
 
 ### Requirement: Brew Dialog
 The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL display the current profile name and bean info as a "Base Recipe" header, and allow editing temperature, dose, ratio, yield and grind (in this order) for the next shot.
@@ -157,15 +134,18 @@ The system SHALL store temperature and yield overrides in QSettings for persiste
 - **THEN** all overrides are removed from QSettings
 - **AND** the Settings properties are reset to default values
 
-### Implementation Notes: Database Schema
+### Requirement: Profile Editor Global Temperature Delta
+The Profile Editor's global temperature field ("All temps") SHALL apply temperature changes as a delta offset relative to the current first frame temperature, preserving relative differences between frames. The `espressoTemperature` profile-level field SHALL be updated to the new first frame value.
 
-**Shot History Storage:**
-- `temperature_override REAL` - Temperature override value (NULL if not set)
-- `yield_override REAL` - Yield override value (NULL if not set)
-- Database schema version 3 (migration from previous `brew_overrides_json` column)
+#### Scenario: Changing global temperature with varying frame temps
+- **WHEN** the profile has frames with temperatures [93, 93, 88, 88]
+- **AND** the user changes the global temperature from 93 to 95
+- **THEN** the delta is +2°C
+- **AND** the frames become [95, 95, 90, 90]
+- **AND** `espressoTemperature` is set to 95
 
-**QSettings Keys:**
-- `brew/temperatureOverride` (double)
-- `brew/hasTemperatureOverride` (bool)
-- `brew/brewYieldOverride` (double)
-- `brew/hasBrewYieldOverride` (bool)
+#### Scenario: Changing global temperature with uniform frame temps
+- **WHEN** all frames have the same temperature (e.g., [90, 90, 90])
+- **AND** the user changes the global temperature to 92
+- **THEN** all frames become [92, 92, 92] (delta and absolute produce same result)
+
