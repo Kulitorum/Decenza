@@ -7,22 +7,20 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTimer>
-#include <QtCore/QMetaType>
-
-class SettingsMqtt;
-class SettingsAutoWake;
-class SettingsHardware;
-class SettingsAI;
-class SettingsTheme;
-class SettingsVisualizer;
-class SettingsMcp;
-Q_DECLARE_OPAQUE_POINTER(SettingsMqtt*)
-Q_DECLARE_OPAQUE_POINTER(SettingsAutoWake*)
-Q_DECLARE_OPAQUE_POINTER(SettingsHardware*)
-Q_DECLARE_OPAQUE_POINTER(SettingsAI*)
-Q_DECLARE_OPAQUE_POINTER(SettingsTheme*)
-Q_DECLARE_OPAQUE_POINTER(SettingsVisualizer*)
-Q_DECLARE_OPAQUE_POINTER(SettingsMcp*)
+// Domain sub-object headers — included (rather than forward-declared) so that
+// QML can introspect properties through Q_PROPERTY accessors. With Q_DECLARE_OPAQUE_POINTER
+// + forward declaration, QML treats the returned pointer as opaque and reports
+// `Settings.theme.customThemeColors` etc. as `undefined`.
+// Trade-off: changes to a sub-object header recompile any TU that includes settings.h.
+// Narrow consumers that take a domain pointer directly (e.g. AutoWakeManager,
+// DE1Device) avoid this by including only the specific sub-object header.
+#include "settings_mqtt.h"
+#include "settings_autowake.h"
+#include "settings_hardware.h"
+#include "settings_ai.h"
+#include "settings_theme.h"
+#include "settings_visualizer.h"
+#include "settings_mcp.h"
 
 class Settings : public QObject {
     Q_OBJECT
