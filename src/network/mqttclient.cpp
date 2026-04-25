@@ -283,7 +283,7 @@ static QString resolveMdns(const QString& hostname, int timeoutMs = 2000)
 
 void MqttClient::connectToBroker()
 {
-    if (!m_settings) {
+    if (!m_settingsMqtt) {
         m_status = "Error: No settings";
         emit statusChanged();
         return;
@@ -866,7 +866,7 @@ void MqttClient::publishDiscoveryConfig(const QString& component, const QString&
 
 void MqttClient::publishHomeAssistantDiscovery()
 {
-    if (!m_settings) return;
+    if (!m_settingsMqtt) return;
 
     QString baseTopic = m_settingsMqtt->mqttBaseTopic();
     QJsonObject device = buildDeviceInfo();

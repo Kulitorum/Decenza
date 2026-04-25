@@ -1614,9 +1614,11 @@ int main(int argc, char *argv[])
         "SteamHealthTracker is created in C++");
 
     // Register Settings sub-object types so QML can introspect their properties
-    // when accessed via Settings.mqtt, Settings.theme, etc. Without these, the
-    // pointers come through as opaque (Q_DECLARE_OPAQUE_POINTER in settings.h)
-    // and QML reports `customThemeColors` etc. as `undefined`.
+    // when accessed via Settings.mqtt, Settings.theme, etc. The Q_PROPERTY
+    // accessors in settings.h return QObject* (settings.h forward-declares the
+    // sub-objects to keep the recompile-blast benefit), so without these
+    // registrations QML can't resolve the concrete type and reports e.g.
+    // `Settings.theme.customThemeColors` as `undefined`.
     qmlRegisterUncreatableType<SettingsMqtt>("Decenza", 1, 0, "SettingsMqttType",
         "SettingsMqtt is created in C++");
     qmlRegisterUncreatableType<SettingsAutoWake>("Decenza", 1, 0, "SettingsAutoWakeType",

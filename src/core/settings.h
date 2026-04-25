@@ -29,6 +29,11 @@ class Settings : public QObject {
     // `Settings.mqtt.mqttEnabled` via the runtime metaObject (SettingsMqtt's
     // Q_OBJECT supplies it). The typed `mqtt()` accessor below is what C++
     // callers use.
+    //
+    // Required prerequisite: each sub-object type must be registered with the
+    // QML engine via qmlRegisterUncreatableType<SettingsXxx>(...) in main.cpp,
+    // otherwise QML can't discover the concrete type and resolves the chained
+    // property access (e.g. `.customThemeColors`) to `undefined` at runtime.
     Q_PROPERTY(QObject* mqtt READ mqttQObject CONSTANT)
     Q_PROPERTY(QObject* autoWake READ autoWakeQObject CONSTANT)
     Q_PROPERTY(QObject* hardware READ hardwareQObject CONSTANT)

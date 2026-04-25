@@ -354,9 +354,10 @@ Settings::Settings(QObject* parent)
     recomputeBeansModified();  // Seed initial state from persisted values
 
     // Cross-domain wiring: when the user changes the default shot rating
-    // (Visualizer settings tab, MCP, settings import), also update the
-    // current shot's enjoyment so the new default applies immediately to
-    // the next shot. Pre-split this was a side effect inside
+    // (Visualizer settings tab, MCP, settings import), also overwrite the
+    // persisted dye/espressoEnjoyment so the new value is reflected in the
+    // BrewDialog and on the next shot save — both in-progress and future
+    // shots see the change. Pre-split this was a side effect inside
     // Settings::setDefaultShotRating(); it now lives here so any caller
     // of SettingsVisualizer::setDefaultShotRating gets the same behaviour.
     connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, this, [this]() {
