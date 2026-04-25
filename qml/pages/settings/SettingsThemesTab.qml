@@ -91,7 +91,7 @@ KeyboardAwareContainer {
 
     // Refresh all swatches and selected color when editing palette changes
     Connections {
-        target: Settings
+        target: Settings.theme
         function onEditingPaletteChanged() {
             themesTab._paletteVersion++
             themesTab.selectColor(themesTab.selectedColorName)

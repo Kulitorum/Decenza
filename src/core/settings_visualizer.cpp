@@ -91,8 +91,8 @@ void SettingsVisualizer::setDefaultShotRating(int rating) {
     if (defaultShotRating() != rating) {
         m_settings.setValue("shot/defaultRating", rating);
         emit defaultShotRatingChanged();
-        // Note: side-effect of also updating the current shot's enjoyment rating
-        // (formerly: setDyeEspressoEnjoyment(rating)) is now handled by callers
-        // via signal connection or explicit cross-domain call.
+        // Cross-domain side effect (sync dye/espressoEnjoyment so the new default
+        // applies to the current shot) is wired in Settings::Settings() via
+        // connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, ...).
     }
 }

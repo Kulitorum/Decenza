@@ -103,7 +103,7 @@ bool MqttClient::isConnected() const
 
 QString MqttClient::generateClientId()
 {
-    QString clientId = m_settings ? m_settingsMqtt->mqttClientId() : "";
+    QString clientId = m_settingsMqtt ? m_settingsMqtt->mqttClientId() : "";
     if (clientId.isEmpty()) {
         QString hostname = QHostInfo::localHostName();
         if (hostname.isEmpty()) {
@@ -113,7 +113,7 @@ QString MqttClient::generateClientId()
             .arg(hostname)
             .arg(QUuid::createUuid().toString(QUuid::Id128).left(8));
         // Persist the generated client ID so it survives app restarts/updates
-        if (m_settings) {
+        if (m_settingsMqtt) {
             m_settingsMqtt->setMqttClientId(clientId);
             qDebug() << "MqttClient: Generated and saved new client ID:" << clientId;
         }
@@ -345,7 +345,7 @@ void MqttClient::connectWithHost(const QString& host)
     m_isReconnecting = false;
 
     // Build server URI
-    int port = m_settings ? m_settingsMqtt->mqttBrokerPort() : 1883;
+    int port = m_settingsMqtt ? m_settingsMqtt->mqttBrokerPort() : 1883;
     QString serverUri = QString("tcp://%1:%2").arg(host).arg(port);
     QByteArray serverUriBytes = serverUri.toUtf8();
 
@@ -465,12 +465,12 @@ void MqttClient::onInternalConnected()
     setupSubscriptions();
 
     // Publish Home Assistant discovery if enabled
-    if (m_settings && m_settingsMqtt->mqttHomeAssistantDiscovery()) {
+    if (m_settingsMqtt && m_settingsMqtt->mqttHomeAssistantDiscovery()) {
         publishHomeAssistantDiscovery();
     }
 
     // Start publishing telemetry
-    int interval = m_settings ? m_settingsMqtt->mqttPublishInterval() : 1000;
+    int interval = m_settingsMqtt ? m_settingsMqtt->mqttPublishInterval() : 1000;
     m_publishTimer.start(interval);
 
     // Clear last-published values so the full state is re-sent to the broker
@@ -500,7 +500,7 @@ void MqttClient::onInternalDisconnected()
     emit connectedChanged();
 
     // Attempt reconnection with exponential backoff if MQTT is still enabled
-    if (m_settings && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         m_status = QString("Disconnected - reconnecting (%1/%2)...")
             .arg(m_reconnectAttempts + 1)
             .arg(MAX_RECONNECT_ATTEMPTS);
@@ -529,7 +529,7 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
     emit connectedChanged();
 
     // Attempt reconnection with exponential backoff
-    if (m_settings && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         int delay = reconnectDelayMs();
         qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds";
         m_reconnectTimer.start(delay);
@@ -644,7 +644,7 @@ void MqttClient::setMainController(MainController* controller)
 
 void MqttClient::onReconnectTimerTick()
 {
-    if (!m_settings || !m_settingsMqtt->mqttEnabled()) {
+    if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled()) {
         return;
     }
 
@@ -665,14 +665,14 @@ void MqttClient::onSettingsChanged()
         disconnectFromBroker();
     }
 
-    if (m_settings && m_settingsMqtt->mqttEnabled()) {
+    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
         connectToBroker();
     }
 }
 
 QString MqttClient::topicPath(const QString& subtopic) const
 {
-    QString baseTopic = m_settings ? m_settingsMqtt->mqttBaseTopic() : "decenza";
+    QString baseTopic = m_settingsMqtt ? m_settingsMqtt->mqttBaseTopic() : "decenza";
     return baseTopic + "/" + subtopic;
 }
 
@@ -680,7 +680,7 @@ void MqttClient::publish(const QString& topic, const QString& payload, bool reta
 {
     if (!isConnected() || !m_client) return;
 
-    bool shouldRetain = retain && m_settings && m_settingsMqtt->mqttRetainMessages();
+    bool shouldRetain = retain && m_settingsMqtt && m_settingsMqtt->mqttRetainMessages();
 
     QByteArray topicBytes = topic.toUtf8();
     QByteArray payloadBytes = payload.toUtf8();

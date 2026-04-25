@@ -352,6 +352,16 @@ Settings::Settings(QObject* parent)
     connect(this, &Settings::selectedBeanPresetChanged, this, &Settings::recomputeBeansModified);
     connect(this, &Settings::beanPresetsChanged,      this, &Settings::recomputeBeansModified);
     recomputeBeansModified();  // Seed initial state from persisted values
+
+    // Cross-domain wiring: when the user changes the default shot rating
+    // (Visualizer settings tab, MCP, settings import), also update the
+    // current shot's enjoyment so the new default applies immediately to
+    // the next shot. Pre-split this was a side effect inside
+    // Settings::setDefaultShotRating(); it now lives here so any caller
+    // of SettingsVisualizer::setDefaultShotRating gets the same behaviour.
+    connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, this, [this]() {
+        setDyeEspressoEnjoyment(m_visualizer->defaultShotRating());
+    });
 }
 
 // Machine settings
