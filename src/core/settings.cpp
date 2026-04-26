@@ -683,7 +683,7 @@ void Settings::clearFlowCalPendingIdeals(const QString& profileFilename) {
 // legacy single-shot global pool it replaces. Trade-off: smaller = faster to
 // adapt to per-profile drip dynamics; larger = more stability against early
 // regime bias. See docs/CLAUDE_MD/SAW_LEARNING.md.
-static constexpr int kSawMinMediansForGraduation = 2;
+static constexpr qsizetype kSawMinMediansForGraduation = 2;
 
 // Returns average lag for display in QML settings (calculated from stored drip/flow)
 double Settings::sawLearnedLag() const {
@@ -1327,9 +1327,10 @@ void Settings::addSawPerPairEntry(double drip, double flowRate, const QString& s
 
     // 4. Auto-reset: 2nd consecutive batch with median overshoot < -6g → wipe pair history,
     //    let the new median be the sole baseline. The legacy single-shot path triggers on
-    //    2 consecutive bad shots; here, since each median represents 5 shots, the threshold
-    //    is effectively 10 consecutive bad shots — intentional debouncing for the batched
-    //    update model.
+    //    2 consecutive bad shots; here, since each median represents 5 shots, the
+    //    auto-reset trigger is effectively 10 consecutive bad shots — intentional
+    //    debouncing for the batched update model. (Distinct from the graduation
+    //    threshold defined at the top of this section.)
     QJsonObject historyMap = loadPerProfileSawHistoryMap();
     QJsonArray pairHistory = historyMap.value(key).toArray();
     if (medianOver < -6.0 && !pairHistory.isEmpty()) {
