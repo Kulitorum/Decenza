@@ -57,7 +57,7 @@ jobs:
           java-version: '17'
 
       - name: Install minimal host dependencies
-        run: sudo apt-get install -y --no-install-recommends libegl1 libgl1
+        run: sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
 
       - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
@@ -152,7 +152,7 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          $QT_ROOT_DIR/bin/qt-cmake .. \
+          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
