@@ -846,11 +846,11 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
     double weightedDripSum = 0;
     double totalWeight = 0;
 
-    for (int i = 0; i < entries.size(); ++i) {
+    for (qsizetype i = 0; i < entries.size(); ++i) {
         const Entry& e = entries[i];
 
         // Recency weight: linear interpolation from max to min across entry count
-        double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(1, entries.size() - 1);
+        double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(qsizetype{1}, entries.size() - 1);
 
         // Flow similarity weight: gaussian with sigma=0.25 ml/s
         double flowDiff = qAbs(e.flow - currentFlowRate);

@@ -204,8 +204,11 @@ private slots:
     //
     // The other tests in this file train and query at the same flow value, so the
     // gaussian flow-similarity weight is always 1.0 and σ is invisible to them.
-    // The three tests below probe σ explicitly so a future regression that widens
-    // it back out (or accidentally narrows it to zero) is caught.
+    // Two of the three tests below (farQueryFlow, differentQueryFlows) probe σ
+    // explicitly so a future regression that widens it back out (or accidentally
+    // narrows it to zero) is caught. The third (sameFlowQuery) is a flowDiff=0
+    // baseline lock-in — σ is invisible there too, but the test pins the no-flow-
+    // shift result so the surrounding weighted-average machinery can't silently break.
 
     void farQueryFlowFallsBackBecauseGaussianAttenuates() {
         // Capture the cold-start scale-default fallback at the query flow. With no
@@ -248,8 +251,8 @@ private slots:
         // off-flow entry is attenuated to ~exp(-32) and contributes nothing. If σ
         // were widened to dilute everything to a flat average the two predictions
         // would converge.
-        commitBatch(kProfileA, 0.6, 1.0);   // lag 0.6s
-        commitBatch(kProfileA, 1.8, 3.0);   // lag 0.6s
+        commitBatch(kProfileA, 0.6, 1.0);   // low-flow training: drip=0.6, flow=1.0
+        commitBatch(kProfileA, 1.8, 3.0);   // high-flow training: drip=1.8, flow=3.0
 
         const double low  = m_settings.getExpectedDripFor(kProfileA, kScale, 1.0);
         const double high = m_settings.getExpectedDripFor(kProfileA, kScale, 3.0);
