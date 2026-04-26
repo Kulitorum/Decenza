@@ -322,6 +322,11 @@ add_decenza_test(tst_weightprocessor
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
 )
 
+# --- tst_sawprediction: shared SAW expected-drip kernel (σ + Gaussian math) ---
+add_decenza_test(tst_sawprediction
+    tst_sawprediction.cpp
+)
+
 # --- tst_saw: WeightProcessor SAW tests (minimal deps) ---
 add_decenza_test(tst_saw
     tst_saw.cpp

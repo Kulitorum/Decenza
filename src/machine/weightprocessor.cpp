@@ -1,4 +1,5 @@
 #include "weightprocessor.h"
+#include "sawprediction.h"
 #include <QtMath>
 #include <QDebug>
 #include <chrono>
@@ -414,41 +415,30 @@ double WeightProcessor::computeLSLR(int windowMs) const
 double WeightProcessor::getExpectedDrip(double currentFlowRate) const
 {
     // Uses snapshot of SAW learning data taken at configure() time.
-    // Algorithm matches Settings::getExpectedDrip — weighted average with
-    // recency and flow-similarity weights.
+    // Math is shared with Settings::getExpectedDrip[For] via SawPrediction::
+    // weightedDripPrediction so σ and the kernel stay in lockstep.
     if (m_learningDrips.isEmpty()) {
         // No learning data — use scale-specific sensor lag as first-shot default.
         // Matches de1app: flow × (sensor_lag + 0.1s DE1 machine lag), capped at 8g.
         return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);
     }
 
-    int maxEntries = m_sawConverged ? 12 : 8;
-    double recencyMax = 10.0;
-    double recencyMin = m_sawConverged ? 3.0 : 1.0;
+    const int maxEntries = m_sawConverged ? 12 : 8;
+    const double recencyMax = 10.0;
+    const double recencyMin = m_sawConverged ? 3.0 : 1.0;
 
-    qsizetype count = qMin(m_learningDrips.size(), static_cast<qsizetype>(maxEntries));
-    double weightedDripSum = 0;
-    double totalWeight = 0;
+    const qsizetype count =
+        qMin(m_learningDrips.size(), static_cast<qsizetype>(maxEntries));
+    QVector<double> drips = m_learningDrips.mid(0, count);
+    QVector<double> flows = m_learningFlows.mid(0, count);
 
-    for (qsizetype i = 0; i < count; ++i) {
-        double drip = m_learningDrips[i];
-        double flow = m_learningFlows[i];
+    const double prediction = SawPrediction::weightedDripPrediction(
+        drips, flows, currentFlowRate, recencyMax, recencyMin);
 
-        // Recency weight: linear interpolation from max to min
-        double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(qsizetype(1), count - 1);
-
-        // Flow similarity: gaussian with sigma=0.25 ml/s
-        double flowDiff = qAbs(flow - currentFlowRate);
-        double flowWeight = qExp(-(flowDiff * flowDiff) / 0.125);  // sigma^2 * 2 = 0.125
-
-        double w = recencyWeight * flowWeight;
-        weightedDripSum += drip * w;
-        totalWeight += w;
+    if (qIsNaN(prediction)) {
+        // Total weight under the kMinTotalWeight floor → every entry's flow is
+        // far from currentFlowRate. Fall back to the sensor-lag default.
+        return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);
     }
-
-    if (totalWeight < 0.01) {
-        return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);  // All entries have very different flow rates
-    }
-
-    return qBound(0.5, weightedDripSum / totalWeight, 20.0);
+    return prediction;
 }

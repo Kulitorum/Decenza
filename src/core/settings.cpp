@@ -11,6 +11,7 @@
 #include "settings_network.h"
 #include "settings_app.h"
 #include "grinderaliases.h"
+#include "../machine/sawprediction.h"
 #include <algorithm>
 #include <QStandardPaths>
 #include <QDir>
@@ -840,39 +841,24 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
         return qMin(currentFlowRate * (sensorLag(currentScale) + 0.1), 8.0);  // No entries for this scale type
     }
 
-    // Weighted average: weight by recency AND flow similarity
-    // Recency weight scales linearly from recencyMax (newest) to recencyMin (oldest)
-    // Flow similarity: closer flow = higher weight (gaussian-ish)
-    double weightedDripSum = 0;
-    double totalWeight = 0;
-
-    for (qsizetype i = 0; i < entries.size(); ++i) {
-        const Entry& e = entries[i];
-
-        // Recency weight: linear interpolation from max to min across entry count
-        double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(qsizetype{1}, entries.size() - 1);
-
-        // Flow similarity weight: gaussian with sigma=0.25 ml/s
-        double flowDiff = qAbs(e.flow - currentFlowRate);
-        double flowWeight = qExp(-(flowDiff * flowDiff) / 0.125);  // sigma^2 * 2 = 0.125
-
-        double weight = recencyWeight * flowWeight;
-        weightedDripSum += e.drip * weight;
-        totalWeight += weight;
+    // Math is shared with WeightProcessor and getExpectedDripFor via
+    // SawPrediction::weightedDripPrediction so σ stays in lockstep.
+    QVector<double> drips, flows;
+    drips.reserve(entries.size());
+    flows.reserve(entries.size());
+    for (const Entry& e : std::as_const(entries)) {
+        drips.append(e.drip);
+        flows.append(e.flow);
     }
 
-    if (totalWeight < 0.01) {
+    const double prediction = SawPrediction::weightedDripPrediction(
+        drips, flows, currentFlowRate, recencyMax, recencyMin);
+
+    if (qIsNaN(prediction)) {
         // All entries have very different flow rates — fall back to sensor-lag default.
         return qMin(currentFlowRate * (sensorLag(currentScale) + 0.1), 8.0);
     }
-
-    double expectedDrip = weightedDripSum / totalWeight;
-
-    // Clamp to reasonable range (0.5 to 20 grams)
-    if (expectedDrip < 0.5) expectedDrip = 0.5;
-    if (expectedDrip > 20.0) expectedDrip = 20.0;
-
-    return expectedDrip;
+    return prediction;
 }
 
 QList<QPair<double, double>> Settings::sawLearningEntries(const QString& scaleType, int maxEntries) const {
@@ -1211,24 +1197,18 @@ double Settings::getExpectedDripFor(const QString& profileFilename,
                 if (obj.contains("drip")) entries.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
             }
             if (!entries.isEmpty()) {
-                double weightedDripSum = 0;
-                double totalWeight = 0;
-                const double recencyMax = 10.0;
-                const double recencyMin = 3.0;
-                for (qsizetype i = 0; i < entries.size(); ++i) {
-                    const Entry& e = entries[i];
-                    double recencyWeight = recencyMax - i * (recencyMax - recencyMin)
-                                                       / qMax(qsizetype{1}, entries.size() - 1);
-                    double flowDiff = qAbs(e.flow - currentFlowRate);
-                    // Flow similarity weight: gaussian with sigma=0.25 ml/s
-                    double flowWeight = qExp(-(flowDiff * flowDiff) / 0.125);  // sigma^2 * 2 = 0.125
-                    double w = recencyWeight * flowWeight;
-                    weightedDripSum += e.drip * w;
-                    totalWeight += w;
+                QVector<double> drips, flows;
+                drips.reserve(entries.size());
+                flows.reserve(entries.size());
+                for (const Entry& e : std::as_const(entries)) {
+                    drips.append(e.drip);
+                    flows.append(e.flow);
                 }
-                if (totalWeight >= 0.01) {
-                    double expected = weightedDripSum / totalWeight;
-                    return qBound(0.5, expected, 20.0);
+                const double prediction = SawPrediction::weightedDripPrediction(
+                    drips, flows, currentFlowRate,
+                    /*recencyMax=*/10.0, /*recencyMin=*/3.0);
+                if (!qIsNaN(prediction)) {
+                    return prediction;
                 }
             }
         }
