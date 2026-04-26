@@ -23,39 +23,30 @@ Phase 0 has already been executed. Results are recorded in `analysis.md`. Summar
 - [ ] Build + run the full ctest suite. All green is a hard gate before any push.
 - [ ] Run `tools/saw_parity/` against the real Settings code (no env-var) and confirm overall MAE ≈ 0.348 g (matching the Phase 0 measurement) on the 63-shot corpus.
 
-## Phase 2 — Shadow logging (ships in same PR as Phase 1)
+## Phase 2 — Shadow logging (DROPPED 2026-04-26)
 
-- [ ] Extend the existing `[SAW] accuracy:` log line at `main.cpp:532` with two additional fields:
-  - `oldSigmaDrip=` — what σ=1.5 would have predicted at this shot's flow given the same pool. Compute via a private helper that runs the OLD math with the OLD constant. Allows post-deploy A/B comparison against the σ=0.25 prediction.
-  - `predictionSource=` — `perPair` | `globalBootstrap` | `scaleDefault`. Lets Phase 3 analysis split metrics by which path fired.
-- [ ] Confirm both new fields flow through the persistent debug logger so they survive past per-shot capture.
+Originally planned to add `oldSigmaDrip` and `predictionSource` to the `[SAW] accuracy:` log line so post-deploy MAE could be A/B'd against σ=1.5. Dropped because:
 
-## Phase 3 — Analysis (after deployment)
+- Detailed per-shot SAW data only reaches us when a user submits a system log, and users only submit logs when they hit a problem. That biases any "data we'd see" toward σ=0.25 *failures* rather than a clean A/B sample.
+- Without telemetry to pull `oldSigmaDrip` from a representative cohort, the field is effectively dead bytes on most users' devices.
+- The cost of adding it (extra qExp per shot end, 2 log fields, a new `SawPredictionDetail` API, ongoing maintenance until removed) outweighs its post-deploy value.
 
-- [ ] Wait until the persistent debug log has accumulated ≥ 30 SAW-triggering shots since the deploy date, across at least 3 distinct (profile, scale) pairs.
-- [ ] Pull the persistent log via `mcp__de1__debug_get_log` and extract `[SAW] accuracy:` lines.
-- [ ] Compute MAE for both `oldSigmaDrip` (σ=1.5) and `predictedDrip` (σ=0.25) against `actualDrip`:
-  - Overall and per (profile, scale) pair
-  - Per flow bucket (low / mid / high)
-  - Per `predictionSource` (perPair / globalBootstrap / scaleDefault)
-- [ ] Append all metrics to `analysis.md` alongside the Phase 0 pre-deploy baseline.
+If a richer post-deploy signal becomes desirable later (e.g., if shotmap/visualizer telemetry is extended to include SAW prediction fields), this can be re-added as a small, focused change.
 
-## Phase 4 — Decision point
+## Phase 3 — Decision (after deployment)
 
-Pre-committed criteria:
+Decision criteria are now qualitative, not metric-based:
 
-- [ ] **Decision A — Keep the σ change.** Pick this iff:
-  1. Overall post-deploy MAE for σ=0.25 ≤ Phase 0 baseline (0.348 g, within noise).
-  2. Low-flow post-deploy MAE has improved or held even vs the captured `oldSigmaDrip` field.
-  3. No (profile, scale) pair shows divergence: 3+ consecutive overshoots > 2 g in the same direction post-deploy.
+- [ ] **Decision A — Keep the σ change.** Default. Pick this iff:
+  1. No SAW-related issue reports (overshoot/undershoot complaints) in the GitHub Issues tracker in the 2 weeks following the deploy.
+  2. Jeff's own daily-driver pulls are not regressing visibly (subjective; based on his shot-by-shot observation).
 - [ ] **Decision B — Roll back the σ change.** Pick this iff:
-  1. Overall post-deploy MAE worsens vs the captured `oldSigmaDrip` field.
-  2. Low-flow worsens.
-  3. Any (profile, scale) pair diverges per the threshold above.
-  Rollback procedure: `git revert <Phase 1+2 squash commit SHA>`. Shadow-logging captures will remain in the persistent log for forensic analysis.
-- [ ] Record the decision and supporting numbers in `analysis.md` and update `proposal.md` with a final status line.
+  1. ≥1 user reports a SAW regression that didn't exist pre-deploy.
+  2. Jeff observes a clear regression on his own machine that the Phase 0 corpus didn't predict.
+  Rollback procedure: `git revert <Phase 1 commit SHA>`. No shadow data was captured, so the rollback decision is based on reports + observation, not metrics.
+- [ ] Record the decision in `analysis.md` and update `proposal.md` with a final status line.
 
-## Phase 5 — Archive
+## Phase 4 — Archive
 
 - [ ] After deployment is stable for ≥ 2 weeks (regardless of decision):
   - [ ] Run `openspec validate tune-saw-old-prediction --strict --no-interactive` to confirm consistency.

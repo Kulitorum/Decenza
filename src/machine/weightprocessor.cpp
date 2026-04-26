@@ -437,9 +437,9 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
         // Recency weight: linear interpolation from max to min
         double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(qsizetype(1), count - 1);
 
-        // Flow similarity: gaussian with sigma=1.5 ml/s
+        // Flow similarity: gaussian with sigma=0.25 ml/s
         double flowDiff = qAbs(flow - currentFlowRate);
-        double flowWeight = qExp(-(flowDiff * flowDiff) / 4.5);  // sigma^2 * 2 = 4.5
+        double flowWeight = qExp(-(flowDiff * flowDiff) / 0.125);  // sigma^2 * 2 = 0.125
 
         double w = recencyWeight * flowWeight;
         weightedDripSum += drip * w;

@@ -200,6 +200,65 @@ private slots:
         QCOMPARE(m_settings.globalSawBootstrapLag(kScale), before);
     }
 
+    // ===== σ flow-similarity behavior =====
+    //
+    // The other tests in this file train and query at the same flow value, so the
+    // gaussian flow-similarity weight is always 1.0 and σ is invisible to them.
+    // The three tests below probe σ explicitly so a future regression that widens
+    // it back out (or accidentally narrows it to zero) is caught.
+
+    void farQueryFlowFallsBackBecauseGaussianAttenuates() {
+        // Capture the cold-start scale-default fallback at the query flow. With no
+        // committed data and no bootstrap, getExpectedDripFor returns
+        // flow × (sensorLag + 0.1).
+        const double fallback = m_settings.getExpectedDripFor(kProfileA, kScale, 2.5);
+
+        // Train two batches at flow=1.5 so the per-pair history graduates with a
+        // training drip far from the fallback.
+        commitBatch(kProfileA, 2.0, 1.5);
+        commitBatch(kProfileA, 2.0, 1.5);
+
+        // Query 1.0 ml/s away from training. At σ=0.25, flowWeight=exp(-8)≈3e-4 and
+        // totalWeight drops below the 0.01 floor → branch falls through to the
+        // scale-default fallback. At σ=1.5 (regression) flowWeight≈0.80 and the
+        // prediction would lock to 2.0 g.
+        const double pred = m_settings.getExpectedDripFor(kProfileA, kScale, 2.5);
+
+        QVERIFY2(qAbs(pred - fallback) < qAbs(pred - 2.0),
+                 qPrintable(QString("pred=%1 not closer to fallback=%2 than to training=2.0")
+                                .arg(pred).arg(fallback)));
+    }
+
+    void sameFlowQueryReturnsTrainingDrip() {
+        // Locks in the no-flow-shift case: when query flow equals training flow,
+        // flowWeight=1 for every entry and the weighted average collapses to the
+        // (constant) training drip regardless of σ. Tolerance is tight so a σ
+        // regression doesn't hide here even though σ shouldn't matter at flowDiff=0.
+        commitBatch(kProfileA, 2.0, 1.5);
+        commitBatch(kProfileA, 2.0, 1.5);
+
+        const double pred = m_settings.getExpectedDripFor(kProfileA, kScale, 1.5);
+        QVERIFY2(qAbs(pred - 2.0) < 0.05,
+                 qPrintable(QString("expected ~2.0, got %1").arg(pred)));
+    }
+
+    void differentQueryFlowsProduceDifferentPredictions() {
+        // Two committed medians spanning a wide flow range. Querying at each end
+        // should return the corresponding training drip — under σ=0.25 the
+        // off-flow entry is attenuated to ~exp(-32) and contributes nothing. If σ
+        // were widened to dilute everything to a flat average the two predictions
+        // would converge.
+        commitBatch(kProfileA, 0.6, 1.0);   // lag 0.6s
+        commitBatch(kProfileA, 1.8, 3.0);   // lag 0.6s
+
+        const double low  = m_settings.getExpectedDripFor(kProfileA, kScale, 1.0);
+        const double high = m_settings.getExpectedDripFor(kProfileA, kScale, 3.0);
+
+        QVERIFY2(qAbs(high - low) > 0.5,
+                 qPrintable(QString("predictions did not separate by flow: low=%1 high=%2")
+                                .arg(low).arg(high)));
+    }
+
     // ===== Full reset clears bootstrap =====
 
     void fullResetClearsBootstrap() {

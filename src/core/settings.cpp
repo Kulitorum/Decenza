@@ -852,9 +852,9 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
         // Recency weight: linear interpolation from max to min across entry count
         double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(1, entries.size() - 1);
 
-        // Flow similarity weight: gaussian with sigma=1.5 ml/s
+        // Flow similarity weight: gaussian with sigma=0.25 ml/s
         double flowDiff = qAbs(e.flow - currentFlowRate);
-        double flowWeight = qExp(-(flowDiff * flowDiff) / 4.5);  // sigma^2 * 2 = 4.5
+        double flowWeight = qExp(-(flowDiff * flowDiff) / 0.125);  // sigma^2 * 2 = 0.125
 
         double weight = recencyWeight * flowWeight;
         weightedDripSum += e.drip * weight;
@@ -1220,7 +1220,8 @@ double Settings::getExpectedDripFor(const QString& profileFilename,
                     double recencyWeight = recencyMax - i * (recencyMax - recencyMin)
                                                        / qMax(qsizetype{1}, entries.size() - 1);
                     double flowDiff = qAbs(e.flow - currentFlowRate);
-                    double flowWeight = qExp(-(flowDiff * flowDiff) / 4.5);
+                    // Flow similarity weight: gaussian with sigma=0.25 ml/s
+                    double flowWeight = qExp(-(flowDiff * flowDiff) / 0.125);  // sigma^2 * 2 = 0.125
                     double w = recencyWeight * flowWeight;
                     weightedDripSum += e.drip * w;
                     totalWeight += w;

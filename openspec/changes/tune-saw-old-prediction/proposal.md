@@ -50,4 +50,4 @@ The pre-graduation bootstrap path (`flow × globalSawBootstrapLag(scale)` capped
 - **Worst-case error (≈1.7 g for stall-recovery shots)** — that's a feature problem (e.g., puck-state proxy, flow-trajectory feature), not a tuning problem. Out of scope.
 - **Speed of personalization** (pair-specific predictions in <10 shots) — Phase 0 showed pending-batch warmup at any threshold loses to the existing cross-pair bootstrap on the corpus. Decoupled from this proposal.
 - **Smart bootstrap pool restructuring** — Phase 0 showed it fails the gate (helps high-flow but hurts the headline low-flow case). Decoupled and dropped.
-- **Generalization beyond the corpus** — 63 shots from one user, two profiles, one scale. The post-deploy shadow logging in Phase 2 is the actual generalization test.
+- **Generalization beyond the corpus** — 63 shots from one user, two profiles, one scale. There is no post-deploy telemetry that would pull SAW prediction data from a representative cohort, so the rollback gate (Phase 3) is qualitative (issue reports + Jeff's own observation), not metric-based. Shadow logging was considered and dropped — see Phase 2 of `tasks.md` for the rationale.
