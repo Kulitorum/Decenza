@@ -335,13 +335,29 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     // safety limiter (80's Espresso rise+decline, Cremina lever, Londinium
     // pour, etc.) — comparing actual flow against that ceiling is the
     // canonical false-positive source.
+    //
+    // Two boundary trims (see GRIND_*_SKIP_SEC in shotanalysis.h) apply
+    // within each flow-mode range so we don't average pump-ramp lag or the
+    // post-limiter-engaged tail. Without them the lever preinfusion shape
+    // (pump-ramp at start + pressure ceiling activates at end) reads as a
+    // sustained "too fine" delta even on clean shots.
     struct Range { double start; double end; };
     QVector<Range> flowModeRanges;
     if (!phases.isEmpty()) {
+        bool firstFlowModeSeen = false;
         for (qsizetype i = 0; i < phases.size(); ++i) {
             if (!phases[i].isFlowMode) continue;
-            const double start = phases[i].time;
-            const double end = (i + 1 < phases.size()) ? phases[i + 1].time : pourEnd;
+            double start = phases[i].time;
+            double end = (i + 1 < phases.size()) ? phases[i + 1].time : pourEnd;
+            if (!firstFlowModeSeen) {
+                start += GRIND_PUMP_RAMP_SKIP_SEC;
+                firstFlowModeSeen = true;
+            }
+            if (i + 1 < phases.size()
+                && phases[i + 1].transitionReason.compare(
+                       QStringLiteral("pressure"), Qt::CaseInsensitive) == 0) {
+                end -= GRIND_LIMITER_TAIL_SKIP_SEC;
+            }
             if (end > start) flowModeRanges.append({start, end});
         }
     }

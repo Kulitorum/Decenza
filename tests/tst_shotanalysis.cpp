@@ -8,13 +8,15 @@ class tst_ShotAnalysis : public QObject {
 
 private:
     static HistoryPhaseMarker phase(double time, const QString& label, int frameNumber,
-                                     bool isFlowMode = false)
+                                     bool isFlowMode = false,
+                                     const QString& transitionReason = QString())
     {
         HistoryPhaseMarker marker;
         marker.time = time;
         marker.label = label;
         marker.frameNumber = frameNumber;
         marker.isFlowMode = isFlowMode;
+        marker.transitionReason = transitionReason;
         return marker;
     }
 
@@ -362,6 +364,47 @@ private slots:
 
         QCOMPARE(ShotAnalysis::detectGrindIssue(flow, flowGoal, phases,
                                                  10.0, 30.0, "", {"grind_check_skip"}),
+                 false);
+    }
+
+    // 80's Espresso style: preinfusion is flow-mode 7.5 ml/s with a pressure
+    // ceiling that exits the frame on "pressure" transition once the puck
+    // builds. The trailing samples (pressure limiter engaged → controller
+    // stops tracking flow goal) and the pump-ramp at the very start must be
+    // excluded so the averaged flow matches the actual tracking window.
+    void flowVsGoal_flowModeExitingOnPressure_trimsLimiterTailAndPumpRamp()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(7.0, "Rise", 1, /*isFlowMode=*/false, /*tr=*/"pressure"),
+            phase(11.0, "End", -1, /*isFlowMode=*/false),
+        };
+
+        // Synthesize the lever preinfusion shape. Without the boundary trims
+        // the average pulls under goal by ~0.6 ml/s and FIRES grind issue.
+        // With both trims (skip 0-0.5 s ramp, skip 5.5-7 s limiter tail),
+        // the steady tracking window from 0.5-5.5 s reads ~7.5 ml/s and
+        // the check passes.
+        QVector<QPointF> flow;
+        QVector<QPointF> flowGoal;
+        for (double t = 0.0; t <= 11.0; t += 0.1) {
+            double f;
+            if (t < 0.5)        f = 4.0 + (7.5 - 4.0) * (t / 0.5);  // pump ramp 4 → 7.5
+            else if (t < 5.5)   f = 7.5;                             // steady tracking
+            else if (t < 7.0)   f = 6.0;                             // pressure limiter engaging
+            else                f = 4.5;                             // pressure-mode pour (excluded by isFlowMode)
+            flow.append(QPointF(t, f));
+            flowGoal.append(QPointF(t, 7.5));
+        }
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/11.0);
+        QVERIFY(r.hasData);
+        QVERIFY2(std::abs(r.delta) < ShotAnalysis::FLOW_DEVIATION_THRESHOLD,
+                 qPrintable(QString("expected |delta| < %1, got %2")
+                                .arg(ShotAnalysis::FLOW_DEVIATION_THRESHOLD)
+                                .arg(r.delta)));
+        QCOMPARE(ShotAnalysis::detectGrindIssue(flow, flowGoal, phases, 0.0, 11.0),
                  false);
     }
 

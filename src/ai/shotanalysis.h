@@ -148,6 +148,18 @@ public:
     static constexpr double FLOW_GOAL_MIN_AVG = 0.3;    // ml/s — ignore goal periods with very low target (preinfusion)
     static constexpr double FLOW_DEVIATION_THRESHOLD = 0.4;  // ml/s avg deviation to flag grind issue
 
+    // Trim two boundary windows where flow naturally diverges from goal even
+    // on well-extracted shots, otherwise the grind detector false-flags every
+    // lever-style preinfusion (80's Espresso et al.):
+    //   - The first 0.5 s of the first flow-mode phase: pump ramp-up from
+    //     idle, mechanical lag rather than a grind signal.
+    //   - The last 1.5 s before any flow-mode phase that exits via the
+    //     "pressure" transition: once the firmware's pressure ceiling
+    //     engages, the controller stops tracking flow goal and switches to
+    //     limiting pressure, so the trailing flow undershoot is by design.
+    static constexpr double GRIND_PUMP_RAMP_SKIP_SEC = 0.5;
+    static constexpr double GRIND_LIMITER_TAIL_SKIP_SEC = 1.5;
+
     // Result of the flow-vs-goal grind direction check.
     struct GrindCheck {
         double delta = 0.0;          // (avg actual flow) - (avg goal flow). Positive = coarse, negative = fine.
