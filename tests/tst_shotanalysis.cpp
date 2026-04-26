@@ -308,12 +308,14 @@ private slots:
             pressure, flow, /*pressureGoal=*/QVector<QPointF>{},
             flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/10.0);
 
-        // The 2-4 s ramp must be excluded; the post-ramp plateau (4.1 s+)
-        // is in-window. Assert the first window starts AFTER the ramp,
-        // which is what the lever-rise gate is actually responsible for.
+        // The steep part of the ramp must be excluded; once the ±0.75 s
+        // lookup spans the post-ramp plateau the relative pressure rise
+        // drops below WINDOW_STATIONARY_REL and windows can re-open.
+        // Empirically that crossover lands near t = 3.3 s, so any window
+        // start before t = 3 indicates the gate stopped firing too early.
         QVERIFY2(!windows.isEmpty(), "expected at least one window during the plateau");
         QVERIFY2(windows.first().start >= 3.0,
-                 qPrintable(QString("expected first window to start after the ramp, got start=%1s")
+                 qPrintable(QString("expected first window past the steep ramp, got start=%1s")
                                 .arg(windows.first().start)));
     }
 
@@ -456,30 +458,31 @@ private slots:
                  false);
     }
 
-    // Extreme puck failure: 2 s shot, single very short flow-mode phase.
-    // The pump-ramp trim would consume nearly the whole range and leave
-    // the detector silent — instead it must back off so a clean gusher
-    // signal still surfaces. Mirrors the puck_failure_short_gusher
-    // corpus fixture.
+    // Extreme puck failure: a flow-mode phase shorter than
+    // (GRIND_PUMP_RAMP_SKIP_SEC + kMinPostTrimRangeSec) so the trim guard
+    // must take its bypass branch. Without the bypass, the pump-ramp trim
+    // (0.5 s) would push start past end (start=0.5, end=0.8 → 3 samples
+    // after time-window filter, < 5 → hasData=false → grind silent on a
+    // shot that's clearly a gusher). With the bypass, the full 0-0.8 s
+    // window stays and the detector fires.
     void flowVsGoal_shortShot_skipsTrimToPreserveSignal()
     {
         QList<HistoryPhaseMarker> phases{
             phase(0.0, "Fill", 0, /*isFlowMode=*/true),
+            phase(0.8, "Pour", 1, /*isFlowMode=*/false),
             phase(2.0, "End", -1, /*isFlowMode=*/false),
         };
-        // Flow gushes (avg ~6 ml/s) against goal 4 ml/s — clear coarse
-        // grind / puck-failure signal. With pump-ramp trim applied, the
-        // resulting range [0.5, 2.0] is 1.5 s — fine. With pump-ramp + a
-        // hypothetical pressure tail trim it would collapse, but here
-        // there's no pressure tail (next phase isn't "pressure"-exiting).
-        // The test below validates the bypass on the truly short case.
+        // Flow gushes (6 ml/s) against goal 4 ml/s during the 0.8 s
+        // flow-mode phase — clear coarse-grind signal. The phase length
+        // (0.8 s) minus the trim (0.5 s) equals 0.3 s, well below the
+        // 1.0 s post-trim minimum, so the bypass must engage.
         auto flow = flatSeries(0.0, 2.0, 6.0);
         auto flowGoal = flatSeries(0.0, 2.0, 4.0);
 
         const auto r = ShotAnalysis::analyzeFlowVsGoal(
             flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/2.0);
         QVERIFY2(r.hasData,
-                 "expected enough samples after trim guard");
+                 "expected the trim bypass to preserve enough samples");
         QVERIFY2(r.delta > ShotAnalysis::FLOW_DEVIATION_THRESHOLD,
                  qPrintable(QString("expected positive delta > %1, got %2")
                                 .arg(ShotAnalysis::FLOW_DEVIATION_THRESHOLD).arg(r.delta)));

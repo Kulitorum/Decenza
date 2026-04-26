@@ -87,14 +87,11 @@ ShotAnalysis::ChannelingSeverity ShotAnalysis::detectChannelingFromDerivative(
     // channel signature is positive (flow surges, pressure dips,
     // conductance jumps up), but the post-channel collapse — flow drops
     // toward zero while pressure stays roughly stable — produces sustained
-    // negative dC/dt of equal diagnostic value. Examples in the regression
-    // corpus: londinium_gusher (puck gave up at 3.4 bar, flow collapsed
-    // 7.5 → 0.5 ml/s, dC/dt strongly negative throughout the pour).
-    // Distinguishing this real signal from the lever pressure-rise
-    // pattern (also negative dC/dt, but caused by intentional pressure
-    // ramping rather than puck failure) is the window builder's job —
-    // see buildChannelingWindows, which masks out samples where pressure
-    // is rapidly climbing.
+    // negative dC/dt of equal diagnostic value. Distinguishing that real
+    // signal from the lever pressure-rise pattern (also negative dC/dt, but
+    // caused by intentional pressure ramping rather than puck failure) is
+    // the window builder's job: see buildChannelingWindows, which masks out
+    // samples where pressure is rapidly climbing.
     for (const auto& pt : conductanceDerivative) {
         if (pt.x() < analysisStart) continue;
         if (pt.x() > analysisEnd) break;
@@ -219,11 +216,11 @@ QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
         // channeling.
         //
         // Direction matters: real puck failures collapse flow under
-        // approximately stable pressure (londinium_gusher) so pressure
-        // stays in-window. Bloom transitions and pressure-mode → flow-mode
-        // handoffs see pressure FALL rapidly — those are legitimate
-        // channeling signals (or expected transients) and must not be
-        // masked, so we only fence on rises here.
+        // approximately stable pressure, so pressure stays in-window.
+        // Bloom transitions and pressure-mode → flow-mode handoffs see
+        // pressure FALL rapidly — those are legitimate channeling signals
+        // (or expected transients) and must not be masked, so we only
+        // fence on rises here.
         if (isFlowMode) {
             const double pressureNow = lookupOrNaN(pressure, t);
             const double pressureFut = lookupOrNaN(pressure, t + WINDOW_HALF_SEC);
@@ -382,12 +379,12 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         // actually belongs. The 0.1 s margin absorbs BLE timestamp jitter.
         //
         // Both trims are gated on the resulting range staying at least
-        // kMinPostTrimRangeSec long. On extreme puck-failure shots (e.g.
-        // puck_failure_short_gusher: 2.2 s total, firmware bailed out
-        // immediately) the first flow-mode phase can be a fraction of a
-        // second — trimming 0.5 s off the front would leave nothing to
-        // analyze and the detector would silently report no-data instead
-        // of catching the obvious gusher.
+        // kMinPostTrimRangeSec long. On extreme puck-failure shots —
+        // where the firmware bails out within a couple of seconds because
+        // the puck offers no resistance — the first flow-mode phase can
+        // be a fraction of a second. Trimming 0.5 s off the front of that
+        // phase would leave nothing to analyze and the detector would
+        // silently report no-data instead of catching the obvious gusher.
         constexpr double kMinPostTrimRangeSec = 1.0;
         bool firstFlowModeAtPourStartSeen = false;
         for (qsizetype i = 0; i < phases.size(); ++i) {
