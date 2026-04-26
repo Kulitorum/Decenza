@@ -45,12 +45,21 @@ Item {
         // Don't set root.text directly - emit signal and let parent update via binding
         root.textEdited(selectedText)
         root.suggestionSelected(selectedText)
-        // forceActiveFocus on the container rather than just setting textInput.focus = false.
-        // Setting focus = false lets QML traverse the focus chain to the next item (another
-        // text field), which shows the keyboard again. Explicitly taking focus to the
-        // non-keyboard root Item stops that traversal.
-        root.forceActiveFocus()
-        Qt.inputMethod.hide()
+        // Defer focus shift + IME hide. Synchronously moving focus off a text
+        // field while a tap is mid-dispatch crashes on iOS — Qt's
+        // QIOSTapRecognizer.touchesEnded queues a dispatch_async block that
+        // reads _focusView on the next runloop pass; nil'ing it via
+        // setEnabled:NO between dispatch and execution segfaults inside
+        // showEditMenu(). See QTBUG-146020 and qtbase 6.10.3
+        // src/plugins/platforms/ios/qiostextinputoverlay.mm:982.
+        // Deferring lets the queued block run first against a still-valid view.
+        Qt.callLater(function() {
+            // forceActiveFocus on the container (a plain Item) instead of
+            // clearing textInput.focus, otherwise QML traverses to the next
+            // text field and the keyboard reappears.
+            root.forceActiveFocus()
+            Qt.inputMethod.hide()
+        })
     }
 
     // Close dialog when field becomes invisible (page popped, tab switched)
@@ -60,14 +69,17 @@ Item {
     function openSuggestionsDialog() {
         isActivelyTyping = false  // Show all suggestions
         suggestionPopup.close()   // Close typing popup before opening modal dialog
-        // Give focus to the non-keyboard container before the dialog opens.
-        // The Dialog saves the current activeFocusItem and restores it on close.
-        // If textInput still has focus here, the dialog would restore focus to it
-        // on close (showing the keyboard again). Moving focus to root (a plain Item)
-        // makes the dialog restore to a non-keyboard element instead.
-        root.forceActiveFocus()
-        Qt.inputMethod.hide()
-        suggestionsDialog.open()
+        // Defer focus shift + IME hide + dialog open. See selectSuggestion()
+        // for the iOS QIOSTapRecognizer race this works around.
+        Qt.callLater(function() {
+            // Give focus to the non-keyboard container before the dialog
+            // opens — Dialog restores activeFocusItem on close, and we don't
+            // want it to restore to textInput (which would re-show the
+            // keyboard).
+            root.forceActiveFocus()
+            Qt.inputMethod.hide()
+            suggestionsDialog.open()
+        })
     }
 
     // Track if user is actively typing (vs just focusing with existing text)
