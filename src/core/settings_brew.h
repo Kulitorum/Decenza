@@ -21,7 +21,10 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
     Q_PROPERTY(int steamTimeout READ steamTimeout WRITE setSteamTimeout NOTIFY steamTimeoutChanged)
     Q_PROPERTY(int steamFlow READ steamFlow WRITE setSteamFlow NOTIFY steamFlowChanged)
-    Q_PROPERTY(bool steamDisabled READ steamDisabled WRITE setSteamDisabled NOTIFY steamDisabledChanged)
+    // Session-only flag (no QSettings backing) — used during descaling to suppress
+    // the steam heater. Setter is Q_INVOKABLE rather than a property WRITE so the
+    // public API doesn't pretend this value persists across restarts.
+    Q_PROPERTY(bool steamDisabled READ steamDisabled NOTIFY steamDisabledChanged)
     Q_PROPERTY(bool keepSteamHeaterOn READ keepSteamHeaterOn WRITE setKeepSteamHeaterOn NOTIFY keepSteamHeaterOnChanged)
     Q_PROPERTY(int steamAutoFlushSeconds READ steamAutoFlushSeconds WRITE setSteamAutoFlushSeconds NOTIFY steamAutoFlushSecondsChanged)
 
@@ -34,6 +37,7 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
     Q_PROPERTY(QString waterVolumeMode READ waterVolumeMode WRITE setWaterVolumeMode NOTIFY waterVolumeModeChanged)
     Q_PROPERTY(double hotWaterSawOffset READ hotWaterSawOffset WRITE setHotWaterSawOffset NOTIFY hotWaterSawOffsetChanged)
+    Q_PROPERTY(int hotWaterSawSampleCount READ hotWaterSawSampleCount WRITE setHotWaterSawSampleCount NOTIFY hotWaterSawSampleCountChanged)
 
     // Hot water vessel presets
     Q_PROPERTY(QVariantList waterVesselPresets READ waterVesselPresets NOTIFY waterVesselPresetsChanged)
@@ -80,7 +84,7 @@ public:
     void setSteamFlow(int flow);
 
     bool steamDisabled() const;
-    void setSteamDisabled(bool disabled);
+    Q_INVOKABLE void setSteamDisabled(bool disabled);
 
     bool keepSteamHeaterOn() const;
     void setKeepSteamHeaterOn(bool keep);
@@ -184,6 +188,7 @@ signals:
     void waterVolumeChanged();
     void waterVolumeModeChanged();
     void hotWaterSawOffsetChanged();
+    void hotWaterSawSampleCountChanged();
     void waterVesselPresetsChanged();
     void selectedWaterVesselChanged();
     void flushPresetsChanged();

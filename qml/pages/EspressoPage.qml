@@ -26,12 +26,6 @@ Page {
     StackView.onActivated: {
         root.currentPageTitle = ProfileManager.currentProfileName
         espressoPage.forceActiveFocus()  // Ensure keyboard focus
-        // Reset cached weight so the cup-fill view doesn't briefly render full
-        // from a stale value left over by a prior espresso. The page is reused
-        // across shots, and the phase transition that triggers navigation has
-        // already fired before this StackView slot runs — so onPhaseChanged
-        // can't be relied on here.
-        espressoPage.currentWeight = 0
     }
 
     // Accessibility: get current value for announcement
@@ -128,15 +122,6 @@ Page {
         target: MachineState
         function onScaleWeightChanged() {
             espressoPage.currentWeight = MachineState.scaleWeight
-        }
-        // Reset cached weight when a new shot starts so the cup-fill view doesn't
-        // briefly render full from a stale value left over by a prior operation
-        // (e.g. a hot-water session leaves the scale at >targetWeight, which would
-        // clamp fillRatio to 1.0 until the espresso tare fires).
-        function onPhaseChanged() {
-            if (MachineState.phase === MachineStateType.Phase.EspressoPreheating) {
-                espressoPage.currentWeight = 0
-            }
         }
     }
 

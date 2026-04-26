@@ -80,7 +80,15 @@ Item {
         var botOvalH = h * 0.04
         var cupH = botCy - rimCy
 
-        var fillRatio = root.targetWeight > 0
+        // Only show fill during/after extraction. Before extraction has begun
+        // (EspressoPreheating, Idle, etc.) the cup must read empty regardless of
+        // any residual scale reading from a prior operation that hasn't been
+        // tared yet — otherwise the cup paints full at espresso start until the
+        // tare lands a few seconds in.
+        var hasExtraction = root.phase === MachineStateType.Phase.Preinfusion
+                         || root.phase === MachineStateType.Phase.Pouring
+                         || root.phase === MachineStateType.Phase.Ending
+        var fillRatio = (root.targetWeight > 0 && hasExtraction)
             ? Math.min(root.currentWeight / root.targetWeight, 1.0) : 0
         var interiorH = cupH * 0.8  // 100% fill reaches 80% of cup height
         var fillH = fillRatio * interiorH

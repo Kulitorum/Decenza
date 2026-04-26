@@ -11,6 +11,12 @@ SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
     , m_settings("DecentEspresso", "DE1Qt")
     , m_visualizer(visualizer)
 {
+    // The visualizer pointer is required — dyeEspressoEnjoyment() falls back
+    // to defaultShotRating() when no per-shot value is persisted, and a null
+    // visualizer would crash the getter on first read. Settings::Settings()
+    // always passes a fully-constructed instance.
+    Q_ASSERT(m_visualizer);
+
     // Seed empty bean presets list if missing (user adds their own)
     if (!m_settings.contains("bean/presets")) {
         QJsonArray empty;
@@ -251,7 +257,10 @@ QString SettingsDye::dyeShotNotes() const {
 void SettingsDye::setDyeShotNotes(const QString& value) {
     if (dyeShotNotes() != value) {
         m_settings.setValue("dye/shotNotes", value);
-        // Clear legacy key so the fallback in the getter doesn't resurrect old notes
+        // When the user clears notes, also remove the legacy key — otherwise
+        // the getter's fallback would resurrect old notes from `dye/espressoNotes`.
+        // For non-empty writes the new key shadows the old one in the getter, so
+        // the legacy key is harmless dead data until the user clears notes.
         if (value.isEmpty()) {
             m_settings.remove("dye/espressoNotes");
         }
@@ -500,13 +509,33 @@ void SettingsDye::recomputeBeansModified() {
     if (idx >= 0) {
         const QVariantMap preset = getBeanPreset(idx);
         if (!preset.isEmpty()) {
+            // Legacy bean presets store the grinder as a single combined "model"
+            // string (e.g. "Niche Zero") with empty brand/burrs. Live DYE state has
+            // been split via GrinderAliases at construction time. Normalize the
+            // preset side through the same alias lookup before comparing — otherwise
+            // a freshly-applied legacy preset would read as "modified" until the
+            // user re-saves it. applyBeanPreset() persists the migrated form on
+            // first use, so this normalization only kicks in for not-yet-applied
+            // legacy presets.
+            QString presetBrand = preset.value("grinderBrand").toString();
+            QString presetModel = preset.value("grinderModel").toString();
+            QString presetBurrs = preset.value("grinderBurrs").toString();
+            if (presetBrand.isEmpty() && !presetModel.isEmpty()) {
+                auto result = GrinderAliases::lookup(presetModel);
+                if (result.found) {
+                    presetBrand = result.brand;
+                    presetModel = result.model;
+                    if (presetBurrs.isEmpty()) presetBurrs = result.stockBurrs;
+                }
+            }
+
             modified = dyeBeanBrand()      != preset.value("brand").toString()
                     || dyeBeanType()       != preset.value("type").toString()
                     || dyeRoastDate()      != preset.value("roastDate").toString()
                     || dyeRoastLevel()     != preset.value("roastLevel").toString()
-                    || dyeGrinderBrand()   != preset.value("grinderBrand").toString()
-                    || dyeGrinderModel()   != preset.value("grinderModel").toString()
-                    || dyeGrinderBurrs()   != preset.value("grinderBurrs").toString()
+                    || dyeGrinderBrand()   != presetBrand
+                    || dyeGrinderModel()   != presetModel
+                    || dyeGrinderBurrs()   != presetBurrs
                     || dyeGrinderSetting() != preset.value("grinderSetting").toString()
                     || dyeBarista()        != preset.value("barista").toString();
         }

@@ -376,7 +376,10 @@ int SettingsBrew::hotWaterSawSampleCount() const {
 }
 
 void SettingsBrew::setHotWaterSawSampleCount(int count) {
-    m_settings.setValue("water/sawSampleCount", count);
+    if (hotWaterSawSampleCount() != count) {
+        m_settings.setValue("water/sawSampleCount", count);
+        emit hotWaterSawSampleCountChanged();
+    }
 }
 
 // Hot water vessel presets

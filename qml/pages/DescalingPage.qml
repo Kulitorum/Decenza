@@ -14,7 +14,7 @@ Page {
 
     // Restore normal operation when leaving descale page
     Component.onDestruction: {
-        Settings.brew.steamDisabled = false
+        Settings.brew.setSteamDisabled(false)
         ProfileManager.uploadCurrentProfile()
     }
 

@@ -9,7 +9,7 @@
 #include <QTimer>
 // Domain sub-objects are forward-declared. The QML-facing Q_PROPERTYs return
 // QObject* (a known type that QML can introspect) so this header doesn't need
-// to include the seven sub-object headers — preserving the recompile-blast
+// to include the ten sub-object headers — preserving the recompile-blast
 // reduction this whole refactor is for.
 //
 // C++ callers use the typed accessor (e.g. `settings->mqtt()`) and include
