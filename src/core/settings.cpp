@@ -814,7 +814,7 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
 
     // Check convergence state to determine adaptive parameters
     bool converged = isSawConverged(currentScale);
-    int maxEntries = converged ? 12 : 8;
+    qsizetype maxEntries = converged ? 12 : 8;
     double recencyMax = 10.0;
     double recencyMin = converged ? 3.0 : 1.0;  // Steeper recency = faster adaptation
 
@@ -1187,9 +1187,12 @@ double Settings::getExpectedDripFor(const QString& profileFilename,
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
-            // Weighted average using the same recency + flow-similarity scheme as the
-            // global getExpectedDrip(). Uses up to 12 medians (pair history is capped at
-            // 10, so this just consumes the lot in practice).
+            // Same flow-similarity kernel as the global getExpectedDrip(), but
+            // recencyMin is fixed at 3.0 — per-pair history only kicks in after
+            // graduation (≥ kSawMinMediansForGraduation committed medians) and
+            // is small (capped at 10), so the pre-convergence steepening that
+            // the global path uses (recencyMin=1.0) doesn't apply here.
+            // Uses up to 12 medians (pair history caps at 10 in practice).
             struct Entry { double drip; double flow; };
             QVector<Entry> entries;
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < 12; --i) {

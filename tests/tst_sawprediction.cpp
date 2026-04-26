@@ -132,6 +132,20 @@ private slots:
         QVERIFY(qIsNaN(pred));
     }
 
+    // ===== Mismatched sizes are a contract violation =====
+
+    void mismatchedVectorSizesReturnNaN() {
+        // Callers construct drips and flows in lockstep, but a refactor that
+        // accidentally drops one append would be silently undefined without
+        // a guard. The kernel returns NaN so the call site lands on its
+        // sensor-lag fallback rather than reading past the end of `flows`.
+        QVector<double> drips = {1.0, 2.0, 3.0};
+        QVector<double> flows = {1.5, 1.5};   // one short
+        const double pred = SawPrediction::weightedDripPrediction(
+            drips, flows, 1.5, 10.0, 3.0);
+        QVERIFY(qIsNaN(pred));
+    }
+
     // ===== Output clamping =====
 
     void resultClampedToMinDrip() {

@@ -56,9 +56,8 @@ inline double weightedDripPrediction(const QVector<double>& drips,
                                      double recencyMax,
                                      double recencyMin)
 {
-    Q_ASSERT(drips.size() == flows.size());
     const qsizetype count = drips.size();
-    if (count == 0) {
+    if (count == 0 || flows.size() != count) {
         return qQNaN();
     }
 

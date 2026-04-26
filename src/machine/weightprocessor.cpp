@@ -423,12 +423,11 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
         return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);
     }
 
-    const int maxEntries = m_sawConverged ? 12 : 8;
+    const qsizetype maxEntries = m_sawConverged ? 12 : 8;
     const double recencyMax = 10.0;
     const double recencyMin = m_sawConverged ? 3.0 : 1.0;
 
-    const qsizetype count =
-        qMin(m_learningDrips.size(), static_cast<qsizetype>(maxEntries));
+    const qsizetype count = qMin(m_learningDrips.size(), maxEntries);
     QVector<double> drips = m_learningDrips.mid(0, count);
     QVector<double> flows = m_learningFlows.mid(0, count);
 
