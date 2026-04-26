@@ -248,17 +248,17 @@ private:
 
     SteamDataModel* m_steamDataModel = nullptr;
     SteamHealthTracker* m_steamHealthTracker = nullptr;
-    // Wall-clock millisecond stamps (QDateTime::currentMSecsSinceEpoch). The
-    // BLE-encoded sample.timer field is a 16-bit value that wraps every
-    // ~655 s, so using it as a shot/steam time base produces negative
-    // timestamps when the cycle straddles a wrap. Wall clock has no such
-    // limit. m_lastSampleTime stays in sample.timer units because it's
-    // only used for tight inter-sample deltas with a self-correcting
-    // bounded check, but no other persistent state should differ samples.
+    // Wall-clock millisecond stamp for steam. Steam doesn't go through
+    // ShotTimingController, so it carries its own anchor; espresso elapsed
+    // time is sourced from m_timingController->shotTime() to keep phase
+    // markers and graph data on a single base. The BLE-encoded
+    // sample.timer field is a 16-bit value that wraps every ~655 s, so it
+    // must not be subtracted across persistent state without explicit
+    // unwrap (m_lastSampleTime is the only place that touches it, and the
+    // delta computation handles the wrap inline).
     qint64 m_steamStartTimeMs = 0;  // Wall-clock ms at first steam sample of session
 
-    qint64 m_shotStartTimeMs = 0;   // Wall-clock ms at first espresso-phase sample of cycle
-    double m_lastSampleTime = 0;    // For delta time calculation (DE1's raw timer, sample.timer units)
+    double m_lastSampleTime = 0;    // Previous sample.timer value, for inter-sample delta with explicit wrap handling
     double m_lastShotTime = 0;      // Last shot sample time relative to shot start (for weight sync)
     bool m_extractionStarted = false;
     int m_lastFrameNumber = -1;

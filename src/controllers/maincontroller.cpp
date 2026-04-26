@@ -1624,8 +1624,10 @@ void MainController::onEspressoCycleStarted() {
         qWarning() << "No timing controller!";
     }
 
-    // Clear the graph for the new espresso cycle (previous shot is now saved)
-    m_shotStartTimeMs = 0;
+    // Clear the graph for the new espresso cycle (previous shot is now saved).
+    // Espresso elapsed time is sourced from m_timingController->shotTime();
+    // its m_displayTimeBase reset happens inside m_timingController->startShot()
+    // above, so we don't keep a parallel anchor here.
     m_lastShotTime = 0;
     m_extractionStarted = false;
     m_lastFrameNumber = -1;
@@ -2192,7 +2194,13 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                               phase == MachineState::Phase::Flushing);
 
     if (isDispensingPhase && m_lastSampleTime > 0) {
+        // sample.timer is a 16-bit value (wraps at 65536/100 = 655.36 s);
+        // a wrap during dispensing produces a hugely negative naive delta.
+        // Unwrap before the bounded check so we don't drop a frame's worth
+        // of FlowScale integration on every wrap.
+        constexpr double kSampleTimerModSec = 65536.0 / 100.0;
         double deltaTime = sample.timer - m_lastSampleTime;
+        if (deltaTime < 0) deltaTime += kSampleTimerModSec;
         if (deltaTime > 0 && deltaTime < 1.0) {
             m_machineState->onFlowSample(sample.groupFlow, deltaTime);
 
@@ -2238,37 +2246,14 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         return;
     }
 
-    // First sample of this espresso cycle — anchor the wall-clock base.
-    // Wall clock is used (not sample.timer) because the BLE-encoded
-    // sample.timer wraps every ~655 s and a wrap mid-cycle would put
-    // negative timestamps onto phase markers and any other persistent
-    // state derived from `time` below.
-    if (m_shotStartTimeMs == 0) {
-        m_shotStartTimeMs = QDateTime::currentMSecsSinceEpoch();
-        m_lastSampleTime = sample.timer;
-    }
-
-    double time = (QDateTime::currentMSecsSinceEpoch() - m_shotStartTimeMs) / 1000.0;
-
-    // Store for weight sample sync
-    m_lastShotTime = time;
-
-    // Mark when extraction actually starts (transition from preheating to preinfusion/pouring)
-    bool isExtracting = (phase == MachineState::Phase::Preinfusion ||
-                        phase == MachineState::Phase::Pouring ||
-                        phase == MachineState::Phase::Ending);
-
-    if (isExtracting && !m_extractionStarted) {
-        m_extractionStarted = true;
-        m_frameStartTime = time;
-        m_shotDataModel->markExtractionStart(time);
-    }
-
     // Track latest sensor values for transition reason inference
     m_lastPressure = sample.groupPressure;
     m_lastFlow = sample.groupFlow;
 
-    // Determine active pump mode for current frame (to show only active goal curve)
+    // Determine active pump mode for current frame (to show only active goal
+    // curve). Computed early so the values can be passed to ShotTimingController
+    // below — its onShotSample is the single anchor point for shot-elapsed
+    // time, and we route everything through its shotTime() afterward.
     double pressureGoal = sample.setPressureGoal;
     double flowGoal = sample.setFlowGoal;
     bool isFlowMode = false;
@@ -2283,7 +2268,31 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                 flowGoal = 0;      // Pressure mode - hide flow goal
             }
         }
+    }
 
+    // Forward to timing controller FIRST so its m_displayTimeBase anchor and
+    // m_extractionStarted flag are up to date before we read shotTime() below.
+    // Anchoring through a single source of truth keeps phase markers and graph
+    // data points on the same t=0 origin (otherwise MainController's anchor
+    // could fire one BLE sample earlier than ShotTimingController's, and the
+    // two would disagree by the inter-sample interval).
+    if (m_timingController) {
+        m_timingController->onShotSample(sample, pressureGoal, flowGoal, sample.setTempGoal,
+                                          sample.frameNumber, isFlowMode);
+    }
+
+    double time = m_timingController ? m_timingController->shotTime() : 0.0;
+    m_lastShotTime = time;
+
+    // Mark when extraction actually starts (transition from preheating to preinfusion/pouring)
+    bool isExtracting = (phase == MachineState::Phase::Preinfusion ||
+                        phase == MachineState::Phase::Pouring ||
+                        phase == MachineState::Phase::Ending);
+
+    if (isExtracting && !m_extractionStarted) {
+        m_extractionStarted = true;
+        m_frameStartTime = time;
+        m_shotDataModel->markExtractionStart(time);
     }
 
     // Update filtered goals for QML (zeroed for non-active mode)
@@ -2357,14 +2366,6 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
 
         // Notify of frame change (tick sound + transition reason for UI pill)
         emit frameChanged(frameIndex, frameName, transitionReason);
-    }
-
-    // Forward to timing controller for unified timing
-    if (m_timingController) {
-        m_timingController->onShotSample(sample, pressureGoal, flowGoal, sample.setTempGoal,
-                                          sample.frameNumber, isFlowMode);
-        // Use timing controller's time for graph data (ensures weight and other curves align)
-        time = m_timingController->shotTime();
     }
 
     // Skip adding sensor data to graph during settling — DE1 reports 0 pressure/flow
