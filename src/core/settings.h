@@ -182,7 +182,8 @@ public:
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
     double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
     // Per-(profile, scale) variant of sawLearnedLag — falls back to global bootstrap /
-    // per-scale data when the pair has not yet graduated (< 3 committed batch-medians).
+    // per-scale data when the pair has not yet graduated (fewer than
+    // kSawMinMediansForGraduation committed batch-medians; see settings.cpp).
     // Pass empty profile for the legacy global-pool path. Returns the mean of drip/flow
     // over the last 5 committed batch-medians (same numeric units as sawLearnedLag).
     Q_INVOKABLE double sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const;

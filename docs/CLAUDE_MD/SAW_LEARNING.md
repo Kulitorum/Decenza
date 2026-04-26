@@ -37,7 +37,7 @@ The same architecture that fixed the analogous problem in flow calibration ([AUT
 2. **Batched median commits** — accumulate 5 shots' worth of pending entries before changing the model. The median is robust to single-shot outliers (channeling, scale glitches, cup interaction). 5 was chosen to match flow cal.
 3. **Batch-level dispersion check** — if the 5 lags within a batch are too spread out (IQR > 1.0 s, or any single lag > 1.5 s from the batch median), the whole batch is dropped. Dispersion that high indicates the user changed conditions mid-batch (different beans, different grinder, manual stop).
 4. **Global bootstrap** — the median lag across all graduated `(profile, scale)` pairs on the same scale is published as `saw/globalBootstrapLag/<scaleType>`. New pairs use this as their first-shot default instead of the scale's hardware-only `sensorLag()`.
-5. **Read-path fallback chain** — `perProfile` (≥ 3 committed batches) → `globalBootstrap` → `globalPool` (legacy entries) → `scaleDefault`. New users / new pairs degrade gracefully.
+5. **Read-path fallback chain** — `perProfile` (≥ `kSawMinMediansForGraduation` committed batches, currently 2 = 10 SAW shots) → `globalBootstrap` → `globalPool` (legacy entries) → `scaleDefault`. New users / new pairs degrade gracefully.
 
 ### Why this is the right shape
 
@@ -56,9 +56,9 @@ Three QSettings keys, each a JSON object keyed by `"<profileFilename>::<scaleTyp
 
 | Key | Shape | Trim | Purpose |
 |-----|-------|------|---------|
-| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, ts, batchSize}` | 10 medians (~50 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the pair has graduated (≥ 3 medians). |
+| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, ts, batchSize}` | 10 medians (~50 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the pair has graduated (≥ `kSawMinMediansForGraduation` medians, currently 2). |
 | `saw/perProfileBatch` | array of pending raw entries `{drip, flow, overshoot, scale, profile, ts}` (target size 5) | 5 (commit point) | Pending accumulator; flushed on commit or rejection. |
-| `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of last committed median lag from each pair on this scale with at least one committed batch-median. Used as first-shot default for new pairs. (Graduation for the per-profile *read* path is a stricter ≥ 3 medians; the bootstrap is a cold-start prior, so it accepts pairs with any committed history — IQR fencing handles the rest.) |
+| `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of last committed median lag from each pair on this scale with at least one committed batch-median. Used as first-shot default for new pairs. (Graduation for the per-profile *read* path is a stricter `kSawMinMediansForGraduation` medians; the bootstrap is a cold-start prior, so it accepts pairs with any committed history — IQR fencing handles the rest.) |
 
 The legacy `saw/learningHistory` key is preserved as a **global pool**: every committed batch-median is mirrored into it (trim 50). This keeps `isSawConverged()` and the legacy convergence-divergence detection working without changes, and provides a final read-path fallback for users with pre-update data.
 
@@ -70,7 +70,7 @@ The per-entry shape gains one optional field, `profile`. Old entries without it 
 
 ```
 sawLearnedLagFor(profile, scale):
-  if perProfileSawHistory(profile, scale).size ≥ 3:
+  if perProfileSawHistory(profile, scale).size ≥ kSawMinMediansForGraduation:
     return mean(drip / flow over last 5 medians)        ← perProfile
   if globalSawBootstrapLag(scale) > 0:
     return globalSawBootstrapLag(scale)                 ← globalBootstrap

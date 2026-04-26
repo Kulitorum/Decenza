@@ -676,6 +676,15 @@ void Settings::clearFlowCalPendingIdeals(const QString& profileFilename) {
 
 // SAW (Stop-at-Weight) learning
 
+// Minimum committed batch-medians before a (profile, scale) pair graduates from
+// the global fallbacks (globalBootstrap / globalPool / scaleDefault) to its own
+// per-pair model. Each median represents 5 SAW shots that survived the IQR
+// dispersion gate, so 2 medians = 10 shots — already a stronger signal than the
+// legacy single-shot global pool it replaces. Trade-off: smaller = faster to
+// adapt to per-profile drip dynamics; larger = more stability against early
+// regime bias. See docs/CLAUDE_MD/SAW_LEARNING.md.
+static constexpr int kSawMinMediansForGraduation = 2;
+
 // Returns average lag for display in QML settings (calculated from stored drip/flow)
 double Settings::sawLearnedLag() const {
     ensureSawCacheLoaded();
@@ -1134,7 +1143,7 @@ void Settings::setGlobalSawBootstrapLag(const QString& scaleType, double lag) {
 QString Settings::sawModelSource(const QString& profileFilename, const QString& scaleType) const {
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
-        if (pairHistory.size() >= 3) return QStringLiteral("perProfile");
+        if (pairHistory.size() >= kSawMinMediansForGraduation) return QStringLiteral("perProfile");
     }
     if (globalSawBootstrapLag(scaleType) > 0.0) return QStringLiteral("globalBootstrap");
     ensureSawCacheLoaded();
@@ -1150,7 +1159,7 @@ QList<QPair<double, double>> Settings::sawLearningEntriesFor(const QString& prof
     QList<QPair<double, double>> result;
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
-        if (pairHistory.size() >= 3) {
+        if (pairHistory.size() >= kSawMinMediansForGraduation) {
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
                 QJsonObject obj = pairHistory[i].toObject();
                 if (obj.contains("drip")) {
@@ -1166,7 +1175,7 @@ QList<QPair<double, double>> Settings::sawLearningEntriesFor(const QString& prof
 double Settings::sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const {
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
-        if (pairHistory.size() >= 3) {
+        if (pairHistory.size() >= kSawMinMediansForGraduation) {
             double sumLag = 0;
             qsizetype count = 0;
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < 5; --i) {
@@ -1191,7 +1200,7 @@ double Settings::getExpectedDripFor(const QString& profileFilename,
                                     double currentFlowRate) const {
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
-        if (pairHistory.size() >= 3) {
+        if (pairHistory.size() >= kSawMinMediansForGraduation) {
             // Weighted average using the same recency + flow-similarity scheme as the
             // global getExpectedDrip(). Uses up to 12 medians (pair history is capped at
             // 10, so this just consumes the lot in practice).
@@ -1382,8 +1391,9 @@ void Settings::recomputeGlobalSawBootstrap(const QString& scaleType) {
     // (5 real shots) is already more informative than the static sensorLag() constant,
     // so any pair with at least one committed median contributes. The IQR fence below
     // protects against under-trained outliers if many pairs accumulate. Pairs that have
-    // crossed the per-profile graduation threshold (>= 3 medians) for the read path
-    // are a stricter bar handled in sawLearnedLagFor / sawModelSource.
+    // crossed the per-profile graduation threshold (kSawMinMediansForGraduation
+    // medians) for the read path are a stricter bar handled in sawLearnedLagFor /
+    // sawModelSource.
     QJsonObject map = loadPerProfileSawHistoryMap();
     QVector<double> lags;
     for (auto it = map.begin(); it != map.end(); ++it) {

@@ -40,13 +40,11 @@ private slots:
 
     void perPairIsolatesFromOtherProfile() {
         // A's batch commits a small drip; B's commits a large drip.
-        // After both have graduated, sawLearnedLagFor(A) and sawLearnedLagFor(B)
-        // should reflect their own batches, not the global average.
+        // After both have graduated (2 committed medians each), sawLearnedLagFor(A)
+        // and sawLearnedLagFor(B) should reflect their own batches, not the global average.
         commitBatch(kProfileA, 0.6, 1.5);   // lag 0.4s
-        commitBatch(kProfileA, 0.6, 1.5);
-        commitBatch(kProfileA, 0.6, 1.5);   // 3 medians → graduated
+        commitBatch(kProfileA, 0.6, 1.5);   // 2 medians → graduated
         commitBatch(kProfileB, 3.0, 1.5);   // lag 2.0s
-        commitBatch(kProfileB, 3.0, 1.5);
         commitBatch(kProfileB, 3.0, 1.5);
 
         const double lagA = m_settings.sawLearnedLagFor(kProfileA, kScale);
@@ -116,11 +114,26 @@ private slots:
         commitBatch(kProfileB, 0.9, 1.5);
         QCOMPARE(m_settings.sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
 
-        // 3. C graduates (needs ≥ 3 committed medians) → uses its own data.
-        commitBatch(kProfileC, 1.2, 1.5);
+        // 3. C graduates (needs ≥ kSawMinMediansForGraduation committed medians,
+        //    currently 2) → uses its own data.
         commitBatch(kProfileC, 1.2, 1.5);
         commitBatch(kProfileC, 1.2, 1.5);
         QCOMPARE(m_settings.sawModelSource(kProfileC, kScale), QString("perProfile"));
+    }
+
+    // ===== One median is not enough to graduate =====
+
+    void singleMedianStillFallsBackToBootstrap() {
+        // After one committed median on C, the read path must still treat C as a
+        // cold-start pair and fall back to globalBootstrap (set up by A and B below).
+        // This guards the lower-bound boundary of the graduation gate.
+        commitBatch(kProfileA, 0.6, 1.5);
+        commitBatch(kProfileB, 0.9, 1.5);
+        QVERIFY(m_settings.globalSawBootstrapLag(kScale) > 0.0);
+
+        commitBatch(kProfileC, 1.2, 1.5);  // 1 median — below graduation threshold
+        QCOMPARE(m_settings.perProfileSawHistory(kProfileC, kScale).size(), 1);
+        QCOMPARE(m_settings.sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
     }
 
     // ===== Reset for profile only =====
@@ -152,8 +165,7 @@ private slots:
     // ===== getExpectedDripFor returns per-pair after graduation =====
 
     void getExpectedDripForUsesPerPairAfterGraduation() {
-        // Three batches at consistent lag = 0.4s should yield expected drip ≈ flow * 0.4
-        commitBatch(kProfileA, 0.6, 1.5);
+        // Two batches at consistent lag = 0.4s should yield expected drip ≈ flow * 0.4
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileA, 0.6, 1.5);
 
