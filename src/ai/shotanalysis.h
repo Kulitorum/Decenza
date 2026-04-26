@@ -150,10 +150,10 @@ public:
 
     // Trim two boundary windows where flow naturally diverges from goal even
     // on well-extracted shots, otherwise the grind detector false-flags every
-    // lever-style preinfusion (80's Espresso et al.):
-    //   - The first 0.5 s of the first flow-mode phase: pump ramp-up from
+    // lever-style preinfusion:
+    //   - Leading window of the first flow-mode phase: pump ramp-up from
     //     idle, mechanical lag rather than a grind signal.
-    //   - The last 1.5 s before any flow-mode phase that exits via the
+    //   - Trailing window of any flow-mode phase that exits via the
     //     "pressure" transition: once the firmware's pressure ceiling
     //     engages, the controller stops tracking flow goal and switches to
     //     limiting pressure, so the trailing flow undershoot is by design.

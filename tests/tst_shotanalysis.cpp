@@ -408,6 +408,48 @@ private slots:
                  false);
     }
 
+    // The limiter-tail trim is gated on transitionReason == "pressure".
+    // Same flow shape as the lever test but with the next phase exiting on
+    // "time" — the trailing undershoot must remain in the average and the
+    // badge must still fire. Without this gate, a copy-paste regression
+    // that applied the trim unconditionally would silently suppress real
+    // grind signals on D-Flow / A-Flow profiles whose pour phases exit on
+    // time.
+    void flowVsGoal_flowModeExitingOnTime_keepsTrailingWindow_andFires()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(7.0, "Rise", 1, /*isFlowMode=*/false, /*tr=*/"time"),
+            phase(11.0, "End", -1, /*isFlowMode=*/false),
+        };
+
+        // Pump ramp 0-0.5 s, steady tracking 0.5-5.5 s, sustained dip
+        // 5.5-7.0 s. Under "pressure" exit the dip is trimmed and the
+        // average is clean; under "time" exit the dip stays in and pulls
+        // the average ~0.9 ml/s under goal.
+        QVector<QPointF> flow;
+        QVector<QPointF> flowGoal;
+        for (double t = 0.0; t <= 11.0; t += 0.1) {
+            double f;
+            if (t < 0.5)        f = 4.0 + (7.5 - 4.0) * (t / 0.5);
+            else if (t < 5.5)   f = 7.5;
+            else if (t < 7.0)   f = 3.5;
+            else                f = 4.5;
+            flow.append(QPointF(t, f));
+            flowGoal.append(QPointF(t, 7.5));
+        }
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/11.0);
+        QVERIFY(r.hasData);
+        QVERIFY2(r.delta < -ShotAnalysis::FLOW_DEVIATION_THRESHOLD,
+                 qPrintable(QString("expected delta < -%1, got %2")
+                                .arg(ShotAnalysis::FLOW_DEVIATION_THRESHOLD)
+                                .arg(r.delta)));
+        QCOMPARE(ShotAnalysis::detectGrindIssue(flow, flowGoal, phases, 0.0, 11.0),
+                 true);
+    }
+
     // Filter beverage type also short-circuits.
     void flowVsGoal_filterBeverage_skips()
     {

@@ -344,14 +344,22 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     struct Range { double start; double end; };
     QVector<Range> flowModeRanges;
     if (!phases.isEmpty()) {
-        bool firstFlowModeSeen = false;
+        // Pump-ramp trim applies to the first flow-mode phase that
+        // coincides with pourStart — that's the one where the pump goes
+        // from idle to commanded flow. A flow-mode phase that starts
+        // before pourStart (e.g. a fill phase) has its samples filtered
+        // out by the pour-window gate below anyway; consuming the
+        // "first seen" flag on it would silently skip the trim where it
+        // actually belongs. The 0.1 s margin absorbs BLE timestamp jitter.
+        bool firstFlowModeAtPourStartSeen = false;
         for (qsizetype i = 0; i < phases.size(); ++i) {
             if (!phases[i].isFlowMode) continue;
             double start = phases[i].time;
             double end = (i + 1 < phases.size()) ? phases[i + 1].time : pourEnd;
-            if (!firstFlowModeSeen) {
+            if (!firstFlowModeAtPourStartSeen
+                && phases[i].time + 0.1 >= pourStart) {
                 start += GRIND_PUMP_RAMP_SKIP_SEC;
-                firstFlowModeSeen = true;
+                firstFlowModeAtPourStartSeen = true;
             }
             if (i + 1 < phases.size()
                 && phases[i + 1].transitionReason.compare(
