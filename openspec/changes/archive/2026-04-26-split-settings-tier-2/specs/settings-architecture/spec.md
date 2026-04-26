@@ -62,6 +62,8 @@ Each domain-specific C++ consumer (a class that reads only one domain's settings
 - **THEN** the count of `.cpp` files that transitively include `settings.h` is 10 or fewer
 - **AND** measurement comparison with the pre-Tier-1 baseline (39 includers) is documented in the merging PR
 
+## ADDED Requirements
+
 ### Requirement: Storage Key Stability
 
 Each domain sub-object's `QSettings` operations SHALL use the same key strings the property used before being migrated to the sub-object. No migration of existing user settings is required — opening a separate `QSettings("DecentEspresso", "DE1Qt")` handle in each sub-object provides shared access to the same backing store.
