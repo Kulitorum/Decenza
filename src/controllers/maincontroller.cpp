@@ -146,18 +146,18 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 m_settings->brew()->setSteamDisabled(false);
             }
 
-            // Steam session ended — run post-session analysis. m_steamStartTime
+            // Steam session ended — run post-session analysis. m_steamStartTimeMs
             // is only set when isFlowing() was true (Steaming/Pouring substates),
             // so this fires after all flowing samples have been collected even
             // though the Steaming phase persists through Puffing/Ending substates.
-            if (phase != MachineState::Phase::Steaming && m_steamStartTime > 0) {
+            if (phase != MachineState::Phase::Steaming && m_steamStartTimeMs > 0) {
                 if (m_steamHealthTracker && m_steamDataModel) {
                     m_steamHealthTracker->onSessionComplete(
                         m_steamDataModel,
                         m_settings->brew()->steamFlow(),
                         static_cast<int>(m_settings->brew()->steamTemperature()));
                 }
-                m_steamStartTime = 0;
+                m_steamStartTimeMs = 0;
                 if (m_steamHealthTracker)
                     m_steamHealthTracker->resetSession();
             }
@@ -1625,7 +1625,7 @@ void MainController::onEspressoCycleStarted() {
     }
 
     // Clear the graph for the new espresso cycle (previous shot is now saved)
-    m_shotStartTime = 0;
+    m_shotStartTimeMs = 0;
     m_lastShotTime = 0;
     m_extractionStarted = false;
     m_lastFrameNumber = -1;
@@ -2211,8 +2211,8 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     bool steamFlowing = (phase == MachineState::Phase::Steaming
                          && m_machineState->isFlowing());
     if (steamFlowing && m_steamDataModel) {
-        if (m_steamStartTime == 0) {
-            m_steamStartTime = sample.timer;
+        if (m_steamStartTimeMs == 0) {
+            m_steamStartTimeMs = QDateTime::currentMSecsSinceEpoch();
             m_steamDataModel->clear();
             // Add flow goal line from current settings
             double flowGoal = m_settings->brew()->steamFlow() / 100.0;
@@ -2221,7 +2221,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             if (m_steamHealthTracker)
                 m_steamHealthTracker->resetSession();
         }
-        double t = sample.timer - m_steamStartTime;
+        double t = (QDateTime::currentMSecsSinceEpoch() - m_steamStartTimeMs) / 1000.0;
         m_steamDataModel->addSample(t, sample.groupPressure, sample.groupFlow, sample.steamTemp);
 
         // Live threshold warnings
@@ -2238,13 +2238,17 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         return;
     }
 
-    // First sample of this espresso cycle - set the base time
-    if (m_shotStartTime == 0) {
-        m_shotStartTime = sample.timer;
+    // First sample of this espresso cycle — anchor the wall-clock base.
+    // Wall clock is used (not sample.timer) because the BLE-encoded
+    // sample.timer wraps every ~655 s and a wrap mid-cycle would put
+    // negative timestamps onto phase markers and any other persistent
+    // state derived from `time` below.
+    if (m_shotStartTimeMs == 0) {
+        m_shotStartTimeMs = QDateTime::currentMSecsSinceEpoch();
         m_lastSampleTime = sample.timer;
     }
 
-    double time = sample.timer - m_shotStartTime;
+    double time = (QDateTime::currentMSecsSinceEpoch() - m_shotStartTimeMs) / 1000.0;
 
     // Store for weight sample sync
     m_lastShotTime = time;
