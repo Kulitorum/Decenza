@@ -83,18 +83,23 @@ ShotAnalysis::ChannelingSeverity ShotAnalysis::detectChannelingFromDerivative(
         return false;
     };
 
-    // Channeling is a positive-dC/dt signature: a channel forms, flow surges
-    // and pressure dips, conductance (flow/pressure) jumps up. Negative dC/dt
-    // is the opposite — flow falling relative to pressure — which is the
-    // normal dynamic on lever pressure-rise frames (pressure climbs faster
-    // than flow follows) and on pressure-decline frames as the puck thins.
-    // Treating |dC/dt| as channeling false-flags every lever pour, so we
-    // count only signed positive excursions here.
+    // The detector counts BOTH signs of dC/dt as channeling. The textbook
+    // channel signature is positive (flow surges, pressure dips,
+    // conductance jumps up), but the post-channel collapse — flow drops
+    // toward zero while pressure stays roughly stable — produces sustained
+    // negative dC/dt of equal diagnostic value. Examples in the regression
+    // corpus: londinium_gusher (puck gave up at 3.4 bar, flow collapsed
+    // 7.5 → 0.5 ml/s, dC/dt strongly negative throughout the pour).
+    // Distinguishing this real signal from the lever pressure-rise
+    // pattern (also negative dC/dt, but caused by intentional pressure
+    // ramping rather than puck failure) is the window builder's job —
+    // see buildChannelingWindows, which masks out samples where pressure
+    // is rapidly climbing.
     for (const auto& pt : conductanceDerivative) {
         if (pt.x() < analysisStart) continue;
         if (pt.x() > analysisEnd) break;
         if (!inAnyWindow(pt.x())) continue;
-        const double v = pt.y();
+        const double v = std::abs(pt.y());
         if (v > maxSpike) {
             maxSpike = v;
             maxSpikeTime = pt.x();
@@ -204,6 +209,30 @@ QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
         if (convergenceErr > WINDOW_CONVERGED_REL) {
             flushCurrent();
             continue;
+        }
+
+        // Flow-mode phases: exclude samples where pressure is RISING fast.
+        // The flow goal can be steady (e.g. 7.5 ml/s preinfusion) while the
+        // puck builds pressure under a pressure-ceiling exit condition. The
+        // resulting rapid pressure rise drives conductance sharply down —
+        // sustained negative dC/dt that's the lever-rise dynamic, not
+        // channeling.
+        //
+        // Direction matters: real puck failures collapse flow under
+        // approximately stable pressure (londinium_gusher) so pressure
+        // stays in-window. Bloom transitions and pressure-mode → flow-mode
+        // handoffs see pressure FALL rapidly — those are legitimate
+        // channeling signals (or expected transients) and must not be
+        // masked, so we only fence on rises here.
+        if (isFlowMode) {
+            const double pressureNow = lookupOrNaN(pressure, t);
+            const double pressureFut = lookupOrNaN(pressure, t + WINDOW_HALF_SEC);
+            if (!std::isnan(pressureNow) && !std::isnan(pressureFut)
+                && pressureNow > 0.5
+                && pressureFut > pressureNow * (1.0 + WINDOW_STATIONARY_REL)) {
+                flushCurrent();
+                continue;
+            }
         }
 
         // Sample qualifies. Extend or start the current window.
@@ -351,6 +380,15 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         // out by the pour-window gate below anyway; consuming the
         // "first seen" flag on it would silently skip the trim where it
         // actually belongs. The 0.1 s margin absorbs BLE timestamp jitter.
+        //
+        // Both trims are gated on the resulting range staying at least
+        // kMinPostTrimRangeSec long. On extreme puck-failure shots (e.g.
+        // puck_failure_short_gusher: 2.2 s total, firmware bailed out
+        // immediately) the first flow-mode phase can be a fraction of a
+        // second — trimming 0.5 s off the front would leave nothing to
+        // analyze and the detector would silently report no-data instead
+        // of catching the obvious gusher.
+        constexpr double kMinPostTrimRangeSec = 1.0;
         bool firstFlowModeAtPourStartSeen = false;
         for (qsizetype i = 0; i < phases.size(); ++i) {
             if (!phases[i].isFlowMode) continue;
@@ -358,13 +396,17 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
             double end = (i + 1 < phases.size()) ? phases[i + 1].time : pourEnd;
             if (!firstFlowModeAtPourStartSeen
                 && phases[i].time + 0.1 >= pourStart) {
-                start += GRIND_PUMP_RAMP_SKIP_SEC;
+                if ((end - start) - GRIND_PUMP_RAMP_SKIP_SEC >= kMinPostTrimRangeSec) {
+                    start += GRIND_PUMP_RAMP_SKIP_SEC;
+                }
                 firstFlowModeAtPourStartSeen = true;
             }
             if (i + 1 < phases.size()
                 && phases[i + 1].transitionReason.compare(
                        QStringLiteral("pressure"), Qt::CaseInsensitive) == 0) {
-                end -= GRIND_LIMITER_TAIL_SKIP_SEC;
+                if ((end - start) - GRIND_LIMITER_TAIL_SKIP_SEC >= kMinPostTrimRangeSec) {
+                    end -= GRIND_LIMITER_TAIL_SKIP_SEC;
+                }
             }
             if (end > start) flowModeRanges.append({start, end});
         }
