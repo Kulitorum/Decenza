@@ -50,7 +50,7 @@ Item {
         // QIOSTapRecognizer.touchesEnded queues a dispatch_async block that
         // reads _focusView on the next runloop pass; nil'ing it via
         // setEnabled:NO between dispatch and execution segfaults inside
-        // showEditMenu(). See qtbase 6.10.3
+        // showEditMenu(). See QTBUG-146020 and qtbase 6.10.3
         // src/plugins/platforms/ios/qiostextinputoverlay.mm:982.
         // Deferring lets the queued block run first against a still-valid view.
         Qt.callLater(function() {
