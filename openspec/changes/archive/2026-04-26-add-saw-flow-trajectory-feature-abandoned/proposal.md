@@ -1,5 +1,7 @@
 # Change: Add SAW Flow-Trajectory Feature
 
+> **Status: ABANDONED 2026-04-26.** Phase 0a falsified the central hypothesis: the corpus's worst-case overshoots (shots 870, 874, 877) are not stall-recovery events and have no flow-trajectory signature in the trailing 1.5 s before trigger. They are flow-level outliers (short-duration pours that hit target while flow is high). See `analysis.md` for the full evidence. The worst-case-MAE budget is being carried by `add-saw-pressure-feature` instead.
+
 ## Why
 
 The `tune-saw-old-prediction` proposal establishes that σ=0.25 is roughly the ceiling for flow-only SAW prediction models on the 63-shot corpus. It moves overall MAE from 0.370 g to 0.348 g (−6%) and shot 887's specific over-prediction from +0.90 g to +0.57 g (−37%) — but **leaves the worst-case error unchanged at ≈1.7 g**. That worst-case is dominated by a small set of stall-recovery shots: the puck stalls mid-pour, flow resumes suddenly, and an unusually large drip follows.
