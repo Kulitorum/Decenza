@@ -1631,6 +1631,7 @@ void MainController::onEspressoCycleStarted() {
     m_lastShotTime = 0;
     m_extractionStarted = false;
     m_lastFrameNumber = -1;
+    m_lastSampleTime = 0;  // prior shot's last sample.timer would otherwise stale-out the inter-sample delta gate
     m_trackLogCounter = 0;
     m_frameWeightSkipSent = -1;
     m_frameStartTime = 0;
@@ -2270,12 +2271,15 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         }
     }
 
-    // Forward to timing controller FIRST so its m_displayTimeBase anchor and
-    // m_extractionStarted flag are up to date before we read shotTime() below.
-    // Anchoring through a single source of truth keeps phase markers and graph
-    // data points on the same t=0 origin (otherwise MainController's anchor
-    // could fire one BLE sample earlier than ShotTimingController's, and the
-    // two would disagree by the inter-sample interval).
+    // Forward to ShotTimingController FIRST so ITS m_displayTimeBase anchor
+    // and ITS m_extractionStarted flag are up to date before we read
+    // shotTime() below. (Both classes happen to have an m_extractionStarted
+    // member; the one referenced here is ShotTimingController's, which is
+    // what shotTime() consults.) Anchoring through a single source of truth
+    // keeps phase markers and graph data points on the same t=0 origin —
+    // otherwise MainController could fire one BLE sample earlier than the
+    // timing controller, and the two would disagree by the inter-sample
+    // interval.
     if (m_timingController) {
         m_timingController->onShotSample(sample, pressureGoal, flowGoal, sample.setTempGoal,
                                           sample.frameNumber, isFlowMode);
