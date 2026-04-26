@@ -7,7 +7,7 @@
 
 #ifdef Q_OS_IOS
 #include "../screensaver/iosbrightness.h"
-#include "../SafariViewHelper.h"
+#include "SafariViewHelper.h"
 #endif
 
 SettingsNetwork::SettingsNetwork(QObject* parent)
