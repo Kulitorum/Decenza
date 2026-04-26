@@ -278,6 +278,26 @@ private slots:
         }
     }
 
+    // Channeling is a positive-dC/dt signature. A sustained negative-dC/dt
+    // run (the lever pressure-rise / decline shape: pressure climbing or
+    // falling faster than flow can follow → conductance dropping) must not
+    // be flagged. The magnitudes here would all trip the |v| > 3 check that
+    // the legacy std::abs() loop used.
+    void channelingFromDerivative_negativeSpikeNotFlagged()
+    {
+        QVector<QPointF> dcdt;
+        for (double t = 0.0; t <= 25.0; t += 0.1) {
+            double v = 0.2;
+            if (t >= 7.0 && t <= 12.0) v = -8.0;  // 50 samples at -8 (|v|=8)
+            dcdt.append(QPointF(t, v));
+        }
+
+        QVector<ShotAnalysis::DetectionWindow> fullPour{{2.0, 25.0}};
+        auto severity = ShotAnalysis::detectChannelingFromDerivative(
+            dcdt, /*pourStart=*/2.0, /*pourEnd=*/25.0, fullPour);
+        QCOMPARE(severity, ShotAnalysis::ChannelingSeverity::None);
+    }
+
     // analyzeFlowVsGoal / detectGrindIssue ----------------------------------
 
     // 80's Espresso style: pour frames are all pressure-controlled. No

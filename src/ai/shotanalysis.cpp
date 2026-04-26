@@ -83,11 +83,18 @@ ShotAnalysis::ChannelingSeverity ShotAnalysis::detectChannelingFromDerivative(
         return false;
     };
 
+    // Channeling is a positive-dC/dt signature: a channel forms, flow surges
+    // and pressure dips, conductance (flow/pressure) jumps up. Negative dC/dt
+    // is the opposite — flow falling relative to pressure — which is the
+    // normal dynamic on lever pressure-rise frames (pressure climbs faster
+    // than flow follows) and on pressure-decline frames as the puck thins.
+    // Treating |dC/dt| as channeling false-flags every lever pour, so we
+    // count only signed positive excursions here.
     for (const auto& pt : conductanceDerivative) {
         if (pt.x() < analysisStart) continue;
         if (pt.x() > analysisEnd) break;
         if (!inAnyWindow(pt.x())) continue;
-        const double v = std::abs(pt.y());
+        const double v = pt.y();
         if (v > maxSpike) {
             maxSpike = v;
             maxSpikeTime = pt.x();
