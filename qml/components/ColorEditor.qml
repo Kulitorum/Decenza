@@ -5,10 +5,12 @@ import Decenza
 Item {
     id: root
 
-    // The current color being edited
-    property color color: _rgbMode
-        ? Qt.rgba(_r / 255, _g / 255, _b / 255, 1.0)
-        : Qt.hsla(_h / 360, _s / 100, _l / 100, 1.0)
+    // The current color being edited. Updated imperatively (not as a derived
+    // binding) to avoid a binding loop: setColor() writes the internal
+    // representations, and the consumer's onColorChanged handler can route
+    // back through setColor() — Qt's loop detector flags the synchronous
+    // re-evaluation chain even though the cycle is broken by external guards.
+    property color color: "#4682E6"
 
     // RGB components (0-255)
     property real _r: 70
@@ -26,6 +28,12 @@ Item {
     // Guard against feedback loops during setColor
     property bool _updating: false
 
+    function _recomputeColor() {
+        color = _rgbMode
+            ? Qt.rgba(_r / 255, _g / 255, _b / 255, 1.0)
+            : Qt.hsla(_h / 360, _s / 100, _l / 100, 1.0)
+    }
+
     function setColor(c) {
         if (typeof c === 'string') c = Qt.color(c)
         _updating = true
@@ -38,6 +46,7 @@ Item {
         _s = c.hslSaturation * 100
         _l = c.hslLightness * 100
         _updating = false
+        color = c
     }
 
     // Sync the other representation when sliders change
@@ -238,5 +247,6 @@ Item {
             else if (channelIndex === 1) _l = val
             else _s = val
         }
+        _recomputeColor()
     }
 }
