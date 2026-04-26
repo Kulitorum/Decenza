@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "relayclient.h"
 #include "network/screencaptureservice.h"
 #include "../ble/de1device.h"
@@ -59,7 +60,7 @@ void RelayClient::setEnabled(bool enabled)
     emit enabledChanged();
 
     if (m_enabled) {
-        QString token = m_settings ? m_settings->pocketPairingToken() : QString();
+        QString token = m_settings ? m_settings->app()->pocketPairingToken() : QString();
         if (!token.isEmpty()) {
             connectToRelay();
         } else {
@@ -101,7 +102,7 @@ void RelayClient::connectToRelay()
     if (!m_enabled || !m_settings)
         return;
 
-    QString deviceId = m_settings->deviceId();
+    QString deviceId = m_settings->app()->deviceId();
     if (deviceId.isEmpty()) {
         qWarning() << "RelayClient: No device ID available";
         return;
@@ -120,9 +121,9 @@ void RelayClient::onConnected()
     // Send register message
     QJsonObject msg;
     msg["action"] = QStringLiteral("register");
-    msg["device_id"] = m_settings ? m_settings->deviceId() : QString();
+    msg["device_id"] = m_settings ? m_settings->app()->deviceId() : QString();
     msg["role"] = QStringLiteral("device");
-    msg["pairing_token"] = m_settings ? m_settings->pocketPairingToken() : QString();
+    msg["pairing_token"] = m_settings ? m_settings->app()->pocketPairingToken() : QString();
     m_socket.sendTextMessage(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
 
     // Start ping timer

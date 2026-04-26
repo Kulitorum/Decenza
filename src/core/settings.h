@@ -24,6 +24,7 @@ class SettingsMcp;
 class SettingsBrew;
 class SettingsDye;
 class SettingsNetwork;
+class SettingsApp;
 
 class Settings : public QObject {
     Q_OBJECT
@@ -47,10 +48,7 @@ class Settings : public QObject {
     Q_PROPERTY(QObject* brew READ brewQObject CONSTANT)
     Q_PROPERTY(QObject* dye READ dyeQObject CONSTANT)
     Q_PROPERTY(QObject* network READ networkQObject CONSTANT)
-
-    // Platform capabilities
-    Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT)
-    Q_PROPERTY(bool use12HourTime READ use12HourTime CONSTANT)
+    Q_PROPERTY(QObject* app READ appQObject CONSTANT)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
@@ -77,57 +75,6 @@ class Settings : public QObject {
     // (polling every 2 s). Only needed when connecting the DE1 via USB-C cable.
     Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged)
 
-    // Launcher mode (Android only - register as home screen)
-    Q_PROPERTY(bool launcherMode READ launcherMode WRITE setLauncherMode NOTIFY launcherModeChanged)
-
-    // Profile favorites
-    Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged)
-    Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged)
-
-    // Selected built-in profiles (shown in "Selected" view)
-    Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged)
-
-    // Hidden profiles (downloaded/user profiles removed from "Selected" view)
-    Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged)
-
-    // UI settings
-    Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged)
-
-
-
-    // Build info
-    Q_PROPERTY(bool isDebugBuild READ isDebugBuild CONSTANT)
-
-    // Auto-update settings
-    Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
-    Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
-
-    // DE1 firmware update channel. When false (default), firmware comes
-    // from fast.decentespresso.com/download/sync/de1plus; when true,
-    // from .../de1nightly. Independent from betaUpdatesEnabled, which
-    // controls the Decenza *app* update channel.
-    Q_PROPERTY(bool firmwareNightlyChannel READ firmwareNightlyChannel WRITE setFirmwareNightlyChannel NOTIFY firmwareNightlyChannelChanged)
-
-    // Daily backup settings
-    Q_PROPERTY(int dailyBackupHour READ dailyBackupHour WRITE setDailyBackupHour NOTIFY dailyBackupHourChanged)
-
-    // Water level display setting
-    Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged)
-
-    // Water refill level (mm threshold for refill warning, sent to machine)
-    Q_PROPERTY(int waterRefillPoint READ waterRefillPoint WRITE setWaterRefillPoint NOTIFY waterRefillPointChanged)
-
-    // Refill kit override (0=force off, 1=force on, 2=auto-detect)
-    Q_PROPERTY(int refillKitOverride READ refillKitOverride WRITE setRefillKitOverride NOTIFY refillKitOverrideChanged)
-
-
-    // Developer settings
-    Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
-    Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged)
-    Q_PROPERTY(bool hideGhcSimulator READ hideGhcSimulator WRITE setHideGhcSimulator NOTIFY hideGhcSimulatorChanged)
-    Q_PROPERTY(bool simulatedScaleEnabled READ simulatedScaleEnabled WRITE setSimulatedScaleEnabled NOTIFY simulatedScaleEnabledChanged)
-    Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged)
-
     // Flow calibration
     Q_PROPERTY(double flowCalibrationMultiplier READ flowCalibrationMultiplier WRITE setFlowCalibrationMultiplier NOTIFY flowCalibrationMultiplierChanged)
     Q_PROPERTY(bool autoFlowCalibration READ autoFlowCalibration WRITE setAutoFlowCalibration NOTIFY autoFlowCalibrationChanged)
@@ -151,6 +98,7 @@ public:
     SettingsBrew* brew() const { return m_brew; }
     SettingsDye* dye() const { return m_dye; }
     SettingsNetwork* network() const { return m_network; }
+    SettingsApp* app() const { return m_app; }
 
     // QML-facing accessors — implemented out-of-line in settings.cpp where the
     // SettingsXxx -> QObject* upcast is visible. QML uses these via Q_PROPERTY.
@@ -164,17 +112,7 @@ public:
     QObject* brewQObject() const;
     QObject* dyeQObject() const;
     QObject* networkQObject() const;
-
-    // Platform capabilities (compile-time)
-    bool hasQuick3D() const {
-#ifdef HAVE_QUICK3D
-        return true;
-#else
-        return false;
-#endif
-    }
-
-    bool use12HourTime() const { return m_use12HourTime; }
+    QObject* appQObject() const;
 
     // Machine settings
     QString machineAddress() const;
@@ -218,88 +156,8 @@ public:
     bool usbSerialEnabled() const;
     void setUsbSerialEnabled(bool enabled);
 
-    // Launcher mode (Android only)
-    bool launcherMode() const;
-    void setLauncherMode(bool enabled);
-
-    // Profile favorites (max 5)
-    QVariantList favoriteProfiles() const;
-    int selectedFavoriteProfile() const;
-    void setSelectedFavoriteProfile(int index);
-
-    Q_INVOKABLE void addFavoriteProfile(const QString& name, const QString& filename);
-    Q_INVOKABLE void removeFavoriteProfile(int index);
-    Q_INVOKABLE void moveFavoriteProfile(int from, int to);
-    Q_INVOKABLE QVariantMap getFavoriteProfile(int index) const;
-    Q_INVOKABLE bool isFavoriteProfile(const QString& filename) const;
-    Q_INVOKABLE bool updateFavoriteProfile(const QString& oldFilename, const QString& newFilename, const QString& newTitle);
-    Q_INVOKABLE int findFavoriteIndexByFilename(const QString& filename) const;
-
-    // Selected built-in profiles
-    QStringList selectedBuiltInProfiles() const;
-    void setSelectedBuiltInProfiles(const QStringList& profiles);
-    Q_INVOKABLE void addSelectedBuiltInProfile(const QString& filename);
-    Q_INVOKABLE void removeSelectedBuiltInProfile(const QString& filename);
-    Q_INVOKABLE bool isSelectedBuiltInProfile(const QString& filename) const;
-
-    // Hidden profiles (downloaded/user profiles removed from "Selected" view)
-    QStringList hiddenProfiles() const;
-    void setHiddenProfiles(const QStringList& profiles);
-    Q_INVOKABLE void addHiddenProfile(const QString& filename);
-    Q_INVOKABLE void removeHiddenProfile(const QString& filename);
-    Q_INVOKABLE bool isHiddenProfile(const QString& filename) const;
-
-    // Saved searches (shot history)
-    QString currentProfile() const;
-    void setCurrentProfile(const QString& profile);
-
-
-    // Build info
-    bool isDebugBuild() const;
-
     // Force sync to disk
     void sync() { m_settings.sync(); }
-
-    // Auto-update settings
-    bool autoCheckUpdates() const;
-    void setAutoCheckUpdates(bool enabled);
-    bool betaUpdatesEnabled() const;
-    void setBetaUpdatesEnabled(bool enabled);
-    bool firmwareNightlyChannel() const;
-    void setFirmwareNightlyChannel(bool enabled);
-
-    // Daily backup
-    int dailyBackupHour() const;
-    void setDailyBackupHour(int hour);
-
-    // Water level display
-    QString waterLevelDisplayUnit() const;
-    void setWaterLevelDisplayUnit(const QString& unit);
-
-    // Water refill level
-    int waterRefillPoint() const;
-    void setWaterRefillPoint(int mm);
-
-    // Refill kit override
-    int refillKitOverride() const;
-    void setRefillKitOverride(int value);
-
-
-    // Developer settings
-    bool developerTranslationUpload() const;
-    void setDeveloperTranslationUpload(bool enabled);
-
-    bool simulationMode() const;
-    void setSimulationMode(bool enabled);
-
-    bool hideGhcSimulator() const;
-    void setHideGhcSimulator(bool hide);
-
-    bool simulatedScaleEnabled() const;
-    void setSimulatedScaleEnabled(bool enabled);
-
-    bool screenCaptureEnabled() const;
-    void setScreenCaptureEnabled(bool enabled);
 
     // Flow calibration
     double flowCalibrationMultiplier() const;
@@ -359,13 +217,6 @@ public:
 
     Q_INVOKABLE void factoryReset();
 
-    // Device identity (stable UUID for server communication)
-    Q_INVOKABLE QString deviceId() const;
-
-    // Pocket app pairing token
-    Q_INVOKABLE QString pocketPairingToken() const;
-    void setPocketPairingToken(const QString& token);
-
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);
@@ -394,24 +245,6 @@ signals:
     void showScaleDialogsChanged();
     void savedRefractometerChanged();
     void usbSerialEnabledChanged();
-    void launcherModeChanged();
-    void favoriteProfilesChanged();
-    void selectedFavoriteProfileChanged();
-    void selectedBuiltInProfilesChanged();
-    void hiddenProfilesChanged();
-    void currentProfileChanged();
-    void autoCheckUpdatesChanged();
-    void betaUpdatesEnabledChanged();
-    void firmwareNightlyChannelChanged();
-    void dailyBackupHourChanged();
-    void waterLevelDisplayUnitChanged();
-    void waterRefillPointChanged();
-    void refillKitOverrideChanged();
-    void developerTranslationUploadChanged();
-    void simulationModeChanged();
-    void screenCaptureEnabledChanged();
-    void hideGhcSimulatorChanged();
-    void simulatedScaleEnabledChanged();
     void flowCalibrationMultiplierChanged();
     void autoFlowCalibrationChanged();
     void perProfileFlowCalibrationChanged();
@@ -423,7 +256,6 @@ private:
     void writeKnownScales(const QVariantList& scales);
 
     mutable QSettings m_settings;
-    bool m_use12HourTime = false;
 
     // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)
     mutable QJsonArray m_sawHistoryCache;
@@ -450,7 +282,6 @@ private:
     void addSawPerPairEntry(double drip, double flowRate, const QString& scaleType,
                             double overshoot, const QString& profileFilename);
     void recomputeGlobalSawBootstrap(const QString& scaleType);
-    bool m_developerTranslationUpload = false;  // Session-only, Easter egg unlock
 
     // Domain sub-objects (composition façade)
     SettingsMqtt* m_mqtt = nullptr;
@@ -463,4 +294,5 @@ private:
     SettingsBrew* m_brew = nullptr;
     SettingsDye* m_dye = nullptr;
     SettingsNetwork* m_network = nullptr;
+    SettingsApp* m_app = nullptr;
 };

@@ -101,7 +101,7 @@ Item {
             translationFallback: "Espresso"
             iconSource: "qrc:/icons/espresso.svg"
             enabled: DE1Device.guiEnabled
-            backgroundColor: Settings.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.primaryColor
+            backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.primaryColor
             supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToProfileSelector()
@@ -167,16 +167,16 @@ Item {
 
             PresetPillRow {
                 maxWidth: Theme.scaled(600)
-                presets: Settings.favoriteProfiles
-                selectedIndex: Settings.selectedFavoriteProfile
+                presets: Settings.app.favoriteProfiles
+                selectedIndex: Settings.app.selectedFavoriteProfile
                 supportLongPress: true
                 modified: ProfileManager.profileModified
                 modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
 
                 onPresetSelected: function(index) {
-                    var wasAlreadySelected = (index === Settings.selectedFavoriteProfile)
-                    Settings.selectedFavoriteProfile = index
-                    var preset = Settings.getFavoriteProfile(index)
+                    var wasAlreadySelected = (index === Settings.app.selectedFavoriteProfile)
+                    Settings.app.selectedFavoriteProfile = index
+                    var preset = Settings.app.getFavoriteProfile(index)
 
                     if (wasAlreadySelected) {
                         if (MachineState.isReady) {
@@ -198,7 +198,7 @@ Item {
             // Non-favorite profile pill
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: Settings.selectedFavoriteProfile === -1
+                visible: Settings.app.selectedFavoriteProfile === -1
                 spacing: Theme.scaled(8)
 
                 Rectangle {

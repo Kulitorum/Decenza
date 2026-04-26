@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "profilemanager.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
@@ -265,10 +266,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         m_profileModified = true;
         // Get the base profile name from settings
         if (m_settings) {
-            m_baseProfileName = m_settings->currentProfile();
+            m_baseProfileName = m_settings->app()->currentProfile();
             // Sync selectedFavoriteProfile so UI shows correct pill
-            int favoriteIndex = m_settings->findFavoriteIndexByFilename(m_baseProfileName);
-            m_settings->setSelectedFavoriteProfile(favoriteIndex);
+            int favoriteIndex = m_settings->app()->findFavoriteIndexByFilename(m_baseProfileName);
+            m_settings->app()->setSelectedFavoriteProfile(favoriteIndex);
             // Restore overrides — preserve persisted brew override from previous session
             if (!m_settings->brew()->hasBrewYieldOverride())
                 m_settings->brew()->setBrewYieldOverride(m_currentProfile.targetWeight());
@@ -282,7 +283,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             uploadCurrentProfile();
         }
     } else if (m_settings) {
-        loadProfile(m_settings->currentProfile());
+        loadProfile(m_settings->app()->currentProfile());
     } else {
         loadDefaultProfile();
     }
@@ -302,8 +303,8 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         });
 
         // Update profile lists when selection/hidden state changes
-        connect(m_settings, &Settings::selectedBuiltInProfilesChanged, this, &ProfileManager::profilesChanged);
-        connect(m_settings, &Settings::hiddenProfilesChanged, this, &ProfileManager::profilesChanged);
+        connect(m_settings->app(), &SettingsApp::selectedBuiltInProfilesChanged, this, &ProfileManager::profilesChanged);
+        connect(m_settings->app(), &SettingsApp::hiddenProfilesChanged, this, &ProfileManager::profilesChanged);
     }
 }
 
@@ -437,8 +438,8 @@ QVariantList ProfileManager::selectedProfiles() const {
     QVariantList result;
 
     // Get selected built-in profile names from settings
-    QStringList selectedBuiltIns = m_settings ? m_settings->selectedBuiltInProfiles() : QStringList();
-    QStringList hiddenProfiles = m_settings ? m_settings->hiddenProfiles() : QStringList();
+    QStringList selectedBuiltIns = m_settings ? m_settings->app()->selectedBuiltInProfiles() : QStringList();
+    QStringList hiddenProfiles = m_settings ? m_settings->app()->hiddenProfiles() : QStringList();
 
     for (const ProfileInfo& info : m_allProfiles) {
         bool include = false;
@@ -780,12 +781,12 @@ bool ProfileManager::deleteProfile(const QString& filename) {
 
     if (deleted) {
         // Remove from favorites if it was a favorite
-        if (m_settings && m_settings->isFavoriteProfile(filename)) {
+        if (m_settings && m_settings->app()->isFavoriteProfile(filename)) {
             // Find index and remove
-            QVariantList favorites = m_settings->favoriteProfiles();
+            QVariantList favorites = m_settings->app()->favoriteProfiles();
             for (qsizetype i = 0; i < favorites.size(); ++i) {
                 if (favorites[i].toMap()["filename"].toString() == filename) {
-                    m_settings->removeFavoriteProfile(static_cast<int>(i));
+                    m_settings->app()->removeFavoriteProfile(static_cast<int>(i));
                     break;
                 }
             }
@@ -1049,12 +1050,12 @@ void ProfileManager::loadProfile(const QString& profileName) {
     }
 
     if (m_settings) {
-        m_settings->setCurrentProfile(resolvedName);
+        m_settings->app()->setCurrentProfile(resolvedName);
         // Sync selectedFavoriteProfile with the loaded profile
         // This ensures the UI shows the correct pill as selected, or -1 if not a favorite
-        int favoriteIndex = m_settings->findFavoriteIndexByFilename(resolvedName);
+        int favoriteIndex = m_settings->app()->findFavoriteIndexByFilename(resolvedName);
         qDebug() << "loadProfile:" << resolvedName << "favoriteIndex=" << favoriteIndex;
-        m_settings->setSelectedFavoriteProfile(favoriteIndex);
+        m_settings->app()->setSelectedFavoriteProfile(favoriteIndex);
     }
 
     // Initialize shot plan settings from the new profile.
@@ -1126,7 +1127,7 @@ bool ProfileManager::loadProfileFromJson(const QString& jsonContent) {
     if (m_settings) {
         // Set selectedFavoriteProfile to -1 to show non-favorite pill
         // Profiles loaded from JSON (e.g., shot history) are typically not in favorites
-        m_settings->setSelectedFavoriteProfile(-1);
+        m_settings->app()->setSelectedFavoriteProfile(-1);
 
         // Initialize yield and temperature from the new profile
         m_settings->brew()->setBrewYieldOverride(m_currentProfile.targetWeight());
@@ -1346,26 +1347,26 @@ void ProfileManager::refreshProfiles() {
     if (m_settings) {
         QSet<QString> known(m_availableProfiles.begin(), m_availableProfiles.end());
 
-        QVariantList favorites = m_settings->favoriteProfiles();
+        QVariantList favorites = m_settings->app()->favoriteProfiles();
         for (qsizetype i = favorites.size() - 1; i >= 0; --i) {
             QString fn = favorites.at(i).toMap()[QStringLiteral("filename")].toString();
             if (!known.contains(fn)) {
                 qWarning() << "refreshProfiles: removing stale favorite" << fn << "(profile not found)";
-                m_settings->removeFavoriteProfile(static_cast<int>(i));
+                m_settings->app()->removeFavoriteProfile(static_cast<int>(i));
             }
         }
 
-        QString cp = m_settings->currentProfile();
+        QString cp = m_settings->app()->currentProfile();
         if (cp.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
             cp = cp.chopped(5);
         if (!cp.isEmpty() && !known.contains(cp)) {
             QString replacement = QStringLiteral("default");
-            QVariantList updatedFavs = m_settings->favoriteProfiles();
+            QVariantList updatedFavs = m_settings->app()->favoriteProfiles();
             if (!updatedFavs.isEmpty())
                 replacement = updatedFavs.first().toMap()[QStringLiteral("filename")].toString();
             qWarning() << "refreshProfiles: stale currentProfile" << cp
                        << "-> replacing with" << replacement;
-            m_settings->setCurrentProfile(replacement);
+            m_settings->app()->setCurrentProfile(replacement);
         }
     }
 
@@ -1645,8 +1646,8 @@ bool ProfileManager::saveProfile(const QString& filename) {
             }
 
             // If it was a built-in and is in favorites, the favorite now points to user copy
-            if (wasBuiltIn && m_settings->isFavoriteProfile(m_baseProfileName)) {
-                m_settings->updateFavoriteProfile(m_baseProfileName, filename, m_currentProfile.title());
+            if (wasBuiltIn && m_settings->app()->isFavoriteProfile(m_baseProfileName)) {
+                m_settings->app()->updateFavoriteProfile(m_baseProfileName, filename, m_currentProfile.title());
             }
         }
 
@@ -1702,18 +1703,18 @@ bool ProfileManager::saveProfileAs(const QString& filename, const QString& title
     if (success) {
         m_baseProfileName = filename;
         if (m_settings) {
-            m_settings->setCurrentProfile(filename);
+            m_settings->app()->setCurrentProfile(filename);
 
             // Handle favorites based on whether this is a true "Save As" or just "Save"
             if (!oldFilename.isEmpty() && oldFilename != filename) {
                 // True "Save As" - keep original favorite, add new profile to favorites
-                m_settings->addFavoriteProfile(title, filename);
+                m_settings->app()->addFavoriteProfile(title, filename);
             } else if (!oldFilename.isEmpty()) {
                 // Same filename - just update the title if it changed
-                m_settings->updateFavoriteProfile(oldFilename, filename, title);
+                m_settings->app()->updateFavoriteProfile(oldFilename, filename, title);
             } else {
                 // New profile (no old filename) - add to favorites
-                m_settings->addFavoriteProfile(title, filename);
+                m_settings->app()->addFavoriteProfile(title, filename);
             }
         }
         markProfileClean();
@@ -1936,7 +1937,7 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
     m_profileModified = true;
 
     if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);
+        m_settings->app()->setSelectedFavoriteProfile(-1);
         m_settings->brew()->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->brew()->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
@@ -2024,7 +2025,7 @@ void ProfileManager::createNewProfile(const QString& title) {
     m_profileModified = true;
 
     if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
+        m_settings->app()->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
         m_settings->brew()->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->brew()->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
@@ -2286,7 +2287,7 @@ void ProfileManager::applyFlowCalibration() {
 void ProfileManager::loadDefaultProfile() {
     m_currentProfile = Profile::loadFromFile(QStringLiteral(":/profiles/default.json"));
     if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);
+        m_settings->app()->setSelectedFavoriteProfile(-1);
         if (m_startupLoadDone || !m_settings->brew()->hasBrewYieldOverride())
             m_settings->brew()->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->brew()->setTemperatureOverride(m_currentProfile.espressoTemperature());
@@ -2748,11 +2749,11 @@ void ProfileManager::migrateReadOnlyProfiles() {
         // favorites pointing to intermediate filename)
         if (newFilename != filename) {
             if (m_settings) {
-                if (m_settings->isFavoriteProfile(filename)) {
-                    m_settings->updateFavoriteProfile(filename, newFilename, newTitle);
+                if (m_settings->app()->isFavoriteProfile(filename)) {
+                    m_settings->app()->updateFavoriteProfile(filename, newFilename, newTitle);
                 }
-                if (m_settings->currentProfile() == filename) {
-                    m_settings->setCurrentProfile(newFilename);
+                if (m_settings->app()->currentProfile() == filename) {
+                    m_settings->app()->setCurrentProfile(newFilename);
                     qDebug() << "migrateReadOnlyProfiles: updated currentProfile:"
                              << filename << "->" << newFilename;
                 }

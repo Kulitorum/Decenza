@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../core/settings.h"
@@ -78,12 +79,12 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("postShotReviewTimeout", "machine")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
             if (include("keepSteamHeaterOn", "machine")) result["keepSteamHeaterOn"] = settings->brew()->keepSteamHeaterOn();
             if (include("steamAutoFlushSeconds", "machine")) result["steamAutoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
-            if (include("refillKitOverride", "machine")) result["refillKitOverride"] = settings->refillKitOverride();
-            if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->waterRefillPoint();
-            if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
+            if (include("refillKitOverride", "machine")) result["refillKitOverride"] = settings->app()->refillKitOverride();
+            if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->app()->waterRefillPoint();
+            if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->app()->waterLevelDisplayUnit();
             if (include("screenBrightness", "machine")) result["screenBrightness"] = settings->theme()->screenBrightness();
             if (include("defaultShotRating", "machine")) result["defaultShotRating"] = settings->visualizer()->defaultShotRating();
-            if (include("launcherMode", "machine")) result["launcherMode"] = settings->launcherMode();
+            if (include("launcherMode", "machine")) result["launcherMode"] = settings->app()->launcherMode();
             {
                 auto* aw = settings->autoWake();
                 if (include("autoWakeEnabled", "machine")) result["autoWakeEnabled"] = aw->autoWakeEnabled();
@@ -158,7 +159,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("espressoTemperature", "espresso")) result["espressoTemperatureC"] = settings->brew()->espressoTemperature();
             if (include("targetWeight", "espresso")) result["targetWeightG"] = settings->brew()->targetWeight();
             if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = settings->brew()->lastUsedRatio();
-            if (include("currentProfile", "espresso")) result["currentProfile"] = settings->currentProfile();
+            if (include("currentProfile", "espresso")) result["currentProfile"] = settings->app()->currentProfile();
 
             // === Steam ===
             if (include("steamTemperature", "steam")) result["steamTemperatureC"] = settings->brew()->steamTemperature();
@@ -223,12 +224,12 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // visualizerUsername/Password excluded — sensitive
 
             // === Update ===
-            if (include("autoCheckUpdates", "update")) result["autoCheckUpdates"] = settings->autoCheckUpdates();
-            if (include("betaUpdatesEnabled", "update")) result["betaUpdatesEnabled"] = settings->betaUpdatesEnabled();
+            if (include("autoCheckUpdates", "update")) result["autoCheckUpdates"] = settings->app()->autoCheckUpdates();
+            if (include("betaUpdatesEnabled", "update")) result["betaUpdatesEnabled"] = settings->app()->betaUpdatesEnabled();
 
             // === Data ===
             if (include("webSecurityEnabled", "data")) result["webSecurityEnabled"] = settings->network()->webSecurityEnabled();
-            if (include("dailyBackupHour", "data")) result["dailyBackupHour"] = settings->dailyBackupHour();
+            if (include("dailyBackupHour", "data")) result["dailyBackupHour"] = settings->app()->dailyBackupHour();
             if (include("shotServerEnabled", "data")) result["shotServerEnabled"] = settings->network()->shotServerEnabled();
             if (include("shotServerPort", "data")) result["shotServerPort"] = settings->network()->shotServerPort();
 
@@ -242,8 +243,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             }
 
             // === Debug ===
-            if (include("simulationMode", "debug")) result["simulationMode"] = settings->simulationMode();
-            if (include("hideGhcSimulator", "debug")) result["hideGhcSimulator"] = settings->hideGhcSimulator();
+            if (include("simulationMode", "debug")) result["simulationMode"] = settings->app()->simulationMode();
+            if (include("hideGhcSimulator", "debug")) result["hideGhcSimulator"] = settings->app()->hideGhcSimulator();
 
             // === Battery ===
             if (battery) {

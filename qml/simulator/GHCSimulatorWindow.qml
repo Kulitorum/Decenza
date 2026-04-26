@@ -10,7 +10,7 @@ Window {
     height: 470
     minimumWidth: 300
     minimumHeight: 350
-    visible: !Settings.hideGhcSimulator
+    visible: !Settings.app.hideGhcSimulator
     color: "#1a1a1a"
 
     // Restore window position on load (not size - keep default to match real device)
@@ -26,7 +26,7 @@ Window {
     // Route close via the setting to preserve the visible binding
     onClosing: function(close) {
         close.accepted = false
-        Settings.hideGhcSimulator = true
+        Settings.app.hideGhcSimulator = true
     }
     onVisibleChanged: {
         if (!visible && x >= 0 && y >= 0) {

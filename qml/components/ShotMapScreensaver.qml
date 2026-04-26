@@ -8,7 +8,7 @@ Item {
     property bool running: true
     property bool widgetMode: false  // When true: no overlays, smaller dots
     // Fall back to flat when Quick3D unavailable
-    property string mapShape: (!Settings.hasQuick3D && ScreensaverManager.shotMapShape === "globe")
+    property string mapShape: (!Settings.app.hasQuick3D && ScreensaverManager.shotMapShape === "globe")
                               ? "flat" : ScreensaverManager.shotMapShape
     property string mapTexture: ScreensaverManager.shotMapTexture  // "dark", "bright", "satellite"
     property bool showClock: widgetMode ? false : ScreensaverManager.shotMapShowClock
@@ -377,7 +377,7 @@ Item {
     Loader {
         id: globeLoader
         anchors.fill: parent
-        active: Settings.hasQuick3D && mapShape === "globe"
+        active: Settings.app.hasQuick3D && mapShape === "globe"
         visible: mapShape === "globe"
         source: "qrc:/qt/qml/Decenza/qml/components/ShotMapGlobe.qml"
         onLoaded: {
@@ -400,7 +400,7 @@ Item {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
-        text: Qt.formatTime(currentTime, Settings.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Qt.formatTime(currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
         color: mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: Theme.scaled(48)
         font.bold: true

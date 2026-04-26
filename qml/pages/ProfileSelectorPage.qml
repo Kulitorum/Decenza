@@ -220,16 +220,16 @@ Page {
                         // Use binding blocks to ensure re-evaluation when lists change
                         property bool isSelected: {
                             if (isBuiltIn) {
-                                var list = Settings.selectedBuiltInProfiles  // Create dependency
-                                return Settings.isSelectedBuiltInProfile(modelData.name)
+                                var list = Settings.app.selectedBuiltInProfiles  // Create dependency
+                                return Settings.app.isSelectedBuiltInProfile(modelData.name)
                             } else {
-                                var hidden = Settings.hiddenProfiles  // Create dependency
-                                return !Settings.isHiddenProfile(modelData.name)
+                                var hidden = Settings.app.hiddenProfiles  // Create dependency
+                                return !Settings.app.isHiddenProfile(modelData.name)
                             }
                         }
                         property bool isFavorite: {
-                            var list = Settings.favoriteProfiles  // Create dependency
-                            return Settings.isFavoriteProfile(modelData.name)
+                            var list = Settings.app.favoriteProfiles  // Create dependency
+                            return Settings.app.isFavoriteProfile(modelData.name)
                         }
                         property bool isCurrentProfile: modelData.name === ProfileManager.currentProfileName
 
@@ -357,21 +357,21 @@ Page {
                                 onClicked: {
                                     if (profileDelegate.isBuiltIn) {
                                         if (profileDelegate.isSelected) {
-                                            Settings.removeSelectedBuiltInProfile(modelData.name)
+                                            Settings.app.removeSelectedBuiltInProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected"))
                                             profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
-                                            Settings.addSelectedBuiltInProfile(modelData.name)
+                                            Settings.app.addSelectedBuiltInProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
                                             profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                                         }
                                     } else {
                                         if (profileDelegate.isSelected) {
-                                            Settings.addHiddenProfile(modelData.name)
+                                            Settings.app.addHiddenProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.removed_from_selected", "Removed from selected"))
                                             profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_selected", "Removed from selected"))
                                         } else {
-                                            Settings.removeHiddenProfile(modelData.name)
+                                            Settings.app.removeHiddenProfile(modelData.name)
                                             AccessibilityManager.announce(TranslationManager.translate("profileselector.announce.added_to_selected", "Added to selected"))
                                             profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_selected", "Added to selected"))
                                         }
@@ -385,7 +385,7 @@ Page {
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
-                                enabled: profileDelegate.isFavorite || Settings.favoriteProfiles.length < 50
+                                enabled: profileDelegate.isFavorite || Settings.app.favoriteProfiles.length < 50
                                 icon.source: profileDelegate.isFavorite ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
                                 active: profileDelegate.isFavorite
                                 accessibleName: profileDelegate.isFavorite ? TranslationManager.translate("profileselector.accessible.remove_from_favorites", "Remove from favorites") : TranslationManager.translate("profileselector.accessible.add_to_favorites", "Add to favorites")
@@ -393,16 +393,16 @@ Page {
                                 onClicked: {
                                     if (profileDelegate.isFavorite) {
                                         // Find and remove from favorites
-                                        var favs = Settings.favoriteProfiles
+                                        var favs = Settings.app.favoriteProfiles
                                         for (var i = 0; i < favs.length; i++) {
                                             if (favs[i].filename === modelData.name) {
-                                                Settings.removeFavoriteProfile(i)
+                                                Settings.app.removeFavoriteProfile(i)
                                                 break
                                             }
                                         }
                                         profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.removed_from_favorites", "Removed from favorites"))
                                     } else {
-                                        Settings.addFavoriteProfile(modelData.title, modelData.name)
+                                        Settings.app.addFavoriteProfile(modelData.title, modelData.name)
                                         profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.added_to_favorites", "Added to favorites"))
                                     }
                                 }
@@ -489,9 +489,9 @@ Page {
                                 visible: viewFilter.currentIndex === 0  // Only on "Selected" view
                                 onTriggered: {
                                     if (profileDelegate.isBuiltIn) {
-                                        Settings.removeSelectedBuiltInProfile(modelData.name)
+                                        Settings.app.removeSelectedBuiltInProfile(modelData.name)
                                     } else {
-                                        Settings.addHiddenProfile(modelData.name)
+                                        Settings.app.addHiddenProfile(modelData.name)
                                     }
                                 }
 
@@ -623,7 +623,7 @@ Page {
                     }
 
                     Text {
-                        text: "(" + Settings.favoriteProfiles.length + ")"
+                        text: "(" + Settings.app.favoriteProfiles.length + ")"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -631,7 +631,7 @@ Page {
                     Item { Layout.fillWidth: true }
 
                     Tr {
-                        visible: Settings.favoriteProfiles.length > 1
+                        visible: Settings.app.favoriteProfiles.length > 1
                         key: "profileselector.favorites.drag_hint"
                         fallback: "Drag to reorder"
                         font: Theme.captionFont
@@ -641,7 +641,7 @@ Page {
 
                 // Empty state
                 Tr {
-                    visible: Settings.favoriteProfiles.length === 0
+                    visible: Settings.app.favoriteProfiles.length === 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     key: "profileselector.favorites.empty"
@@ -658,7 +658,7 @@ Page {
                     id: nonFavoritePill
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(60)
-                    visible: Settings.selectedFavoriteProfile === -1
+                    visible: Settings.app.selectedFavoriteProfile === -1
                     radius: Theme.scaled(8)
                     color: Theme.successColor
                     border.color: Theme.successColor
@@ -718,9 +718,9 @@ Page {
                     id: favoritesList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: Settings.favoriteProfiles.length > 0
-                    model: Settings.favoriteProfiles
-                    selectedIndex: Settings.selectedFavoriteProfile
+                    visible: Settings.app.favoriteProfiles.length > 0
+                    model: Settings.app.favoriteProfiles
+                    selectedIndex: Settings.app.selectedFavoriteProfile
                     rowAccessibleDescription: TranslationManager.translate(
                         "profileselector.accessible.row_hint",
                         "Double-tap or long-press to open profile editor.")
@@ -728,7 +728,7 @@ Page {
                     displayTextFn: function(row, index) {
                         if (!row) return ""
                         var name = row.name
-                        if (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified) {
+                        if (index === Settings.app.selectedFavoriteProfile && ProfileManager.profileModified) {
                             return ProfileManager.isCurrentProfileReadOnly
                                 ? name + " " + TranslationManager.translate("profileselector.modified_suffix", "(modified)") : "*" + name
                         }
@@ -736,9 +736,9 @@ Page {
                     }
                     accessibleNameFn: function(row, index) {
                         if (!row) return ""
-                        var modified = (index === Settings.selectedFavoriteProfile && ProfileManager.profileModified)
+                        var modified = (index === Settings.app.selectedFavoriteProfile && ProfileManager.profileModified)
                             ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
-                        var status = index === Settings.selectedFavoriteProfile
+                        var status = index === Settings.app.selectedFavoriteProfile
                             ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite")
                             : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite")
                         return root.cleanForSpeech(row.name) + modified + status
@@ -761,7 +761,7 @@ Page {
 
                             onClicked: {
                                 if (!parent.row) return
-                                Settings.selectedFavoriteProfile = parent.rowIndex
+                                Settings.app.selectedFavoriteProfile = parent.rowIndex
                                 ProfileManager.loadProfile(parent.row.filename)
                                 root.goToProfileEditor()
                             }
@@ -769,28 +769,28 @@ Page {
                     }
 
                     onRowLongPressed: function(index) {
-                        var fav = Settings.favoriteProfiles[index]
+                        var fav = Settings.app.favoriteProfiles[index]
                         if (!fav) return
-                        Settings.selectedFavoriteProfile = index
+                        Settings.app.selectedFavoriteProfile = index
                         ProfileManager.loadProfile(fav.filename)
                         root.goToProfileEditor()
                     }
                     onRowSelected: function(index) {
-                        var fav = Settings.favoriteProfiles[index]
+                        var fav = Settings.app.favoriteProfiles[index]
                         if (!fav) return
-                        if (index !== Settings.selectedFavoriteProfile) {
+                        if (index !== Settings.app.selectedFavoriteProfile) {
                             ProfileManager.loadProfile(fav.filename)
-                            Settings.selectedFavoriteProfile = index
+                            Settings.app.selectedFavoriteProfile = index
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                                 AccessibilityManager.announce(root.cleanForSpeech(fav.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
                             }
                         }
                     }
-                    onRowMoved: function(from, to) { Settings.moveFavoriteProfile(from, to) }
+                    onRowMoved: function(from, to) { Settings.app.moveFavoriteProfile(from, to) }
                     onRowDeleted: function(index) {
-                        var fav = Settings.favoriteProfiles[index]
+                        var fav = Settings.app.favoriteProfiles[index]
                         var name = fav ? root.cleanForSpeech(fav.name) : ""
-                        Settings.removeFavoriteProfile(index)
+                        Settings.app.removeFavoriteProfile(index)
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(name + " " + TranslationManager.translate("profileselector.accessible.removed_from_favorites", "removed from favorites"))
                         }

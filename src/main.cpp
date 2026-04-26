@@ -47,6 +47,7 @@
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
 #include "core/settings_network.h"
+#include "core/settings_app.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -468,13 +469,13 @@ int main(int argc, char *argv[])
 
     // Disable BLE when simulation mode is active
 #ifdef QT_DEBUG
-    bleManager.setDisabled(settings.simulationMode());
+    bleManager.setDisabled(settings.app()->simulationMode());
 #endif
 
     DE1Device de1Device;
     de1Device.setSettings(settings.hardware());  // Heater calibration sent to firmware
-    qDebug() << "Simulation mode:" << (settings.simulationMode() ? "ON" : "off");
-    de1Device.setSimulationMode(settings.simulationMode());  // Restore simulation mode from settings
+    qDebug() << "Simulation mode:" << (settings.app()->simulationMode() ? "ON" : "off");
+    de1Device.setSimulationMode(settings.app()->simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
     FlowScale flowScale;  // Virtual scale using DE1 flow data (fallback when no BLE scale)
     ShotDataModel shotDataModel;
@@ -904,13 +905,13 @@ int main(int argc, char *argv[])
     // Relay client for Pocket app remote control via AWS WebSocket
     RelayClient relayClient(&de1Device, &machineState, &settings);
     mainController.shotServer()->setRelayClient(&relayClient);
-    if (!settings.pocketPairingToken().isEmpty() && settings.screenCaptureEnabled()) {
+    if (!settings.app()->pocketPairingToken().isEmpty() && settings.app()->screenCaptureEnabled()) {
         relayClient.setEnabled(true);
     }
 
     // React to setting changes at runtime
-    QObject::connect(&settings, &Settings::screenCaptureEnabledChanged, [&relayClient, &settings]() {
-        if (settings.screenCaptureEnabled() && !settings.pocketPairingToken().isEmpty()) {
+    QObject::connect(settings.app(), &SettingsApp::screenCaptureEnabledChanged, [&relayClient, &settings]() {
+        if (settings.app()->screenCaptureEnabled() && !settings.app()->pocketPairingToken().isEmpty()) {
             relayClient.setEnabled(true);
         } else {
             relayClient.setEnabled(false);
@@ -1642,6 +1643,8 @@ int main(int argc, char *argv[])
         "SettingsDye is created in C++");
     qmlRegisterUncreatableType<SettingsNetwork>("Decenza", 1, 0, "SettingsNetworkType",
         "SettingsNetwork is created in C++");
+    qmlRegisterUncreatableType<SettingsApp>("Decenza", 1, 0, "SettingsAppType",
+        "SettingsApp is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");
@@ -1696,7 +1699,7 @@ int main(int argc, char *argv[])
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
 #endif
 
-    if (settings.simulationMode()) {
+    if (settings.app()->simulationMode()) {
         qDebug() << "Creating DE1 Simulator...";
 
         // Create the DE1 machine simulator
@@ -1783,7 +1786,7 @@ int main(int argc, char *argv[])
         // Disabled → scale disconnected (isConnected()=false suppresses SAV skip naturally),
         //            weight signals cut so SAW doesn't fire either.
         auto applySimulatedScaleEnabled = [&de1Simulator, &simulatedScale, &weightProcessor, &settings]() {
-            if (settings.simulatedScaleEnabled()) {
+            if (settings.app()->simulatedScaleEnabled()) {
                 simulatedScale.simulateConnection();
                 QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
                                  &simulatedScale, &SimulatedScale::setSimulatedWeight,
@@ -1799,7 +1802,7 @@ int main(int argc, char *argv[])
                                     &weightProcessor, &WeightProcessor::processWeight);
             }
         };
-        QObject::connect(&settings, &Settings::simulatedScaleEnabledChanged,
+        QObject::connect(settings.app(), &SettingsApp::simulatedScaleEnabledChanged,
                          &simulatedScale, [applySimulatedScaleEnabled]() {
             applySimulatedScaleEnabled();
         });
@@ -1835,7 +1838,7 @@ int main(int argc, char *argv[])
 
     // Purge the simulated-scale entry when not running in simulation mode, so a
     // prior debug session's placeholder doesn't leak into the real connection UI.
-    if (!settings.simulationMode()) {
+    if (!settings.app()->simulationMode()) {
         settings.removeKnownScale(QStringLiteral("sim:00:00:00:00:00:00"));
     }
 
@@ -2002,7 +2005,7 @@ int main(int argc, char *argv[])
     }
 
     // Sync launcher alias with persisted setting (APK updates reset component states)
-    settings.setLauncherMode(settings.launcherMode());
+    settings.app()->setLauncherMode(settings.app()->launcherMode());
 #endif
 
     // Cross-platform lifecycle handling: manage BLE connections and system state

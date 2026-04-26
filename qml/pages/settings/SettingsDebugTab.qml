@@ -172,16 +172,16 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.hideGhcSimulator
+                            checked: Settings.app.hideGhcSimulator
                             accessibleName: TranslationManager.translate("debug.hideGhcSimulator", "Hide GHC Simulator")
-                            onToggled: Settings.hideGhcSimulator = checked
+                            onToggled: Settings.app.hideGhcSimulator = checked
                         }
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(20)
-                        visible: Settings.simulationMode
+                        visible: Settings.app.simulationMode
 
                         Tr {
                             key: "debug.simulatedScaleEnabled"
@@ -194,9 +194,9 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.simulatedScaleEnabled
+                            checked: Settings.app.simulatedScaleEnabled
                             accessibleName: TranslationManager.translate("debug.simulatedScaleEnabled", "Simulated Scale")
-                            onToggled: Settings.simulatedScaleEnabled = checked
+                            onToggled: Settings.app.simulatedScaleEnabled = checked
                         }
                     }
                 }
@@ -579,9 +579,9 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.developerTranslationUpload
+                            checked: Settings.app.developerTranslationUpload
                             accessibleName: TranslationManager.translate("settings.debug.enableUpload", "Enable translation upload")
-                            onToggled: Settings.developerTranslationUpload = checked
+                            onToggled: Settings.app.developerTranslationUpload = checked
                         }
                     }
 

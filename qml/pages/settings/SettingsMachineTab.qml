@@ -930,16 +930,16 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: Settings.launcherMode
+                                checked: Settings.app.launcherMode
                                 accessibleName: TranslationManager.translate(
                                     "settings.options.useAsLauncher", "Use as Home Screen")
-                                onToggled: Settings.launcherMode = checked
+                                onToggled: Settings.app.launcherMode = checked
                             }
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            visible: Settings.launcherMode
+                            visible: Settings.app.launcherMode
                             text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
                             color: Theme.warningColor
                             font.family: Theme.captionFont.family
@@ -966,8 +966,8 @@ KeyboardAwareContainer {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
-                    property bool refillKitActive: Settings.refillKitOverride === 1 ||
-                                                    (Settings.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
+                    property bool refillKitActive: Settings.app.refillKitOverride === 1 ||
+                                                    (Settings.app.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
 
                     ColumnLayout {
                         id: waterLevelContent
@@ -1084,10 +1084,10 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: Settings.waterLevelDisplayUnit === "ml"
+                                checked: Settings.app.waterLevelDisplayUnit === "ml"
                                 accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters")
                                 onToggled: {
-                                    Settings.waterLevelDisplayUnit = checked ? "ml" : "percent"
+                                    Settings.app.waterLevelDisplayUnit = checked ? "ml" : "percent"
                                 }
                             }
                         }
@@ -1103,7 +1103,7 @@ KeyboardAwareContainer {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
                     visible: {
-                        var override = Settings.refillKitOverride
+                        var override = Settings.app.refillKitOverride
                         var detected = DE1Device.refillKitDetected === 1
                         return override === 0 || (override === 2 && !detected)
                     }
@@ -1138,11 +1138,11 @@ KeyboardAwareContainer {
                             to: 70
                             stepSize: 1
                             decimals: 0
-                            value: Settings.waterRefillPoint
+                            value: Settings.app.waterRefillPoint
                             suffix: " mm"
                             accessibleName: TranslationManager.translate("settings.options.waterRefillLevelAccessible", "Water refill level")
                             onValueModified: function(newValue) {
-                                Settings.waterRefillPoint = newValue
+                                Settings.app.waterRefillPoint = newValue
                             }
                         }
                     }
@@ -1213,9 +1213,9 @@ KeyboardAwareContainer {
                                     width: (parent.width - 2 * parent.spacing) / 3
                                     height: parent.height
                                     radius: Theme.scaled(6)
-                                    color: Settings.refillKitOverride === modelData.value ?
+                                    color: Settings.app.refillKitOverride === modelData.value ?
                                            Theme.primaryColor : Theme.backgroundColor
-                                    border.color: Settings.refillKitOverride === modelData.value ?
+                                    border.color: Settings.app.refillKitOverride === modelData.value ?
                                                   Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
 
@@ -1225,7 +1225,7 @@ KeyboardAwareContainer {
 
                                         Text {
                                             text: modelData.label
-                                            color: Settings.refillKitOverride === modelData.value ?
+                                            color: Settings.app.refillKitOverride === modelData.value ?
                                                    Theme.primaryContrastColor : Theme.textColor
                                             font.pixelSize: Theme.scaled(14)
                                             font.bold: true
@@ -1234,7 +1234,7 @@ KeyboardAwareContainer {
 
                                         Text {
                                             text: modelData.desc
-                                            color: Settings.refillKitOverride === modelData.value ?
+                                            color: Settings.app.refillKitOverride === modelData.value ?
                                                    Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
                                             font.pixelSize: Theme.scaled(10)
                                             Layout.alignment: Qt.AlignHCenter
@@ -1244,9 +1244,9 @@ KeyboardAwareContainer {
                                     AccessibleMouseArea {
                                         anchors.fill: parent
                                         accessibleName: modelData.label + " refill kit mode. " + modelData.desc +
-                                                       (Settings.refillKitOverride === modelData.value ? ", selected" : "")
+                                                       (Settings.app.refillKitOverride === modelData.value ? ", selected" : "")
                                         accessibleItem: refillKitButton
-                                        onAccessibleClicked: Settings.refillKitOverride = modelData.value
+                                        onAccessibleClicked: Settings.app.refillKitOverride = modelData.value
                                     }
                                 }
                             }
@@ -1300,10 +1300,10 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: Settings.screenCaptureEnabled
+                                checked: Settings.app.screenCaptureEnabled
                                 accessibleName: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
                                 onToggled: {
-                                    Settings.screenCaptureEnabled = checked
+                                    Settings.app.screenCaptureEnabled = checked
                                 }
                             }
                         }
@@ -1355,7 +1355,7 @@ KeyboardAwareContainer {
 
                             // Status indicator when simulation mode is active
                             Rectangle {
-                                visible: Settings.simulationMode
+                                visible: Settings.app.simulationMode
                                 Layout.leftMargin: Theme.scaled(8)
                                 implicitWidth: statusLabel.implicitWidth + Theme.scaled(12)
                                 implicitHeight: Theme.scaled(20)
@@ -1381,18 +1381,18 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: Settings.simulationMode
+                                checked: Settings.app.simulationMode
                                 accessibleName: TranslationManager.translate("settings.machine.simulationMode", "Simulation Mode")
                                 onToggled: {
                                     // Save to persistent Settings — takes effect on next launch
-                                    Settings.simulationMode = checked
+                                    Settings.app.simulationMode = checked
                                 }
                             }
                         }
 
                         Text {
                             id: restartRequiredText
-                            visible: Settings.simulationMode !== DE1Device.simulationMode
+                            visible: Settings.app.simulationMode !== DE1Device.simulationMode
                             text: TranslationManager.translate("settings.preferences.restartRequired", "Restart required for this change to take effect")
                             color: Theme.warningColor
                             font.family: Theme.bodyFont.family
@@ -1501,7 +1501,7 @@ KeyboardAwareContainer {
                 Loader {
                     id: mapLoader
                     anchors.fill: parent
-                    active: mapTestPopup.visible && Settings.hasQuick3D
+                    active: mapTestPopup.visible && Settings.app.hasQuick3D
                     source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
                     onLoaded: {
                         item.testMode = true
@@ -1513,7 +1513,7 @@ KeyboardAwareContainer {
                 // Fallback when Quick3D is not available
                 Text {
                     anchors.centerIn: parent
-                    visible: !Settings.hasQuick3D
+                    visible: !Settings.app.hasQuick3D
                     text: TranslationManager.translate("settings.options.quick3dRequired", "3D Map requires Qt Quick3D\n(not available on this platform)")
                     color: Theme.textSecondaryColor
                     horizontalAlignment: Text.AlignHCenter

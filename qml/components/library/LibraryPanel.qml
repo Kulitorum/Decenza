@@ -45,7 +45,7 @@ Rectangle {
         var entries = LibrarySharing.communityEntries
         for (var i = 0; i < entries.length; i++) {
             if (entries[i].id === WidgetLibrary.selectedEntryId)
-                return entries[i].deviceId === Settings.deviceId()
+                return entries[i].deviceId === Settings.app.deviceId()
         }
         return false
     }

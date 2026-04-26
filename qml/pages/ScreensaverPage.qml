@@ -441,7 +441,7 @@ Page {
     Loader {
         id: pipesLoader
         anchors.fill: parent
-        active: Settings.hasQuick3D && isPipesMode && !appSuspended
+        active: Settings.app.hasQuick3D && isPipesMode && !appSuspended
         visible: isPipesMode
         z: 0
         source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
@@ -569,7 +569,7 @@ Page {
         anchors.right: parent.right
         anchors.margins: Theme.scaled(50)
         anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20)  // Above credits bar
-        text: Qt.formatTime(currentTime, Settings.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Qt.formatTime(currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
         color: Theme.primaryContrastColor
         opacity: 0.8
         font.pixelSize: Theme.scaled(80)

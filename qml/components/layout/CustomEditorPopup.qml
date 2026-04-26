@@ -161,7 +161,7 @@ Dialog {
         result = result.replace(/%CONNECTED_COLOR%/g, Theme.successColor)
         result = result.replace(/%DEVICES%/g, "Machine + Scale")
         var now = new Date()
-        result = result.replace(/%TIME%/g, Qt.formatTime(now, Settings.use12HourTime ? "h:mmap" : "hh:mm"))
+        result = result.replace(/%TIME%/g, Qt.formatTime(now, Settings.app.use12HourTime ? "h:mmap" : "hh:mm"))
         result = result.replace(/%DATE%/g, Qt.formatDate(now, "yyyy-MM-dd"))
         // Convert any emoji Unicode to <img> tags to avoid CoreText crash on macOS
         return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize)

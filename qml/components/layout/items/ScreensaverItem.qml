@@ -24,7 +24,7 @@ Item {
     readonly property bool requiresQuick3D:
         screensaverSubtype === "pipes"
 
-    readonly property bool canRender: !requiresQuick3D || Settings.hasQuick3D
+    readonly property bool canRender: !requiresQuick3D || Settings.app.hasQuick3D
 
     readonly property string displayLabel: {
         switch (screensaverSubtype) {
@@ -120,7 +120,7 @@ Item {
             // Pipes preview (Quick3D) — only create when compact to avoid duplicate View3D
             Loader {
                 anchors.fill: parent
-                active: Settings.hasQuick3D && root.screensaverSubtype === "pipes" && root.isCompact
+                active: Settings.app.hasQuick3D && root.screensaverSubtype === "pipes" && root.isCompact
                 visible: root.screensaverSubtype === "pipes"
                 source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
                 onLoaded: item.running = Qt.binding(function() {
@@ -218,7 +218,7 @@ Item {
             // 3D Pipes — Loader with qrc path (requires Quick3D)
             Loader {
                 anchors.fill: parent
-                active: Settings.hasQuick3D && root.screensaverSubtype === "pipes" && !root.isCompact
+                active: Settings.app.hasQuick3D && root.screensaverSubtype === "pipes" && !root.isCompact
                 visible: root.screensaverSubtype === "pipes"
                 source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
                 onLoaded: item.running = Qt.binding(function() {

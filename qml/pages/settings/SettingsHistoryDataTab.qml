@@ -312,9 +312,9 @@ KeyboardAwareContainer {
                             }
                             return times;
                         }
-                        currentIndex: Settings.dailyBackupHour + 1  // +1 because "Off" is index 0
+                        currentIndex: Settings.app.dailyBackupHour + 1  // +1 because "Off" is index 0
                         onActivated: {
-                            Settings.dailyBackupHour = currentIndex - 1;  // -1 to map back to hour (-1 = off)
+                            Settings.app.dailyBackupHour = currentIndex - 1;  // -1 to map back to hour (-1 = off)
                         }
                     }
                 }
@@ -322,9 +322,9 @@ KeyboardAwareContainer {
                 // Status text
                 Text {
                     Layout.fillWidth: true
-                    visible: Settings.dailyBackupHour >= 0
+                    visible: Settings.app.dailyBackupHour >= 0
                     text: {
-                        var hour = Settings.dailyBackupHour.toString().padStart(2, '0');
+                        var hour = Settings.app.dailyBackupHour.toString().padStart(2, '0');
                         return TranslationManager.translate("settings.data.nextbackup",
                             "Next backup: today at %1:00").replace("%1", hour);
                     }
