@@ -1,0 +1,27 @@
+{
+  "_comment": "SAW prediction corpus extracted from per-shot debug logs (mcp__de1__shots_get_debug_log) on 2026-04-26. The persistent debug log (debug_get_log) only retained 4 [SAW] accuracy lines for the working session; the rest of the corpus comes from per-shot logs which preserve the [SAW-Worker] Stop triggered + [SAW] Weight stabilized lines. Drip is computed as (settled_weight - stop_trigger_weight). Predicted drip is the [SAW-Worker] Stop triggered 'expectedDrip' value (WeightProcessor::getExpectedDrip snapshot). Overshoot is (settled_weight - target). Order is chronological (oldest first).",
+  "shots": [
+    { "id": 860, "ts": "2026-04-17T11:00:23-06:00", "profile": "d_flow_q",       "scale": "Decent Scale", "flow": 1.77156, "drip": 1.3, "overshoot":  0.1, "live_predicted": 1.35224 },
+    { "id": 861, "ts": "2026-04-17T11:05:11-06:00", "profile": "d_flow_q",       "scale": "Decent Scale", "flow": 1.51422, "drip": 0.9, "overshoot": -0.3, "live_predicted": 1.34738 },
+    { "id": 862, "ts": "2026-04-18T10:52:12-06:00", "profile": "d_flow_q",       "scale": "Decent Scale", "flow": 1.91854, "drip": 1.4, "overshoot":  0.3, "live_predicted": 1.23876 },
+    { "id": 863, "ts": "2026-04-19T08:56:37-06:00", "profile": "d_flow_q",       "scale": "Decent Scale", "flow": 2.30437, "drip": 0.8, "overshoot": -0.4, "live_predicted": 1.23827 },
+    { "id": 865, "ts": "2026-04-19T17:43:05-06:00", "profile": "d_flow_q",       "scale": "Decent Scale", "flow": 1.85428, "drip": 1.0, "overshoot": -0.1, "live_predicted": 1.19510 },
+    { "id": 866, "ts": "2026-04-20T08:03:50-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.34241, "drip": 1.0, "overshoot": -0.1, "live_predicted": 1.16446 },
+    { "id": 867, "ts": "2026-04-20T08:24:31-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 1.94799, "drip": 0.7, "overshoot": -0.3, "live_predicted": 1.14986 },
+    { "id": 869, "ts": "2026-04-20T10:04:12-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 3.29669, "drip": 1.1, "overshoot":  0.3, "live_predicted": 1.05442 },
+    { "id": 870, "ts": "2026-04-20T11:58:27-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 5.20277, "drip": 2.5, "overshoot":  1.5, "live_predicted": 1.26968 },
+    { "id": 871, "ts": "2026-04-20T12:03:48-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 3.54956, "drip": 1.0, "overshoot":  0.1, "live_predicted": 1.23231 },
+    { "id": 872, "ts": "2026-04-20T12:09:44-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 1.99429, "drip": 0.9, "overshoot": -0.1, "live_predicted": 1.03878 },
+    { "id": 873, "ts": "2026-04-21T10:04:43-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.45575, "drip": 1.4, "overshoot":  0.4, "live_predicted": 1.02570 },
+    { "id": 874, "ts": "2026-04-21T10:35:09-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 4.72923, "drip": 2.4, "overshoot":  1.3, "live_predicted": 1.45540 },
+    { "id": 875, "ts": "2026-04-22T08:23:57-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.03703, "drip": 1.1, "overshoot":  0.1, "live_predicted": 1.12862 },
+    { "id": 876, "ts": "2026-04-22T10:53:50-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.28965, "drip": 1.1, "overshoot":  0.1, "live_predicted": 1.13770 },
+    { "id": 877, "ts": "2026-04-23T10:30:28-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 3.04313, "drip": 2.8, "overshoot":  1.6, "live_predicted": 1.24037 },
+    { "id": 878, "ts": "2026-04-23T10:55:01-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.36582, "drip": 0.5, "overshoot": -0.9, "live_predicted": 1.41734 },
+    { "id": 880, "ts": "2026-04-24T10:07:04-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.66157, "drip": 1.1, "overshoot": -0.1, "live_predicted": 1.33988 },
+    { "id": 882, "ts": "2026-04-25T11:34:11-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 2.29215, "drip": 1.05, "overshoot": -0.05, "live_predicted": 1.10023 },
+    { "id": 884, "ts": "2026-04-25T11:58:17-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 1.38627, "drip": 0.7, "overshoot": -0.3, "live_predicted": 0.66541 },
+    { "id": 886, "ts": "2026-04-26T09:44:25-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 1.52413, "drip": 0.72, "overshoot": -0.5, "live_predicted": 0.73159 },
+    { "id": 887, "ts": "2026-04-26T11:19:17-06:00", "profile": "80_s_espresso",  "scale": "Decent Scale", "flow": 1.21571, "drip": 0.2, "overshoot": -0.9, "live_predicted": 0.58354 }
+  ]
+}

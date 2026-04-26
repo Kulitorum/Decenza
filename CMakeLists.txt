@@ -1017,4 +1017,37 @@ if(NOT ANDROID AND NOT IOS)
     # tool itself doesn't open any databases.
     target_link_libraries(shot_eval PRIVATE Qt6::Core Qt6::Sql)
     target_include_directories(shot_eval PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+    # saw_replay: Phase 0 simulator for SAW prediction model proposals.
+    # Replays a corpus of historical shots through OLD (weighted-avg) and
+    # candidate replacement models (linear, MAD-trimmed, LOWESS) and
+    # reports per-bucket MAE. The math is a stand-alone port — not linked
+    # against settings.cpp — so the simulator builds without QSettings,
+    # BLE, QML, or any of the live app's I/O surface. See
+    # openspec/changes/ for current SAW proposals.
+    add_executable(saw_replay tools/saw_replay/main.cpp)
+    target_link_libraries(saw_replay PRIVATE Qt6::Core)
+
+    # saw_parity: validates saw_replay's standalone math port against the
+    # real production code path in src/core/settings.cpp. Links the full
+    # Settings translation unit (and its 11 settings_* sub-domain TUs).
+    # A passing run lets us trust simulator-driven sweeps as predictive of
+    # what production would do under the same change.
+    add_executable(saw_parity
+        tools/saw_parity/main.cpp
+        src/core/settings.cpp
+        src/core/settings_mqtt.cpp
+        src/core/settings_autowake.cpp
+        src/core/settings_hardware.cpp
+        src/core/settings_ai.cpp
+        src/core/settings_theme.cpp
+        src/core/settings_visualizer.cpp
+        src/core/settings_mcp.cpp
+        src/core/settings_brew.cpp
+        src/core/settings_dye.cpp
+        src/core/settings_network.cpp
+        src/core/settings_app.cpp
+    )
+    target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
+    target_include_directories(saw_parity PRIVATE ${CMAKE_SOURCE_DIR}/src)
 endif()
