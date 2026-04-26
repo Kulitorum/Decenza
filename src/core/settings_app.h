@@ -20,7 +20,8 @@ class SettingsApp : public QObject {
     Q_PROPERTY(bool use12HourTime READ use12HourTime CONSTANT)
     Q_PROPERTY(bool isDebugBuild READ isDebugBuild CONSTANT)
 
-    // Launcher mode (Android only)
+    // Launcher mode (Android only — registers app as the home screen launcher
+    // via the LauncherAlias activity-alias)
     Q_PROPERTY(bool launcherMode READ launcherMode WRITE setLauncherMode NOTIFY launcherModeChanged)
 
     // Profile management
@@ -33,6 +34,11 @@ class SettingsApp : public QObject {
     // Auto-update
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
+
+    // DE1 firmware update channel. When false (default), firmware comes
+    // from fast.decentespresso.com/download/sync/de1plus; when true,
+    // from .../de1nightly. Independent from betaUpdatesEnabled, which
+    // controls the Decenza *app* update channel.
     Q_PROPERTY(bool firmwareNightlyChannel READ firmwareNightlyChannel WRITE setFirmwareNightlyChannel NOTIFY firmwareNightlyChannelChanged)
 
     // Daily backup
@@ -40,7 +46,11 @@ class SettingsApp : public QObject {
 
     // Water level / refill
     Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged)
+
+    // Water refill level (mm threshold for refill warning, sent to machine)
     Q_PROPERTY(int waterRefillPoint READ waterRefillPoint WRITE setWaterRefillPoint NOTIFY waterRefillPointChanged)
+
+    // Refill kit override (0=force off, 1=force on, 2=auto-detect)
     Q_PROPERTY(int refillKitOverride READ refillKitOverride WRITE setRefillKitOverride NOTIFY refillKitOverrideChanged)
 
     // Developer settings

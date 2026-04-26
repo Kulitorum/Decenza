@@ -99,7 +99,7 @@ void SettingsApp::setSelectedFavoriteProfile(int index) {
 }
 
 void SettingsApp::addFavoriteProfile(const QString& name, const QString& filename) {
-    qWarning() << "SettingsApp: addFavoriteProfile name=" << name << "filename=" << filename;
+    qDebug() << "SettingsApp: addFavoriteProfile name=" << name << "filename=" << filename;
     QByteArray data = m_settings.value("profile/favorites").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
@@ -142,7 +142,7 @@ void SettingsApp::removeFavoriteProfile(int index) {
 
     if (index >= 0 && index < arr.size()) {
         QString filename = arr[index].toObject()["filename"].toString();
-        qWarning() << "SettingsApp: removeFavoriteProfile index=" << index << "filename=" << filename;
+        qDebug() << "SettingsApp: removeFavoriteProfile index=" << index << "filename=" << filename;
         arr.removeAt(index);
         m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
 
