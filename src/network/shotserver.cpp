@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "shotserver.h"
 #include "relayclient.h"
 #include "webdebuglogger.h"
@@ -2188,7 +2189,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             result["batteryPercent"] = m_batteryManager->batteryPercent();
         }
         if (m_settings) {
-            result["waterLevelDisplayUnit"] = m_settings->waterLevelDisplayUnit();
+            result["waterLevelDisplayUnit"] = m_settings->app()->waterLevelDisplayUnit();
         }
         result["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
@@ -3177,7 +3178,7 @@ void ShotServer::handlePocketPair(QTcpSocket* socket, const QByteArray& body)
     }
 
     if (m_settings) {
-        m_settings->setPocketPairingToken(pairingToken);
+        m_settings->app()->setPocketPairingToken(pairingToken);
     }
 
     // Enable relay client if available
@@ -3187,7 +3188,7 @@ void ShotServer::handlePocketPair(QTcpSocket* socket, const QByteArray& body)
 
     QJsonObject result;
     result["success"] = true;
-    result["deviceId"] = m_settings ? m_settings->deviceId() : QString();
+    result["deviceId"] = m_settings ? m_settings->app()->deviceId() : QString();
     result["deviceName"] = QSysInfo::machineHostName();
     sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
 

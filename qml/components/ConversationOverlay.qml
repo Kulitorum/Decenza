@@ -97,7 +97,7 @@ Rectangle {
         // Format shot timestamp as human-readable label for AI display
         var shotTs = shotData.timestamp || 0
         var shotLabel = shotTs > 0
-            ? new Date(shotTs * 1000).toLocaleString(Qt.locale(), Settings.use12HourTime ? "MMM d, h:mm AP" : "MMM d, HH:mm")
+            ? new Date(shotTs * 1000).toLocaleString(Qt.locale(), Settings.app.use12HourTime ? "MMM d, h:mm AP" : "MMM d, HH:mm")
             : ""
 
         // Check for mistake shot

@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "librarysharing.h"
 #include "version.h"
 #include "../core/settings.h"
@@ -36,7 +37,7 @@ QNetworkRequest LibrarySharing::buildRequest(const QString& path) const
     QNetworkRequest request{QUrl(QString("%1%2").arg(API_BASE, path))};
     request.setRawHeader("User-Agent",
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
-    request.setRawHeader("X-Device-Id", m_settings->deviceId().toUtf8());
+    request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
     return request;
 }
 
@@ -244,7 +245,7 @@ void LibrarySharing::browseCommunity(const QString& type,
     QNetworkRequest request{url};
     request.setRawHeader("User-Agent",
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
-    request.setRawHeader("X-Device-Id", m_settings->deviceId().toUtf8());
+    request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
 
     qDebug() << "LibrarySharing: Browsing community -" << url.toString();
 
@@ -272,7 +273,7 @@ void LibrarySharing::browseMyUploads(int page)
     QNetworkRequest request{url};
     request.setRawHeader("User-Agent",
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
-    request.setRawHeader("X-Device-Id", m_settings->deviceId().toUtf8());
+    request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
 
     qDebug() << "LibrarySharing: Browsing my uploads";
 
@@ -375,7 +376,7 @@ void LibrarySharing::loadFeatured()
     QNetworkRequest request{url};
     request.setRawHeader("User-Agent",
         QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
-    request.setRawHeader("X-Device-Id", m_settings->deviceId().toUtf8());
+    request.setRawHeader("X-Device-Id", m_settings->app()->deviceId().toUtf8());
 
     qDebug() << "LibrarySharing: Loading featured entries -" << url.toString();
 

@@ -96,9 +96,9 @@ Item {
 
                             if (updateTab.versionTapCount >= 7) {
                                 updateTab.versionTapCount = 0
-                                Settings.developerTranslationUpload = !Settings.developerTranslationUpload
+                                Settings.app.developerTranslationUpload = !Settings.app.developerTranslationUpload
                                 var message
-                                if (Settings.developerTranslationUpload) {
+                                if (Settings.app.developerTranslationUpload) {
                                     message = "Translation upload enabled! Go to Settings, Language to upload."
                                 } else {
                                     message = "Translation upload disabled."
@@ -143,9 +143,9 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.autoCheckUpdates
+                        checked: Settings.app.autoCheckUpdates
                         accessibleName: TranslationManager.translate("settings.update.autocheck", "Auto-check for updates")
-                        onToggled: Settings.autoCheckUpdates = checked
+                        onToggled: Settings.app.autoCheckUpdates = checked
                     }
                 }
 
@@ -178,9 +178,9 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.betaUpdatesEnabled
+                        checked: Settings.app.betaUpdatesEnabled
                         accessibleName: TranslationManager.translate("settings.update.betaupdates", "Include beta versions")
-                        onToggled: Settings.betaUpdatesEnabled = checked
+                        onToggled: Settings.app.betaUpdatesEnabled = checked
                     }
                 }
 

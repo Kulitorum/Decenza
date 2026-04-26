@@ -1,5 +1,6 @@
 #include "databasebackupmanager.h"
 #include "settings.h"
+#include "settings_app.h"
 #include "settingsserializer.h"
 #include "profilestorage.h"
 #include "../history/shothistorystorage.h"
@@ -96,7 +97,7 @@ void DatabaseBackupManager::scheduleNextCheck()
 
 bool DatabaseBackupManager::shouldBackupNow() const
 {
-    int backupHour = m_settings->dailyBackupHour();
+    int backupHour = m_settings->app()->dailyBackupHour();
 
     // Backups disabled
     if (backupHour < 0) {

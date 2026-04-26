@@ -8,14 +8,14 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
-    property bool showMl: Settings.waterLevelDisplayUnit === "ml"
+    property bool showMl: Settings.app.waterLevelDisplayUnit === "ml"
 
     // Margin = mm of water remaining before firmware halts the machine.
     // waterLevelMm = rawSensorMm + 5mm offset (sensor mounted above intake).
     // waterRefillPoint is in raw sensor mm (sent to firmware as-is).
     // So: margin = waterLevelMm - sensorOffset - waterRefillPoint = rawSensorMm - waterRefillPoint.
     readonly property real sensorOffset: 5.0
-    readonly property real margin: DE1Device.waterLevelMm - sensorOffset - Settings.waterRefillPoint
+    readonly property real margin: DE1Device.waterLevelMm - sensorOffset - Settings.app.waterRefillPoint
     readonly property string warningState: {
         // No warning when disconnected — waterLevelMm initializes to 0.0 which would
         // falsely trigger "critical" on every startup until the first BLE update arrives.

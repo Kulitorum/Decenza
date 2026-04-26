@@ -70,7 +70,7 @@ Item {
     // Format hour string: 12h for locales that use it, 24h otherwise
     // Input is "HH:mm" from the model
     function formatHour(hourStr) {
-        if (!Settings.use12HourTime)
+        if (!Settings.app.use12HourTime)
             return hourStr
         var parts = (hourStr || "").split(":")
         if (parts.length < 2) return hourStr

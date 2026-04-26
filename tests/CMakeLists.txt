@@ -53,6 +53,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_dye.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
 )
 
 set(CONTROLLER_SOURCES

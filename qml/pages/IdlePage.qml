@@ -108,9 +108,9 @@ Page {
             var selectedName = ""
             switch (activePresetFunction) {
                 case "espresso":
-                    presets = Settings.favoriteProfiles
-                    if (Settings.selectedFavoriteProfile >= 0 && Settings.selectedFavoriteProfile < presets.length) {
-                        selectedName = presets[Settings.selectedFavoriteProfile].name
+                    presets = Settings.app.favoriteProfiles
+                    if (Settings.app.selectedFavoriteProfile >= 0 && Settings.app.selectedFavoriteProfile < presets.length) {
+                        selectedName = presets[Settings.app.selectedFavoriteProfile].name
                     }
                     break
                 case "steam":
@@ -334,16 +334,16 @@ Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: espressoColumnLoader.width
 
-                        presets: Settings.favoriteProfiles
-                        selectedIndex: Settings.selectedFavoriteProfile
+                        presets: Settings.app.favoriteProfiles
+                        selectedIndex: Settings.app.selectedFavoriteProfile
                         supportLongPress: true
                         modified: ProfileManager.profileModified
                         modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
 
                         onPresetSelected: function(index) {
-                            var wasAlreadySelected = (index === Settings.selectedFavoriteProfile)
-                            Settings.selectedFavoriteProfile = index
-                            var preset = Settings.getFavoriteProfile(index)
+                            var wasAlreadySelected = (index === Settings.app.selectedFavoriteProfile)
+                            Settings.app.selectedFavoriteProfile = index
+                            var preset = Settings.app.getFavoriteProfile(index)
 
                             if (wasAlreadySelected) {
                                 if (MachineState.isReady) {
@@ -361,10 +361,10 @@ Page {
                         }
 
                         onPresetLongPressed: function(index) {
-                            var preset = Settings.getFavoriteProfile(index)
+                            var preset = Settings.app.getFavoriteProfile(index)
                             if (preset && preset.filename) {
-                                if (index !== Settings.selectedFavoriteProfile) {
-                                    Settings.selectedFavoriteProfile = index
+                                if (index !== Settings.app.selectedFavoriteProfile) {
+                                    Settings.app.selectedFavoriteProfile = index
                                     ProfileManager.loadProfile(preset.filename)
                                 }
                                 profilePreviewPopup.profileFilename = preset.filename
@@ -377,7 +377,7 @@ Page {
                     // Green pill showing non-favorite profile name
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        visible: Settings.selectedFavoriteProfile === -1
+                        visible: Settings.app.selectedFavoriteProfile === -1
                         spacing: Theme.scaled(8)
 
                         Rectangle {
@@ -422,12 +422,12 @@ Page {
 
                         ProfileInfoButton {
                             anchors.verticalCenter: parent.verticalCenter
-                            profileFilename: Settings.currentProfile
+                            profileFilename: Settings.app.currentProfile
                             profileName: ProfileManager.currentProfileName
 
                             onClicked: {
                                 pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
-                                    profileFilename: Settings.currentProfile,
+                                    profileFilename: Settings.app.currentProfile,
                                     profileName: ProfileManager.currentProfileName
                                 })
                             }

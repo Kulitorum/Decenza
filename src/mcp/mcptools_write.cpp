@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
@@ -608,17 +609,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("refillKitOverride")) {
                 int v = args["refillKitOverride"].toInt();
-                addSetter([settings, v]() { settings->setRefillKitOverride(v); });
+                addSetter([settings, v]() { settings->app()->setRefillKitOverride(v); });
                 updated << "refillKitOverride";
             }
             if (args.contains("waterRefillPoint")) {
                 int v = args["waterRefillPoint"].toInt();
-                addSetter([settings, v]() { settings->setWaterRefillPoint(v); });
+                addSetter([settings, v]() { settings->app()->setWaterRefillPoint(v); });
                 updated << "waterRefillPoint";
             }
             if (args.contains("waterLevelDisplayUnit")) {
                 QString v = args["waterLevelDisplayUnit"].toString();
-                addSetter([settings, v]() { settings->setWaterLevelDisplayUnit(v); });
+                addSetter([settings, v]() { settings->app()->setWaterLevelDisplayUnit(v); });
                 updated << "waterLevelDisplayUnit";
             }
             if (args.contains("useFlowScale")) {
@@ -638,7 +639,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("launcherMode")) {
                 bool v = args["launcherMode"].toBool();
-                addSetter([settings, v]() { settings->setLauncherMode(v); });
+                addSetter([settings, v]() { settings->app()->setLauncherMode(v); });
                 updated << "launcherMode";
             }
             if (args.contains("flowCalibrationMultiplier")) {
@@ -964,12 +965,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Update ===
             if (args.contains("autoCheckUpdates")) {
                 bool v = args["autoCheckUpdates"].toBool();
-                addSetter([settings, v]() { settings->setAutoCheckUpdates(v); });
+                addSetter([settings, v]() { settings->app()->setAutoCheckUpdates(v); });
                 updated << "autoCheckUpdates";
             }
             if (args.contains("betaUpdatesEnabled")) {
                 bool v = args["betaUpdatesEnabled"].toBool();
-                addSetter([settings, v]() { settings->setBetaUpdatesEnabled(v); });
+                addSetter([settings, v]() { settings->app()->setBetaUpdatesEnabled(v); });
                 updated << "betaUpdatesEnabled";
             }
 
@@ -981,7 +982,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("dailyBackupHour")) {
                 int v = qBound(0, args["dailyBackupHour"].toInt(), 23);
-                addSetter([settings, v]() { settings->setDailyBackupHour(v); });
+                addSetter([settings, v]() { settings->app()->setDailyBackupHour(v); });
                 updated << "dailyBackupHour";
             }
             if (args.contains("shotServerEnabled")) {
@@ -1017,7 +1018,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Debug ===
             if (args.contains("simulationMode")) {
                 bool v = args["simulationMode"].toBool();
-                addSetter([settings, v]() { settings->setSimulationMode(v); });
+                addSetter([settings, v]() { settings->app()->setSimulationMode(v); });
                 updated << "simulationMode";
             }
 

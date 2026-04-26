@@ -13,7 +13,7 @@ QtObject {
     // fallback  — English fallback used when no translation is available
     // source    — QML source loaded into the tab's StackLayout page
     // loadSync  — if true, the tab is activated immediately when the page opens rather than on first visit (asynchronous: false is enforced globally in SettingsPage.qml)
-    // debugOnly — if true, the tab is hidden unless Settings.isDebugBuild is set
+    // debugOnly — if true, the tab is hidden unless Settings.app.isDebugBuild is set
     readonly property var tabs: [
         { id: "connections",    key: "settings.tab.connections",    fallback: "Connections",       source: "settings/SettingsConnectionsTab.qml",     loadSync: true,  debugOnly: false },
         { id: "machine",        key: "settings.tab.machine",        fallback: "Machine",           source: "settings/SettingsMachineTab.qml",         loadSync: false, debugOnly: false },
@@ -48,7 +48,7 @@ QtObject {
         var out = []
         for (var i = 0; i < tabs.length; i++) {
             var t = tabs[i]
-            if (!t.debugOnly || Settings.isDebugBuild) out.push(t)
+            if (!t.debugOnly || Settings.app.isDebugBuild) out.push(t)
         }
         return out
     }

@@ -1,5 +1,6 @@
 #include "settingsserializer.h"
 #include "settings.h"
+#include "settings_app.h"
 #include "settings_brew.h"
 #include "settings_dye.h"
 #include "settings_network.h"
@@ -79,7 +80,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     root["steam"] = steam;
 
     // Launcher mode
-    root["launcherMode"] = settings->launcherMode();
+    root["launcherMode"] = settings->app()->launcherMode();
 
     // Hot water settings
     QJsonObject water;
@@ -145,11 +146,11 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Profile favorites
     QJsonObject profile;
-    profile["current"] = settings->currentProfile();
-    profile["selectedFavorite"] = settings->selectedFavoriteProfile();
+    profile["current"] = settings->app()->currentProfile();
+    profile["selectedFavorite"] = settings->app()->selectedFavoriteProfile();
 
     QJsonArray favorites;
-    for (const QVariant& fav : settings->favoriteProfiles()) {
+    for (const QVariant& fav : settings->app()->favoriteProfiles()) {
         QJsonObject f;
         QVariantMap m = fav.toMap();
         f["name"] = m["name"].toString();
@@ -159,13 +160,13 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     profile["favorites"] = favorites;
 
     QJsonArray selectedBuiltIns;
-    for (const QString& s : settings->selectedBuiltInProfiles()) {
+    for (const QString& s : settings->app()->selectedBuiltInProfiles()) {
         selectedBuiltIns.append(s);
     }
     profile["selectedBuiltIns"] = selectedBuiltIns;
 
     QJsonArray hiddenProfiles;
-    for (const QString& s : settings->hiddenProfiles()) {
+    for (const QString& s : settings->app()->hiddenProfiles()) {
         hiddenProfiles.append(s);
     }
     profile["hiddenProfiles"] = hiddenProfiles;
@@ -188,7 +189,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // screenBrightness is intentionally NOT exported — it's a device-local
     // runtime state (e.g. dimmed during screensaver) that would cause the
     // importing device to inherit an inappropriate brightness level (#495)
-    ui["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
+    ui["waterLevelDisplayUnit"] = settings->app()->waterLevelDisplayUnit();
 
     // Custom font sizes
     QJsonObject fontSizes;
@@ -300,8 +301,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Auto-update settings
     QJsonObject updates;
-    updates["autoCheck"] = settings->autoCheckUpdates();
-    updates["betaUpdatesEnabled"] = settings->betaUpdatesEnabled();
+    updates["autoCheck"] = settings->app()->autoCheckUpdates();
+    updates["betaUpdatesEnabled"] = settings->app()->betaUpdatesEnabled();
     root["updates"] = updates;
 
     // Developer settings - intentionally not exported (session-only Easter eggs)
@@ -349,8 +350,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Machine tuning
     QJsonObject machineTuning;
-    machineTuning["waterRefillPoint"] = settings->waterRefillPoint();
-    machineTuning["refillKitOverride"] = settings->refillKitOverride();
+    machineTuning["waterRefillPoint"] = settings->app()->waterRefillPoint();
+    machineTuning["refillKitOverride"] = settings->app()->refillKitOverride();
     {
         auto* hw = settings->hardware();
         machineTuning["heaterIdleTemp"] = hw->heaterIdleTemp();
@@ -369,7 +370,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     root["machineTuning"] = machineTuning;
 
     // Daily backup hour
-    root["dailyBackupHour"] = settings->dailyBackupHour();
+    root["dailyBackupHour"] = settings->app()->dailyBackupHour();
 
     return root;
 }
@@ -456,7 +457,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
 
     // Launcher mode
     if (json.contains("launcherMode") && !excludeKeys.contains("launcherMode")) {
-        settings->setLauncherMode(json["launcherMode"].toBool());
+        settings->app()->setLauncherMode(json["launcherMode"].toBool());
     }
 
     // Hot water settings
@@ -535,21 +536,21 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Profile favorites
     if (json.contains("profile") && !excludeKeys.contains("profile")) {
         QJsonObject profile = json["profile"].toObject();
-        if (profile.contains("current")) settings->setCurrentProfile(profile["current"].toString());
-        if (profile.contains("selectedFavorite")) settings->setSelectedFavoriteProfile(profile["selectedFavorite"].toInt());
+        if (profile.contains("current")) settings->app()->setCurrentProfile(profile["current"].toString());
+        if (profile.contains("selectedFavorite")) settings->app()->setSelectedFavoriteProfile(profile["selectedFavorite"].toInt());
 
         if (profile.contains("favorites")) {
             QJsonArray favorites = profile["favorites"].toArray();
-            qWarning() << "SettingsSerializer: importFromJson replacing" << settings->favoriteProfiles().size()
+            qWarning() << "SettingsSerializer: importFromJson replacing" << settings->app()->favoriteProfiles().size()
                        << "favorites with" << favorites.size() << "from import";
             // Remove existing favorites in reverse
-            QVariantList existingFavs = settings->favoriteProfiles();
+            QVariantList existingFavs = settings->app()->favoriteProfiles();
             for (qsizetype i = existingFavs.size() - 1; i >= 0; --i) {
-                settings->removeFavoriteProfile(static_cast<int>(i));
+                settings->app()->removeFavoriteProfile(static_cast<int>(i));
             }
             for (const QJsonValue& v : favorites) {
                 QJsonObject f = v.toObject();
-                settings->addFavoriteProfile(f["name"].toString(), f["filename"].toString());
+                settings->app()->addFavoriteProfile(f["name"].toString(), f["filename"].toString());
             }
         }
 
@@ -559,7 +560,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (const QJsonValue& v : arr) {
                 builtIns.append(v.toString());
             }
-            settings->setSelectedBuiltInProfiles(builtIns);
+            settings->app()->setSelectedBuiltInProfiles(builtIns);
         }
 
         if (profile.contains("hiddenProfiles")) {
@@ -568,7 +569,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (const QJsonValue& v : arr) {
                 hidden.append(v.toString());
             }
-            settings->setHiddenProfiles(hidden);
+            settings->app()->setHiddenProfiles(hidden);
         }
     }
 
@@ -594,7 +595,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         QJsonObject ui = json["ui"].toObject();
         if (ui.contains("skin")) settings->theme()->setSkin(ui["skin"].toString());
         // screenBrightness intentionally skipped on import — device-local runtime state (#495)
-        if (ui.contains("waterLevelDisplayUnit")) settings->setWaterLevelDisplayUnit(ui["waterLevelDisplayUnit"].toString());
+        if (ui.contains("waterLevelDisplayUnit")) settings->app()->setWaterLevelDisplayUnit(ui["waterLevelDisplayUnit"].toString());
 
         if (ui.contains("customFontSizes")) {
             QVariantMap sizes;
@@ -717,15 +718,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Auto-update settings
     if (json.contains("updates") && !excludeKeys.contains("updates")) {
         QJsonObject updates = json["updates"].toObject();
-        if (updates.contains("autoCheck")) settings->setAutoCheckUpdates(updates["autoCheck"].toBool());
-        if (updates.contains("betaUpdatesEnabled")) settings->setBetaUpdatesEnabled(updates["betaUpdatesEnabled"].toBool());
+        if (updates.contains("autoCheck")) settings->app()->setAutoCheckUpdates(updates["autoCheck"].toBool());
+        if (updates.contains("betaUpdatesEnabled")) settings->app()->setBetaUpdatesEnabled(updates["betaUpdatesEnabled"].toBool());
     }
 
     // Developer settings
     if (json.contains("developer") && !excludeKeys.contains("developer")) {
         QJsonObject developer = json["developer"].toObject();
         if (developer.contains("translationUpload")) {
-            settings->setDeveloperTranslationUpload(developer["translationUpload"].toBool());
+            settings->app()->setDeveloperTranslationUpload(developer["translationUpload"].toBool());
         }
     }
 
@@ -781,8 +782,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     // Machine tuning
     if (json.contains("machineTuning") && !excludeKeys.contains("machineTuning")) {
         QJsonObject mt = json["machineTuning"].toObject();
-        if (mt.contains("waterRefillPoint")) settings->setWaterRefillPoint(mt["waterRefillPoint"].toInt());
-        if (mt.contains("refillKitOverride")) settings->setRefillKitOverride(mt["refillKitOverride"].toInt());
+        if (mt.contains("waterRefillPoint")) settings->app()->setWaterRefillPoint(mt["waterRefillPoint"].toInt());
+        if (mt.contains("refillKitOverride")) settings->app()->setRefillKitOverride(mt["refillKitOverride"].toInt());
         {
             auto* hw = settings->hardware();
             if (mt.contains("heaterIdleTemp")) hw->setHeaterIdleTemp(mt["heaterIdleTemp"].toInt());
@@ -831,7 +832,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
 
     // Daily backup hour
     if (json.contains("dailyBackupHour") && !excludeKeys.contains("dailyBackupHour")) {
-        settings->setDailyBackupHour(json["dailyBackupHour"].toInt());
+        settings->app()->setDailyBackupHour(json["dailyBackupHour"].toInt());
     }
 
     // Sync to disk

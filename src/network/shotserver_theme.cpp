@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "shotserver.h"
 #include "../core/settings.h"
 #include "../core/settings_theme.h"
@@ -435,6 +436,6 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
 
 QString ShotServer::generateThemePage() const
 {
-    QString deviceId = m_settings ? m_settings->deviceId() : QString();
+    QString deviceId = m_settings ? m_settings->app()->deviceId() : QString();
     return generateThemePageHtml(deviceId);
 }

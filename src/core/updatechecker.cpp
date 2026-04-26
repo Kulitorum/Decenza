@@ -1,5 +1,6 @@
 #include "updatechecker.h"
 #include "settings.h"
+#include "settings_app.h"
 #include "version.h"
 
 #include <QJsonDocument>
@@ -106,21 +107,21 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
 
     // Start periodic checks if enabled (not on iOS - App Store handles updates)
 #if !defined(Q_OS_IOS)
-    if (m_settings->autoCheckUpdates()) {
+    if (m_settings->app()->autoCheckUpdates()) {
         m_periodicTimer->start();
         // Check shortly after startup (30 seconds delay)
         QTimer::singleShot(30000, this, &UpdateChecker::onPeriodicCheck);
     }
 #endif
 
-    connect(m_settings, &Settings::betaUpdatesEnabledChanged, this, [this]() {
+    connect(m_settings->app(), &SettingsApp::betaUpdatesEnabledChanged, this, [this]() {
         // Re-check when beta preference changes
         checkForUpdates();
     });
 
-    connect(m_settings, &Settings::autoCheckUpdatesChanged, this, [this]() {
+    connect(m_settings->app(), &SettingsApp::autoCheckUpdatesChanged, this, [this]() {
 #if !defined(Q_OS_IOS)
-        if (m_settings->autoCheckUpdates()) {
+        if (m_settings->app()->autoCheckUpdates()) {
             m_periodicTimer->start();
         } else {
             m_periodicTimer->stop();
@@ -211,7 +212,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 
     // Find the best release: if beta enabled, take the first (newest) release;
     // otherwise skip prereleases and take the first stable release.
-    bool includeBeta = m_settings->betaUpdatesEnabled();
+    bool includeBeta = m_settings->app()->betaUpdatesEnabled();
     QJsonArray releases = doc.array();
     QJsonObject release;
     bool found = false;

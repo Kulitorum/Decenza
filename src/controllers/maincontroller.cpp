@@ -1,3 +1,4 @@
+#include "core/settings_app.h"
 #include "maincontroller.h"
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
@@ -85,13 +86,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     }
     // Send water refill level to machine when setting changes
     if (m_settings && m_device) {
-        connect(m_settings, &Settings::waterRefillPointChanged,
+        connect(m_settings->app(), &SettingsApp::waterRefillPointChanged,
                 this, &MainController::applyWaterRefillLevel);
     }
 
     // Apply refill kit override when setting changes or when kit detection completes
     if (m_settings && m_device) {
-        connect(m_settings, &Settings::refillKitOverrideChanged,
+        connect(m_settings->app(), &SettingsApp::refillKitOverrideChanged,
                 this, &MainController::applyRefillKitOverride);
         connect(m_device, &DE1Device::refillKitDetectedChanged,
                 this, &MainController::applyRefillKitOverride);
@@ -258,7 +259,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_mqttClient->setCurrentProfile(m_profileManager->currentProfile().title());
             // Settings::currentProfile() stores the filename (set in loadProfile)
             if (m_settings) {
-                m_mqttClient->setCurrentProfileFilename(m_settings->currentProfile());
+                m_mqttClient->setCurrentProfileFilename(m_settings->app()->currentProfile());
             }
         }
     });
@@ -306,13 +307,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_firmwareAssetCache = new DE1::Firmware::FirmwareAssetCache(this);
     m_firmwareAssetCache->setNetworkManager(m_networkManager);
     if (m_settings) {
-        m_firmwareAssetCache->setChannel(m_settings->firmwareNightlyChannel()
+        m_firmwareAssetCache->setChannel(m_settings->app()->firmwareNightlyChannel()
             ? DE1::Firmware::FirmwareAssetCache::Channel::Nightly
             : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
-        connect(m_settings, &Settings::firmwareNightlyChannelChanged,
+        connect(m_settings->app(), &SettingsApp::firmwareNightlyChannelChanged,
                 this, [this]() {
             if (!m_firmwareAssetCache) return;
-            m_firmwareAssetCache->setChannel(m_settings->firmwareNightlyChannel()
+            m_firmwareAssetCache->setChannel(m_settings->app()->firmwareNightlyChannel()
                 ? DE1::Firmware::FirmwareAssetCache::Channel::Nightly
                 : DE1::Firmware::FirmwareAssetCache::Channel::Stable);
             // Re-check immediately so the UI reflects the new channel's
@@ -831,13 +832,13 @@ void MainController::applyAllSettings() {
 void MainController::applyWaterRefillLevel() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_device->setWaterRefillLevel(m_settings->waterRefillPoint());
+    m_device->setWaterRefillLevel(m_settings->app()->waterRefillPoint());
 }
 
 void MainController::applyRefillKitOverride() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    int override = m_settings->refillKitOverride();
+    int override = m_settings->app()->refillKitOverride();
     // Values match de1app: 0=force off, 1=force on, 2=auto-detect
     m_device->setRefillKitPresent(override);
 }

@@ -329,7 +329,7 @@ Item {
                     accessibleName: TranslationManager.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
                     accessibleDescription: TranslationManager.translate("language.accessible.submit.description", "Share your translations with the community")
                     primary: true
-                    visible: TranslationManager.currentLanguage !== "en" && Settings.developerTranslationUpload
+                    visible: TranslationManager.currentLanguage !== "en" && Settings.app.developerTranslationUpload
                     enabled: !TranslationManager.uploading
                     onClicked: TranslationManager.submitTranslation()
                 }

@@ -1,12 +1,12 @@
 # Settings Architecture
 
-`Settings` is a **composition façade** that owns 7 (and growing) domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals. The split exists so that touching one domain's header recompiles only its narrow set of consumers (~9 files for `settings_mqtt.h`) instead of every consumer of the monolithic `settings.h` (~39 files pre-split, 41 pre-refactor).
+`Settings` is a **composition façade** that owns 11 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals. The split exists so that touching one domain's header recompiles only its narrow set of consumers (~9 files for `settings_mqtt.h`) instead of every consumer of the monolithic `settings.h` (~39 files pre-split, 41 pre-refactor).
 
 The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
 
 ## Domain classes (today)
 
-`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`. Tier 2 follow-on candidates documented in `openspec/changes/split-headers-by-domain/tasks.md`: `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`.
+`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`. Tier 2 (Brew/Dye/Network/App) is complete; what remains on `Settings` itself is machine/scale/refractometer/USB-serial + flow-calibration + SAW-learning, which a possible Tier 3 could split into `SettingsHardware` (machine/scale) and a new `SettingsCalibration` (flow + SAW).
 
 ## Where new settings go
 

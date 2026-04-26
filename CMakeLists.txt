@@ -223,6 +223,7 @@ set(SOURCES
     src/core/settings_brew.cpp
     src/core/settings_dye.cpp
     src/core/settings_network.cpp
+    src/core/settings_app.cpp
     src/core/widgetlibrary.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
@@ -384,6 +385,7 @@ set(HEADERS
     src/core/settings_brew.h
     src/core/settings_dye.h
     src/core/settings_network.h
+    src/core/settings_app.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h

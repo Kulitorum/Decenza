@@ -384,9 +384,9 @@ Item {
 
             Switch {
                 id: nightlyChannelSwitch
-                checked: Settings.firmwareNightlyChannel
+                checked: Settings.app.firmwareNightlyChannel
                 enabled: !firmwareTab.isWorking
-                onToggled: Settings.firmwareNightlyChannel = checked
+                onToggled: Settings.app.firmwareNightlyChannel = checked
                 Accessible.role: Accessible.CheckBox
                 Accessible.name: TranslationManager.translate(
                                     "firmware.tab.nightlyChannel",

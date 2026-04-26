@@ -158,7 +158,7 @@ Dialog {
 
     onRejected: {
         // Restore the original profile if the user changed it via the profile picker
-        if (originalProfileFilename.length > 0 && Settings.currentProfile !== originalProfileFilename) {
+        if (originalProfileFilename.length > 0 && Settings.app.currentProfile !== originalProfileFilename) {
             ProfileManager.loadProfile(originalProfileFilename)
         }
     }
@@ -189,7 +189,7 @@ Dialog {
         beanType = Settings.dye.dyeBeanType
         roastDate = Settings.dye.dyeRoastDate
         selectedProfileTitle = ProfileManager.currentProfileName
-        originalProfileFilename = Settings.currentProfile
+        originalProfileFilename = Settings.app.currentProfile
         showScaleWarning = false
 
         // Yield: use override if active, otherwise use profile default
