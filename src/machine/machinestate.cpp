@@ -440,6 +440,16 @@ void MachineState::updatePhase() {
                         double settledWeight = m_scale->weight();
                         double overshoot = settledWeight - triggerWeight;
 
+                        // Clear the frozen display weight now that the post-pour
+                        // settling window is over. The freeze is held this long so the
+                        // hot-water completion overlay has a stable trigger value to
+                        // show; once the overlay's settling window closes, scaleWeight()
+                        // should return the live reading. Without this, the freeze
+                        // persists into the next operation cycle (e.g. EspressoPreheating)
+                        // and poisons UI surfaces that read scaleWeight pre-flow, like
+                        // the cup-fill view.
+                        m_hotWaterFrozenWeight = -1.0;
+
                         // Sanity: ignore if overshoot is wildly negative (cup removed)
                         // or extremely large (scale glitch)
                         if (overshoot < -2.0 || overshoot > 20.0) {
@@ -466,10 +476,9 @@ void MachineState::updatePhase() {
                     });
                 }
                 m_hotWaterSawTriggerWeight = -1.0;
-                // Note: m_hotWaterFrozenWeight is NOT cleared here — it must persist
-                // through the completion overlay (which reads scaleWeight() after phase
-                // transitions to Idle via QueuedConnection). Cleared on next flow start
-                // at line 299.
+                // m_hotWaterFrozenWeight is cleared inside the 1500ms SAW-learn
+                // callback above (or by the flow-start path at the top of this
+                // function on the next pour, whichever happens first).
             }
         }
 

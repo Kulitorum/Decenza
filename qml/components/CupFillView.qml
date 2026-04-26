@@ -80,11 +80,10 @@ Item {
         var botOvalH = h * 0.04
         var cupH = botCy - rimCy
 
-        // Only show fill during/after extraction. Before extraction has begun
-        // (EspressoPreheating, Idle, etc.) the cup must read empty regardless of
-        // any residual scale reading from a prior operation that hasn't been
-        // tared yet — otherwise the cup paints full at espresso start until the
-        // tare lands a few seconds in.
+        // Only show fill during/after extraction. Pre-flow phases like
+        // EspressoPreheating render empty regardless of currentWeight — the
+        // stale-residual case is solved at the source in MachineState
+        // (see m_hotWaterFrozenWeight clearing on cycle entry).
         var hasExtraction = root.phase === MachineStateType.Phase.Preinfusion
                          || root.phase === MachineStateType.Phase.Pouring
                          || root.phase === MachineStateType.Phase.Ending
