@@ -1725,103 +1725,35 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
 {
     if (!m_ready) return;
 
+    // loadShotRecordStatic already recomputes all four badges and persists to
+    // the DB when any flag differs from the stored value. This path exists so
+    // QML callers (ShotDetailPage / PostShotReviewPage) can fire a background
+    // worker after onShotReady and learn — via shotBadgesUpdated — when the
+    // recompute actually changed anything. We forward the load's
+    // outBadgesPersisted to drive that signal.
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
-        bool newChanneling = false, newTempUnstable = false, newGrindIssue = false;
-        bool newSkipFirstFrame = false;
-        bool recordFound = false, flagsChanged = false;
+        bool recordFound = false;
+        bool badgesPersisted = false;
+        bool newChanneling = false, newTempUnstable = false;
+        bool newGrindIssue = false, newSkipFirstFrame = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
-            ShotRecord record = loadShotRecordStatic(db, shotId);
+            ShotRecord record = loadShotRecordStatic(db, shotId, &badgesPersisted);
             if (record.summary.id == 0) return;
             recordFound = true;
-
-            // Find pour boundaries
-            double pourStart = 0, pourEnd = record.pressure.isEmpty() ? 0 : record.pressure.last().x();
-            for (const auto& pm : record.phases) {
-                if (pm.label.toLower().contains("pour")) pourStart = pm.time;
-                if (pm.label == "End") pourEnd = pm.time;
-            }
-            if (pourStart == 0) {
-                for (const auto& pm : record.phases) {
-                    if (pm.label.toLower().contains("infus") || pm.label == "Start") {
-                        pourStart = pm.time;
-                        break;
-                    }
-                }
-            }
-
-            // Channeling (mode-aware inclusion windows)
-            if (!ShotAnalysis::shouldSkipChannelingCheck(
-                    record.summary.beverageType, record.flow, pourStart, pourEnd)
-                && !ShotSummarizer::getAnalysisFlags(record.profileKbId)
-                        .contains(QStringLiteral("channeling_expected"))) {
-                const auto windows = ShotAnalysis::buildChannelingWindows(
-                    record.pressure, record.flow,
-                    record.pressureGoal, record.flowGoal,
-                    record.phases, pourStart, pourEnd);
-                auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                    record.conductanceDerivative, pourStart, pourEnd, windows);
-                newChanneling = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
-            }
-
-            // Temperature stability
-            if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10) {
-                if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
-                    double avgDev = ShotAnalysis::avgTempDeviation(
-                        record.temperature, record.temperatureGoal, pourStart, pourEnd);
-                    newTempUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
-                }
-            }
-
-            // Grind issue. Two paths inside the detector: flow-vs-goal averaging
-            // for flow-mode pours, or a pressure-mode choked-puck fallback. The
-            // fallback only needs flow + pressure, so we no longer gate on a
-            // non-empty flowGoal.
-            if (!ShotAnalysis::shouldSkipChannelingCheck(
-                        record.summary.beverageType, record.flow, pourStart, pourEnd)) {
-                newGrindIssue = ShotAnalysis::detectGrindIssue(
-                    record.flow, record.flowGoal, record.phases,
-                    pourStart, pourEnd, record.summary.beverageType,
-                    ShotSummarizer::getAnalysisFlags(record.profileKbId),
-                    record.pressure,
-                    record.yieldOverride, record.summary.finalWeight);
-            }
-
-            // Skip-first-frame detection from phase markers
-            const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
-            newSkipFirstFrame = ShotAnalysis::detectSkipFirstFrame(
-                record.phases, info.frameCount, info.firstFrameSeconds);
-
-            // Update DB only if any flag changed
-            flagsChanged = (newChanneling != record.channelingDetected
-                || newTempUnstable != record.temperatureUnstable
-                || newGrindIssue != record.grindIssueDetected
-                || newSkipFirstFrame != record.skipFirstFrameDetected);
-            if (flagsChanged) {
-                QSqlQuery q(db);
-                q.prepare("UPDATE shots SET channeling_detected=:c,"
-                          " temperature_unstable=:t, grind_issue_detected=:g,"
-                          " skip_first_frame_detected=:s,"
-                          " updated_at = strftime('%s', 'now') WHERE id=:id");
-                q.bindValue(":c", newChanneling ? 1 : 0);
-                q.bindValue(":t", newTempUnstable ? 1 : 0);
-                q.bindValue(":g", newGrindIssue ? 1 : 0);
-                q.bindValue(":s", newSkipFirstFrame ? 1 : 0);
-                q.bindValue(":id", shotId);
-                if (!q.exec())
-                    qWarning() << "ShotHistoryStorage: badge update failed for shot"
-                               << shotId << q.lastError();
-            }
+            newChanneling = record.channelingDetected;
+            newTempUnstable = record.temperatureUnstable;
+            newGrindIssue = record.grindIssueDetected;
+            newSkipFirstFrame = record.skipFirstFrameDetected;
         });
 
-        if (!recordFound || *destroyed) return;
+        if (!recordFound || !badgesPersisted || *destroyed) return;
         QMetaObject::invokeMethod(
             this,
-            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, flagsChanged, destroyed]() {
+            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, destroyed]() {
                 if (*destroyed) return;
-                if (!flagsChanged) return;
                 emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame);
             },
             Qt::QueuedConnection);
@@ -2116,8 +2048,10 @@ void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
         QJsonDocument(phasesArray).toJson(QJsonDocument::Compact));
 }
 
-ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 shotId)
+ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
+                                                     bool* outBadgesPersisted)
 {
+    if (outBadgesPersisted) *outBadgesPersisted = false;
     ShotRecord record;
 
     QSqlQuery query(db);
@@ -2178,6 +2112,13 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.grindIssueDetected = query.value(32).toInt() != 0;
     record.skipFirstFrameDetected = query.value(33).toInt() != 0;
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
+
+    // Snapshot stored badge values before the recompute block overwrites them, so
+    // we can detect drift and persist the corrected flags below.
+    const bool storedChanneling = record.channelingDetected;
+    const bool storedTempUnstable = record.temperatureUnstable;
+    const bool storedGrindIssue = record.grindIssueDetected;
+    const bool storedSkipFirstFrame = record.skipFirstFrameDetected;
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
         query.bindValue(0, shotId);
@@ -2292,6 +2233,34 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
         record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
             record.phases, info.frameCount, info.firstFrameSeconds);
+    }
+
+    // Persist any drift between the stored badge columns and the recomputed values
+    // on the same connection. Loading a shot is the canonical "touched it under the
+    // current detector" event — both UI and MCP go through this path — so the DB
+    // converges with detector improvements as shots are viewed without needing a
+    // separate bulk-resweep migration. The UPDATE is skipped when nothing changed.
+    const bool flagsChanged = (storedChanneling != record.channelingDetected
+        || storedTempUnstable != record.temperatureUnstable
+        || storedGrindIssue != record.grindIssueDetected
+        || storedSkipFirstFrame != record.skipFirstFrameDetected);
+    if (flagsChanged) {
+        QSqlQuery upd(db);
+        upd.prepare("UPDATE shots SET channeling_detected=:c,"
+                    " temperature_unstable=:t, grind_issue_detected=:g,"
+                    " skip_first_frame_detected=:s,"
+                    " updated_at = strftime('%s', 'now') WHERE id=:id");
+        upd.bindValue(":c", record.channelingDetected ? 1 : 0);
+        upd.bindValue(":t", record.temperatureUnstable ? 1 : 0);
+        upd.bindValue(":g", record.grindIssueDetected ? 1 : 0);
+        upd.bindValue(":s", record.skipFirstFrameDetected ? 1 : 0);
+        upd.bindValue(":id", shotId);
+        if (upd.exec()) {
+            if (outBadgesPersisted) *outBadgesPersisted = true;
+        } else {
+            qWarning() << "ShotHistoryStorage::loadShotRecordStatic: badge persist failed for shot"
+                       << shotId << upd.lastError();
+        }
     }
 
     return record;

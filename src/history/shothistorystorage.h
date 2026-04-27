@@ -67,7 +67,13 @@ public:
     static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1);
 
     // Static version for background-thread use — caller provides their own connection.
-    static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
+    // Always recomputes the four quality badges from the loaded curve data and, when
+    // any recomputed flag differs from the stored column, issues an UPDATE on the same
+    // connection so the DB converges with the current detector logic. outBadgesPersisted
+    // (when non-null) is set true when a write happened, false otherwise — used by
+    // requestReanalyzeBadges to decide whether to emit shotBadgesUpdated.
+    static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
+                                            bool* outBadgesPersisted = nullptr);
 
     // Compute conductance, Darcy resistance, and conductance derivative
     // from raw pressure/flow data for legacy shots that lack these fields.
