@@ -518,6 +518,16 @@ void ShotServer::stop()
         auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
         for (QTcpSocket* s : themeCopy) s->close();
+        // Close in-flight HTTP request sockets too. Without this an APK or
+        // media upload socket survives stop() and its QSocketNotifier
+        // is still around when Android takes over for the PackageInstaller
+        // handover (#865). cleanupPendingRequest must run before the hash
+        // is cleared because it early-returns on missing entries; matches
+        // the destructor pattern.
+        const auto pendingSockets = m_pendingRequests.keys();
+        for (QTcpSocket* s : pendingSockets) cleanupPendingRequest(s);
+        m_pendingRequests.clear();
+        for (QTcpSocket* s : pendingSockets) s->close();
         m_server->close();
         delete m_server;
         m_server = nullptr;

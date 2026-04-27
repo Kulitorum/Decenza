@@ -34,6 +34,11 @@ public:
     /// Get device info string
     Q_INVOKABLE QString deviceInfo() const;
 
+    /// Drop the keepalive sockets in this class's private QNetworkAccessManager.
+    /// Called from main.cpp before an Android APK install dispatches so no
+    /// QSocketNotifier survives into the install handover (#865).
+    void clearConnectionCache() { m_networkManager.clearConnectionCache(); }
+
 signals:
     void submittingChanged();
     void lastErrorChanged();

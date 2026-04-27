@@ -49,6 +49,11 @@ public:
     QVariantList featuredEntries() const { return m_featuredEntries; }
     int totalCommunityResults() const { return m_totalCommunityResults; }
 
+    /// Drop the keepalive sockets in this class's private QNetworkAccessManager.
+    /// Called from main.cpp before an Android APK install dispatches so no
+    /// QSocketNotifier survives into the install handover (#865).
+    void clearConnectionCache() { m_networkManager.clearConnectionCache(); }
+
     /// Upload a local library entry to the server (multipart: JSON + thumbnail)
     Q_INVOKABLE void uploadEntry(const QString& entryId);
 
