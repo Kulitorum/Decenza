@@ -1702,18 +1702,31 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         ShotRecord record;
+        bool badgesPersisted = false;
         withTempDb(dbPath, "shs_shot", [&](QSqlDatabase& db) {
-            record = loadShotRecordStatic(db, shotId);
+            record = loadShotRecordStatic(db, shotId, &badgesPersisted);
         });
 
-        // Convert to QVariantMap on main thread (touches QML-visible data)
+        // Convert to QVariantMap on main thread (touches QML-visible data).
+        // shotReady carries the recomputed badges already; shotBadgesUpdated
+        // fires only when the load actually rewrote the stored columns, so
+        // listeners that care about "this shot just got its badges corrected"
+        // (e.g., a future history-list filter that wants to refresh) get a
+        // signal without having to re-query.
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), badgesPersisted, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: requestShot callback dropped (object destroyed)";
                 return;
             }
             emit shotReady(shotId, convertShotRecord(record));
+            if (badgesPersisted) {
+                emit shotBadgesUpdated(shotId,
+                    record.channelingDetected,
+                    record.temperatureUnstable,
+                    record.grindIssueDetected,
+                    record.skipFirstFrameDetected);
+            }
         }, Qt::QueuedConnection);
     });
 

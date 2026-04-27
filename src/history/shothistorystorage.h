@@ -158,6 +158,11 @@ public:
     // Async: recomputes all quality badge flags for a shot and updates the DB if changed.
     // Emits shotBadgesUpdated() only when at least one flag changed. No signal is emitted
     // if the shot ID is not in the database or if all flags are already up to date.
+    //
+    // The standard QML detail-page flow does NOT need to call this: requestShot already
+    // routes through loadShotRecordStatic, which persists drift on the same connection
+    // and lets requestShot itself emit shotBadgesUpdated. This entry point exists for
+    // any explicit "re-evaluate this one shot" use case (e.g., a future bulk-resweep UI).
     Q_INVOKABLE void requestReanalyzeBadges(qint64 shotId);
 
     // Import a shot record directly (for .shot file import)

@@ -64,11 +64,10 @@ Page {
                 if (wasNavigating)
                     enterAnimation.start()
             })
-            // Recompute quality badges in background (handles stale values after KB updates).
-            // Skip when reloading after a visualizer update — badges didn't change and the
-            // visualizer path already triggers a second onShotReady via loadShot().
-            if (!shotDetailPage.reloadingFromVisualizer)
-                MainController.shotHistory.requestReanalyzeBadges(id)
+            // Quality badges already arrived recomputed in `shot` via
+            // loadShotRecordStatic, which also persists drift to the DB and
+            // emits shotBadgesUpdated when it does. No extra reanalyze call
+            // needed here — onShotBadgesUpdated below catches the persist event.
             shotDetailPage.reloadingFromVisualizer = false
         }
         function onShotDeleted(deletedId) {

@@ -144,8 +144,10 @@ Page {
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
                 calculateEy()
-                // Recompute quality badges in background (handles stale values after KB updates)
-                MainController.shotHistory.requestReanalyzeBadges(shotId)
+                // Quality badges already arrived recomputed in `shot` via
+                // loadShotRecordStatic, which also persists drift to the DB
+                // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
+                // below catches the persist event.
             }
         }
         function onShotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue, skipFirstFrame) {
