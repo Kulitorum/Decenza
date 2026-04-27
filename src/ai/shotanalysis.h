@@ -161,8 +161,8 @@ public:
     //   - Yield arm: yield/target < CHOKED_YIELD_RATIO_MAX — catches moderate
     //     chokes like shot 883 (25 g of 36 g target, ~0.6 ml/s mean — narrowly
     //     above the flow threshold but the puck still failed to deliver).
-    // Both arms share the pressurizedDuration ≥ CHOKED_DURATION_MIN_SEC gate
-    // so neither fires on aborted shots.
+    // Both arms share the `flowSamples ≥ 5 && pressurizedDuration ≥
+    // CHOKED_DURATION_MIN_SEC` gate so neither fires on aborted shots.
     static constexpr double CHOKED_PRESSURE_MIN_BAR = 4.0;
     static constexpr double CHOKED_FLOW_MAX_MLPS = 0.5;
     static constexpr double CHOKED_DURATION_MIN_SEC = 15.0;
@@ -192,7 +192,7 @@ public:
         qsizetype sampleCount = 0;
         bool hasData = false;        // true when the check ran (either path)
         bool skipped = false;        // true when suppressed by a flag or beverage type
-        bool chokedPuck = false;     // true when the pressure-mode fallback fired (puck held pressure but no flow)
+        bool chokedPuck = false;     // true when the pressure-mode choke check fired — either mean pressurized flow below CHOKED_FLOW_MAX_MLPS (severe) or yield/target below CHOKED_YIELD_RATIO_MAX (moderate)
     };
 
     // Grind direction check — the canonical implementation shared by the
@@ -217,9 +217,12 @@ public:
     // pourover beverage types also short-circuit to skipped=true. Pressure
     // is optional; when omitted, only the flow-vs-goal path is available.
     // targetWeightG and finalWeightG drive the yield-ratio arm of the
-    // choked-puck check; both default to 0 (arm disabled). finalWeightG
-    // can come from either a real BLE scale or Decenza's FlowScale virtual
-    // scale (dose-compensated flow integration), so the arm works headless.
+    // choked-puck check; either being 0 disables it (both default to 0).
+    // finalWeightG can come from either a real BLE scale or Decenza's
+    // FlowScale virtual scale (dose-compensated flow integration), so the
+    // arm works headless. targetWeightG is the shot's effective SAW target
+    // (see ShotRecord::yieldOverride); imported shots without target
+    // metadata pass 0 here and the arm correctly stays silent.
     static GrindCheck analyzeFlowVsGoal(const QVector<QPointF>& flow,
                                          const QVector<QPointF>& flowGoal,
                                          const QList<HistoryPhaseMarker>& phases,

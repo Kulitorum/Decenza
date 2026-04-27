@@ -74,7 +74,15 @@ struct ShotRecord {
     // Debug log
     QString debugLog;
 
-    // Brew overrides (always have values - user override or profile default)
+    // Brew overrides. Populated at save time by MainController:
+    //   - temperatureOverride: user override OR profile espresso_temperature
+    //   - yieldOverride: user brew-by-ratio override OR profile target_weight,
+    //     falling back to finalWeight for volume/timer profiles where neither
+    //     is set (so the favorites system always has something to restore).
+    // For shots imported from external formats (de1app, visualizer.coffee)
+    // these fields may stay at 0 — importers don't populate them. Analysis
+    // code that relies on yieldOverride as the SAW target (e.g. the grind
+    // detector's yield-ratio arm) treats 0 as "unknown" and disables itself.
     double temperatureOverride = 0.0;
     double yieldOverride = 0.0;
 

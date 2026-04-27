@@ -54,6 +54,7 @@ struct LoadedShot {
     int enjoyment = 0;
     double doseG = 0.0;
     double yieldG = 0.0;
+    double targetWeightG = 0.0;  // SAW target; not in standard visualizer format, hand-added per fixture
     QString grinderSetting;
 
     QVector<QPointF> pressure;
@@ -198,6 +199,7 @@ bool loadVisualizerFormat(const QJsonObject& root, LoadedShot& out, QString* err
     out.enjoyment = root.value("espresso_enjoyment").toInt();
     out.doseG = toDouble(root.value("bean_weight"));
     out.yieldG = toDouble(root.value("drink_weight"));
+    out.targetWeightG = toDouble(root.value("target_weight"));
     out.grinderSetting = root.value("grinder_setting").toString();
 
     const QJsonObject data = root.value("data").toObject();
@@ -447,10 +449,13 @@ EvaluatedShot evaluate(const LoadedShot& s)
     }
 
     // Grind direction — mode-aware. Passing pressure enables the choked-puck
-    // fallback for pressure-mode pours with no flow-mode window.
+    // fallback for pressure-mode pours with no flow-mode window. Passing
+    // target/yield enables the yield-ratio arm of the same check (off when
+    // target_weight isn't carried in the fixture).
     const auto grind = ShotAnalysis::analyzeFlowVsGoal(
         s.flow, s.flowGoal, s.phases, s.pourStart, s.pourEnd, s.beverageType,
-        /*analysisFlags=*/{}, s.pressure);
+        /*analysisFlags=*/{}, s.pressure,
+        s.targetWeightG, s.yieldG);
     ev.grindDelta = grind.delta;
     ev.grindSamples = grind.sampleCount;
     ev.grindHasData = grind.hasData;
