@@ -2278,10 +2278,12 @@ int main(int argc, char *argv[])
         SD_TRACE_DISCONNECT(&DE1Device::shotSettingsReported,    "shotSettingsReported");
         SD_TRACE_DISCONNECT(&DE1Device::logMessage,              "logMessage");
 
-        // Test A (#877): remove the per-signal disconnects for destroyed/
-        // objectNameChanged that "fixed" the freeze in build 3329. If the
-        // wildcard tail freezes again here → those built-ins are the real
-        // culprit. If it stays clean → 3329's "fix" was timing/order luck.
+        // Test B (#877): Test A confirmed one of destroyed/objectNameChanged
+        // carries the offending connection. Bisect by adding back ONLY
+        // destroyed. If the wildcard tail still hangs → it's
+        // objectNameChanged. If it stays clean → it's destroyed.
+        SD_TRACE_DISCONNECT(&QObject::destroyed,                 "destroyed");
+
         qDebug() << "[shutdown trace] before disconnect <wildcard tail>";
         QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
         qDebug() << "[shutdown trace] after disconnect <wildcard tail>";
