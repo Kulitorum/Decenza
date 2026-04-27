@@ -2187,7 +2187,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         }
     }
 
-    // On-the-fly computation of derived curves for legacy shots that lack them
+    // On-the-fly computation of derived curves for legacy shots that lack them.
+    // Empty conductance = pre-migration-10 shot (the column was added in migration 10);
+    // derive it now so the badge-recompute block below can always assume
+    // conductanceDerivative is populated for the channeling check.
     bool needsDerivedCurves = record.conductance.isEmpty() && !record.pressure.isEmpty();
     if (needsDerivedCurves) {
         computeDerivedCurves(record);
@@ -2226,12 +2229,15 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         }
     }
 
-    // Recompute channeling/temp quality flags for pre-migration-10 shots.
-    // Trigger: conductance missing means the shot predates migration 10 and its flags
-    // are DB defaults (0), not real analysis. Channeling and temp require conductanceDerivative
-    // which was just filled by computeDerivedCurves() above.
-    if (needsDerivedCurves && !record.pressure.isEmpty()) {
-        // Find pour boundaries for channeling/temp checks
+    // Always recompute every quality badge from the loaded curve data, so that
+    // detector improvements take effect on existing shots without a one-shot
+    // re-analyze pass. Stored badge values are only authoritative as of save
+    // time; the detectors evolve. The channeling sub-block uses
+    // conductanceDerivative, which is either loaded from the DB
+    // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
+    // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
+    // pressure / phases, which are always available.
+    if (!record.pressure.isEmpty()) {
         double pourStart = 0, pourEnd = record.pressure.last().x();
         for (const auto& pm : record.phases) {
             if (pm.label.toLower().contains("pour")) pourStart = pm.time;
@@ -2243,7 +2249,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             }
         }
 
-        // Channeling (dC/dt — conductanceDerivative was just filled by computeDerivedCurves)
+        // Channeling (dC/dt with mode-aware windowing)
         record.channelingDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("channeling_expected"))) {
@@ -2264,23 +2270,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
             }
         }
-    }
 
-    // Grind issue: always recompute from stored curve data when flowGoal is available.
-    // Unlike channeling/temp, grind detection needs only flow + flowGoal (no derived curves),
-    // so it can cover all shot eras including v10-era shots that have conductance but predate
-    // migration 11 and thus have grind_issue_detected = 0 (DEFAULT) in the DB.
-    if (!record.flowGoal.isEmpty() && !record.pressure.isEmpty()) {
-        double pourStart = 0, pourEnd = record.pressure.last().x();
-        for (const auto& pm : record.phases) {
-            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
-            if (pm.label == "End") pourEnd = pm.time;
-        }
-        if (pourStart == 0) {
-            for (const auto& pm : record.phases) {
-                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
-            }
-        }
+        // Grind direction (flow-vs-goal + choked-puck arms). Reset before the
+        // skip-check so filter/pourover/tea/steam/cleaning shots clear any
+        // stale stored value (the channeling/temp resets above are the same
+        // pattern).
+        record.grindIssueDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 record.flow, record.flowGoal, record.phases,
@@ -2291,9 +2286,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         }
     }
 
-    // Skip-first-frame: always recompute from phase markers when available.
-    // Like grind detection, this needs no derived curves, so it covers all shot
-    // eras including shots predating migration 12 that have skip_first_frame_detected = 0 (DEFAULT).
+    // Skip-first-frame: phase markers only — no curves needed.
+    record.skipFirstFrameDetected = false;
     if (!record.phases.isEmpty()) {
         const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
         record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
