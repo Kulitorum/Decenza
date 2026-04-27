@@ -58,6 +58,16 @@ private:
         QCOMPARE(ShotAnalysis::detectSkipFirstFrame(phases, expectedFrameCount), expected);
     }
 
+    static void expectSkipDetection(const QList<HistoryPhaseMarker>& phases,
+                                    int expectedFrameCount,
+                                    double firstFrameConfiguredSeconds,
+                                    bool expected)
+    {
+        QCOMPARE(ShotAnalysis::detectSkipFirstFrame(phases, expectedFrameCount,
+                                                     firstFrameConfiguredSeconds),
+                 expected);
+    }
+
 private slots:
     void skipFirstFrameDetection()
     {
@@ -107,6 +117,63 @@ private slots:
         expectSkipDetection({
             phase(0.0, "Pour", 1),
         }, -1, true);
+
+        // --- Configured-first-frame-seconds path (option 1 fix) ---
+
+        // 80's Espresso shot 889 regression: profile configures frame[0].seconds = 2,
+        // BLE jitter delivers the frame-1 marker at 1.872 s (94 % of plan). The
+        // legacy hard 2 s window flagged this; with configured seconds known
+        // the cutoff is min(2.0, 0.5*2.0) = 1.0 s, so 1.872 must NOT flag.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "preinfusion start", 0),
+            phase(1.872, "preinfusion", 1),
+        }, 4, /*firstFrameConfiguredSeconds=*/2.0, false);
+
+        // Same profile, frame 0 actually skipped (e.g., transition at 0.3 s):
+        // 0.3 < 1.0 s cutoff → flag.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "preinfusion start", 0),
+            phase(0.3, "preinfusion", 1),
+        }, 4, /*firstFrameConfiguredSeconds=*/2.0, true);
+
+        // Profile with a deliberately short first step (0.5 s configured): a
+        // 0.4 s actual is 80 % of plan, not "skipped" — must NOT flag.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.4, "Pour", 1),
+        }, 3, /*firstFrameConfiguredSeconds=*/0.5, false);
+
+        // Same short-first-step profile but actual is even shorter (0.2 s on
+        // a 0.5 s plan = 40 %): cutoff = 0.25 s, 0.2 < 0.25 → flag.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.2, "Pour", 1),
+        }, 3, /*firstFrameConfiguredSeconds=*/0.5, true);
+
+        // Long configured first frame (4 s): cutoff capped at 2 s. A 2.5 s
+        // actual (early exit, e.g., pressure-over) → no flag.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(2.5, "Pour", 1),
+        }, 3, /*firstFrameConfiguredSeconds=*/4.0, false);
+
+        // Long configured first frame, actual under the 2 s cap → flag.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(1.5, "Pour", 1),
+        }, 3, /*firstFrameConfiguredSeconds=*/4.0, true);
+
+        // Firmware bug (no frame 0 marker) still flags regardless of
+        // configured seconds — frame 0 was genuinely never executed.
+        expectSkipDetection({
+            phase(0.0, "Pour", 1),
+        }, 3, /*firstFrameConfiguredSeconds=*/2.0, true);
     }
 
     // buildChannelingWindows ---------------------------------------------

@@ -219,16 +219,20 @@ public:
 
     // Returns true if the shot appears to have skipped profile frame 0, indicating
     // either a known DE1 firmware bug (machine started at frame 1+) or a profile
-    // whose first step is so short (< 2 s) it was never meaningfully executed.
-    // Mirrors the de1app plugin semantics against Decenza's saved phase markers:
-    // ignore the synthetic "Start" marker, then inspect real frame markers only
-    // within the first 2 seconds of extraction. expectedFrameCount is optional;
-    // when known, values less than 2 suppress detection (there is no second frame
-    // to skip to), and out-of-range frame numbers are ignored as malformed data.
-    // The firmware bug requires a full power-cycle of the machine to fix.
-    // Returns false when phases is empty (insufficient data).
+    // whose first step ran far shorter than configured. Ignores the synthetic
+    // "Start" marker, then inspects real frame markers. expectedFrameCount is
+    // optional; when known, values less than 2 suppress detection (no second
+    // frame to skip to), and out-of-range frame numbers are ignored as malformed
+    // data. firstFrameConfiguredSeconds is the value of profile.steps[0].seconds;
+    // when known (> 0) the actual frame-0 duration is judged against half of
+    // configured (capped at 2 s) so profiles with frame[0].seconds == 2 do not
+    // false-positive on normal sub-frame BLE jitter. When unknown (<= 0 or -1)
+    // falls back to the de1app plugin's hard 2 s window. The firmware bug
+    // requires a full power-cycle of the machine to fix. Returns false when
+    // phases is empty (insufficient data).
     static bool detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
-                                     int expectedFrameCount = -1);
+                                     int expectedFrameCount = -1,
+                                     double firstFrameConfiguredSeconds = -1.0);
 
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
@@ -247,5 +251,6 @@ public:
                                          double duration,
                                          const QVector<QPointF>& pressureGoal = {},
                                          const QVector<QPointF>& flowGoal = {},
-                                         const QStringList& analysisFlags = {});
+                                         const QStringList& analysisFlags = {},
+                                         double firstFrameConfiguredSeconds = -1.0);
 };
