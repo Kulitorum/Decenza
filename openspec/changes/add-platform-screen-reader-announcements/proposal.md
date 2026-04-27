@@ -2,11 +2,11 @@
 
 ## Why
 
-`AccessibilityManager::announce()` currently speaks every announcement through `QTextToSpeech` directly. On Android/iOS — where TalkBack/VoiceOver are active — our TTS engine talks **in parallel with** the OS screen reader, overlapping its utterances and confusing the user. When TalkBack is off, our TTS still speaks (gated only by our `ttsEnabled` setting), which is the opposite of what an a11y-aware app should do.
+`AccessibilityManager::announce()` currently speaks every announcement through `QTextToSpeech` directly. On Android/iOS — where TalkBack/VoiceOver are active — our TTS engine talks **in parallel with** the OS screen reader, overlapping its utterances and confusing the user. When TalkBack is off, our TTS still speaks (gated only by our `ttsEnabled` setting), which is the opposite of what an a11y-aware app should be doing.
 
 Qt 6.8+ exposes `QAccessibleAnnouncementEvent` (QML `Accessible.announce()`), which routes through the OS accessibility framework with Polite/Assertive politeness so periodic extraction announcements don't interrupt a swipe-read. We're already on Qt 6.10.3, so the API is available — we just don't use it.
 
-This change makes the platform screen reader the primary announcement channel. `QTextToSpeech` stays available as an explicit user-selectable mode for users who want speech without enabling TalkBack/VoiceOver.
+This change makes the platform screen reader the primary announcement channel **whenever one is active** and falls back to `QTextToSpeech` only when no screen reader is detected. There is no new user-facing setting: the existing `ttsEnabled` toggle keeps its current meaning — "speak via Decenza's TTS engine when no screen reader is on."
 
 ## Scope notes
 
@@ -14,19 +14,17 @@ This change was originally bundled with a high-contrast theme adaptation (Qt 6.1
 
 ## What Changes
 
-- **ADD** event-based announcement delivery on `AccessibilityManager` using `QAccessibleAnnouncementEvent`. The existing `announce(text, interrupt)` API stays; `interrupt=true` maps to `QAccessible::AnnouncementPoliteness::Assertive`, default maps to `Polite`.
-- **ADD** new C++ helpers `announcePolite(text)` and `announceAssertive(text)` for new call sites that want to be explicit.
-- **ADD** Settings sub-object property `accessibility/announcementMode` with three values:
-  - `"platform"` (default for new installs) — emit `QAccessibleAnnouncementEvent` only.
-  - `"tts"` — `QTextToSpeech` only (legacy behavior).
-  - `"both"` — emit the platform event **and** speak via TTS (diagnostics; documented as "may overlap with screen reader").
-- **ADD** one-shot migration: existing installs with `ttsEnabled == true` get `announcementMode = "both"` so they don't go silent. New installs default to `"platform"`.
-- **MODIFY** `AccessibilityManager::announce()` to dispatch per the chosen mode. **No QML call-site changes.**
-- **ADD** Settings → Accessibility UI: mode picker, hint label clarifying "platform mode requires an active screen reader", and a "Test announcement" button that fires both Polite and Assertive samples in the currently-selected mode.
-- **ADD** observability: log every announcement (text + chosen path) and every mode change (old → new) via the existing async logger.
+- **REPLACE** the body of `AccessibilityManager::announce(text, interrupt)` with auto-detect routing. Same signature, new behavior:
+  - If `QAccessible::isActive()` returns true (TalkBack/VoiceOver/Narrator running) → dispatch a `QAccessibleAnnouncementEvent` to the root `QQuickWindow`. **Do not** also speak via `QTextToSpeech`, even if `ttsEnabled` is true. This is the fix for the overlap bug.
+  - If `QAccessible::isActive()` returns false → speak via `QTextToSpeech` if `ttsEnabled` is true; otherwise stay silent. (Preserves the "spoken extraction progress without TalkBack" use case for sighted users.)
+- **ADD** politeness mapping: `announce(text)` → `Polite`, `announce(text, true)` (interrupt) → `Assertive`. No QML call-site changes; the existing `interrupt` parameter is the politeness selector.
+- **ADD** new C++/QML helpers `announcePolite(text)` and `announceAssertive(text)` for new call sites that want to be explicit.
+- **ADD** observability: log every announcement (text + chosen path: `"platform"` / `"tts"` / `"silent"` / `"dropped"`) via the existing async logger so user reports of "missed announcements" are debuggable. Log the `QAccessible::isActive()` result alongside.
+- **NO new setting.** No migration. No UI changes. The existing `ttsEnabled` toggle keeps its place in Settings; its meaning narrows from "always speak" to "speak when no screen reader is detected." Existing QML call sites and toggle bindings are unchanged.
 
 ### Out of scope (explicit)
 
+- A user-visible mode picker (platform / tts / both). Auto-detect is sufficient; the mode picker added complexity for a setting most users would never touch. Documented in design.md as a future fallback if `QAccessible::isActive()` proves unreliable in the field.
 - High-contrast theme support (`QStyleHints::accessibility()->contrastPreference` integration with `Theme.qml`) — deferred; tracked separately.
 - Migrating individual QML call sites to call the politeness-specific helpers directly — most are fine on the default mapping.
 - Adopting QML-native `Accessible.announce()` at call sites — centralization through `AccessibilityManager` is intentional.
@@ -35,11 +33,9 @@ This change was originally bundled with a high-contrast theme adaptation (Qt 6.1
 
 ## Impact
 
-- **Affected specs**: new `accessibility-announcements` capability with one requirement (platform-routed announcements) plus an observability requirement.
+- **Affected specs**: new `accessibility-announcements` capability with one requirement (auto-detected platform-routed announcements) plus an observability requirement.
 - **Affected code**:
-  - `src/core/accessibilitymanager.h` / `.cpp` — event delivery, mode switching, migration, virtual test seams.
-  - `src/core/settings_accessibility.h` / `.cpp` — `announcementMode` property (per Settings architecture: lives on the domain sub-object, not on `Settings`; `qmlRegisterUncreatableType` registration if not already present).
-  - `qml/pages/settings/SettingsAccessibilityTab.qml` — mode picker + hint + Test button.
-  - `docs/CLAUDE_MD/ACCESSIBILITY.md` — make platform announcements the documented primary path.
-- **No QML announcement call-site changes** — the existing ~25 `AccessibilityManager.announce(...)` calls keep working.
-- **Risks**: Android `View.announceForAccessibility` can drop announcements during window transitions; root `QQuickWindow` target may be unavailable during very early startup or shutdown. Both addressed in `design.md`.
+  - `src/core/accessibilitymanager.h` / `.cpp` — event delivery, isActive() gate, virtual test seams.
+  - `docs/CLAUDE_MD/ACCESSIBILITY.md` — make platform announcements the documented primary path; document the auto-detect routing.
+- **No QML changes.** No settings UI changes. The existing ~25 `AccessibilityManager.announce(...)` calls keep working.
+- **Risks**: `QAccessible::isActive()` can lag during screen-reader on/off transitions on Android; root `QQuickWindow` may be unavailable during very early startup or shutdown. Both addressed in `design.md`.

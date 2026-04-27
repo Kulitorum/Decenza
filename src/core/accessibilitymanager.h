@@ -7,6 +7,10 @@
 #include <QSoundEffect>
 #include <QSettings>
 
+#ifndef QT_NO_ACCESSIBILITY
+#include <QAccessible>
+#endif
+
 class TranslationManager;
 
 class AccessibilityManager : public QObject
@@ -27,6 +31,17 @@ class AccessibilityManager : public QObject
 public:
     explicit AccessibilityManager(QObject *parent = nullptr);
     ~AccessibilityManager();
+
+#ifdef DECENZA_TESTING
+    // Test-only ctor sentinel: skip QTextToSpeech / QSoundEffect construction
+    // so unit tests don't depend on a real OS TTS engine. The base ctor's
+    // QTextToSpeech::stateChanged handler emits qWarning("TTS error: ...")
+    // when the platform has no engine available — banned by TESTING.md's
+    // strict-warnings policy. Tests subclass AccessibilityManager and call
+    // this overload to bypass audio init entirely.
+    enum class TestSkipAudioInit { SkipAudio };
+    explicit AccessibilityManager(TestSkipAudioInit, QObject *parent = nullptr);
+#endif
 
     bool enabled() const { return m_enabled; }
     void setEnabled(bool enabled);
@@ -58,6 +73,8 @@ public:
 
     // Called from QML
     Q_INVOKABLE void announce(const QString& text, bool interrupt = false);
+    Q_INVOKABLE void announcePolite(const QString& text) { announce(text, false); }
+    Q_INVOKABLE void announceAssertive(const QString& text) { announce(text, true); }
     Q_INVOKABLE void announceLabel(const QString& text);  // Lower pitch + faster rate for non-interactive text
     Q_INVOKABLE void playTick();
     Q_INVOKABLE void toggleEnabled();  // For backdoor gesture
@@ -82,9 +99,30 @@ signals:
     void extractionAnnouncementIntervalChanged();
     void extractionAnnouncementModeChanged();
 
+protected:
+    // Test seams. Production implementations live in the .cpp; tests subclass
+    // AccessibilityManager and override these to record calls without touching
+    // real Qt accessibility / TTS state.
+    virtual bool isScreenReaderActive() const;
+    virtual void dispatchPlatformAnnouncement(const QString& text, bool assertive);
+    virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
+
+    // The single routing entry point. Decides between platform / TTS / silent
+    // based on isScreenReaderActive() and m_ttsEnabled. Internally guards
+    // m_shuttingDown but does NOT check m_enabled — that's the caller's
+    // responsibility. announce() and announceLabel() check m_enabled;
+    // setEnabledImpl() (called by both setEnabled() and toggleEnabled())
+    // intentionally bypasses it so the confirmation message plays even when
+    // accessibility is being turned off.
+    void routeAnnouncement(const QString& text, bool interrupt);
+
 private:
     void loadSettings();
     void saveSettings();
+    // Internal setter. Externally setEnabled() always announces; toggleEnabled()
+    // calls this with announce=false to avoid double-speak (it then issues a
+    // single Assertive announcement itself).
+    void setEnabledImpl(bool enabled, bool announce);
     void initTts();
     void initTickSound();
 

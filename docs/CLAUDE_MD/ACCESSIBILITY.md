@@ -3,11 +3,22 @@
 ## Current Implementation
 
 The app has accessibility support via `AccessibilityManager` (C++) with:
-- Text-to-speech announcements via `AccessibilityManager.announce()`
+- Announcements via `AccessibilityManager.announce()` — auto-routed (see "Announcement routing" below)
 - Tick sounds for frame changes
 - `AccessibleTapHandler` and `AccessibleMouseArea` for touch handling
 - Extraction announcements (phase changes, weight milestones, periodic updates)
 - User-configurable settings in Settings → Accessibility
+
+### Announcement routing (`AccessibilityManager.announce()`)
+
+`AccessibilityManager.announce(text, interrupt=false)` is the only announcement entry point used from QML (~25 call sites). At dispatch time it picks one of two paths automatically:
+
+- **Platform path** — when `QAccessible::isActive()` returns true (TalkBack on Android, VoiceOver on iOS/macOS, Narrator on Windows). It builds a `QAccessibleAnnouncementEvent` against the root `QQuickWindow` and posts it via `QAccessible::updateAccessibility()`. `interrupt=true` maps to `Assertive` politeness; default maps to `Polite`. **`QTextToSpeech` does not also speak in this path** — that's the bug fix that this routing replaced (we used to overlap TalkBack).
+- **TTS fallback path** — when no screen reader is detected. Speaks via `QTextToSpeech` if the user has the existing `ttsEnabled` toggle on; stays silent otherwise. This preserves the "spoken extraction progress without TalkBack" use case for sighted users who want audio feedback during a shot.
+
+There is **no user-visible delivery-mode setting**. Routing is automatic; the existing `ttsEnabled` toggle keeps its place in Settings → Language → Accessibility but only matters on the no-screen-reader fallback path.
+
+`announcePolite(text)` / `announceAssertive(text)` are convenience wrappers that map to `announce(text, false)` / `announce(text, true)`. New call sites can use them when the politeness intent is worth being explicit; existing call sites don't need to change.
 
 ### Key QML Components
 
@@ -20,7 +31,7 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 
 ### Key C++ Component
 
-`src/core/accessibilitymanager.h/cpp` — TTS engine, tick sounds, settings persistence.
+`src/core/accessibilitymanager.h/cpp` — announcement routing (platform vs TTS), tick sounds, settings persistence.
 
 ---
 
