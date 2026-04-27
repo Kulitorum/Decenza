@@ -77,7 +77,7 @@ Notes:
 
 - `ttsEnabled` keeps its existing meaning ("speak via Decenza TTS"), but now only matters when no screen reader is detected. Sighted users who enable it for spoken extraction progress (no TalkBack) keep that capability unchanged.
 - When a screen reader IS detected, we suppress TTS unconditionally — that's the bug fix. There is no "both" mode in the new design.
-- `lastAnnouncedItem` de-duplication runs on every path (platform and TTS) — its semantics don't change.
+- `lastAnnouncedItem` is a QML-side de-duplication mechanism (set/checked from `AccessibleTapHandler`, `AccessibleButton`, etc.); `announce()` does not read or write it, so the new routing has no interaction with it.
 
 ### 6. No migration
 

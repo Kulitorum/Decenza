@@ -32,6 +32,17 @@ public:
     explicit AccessibilityManager(QObject *parent = nullptr);
     ~AccessibilityManager();
 
+#ifdef DECENZA_TESTING
+    // Test-only ctor sentinel: skip QTextToSpeech / QSoundEffect construction
+    // so unit tests don't depend on a real OS TTS engine. The base ctor's
+    // QTextToSpeech::stateChanged handler emits qWarning("TTS error: ...")
+    // when the platform has no engine available — banned by TESTING.md's
+    // strict-warnings policy. Tests subclass AccessibilityManager and call
+    // this overload to bypass audio init entirely.
+    enum class TestSkipAudioInit { SkipAudio };
+    explicit AccessibilityManager(TestSkipAudioInit, QObject *parent = nullptr);
+#endif
+
     bool enabled() const { return m_enabled; }
     void setEnabled(bool enabled);
 
@@ -89,12 +100,19 @@ signals:
     void extractionAnnouncementModeChanged();
 
 protected:
-    // Test seams. Production overrides are the implementations in the .cpp;
-    // tests subclass AccessibilityManager and override these to record calls
-    // without touching real Qt accessibility / TTS state.
+    // Test seams. Production implementations live in the .cpp; tests subclass
+    // AccessibilityManager and override these to record calls without touching
+    // real Qt accessibility / TTS state.
     virtual bool isScreenReaderActive() const;
     virtual void dispatchPlatformAnnouncement(const QString& text, bool assertive);
     virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
+
+    // The single routing entry point. Decides between platform / TTS / silent
+    // based on isScreenReaderActive() and m_ttsEnabled. Does NOT check
+    // m_enabled — caller is responsible (announce() does; setEnabled() and
+    // toggleEnabled() intentionally bypass m_enabled to play their own
+    // confirmation message).
+    void routeAnnouncement(const QString& text, bool interrupt);
 
 private:
     void loadSettings();
