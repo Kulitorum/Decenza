@@ -338,7 +338,9 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     double pourStart, double pourEnd,
     const QString& beverageType,
     const QStringList& analysisFlags,
-    const QVector<QPointF>& pressure)
+    const QVector<QPointF>& pressure,
+    double targetWeightG,
+    double finalWeightG)
 {
     GrindCheck result;
 
@@ -494,7 +496,17 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
 
     if (flowSamples >= 5 && pressurizedDuration >= CHOKED_DURATION_MIN_SEC) {
         const double meanFlow = flowSum / flowSamples;
-        if (meanFlow < CHOKED_FLOW_MAX_MLPS) {
+        const bool flowChoked = meanFlow < CHOKED_FLOW_MAX_MLPS;
+        // Yield-ratio arm: same diagnosis (grind too fine), milder severity.
+        // Catches shots like 883 — 70 % of target with mean pressurized flow
+        // ~0.6 ml/s, just over the flow threshold but the puck still failed
+        // to deliver. finalWeightG works on either real or virtual scale
+        // (FlowScale integrates flow with dose-aware puck-absorption
+        // compensation), so this fires headless too.
+        const bool yieldShortfall = targetWeightG > 0.0
+            && finalWeightG > 0.0
+            && (finalWeightG / targetWeightG) < CHOKED_YIELD_RATIO_MAX;
+        if (flowChoked || yieldShortfall) {
             result.hasData = true;
             result.chokedPuck = true;
             result.sampleCount = flowSamples;
@@ -512,10 +524,13 @@ bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
                                      double pourStart, double pourEnd,
                                      const QString& beverageType,
                                      const QStringList& analysisFlags,
-                                     const QVector<QPointF>& pressure)
+                                     const QVector<QPointF>& pressure,
+                                     double targetWeightG,
+                                     double finalWeightG)
 {
     const GrindCheck r = analyzeFlowVsGoal(flow, flowGoal, phases, pourStart, pourEnd,
-                                            beverageType, analysisFlags, pressure);
+                                            beverageType, analysisFlags, pressure,
+                                            targetWeightG, finalWeightG);
     if (r.skipped || !r.hasData) return false;
     return r.chokedPuck || std::abs(r.delta) > FLOW_DEVIATION_THRESHOLD;
 }
@@ -617,7 +632,9 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              const QVector<QPointF>& pressureGoal,
                                              const QVector<QPointF>& flowGoal,
                                              const QStringList& analysisFlags,
-                                             double firstFrameConfiguredSeconds)
+                                             double firstFrameConfiguredSeconds,
+                                             double targetWeightG,
+                                             double finalWeightG)
 {
     QVariantList lines;
 
@@ -741,7 +758,8 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     const GrindCheck grind = analyzeFlowVsGoal(flow, flowGoal, phases,
                                                 pourStart, pourEnd,
                                                 beverageType, analysisFlags,
-                                                pressure);
+                                                pressure,
+                                                targetWeightG, finalWeightG);
     if (grind.hasData) {
         if (grind.chokedPuck) {
             QVariantMap line;
