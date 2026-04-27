@@ -10,6 +10,7 @@ Dialog {
     property real dialogScale: 0.75
     width: Theme.scaled(520) * dialogScale
     modal: true
+    closePolicy: Dialog.CloseOnEscape
     padding: 0
 
     // Accessibility: Dialog is announced via onAboutToShow below

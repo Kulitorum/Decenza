@@ -33,8 +33,10 @@ Page {
     }
 
     function handleBack() {
+        Qt.inputMethod.commit()
         if (hasUnsavedChanges) {
-            saveEditedShot()
+            unsavedChangesDialog.open()
+            return
         }
         root.goBack()
     }
@@ -77,7 +79,13 @@ Page {
                  && postShotReviewPage.autoCloseTimeout > 0
                  && postShotReviewPage.autoCloseTimeout < 31
                  && postShotReviewPage.StackView.status === StackView.Active
-        onTriggered: postShotReviewPage.handleBack()
+        onTriggered: {
+            // Auto-close: save silently and exit (user isn't here to answer a prompt)
+            if (postShotReviewPage.hasUnsavedChanges) {
+                postShotReviewPage.saveEditedShot()
+            }
+            root.goBack()
+        }
     }
 
     // Reset timer on user interaction
@@ -1797,5 +1805,132 @@ Page {
         id: conversationOverlay
         anchors.fill: parent
         overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
+    }
+
+    // Unsaved changes confirmation dialog (shown when user taps back / Escape with edits)
+    Dialog {
+        id: unsavedChangesDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Theme.scaled(380)
+        modal: true
+        padding: 0
+        closePolicy: Dialog.CloseOnEscape
+
+        onAboutToShow: {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                AccessibilityManager.announce(TranslationManager.translate(
+                    "postshotreview.unsaved.announcement",
+                    "Unsaved Changes. Save, discard, or cancel?"))
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("postshotreview.unsaved.title", "Unsaved Changes")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                Layout.bottomMargin: 0
+            }
+
+            Text {
+                text: TranslationManager.translate("postshotreview.unsaved.message", "Save changes to this shot before leaving?")
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                spacing: Theme.scaled(10)
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("postshotreview.unsaved.discard", "Discard")
+                    accessibleName: TranslationManager.translate("postshotreview.unsaved.discardAccessible", "Discard changes and go back")
+                    onClicked: {
+                        unsavedChangesDialog.close()
+                        root.goBack()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.warningColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.warningColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("postshotreview.unsaved.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("postshotreview.unsaved.cancelAccessible", "Stay on shot review")
+                    onClicked: unsavedChangesDialog.close()
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("postshotreview.unsaved.save", "Save")
+                    accessibleName: TranslationManager.translate("postshotreview.unsaved.saveAccessible", "Save changes and go back")
+                    onClicked: {
+                        unsavedChangesDialog.close()
+                        saveEditedShot()
+                        root.goBack()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.primaryContrastColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
+            }
+        }
     }
 }
