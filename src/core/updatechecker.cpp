@@ -1,4 +1,5 @@
 #include "updatechecker.h"
+#include "crashhandler.h"
 #include "settings.h"
 #include "settings_app.h"
 #include "version.h"
@@ -778,6 +779,8 @@ void UpdateChecker::dismissUpdate()
     if (m_installInFlight) {
         m_installInFlight = false;
         emit installingChanged();
+        // Match: app keeps running, so resume normal crash reporting.
+        CrashHandler::setSuppressCrashLog(false);
     }
 }
 
@@ -878,6 +881,11 @@ bool UpdateChecker::installApk(const QString& apkPath)
 
     m_installInFlight = true;
     emit installingChanged();
+    // Suppress crash reporting from here on: Android's package-install handover
+    // races against Qt's UNIX event dispatcher (it reaps fds out from under
+    // QSocketNotifier and we SIGSEGV in QSocketNotifier::setEnabled). Cleared
+    // again in onInstallStatus on any non-success terminal status. See #865.
+    CrashHandler::setSuppressCrashLog(true);
     qDebug() << "UpdateChecker: PackageInstaller install dispatched (session write runs on worker thread)";
     return true;
 #else
@@ -934,6 +942,8 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
         case 3:  // STATUS_FAILURE_ABORTED — user cancelled the confirmation.
             m_installInFlight = false;
             emit installingChanged();
+            // App keeps running; resume normal crash reporting (see installApk).
+            CrashHandler::setSuppressCrashLog(false);
             // Clear any stale error from a prior failed attempt so it doesn't
             // linger when the user merely cancelled the current attempt.
             if (!m_errorMessage.isEmpty()) {
@@ -999,6 +1009,8 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
 
     m_installInFlight = false;
     emit installingChanged();
+    // App keeps running on every non-success path; resume normal crash reporting.
+    CrashHandler::setSuppressCrashLog(false);
     // Safety net. After dismissUpdate() this block is unreachable (dismiss
     // clears both m_installInFlight and m_downloadedApkPath). It can still
     // be reached today via parseReleaseInfo (called from onReleaseInfoReceived

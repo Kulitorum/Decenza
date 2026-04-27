@@ -40,6 +40,12 @@ static char s_lastDebugMessage[4096] = {0};
 // Store recent debug messages for context
 static QtMessageHandler s_previousHandler = nullptr;
 
+// When non-zero, the signal handler skips writing crash.log + debug.log
+// append. Re-raising the signal still happens so the OS terminates normally.
+// volatile sig_atomic_t is the only type guaranteed safe to read in a
+// signal handler.
+static volatile sig_atomic_t s_suppressCrashLog = 0;
+
 static void crashMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
     // Store the last few messages for crash context
@@ -238,8 +244,11 @@ void CrashHandler::signalHandler(int signal)
         default: break;
     }
 
-    // Write crash log
-    writeCrashLog(signal, signalName);
+    // Write crash log unless a known-noisy code path (Android APK install
+    // handover) has asked us to skip it.
+    if (!s_suppressCrashLog) {
+        writeCrashLog(signal, signalName);
+    }
 
     // Re-raise signal to get default behavior (core dump, etc.)
     std::signal(signal, SIG_DFL);
@@ -293,6 +302,11 @@ void CrashHandler::uninstall()
         qInstallMessageHandler(s_previousHandler);
         s_previousHandler = nullptr;
     }
+}
+
+void CrashHandler::setSuppressCrashLog(bool suppress)
+{
+    s_suppressCrashLog = suppress ? 1 : 0;
 }
 
 QString CrashHandler::crashLogPath()

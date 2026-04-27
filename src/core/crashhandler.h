@@ -35,6 +35,16 @@ public:
     /// Get the last N lines of debug.log for context
     static QString getDebugLogTail(int lines = 50);
 
+    /// Suppress crash log writing for a known-noisy code path. The signal
+    /// handler still re-raises the signal (so the OS terminates normally),
+    /// it just skips writing crash.log + appending to debug.log. Intended
+    /// for the Android APK install handover, where Qt's UNIX event
+    /// dispatcher races against OS-reaped fds and produces a SIGSEGV in
+    /// QSocketNotifier::setEnabled. Clear the flag again on a non-success
+    /// install status so a still-running app (cancelled install) keeps
+    /// reporting real crashes.
+    static void setSuppressCrashLog(bool suppress);
+
 private:
     static void signalHandler(int signal);
     static void writeCrashLog(int signal, const char* signalName);
