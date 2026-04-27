@@ -44,8 +44,8 @@ shared `shotReview/advancedMode` setting toggles information density on both.
 
 Four independent flags, surfaced via `qml/components/QualityBadges.qml`. When
 any fire, those chips show; when none fire, a single green "Clean extraction"
-chip shows. None of the chips suppress the others. A non-clickable "Shot
-Summary" chip always sits at the end of the row — that's the entry point to
+chip shows. None of the chips suppress the others. A tappable "Shot
+Summary" chip always sits at the end of the row — it's the entry point to
 the analysis dialog described in §3.
 
 | Flag                       | Color  | Label                  | Source                       |
@@ -53,7 +53,7 @@ the analysis dialog described in §3.
 | `channelingDetected`       | red    | "Channeling detected"  | `detectChannelingFromDerivative` |
 | `temperatureUnstable`      | orange | "Temp unstable"        | `avgTempDeviation` + threshold |
 | `grindIssueDetected`       | orange | "Grind issue"          | `detectGrindIssue` (`analyzeFlowVsGoal`) |
-| `skipFirstFrameDetected`   | orange | "First step skipped"   | `detectSkipFirstFrame`       |
+| `skipFirstFrameDetected`   | red    | "First step skipped"   | `detectSkipFirstFrame`       |
 
 The badges are recomputed on every shot load (see §4) so detector improvements
 take effect on existing shots without a manual re-analyze.
@@ -91,10 +91,13 @@ included only when, at that time:
    / goal(t) ≤ 0.15` on both sides.
 2. The actual value has **converged** onto the goal: `|actual − goal| / goal ≤
    0.15`.
-3. For **flow-mode phases only**, pressure is not rising fast (`pressureFut >
-   pressureNow * 1.15` over 0.75 s ahead disqualifies the sample). Falling
-   pressure is allowed — bloom transitions and pressure-mode → flow-mode
-   handoffs are legitimate channeling signals.
+3. For **flow-mode phases only**, pressure is not rising fast: when
+   `pressureNow > 0.5` bar AND `pressureFut > pressureNow * 1.15` over 0.75 s
+   ahead, the sample is disqualified. Falling pressure is allowed — bloom
+   transitions and pressure-mode → flow-mode handoffs are legitimate
+   channeling signals. The 0.5 bar precondition gates out the
+   near-atmospheric window where small absolute jitter would otherwise read
+   as a 15 % relative rise.
 
 Contiguous qualifying times collapse into windows; gaps ≤
 `WINDOW_GAP_MERGE_SEC` (0.3 s) are merged.
@@ -324,10 +327,14 @@ puck-integrity advice):
    "Grind is running fine — try coarser." or "Grind is running coarse —
    try finer." as a modifier (since channeling alone doesn't tell you
    which direction grind is off).
-5. **Has any "caution"** → If the only caution is a grind direction,
-   names the direction ("Grind appears too fine — try coarser." /
-   "…too coarse — try finer."). Otherwise: "Decent shot with minor
-   issues to watch."
+5. **Has any "caution"** → If grind data is directional (`|delta| >
+   FLOW_DEVIATION_THRESHOLD`), names the direction ("Grind appears too
+   fine — try coarser." / "…too coarse — try finer.") regardless of any
+   other cautions also present. Otherwise: "Decent shot with minor
+   issues to watch." (The in-source comment phrases this as "if the
+   only caution is a grind direction," but the implementation does not
+   actually check for uniqueness — a directional grind delta wins over
+   a co-occurring temperature or flow-trend caution.)
 6. **Otherwise** → "Clean shot. Puck held well."
 
 ### Triggering and lifecycle
@@ -372,9 +379,11 @@ when the shot predates migration 10 (the `conductance` column).
 
 When a shot is opened in `ShotDetailPage` or `PostShotReviewPage`, QML calls
 `MainController.shotHistory.requestReanalyzeBadges(id)`. That method runs on
-the DB worker thread, recomputes the four flags, and issues an `UPDATE` if
-any flag differs from the stored value. It then emits `shotBadgesUpdated` so
-the UI can refresh without a full reload.
+the DB worker thread and recomputes the four flags. If at least one flag
+differs from the stored value, it issues an `UPDATE` *and* emits
+`shotBadgesUpdated` so the UI can refresh without a full reload. If every
+flag already matches the stored value, the worker exits silently — no
+`UPDATE`, no signal, no UI refresh.
 
 The wiring lives at `qml/pages/ShotDetailPage.qml` (in `onShotReady`) and
 `qml/pages/PostShotReviewPage.qml`. The visualizer-update reload path
