@@ -2,8 +2,14 @@
 #include "translationmanager.h"
 #include <QDebug>
 #include <QCoreApplication>
-#include <QApplication>
 #include <QLocale>
+#include <QGuiApplication>
+#include <QQuickWindow>
+#include <QWindow>
+
+#ifndef QT_NO_ACCESSIBILITY
+#include <QAccessible>
+#endif
 
 AccessibilityManager::AccessibilityManager(QObject *parent)
     : QObject(parent)
@@ -238,14 +244,76 @@ void AccessibilityManager::setExtractionAnnouncementMode(const QString& mode)
 
 void AccessibilityManager::announce(const QString& text, bool interrupt)
 {
-    if (m_shuttingDown || !m_enabled || !m_ttsEnabled || !m_tts) return;
+    if (m_shuttingDown || !m_enabled) return;
 
+    const bool screenReader = isScreenReaderActive();
+
+    if (screenReader) {
+        // Route to the OS screen reader. Suppress QTextToSpeech even if
+        // ttsEnabled is true — that's the bug fix (no overlap with TalkBack /
+        // VoiceOver). dispatchPlatformAnnouncement() handles the empty-window
+        // null guard internally.
+        dispatchPlatformAnnouncement(text, interrupt);
+        qInfo().noquote() << "[a11y] announce path=platform isActive=true text=" << text;
+        return;
+    }
+
+    if (m_ttsEnabled && m_tts) {
+        dispatchTtsAnnouncement(text, interrupt);
+        qInfo().noquote() << "[a11y] announce path=tts isActive=false text=" << text;
+        return;
+    }
+
+    qInfo().noquote() << "[a11y] announce path=silent isActive=false ttsEnabled=" << m_ttsEnabled
+                      << " text=" << text;
+}
+
+bool AccessibilityManager::isScreenReaderActive() const
+{
+#ifndef QT_NO_ACCESSIBILITY
+    return QAccessible::isActive();
+#else
+    return false;
+#endif
+}
+
+void AccessibilityManager::dispatchPlatformAnnouncement(const QString& text, bool assertive)
+{
+#ifndef QT_NO_ACCESSIBILITY
+    // Find the first QQuickWindow among top-level windows. AccessibilityManager
+    // is callable from anywhere, including very early startup (no windows yet)
+    // and shutdown (windows already destroyed) — null-guard both.
+    QQuickWindow* target = nullptr;
+    const auto windows = QGuiApplication::topLevelWindows();
+    for (QWindow* w : windows) {
+        if (auto* qw = qobject_cast<QQuickWindow*>(w)) {
+            target = qw;
+            break;
+        }
+    }
+
+    if (!target) {
+        qDebug().noquote() << "[a11y] announce path=dropped reason=no-window text=" << text;
+        return;
+    }
+
+    QAccessibleAnnouncementEvent event(target, text);
+    event.setPoliteness(assertive ? QAccessible::AnnouncementPoliteness::Assertive
+                                  : QAccessible::AnnouncementPoliteness::Polite);
+    QAccessible::updateAccessibility(&event);
+#else
+    Q_UNUSED(text);
+    Q_UNUSED(assertive);
+#endif
+}
+
+void AccessibilityManager::dispatchTtsAnnouncement(const QString& text, bool interrupt)
+{
+    if (!m_tts) return;
     if (interrupt) {
         m_tts->stop();
     }
-
     m_tts->say(text);
-    qDebug() << "Accessibility announcement:" << text;
 }
 
 void AccessibilityManager::announceLabel(const QString& text)

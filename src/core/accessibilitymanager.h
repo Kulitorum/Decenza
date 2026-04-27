@@ -7,6 +7,10 @@
 #include <QSoundEffect>
 #include <QSettings>
 
+#ifndef QT_NO_ACCESSIBILITY
+#include <QAccessible>
+#endif
+
 class TranslationManager;
 
 class AccessibilityManager : public QObject
@@ -58,6 +62,8 @@ public:
 
     // Called from QML
     Q_INVOKABLE void announce(const QString& text, bool interrupt = false);
+    Q_INVOKABLE void announcePolite(const QString& text) { announce(text, false); }
+    Q_INVOKABLE void announceAssertive(const QString& text) { announce(text, true); }
     Q_INVOKABLE void announceLabel(const QString& text);  // Lower pitch + faster rate for non-interactive text
     Q_INVOKABLE void playTick();
     Q_INVOKABLE void toggleEnabled();  // For backdoor gesture
@@ -81,6 +87,14 @@ signals:
     void extractionAnnouncementsEnabledChanged();
     void extractionAnnouncementIntervalChanged();
     void extractionAnnouncementModeChanged();
+
+protected:
+    // Test seams. Production overrides are the implementations in the .cpp;
+    // tests subclass AccessibilityManager and override these to record calls
+    // without touching real Qt accessibility / TTS state.
+    virtual bool isScreenReaderActive() const;
+    virtual void dispatchPlatformAnnouncement(const QString& text, bool assertive);
+    virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
 
 private:
     void loadSettings();

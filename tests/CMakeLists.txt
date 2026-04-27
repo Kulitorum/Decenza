@@ -465,6 +465,22 @@ add_decenza_test(tst_mcpserver_session
 target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_accessibility_announcements: announce() routing rule (platform vs TTS) ---
+# AccessibilityManager pulls TextToSpeech (m_tts construction in initTts) and
+# QQuickWindow (root-window lookup in dispatchPlatformAnnouncement). The test
+# itself never builds a window — the FakeAccessibilityManager subclass overrides
+# the dispatch virtuals so no real Qt accessibility / TTS state is touched.
+find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia Quick Network)
+add_decenza_test(tst_accessibility_announcements
+    tst_accessibility_announcements.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
+    ${CORE_SOURCES}
+)
+target_link_libraries(tst_accessibility_announcements PRIVATE
+    Qt6::TextToSpeech Qt6::Multimedia Qt6::Quick Qt6::Network
+)
+
 # --- tst_steamhealth: SteamDataModel summaries and SteamHealthTracker trend detection ---
 add_decenza_test(tst_steamhealth
     tst_steamhealth.cpp
