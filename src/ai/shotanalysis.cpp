@@ -484,7 +484,8 @@ bool ShotAnalysis::detectPourTruncated(const QVector<QPointF>& pressure,
 }
 
 bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
-                                        int expectedFrameCount)
+                                        int expectedFrameCount,
+                                        double firstFrameConfiguredSeconds)
 {
     if (phases.isEmpty())
         return false;
@@ -493,13 +494,13 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
         return false;
 
     // Decenza inserts a synthetic "Start" marker at extraction start before any
-    // real frame-change markers. Ignore it so we can mirror the de1app plugin's
-    // "did we ever see frame 0 before a non-zero frame in the first 2 seconds?"
-    // behavior against saved history.
+    // real frame-change markers. Ignore it so we can track "did we ever see
+    // frame 0 before a non-zero frame?" against saved history.
     qsizetype firstRealMarker = 0;
     if (phases.first().label == QStringLiteral("Start") && phases.first().frameNumber == 0)
         firstRealMarker = 1;
 
+    bool sawFrameZero = false;
     for (qsizetype i = firstRealMarker; i < phases.size(); ++i) {
         const HistoryPhaseMarker& phase = phases[i];
         if (phase.frameNumber < 0)
@@ -507,18 +508,31 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
         if (expectedFrameCount >= 0 && phase.frameNumber >= expectedFrameCount)
             continue;
 
-        if (phase.frameNumber == 0)
+        if (phase.frameNumber == 0) {
+            sawFrameZero = true;
             continue;
+        }
 
-        // Match the Tcl plugin's detection window: only classify transitions that
-        // happen in the first 2 seconds of extraction.
-        if (phase.time >= 2.0)
-            return false;
+        // FW-bug branch: frame 0 was never observed before a non-zero frame.
+        // Mirror the de1app Tcl plugin's hard 2 s window — that plugin polls
+        // during extraction and can only catch it before t=2 s, so for parity
+        // we only flag here within that same window.
+        if (!sawFrameZero)
+            return phase.time < 2.0;
 
-        // Non-zero frame inside the 2-second window — flag the shot. Both the
-        // firmware bug (frame 0 never seen) and the short-first-step case
-        // (frame 0 briefly seen, then jumped away) share this badge intentionally.
-        return true;
+        // Short-first-step branch: frame 0 was observed; judge whether it
+        // ran long enough. The de1app Tcl plugin uses a hard 2 s wall, which
+        // false-positives on profiles configured with frame[0].seconds == 2
+        // because BLE notification jitter routinely lands the frame-1 marker
+        // a few hundred ms early. When the configured first-frame duration
+        // is known, compare against half of configured (capped at 2 s) so a
+        // 1.87 s actual on a 2 s configured frame — 94 % of plan — does not
+        // flag.
+        double cutoff = 2.0;
+        if (firstFrameConfiguredSeconds > 0.0)
+            cutoff = std::min(2.0, 0.5 * firstFrameConfiguredSeconds);
+
+        return phase.time < cutoff;
     }
 
     return false;
@@ -535,7 +549,8 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              double duration,
                                              const QVector<QPointF>& pressureGoal,
                                              const QVector<QPointF>& flowGoal,
-                                             const QStringList& analysisFlags)
+                                             const QStringList& analysisFlags,
+                                             double firstFrameConfiguredSeconds)
 {
     QVariantList lines;
 
@@ -689,9 +704,12 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
 
     // --- Skip-first-frame ---
     // Re-derive from phase markers (already available) so generateSummary() does not
-    // need a separate skipFirstFrameDetected parameter. Mirrors the Tcl plugin: FW bug
-    // (machine never executed frame 0) or profile first step too short (< 2 s).
-    const bool skipFirstFrame = detectSkipFirstFrame(phases);
+    // need a separate skipFirstFrameDetected parameter. Catches FW bug (machine
+    // never executed frame 0) or profile first step running far shorter than
+    // configured. firstFrameConfiguredSeconds (when known) avoids false-positives
+    // on profiles with frame[0].seconds == 2.
+    const bool skipFirstFrame = detectSkipFirstFrame(
+        phases, /*expectedFrameCount=*/-1, firstFrameConfiguredSeconds);
     if (skipFirstFrame) {
         QVariantMap line;
         line["text"] = QStringLiteral("First profile step skipped \u2014 "

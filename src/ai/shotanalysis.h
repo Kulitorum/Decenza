@@ -217,18 +217,25 @@ public:
                                      double pourStart, double pourEnd,
                                      const QString& beverageType = {});
 
-    // Returns true if the shot appears to have skipped profile frame 0, indicating
-    // either a known DE1 firmware bug (machine started at frame 1+) or a profile
-    // whose first step is so short (< 2 s) it was never meaningfully executed.
-    // Mirrors the de1app plugin semantics against Decenza's saved phase markers:
-    // ignore the synthetic "Start" marker, then inspect real frame markers only
-    // within the first 2 seconds of extraction. expectedFrameCount is optional;
-    // when known, values less than 2 suppress detection (there is no second frame
-    // to skip to), and out-of-range frame numbers are ignored as malformed data.
-    // The firmware bug requires a full power-cycle of the machine to fix.
-    // Returns false when phases is empty (insufficient data).
+    // Returns true if the shot appears to have skipped profile frame 0. Two
+    // distinct branches:
+    //   - FW-bug: frame 0 was never observed before a non-zero frame. Always
+    //     uses the de1app plugin's hard 2 s window (parity with the polling
+    //     Tcl plugin); firstFrameConfiguredSeconds is ignored here because the
+    //     machine never executed frame 0 at all, so the configured duration
+    //     is irrelevant.
+    //   - Short-first-step: frame 0 was observed but ended early. Cutoff is
+    //     min(2.0, 0.5 * firstFrameConfiguredSeconds) when configured > 0, else
+    //     a hard 2 s window. The configured-aware path avoids false-positives
+    //     on profiles with frame[0].seconds == 2 where normal sub-frame BLE
+    //     jitter routinely lands the frame-1 marker just under 2 s.
+    // expectedFrameCount is optional; when known, values < 2 suppress detection
+    // (no second frame to skip to) and out-of-range frame numbers are treated
+    // as malformed data. The FW-bug case requires a full power-cycle to fix.
+    // Returns false when phases is empty.
     static bool detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
-                                     int expectedFrameCount = -1);
+                                     int expectedFrameCount = -1,
+                                     double firstFrameConfiguredSeconds = -1.0);
 
     // Generate a concise shot summary from curve data. Returns a list of
     // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
@@ -247,5 +254,6 @@ public:
                                          double duration,
                                          const QVector<QPointF>& pressureGoal = {},
                                          const QVector<QPointF>& flowGoal = {},
-                                         const QStringList& analysisFlags = {});
+                                         const QStringList& analysisFlags = {},
+                                         double firstFrameConfiguredSeconds = -1.0);
 };
