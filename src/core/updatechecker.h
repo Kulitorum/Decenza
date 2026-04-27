@@ -72,6 +72,13 @@ signals:
     void downloadReadyChanged();
     void canDownloadUpdateChanged();
 
+    /// Emitted on the main thread immediately before installApk() invokes the
+    /// Android PackageInstaller JNI dispatch. Listeners should synchronously
+    /// shut down anything that owns a long-lived QSocketNotifier — Qt's UNIX
+    /// event dispatcher SIGSEGVs in QSocketNotifier::setEnabled when Android
+    /// reaps fds out from under us during the install handover (#865).
+    void aboutToDispatchInstall();
+
 public slots:
 #ifdef Q_OS_ANDROID
     // Called (on the Qt main thread) from the static JNI bridge in

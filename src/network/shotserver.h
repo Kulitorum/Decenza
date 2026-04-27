@@ -114,6 +114,12 @@ signals:
     void clientConnected(const QString& address);
     void sleepRequested();  // Emitted when sleep command received via REST API
 
+    /// Emitted on the main thread immediately before installApk() invokes the
+    /// Android PackageInstaller JNI dispatch. Mirror of UpdateChecker's signal
+    /// of the same name — see that header for the QSocketNotifier race
+    /// (#865) listeners are expected to mitigate.
+    void aboutToDispatchInstall();
+
 private slots:
     void onNewConnection();
     void onReadyRead();

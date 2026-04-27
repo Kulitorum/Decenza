@@ -918,6 +918,30 @@ int main(int argc, char *argv[])
         }
     });
 
+#ifdef Q_OS_ANDROID
+    // Quiet anything that owns a long-lived QSocketNotifier before Android's
+    // PackageInstaller takes over. The system reaps our fds during the install
+    // handover and Qt's UNIX event dispatcher SIGSEGVs in
+    // QSocketNotifier::setEnabled if it tries to service one afterward (#865).
+    // Both UpdateChecker (UI-triggered) and ShotServer (web-triggered) emit
+    // aboutToDispatchInstall on the main thread immediately before the JNI
+    // dispatch; the slot runs synchronously so all sockets are gone before
+    // the install starts. We don't try to restore on cancel — the install
+    // either succeeds (process replaced) or fails (rare; user can restart).
+    auto quietNetworkForApkInstall = [&mainController, &sharedNetworkManager, &relayClient]() {
+        qDebug() << "Quieting network services for APK install handover";
+        if (auto* server = mainController.shotServer()) {
+            server->stop();
+        }
+        sharedNetworkManager.clearConnectionCache();
+        relayClient.shutdown();
+    };
+    QObject::connect(mainController.updateChecker(), &UpdateChecker::aboutToDispatchInstall,
+                     &mainController, quietNetworkForApkInstall);
+    QObject::connect(mainController.shotServer(), &ShotServer::aboutToDispatchInstall,
+                     &mainController, quietNetworkForApkInstall);
+#endif
+
     // Weather forecast manager (hourly updates, region-aware API selection)
     WeatherManager weatherManager(&sharedNetworkManager);
     weatherManager.setLocationProvider(mainController.locationProvider());

@@ -412,6 +412,13 @@ bool ShotServer::installApk(const QString& apkPath)
         return false;
     }
 
+    // Tear down our long-lived sockets before the JNI dispatch — see the
+    // signal's declaration for the QSocketNotifier race we're avoiding
+    // (#865). Note this closes the very TCP connection the upload arrived
+    // on, so the 200 response below won't reach the web client. Acceptable:
+    // the user sees the system Install dialog on the device.
+    emit aboutToDispatchInstall();
+
     QJniObject javaPath = QJniObject::fromString(apkPath);
     jboolean ok = QJniObject::callStaticMethod<jboolean>(
         "io/github/kulitorum/decenza_de1/ApkInstaller",

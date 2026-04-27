@@ -845,6 +845,11 @@ bool UpdateChecker::installApk(const QString& apkPath)
         return false;
     }
 
+    // Tear down our long-lived sockets (ShotServer listener, QNAM keepalive,
+    // RelayClient WebSocket) before the JNI dispatch — see the signal's
+    // declaration for the QSocketNotifier race we're avoiding (#865).
+    emit aboutToDispatchInstall();
+
     QJniObject javaPath = QJniObject::fromString(apkPath);
     jboolean ok = QJniObject::callStaticMethod<jboolean>(
         "io/github/kulitorum/decenza_de1/ApkInstaller",
