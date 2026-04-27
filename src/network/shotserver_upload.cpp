@@ -3,6 +3,7 @@
 #include "webtemplates.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/de1device.h"
+#include "../core/crashhandler.h"
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
@@ -429,8 +430,14 @@ bool ShotServer::installApk(const QString& apkPath)
 
     if (!ok) {
         qWarning() << "ShotServer: ApkInstaller.install() failed for:" << apkPath;
+        return false;
     }
-    return ok == JNI_TRUE;
+    // Match UpdateChecker::installApk: suppress the QSocketNotifier dispatcher
+    // race that fires during the Android install handover (#865). Cleared on
+    // any terminal status by UpdateChecker::onInstallStatus, including the
+    // early-return path it takes for ShotServer-initiated installs.
+    CrashHandler::setSuppressCrashLog(true);
+    return true;
 #else
     qDebug() << "ShotServer: APK installation only supported on Android. File saved to:" << apkPath;
     return false;

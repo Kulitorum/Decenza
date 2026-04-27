@@ -40,9 +40,11 @@ public:
     /// it just skips writing crash.log + appending to debug.log. Intended
     /// for the Android APK install handover, where Qt's UNIX event
     /// dispatcher races against OS-reaped fds and produces a SIGSEGV in
-    /// QSocketNotifier::setEnabled. Clear the flag again on a non-success
-    /// install status so a still-running app (cancelled install) keeps
-    /// reporting real crashes.
+    /// QSocketNotifier::setEnabled. Clear the flag on every terminal
+    /// PackageInstaller status (success included — the success callback
+    /// fires before the OS terminates us, and on slow ROMs that gap can
+    /// be seconds long) so any real crash that fires after the dispatcher
+    /// race window still gets reported.
     static void setSuppressCrashLog(bool suppress);
 
 private:

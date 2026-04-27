@@ -884,7 +884,8 @@ bool UpdateChecker::installApk(const QString& apkPath)
     // Suppress crash reporting from here on: Android's package-install handover
     // races against Qt's UNIX event dispatcher (it reaps fds out from under
     // QSocketNotifier and we SIGSEGV in QSocketNotifier::setEnabled). Cleared
-    // again in onInstallStatus on any non-success terminal status. See #865.
+    // by onInstallStatus on every terminal status (success included, since the
+    // OS may delay killing us) and by dismissUpdate. See #865.
     CrashHandler::setSuppressCrashLog(true);
     qDebug() << "UpdateChecker: PackageInstaller install dispatched (session write runs on worker thread)";
     return true;
@@ -910,7 +911,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
 
     if (!m_installInFlight) {
         // Status from a ShotServer-triggered install or a stale session — not ours.
+        // ShotServer::installApk sets the suppress flag for the dispatcher race;
+        // clear it here on the terminal status so the running app keeps reporting.
         qWarning() << "UpdateChecker: ignoring install status=" << status << "msg=" << message << "(no active install — originated from ShotServer or stale session)";
+        CrashHandler::setSuppressCrashLog(false);
         return;
     }
 
@@ -925,6 +929,10 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
         case 0:  // STATUS_SUCCESS — app is typically being killed for the upgrade.
             m_installInFlight = false;
             emit installingChanged();
+            // The success callback fires before the OS terminates us; on slow
+            // ROMs that window can be seconds. Resume crash reporting so a
+            // real crash inside the window isn't silently dropped.
+            CrashHandler::setSuppressCrashLog(false);
             if (!m_downloadedApkPath.isEmpty()) {
                 QString path = m_downloadedApkPath;
                 m_downloadedApkPath.clear();
