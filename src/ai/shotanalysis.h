@@ -29,6 +29,7 @@ public:
     static constexpr double CHANNELING_MAX_AVG_FLOW = 3.0;        // mL/s — skip turbo/filter shots
     static constexpr double TEMP_UNSTABLE_THRESHOLD = 2.0;        // °C avg deviation from goal
     static constexpr double TEMP_STEPPING_RANGE = 5.0;            // °C goal range = intentional stepping
+    static constexpr double TEMP_MIN_EXTRACTION_SEC = 1.0;        // min seconds of extraction past frame 1 to score temp
 
     // Mode-aware detection window tuning. A sample counts toward channeling
     // detection only inside a window where the active control goal (pressure
@@ -134,6 +135,17 @@ public:
     static double avgTempDeviation(const QVector<QPointF>& tempData,
                                     const QVector<QPointF>& tempGoalData,
                                     double startTime, double endTime);
+
+    // Returns true when the shot reached actual extraction — at least one phase
+    // marker with frameNumber >= 1 sits more than TEMP_MIN_EXTRACTION_SEC before
+    // the shot's last sample. Used to gate the temperature-stability detector
+    // so that aborted shots which died during preinfusion-start don't get
+    // flagged for temp drift caused by the machine still preheating. Frame 1 is
+    // sometimes recorded in firmware in the final ms of an aborted shot
+    // (the marker exists but no samples land inside it), so checking marker
+    // presence alone is not sufficient — we require the phase to have lasted.
+    static bool reachedExtractionPhase(const QList<HistoryPhaseMarker>& phases,
+                                        double shotDuration);
 
     // --- Helpers ---
 

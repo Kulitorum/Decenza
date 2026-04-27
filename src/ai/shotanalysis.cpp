@@ -322,6 +322,23 @@ double ShotAnalysis::avgTempDeviation(const QVector<QPointF>& tempData,
     return count > 0 ? devSum / count : 0.0;
 }
 
+bool ShotAnalysis::reachedExtractionPhase(const QList<HistoryPhaseMarker>& phases,
+                                           double shotDuration)
+{
+    if (shotDuration <= 0.0) return false;
+    for (const auto& pm : phases) {
+        if (pm.frameNumber < 1) continue;
+        // Frame ≥ 1 marker found. The shot must have continued past it for
+        // long enough to actually run extraction. Aborted shots sometimes
+        // record the 0→1 transition in firmware in the final ms before the
+        // shot ends (frame marker present, but no samples land inside it),
+        // so a presence-only check would let those slip through.
+        if (shotDuration - pm.time >= TEMP_MIN_EXTRACTION_SEC)
+            return true;
+    }
+    return false;
+}
+
 double ShotAnalysis::findValueAtTime(const QVector<QPointF>& data, double time)
 {
     if (data.isEmpty()) return 0.0;
@@ -736,7 +753,10 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     // --- Temperature stability ---
-    if (temperature.size() > 10 && temperatureGoal.size() > 10 && pourStart > 0) {
+    // Gated on reachedExtractionPhase so aborted shots that died during
+    // preinfusion-start (frame 0 only) don't fire on the preheat ramp.
+    if (temperature.size() > 10 && temperatureGoal.size() > 10 && pourStart > 0
+        && reachedExtractionPhase(phases, duration)) {
         if (!hasIntentionalTempStepping(temperatureGoal)) {
             double avgDev = avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd);
             if (avgDev > TEMP_UNSTABLE_THRESHOLD) {

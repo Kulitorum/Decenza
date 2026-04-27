@@ -952,11 +952,15 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             data.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
         }
 
-        // Temperature stability using shared ShotAnalysis helpers
+        // Temperature stability using shared ShotAnalysis helpers. Gated on
+        // reachedExtractionPhase so aborted shots that died during preinfusion-
+        // start (frame 0 only) don't get flagged for temp drift caused by the
+        // machine still preheating against an 82 °C goal.
         data.temperatureUnstable = false;
         const auto& tempPts = shotData->temperatureData();
         const auto& tempGoalPts = shotData->temperatureGoalData();
-        if (tempPts.size() > 10 && tempGoalPts.size() > 10) {
+        if (tempPts.size() > 10 && tempGoalPts.size() > 10
+            && ShotAnalysis::reachedExtractionPhase(tmpRecord.phases, duration)) {
             if (!ShotAnalysis::hasIntentionalTempStepping(tempGoalPts)) {
                 double avgDev = ShotAnalysis::avgTempDeviation(tempPts, tempGoalPts, pourStart, pourEnd);
                 data.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
@@ -2216,9 +2220,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
         }
 
-        // Temperature stability
+        // Temperature stability. Gated on reachedExtractionPhase so aborted
+        // shots that died during preinfusion-start (frame 0 only) don't get
+        // flagged for temp drift caused by the machine still preheating.
         record.temperatureUnstable = false;
-        if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10) {
+        if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10
+            && ShotAnalysis::reachedExtractionPhase(record.phases, record.summary.duration)) {
             if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
                 double avgDev = ShotAnalysis::avgTempDeviation(record.temperature, record.temperatureGoal, pourStart, pourEnd);
                 record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
