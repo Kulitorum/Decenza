@@ -974,7 +974,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                 flowPts, shotData->flowGoalData(), tmpRecord.phases,
                 pourStart, pourEnd, data.beverageType,
                 ShotSummarizer::getAnalysisFlags(data.profileKbId),
-                shotData->pressureData());
+                shotData->pressureData(),
+                data.yieldOverride, data.finalWeight);
         }
 
         // Skip-first-frame detection: check whether frame 0 was absent or ran
@@ -1784,7 +1785,8 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                     record.flow, record.flowGoal, record.phases,
                     pourStart, pourEnd, record.summary.beverageType,
                     ShotSummarizer::getAnalysisFlags(record.profileKbId),
-                    record.pressure);
+                    record.pressure,
+                    record.yieldOverride, record.summary.finalWeight);
             }
 
             // Skip-first-frame detection from phase markers
@@ -2284,7 +2286,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                 record.flow, record.flowGoal, record.phases,
                 pourStart, pourEnd, record.summary.beverageType,
                 ShotSummarizer::getAnalysisFlags(record.profileKbId),
-                record.pressure);
+                record.pressure,
+                record.yieldOverride, record.summary.finalWeight);
         }
     }
 
@@ -2344,7 +2347,9 @@ QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData
         shotData["beverageType"].toString(),
         shotData["duration"].toDouble(),
         pressureGoal, flowGoal, analysisFlags,
-        profileFrameInfoFromJson(shotData["profileJson"].toString()).firstFrameSeconds);
+        profileFrameInfoFromJson(shotData["profileJson"].toString()).firstFrameSeconds,
+        shotData["yieldOverride"].toDouble(),
+        shotData["finalWeight"].toDouble());
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,

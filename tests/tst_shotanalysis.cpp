@@ -720,6 +720,67 @@ private slots:
         QVERIFY(std::abs(r.delta) < ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
     }
 
+    // Yield-ratio arm: shot 883 signature — 80's Espresso, mean pressurized
+    // flow ~0.6 ml/s (just over the 0.5 flow threshold), but yield 25.3 g
+    // of 36 g target is 70 %. The flow arm doesn't fire; the yield arm
+    // must catch this as the same diagnosis (grind too fine, just less
+    // severe than the catastrophic 1.1 g case).
+    void grindIssue_chokedPuckPressureMode_yieldShortfallFires()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0,  "preinfusion",       1, /*isFlowMode=*/true),
+            phase(6.0,  "rise and hold",     2, /*isFlowMode=*/false),
+            phase(10.0, "decline",           3, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure;
+        pressure = concat(pressure, rampSeries(0.0, 6.0, 0.5, 6.5));
+        pressure = concat(pressure, flatSeries(6.1, 60.0, 6.5));
+        // Pressurized mean flow 0.6 ml/s — just above the 0.5 flow threshold.
+        QVector<QPointF> flow;
+        flow = concat(flow, flatSeries(0.0, 6.0, 7.0));
+        flow = concat(flow, flatSeries(6.1, 60.0, 0.6));
+        QVector<QPointF> flowGoal = flatSeries(0.0, 60.0, 7.5);
+
+        // Without target/yield, neither arm fires (mean flow 0.6 > 0.5).
+        const auto rNoYield = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 6.0, 60.0, "", {}, pressure);
+        QVERIFY(!rNoYield.chokedPuck);
+
+        // With yield 25.3 / target 36 = 70 %, yield-ratio arm fires.
+        const auto rYield = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 6.0, 60.0, "", {}, pressure,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/25.3);
+        QVERIFY(rYield.chokedPuck);
+        QCOMPARE(ShotAnalysis::detectGrindIssue(
+                     flow, flowGoal, phases, 6.0, 60.0, "", {}, pressure,
+                     36.0, 25.3), true);
+    }
+
+    // Yield-ratio arm must NOT fire on a clean ristretto where yield ~ target.
+    // Shot 888 signature: 19.8 g of 20 g target (99 %).
+    void grindIssue_chokedPuckPressureMode_cleanRistrettoYieldDoesNotFire()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0,  "preinfusion",       1, /*isFlowMode=*/true),
+            phase(6.0,  "rise and hold",     2, /*isFlowMode=*/false),
+            phase(10.0, "decline",           3, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure;
+        pressure = concat(pressure, rampSeries(0.0, 6.0, 0.5, 6.5));
+        pressure = concat(pressure, flatSeries(6.1, 50.0, 6.5));
+        QVector<QPointF> flow;
+        flow = concat(flow, flatSeries(0.0, 6.0, 7.0));
+        flow = concat(flow, flatSeries(6.1, 50.0, 1.3));
+        QVector<QPointF> flowGoal = flatSeries(0.0, 50.0, 7.5);
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 6.0, 50.0, "", {}, pressure,
+            /*targetWeightG=*/20.0, /*finalWeightG=*/19.8);
+        QVERIFY(!r.chokedPuck);
+    }
+
     // Choked-puck signature with no pressure passed: the fallback must
     // short-circuit silently rather than evaluate findValueAtTime on empty
     // data. Locks in the contract that pressure is optional.

@@ -11,6 +11,15 @@
       }
     },
     {
+      "file": "80s_choked_moderate.json",
+      "description": "Shot 883 — 80's Espresso on grind 3.5, mean pressurized flow 0.59 ml/s (just above the 0.5 flow threshold) but yield 25.3g of 36g target (70%). The flow-only arm of the choked-puck check stays silent; the yield-ratio arm must catch this as the moderate counterpart to shot 890. Hand-added target_weight (visualizer.coffee format doesn't carry it).",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": true,
+        "pourTruncated": false
+      }
+    },
+    {
       "file": "puck_failure_short_gusher.json",
       "description": "Extreme puck failure — 2.2s total, 0g yield. Extracted nothing because the machine bailed out immediately. Redundantly caught by both pourTruncated and grindIssue.",
       "expect": {

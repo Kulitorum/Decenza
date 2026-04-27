@@ -119,7 +119,11 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             if (tempOverride > 0)
                                 h["temperatureOverrideC"] = tempOverride;
 
-                            // Use yieldOverride (brew-by-ratio target) if set, else profile's target_weight
+                            // For shots saved by MainController, yieldOverride is always
+                            // populated (user override → profile target_weight → finalWeight).
+                            // The profile-JSON fallback below is defensive for shots imported
+                            // from external formats (de1app, visualizer.coffee) where the
+                            // shot importer leaves yieldOverride at 0.
                             double yieldOverride = shot["yieldOverride"].toDouble();
                             if (yieldOverride > 0) {
                                 h["targetWeightG"] = yieldOverride;
