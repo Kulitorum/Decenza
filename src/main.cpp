@@ -2246,8 +2246,43 @@ int main(int argc, char *argv[])
         // fires the disconnected signal, which triggers the auto-reconnect lambda
         // and schedules a 5s QTimer. That timer stays alive through stack unwinding
         // and hangs the event dispatcher on Android when it tries to fire after teardown.
+        //
+        // TEMP: split into per-signal disconnects to bisect a quit-time freeze (#877).
+        // Whichever signal name appears as the LAST "before" without an "after" is the
+        // one whose connection cleanup blocks. Once located, restore the wildcard or
+        // make a targeted fix.
+#define SD_TRACE_DISCONNECT(SIGNAL_PTR, NAME) \
+        do { \
+            qDebug() << "[shutdown trace] before disconnect" << NAME; \
+            QObject::disconnect(&de1Device, SIGNAL_PTR, nullptr, nullptr); \
+            qDebug() << "[shutdown trace] after disconnect" << NAME; \
+        } while (0)
+
+        SD_TRACE_DISCONNECT(&DE1Device::connectedChanged,        "connectedChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::connectingChanged,       "connectingChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::stateChanged,            "stateChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::subStateChanged,         "subStateChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::shotSampleReceived,      "shotSampleReceived");
+        SD_TRACE_DISCONNECT(&DE1Device::waterLevelChanged,       "waterLevelChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::firmwareVersionChanged,  "firmwareVersionChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::profileUploaded,         "profileUploaded");
+        SD_TRACE_DISCONNECT(&DE1Device::initialSettingsComplete, "initialSettingsComplete");
+        SD_TRACE_DISCONNECT(&DE1Device::errorOccurred,           "errorOccurred");
+        SD_TRACE_DISCONNECT(&DE1Device::simulationModeChanged,   "simulationModeChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::guiEnabledChanged,       "guiEnabledChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::usbChargerOnChanged,     "usbChargerOnChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::isHeadlessChanged,       "isHeadlessChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::refillKitDetectedChanged,"refillKitDetectedChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::heaterVoltageChanged,    "heaterVoltageChanged");
+        SD_TRACE_DISCONNECT(&DE1Device::fwMapResponse,           "fwMapResponse");
+        SD_TRACE_DISCONNECT(&DE1Device::shotSettingsReported,    "shotSettingsReported");
+        SD_TRACE_DISCONNECT(&DE1Device::logMessage,              "logMessage");
+
+        // Catch-all for any signals not enumerated above (e.g. base-class signals)
+        qDebug() << "[shutdown trace] before disconnect <wildcard tail>";
         QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
-        qDebug() << "[shutdown trace] after de1 wildcard disconnect";
+        qDebug() << "[shutdown trace] after disconnect <wildcard tail>";
+#undef SD_TRACE_DISCONNECT
 
         // Explicitly disconnect BLE so the GATT connection is released cleanly.
         // Without this, if the app is force-killed (e.g. after a hang), Android's
