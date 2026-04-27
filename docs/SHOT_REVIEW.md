@@ -1,10 +1,11 @@
 # Shot Review: Current State
 
 This is a snapshot of how the post-shot review and shot detail pages work today,
-focused on the quality-badge / detector system that has accumulated several rounds
-of refinement. It is the source of truth for anyone modifying detectors, persistence,
-or the badge UI; the `git log` for `docs/SHOT_REVIEW_IMPROVEMENTS.md` is the source
-of truth for the path that got us here.
+focused on the quality-badge / detector system and the Shot Summary dialog that
+share the same underlying analysis. It is the source of truth for anyone modifying
+detectors, persistence, the badge UI, or the summary text; the `git log` for
+`docs/SHOT_REVIEW.md` (and its prior name `SHOT_REVIEW_IMPROVEMENTS.md`) is the
+source of truth for the path that got us here.
 
 The detectors are still under active iteration — expect this doc to drift, and
 prefer reading the code (`src/ai/shotanalysis.h` is heavily commented) when in
@@ -43,7 +44,9 @@ shared `shotReview/advancedMode` setting toggles information density on both.
 
 Four independent flags, surfaced via `qml/components/QualityBadges.qml`. When
 any fire, those chips show; when none fire, a single green "Clean extraction"
-chip shows. None of the chips suppress the others.
+chip shows. None of the chips suppress the others. A non-clickable "Shot
+Summary" chip always sits at the end of the row — that's the entry point to
+the analysis dialog described in §3.
 
 | Flag                       | Color  | Label                  | Source                       |
 | -------------------------- | ------ | ---------------------- | ---------------------------- |
@@ -52,7 +55,7 @@ chip shows. None of the chips suppress the others.
 | `grindIssueDetected`       | orange | "Grind issue"          | `detectGrindIssue` (`analyzeFlowVsGoal`) |
 | `skipFirstFrameDetected`   | orange | "First step skipped"   | `detectSkipFirstFrame`       |
 
-The badges are recomputed on every shot load (see §3) so detector improvements
+The badges are recomputed on every shot load (see §4) so detector improvements
 take effect on existing shots without a manual re-analyze.
 
 ---
@@ -229,7 +232,120 @@ wired to a separate badge column.
 
 ---
 
-## 3. Persistence semantics
+## 3. Shot Summary dialog
+
+The "Shot Summary" chip at the end of the badge row opens
+`qml/components/ShotAnalysisDialog.qml` — a non-AI, non-modal-blocking
+analysis pane that surfaces a list of observations plus a single verdict
+line. The text is computed entirely in C++ from the captured curves; the
+QML side is a thin display layer.
+
+### Pipeline
+
+`ShotAnalysisDialog` (visible) →
+`MainController.shotHistory.generateShotSummary(shotData)` (Q_INVOKABLE on
+`ShotHistoryStorage`) →
+`ShotAnalysis::generateSummary(...)` →
+`QVariantList` of `{ text, type }` lines →
+`Repeater` in the dialog with a colored dot per line.
+
+`generateShotSummary` is the bridge that converts the QML `shotData` map
+into the typed vectors `generateSummary` expects (pressure, flow, weight,
+temperature + goals, conductance derivative, phases, beverage type, profile
+JSON for first-frame seconds, yield override + final weight for the choked-
+puck yield arm). Empty / missing fields are tolerated where the underlying
+detector tolerates them.
+
+### Line types and rendering
+
+Each line carries a `type`:
+
+| Type          | Dot color                     | Used for                                   |
+| ------------- | ----------------------------- | ------------------------------------------ |
+| `good`        | success (green)               | "Puck stable", happy-path observations     |
+| `caution`     | warning (orange)              | flow drift, temp drift, grind direction    |
+| `warning`     | error (red)                   | sustained channeling, choked puck, frame skip, pour truncated |
+| `observation` | text-secondary (neutral grey) | preinfusion drip mass / duration           |
+| `verdict`     | no dot, larger font           | always exactly one, last in the list       |
+
+The dialog renders the verdict in subtitle font with no dot to set it apart
+from the observation lines.
+
+### Observations emitted
+
+Order follows `generateSummary` top-to-bottom:
+
+1. **Channeling status** — uses the same `buildChannelingWindows` +
+   `detectChannelingFromDerivative` path as the badge. Emits **Sustained**
+   ("warning"), **Transient** ("caution") with the spike timestamp, or a
+   "Puck stable" ("good") line. Skipped for filter / pourover / tea /
+   steam / cleaning beverages, turbo shots, and profiles with the
+   `channeling_expected` analysis flag.
+2. **Flow trend** — compares mean flow in the first 30% of the pour
+   against the last 30%. ±0.5 mL/s thresholds emit "Flow rose … (puck
+   erosion)" or "Flow dropped … (fines migration or clogging)" as
+   "caution". Suppressed for profiles with the `flow_trend_ok` analysis
+   flag (Cremina lever and similar where declining/rising flow is by
+   design).
+3. **Preinfusion drip** — when preinfusion lasted > 1 s and at least 0.5 g
+   landed during it, emits "Preinfusion: Xg in Ys" as an "observation".
+4. **Temperature stability** — when `hasIntentionalTempStepping` is false
+   and `avgTempDeviation` exceeds 2 °C, emits "Temperature drifted X °C
+   from goal on average" as "caution".
+5. **Grind direction** — uses the same `analyzeFlowVsGoal` path as the
+   badge. Emits one of: "Pour produced near-zero flow while pressure
+   held — puck choked" ("warning") when `chokedPuck` fires, "Flow
+   averaged X mL/s below target — grind may be too fine" ("caution"),
+   "Flow averaged X mL/s above target — grind may be too coarse"
+   ("caution"), or nothing when within tolerance.
+6. **Pour truncated** — `detectPourTruncated`. Emits "Pour never
+   pressurized — puck failed" as "warning" when peak pressure stayed
+   under 2.5 bar.
+7. **Skip first frame** — `detectSkipFirstFrame`. Emits "First profile
+   step skipped — likely a DE1 firmware bug…" as "warning".
+
+### Verdict precedence
+
+Exactly one verdict line is appended to every summary. The cascade picks
+the first match (more specific failures take precedence over generic
+puck-integrity advice):
+
+1. **Pour truncated** → "Puck failed — pour never pressurized." Dominates
+   over channeling / grind / temperature, since the puck never built any
+   resistance worth analyzing.
+2. **Skip first frame** → "First profile step was skipped — power-cycle…"
+   Pre-empts choked-puck because a frame-skip can synthesise extraction
+   dynamics that resemble a choke; fix the machine first, then re-evaluate.
+3. **Choked puck** → "Puck choked — grind way too fine. Coarsen
+   significantly." Pre-empts the generic "Puck integrity issue" verdict
+   below.
+4. **Has any "warning"** → "Puck integrity issue — improve distribution."
+   When a directional grind signal is present alongside, it appends
+   "Grind is running fine — try coarser." or "Grind is running coarse —
+   try finer." as a modifier (since channeling alone doesn't tell you
+   which direction grind is off).
+5. **Has any "caution"** → If the only caution is a grind direction,
+   names the direction ("Grind appears too fine — try coarser." /
+   "…too coarse — try finer."). Otherwise: "Decent shot with minor
+   issues to watch."
+6. **Otherwise** → "Clean shot. Puck held well."
+
+### Triggering and lifecycle
+
+The dialog is instantiated declaratively inside `ShotDetailPage.qml` and
+`PostShotReviewPage.qml`. The `Shot Summary` chip in `QualityBadges.qml`
+emits `summaryRequested()` on tap, which the host page handles by calling
+`open()` on its `ShotAnalysisDialog` instance. Analysis lines are
+recomputed each time the dialog becomes visible (the
+`MainController.shotHistory.generateShotSummary(shotData)` binding only
+fires while `analysisDialog.visible` is true), so detector improvements
+take effect on summary text the same way they do on badges — no save-time
+freeze. There is no DB persistence for summary lines; they're regenerated
+on demand.
+
+---
+
+## 4. Persistence semantics
 
 ### Save-time: stored columns
 
@@ -285,7 +401,7 @@ require another sweep.
 
 ---
 
-## 4. Code map
+## 5. Code map
 
 ### Detector logic
 
@@ -293,7 +409,8 @@ require another sweep.
   `buildChannelingWindows`, `detectChannelingFromDerivative`,
   `detectGrindIssue`, `detectSkipFirstFrame`, `detectPourTruncated`,
   `hasIntentionalTempStepping`, `avgTempDeviation`, `shouldSkipChannelingCheck`,
-  `generateSummary` (used by the Shot Analysis dialog), all tuning constants.
+  `generateSummary` (the Shot Summary dialog text — see §3), all tuning
+  constants.
 
 ### Persistence
 
@@ -303,11 +420,13 @@ require another sweep.
   - `requestReanalyzeBadges` — lazy-persist worker.
   - `requestShotsFiltered` + `buildFilterQuery` — history-list filter that
     reads the stored columns.
+  - `generateShotSummary` — Q_INVOKABLE bridge that converts a QML
+    `shotData` map into the typed inputs for `ShotAnalysis::generateSummary`.
   - DB migration for the four flag columns.
   - `computeDerivedCurves` — fills conductance / dC/dt for legacy shots that
     predate migration 10.
   - `profileFrameInfoFromJson` — extracts `frameCount` and
-    `firstFrameSeconds` for `detectSkipFirstFrame`.
+    `firstFrameSeconds` for `detectSkipFirstFrame` and the summary path.
 
 ### Profile-level analysis flags
 
@@ -320,11 +439,16 @@ require another sweep.
 ### UI
 
 - `qml/components/QualityBadges.qml` — chip rendering. One chip per active
-  flag; when none active, a single "Clean extraction" chip.
+  flag; when none active, a single "Clean extraction" chip; always a
+  trailing "Shot Summary" chip that emits `summaryRequested()`.
+- `qml/components/ShotAnalysisDialog.qml` — Shot Summary dialog. Calls
+  `MainController.shotHistory.generateShotSummary(shotData)` while
+  visible and renders the resulting `{ text, type }` lines.
 - `qml/pages/ShotDetailPage.qml` and `qml/pages/PostShotReviewPage.qml` —
   consume `shotData.channelingDetected` / `temperatureUnstable` /
   `grindIssueDetected` / `skipFirstFrameDetected`, listen for
-  `shotBadgesUpdated`, call `requestReanalyzeBadges` on load.
+  `shotBadgesUpdated`, call `requestReanalyzeBadges` on load, host the
+  `ShotAnalysisDialog` instance and wire `summaryRequested` to `open()`.
 - `qml/pages/ShotHistoryPage.qml` — filter chips that consume the stored
   columns.
 
@@ -336,7 +460,7 @@ require another sweep.
 
 ---
 
-## 5. Regression corpus
+## 6. Regression corpus
 
 `tools/shot_eval/` is a CLI harness that runs the live detectors against a
 curated corpus of shot fixtures and prints (or validates) the verdicts.
@@ -361,7 +485,7 @@ To add a fixture:
 
 ---
 
-## 6. References
+## 7. References
 
 - PR #649 — original Tier 1 diagnostics (badges, dC/dt, phase summary, mix
   temperature, basic/advanced toggle).
