@@ -973,7 +973,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 flowPts, shotData->flowGoalData(), tmpRecord.phases,
                 pourStart, pourEnd, data.beverageType,
-                ShotSummarizer::getAnalysisFlags(data.profileKbId));
+                ShotSummarizer::getAnalysisFlags(data.profileKbId),
+                shotData->pressureData());
         }
 
         // Skip-first-frame detection: check whether frame 0 was absent or ran
@@ -1773,14 +1774,17 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
                 }
             }
 
-            // Grind issue (phase-mode aware — only averaged across flow-mode phases)
-            if (!record.flowGoal.isEmpty()
-                && !ShotAnalysis::shouldSkipChannelingCheck(
+            // Grind issue. Two paths inside the detector: flow-vs-goal averaging
+            // for flow-mode pours, or a pressure-mode choked-puck fallback. The
+            // fallback only needs flow + pressure, so we no longer gate on a
+            // non-empty flowGoal.
+            if (!ShotAnalysis::shouldSkipChannelingCheck(
                         record.summary.beverageType, record.flow, pourStart, pourEnd)) {
                 newGrindIssue = ShotAnalysis::detectGrindIssue(
                     record.flow, record.flowGoal, record.phases,
                     pourStart, pourEnd, record.summary.beverageType,
-                    ShotSummarizer::getAnalysisFlags(record.profileKbId));
+                    ShotSummarizer::getAnalysisFlags(record.profileKbId),
+                    record.pressure);
             }
 
             // Skip-first-frame detection from phase markers
@@ -2279,7 +2283,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 record.flow, record.flowGoal, record.phases,
                 pourStart, pourEnd, record.summary.beverageType,
-                ShotSummarizer::getAnalysisFlags(record.profileKbId));
+                ShotSummarizer::getAnalysisFlags(record.profileKbId),
+                record.pressure);
         }
     }
 

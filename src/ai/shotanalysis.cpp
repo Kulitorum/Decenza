@@ -337,7 +337,8 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     const QList<HistoryPhaseMarker>& phases,
     double pourStart, double pourEnd,
     const QString& beverageType,
-    const QStringList& analysisFlags)
+    const QStringList& analysisFlags,
+    const QVector<QPointF>& pressure)
 {
     GrindCheck result;
 
@@ -352,7 +353,7 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         return result;
     }
 
-    if (pourStart >= pourEnd || flow.isEmpty() || flowGoal.isEmpty())
+    if (pourStart >= pourEnd || flow.isEmpty())
         return result;
 
     // Build inclusive flow-mode time ranges from phase markers. A sample at
@@ -408,35 +409,84 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
             if (end > start) flowModeRanges.append({start, end});
         }
     }
-    if (flowModeRanges.isEmpty()) {
-        // No flow-mode phase present in the pour — check cannot run.
-        return result;
-    }
+    // Flow-vs-goal averaging path. Skipped when no flow-mode windows
+    // qualify or when the profile carries no flow goal — the choked-puck
+    // fallback below covers those pressure-mode pours.
+    if (!flowModeRanges.isEmpty() && !flowGoal.isEmpty()) {
+        auto inFlowMode = [&flowModeRanges](double t) {
+            for (const auto& r : flowModeRanges) {
+                if (t >= r.start && t <= r.end) return true;
+            }
+            return false;
+        };
 
-    auto inFlowMode = [&flowModeRanges](double t) {
-        for (const auto& r : flowModeRanges) {
-            if (t >= r.start && t <= r.end) return true;
+        double actualSum = 0, goalSum = 0;
+        qsizetype count = 0;
+        for (const auto& fp : flow) {
+            if (fp.x() < pourStart || fp.x() > pourEnd) continue;
+            if (!inFlowMode(fp.x())) continue;
+            double goal = findValueAtTime(flowGoal, fp.x());
+            if (goal < FLOW_GOAL_MIN_AVG) continue;  // preinfusion sentinel / unset goal
+            actualSum += fp.y();
+            goalSum += goal;
+            ++count;
         }
-        return false;
-    };
 
-    double actualSum = 0, goalSum = 0;
-    qsizetype count = 0;
-    for (const auto& fp : flow) {
-        if (fp.x() < pourStart || fp.x() > pourEnd) continue;
-        if (!inFlowMode(fp.x())) continue;
-        double goal = findValueAtTime(flowGoal, fp.x());
-        if (goal < FLOW_GOAL_MIN_AVG) continue;  // preinfusion sentinel / unset goal
-        actualSum += fp.y();
-        goalSum += goal;
-        ++count;
+        result.sampleCount = count;
+        if (count >= 5) {
+            result.hasData = true;
+            result.delta = (actualSum / count) - (goalSum / count);
+            return result;
+        }
     }
 
-    result.sampleCount = count;
-    if (count < 5) return result;
+    // Choked-puck fallback for pressure-mode pours (no qualifying flow-mode
+    // window). Signature: pressure built and held, but flow stayed near
+    // zero for a meaningful chunk of the pour. Setting delta to a large
+    // negative value lets the existing "too fine" verdict fire from this
+    // branch without changing the badge contract — chokedPuck=true tells
+    // the summary formatter to swap in tailored copy.
+    if (pressure.isEmpty())
+        return result;
 
-    result.hasData = true;
-    result.delta = (actualSum / count) - (goalSum / count);
+    double pressurizedDuration = 0.0;
+    double flowSum = 0.0;
+    qsizetype flowSamples = 0;
+    double prevX = 0.0;
+    bool prevValid = false;
+    for (const auto& fp : flow) {
+        if (fp.x() < pourStart || fp.x() > pourEnd) {
+            prevValid = false;
+            continue;
+        }
+        const double press = findValueAtTime(pressure, fp.x());
+        if (press < CHOKED_PRESSURE_MIN_BAR) {
+            prevValid = false;
+            continue;
+        }
+        if (prevValid) {
+            const double dt = fp.x() - prevX;
+            if (dt > 0 && dt < 1.0)  // cap dt to ignore samples after a gap
+                pressurizedDuration += dt;
+        }
+        flowSum += fp.y();
+        ++flowSamples;
+        prevX = fp.x();
+        prevValid = true;
+    }
+
+    if (flowSamples >= 5 && pressurizedDuration >= CHOKED_DURATION_MIN_SEC) {
+        const double meanFlow = flowSum / flowSamples;
+        if (meanFlow < CHOKED_FLOW_MAX_MLPS) {
+            result.hasData = true;
+            result.chokedPuck = true;
+            result.sampleCount = flowSamples;
+            // Encode magnitude: how far below "normal" extraction flow (~2 ml/s)
+            // we landed. Easily clears FLOW_DEVIATION_THRESHOLD.
+            result.delta = meanFlow - 2.0;
+        }
+    }
+
     return result;
 }
 
@@ -445,12 +495,13 @@ bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
                                      const QList<HistoryPhaseMarker>& phases,
                                      double pourStart, double pourEnd,
                                      const QString& beverageType,
-                                     const QStringList& analysisFlags)
+                                     const QStringList& analysisFlags,
+                                     const QVector<QPointF>& pressure)
 {
     const GrindCheck r = analyzeFlowVsGoal(flow, flowGoal, phases, pourStart, pourEnd,
-                                            beverageType, analysisFlags);
+                                            beverageType, analysisFlags, pressure);
     if (r.skipped || !r.hasData) return false;
-    return std::abs(r.delta) > FLOW_DEVIATION_THRESHOLD;
+    return r.chokedPuck || std::abs(r.delta) > FLOW_DEVIATION_THRESHOLD;
 }
 
 bool ShotAnalysis::detectPourTruncated(const QVector<QPointF>& pressure,
@@ -667,12 +718,21 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     // --- Flow vs goal (grind direction) ---
     // Phase-mode aware: averages only across flow-controlled phases where
     // flow goal is an actual target (not a safety limiter riding on top of
-    // a pressure-controlled pour). See analyzeFlowVsGoal() for details.
+    // a pressure-controlled pour). For pressure-mode pours with no flow-mode
+    // window, falls through to the choked-puck check. See analyzeFlowVsGoal()
+    // for details.
     const GrindCheck grind = analyzeFlowVsGoal(flow, flowGoal, phases,
                                                 pourStart, pourEnd,
-                                                beverageType, analysisFlags);
+                                                beverageType, analysisFlags,
+                                                pressure);
     if (grind.hasData) {
-        if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
+        if (grind.chokedPuck) {
+            QVariantMap line;
+            line["text"] = QStringLiteral("Pour produced near-zero flow while pressure held \u2014 "
+                "puck choked, grind way too fine");
+            line["type"] = QStringLiteral("warning");
+            lines.append(line);
+        } else if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
             QVariantMap line;
             line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
                 .arg(std::abs(grind.delta), 0, 'f', 1);
@@ -740,6 +800,12 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         verdict["text"] = QStringLiteral("Verdict: First profile step was skipped \u2014 "
             "power-cycle the machine to fix a firmware bug, "
             "or review the profile's first step settings.");
+    } else if (grind.chokedPuck) {
+        // Pressure built but the puck refused to extract \u2014 the diagnosis is
+        // unambiguously "grind way too fine," not a distribution problem.
+        // Pre-empts the generic "Puck integrity issue" verdict that the
+        // hasWarning branch below would otherwise emit.
+        verdict["text"] = QStringLiteral("Verdict: Puck choked \u2014 grind way too fine. Coarsen significantly.");
     } else if (hasWarning) {
         // Channeling is a puck-prep finding. The flow-vs-goal grind direction
         // signal is independent — it only indicates direction when it fired

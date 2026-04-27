@@ -446,15 +446,18 @@ EvaluatedShot evaluate(const LoadedShot& s)
         ev.maskPct = 100.0 * maskSec / pourSpan;
     }
 
-    // Grind direction — mode-aware.
+    // Grind direction — mode-aware. Passing pressure enables the choked-puck
+    // fallback for pressure-mode pours with no flow-mode window.
     const auto grind = ShotAnalysis::analyzeFlowVsGoal(
-        s.flow, s.flowGoal, s.phases, s.pourStart, s.pourEnd, s.beverageType);
+        s.flow, s.flowGoal, s.phases, s.pourStart, s.pourEnd, s.beverageType,
+        /*analysisFlags=*/{}, s.pressure);
     ev.grindDelta = grind.delta;
     ev.grindSamples = grind.sampleCount;
     ev.grindHasData = grind.hasData;
     ev.grindSkipped = grind.skipped;
     ev.grindIssue = grind.hasData
-        && std::abs(grind.delta) > ShotAnalysis::FLOW_DEVIATION_THRESHOLD;
+        && (grind.chokedPuck
+            || std::abs(grind.delta) > ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
 
     // Pour-truncated: catches shots the dC/dt + grind detectors miss
     // because the puck never built pressure at all.
