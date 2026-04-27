@@ -2278,7 +2278,13 @@ int main(int argc, char *argv[])
         SD_TRACE_DISCONNECT(&DE1Device::shotSettingsReported,    "shotSettingsReported");
         SD_TRACE_DISCONNECT(&DE1Device::logMessage,              "logMessage");
 
-        // Catch-all for any signals not enumerated above (e.g. base-class signals)
+        // Built-in QObject signals — last build's trace showed all 19 user
+        // signals disconnect cleanly and the wildcard tail hangs, so the
+        // offender is one of these (or some less-visible connection).
+        SD_TRACE_DISCONNECT(&QObject::destroyed,                 "destroyed");
+        SD_TRACE_DISCONNECT(&QObject::objectNameChanged,         "objectNameChanged");
+
+        // Final wildcard catch-all — anything not enumerated above.
         qDebug() << "[shutdown trace] before disconnect <wildcard tail>";
         QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
         qDebug() << "[shutdown trace] after disconnect <wildcard tail>";
