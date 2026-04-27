@@ -32,34 +32,27 @@ static bool use12h() {
     return val;
 }
 
-static int expectedFrameCountFromProfileJson(const QString& profileJson)
+struct ProfileFrameInfo {
+    int frameCount = -1;
+    double firstFrameSeconds = -1.0;
+};
+
+static ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
 {
     if (profileJson.isEmpty())
-        return -1;
+        return {};
 
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject())
-        return -1;
+        return {};
 
     const Profile profile = Profile::fromJson(doc);
-    return static_cast<int>(profile.steps().size());
-}
-
-static double firstFrameSecondsFromProfileJson(const QString& profileJson)
-{
-    if (profileJson.isEmpty())
-        return -1.0;
-
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
-        return -1.0;
-
-    const Profile profile = Profile::fromJson(doc);
-    if (profile.steps().isEmpty())
-        return -1.0;
-    return profile.steps().first().seconds;
+    ProfileFrameInfo info;
+    info.frameCount = static_cast<int>(profile.steps().size());
+    if (!profile.steps().isEmpty())
+        info.firstFrameSeconds = profile.steps().first().seconds;
+    return info;
 }
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
@@ -1791,10 +1784,9 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             }
 
             // Skip-first-frame detection from phase markers
+            const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
             newSkipFirstFrame = ShotAnalysis::detectSkipFirstFrame(
-                record.phases,
-                expectedFrameCountFromProfileJson(record.profileJson),
-                firstFrameSecondsFromProfileJson(record.profileJson));
+                record.phases, info.frameCount, info.firstFrameSeconds);
 
             // Update DB only if any flag changed
             flagsChanged = (newChanneling != record.channelingDetected
@@ -2295,10 +2287,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // Like grind detection, this needs no derived curves, so it covers all shot
     // eras including shots predating migration 12 that have skip_first_frame_detected = 0 (DEFAULT).
     if (!record.phases.isEmpty()) {
+        const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
         record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
-            record.phases,
-            expectedFrameCountFromProfileJson(record.profileJson),
-            firstFrameSecondsFromProfileJson(record.profileJson));
+            record.phases, info.frameCount, info.firstFrameSeconds);
     }
 
     return record;
@@ -2348,7 +2339,7 @@ QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData
         shotData["beverageType"].toString(),
         shotData["duration"].toDouble(),
         pressureGoal, flowGoal, analysisFlags,
-        firstFrameSecondsFromProfileJson(shotData["profileJson"].toString()));
+        profileFrameInfoFromJson(shotData["profileJson"].toString()).firstFrameSeconds);
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,

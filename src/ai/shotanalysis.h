@@ -217,19 +217,22 @@ public:
                                      double pourStart, double pourEnd,
                                      const QString& beverageType = {});
 
-    // Returns true if the shot appears to have skipped profile frame 0, indicating
-    // either a known DE1 firmware bug (machine started at frame 1+) or a profile
-    // whose first step ran far shorter than configured. Ignores the synthetic
-    // "Start" marker, then inspects real frame markers. expectedFrameCount is
-    // optional; when known, values less than 2 suppress detection (no second
-    // frame to skip to), and out-of-range frame numbers are ignored as malformed
-    // data. firstFrameConfiguredSeconds is the value of profile.steps[0].seconds;
-    // when known (> 0) the actual frame-0 duration is judged against half of
-    // configured (capped at 2 s) so profiles with frame[0].seconds == 2 do not
-    // false-positive on normal sub-frame BLE jitter. When unknown (<= 0 or -1)
-    // falls back to the de1app plugin's hard 2 s window. The firmware bug
-    // requires a full power-cycle of the machine to fix. Returns false when
-    // phases is empty (insufficient data).
+    // Returns true if the shot appears to have skipped profile frame 0. Two
+    // distinct branches:
+    //   - FW-bug: frame 0 was never observed before a non-zero frame. Always
+    //     uses the de1app plugin's hard 2 s window (parity with the polling
+    //     Tcl plugin); firstFrameConfiguredSeconds is ignored here because the
+    //     machine never executed frame 0 at all, so the configured duration
+    //     is irrelevant.
+    //   - Short-first-step: frame 0 was observed but ended early. Cutoff is
+    //     min(2.0, 0.5 * firstFrameConfiguredSeconds) when configured > 0, else
+    //     a hard 2 s window. The configured-aware path avoids false-positives
+    //     on profiles with frame[0].seconds == 2 where normal sub-frame BLE
+    //     jitter routinely lands the frame-1 marker just under 2 s.
+    // expectedFrameCount is optional; when known, values < 2 suppress detection
+    // (no second frame to skip to) and out-of-range frame numbers are treated
+    // as malformed data. The FW-bug case requires a full power-cycle to fix.
+    // Returns false when phases is empty.
     static bool detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
                                      int expectedFrameCount = -1,
                                      double firstFrameConfiguredSeconds = -1.0);
