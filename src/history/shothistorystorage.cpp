@@ -2187,7 +2187,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         }
     }
 
-    // On-the-fly computation of derived curves for legacy shots that lack them
+    // On-the-fly computation of derived curves for legacy shots that lack them.
+    // Empty conductance = pre-migration-10 shot (the column was added in migration 10);
+    // derive it now so the badge-recompute block below can always assume
+    // conductanceDerivative is populated for the channeling check.
     bool needsDerivedCurves = record.conductance.isEmpty() && !record.pressure.isEmpty();
     if (needsDerivedCurves) {
         computeDerivedCurves(record);
@@ -2229,9 +2232,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // Always recompute every quality badge from the loaded curve data, so that
     // detector improvements take effect on existing shots without a one-shot
     // re-analyze pass. Stored badge values are only authoritative as of save
-    // time; the detectors evolve. conductanceDerivative is either loaded from
-    // the DB or just filled by computeDerivedCurves() above, so it's always
-    // available here.
+    // time; the detectors evolve. The channeling sub-block uses
+    // conductanceDerivative, which is either loaded from the DB
+    // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
+    // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
+    // pressure / phases, which are always available.
     if (!record.pressure.isEmpty()) {
         double pourStart = 0, pourEnd = record.pressure.last().x();
         for (const auto& pm : record.phases) {
