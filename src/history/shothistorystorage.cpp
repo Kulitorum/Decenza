@@ -2266,7 +2266,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             }
         }
 
-        // Grind direction (flow-vs-goal + choked-puck arms)
+        // Grind direction (flow-vs-goal + choked-puck arms). Reset before the
+        // skip-check so filter/pourover/tea/steam/cleaning shots clear any
+        // stale stored value (the channeling/temp resets above are the same
+        // pattern).
+        record.grindIssueDetected = false;
         if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 record.flow, record.flowGoal, record.phases,
@@ -2278,6 +2282,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     }
 
     // Skip-first-frame: phase markers only — no curves needed.
+    record.skipFirstFrameDetected = false;
     if (!record.phases.isEmpty()) {
         const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
         record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
