@@ -1,8 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QSettings>
-#include <QDir>
-#include <QTemporaryDir>
 
 #include "core/accessibilitymanager.h"
 
@@ -66,22 +64,59 @@ void setup(FakeAccessibilityManager& mgr, bool enabled, bool ttsEnabled, bool sc
 
 }
 
+// AccessibilityManager uses QSettings("Decenza", "DE1") — the two-string ctor
+// hardcodes NativeFormat per Qt docs, so setDefaultFormat()/setPath() can't
+// redirect it (NSUserDefaults / Windows registry / Linux native conf are
+// unaffected). Instead we follow the tst_settings pattern: snapshot the real
+// store's accessibility keys in init() and restore them in cleanup() so the
+// developer's settings round-trip even when assertions fail mid-test.
+
 class tst_AccessibilityAnnouncements : public QObject {
     Q_OBJECT
 
-public:
-    QTemporaryDir m_settingsDir;
+private:
+    QSettings m_realSettings{QStringLiteral("Decenza"), QStringLiteral("DE1")};
+    QVariant m_origEnabled;
+    QVariant m_origTtsEnabled;
+    QVariant m_origTickEnabled;
+    QVariant m_origTickSoundIndex;
+    QVariant m_origTickVolume;
+    QVariant m_origExtractionEnabled;
+    QVariant m_origExtractionInterval;
+    QVariant m_origExtractionMode;
 
 private slots:
-    void initTestCase() {
-        // Redirect QSettings("Decenza", "DE1") to a temp dir so test writes
-        // (setEnabled / setTtsEnabled call saveSettings()) don't touch the
-        // developer's real settings store. Setting the default format to Ini
-        // makes the org/app ctor use the path configured below; QTemporaryDir
-        // auto-cleans on destruction.
-        QVERIFY(m_settingsDir.isValid());
-        QSettings::setDefaultFormat(QSettings::IniFormat);
-        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
+    void init() {
+        // Snapshot every key AccessibilityManager::saveSettings() touches so
+        // setEnabled / setTtsEnabled writes during a test don't permanently
+        // mutate the developer's real preferences.
+        m_origEnabled            = m_realSettings.value("accessibility/enabled");
+        m_origTtsEnabled         = m_realSettings.value("accessibility/ttsEnabled");
+        m_origTickEnabled        = m_realSettings.value("accessibility/tickEnabled");
+        m_origTickSoundIndex     = m_realSettings.value("accessibility/tickSoundIndex");
+        m_origTickVolume         = m_realSettings.value("accessibility/tickVolume");
+        m_origExtractionEnabled  = m_realSettings.value("accessibility/extractionAnnouncementsEnabled");
+        m_origExtractionInterval = m_realSettings.value("accessibility/extractionAnnouncementInterval");
+        m_origExtractionMode     = m_realSettings.value("accessibility/extractionAnnouncementMode");
+    }
+
+    void cleanup() {
+        auto restore = [&](const char* key, const QVariant& original) {
+            if (original.isValid()) {
+                m_realSettings.setValue(key, original);
+            } else {
+                m_realSettings.remove(key);
+            }
+        };
+        restore("accessibility/enabled",                          m_origEnabled);
+        restore("accessibility/ttsEnabled",                       m_origTtsEnabled);
+        restore("accessibility/tickEnabled",                      m_origTickEnabled);
+        restore("accessibility/tickSoundIndex",                   m_origTickSoundIndex);
+        restore("accessibility/tickVolume",                       m_origTickVolume);
+        restore("accessibility/extractionAnnouncementsEnabled",   m_origExtractionEnabled);
+        restore("accessibility/extractionAnnouncementInterval",   m_origExtractionInterval);
+        restore("accessibility/extractionAnnouncementMode",       m_origExtractionMode);
+        m_realSettings.sync();
     }
 
     void platformPathTakenWhenScreenReaderActive() {
@@ -150,9 +185,9 @@ private slots:
 
     void disabledManagerDispatchesNothing() {
         FakeAccessibilityManager mgr;
-        // setup() with enabled=false leaves m_enabled at its loaded default (false);
-        // setEnabled(false) short-circuits if already-false, so no setup announcement
-        // fires. Don't bother calling resetCalls() to verify.
+        // m_enabled defaults to false (TestSkipAudioInit skips loadSettings),
+        // so we don't call setEnabled here. setTtsEnabled doesn't announce.
+        // resetCalls() is called for consistency with the rest of the suite.
         mgr.fakeScreenReaderActive = true;
         mgr.setTtsEnabled(true);
         mgr.resetCalls();
@@ -182,6 +217,11 @@ private slots:
     void setEnabledRoutesThroughPlatformWhenScreenReaderActive() {
         FakeAccessibilityManager mgr;
         mgr.fakeScreenReaderActive = true;
+        // Defensive: don't depend on the TestSkipAudioInit ctor leaving
+        // m_enabled at false. setEnabled() short-circuits if already-set, so
+        // start from a known disabled state and clear any setup-side calls.
+        mgr.setEnabled(false);
+        mgr.resetCalls();
 
         mgr.setEnabled(true);
 

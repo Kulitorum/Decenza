@@ -110,9 +110,10 @@ protected:
     // The single routing entry point. Decides between platform / TTS / silent
     // based on isScreenReaderActive() and m_ttsEnabled. Internally guards
     // m_shuttingDown but does NOT check m_enabled — that's the caller's
-    // responsibility. announce() checks m_enabled; setEnabled() and
-    // toggleEnabled() intentionally bypass m_enabled to play their own
-    // confirmation message.
+    // responsibility. announce() and announceLabel() check m_enabled;
+    // setEnabledImpl() (called by both setEnabled() and toggleEnabled())
+    // intentionally bypasses it so the confirmation message plays even when
+    // accessibility is being turned off.
     void routeAnnouncement(const QString& text, bool interrupt);
 
 private:
