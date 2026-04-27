@@ -172,11 +172,17 @@ public:
     static constexpr double GRIND_PUMP_RAMP_SKIP_SEC = 0.5;
     static constexpr double GRIND_LIMITER_TAIL_SKIP_SEC = 1.5;
 
-    // Result of the flow-vs-goal grind direction check.
+    // Result of the grind direction check.
     struct GrindCheck {
-        double delta = 0.0;          // (avg actual flow) - (avg goal flow). Positive = coarse, negative = fine.
-        qsizetype sampleCount = 0;   // number of qualifying samples included in the average
-        bool hasData = false;        // true when the check ran (flow-vs-goal averaged or choked-puck fired)
+        // (avg actual flow) - (avg goal flow) on the flow-vs-goal path. Positive
+        // = coarse, negative = fine. Meaningful only when chokedPuck == false;
+        // on the choked-puck path delta is left at its default and chokedPuck
+        // is the sole signal — read chokedPuck first.
+        double delta = 0.0;
+        // Number of qualifying samples averaged (flow-vs-goal path) or the
+        // count of pressurized samples observed (choked-puck path).
+        qsizetype sampleCount = 0;
+        bool hasData = false;        // true when the check ran (either path)
         bool skipped = false;        // true when suppressed by a flag or beverage type
         bool chokedPuck = false;     // true when the pressure-mode fallback fired (puck held pressure but no flow)
     };
@@ -188,13 +194,15 @@ public:
     //   1. Flow-vs-goal averaging across flow-controlled phases (the primary
     //      path; sets delta and hasData when ≥ 5 qualifying samples land
     //      inside flow-mode windows).
-    //   2. Choked-puck fallback for pressure-mode pours (e.g. 80's Espresso,
-    //      Cremina, Londinium) where no flow-mode pour phase exists. When
-    //      pressure data is provided and the pour spent ≥ CHOKED_DURATION_MIN_SEC
-    //      at ≥ CHOKED_PRESSURE_MIN_BAR with mean flow below
-    //      CHOKED_FLOW_MAX_MLPS, sets hasData=true, chokedPuck=true, and
-    //      delta to a large negative value so the existing "grind too fine"
-    //      verdict and badge fire from this branch too.
+    //   2. Choked-puck check, restricted to pressure-mode portions of the
+    //      pour. Runs in addition to path 1 (not as a fallback) because
+    //      shots like 80's Espresso have a healthy flow-mode preinfusion
+    //      that pins delta near zero; the choke happens entirely in the
+    //      pressure-mode tail and is invisible to flow-vs-goal averaging.
+    //      When pressure is provided and the pressurized pressure-mode
+    //      window spent ≥ CHOKED_DURATION_MIN_SEC at ≥ CHOKED_PRESSURE_MIN_BAR
+    //      with mean flow below CHOKED_FLOW_MAX_MLPS, sets chokedPuck=true.
+    //      Consumers branch on chokedPuck before reading delta.
     //
     // analysisFlags honored: "grind_check_skip" forces skipped=true. Filter/
     // pourover beverage types also short-circuit to skipped=true. Pressure

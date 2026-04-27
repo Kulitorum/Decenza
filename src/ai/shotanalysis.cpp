@@ -410,8 +410,7 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         }
     }
     // Flow-vs-goal averaging path. Skipped when no flow-mode windows
-    // qualify or when the profile carries no flow goal — the choked-puck
-    // fallback below covers those pressure-mode pours.
+    // qualify or when the profile carries no flow goal.
     if (!flowModeRanges.isEmpty() && !flowGoal.isEmpty()) {
         auto inFlowMode = [&flowModeRanges](double t) {
             for (const auto& r : flowModeRanges) {
@@ -436,18 +435,35 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         if (count >= 5) {
             result.hasData = true;
             result.delta = (actualSum / count) - (goalSum / count);
-            return result;
         }
     }
 
-    // Choked-puck fallback for pressure-mode pours (no qualifying flow-mode
-    // window). Signature: pressure built and held, but flow stayed near
-    // zero for a meaningful chunk of the pour. Setting delta to a large
-    // negative value lets the existing "too fine" verdict fire from this
-    // branch without changing the badge contract — chokedPuck=true tells
-    // the summary formatter to swap in tailored copy.
+    // Choked-puck check, restricted to pressure-mode portions of the pour.
+    // Runs in addition to the flow-vs-goal path (not as a fallback) because
+    // shots like 80's Espresso have a healthy flow-mode preinfusion that
+    // makes delta ≈ 0 — the choke happens entirely in the pressure-mode
+    // tail and is invisible to the flow-vs-goal averaging. When phases
+    // carry no pressure-mode markers (lever profiles labeled isFlowMode=true
+    // throughout), treat the whole pour window as a candidate; the per-
+    // sample CHOKED_PRESSURE_MIN_BAR gate still restricts to actually-
+    // pressurized portions.
     if (pressure.isEmpty())
         return result;
+
+    QVector<Range> pressureModeRanges;
+    for (qsizetype i = 0; i < phases.size(); ++i) {
+        if (phases[i].isFlowMode) continue;
+        const double start = phases[i].time;
+        const double end = (i + 1 < phases.size()) ? phases[i + 1].time : pourEnd;
+        if (end > start) pressureModeRanges.append({start, end});
+    }
+    auto inPressureMode = [&pressureModeRanges](double t) {
+        if (pressureModeRanges.isEmpty()) return true;
+        for (const auto& r : pressureModeRanges) {
+            if (t >= r.start && t <= r.end) return true;
+        }
+        return false;
+    };
 
     double pressurizedDuration = 0.0;
     double flowSum = 0.0;
@@ -455,7 +471,8 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     double prevX = 0.0;
     bool prevValid = false;
     for (const auto& fp : flow) {
-        if (fp.x() < pourStart || fp.x() > pourEnd) {
+        if (fp.x() < pourStart || fp.x() > pourEnd
+            || !inPressureMode(fp.x())) {
             prevValid = false;
             continue;
         }
@@ -480,10 +497,8 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         if (meanFlow < CHOKED_FLOW_MAX_MLPS) {
             result.hasData = true;
             result.chokedPuck = true;
-            result.sampleCount = flowSamples;
-            // Encode magnitude: how far below "normal" extraction flow (~2 ml/s)
-            // we landed. Easily clears FLOW_DEVIATION_THRESHOLD.
-            result.delta = meanFlow - 2.0;
+            // Leave delta carrying its flow-vs-goal meaning; consumers
+            // short-circuit on chokedPuck before reading delta.
         }
     }
 
