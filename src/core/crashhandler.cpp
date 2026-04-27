@@ -295,6 +295,28 @@ void CrashHandler::uninstall()
     }
 }
 
+void CrashHandler::logOpenFileDescriptors(const QString& tag)
+{
+#ifdef Q_OS_ANDROID
+    QDir fdDir("/proc/self/fd");
+    if (!fdDir.exists()) {
+        qDebug() << "[fd dump:" << tag << "] /proc/self/fd not accessible";
+        return;
+    }
+    // /proc/self/fd entries are symlinks; the default QDir filter excludes
+    // symlinks-to-non-existent. Pass an explicit filter that keeps everything
+    // except `.` / `..`.
+    const auto entries = fdDir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    qDebug().noquote() << "[fd dump:" << tag << "]" << entries.size() << "open fds:";
+    for (const QString& entry : entries) {
+        const QFileInfo fi("/proc/self/fd/" + entry);
+        qDebug().noquote().nospace() << "  fd=" << entry << " -> " << fi.symLinkTarget();
+    }
+#else
+    Q_UNUSED(tag);
+#endif
+}
+
 QString CrashHandler::crashLogPath()
 {
     return QString::fromUtf8(s_crashLogPath);

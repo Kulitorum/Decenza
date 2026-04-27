@@ -1,4 +1,5 @@
 #include "updatechecker.h"
+#include "crashhandler.h"
 #include "settings.h"
 #include "settings_app.h"
 #include "version.h"
@@ -848,7 +849,13 @@ bool UpdateChecker::installApk(const QString& apkPath)
     // Tear down our long-lived sockets (ShotServer listener, QNAM keepalive,
     // RelayClient WebSocket) before the JNI dispatch — see the signal's
     // declaration for the QSocketNotifier race we're avoiding (#865).
+    // Snapshot the fd table around the teardown so the next crash log
+    // tells us which fd ends up reaped (the speculative teardown is best-
+    // effort; if it doesn't fix #865 the diff between these two dumps is
+    // what'll narrow it down).
+    CrashHandler::logOpenFileDescriptors("UpdateChecker pre-teardown");
     emit aboutToDispatchInstall();
+    CrashHandler::logOpenFileDescriptors("UpdateChecker post-teardown");
 
     QJniObject javaPath = QJniObject::fromString(apkPath);
     jboolean ok = QJniObject::callStaticMethod<jboolean>(

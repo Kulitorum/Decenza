@@ -35,6 +35,14 @@ public:
     /// Get the last N lines of debug.log for context
     static QString getDebugLogTail(int lines = 50);
 
+    /// Walk /proc/self/fd and qDebug each fd's symlink target. Diagnostic
+    /// only — used to attribute the fd that gets reaped during the Android
+    /// APK install handover (#865) so the next crash log tells us which
+    /// service or socket family was responsible. No-op on non-Android.
+    /// `tag` is logged with each line so multiple calls in the same run
+    /// (e.g. before vs. after teardown) can be distinguished.
+    static void logOpenFileDescriptors(const QString& tag);
+
 private:
     static void signalHandler(int signal);
     static void writeCrashLog(int signal, const char* signalName);
