@@ -164,6 +164,7 @@ This avoids holding HTTP connections and works naturally with the conversational
 |------|-------------|----------|
 | `machine_get_state` | Phase, connection, readiness, heating status, water level (ml + mm), firmware version, active profile name | read |
 | `machine_get_telemetry` | Live pressure, flow, temp, weight, goal values. During a shot, also returns the current shot's time-series data so far (not just the latest sample) so the AI can detect channeling or stalling mid-shot. | read |
+| `steam_get_health` | Detailed steam-system health: baseline + current pressure/temperature, flow-restriction progress toward warn thresholds, status, and recommendation. Used for steam-wand cleaning / descaling guidance. | read |
 
 ### Shot History
 | Tool | Description | Category |
@@ -193,7 +194,8 @@ This avoids holding HTTP connections and works naturally with the conversational
 |------|-------------|----------|
 | `settings_get` | Read all app settings, specific keys, or a category. Categories: machine, calibration, connections, screensaver, accessibility, ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug, battery, heater, autofavorites. Sensitive fields (API keys, passwords) are excluded. | read |
 | `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: machine, calibration, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. Sensitive fields (API keys, passwords) excluded. | settings |
-| `reset_saw_learning` | Reset stop-at-weight learning data. Useful when switching beans or grind settings. | settings |
+| `reset_saw_learning` | Reset stop-at-weight learning data globally. Useful when switching beans or grind settings. | settings |
+| `reset_saw_learning_for_profile` | Reset stop-at-weight learning for a single (profile, scale) pair only — other pairs and the global bootstrap are preserved. Defaults to active profile + configured scale. | settings |
 | `clear_flow_calibration` | Clear per-profile flow calibration multiplier. Defaults to current profile if none specified. | settings |
 | `apply_theme` | Apply a preset theme ('Default Dark', 'Default Light', or user-created). | settings |
 | `backup_now` | Create an immediate backup of database, settings, profiles, and media. | control |
@@ -215,6 +217,12 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `scale_timer_stop` | Stop the scale's built-in timer | control |
 | `scale_timer_reset` | Reset the scale's built-in timer | control |
 | `scale_get_weight` | Get current weight and flow rate from the scale | read |
+
+### Debug & Agent
+| Tool | Description | Category |
+|------|-------------|----------|
+| `debug_get_log` | Read the persisted app debug log. Three modes: (1) `sessions=true` lists all sessions with index/start line/timestamp/line count; (2) `session=N` returns lines from that session (-1 = most recent); (3) default — raw line-based pagination via `offset`/`limit` (1–2000 lines). | read |
+| `get_agent_file` | Returns the current Decenza `claude_agent.md` system-prompt content + the app's version string. Used by Claude Code Remote Control sessions to self-update their CLAUDE.md so agent instructions evolve with app updates without manual user intervention. | read |
 
 ### AI Dial-In Conversation (key feature)
 
@@ -428,8 +436,8 @@ The `dialing_get_context` tool requires `ShotHistoryStorage::getRecentShotsByKbI
 2. **Master switch**: `mcpEnabled` defaults to `false` — user must opt in
 3. **Access levels**: Enforced server-side — tools not in scope return JSON-RPC error `-32603` with message "Access level insufficient"
 4. **State validation**: Machine control tools verify machine is in valid state before executing (e.g., can't start espresso if not in Ready phase)
-5. **Rate limiting**: Max 10 `control` + `settings` category calls/minute per session. Only successful calls count against the limit. Exceeded → JSON-RPC error `-32000` with message "Rate limit exceeded"
-6. **Session expiry**: 30-minute inactivity timeout, cleaned by periodic timer
+5. **Rate limiting**: Max 60 `control` + `settings` category calls/minute per session (per `RateLimitPerMinute` constant in `mcpserver.h`). Only successful calls count against the limit. Exceeded → JSON-RPC error `-32000` with message "Rate limit exceeded"
+6. **Session expiry**: 30-minute inactivity timeout (per `SessionTimeoutMinutes`), cleaned during session creation
 7. **SSE limits**: Max 4 concurrent MCP SSE connections
 8. **Session limits**: Max 8 total MCP sessions. New connections beyond the limit receive JSON-RPC error `-32000` with message "Too many sessions"
 9. **Uninitialized sessions**: Tool/resource calls before `initialize` handshake return JSON-RPC error `-32600` (Invalid Request) with message "Session not initialized"
@@ -656,7 +664,7 @@ Before adding new tools, consolidate existing ones to reduce tool count and avoi
 **Tools removed**: `shots_set_feedback`
 **Tools added**: `shots_update` (superset), `shots_delete`
 
-#### Net tool count change
+#### Net tool count change (historical, at the time of this proposal)
 
 | Change | Count |
 |--------|-------|
@@ -666,7 +674,9 @@ Before adding new tools, consolidate existing ones to reduce tool count and avoi
 | Add `profiles_create` | +1 |
 | Add `shots_update` | +1 |
 | Add `shots_delete` | +1 |
-| **New total** | **38** |
+| **Subtotal at proposal time** | **38** |
+
+After this proposal landed, additional phases added scale tools, device tools, MQTT, theme, debug log, agent file, steam health, and per-profile SAW reset. Authoritative current count: query the MCP server directly (`tools/list`) — at last verification this was **50 tools**.
 
 ## Phase Status
 

@@ -127,6 +127,10 @@ openspec archive <change-id> --yes  # Archive after deployment
 
 Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE connectivity.
 
+## User Manual
+
+The end-user manual lives in the GitHub wiki at https://github.com/Kulitorum/Decenza/wiki/Manual. Consult it when working on user-visible behaviour to confirm documented expectations or the official wording for features. The wiki is a separate git repo (`Kulitorum/Decenza.wiki.git`) — clone it locally if you need to edit a manual page.
+
 ## Reference Documents
 
 Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in the relevant domain:
