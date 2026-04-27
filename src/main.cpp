@@ -2236,23 +2236,28 @@ int main(int argc, char *argv[])
                 qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
 
+        qDebug() << "[shutdown trace] before ensureChargerOn";
         // IMPORTANT: Ensure charger is ON before exiting
         // This matches de1app's app_exit behavior - always leave charger ON for safety
         batteryManager.ensureChargerOn();
+        qDebug() << "[shutdown trace] after ensureChargerOn";
 
         // Disconnect DE1 signals FIRST — otherwise de1Device.disconnect() below
         // fires the disconnected signal, which triggers the auto-reconnect lambda
         // and schedules a 5s QTimer. That timer stays alive through stack unwinding
         // and hangs the event dispatcher on Android when it tries to fire after teardown.
         QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
+        qDebug() << "[shutdown trace] after de1 wildcard disconnect";
 
         // Explicitly disconnect BLE so the GATT connection is released cleanly.
         // Without this, if the app is force-killed (e.g. after a hang), Android's
         // Bluetooth stack keeps the stale GATT connection — on Samsung devices this
         // can prevent the app from reconnecting until the device is rebooted.
         de1Device.disconnect();
+        qDebug() << "[shutdown trace] after de1Device.disconnect()";
         if (physicalScale) {
             physicalScale->disconnectFromScale();
+            qDebug() << "[shutdown trace] after physicalScale.disconnectFromScale()";
         }
 
         // Note: No need to null context properties here. All C++ objects are
@@ -2263,10 +2268,12 @@ int main(int argc, char *argv[])
         // This prevents iOS crash (SIGBUS) where the accessibility system tries to
         // sync with already-destroyed QML items during app exit
         QAccessible::setActive(false);
+        qDebug() << "[shutdown trace] after QAccessible::setActive(false)";
 
         // Shutdown accessibility to stop TTS before any other cleanup
         // This prevents race conditions with Android's hwuiTask thread
         accessibilityManager.shutdown();
+        qDebug() << "[shutdown trace] after accessibilityManager.shutdown()";
     });
 
     int result = app.exec();
