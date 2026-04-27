@@ -1215,7 +1215,6 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
 }
 
 void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& reason) {
-    qDebug() << "[shutdown trace] writeMMRUrgent: enter reason=" << reason;
     if (!m_transport) return;
 
     if (dropIfFirmwareFlashInProgress(address, value, reason, "write urgent")) {
@@ -1233,9 +1232,7 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
     // the cache so a subsequent non-urgent writeMMR with the same value
     // correctly dedups against what we just sent.
     m_lastMMRValues.insert(address, value);
-    qDebug() << "[shutdown trace] writeMMRUrgent: before transport->writeUrgent";
     m_transport->writeUrgent(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
-    qDebug() << "[shutdown trace] writeMMRUrgent: after transport->writeUrgent";
 }
 
 // ----- Firmware update (A009 / A006) -------------------------------------
@@ -1373,7 +1370,6 @@ void DE1Device::setUsbChargerOn(bool on, bool force) {
 }
 
 void DE1Device::setUsbChargerOnUrgent(bool on) {
-    qDebug() << "[shutdown trace] setUsbChargerOnUrgent: enter, transport=" << (m_transport ? "ok" : "null");
     if (!m_transport) {
         qWarning() << "DE1Device::setUsbChargerOnUrgent: no transport, cannot set charger" << (on ? "ON" : "OFF");
         return;
@@ -1382,13 +1378,10 @@ void DE1Device::setUsbChargerOnUrgent(bool on) {
     if (stateChanged) {
         m_usbChargerOn = on;
     }
-    qDebug() << "[shutdown trace] setUsbChargerOnUrgent: before writeMMRUrgent";
     writeMMRUrgent(DE1::MMR::USB_CHARGER, on ? 1 : 0,
                    QStringLiteral("setUsbChargerOnUrgent"));
-    qDebug() << "[shutdown trace] setUsbChargerOnUrgent: after writeMMRUrgent, stateChanged=" << stateChanged;
     if (stateChanged) {
         emit usbChargerOnChanged();
-        qDebug() << "[shutdown trace] setUsbChargerOnUrgent: after emit usbChargerOnChanged";
     }
 }
 

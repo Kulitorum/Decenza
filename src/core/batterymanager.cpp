@@ -471,11 +471,7 @@ void BatteryManager::ensureChargerOn() {
         // Use the urgent (queue-bypassing) path so the BLE write goes out immediately.
         // On iOS, the normal 50ms command queue could race with app suspension — by the
         // time the queued write fires, CoreBluetooth may have already been suspended.
-        qDebug() << "[shutdown trace] BM: before setUsbChargerOnUrgent";
         m_device->setUsbChargerOnUrgent(true);
-        qDebug() << "[shutdown trace] BM: after setUsbChargerOnUrgent";
-    } else {
-        qDebug() << "[shutdown trace] BM: skipped — device null or not connected";
     }
 }
 

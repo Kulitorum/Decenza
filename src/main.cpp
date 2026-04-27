@@ -2166,7 +2166,7 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &physicalScale, &engine, &weightThread, &relayClient]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient]() {
         qDebug() << "Application exiting - shutting down devices";
 
         // Stop relay client and screen capture FIRST — the capture timer grabs
@@ -2236,68 +2236,35 @@ int main(int argc, char *argv[])
                 qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
 
-        qDebug() << "[shutdown trace] before ensureChargerOn";
         // IMPORTANT: Ensure charger is ON before exiting
         // This matches de1app's app_exit behavior - always leave charger ON for safety
         batteryManager.ensureChargerOn();
-        qDebug() << "[shutdown trace] after ensureChargerOn";
 
-        // Disconnect DE1 signals FIRST — otherwise de1Device.disconnect() below
-        // fires the disconnected signal, which triggers the auto-reconnect lambda
-        // and schedules a 5s QTimer. That timer stays alive through stack unwinding
-        // and hangs the event dispatcher on Android when it tries to fire after teardown.
+        // Neutralize the auto-reconnect path before BLE disconnect, otherwise
+        // de1Device.disconnect() below fires connectedChanged, which triggers
+        // the auto-reconnect lambda and schedules a 5s QTimer. That timer
+        // stays alive through stack unwinding and hangs the event dispatcher
+        // on Android when it tries to fire after teardown.
         //
-        // TEMP: split into per-signal disconnects to bisect a quit-time freeze (#877).
-        // Whichever signal name appears as the LAST "before" without an "after" is the
-        // one whose connection cleanup blocks. Once located, restore the wildcard or
-        // make a targeted fix.
-#define SD_TRACE_DISCONNECT(SIGNAL_PTR, NAME) \
-        do { \
-            qDebug() << "[shutdown trace] before disconnect" << NAME; \
-            QObject::disconnect(&de1Device, SIGNAL_PTR, nullptr, nullptr); \
-            qDebug() << "[shutdown trace] after disconnect" << NAME; \
-        } while (0)
-
-        SD_TRACE_DISCONNECT(&DE1Device::connectedChanged,        "connectedChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::connectingChanged,       "connectingChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::stateChanged,            "stateChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::subStateChanged,         "subStateChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::shotSampleReceived,      "shotSampleReceived");
-        SD_TRACE_DISCONNECT(&DE1Device::waterLevelChanged,       "waterLevelChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::firmwareVersionChanged,  "firmwareVersionChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::profileUploaded,         "profileUploaded");
-        SD_TRACE_DISCONNECT(&DE1Device::initialSettingsComplete, "initialSettingsComplete");
-        SD_TRACE_DISCONNECT(&DE1Device::errorOccurred,           "errorOccurred");
-        SD_TRACE_DISCONNECT(&DE1Device::simulationModeChanged,   "simulationModeChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::guiEnabledChanged,       "guiEnabledChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::usbChargerOnChanged,     "usbChargerOnChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::isHeadlessChanged,       "isHeadlessChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::refillKitDetectedChanged,"refillKitDetectedChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::heaterVoltageChanged,    "heaterVoltageChanged");
-        SD_TRACE_DISCONNECT(&DE1Device::fwMapResponse,           "fwMapResponse");
-        SD_TRACE_DISCONNECT(&DE1Device::shotSettingsReported,    "shotSettingsReported");
-        SD_TRACE_DISCONNECT(&DE1Device::logMessage,              "logMessage");
-
-        // Test B (#877): Test A confirmed one of destroyed/objectNameChanged
-        // carries the offending connection. Bisect by adding back ONLY
-        // destroyed. If the wildcard tail still hangs → it's
-        // objectNameChanged. If it stays clean → it's destroyed.
-        SD_TRACE_DISCONNECT(&QObject::destroyed,                 "destroyed");
-
-        qDebug() << "[shutdown trace] before disconnect <wildcard tail>";
-        QObject::disconnect(&de1Device, nullptr, nullptr, nullptr);
-        qDebug() << "[shutdown trace] after disconnect <wildcard tail>";
-#undef SD_TRACE_DISCONNECT
+        // Stop the timer first (belt) and disconnect only connectedChanged
+        // (suspenders). Do NOT use the wildcard form
+        // QObject::disconnect(&de1Device, nullptr, nullptr, nullptr) here:
+        // de1Device is exposed to QML via setContextProperty, so QQmlEngine
+        // holds an internal connection on de1Device::destroyed for lifetime
+        // tracking. The wildcard disconnect form acquires receiver locks in
+        // a different order than the per-signal pointer form, and on Android
+        // shutdown that contends with the QML engine and hard-deadlocks the
+        // main thread (#877). The per-signal form has no such problem.
+        de1ReconnectTimer.stop();
+        QObject::disconnect(&de1Device, &DE1Device::connectedChanged, nullptr, nullptr);
 
         // Explicitly disconnect BLE so the GATT connection is released cleanly.
         // Without this, if the app is force-killed (e.g. after a hang), Android's
         // Bluetooth stack keeps the stale GATT connection — on Samsung devices this
         // can prevent the app from reconnecting until the device is rebooted.
         de1Device.disconnect();
-        qDebug() << "[shutdown trace] after de1Device.disconnect()";
         if (physicalScale) {
             physicalScale->disconnectFromScale();
-            qDebug() << "[shutdown trace] after physicalScale.disconnectFromScale()";
         }
 
         // Note: No need to null context properties here. All C++ objects are
@@ -2308,12 +2275,10 @@ int main(int argc, char *argv[])
         // This prevents iOS crash (SIGBUS) where the accessibility system tries to
         // sync with already-destroyed QML items during app exit
         QAccessible::setActive(false);
-        qDebug() << "[shutdown trace] after QAccessible::setActive(false)";
 
         // Shutdown accessibility to stop TTS before any other cleanup
         // This prevents race conditions with Android's hwuiTask thread
         accessibilityManager.shutdown();
-        qDebug() << "[shutdown trace] after accessibilityManager.shutdown()";
     });
 
     int result = app.exec();
