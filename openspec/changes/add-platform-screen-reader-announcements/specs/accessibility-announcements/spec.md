@@ -1,4 +1,4 @@
-# accessibility
+# accessibility-announcements
 
 ## ADDED Requirements
 
@@ -75,59 +75,6 @@ The existing `AccessibilityManager.announce(text, interrupt)` API SHALL be prese
 - **WHEN** any caller invokes `AccessibilityManager.announce(...)`
 - **THEN** the application SHALL NOT crash
 - **AND** SHALL log the dropped announcement at debug level so it is visible in transcripts
-
----
-
-### Requirement: Theme SHALL adapt to the platform high-contrast preference
-
-The application SHALL expose the platform's high-contrast accessibility preference (sourced from `QStyleHints` on Qt 6.10+) to QML, and the `Theme.qml` singleton SHALL switch its color palette accordingly.
-
-The application SHALL also expose a user override via `accessibility/contrastMode` with three values:
-- `"system"` (default) — follow the OS preference.
-- `"normal"` — force the normal palette.
-- `"high"` — force the high-contrast palette.
-
-The high-contrast palette SHALL differ from the normal palette in at least three concrete ways: stronger text-to-background contrast for body text, thicker and fully-opaque control outlines, and explicit lower-saturation colors for disabled states (replacing opacity-based dimming). Domain-meaningful colors (shot graph series, cup-fill rendering) SHALL remain unchanged.
-
-#### Scenario: System preference flips to high contrast at runtime
-
-- **GIVEN** the application is running in normal-contrast mode and `contrastMode` is `"system"`
-- **WHEN** the user enables Increase Contrast in OS Settings while Decenza is in the foreground
-- **THEN** `Theme.qml` SHALL switch to the high-contrast palette without requiring a restart
-- **AND** all open pages SHALL re-render with the new colors
-
-#### Scenario: Platform reports no preference
-
-- **GIVEN** `contrastMode` is `"system"`
-- **AND** the platform reports `Qt::ContrastPreference::NoPreference` (the default for users who have not opted into high contrast)
-- **WHEN** `Theme.qml` evaluates the effective palette
-- **THEN** the normal palette SHALL be used (NoPreference is not "missing" — it is an explicit "user has no preference" signal that maps to normal)
-
-#### Scenario: User override forces high contrast regardless of OS
-
-- **GIVEN** the OS does NOT have high contrast enabled
-- **WHEN** the user sets `contrastMode = "high"` in Settings → Accessibility
-- **THEN** the application SHALL render with the high-contrast palette
-- **AND** the platform contrast hint SHALL be ignored until the user changes `contrastMode` back
-
-#### Scenario: User override forces normal contrast regardless of OS
-
-- **GIVEN** the OS has high contrast enabled
-- **WHEN** the user sets `contrastMode = "normal"`
-- **THEN** the application SHALL render with the normal palette regardless of the OS hint
-
-#### Scenario: Disabled controls use explicit color, not opacity, in high contrast
-
-- **GIVEN** the high-contrast palette is active
-- **WHEN** any QML control renders in its disabled state
-- **THEN** the disabled appearance SHALL come from an explicit color in the high-contrast palette
-- **AND** SHALL NOT come from a reduced opacity applied to the enabled color
-
-#### Scenario: Domain colors are not affected by high contrast
-
-- **GIVEN** the high-contrast palette is active
-- **WHEN** the shot graph or cup-fill view renders
-- **THEN** their colors SHALL be unchanged from the normal palette
 
 ---
 
