@@ -1,5 +1,8 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QSettings>
+#include <QDir>
+#include <QTemporaryDir>
 
 #include "core/accessibilitymanager.h"
 
@@ -66,7 +69,21 @@ void setup(FakeAccessibilityManager& mgr, bool enabled, bool ttsEnabled, bool sc
 class tst_AccessibilityAnnouncements : public QObject {
     Q_OBJECT
 
+public:
+    QTemporaryDir m_settingsDir;
+
 private slots:
+    void initTestCase() {
+        // Redirect QSettings("Decenza", "DE1") to a temp dir so test writes
+        // (setEnabled / setTtsEnabled call saveSettings()) don't touch the
+        // developer's real settings store. Setting the default format to Ini
+        // makes the org/app ctor use the path configured below; QTemporaryDir
+        // auto-cleans on destruction.
+        QVERIFY(m_settingsDir.isValid());
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
+    }
+
     void platformPathTakenWhenScreenReaderActive() {
         FakeAccessibilityManager mgr;
         setup(mgr, /*enabled=*/true, /*tts=*/true, /*sr=*/true);
@@ -173,8 +190,12 @@ private slots:
         QCOMPARE(mgr.ttsCalls.size(), 0);
     }
 
-    // toggleEnabled() previously called m_tts->stop()+say() directly; now it
-    // routes with interrupt=true, which maps to assertive on the platform path.
+    // toggleEnabled() must produce exactly one announcement on the platform
+    // path. Earlier the routing produced two (Polite from setEnabled() + Assertive
+    // from toggleEnabled()); on the platform path there's no cancellation
+    // mechanism between QAccessibleAnnouncementEvents, so TalkBack/VoiceOver
+    // would speak the message twice. The fix passes announce=false to the
+    // internal setEnabled call so toggleEnabled() emits a single Assertive event.
     void toggleEnabledRoutesThroughPlatformWhenScreenReaderActive() {
         FakeAccessibilityManager mgr;
         mgr.fakeScreenReaderActive = true;
@@ -183,13 +204,11 @@ private slots:
 
         mgr.toggleEnabled();
 
-        // setEnabled(true) inside toggleEnabled fires its own polite
-        // announcement, then toggleEnabled() fires an assertive one. Both go
-        // through the platform path; neither hits TTS.
+        // Exactly one assertive platform announcement; no TTS dispatch.
+        QCOMPARE(mgr.platformCalls.size(), 1);
+        QCOMPARE(mgr.platformCalls[0].text, QStringLiteral("Accessibility enabled"));
+        QCOMPARE(mgr.platformCalls[0].assertive, true);
         QCOMPARE(mgr.ttsCalls.size(), 0);
-        QVERIFY(mgr.platformCalls.size() >= 1);
-        QCOMPARE(mgr.platformCalls.last().text, QStringLiteral("Accessibility enabled"));
-        QCOMPARE(mgr.platformCalls.last().assertive, true);
     }
 
     // announceLabel() used to call m_tts->say() directly with a pitch/rate

@@ -150,12 +150,19 @@ void AccessibilityManager::initTickSound()
 
 void AccessibilityManager::setEnabled(bool enabled)
 {
+    setEnabledImpl(enabled, /*announce=*/true);
+}
+
+void AccessibilityManager::setEnabledImpl(bool enabled, bool announce)
+{
     if (m_shuttingDown || m_enabled == enabled) return;
     m_enabled = enabled;
     saveSettings();
     emit enabledChanged();
 
     qDebug() << "Accessibility" << (m_enabled ? "enabled" : "disabled");
+
+    if (!announce) return;
 
     // Announce the change. Bypass announce()'s m_enabled guard intentionally —
     // we want "Accessibility disabled" to play even though m_enabled is now
@@ -420,14 +427,13 @@ void AccessibilityManager::toggleEnabled()
 {
     if (m_shuttingDown) return;
 
-    bool wasEnabled = m_enabled;
-    Q_UNUSED(wasEnabled);
-    setEnabled(!m_enabled);
-
-    // setEnabled() already announced the new state. The previous code re-said
-    // it here with stop() first to be more aggressive on the backdoor gesture;
-    // we now reuse the same routed path with interrupt=true so a screen reader
-    // gets an Assertive announcement and TTS gets stop()+say() — no overlap.
+    // Skip setEnabled()'s own announcement and emit a single Assertive one
+    // here. Otherwise both fire on the platform path (TalkBack would hear
+    // Polite + Assertive back to back — no platform-level cancellation
+    // exists between QAccessibleAnnouncementEvent dispatches). On the TTS
+    // path, interrupt=true maps to stop()+say() so the announcement always
+    // wins out — appropriate for a backdoor-gesture confirmation.
+    setEnabledImpl(!m_enabled, /*announce=*/false);
     routeAnnouncement(m_enabled ? QStringLiteral("Accessibility enabled")
                                 : QStringLiteral("Accessibility disabled"),
                       /*interrupt=*/true);

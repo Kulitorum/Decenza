@@ -108,15 +108,20 @@ protected:
     virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
 
     // The single routing entry point. Decides between platform / TTS / silent
-    // based on isScreenReaderActive() and m_ttsEnabled. Does NOT check
-    // m_enabled — caller is responsible (announce() does; setEnabled() and
+    // based on isScreenReaderActive() and m_ttsEnabled. Internally guards
+    // m_shuttingDown but does NOT check m_enabled — that's the caller's
+    // responsibility. announce() checks m_enabled; setEnabled() and
     // toggleEnabled() intentionally bypass m_enabled to play their own
-    // confirmation message).
+    // confirmation message.
     void routeAnnouncement(const QString& text, bool interrupt);
 
 private:
     void loadSettings();
     void saveSettings();
+    // Internal setter. Externally setEnabled() always announces; toggleEnabled()
+    // calls this with announce=false to avoid double-speak (it then issues a
+    // single Assertive announcement itself).
+    void setEnabledImpl(bool enabled, bool announce);
     void initTts();
     void initTickSound();
 
