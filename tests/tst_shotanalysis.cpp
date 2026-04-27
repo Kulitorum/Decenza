@@ -696,10 +696,14 @@ private slots:
                      "", {}, pressure), false);
     }
 
-    // The choked-puck fallback only runs when the flow-vs-goal path has no
-    // qualifying samples. A flow-mode pour with sufficient samples must use
-    // the existing flow-vs-goal logic and not fall through.
-    void grindIssue_flowModePourTakesPrecedenceOverChokedFallback()
+    // A flow-mode pour with healthy flow must not get tagged as choked,
+    // even though the choked-puck check now runs additively on every pour.
+    // With this fixture pressureModeRanges is empty (the only phase is
+    // isFlowMode=true), so inPressureMode returns true for every sample
+    // and the choked loop iterates the whole pour. The 1.7 ml/s flow is
+    // above CHOKED_FLOW_MAX_MLPS = 0.5, so chokedPuck stays false. Locks
+    // in the per-sample threshold gate as the real safeguard.
+    void grindIssue_flowModePourDoesNotTriggerChokedCheck()
     {
         QList<HistoryPhaseMarker> phases{
             phase(0.0, "Pour", 0, /*isFlowMode=*/true),

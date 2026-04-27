@@ -151,11 +151,11 @@ public:
     static constexpr double FLOW_GOAL_MIN_AVG = 0.3;    // ml/s — ignore goal periods with very low target (preinfusion)
     static constexpr double FLOW_DEVIATION_THRESHOLD = 0.4;  // ml/s avg deviation to flag grind issue
 
-    // Thresholds for the pressure-mode "choked puck" fallback inside the
-    // grind detector. Fires when the flow-vs-goal path has no flow-mode
-    // window to average across (entire pour is pressure-controlled, e.g.
-    // 80's Espresso, Cremina, Londinium) and the puck holds pressure but
-    // refuses to extract — the signature of grind drastically too fine.
+    // Thresholds for the pressure-mode "choked puck" check inside the grind
+    // detector. Runs in addition to the flow-vs-goal path, restricted to
+    // pressure-mode portions of the pour. Fires when the puck holds pressure
+    // but refuses to extract — the signature of grind drastically too fine
+    // (80's Espresso, Cremina, Londinium tail behaviour).
     static constexpr double CHOKED_PRESSURE_MIN_BAR = 4.0;
     static constexpr double CHOKED_FLOW_MAX_MLPS = 0.5;
     static constexpr double CHOKED_DURATION_MIN_SEC = 15.0;

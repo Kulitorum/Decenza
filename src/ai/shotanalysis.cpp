@@ -497,6 +497,7 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         if (meanFlow < CHOKED_FLOW_MAX_MLPS) {
             result.hasData = true;
             result.chokedPuck = true;
+            result.sampleCount = flowSamples;
             // Leave delta carrying its flow-vs-goal meaning; consumers
             // short-circuit on chokedPuck before reading delta.
         }
@@ -733,9 +734,10 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     // --- Flow vs goal (grind direction) ---
     // Phase-mode aware: averages only across flow-controlled phases where
     // flow goal is an actual target (not a safety limiter riding on top of
-    // a pressure-controlled pour). For pressure-mode pours with no flow-mode
-    // window, falls through to the choked-puck check. See analyzeFlowVsGoal()
-    // for details.
+    // a pressure-controlled pour). The choked-puck check inside
+    // analyzeFlowVsGoal() also runs additively on pressure-mode portions of
+    // the pour, so a shot with a healthy flow-mode preinfusion AND a choked
+    // pressure-mode tail can have both delta near zero and chokedPuck true.
     const GrindCheck grind = analyzeFlowVsGoal(flow, flowGoal, phases,
                                                 pourStart, pourEnd,
                                                 beverageType, analysisFlags,
@@ -819,7 +821,11 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         // Pressure built but the puck refused to extract \u2014 the diagnosis is
         // unambiguously "grind way too fine," not a distribution problem.
         // Pre-empts the generic "Puck integrity issue" verdict that the
-        // hasWarning branch below would otherwise emit.
+        // hasWarning branch below would otherwise emit. Sits below
+        // skipFirstFrame because a frame-skip bug can synthesise extraction
+        // dynamics that look like a choke (frame 1 takes over a profile
+        // step that holds high pressure with low flow); fixing the machine
+        // is the prerequisite, after which the user can re-evaluate grind.
         verdict["text"] = QStringLiteral("Verdict: Puck choked \u2014 grind way too fine. Coarsen significantly.");
     } else if (hasWarning) {
         // Channeling is a puck-prep finding. The flow-vs-goal grind direction
