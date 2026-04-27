@@ -208,20 +208,34 @@ QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
             continue;
         }
 
-        // Flow-mode phases: exclude samples where pressure is RISING fast.
-        // The flow goal can be steady (e.g. 7.5 ml/s preinfusion) while the
-        // puck builds pressure under a pressure-ceiling exit condition. The
-        // resulting rapid pressure rise drives conductance sharply down —
-        // sustained negative dC/dt that's the lever-rise dynamic, not
-        // channeling.
+        // Exclude samples where pressure is RISING fast, regardless of phase
+        // mode. Two intentional ramp dynamics produce the same conductance-
+        // drop signature that the dC/dt detector would otherwise read as
+        // sustained channeling:
+        //
+        //   * Flow-mode lever rise: flow goal is steady (e.g. 7.5 ml/s
+        //     preinfusion) while the puck builds pressure under a
+        //     pressure-ceiling exit condition. Cremina, Damian LRv3,
+        //     80's Espresso preinfusion all hit this.
+        //
+        //   * Pressure-mode rise-and-hold: pressure goal is locked at the
+        //     target (e.g. 7.8 bar) but actual pressure is still ramping
+        //     toward it. The convergence check (|actual - goal| / goal ≤
+        //     0.15) admits samples while actual is within 15 % of goal,
+        //     even when actual is still rising fast — and during that
+        //     final leg, dC/dt clamps at the negative floor as conductance
+        //     drops with pressure. Shot 889 (a clean 35.6 g extraction on
+        //     80's Espresso) tripped this and falsely fired channeling.
         //
         // Direction matters: real puck failures collapse flow under
-        // approximately stable pressure, so pressure stays in-window.
-        // Bloom transitions and pressure-mode → flow-mode handoffs see
-        // pressure FALL rapidly — those are legitimate channeling signals
-        // (or expected transients) and must not be masked, so we only
-        // fence on rises here.
-        if (isFlowMode) {
+        // approximately stable pressure, so pressure stays in-window. Bloom
+        // transitions and pressure-mode → flow-mode handoffs see pressure
+        // FALL rapidly — those are legitimate channeling signals (or
+        // expected transients) and must not be masked, so we only fence on
+        // rises here. Real channeling in pressure mode manifests as flow
+        // surge with pressure dip as the controller compensates, producing
+        // strongly POSITIVE dC/dt — also not affected by this gate.
+        {
             const double pressureNow = lookupOrNaN(pressure, t);
             const double pressureFut = lookupOrNaN(pressure, t + WINDOW_HALF_SEC);
             if (!std::isnan(pressureNow) && !std::isnan(pressureFut)
