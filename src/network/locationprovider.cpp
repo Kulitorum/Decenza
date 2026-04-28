@@ -195,6 +195,18 @@ void LocationProvider::onPositionError(QGeoPositionInfoSource::Error error)
     QString errorStr;
     switch (error) {
     case QGeoPositionInfoSource::AccessError:
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+        // Qt's CoreLocation backend maps every CLLocationManager error to
+        // AccessError, including the transient kCLErrorLocationUnknown that
+        // fires while a fix is still being acquired (e.g. Wi-Fi geolocation
+        // cache miss). Only treat this as a real permission denial when the
+        // OS actually says permission isn't granted; otherwise let the 60 s
+        // UpdateTimeoutError path decide.
+        if (qApp->checkPermission(QLocationPermission{}) == Qt::PermissionStatus::Granted) {
+            qDebug() << "LocationProvider: Transient CoreLocation error while permission is granted, ignoring";
+            return;
+        }
+#endif
         errorStr = "Location permission denied";
         break;
     case QGeoPositionInfoSource::ClosedError:
