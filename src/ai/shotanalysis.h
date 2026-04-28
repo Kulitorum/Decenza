@@ -74,9 +74,11 @@ public:
     //     / goal(t) ≤ WINDOW_STATIONARY_REL), AND
     //   * Actual is converged onto goal (|actual - goal| / goal ≤
     //     WINDOW_CONVERGED_REL), AND
-    //   * For flow-mode phases only, actual pressure is not rising rapidly
-    //     in the next WINDOW_HALF_SEC — the lever pressure-rise pattern
-    //     would otherwise read as channeling. Falling pressure is allowed.
+    //   * Actual pressure is not rising rapidly in the next WINDOW_HALF_SEC
+    //     — applied in both flow-mode (lever pressure-rise pattern) and
+    //     pressure-mode (rise-and-hold final leg toward goal), since both
+    //     produce the same conductance-drop signature that would otherwise
+    //     read as channeling. Falling pressure is allowed.
     // Contiguous included times collapse into DetectionWindow spans. Short
     // gaps (≤ WINDOW_GAP_MERGE_SEC) are merged.
     //

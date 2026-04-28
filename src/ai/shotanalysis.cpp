@@ -232,9 +232,12 @@ QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
         // transitions and pressure-mode → flow-mode handoffs see pressure
         // FALL rapidly — those are legitimate channeling signals (or
         // expected transients) and must not be masked, so we only fence on
-        // rises here. Real channeling in pressure mode manifests as flow
-        // surge with pressure dip as the controller compensates, producing
-        // strongly POSITIVE dC/dt — also not affected by this gate.
+        // rises here. The dC/dt detector counts both signs of conductance
+        // change as channeling (flow-surge gushers and post-channel flow
+        // collapse), and neither failure mode coincides with pressure
+        // climbing past the WINDOW_STATIONARY_REL threshold under a
+        // converged-and-held goal — so excluding rising-pressure samples
+        // doesn't mask either signature in pressure mode.
         {
             const double pressureNow = lookupOrNaN(pressure, t);
             const double pressureFut = lookupOrNaN(pressure, t + WINDOW_HALF_SEC);
