@@ -1379,8 +1379,6 @@ Write-Host "Done! Restart Claude Desktop to apply."
 
         // Setup guide page (available even when MCP is disabled)
         if (path == "/mcp/setup") {
-            QString serverUrl = url();
-            QString mcpUrl = serverUrl + "/mcp";
             QString html = QString::fromUtf8(R"HTML(<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Decenza MCP Setup</title>
@@ -1428,7 +1426,7 @@ R"HTML(
 #endif
 R"HTML(
 
-<h2>Available Tools (%4)</h2>
+<h2>Available Tools (%3)</h2>
 <p>At <strong>Full Automation</strong> access level, Claude can:</p>
 <ul>
 <li>Read machine state, telemetry, water level</li>
@@ -1551,13 +1549,10 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 </body></html>)HTML");
 
             bool mcpOn = m_settings && m_settings->mcp()->mcpEnabled();
-            // %3 is used in the JS install script URL (the MCP endpoint URL)
-            QString configJson = mcpUrl;
             qsizetype toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
 
             html = html.arg(mcpOn ? "enabled" : "disabled",
                            mcpOn ? "Enabled" : "Disabled",
-                           configJson,
                            QString::number(toolCount));
 
             sendHtml(socket, html);
