@@ -322,8 +322,15 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        // SSE stream for server-initiated notifications
-        if (static_cast<int>(m_sseClients.size()) >= MaxSseConnections) {
+        // SSE stream for server-initiated notifications. Count only live entries —
+        // a QPointer that has gone null (socket destroyed before our disconnect
+        // lambda ran) still occupies a slot until probeSseKeepalives() GCs it on
+        // the next 30 s tick, and we don't want stale nulls to falsely trip the
+        // limit and reject a legitimate client.
+        int liveSseCount = 0;
+        for (const QPointer<QTcpSocket>& p : std::as_const(m_sseClients))
+            if (!p.isNull()) ++liveSseCount;
+        if (liveSseCount >= MaxSseConnections) {
             sendHttpResponse(socket, 429, "Too many SSE connections", "text/plain");
             return;
         }

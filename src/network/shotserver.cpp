@@ -354,13 +354,18 @@ void ShotServer::setSettings(Settings* settings)
 }
 
 // Precondition: no socket in `clients` has an entry in m_keepAliveTimers.
-// This is enforced at each SSE registration site by calling take() on the map:
-//   /api/theme/subscribe  — see handleRequest(), "m_sseThemeClients.insert"
-//   /api/layout/events    — see handleRequest(), "m_sseLayoutClients.insert"
-// If a new SSE endpoint is added WITHOUT calling take(), this function will call
-// deleteLater() on the socket while its timer lambda still holds a raw pointer to
-// it — causing use-after-free when the timer fires. This static function has no
-// access to m_keepAliveTimers, so callers must maintain the invariant.
+// This is enforced at each SSE registration site by either calling take() on
+// the map, or by routing the request such that sendResponse/resetKeepAliveTimer
+// is never called. Current sites:
+//   /api/theme/subscribe  — see handleRequest(), "m_sseThemeClients.insert" (calls take())
+//   /api/layout/events    — see handleRequest(), "m_sseLayoutClients.insert" (calls take())
+//   /mcp (SSE GET)        — bypasses sendResponse entirely; McpServer manages its own
+//                           m_sseClients list and ShotServer never inserts a timer
+// If a new SSE endpoint is added that goes through sendResponse without calling
+// take(), this function will call deleteLater() on the socket while its timer
+// lambda still holds a raw pointer to it — causing use-after-free when the timer
+// fires. This static function has no access to m_keepAliveTimers, so callers
+// must maintain the invariant.
 static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
 {
     QList<QTcpSocket*> dead;
@@ -936,7 +941,11 @@ void ShotServer::onCleanupTimerTick()
     // MCP SSE clients live in McpServer's set; have it run its own probe so
     // silently-dropped MCP connections are detected on the same 30 s cadence.
     // McpServer only close()s — ShotServer remains the sole destroyer via
-    // onDisconnected → deleteLater.
+    // onDisconnected → deleteLater. That contract relies on onNewConnection
+    // wiring `disconnected → onDisconnected` for every accepted socket; if
+    // that connect is ever removed, McpServer::probeSseKeepalives() will leak
+    // the socket because close() will fire disconnected with no slot to
+    // schedule deleteLater().
     if (m_mcpServer)
         m_mcpServer->probeSseKeepalives();
 }
