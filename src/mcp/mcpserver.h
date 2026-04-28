@@ -8,7 +8,7 @@
 #include <QTimer>
 #include <QPair>
 #include <QPointer>
-#include <QSet>
+#include <QList>
 #include <optional>
 
 class McpSession;
@@ -62,6 +62,12 @@ public:
     void handleHttpRequest(QTcpSocket* socket, const QString& method,
                            const QString& path, const QByteArray& headers,
                            const QByteArray& body);
+
+    // Called by ShotServer to keep SSE-aware code paths in sync with raw HTTP
+    // socket handling. ShotServer owns the QTcpSocket; McpServer just tracks
+    // which of those sockets are upgraded to SSE.
+    bool isSseClient(QTcpSocket* socket) const;
+    void probeSseKeepalives();
 
     int activeSessionCount() const { return static_cast<int>(m_sessions.size()); }
 
@@ -141,8 +147,14 @@ private:
     // Rate limiting
     QTimer* m_rateLimitTimer;
 
-    // SSE clients
-    QSet<QTcpSocket*> m_sseClients;
+    // SSE clients. Stored as QPointer so that if ShotServer destroys the
+    // underlying socket without us seeing the disconnected signal first
+    // (e.g. teardown ordering on macOS), iteration goes to nullptr instead
+    // of dangling — the macOS QCFSocketNotifier crash on shutdown was use-
+    // after-free of exactly this kind of raw socket pointer. QList rather
+    // than QSet because QPointer has no qHash overload and the list is
+    // bounded by MaxSseConnections (4) — linear scans are trivial.
+    QList<QPointer<QTcpSocket>> m_sseClients;
     void broadcastSseNotification(const QString& resourceUri);
 
     // In-app confirmation (machine_start_* tools)

@@ -558,9 +558,12 @@ void ShotServer::onReadyRead()
     // entry becomes dangling once deleteLater destroys the socket and its child timer.
     if (socket->state() != QAbstractSocket::ConnectedState) return;
 
-    // SSE clients keep connections open — ignore further data from them
+    // SSE clients keep connections open — ignore further data from them.
+    // MCP SSE sockets live in McpServer's set, not ours, so route the check
+    // through the accessor.
     if (m_sseLayoutClients.contains(socket)) return;
     if (m_sseThemeClients.contains(socket)) return;
+    if (m_mcpServer && m_mcpServer->isSseClient(socket)) return;
 
     // Stop keep-alive idle timer while processing incoming request data
     if (QTimer* t = m_keepAliveTimers.value(socket))
@@ -929,6 +932,13 @@ void ShotServer::onCleanupTimerTick()
             c->deleteLater();
         }
     }
+
+    // MCP SSE clients live in McpServer's set; have it run its own probe so
+    // silently-dropped MCP connections are detected on the same 30 s cadence.
+    // McpServer only close()s — ShotServer remains the sole destroyer via
+    // onDisconnected → deleteLater.
+    if (m_mcpServer)
+        m_mcpServer->probeSseKeepalives();
 }
 
 void ShotServer::onDiscoveryDatagram()
