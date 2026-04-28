@@ -389,6 +389,19 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         return result;
     }
 
+    // Yield-overshoot ("gusher") arm. Fires independently of any pressure/flow
+    // window because a gusher by definition can't sustain pressure long enough
+    // to gate the pressure-mode choke arms. Catches shots like 18 g → 40 g
+    // target, 56 g actual at grind 11 — the puck offered too little resistance,
+    // water blew through, the shot finished much heavier than intended. Same
+    // precondition as the choked-puck yield arm (target > 0 && final > 0); both
+    // arms are mutually exclusive on yield ratio (one < 0.85, the other > 1.20).
+    if (targetWeightG > 0.0 && finalWeightG > 0.0
+        && (finalWeightG / targetWeightG) > YIELD_OVERSHOOT_RATIO_MIN) {
+        result.hasData = true;
+        result.yieldOvershoot = true;
+    }
+
     if (pourStart >= pourEnd || flow.isEmpty())
         return result;
 
@@ -566,7 +579,7 @@ bool ShotAnalysis::detectGrindIssue(const QVector<QPointF>& flow,
                                             beverageType, analysisFlags, pressure,
                                             targetWeightG, finalWeightG);
     if (r.skipped || !r.hasData) return false;
-    return r.chokedPuck || std::abs(r.delta) > FLOW_DEVIATION_THRESHOLD;
+    return r.chokedPuck || r.yieldOvershoot || std::abs(r.delta) > FLOW_DEVIATION_THRESHOLD;
 }
 
 bool ShotAnalysis::detectPourTruncated(const QVector<QPointF>& pressure,
@@ -804,6 +817,19 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                 "puck choked, grind way too fine");
             line["type"] = QStringLiteral("warning");
             lines.append(line);
+        } else if (grind.yieldOvershoot) {
+            // Gusher: yield blew past target by > 20%. The puck offered too
+            // little resistance \u2014 water shot through at the preinfusion goal
+            // and the shot finished much heavier than intended. Pre-empts
+            // the directional flow-vs-goal caution because the yield arm
+            // fires the warning louder.
+            const double overG = finalWeightG - targetWeightG;
+            QVariantMap line;
+            line["text"] = QStringLiteral("Yield ran %1 g over target \u2014 "
+                "puck offered too little resistance, grind way too coarse")
+                .arg(overG, 0, 'f', 1);
+            line["type"] = QStringLiteral("warning");
+            lines.append(line);
         } else if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
             QVariantMap line;
             line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
@@ -872,6 +898,14 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         verdict["text"] = QStringLiteral("Verdict: First profile step was skipped \u2014 "
             "power-cycle the machine to fix a firmware bug, "
             "or review the profile's first step settings.");
+    } else if (grind.yieldOvershoot) {
+        // The mirror of the choked-puck verdict: yield blew past target by
+        // > 20%, the puck offered too little resistance. Mutually exclusive
+        // with chokedPuck on the yield arm (one < 0.85, the other > 1.20),
+        // so order between them is for emphasis only \u2014 both deserve their
+        // own emphatic verdict rather than collapsing into the generic
+        // "Puck integrity issue" line below.
+        verdict["text"] = QStringLiteral("Verdict: Pour gushed past target \u2014 grind way too coarse. Grind much finer.");
     } else if (grind.chokedPuck) {
         // Pressure built but the puck refused to extract \u2014 the diagnosis is
         // unambiguously "grind way too fine," not a distribution problem.

@@ -182,6 +182,22 @@ public:
     static constexpr double CHOKED_DURATION_MIN_SEC = 15.0;
     static constexpr double CHOKED_YIELD_RATIO_MAX = 0.85;
 
+    // Yield-overshoot ("gusher") arm — the inverse of the moderate choked-puck
+    // yield arm. Fires when yield/target exceeds this ratio: the puck offered
+    // too little resistance, water blew through, the shot finished much heavier
+    // than intended (e.g. 18 g → 40 g target, 56 g actual at grind 11). The
+    // existing detectors are silent on this failure mode: flow tracks goal in
+    // flow-mode phases (controller pulls back), pressure-mode choke arms are
+    // gated on pressurizedDuration ≥ CHOKED_DURATION_MIN_SEC which a gusher
+    // never reaches, detectPourTruncated needs peak < 2.5 bar which a gusher
+    // can briefly exceed, and the channeling derivative looks normal because
+    // the puck never built resistance to channel through.
+    //
+    // The arm has no pressurized-window gate (a gusher by definition cannot
+    // sustain pressure). Preconditions: targetWeightG > 0, finalWeightG > 0,
+    // espresso beverage type. See analyzeFlowVsGoal() for placement.
+    static constexpr double YIELD_OVERSHOOT_RATIO_MIN = 1.20;
+
     // Trim two boundary windows where flow naturally diverges from goal even
     // on well-extracted shots, otherwise the grind detector false-flags every
     // lever-style preinfusion:
@@ -207,6 +223,7 @@ public:
         bool hasData = false;        // true when the check ran (either path)
         bool skipped = false;        // true when suppressed by a flag or beverage type
         bool chokedPuck = false;     // true when the pressure-mode choke check fired — either mean pressurized flow below CHOKED_FLOW_MAX_MLPS (severe) or yield/target below CHOKED_YIELD_RATIO_MAX (moderate)
+        bool yieldOvershoot = false; // true when yield/target > YIELD_OVERSHOOT_RATIO_MIN — gusher; mutually exclusive with chokedPuck on the yield arm
     };
 
     // Grind direction check — the canonical implementation shared by the
@@ -230,13 +247,17 @@ public:
     // analysisFlags honored: "grind_check_skip" forces skipped=true. Filter/
     // pourover beverage types also short-circuit to skipped=true. Pressure
     // is optional; when omitted, only the flow-vs-goal path is available.
-    // targetWeightG and finalWeightG drive the yield-ratio arm of the
-    // choked-puck check; either being 0 disables it (both default to 0).
-    // finalWeightG can come from either a real BLE scale or Decenza's
-    // FlowScale virtual scale (dose-compensated flow integration), so the
-    // arm works headless. targetWeightG is the shot's effective SAW target
-    // (see ShotRecord::yieldOverride); imported shots without target
-    // metadata pass 0 here and the arm correctly stays silent.
+    // targetWeightG and finalWeightG drive both the yield-ratio choked arm
+    // (yield/target < CHOKED_YIELD_RATIO_MAX) and the yield-overshoot arm
+    // (yield/target > YIELD_OVERSHOOT_RATIO_MIN); either being 0 disables
+    // both (both default to 0). finalWeightG can come from either a real
+    // BLE scale or Decenza's FlowScale virtual scale (dose-compensated flow
+    // integration), so the arms work headless. targetWeightG is the shot's
+    // effective SAW target (see ShotRecord::yieldOverride); imported shots
+    // without target metadata pass 0 here and both arms correctly stay
+    // silent. The yield-overshoot arm has no pressurized-window gate — a
+    // gusher by definition can't sustain pressure — so it can fire even
+    // when pressure or flow data is empty.
     static GrindCheck analyzeFlowVsGoal(const QVector<QPointF>& flow,
                                          const QVector<QPointF>& flowGoal,
                                          const QList<HistoryPhaseMarker>& phases,
@@ -248,9 +269,9 @@ public:
                                          double finalWeightG = 0.0);
 
     // Returns true if the grind direction check flags a meaningful deviation
-    // (|delta| > FLOW_DEVIATION_THRESHOLD, or chokedPuck fired). Returns
-    // false when the check is skipped, there is insufficient data, or
-    // deviation is within tolerance.
+    // (|delta| > FLOW_DEVIATION_THRESHOLD, chokedPuck fired, or yieldOvershoot
+    // fired). Returns false when the check is skipped, there is insufficient
+    // data, or deviation is within tolerance.
     static bool detectGrindIssue(const QVector<QPointF>& flow,
                                   const QVector<QPointF>& flowGoal,
                                   const QList<HistoryPhaseMarker>& phases,

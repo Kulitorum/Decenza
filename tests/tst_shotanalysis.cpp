@@ -853,6 +853,198 @@ private slots:
                  qPrintable("verdict fell through to puck-integrity branch: " + verdictText));
     }
 
+    // Yield-overshoot ("gusher") arm ---------------------------------------
+
+    // Shot 835 signature: 18 g → 40 g target, 56.3 g actual (1.41 ratio) on
+    // grind 11. The puck offered too little resistance; the existing detectors
+    // are silent because flow tracks goal in flow-mode, the pressure-mode choke
+    // arms gate on 15 s × 4 bar (which a gusher never reaches), and detectPour-
+    // Truncated needs peak < 2.5 bar (a gusher can briefly exceed). The yield-
+    // overshoot arm fires on yield/target alone.
+    void grindIssue_yieldOvershoot_fires()
+    {
+        // Trivial flow/pressure curves — the arm runs purely off final/target.
+        auto flow = flatSeries(0.0, 35.0, 1.6);
+        auto flowGoal = flatSeries(0.0, 35.0, 1.8);
+        auto pressure = flatSeries(0.0, 35.0, 4.5);
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",        1, /*isFlowMode=*/true),
+        };
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 8.0, 35.0, "espresso", {}, pressure,
+            /*targetWeightG=*/40.0, /*finalWeightG=*/56.3);
+        QVERIFY(r.hasData);
+        QVERIFY(r.yieldOvershoot);
+        QVERIFY(!r.chokedPuck);
+        QCOMPARE(ShotAnalysis::detectGrindIssue(
+                     flow, flowGoal, phases, 8.0, 35.0, "espresso", {},
+                     pressure, 40.0, 56.3), true);
+    }
+
+    // Boundary: 1.20 ratio is the threshold (open). Just under (1.19) must
+    // not fire; well over (1.41) must fire.
+    void grindIssue_yieldOvershoot_thresholdBoundary()
+    {
+        auto flow = flatSeries(0.0, 30.0, 1.5);
+        auto flowGoal = flatSeries(0.0, 30.0, 1.8);
+        auto pressure = flatSeries(0.0, 30.0, 6.0);
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "pour", 0, /*isFlowMode=*/true),
+        };
+
+        // 47.6 / 40 = 1.19 — just under the 1.20 threshold, must NOT fire.
+        const auto rUnder = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 0.0, 30.0, "espresso", {}, pressure,
+            40.0, 47.6);
+        QVERIFY(!rUnder.yieldOvershoot);
+
+        // 48.5 / 40 = 1.2125 — just over, must fire.
+        const auto rOver = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 0.0, 30.0, "espresso", {}, pressure,
+            40.0, 48.5);
+        QVERIFY(rOver.yieldOvershoot);
+    }
+
+    // Yield equal to target (clean shot) must not fire.
+    void grindIssue_yieldOvershoot_cleanShotDoesNotFire()
+    {
+        auto flow = flatSeries(0.0, 30.0, 1.6);
+        auto flowGoal = flatSeries(0.0, 30.0, 1.8);
+        auto pressure = flatSeries(0.0, 30.0, 6.0);
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "pour", 0, /*isFlowMode=*/true),
+        };
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 0.0, 30.0, "espresso", {}, pressure,
+            40.0, 40.0);
+        QVERIFY(!r.yieldOvershoot);
+    }
+
+    // Imported / partial shot with no target weight: arm correctly stays
+    // silent (target=0 disables the precondition).
+    void grindIssue_yieldOvershoot_zeroTargetSkips()
+    {
+        auto flow = flatSeries(0.0, 30.0, 1.6);
+        auto flowGoal = flatSeries(0.0, 30.0, 1.8);
+        auto pressure = flatSeries(0.0, 30.0, 6.0);
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "pour", 0, /*isFlowMode=*/true),
+        };
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 0.0, 30.0, "espresso", {}, pressure,
+            /*targetWeightG=*/0.0, /*finalWeightG=*/100.0);
+        QVERIFY(!r.yieldOvershoot);
+    }
+
+    // Non-espresso beverage types (filter / pourover / tea / steam / cleaning)
+    // legitimately yield much more than "target" weight relative to dose. The
+    // arm must skip — same hard-skip rule the rest of the grind detector uses.
+    void grindIssue_yieldOvershoot_nonEspressoSkips()
+    {
+        auto flow = flatSeries(0.0, 60.0, 5.0);
+        auto flowGoal = flatSeries(0.0, 60.0, 5.0);
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "pour", 0, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure;
+
+        for (const QString& bev : {"filter", "pourover", "tea", "steam", "cleaning"}) {
+            const auto r = ShotAnalysis::analyzeFlowVsGoal(
+                flow, flowGoal, phases, 0.0, 60.0, bev, {}, pressure,
+                40.0, 200.0);
+            QVERIFY2(r.skipped, qPrintable(QString("expected skipped for %1").arg(bev)));
+            QVERIFY2(!r.yieldOvershoot,
+                     qPrintable(QString("yieldOvershoot must not fire for %1").arg(bev)));
+        }
+    }
+
+    // Empty pressure / empty flow — the arm runs off yield only and must
+    // still fire even with no curve data. Locks in the "no pressurized
+    // window gate" contract documented in shotanalysis.h.
+    void grindIssue_yieldOvershoot_firesWithEmptyCurves()
+    {
+        QVector<QPointF> flow;       // empty
+        QVector<QPointF> flowGoal;   // empty
+        QVector<QPointF> pressure;   // empty
+        QList<HistoryPhaseMarker> phases;
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 0.0, 0.0, "espresso", {}, pressure,
+            40.0, 56.3);
+        QVERIFY(r.yieldOvershoot);
+        QVERIFY(r.hasData);
+    }
+
+    // analysisFlags("grind_check_skip") suppresses the arm — same as the
+    // rest of the grind detector.
+    void grindIssue_yieldOvershoot_grindCheckSkipFlagSuppresses()
+    {
+        auto flow = flatSeries(0.0, 30.0, 1.6);
+        auto flowGoal = flatSeries(0.0, 30.0, 1.8);
+        auto pressure = flatSeries(0.0, 30.0, 6.0);
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "pour", 0, /*isFlowMode=*/true),
+        };
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 0.0, 30.0, "espresso",
+            QStringList{"grind_check_skip"}, pressure, 40.0, 56.3);
+        QVERIFY(r.skipped);
+        QVERIFY(!r.yieldOvershoot);
+    }
+
+    // generateSummary on a gusher must emit the dedicated warning line and
+    // the "Pour gushed past target" verdict, NOT the generic "Puck integrity
+    // issue" or "Grind appears too coarse" caution. Locks in the verdict
+    // ordering: yieldOvershoot tier sits above hasWarning.
+    void generateSummary_yieldOvershoot_emitsTailoredVerdict()
+    {
+        // Mirror shot 835: 35 s duration, peak ~6 bar (briefly), gusher.
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0,  "preinfusion",       1, /*isFlowMode=*/true),
+            phase(8.0,  "pour",              2, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure;
+        pressure = concat(pressure, rampSeries(0.0, 4.0, 0.0, 6.0));
+        pressure = concat(pressure, rampSeries(4.1, 8.0, 6.0, 3.0));
+        pressure = concat(pressure, flatSeries(8.1, 35.0, 2.5));
+        QVector<QPointF> flow = flatSeries(0.0, 35.0, 1.8);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 35.0, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, 35.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 35.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 35.0, 0.0);
+        QVector<QPointF> weight;
+
+        const QVariantList lines = ShotAnalysis::generateSummary(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, /*beverageType=*/"espresso", /*duration=*/35.4,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/40.0, /*finalWeightG=*/56.3);
+
+        bool sawOvershootWarning = false;
+        QString verdictText;
+        for (const QVariant& v : lines) {
+            const QVariantMap m = v.toMap();
+            const QString type = m["type"].toString();
+            const QString text = m["text"].toString();
+            if (type == "warning" && text.contains("over target", Qt::CaseInsensitive))
+                sawOvershootWarning = true;
+            if (type == "verdict")
+                verdictText = text;
+        }
+        QVERIFY2(sawOvershootWarning, "expected the yield-overshoot warning line");
+        QVERIFY2(verdictText.contains("gushed past target", Qt::CaseInsensitive),
+                 qPrintable("verdict was: " + verdictText));
+        QVERIFY2(!verdictText.contains("Puck integrity issue", Qt::CaseInsensitive),
+                 qPrintable("verdict fell through to puck-integrity branch: " + verdictText));
+    }
+
     // Pour-truncated detection ---------------------------------------------
 
     // Shot 868 signature: 7 s duration, pressure never exceeded ~0.6 bar

@@ -462,6 +462,7 @@ EvaluatedShot evaluate(const LoadedShot& s)
     ev.grindSkipped = grind.skipped;
     ev.grindIssue = grind.hasData
         && (grind.chokedPuck
+            || grind.yieldOvershoot
             || std::abs(grind.delta) > ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
 
     // Pour-truncated: catches shots the dC/dt + grind detectors miss
