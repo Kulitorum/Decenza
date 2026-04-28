@@ -146,10 +146,11 @@ void McpServer::broadcastSseNotification(const QString& resourceUri)
 
     // Send only to sessions that subscribed to this resource URI.
     // Sessions without any subscriptions receive all notifications (backward compat).
-    QList<QTcpSocket*> dead;
-    for (QTcpSocket* client : std::as_const(m_sseClients)) {
-        if (client->state() != QAbstractSocket::ConnectedState) {
-            dead.append(client);
+    QList<QPointer<QTcpSocket>> dead;
+    for (const QPointer<QTcpSocket>& clientPtr : std::as_const(m_sseClients)) {
+        QTcpSocket* client = clientPtr.data();
+        if (!client || client->state() != QAbstractSocket::ConnectedState) {
+            dead.append(clientPtr);
             continue;
         }
 
@@ -169,8 +170,37 @@ void McpServer::broadcastSseNotification(const QString& resourceUri)
             client->flush();
         }
     }
-    for (QTcpSocket* client : dead)
-        m_sseClients.remove(client);
+    for (const QPointer<QTcpSocket>& p : dead)
+        m_sseClients.removeAll(p);
+}
+
+bool McpServer::isSseClient(QTcpSocket* socket) const
+{
+    if (!socket) return false;
+    return m_sseClients.contains(QPointer<QTcpSocket>(socket));
+}
+
+void McpServer::probeSseKeepalives()
+{
+    QList<QPointer<QTcpSocket>> dead;
+    for (const QPointer<QTcpSocket>& clientPtr : std::as_const(m_sseClients)) {
+        QTcpSocket* client = clientPtr.data();
+        if (!client || client->state() != QAbstractSocket::ConnectedState
+                    || client->write(": keepalive\n\n") == -1) {
+            dead.append(clientPtr);
+            continue;
+        }
+        client->flush();
+    }
+    // ShotServer owns the QTcpSocket lifetime; we just unsubscribe and let
+    // its onDisconnected drive deleteLater. close() emits disconnected
+    // synchronously, which fires our own lambda and removes from m_sseClients
+    // again (no-op once removed).
+    for (const QPointer<QTcpSocket>& p : dead) {
+        m_sseClients.removeAll(p);
+        if (QTcpSocket* c = p.data())
+            c->close();
+    }
 }
 
 McpServer::~McpServer()
@@ -292,8 +322,15 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        // SSE stream for server-initiated notifications
-        if (static_cast<int>(m_sseClients.size()) >= MaxSseConnections) {
+        // SSE stream for server-initiated notifications. Count only live entries —
+        // a QPointer that has gone null (socket destroyed before our disconnect
+        // lambda ran) still occupies a slot until probeSseKeepalives() GCs it on
+        // the next 30 s tick, and we don't want stale nulls to falsely trip the
+        // limit and reject a legitimate client.
+        int liveSseCount = 0;
+        for (const QPointer<QTcpSocket>& p : std::as_const(m_sseClients))
+            if (!p.isNull()) ++liveSseCount;
+        if (liveSseCount >= MaxSseConnections) {
             sendHttpResponse(socket, 429, "Too many SSE connections", "text/plain");
             return;
         }
@@ -317,12 +354,12 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         socket->write(response);
         socket->flush();
 
-        m_sseClients.insert(socket);
+        m_sseClients.append(QPointer<QTcpSocket>(socket));
         if (sseSession)
             sseSession->setSseSocket(socket);
 
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
-            m_sseClients.remove(socket);
+            m_sseClients.removeAll(QPointer<QTcpSocket>(socket));
             // Clear the session's SSE socket reference — the client may reconnect
             // SSE without re-initializing, so keep the session alive.
             for (auto* s : std::as_const(m_sessions)) {
