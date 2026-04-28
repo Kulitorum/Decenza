@@ -60,6 +60,9 @@ class SettingsBrew : public QObject {
     // Stop-at-volume gating when a BLE scale provides weight data
     Q_PROPERTY(bool ignoreVolumeWithScale READ ignoreVolumeWithScale WRITE setIgnoreVolumeWithScale NOTIFY ignoreVolumeWithScaleChanged)
 
+    // Discard espresso shots that did not start (extractionDuration < 10s AND finalWeight < 5g)
+    Q_PROPERTY(bool discardAbortedShots READ discardAbortedShots WRITE setDiscardAbortedShots NOTIFY discardAbortedShotsChanged)
+
 public:
     explicit SettingsBrew(QObject* parent = nullptr);
 
@@ -172,6 +175,10 @@ public:
     bool ignoreVolumeWithScale() const;
     void setIgnoreVolumeWithScale(bool enabled);
 
+    // Discard aborted shots ("did not start") at save time
+    bool discardAbortedShots() const;
+    void setDiscardAbortedShots(bool enabled);
+
 signals:
     void espressoTemperatureChanged();
     void targetWeightChanged();
@@ -198,6 +205,7 @@ signals:
     void temperatureOverrideChanged();
     void brewOverridesChanged();
     void ignoreVolumeWithScaleChanged();
+    void discardAbortedShotsChanged();
 
 private:
     mutable QSettings m_settings;

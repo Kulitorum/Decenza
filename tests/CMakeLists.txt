@@ -75,6 +75,11 @@ add_decenza_test(tst_binarycodec
     ${CODEC_SOURCES}
 )
 
+# --- tst_aborted_shot_classifier: header-only "did the shot start?" classifier (issue #899) ---
+add_decenza_test(tst_aborted_shot_classifier
+    tst_aborted_shot_classifier.cpp
+)
+
 # --- tst_firmwarepackets: FWMapRequest + firmware chunk byte layout tests
 # (header-only target; no cpp dependency beyond the test itself) ---
 add_decenza_test(tst_firmwarepackets
