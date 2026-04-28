@@ -185,6 +185,16 @@ virtual scale (dose-aware flow integration), so the arm fires headless too.
 The simplest of the four. `temperatureUnstable = true` when:
 
 - `temperature` and `temperatureGoal` both have > 10 samples, AND
+- `pourStart > 0` (a Pour / infus / Start phase marker was found — without
+  it, `avgTempDeviation` would average from t=0 and pull in the preheat
+  ramp), AND
+- `reachedExtractionPhase(phases, duration)` is true: at least one phase
+  marker with `frameNumber ≥ 1` exists `TEMP_MIN_EXTRACTION_SEC` (1.0 s)
+  before the shot's last sample. Aborted shots that died during
+  preinfusion-start would otherwise read the machine's preheat ramp as
+  drift; the firmware sometimes records the 0→1 transition in the final
+  ms before stop, so a marker-presence-only check is not enough — the
+  phase has to have actually lasted, AND
 - `hasIntentionalTempStepping(temperatureGoal)` is false (goal range ≤
   `TEMP_STEPPING_RANGE` = 5 °C — D-Flow 84 → 94 is intentional, ignore), AND
 - `avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd) >
@@ -192,6 +202,12 @@ The simplest of the four. `temperatureUnstable = true` when:
 
 `avgTempDeviation` is the average absolute deviation over the pour window
 where the goal is non-zero.
+
+The `pourStart > 0` and `reachedExtractionPhase` guards are applied at
+all three call sites (`generateSummary`, `saveShot`, `loadShotRecordStatic`)
+so live, save-time, and recompute-on-load all converge on the same flag
+value — important because `loadShotRecordStatic` writes drift back to the
+DB (see §4) and any asymmetry would silently flip flags between sessions.
 
 ### 2.4 Skip first frame
 
