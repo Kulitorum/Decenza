@@ -1631,10 +1631,6 @@ void MainController::onEspressoCycleStarted() {
     // above, so we don't keep a parallel anchor here.
     m_lastShotTime = 0;
     m_extractionStarted = false;
-
-    // A new shot starting invalidates any pending "Save anyway" — the previous
-    // shot's ShotDataModel state is about to be cleared.
-    m_pendingDiscardedShot = {};
     m_lastFrameNumber = -1;
     m_lastSampleTime = 0;  // prior shot's last sample.timer would otherwise stale-out the inter-sample delta gate
     m_trackLogCounter = 0;
@@ -1773,8 +1769,11 @@ void MainController::onShotEnded() {
     // Must run before stopCapture() so its debug output is included in the shot log.
     computeAutoFlowCalibration();
 
-    // Capture shot-end epoch now so uploads (including deferred pending uploads) use consistent time
-    m_pendingShotEpoch = QDateTime::currentSecsSinceEpoch();
+    // Capture shot-end epoch now so uploads (including deferred pending uploads) use consistent time.
+    // Held in a local until after the discard branch so a dropped shot doesn't corrupt
+    // m_pendingShotEpoch / m_pendingDebugLog that may still belong to a prior unflushed shot
+    // (uploadPendingShot is gated on m_hasPendingShot, which the discard path doesn't touch).
+    const qint64 pendingShotEpoch = QDateTime::currentSecsSinceEpoch();
 
     // Stop debug logging and get the captured log
     QString debugLog;
@@ -1782,7 +1781,6 @@ void MainController::onShotEnded() {
         m_shotDebugLogger->stopCapture();
         debugLog = m_shotDebugLogger->getCapturedLog();
     }
-    m_pendingDebugLog = debugLog;
 
     // Build metadata for history
     ShotMetadata metadata;
@@ -1826,29 +1824,18 @@ void MainController::onShotEnded() {
                  action);
 
         if (aborted && discardEnabled) {
-            // Cache the payload so a "Save anyway" tap on the toast can replay saveShot().
-            // Profile is copied by value (Profile is a plain value type) so a profile switch
-            // before the user taps doesn't corrupt the cached snapshot.
-            m_pendingDiscardedShot.active = true;
-            m_pendingDiscardedShot.profileSnapshot = m_profileManager->currentProfile();
-            m_pendingDiscardedShot.metadataSnapshot = metadata;
-            m_pendingDiscardedShot.debugLog = debugLog;
-            m_pendingDiscardedShot.duration = duration;
-            m_pendingDiscardedShot.finalWeight = finalWeight;
-            m_pendingDiscardedShot.doseWeight = doseWeight;
-            m_pendingDiscardedShot.shotTemperatureOverride = shotTemperatureOverride;
-            m_pendingDiscardedShot.shotYieldOverride = shotYieldOverride;
-            m_pendingDiscardedShot.showPostShot = showPostShot;
-            m_pendingDiscardedShot.epoch = QDateTime::currentSecsSinceEpoch();
-
             emit shotDiscarded(duration, finalWeight);
-
             // Skip save, skip auto-upload, skip post-shot review navigation.
             // Reset extraction flag so subsequent operations don't re-trigger shot logic.
             m_extractionStarted = false;
             return;
         }
     }
+
+    // Past the discard gate — commit the pending-shot snapshot used by uploadPendingShot()
+    // and the synchronous visualizer auto-upload below.
+    m_pendingShotEpoch = pendingShotEpoch;
+    m_pendingDebugLog = debugLog;
 
     // Always save shot to local history (async — DB work runs on background thread)
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
@@ -1961,76 +1948,6 @@ void MainController::onShotEnded() {
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
     // don't incorrectly trigger shot metadata page or upload
     m_extractionStarted = false;
-}
-
-void MainController::saveAbortedShotAnyway() {
-    if (!m_pendingDiscardedShot.active) {
-        qInfo() << "[discard-classifier] saveAbortedShotAnyway: no pending discarded shot";
-        return;
-    }
-    if (!m_shotHistory || !m_shotHistory->isReady()) {
-        qWarning() << "[discard-classifier] saveAbortedShotAnyway: shot history not ready";
-        return;
-    }
-    if (m_savingShot) {
-        qWarning() << "[discard-classifier] saveAbortedShotAnyway: save already in progress";
-        return;
-    }
-    if (!m_shotDataModel) {
-        qWarning() << "[discard-classifier] saveAbortedShotAnyway: shot data model gone";
-        m_pendingDiscardedShot = {};
-        return;
-    }
-
-    // One-shot semantics: clear the cache (move into local) before kicking off the
-    // async save so a double-tap can't re-enter and a new shot starting concurrently
-    // doesn't race with the replay.
-    PendingDiscardedShot payload = m_pendingDiscardedShot;
-    m_pendingDiscardedShot = {};
-
-    qInfo().noquote() << QStringLiteral("[discard-classifier] extractionDurationSec=%1 finalWeightG=%2 verdict=aborted action=saved-anyway")
-        .arg(QString::number(payload.duration, 'f', 3),
-             QString::number(payload.finalWeight, 'f', 1));
-
-    m_savingShot = true;
-    const QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
-    const bool showPostShot = payload.showPostShot;
-    const double finalWeightCapture = payload.finalWeight;
-
-    connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
-        [this, finalWeightCapture, shotDateTime, showPostShot](qint64 shotId) {
-            m_savingShot = false;
-            if (shotId > 0) {
-                qDebug() << "[discard-classifier] Save-anyway shot saved with ID:" << shotId;
-                m_lastSavedShotId = shotId;
-                emit lastSavedShotIdChanged();
-                m_settings->dye()->setDyeShotDateTime(shotDateTime);
-                m_settings->dye()->setDyeDrinkWeight(finalWeightCapture);
-                m_settings->sync();
-                if (showPostShot) {
-                    emit shotEndedShowMetadata();
-                }
-            } else {
-                qWarning() << "[discard-classifier] Save-anyway failed (returned" << shotId << ")";
-                m_lastSavedShotId = 0;
-                emit lastSavedShotIdChanged();
-            }
-        }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    // saveShot() extracts data from Profile/ShotDataModel synchronously on the main
-    // thread before returning, so passing &payload.profileSnapshot (stack-local) is
-    // safe — see ShotHistoryStorage::saveShot() in shothistorystorage.cpp:842.
-    m_shotHistory->saveShot(
-        m_shotDataModel, &payload.profileSnapshot,
-        payload.duration, payload.finalWeight, payload.doseWeight,
-        payload.metadataSnapshot, payload.debugLog,
-        payload.shotTemperatureOverride, payload.shotYieldOverride);
-
-    if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
-        m_visualizer->uploadShot(m_shotDataModel, &payload.profileSnapshot,
-                                 payload.duration, payload.finalWeight, payload.doseWeight,
-                                 payload.metadataSnapshot, payload.debugLog, payload.epoch);
-    }
 }
 
 void MainController::uploadPendingShot() {

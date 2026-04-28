@@ -8,16 +8,16 @@
 ## 2. Classifier
 
 - [x] 2.1 Classifier extracted to header-only `src/controllers/abortedshotclassifier.h` (namespace `decenza`) so the unit test can include it without linking the full MainController dependency graph. Constants `kAbortedDurationSec = 10.0` and `kAbortedYieldG = 5.0` are inline `constexpr` and visible in code search. Free function `decenza::isAbortedShot(durationSec, weightG)` implements the conjunction with strict `<`.
-- [x] 2.2 In `MainController::endShot()`, the discard branch sits between the metadata block and the existing `m_shotHistory->saveShot(...)` call. Logs `[discard-classifier] extractionDurationSec=… finalWeightG=… verdict=… action=…` for every shot, regardless of toggle state. When discarded, emits `shotDiscarded(duration, finalWeight)`, skips both save and visualizer auto-upload, clears `m_extractionStarted`, and `return`s.
-- [x] 2.3 Added `MainController::PendingDiscardedShot` struct (private, in maincontroller.h) holding the full save payload incl. a `Profile` value snapshot. Cache is cleared on `saveAbortedShotAnyway()` entry, on toast timeout (UI side) and on new-shot start (`onEspressoCycleStarted` resets `m_pendingDiscardedShot = {}`).
-- [x] 2.4 `Q_INVOKABLE void MainController::saveAbortedShotAnyway()` implemented. Guards: not active → no-op; history not ready → warn+no-op; already saving → warn+no-op; data model gone → clear cache+no-op. Moves the cached payload into a local before kicking off the async save (one-shot semantics; double-tap can't re-enter). Replays both `saveShot()` and visualizer auto-upload using the snapshot's `Profile&`.
+- [x] 2.2 In `MainController::endShot()`, the discard branch sits between the metadata block and the existing `m_shotHistory->saveShot(...)` call. Logs `[discard-classifier] extractionDurationSec=… finalWeightG=… verdict=… action=…` for every shot, regardless of toggle state. When discarded, emits `shotDiscarded(duration, finalWeight)`, skips both save and visualizer auto-upload, clears `m_extractionStarted`, and `return`s. **The `m_pendingShotEpoch` and `m_pendingDebugLog` member writes were moved to *after* the discard branch** so a dropped shot can't corrupt pending-shot state from a prior unflushed shot (PR-review finding #3).
+- [N/A] 2.3 No payload cache — the "Save anyway" path was scoped out (see proposal). A discarded shot is intentionally irrecoverable.
+- [N/A] 2.4 No `saveAbortedShotAnyway()` Q_INVOKABLE — see 2.3.
 
 ## 3. UI surface
 
 - [x] 3.1 Existing inline `Rectangle` + `Timer` toast pattern lives in `qml/main.qml` (e.g. `flowCalToast`, `shotExportToast`). Adopted that pattern instead of building a generic component — keeps the change small.
-- [x] 3.2 Added `discardedShotToast` Rectangle with a Row containing the message text + an `AccessibleButton` (`primary: true`) labelled "Save anyway". `discardedShotToastTimer` auto-dismisses after 8 s (longer than the 4 s default — user needs read+react time).
-- [x] 3.3 `onShotDiscarded(durationSec, finalWeightG)` handler added to the existing MainController `Connections` block in `main.qml`. Toast appears immediately on the active page; the action calls `MainController.saveAbortedShotAnyway()` and dismisses the toast (also stops the timer to avoid re-opacity-zero racing). Announces via `AccessibilityManager.announce(..., true)` (assertive) when AT enabled.
-- [x] 3.4 Translation keys added inline via `Tr` components in main.qml: `main.toast.shotDiscarded` and `main.toast.saveAnyway`. English fallback only.
+- [x] 3.2 Added `discardedShotToast` Rectangle with a centered Text label. `discardedShotToastTimer` auto-dismisses after 4 s (matches the other toast timers).
+- [x] 3.3 `onShotDiscarded(durationSec, finalWeightG)` handler added to the existing MainController `Connections` block in `main.qml`. Toast appears immediately on the active page. Announces via `AccessibilityManager.announce(..., true)` (assertive) when AT enabled.
+- [x] 3.4 Translation key `main.toast.shotDiscarded` added inline via `Tr` component in main.qml. English fallback only.
 
 ## 4. Settings UI
 
@@ -38,3 +38,9 @@
 - [ ] 7.1 Manual: with toggle on, start an espresso shot and immediately tap the stop button before the first frame runs. Verify the toast appears with the message and `Save anyway` button, and that the shot does not appear in history. Verify the toggle off case saves it normally. *(Manual on-device check — deferred to user.)*
 - [ ] 7.2 Manual: tap `Save anyway` on the toast and verify the shot appears in history with the same metadata. Repeat with visualizer auto-upload enabled and verify upload runs. *(Manual on-device check — deferred to user.)*
 - [x] 7.3 Desktop build clean (Qt Creator: 57 s, 0 warnings, 0 errors). Other platforms (Windows / iOS / Android) deferred — no platform-specific code in this change.
+
+## 8. Post-review changes (PR #912 review feedback)
+
+- [x] 8.1 Dropped the "Save anyway" recovery path entirely. A discarded shot is intentionally not recoverable — the toggle is the right escape hatch. Removed: `saveAbortedShotAnyway()` Q_INVOKABLE, `PendingDiscardedShot` struct + member, the cache writes in the discard branch, the cache reset in `onEspressoCycleStarted`, the toast's action button, and the corresponding spec scenarios.
+- [x] 8.2 Moved `m_pendingShotEpoch` / `m_pendingDebugLog` member assignments below the discard branch so a dropped shot can't corrupt pending-shot state belonging to a prior unflushed shot (review finding #3).
+- [x] 8.3 Switched test main macro from `QTEST_APPLESS_MAIN` to `QTEST_GUILESS_MAIN` to match `docs/CLAUDE_MD/TESTING.md` and existing pure-function tests (review below-threshold finding).

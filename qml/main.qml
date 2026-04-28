@@ -3116,8 +3116,7 @@ ApplicationWindow {
 
         function onShotDiscarded(durationSec, finalWeightG) {
             // Aborted-shot classifier dropped the just-finished espresso shot.
-            // Toast offers a one-shot "Save anyway" action; if the user ignores
-            // it, the cached payload is released when the toast hides.
+            // Notification only — the shot is gone for good.
             discardedShotToast.opacity = 1
             discardedShotToastTimer.restart()
             if (AccessibilityManager.enabled) {
@@ -3273,19 +3272,18 @@ ApplicationWindow {
 
     // ============ DISCARDED ABORTED SHOT TOAST ============
     // Shown when MainController's aborted-shot classifier drops a shot that did
-    // not start (extraction < 10 s AND yield < 5 g). The user can tap "Save
-    // anyway" within the auto-dismiss window to recover it. See issue #899 and
-    // openspec/changes/add-discard-aborted-shots.
+    // not start (extraction < 10 s AND yield < 5 g). Notification only — there
+    // is no recovery path; the shot is intentionally not recorded. See issue
+    // #899 and openspec/changes/add-discard-aborted-shots.
     Tr { id: trDiscardedShotToast; key: "main.toast.shotDiscarded"; fallback: "Shot did not start — not recorded"; visible: false }
-    Tr { id: trDiscardedShotSaveAnyway; key: "main.toast.saveAnyway"; fallback: "Save anyway"; visible: false }
 
     Rectangle {
         id: discardedShotToast
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.scaled(40)
         anchors.horizontalCenter: parent.horizontalCenter
-        width: discardedShotToastRow.implicitWidth + Theme.scaled(32)
-        height: discardedShotToastRow.implicitHeight + Theme.scaled(16)
+        width: discardedShotToastLabel.implicitWidth + Theme.scaled(32)
+        height: discardedShotToastLabel.implicitHeight + Theme.scaled(16)
         radius: Theme.cardRadius
         color: Theme.surfaceColor
         opacity: 0
@@ -3297,38 +3295,19 @@ ApplicationWindow {
             NumberAnimation { duration: 300 }
         }
 
-        Row {
-            id: discardedShotToastRow
+        Text {
+            id: discardedShotToastLabel
             anchors.centerIn: parent
-            spacing: Theme.scaled(16)
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: trDiscardedShotToast.text
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(13)
-                Accessible.ignored: true
-            }
-
-            AccessibleButton {
-                anchors.verticalCenter: parent.verticalCenter
-                accessibleName: trDiscardedShotSaveAnyway.text
-                text: trDiscardedShotSaveAnyway.text
-                primary: true
-                onClicked: {
-                    MainController.saveAbortedShotAnyway()
-                    discardedShotToast.opacity = 0
-                    discardedShotToastTimer.stop()
-                }
-            }
+            text: trDiscardedShotToast.text
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
         }
     }
 
     Timer {
         id: discardedShotToastTimer
-        // Longer than the other toasts (4 s) — user needs time to read the
-        // message and decide whether to tap "Save anyway".
-        interval: 8000
+        interval: 4000
         onTriggered: discardedShotToast.opacity = 0
     }
 

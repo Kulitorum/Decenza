@@ -94,5 +94,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(tst_AbortedShotClassifier)
+QTEST_GUILESS_MAIN(tst_AbortedShotClassifier)
 #include "tst_aborted_shot_classifier.moc"

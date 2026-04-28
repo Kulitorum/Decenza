@@ -166,9 +166,6 @@ public slots:
     // DYE: upload pending shot with current metadata from Settings
     Q_INVOKABLE void uploadPendingShot();
 
-    // Save a shot that was just discarded by the aborted-shot classifier (toast "Save anyway").
-    // No-op if no pending discarded shot is cached. One-shot per discarded shot.
-    Q_INVOKABLE void saveAbortedShotAnyway();
 
     // Developer mode: generate fake shot data for testing UI
     Q_INVOKABLE void generateFakeShotData();
@@ -304,23 +301,6 @@ private:
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
     bool m_savingShot = false;     // Guard against overlapping async saves
 
-    // Cache for shots discarded by the aborted-shot classifier. Holds the payload
-    // we'd have passed to saveShot() so the user's "Save anyway" tap can replay it.
-    // Cleared on save-anyway, on next shot start, or when the toast times out.
-    struct PendingDiscardedShot {
-        bool active = false;
-        Profile profileSnapshot;
-        ShotMetadata metadataSnapshot;
-        QString debugLog;
-        double duration = 0.0;
-        double finalWeight = 0.0;
-        double doseWeight = 0.0;
-        double shotTemperatureOverride = 0.0;
-        double shotYieldOverride = 0.0;
-        bool showPostShot = false;
-        qint64 epoch = 0;
-    };
-    PendingDiscardedShot m_pendingDiscardedShot;
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;
