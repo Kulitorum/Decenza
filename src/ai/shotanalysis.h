@@ -193,9 +193,12 @@ public:
     // can briefly exceed, and the channeling derivative looks normal because
     // the puck never built resistance to channel through.
     //
-    // The arm has no pressurized-window gate (a gusher by definition cannot
-    // sustain pressure). Preconditions: targetWeightG > 0, finalWeightG > 0,
-    // espresso beverage type. See analyzeFlowVsGoal() for placement.
+    // The arm has no pressurized-window gate (a gusher can't sustain pressure
+    // long enough to satisfy CHOKED_DURATION_MIN_SEC, even when peak briefly
+    // exceeds CHOKED_PRESSURE_MIN_BAR). Preconditions: targetWeightG > 0,
+    // finalWeightG > 0, beverageType not in the filter/pourover/tea/steam/
+    // cleaning skip list (espresso and unknown/empty beverage types both pass).
+    // See analyzeFlowVsGoal() for placement.
     static constexpr double YIELD_OVERSHOOT_RATIO_MIN = 1.20;
 
     // Trim two boundary windows where flow naturally diverges from goal even
@@ -213,17 +216,20 @@ public:
     // Result of the grind direction check.
     struct GrindCheck {
         // (avg actual flow) - (avg goal flow) on the flow-vs-goal path. Positive
-        // = coarse, negative = fine. Meaningful only when chokedPuck == false;
-        // on the choked-puck path delta is left at its default and chokedPuck
-        // is the sole signal — read chokedPuck first.
+        // = coarse, negative = fine. Meaningful only when both chokedPuck ==
+        // false AND yieldOvershoot == false — both paths leave delta at its
+        // default (0.0) when their own arm fires without the flow-vs-goal
+        // averaging path producing data. Read chokedPuck and yieldOvershoot
+        // first; consumers that read delta unconditionally would mistake
+        // "yield arm fired without flow data" for "flow matched goal."
         double delta = 0.0;
         // Number of qualifying samples averaged (flow-vs-goal path) or the
         // count of pressurized samples observed (choked-puck path).
         qsizetype sampleCount = 0;
-        bool hasData = false;        // true when the check ran (either path)
+        bool hasData = false;        // true when at least one arm produced a result (flow-vs-goal averaging, choked-puck check, or yield-overshoot — see analyzeFlowVsGoal docs)
         bool skipped = false;        // true when suppressed by a flag or beverage type
         bool chokedPuck = false;     // true when the pressure-mode choke check fired — either mean pressurized flow below CHOKED_FLOW_MAX_MLPS (severe) or yield/target below CHOKED_YIELD_RATIO_MAX (moderate)
-        bool yieldOvershoot = false; // true when yield/target > YIELD_OVERSHOOT_RATIO_MIN — gusher; mutually exclusive with chokedPuck on the yield arm
+        bool yieldOvershoot = false; // true when yield/target > YIELD_OVERSHOOT_RATIO_MIN — gusher; mutually exclusive with chokedPuck only on the yield-ratio sub-arm (one < 0.85, the other > 1.20). chokedPuck's flow sub-arm could in principle co-fire, but a gusher cannot satisfy its 15s × 4 bar gate in practice.
     };
 
     // Grind direction check — the canonical implementation shared by the

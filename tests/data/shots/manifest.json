@@ -30,7 +30,7 @@
     },
     {
       "file": "synthetic_shot_835_gusher.json",
-      "description": "Issue #904 — synthetic gusher modeling shot 835: D-Flow / Q profile, 18g dose → 40g target, 56.3g actual at grind 11 (ratio 1.41). Curves intentionally simplified to a flat ~4.5 bar / ~1.6 mL/s plateau so the other detectors stay silent and the new yield-overshoot arm fires alone. Replace with captured shot 835 curves when available — invariant the manifest locks in is grindIssue=true via the yield arm, channeling None, pourTruncated false.",
+      "description": "Issue #904 — synthetic gusher modeling shot 835: D-Flow / Q profile, 18g dose → 40g target, 56.3g actual at grind 11 (ratio 1.41). Curves intentionally simplified to a flat ~4.5 bar / ~1.6 mL/s plateau so the other detectors stay silent and the new yield-overshoot arm fires alone. Load-bearing invariants for the expected verdict: peak pressure stays above PRESSURE_FLOOR_BAR (2.5) so pourTruncated stays false; mean pressurized flow stays above CHOKED_FLOW_MAX_MLPS (0.5) so the choked-puck flow arm doesn't co-fire; ratio stays > YIELD_OVERSHOOT_RATIO_MIN (1.20). Replace with captured shot 835 curves when available.",
       "expect": {
         "channeling": "None",
         "grindIssue": true,

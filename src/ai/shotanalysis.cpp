@@ -811,23 +811,26 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                                 pressure,
                                                 targetWeightG, finalWeightG);
     if (grind.hasData) {
-        if (grind.chokedPuck) {
-            QVariantMap line;
-            line["text"] = QStringLiteral("Pour produced near-zero flow while pressure held \u2014 "
-                "puck choked, grind way too fine");
-            line["type"] = QStringLiteral("warning");
-            lines.append(line);
-        } else if (grind.yieldOvershoot) {
+        if (grind.yieldOvershoot) {
             // Gusher: yield blew past target by > 20%. The puck offered too
-            // little resistance \u2014 water shot through at the preinfusion goal
-            // and the shot finished much heavier than intended. Pre-empts
-            // the directional flow-vs-goal caution because the yield arm
-            // fires the warning louder.
+            // little resistance and the shot finished much heavier than
+            // intended. Phase-agnostic \u2014 the arm runs purely off yield
+            // ratio. Pre-empts both chokedPuck (the two arms can only
+            // co-fire from chokedPuck's flow sub-arm, which a gusher cannot
+            // satisfy in practice \u2014 and even then, gusher is the more
+            // applicable diagnosis) and the directional flow-vs-goal
+            // caution. Order matches the verdict cascade below.
             const double overG = finalWeightG - targetWeightG;
             QVariantMap line;
             line["text"] = QStringLiteral("Yield ran %1 g over target \u2014 "
                 "puck offered too little resistance, grind way too coarse")
                 .arg(overG, 0, 'f', 1);
+            line["type"] = QStringLiteral("warning");
+            lines.append(line);
+        } else if (grind.chokedPuck) {
+            QVariantMap line;
+            line["text"] = QStringLiteral("Pour produced near-zero flow while pressure held \u2014 "
+                "puck choked, grind way too fine");
             line["type"] = QStringLiteral("warning");
             lines.append(line);
         } else if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
@@ -901,8 +904,11 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     } else if (grind.yieldOvershoot) {
         // The mirror of the choked-puck verdict: yield blew past target by
         // > 20%, the puck offered too little resistance. Mutually exclusive
-        // with chokedPuck on the yield arm (one < 0.85, the other > 1.20),
-        // so order between them is for emphasis only \u2014 both deserve their
+        // with chokedPuck only on the yield-ratio sub-arm (one < 0.85, the
+        // other > 1.20); chokedPuck's flow sub-arm could in principle co-
+        // fire, but a gusher cannot satisfy the 15 s \u00d7 4 bar gate in
+        // practice. yieldOvershoot is the more applicable diagnosis when
+        // both flag, so it sits above chokedPuck here. Both deserve their
         // own emphatic verdict rather than collapsing into the generic
         // "Puck integrity issue" line below.
         verdict["text"] = QStringLiteral("Verdict: Pour gushed past target \u2014 grind way too coarse. Grind much finer.");
