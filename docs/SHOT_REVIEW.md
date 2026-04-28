@@ -91,13 +91,25 @@ included only when, at that time:
    / goal(t) ≤ 0.15` on both sides.
 2. The actual value has **converged** onto the goal: `|actual − goal| / goal ≤
    0.15`.
-3. For **flow-mode phases only**, pressure is not rising fast: when
+3. Actual pressure is not rising fast in either mode: when
    `pressureNow > 0.5` bar AND `pressureFut > pressureNow * 1.15` over 0.75 s
-   ahead, the sample is disqualified. Falling pressure is allowed — bloom
-   transitions and pressure-mode → flow-mode handoffs are legitimate
-   channeling signals. The 0.5 bar precondition gates out the
-   near-atmospheric window where small absolute jitter would otherwise read
-   as a 15 % relative rise.
+   ahead, the sample is disqualified. Two ramp dynamics produce the same
+   conductance-drop signature and are both gated here:
+   - Flow-mode lever rise (Cremina, Damian LRv3, 80's Espresso preinfusion):
+     flow goal stationary while the puck builds pressure under a pressure-
+     ceiling exit.
+   - Pressure-mode rise-and-hold final leg: pressure goal locked at target
+     but actual pressure still ramping toward it. The 15 %-of-goal
+     convergence check admits these samples because actual is close enough
+     to goal, even though it is still climbing fast — `dC/dt` clamps at the
+     negative floor as conductance drops with pressure. (Shot 889 on 80's
+     Espresso was the motivating false positive.)
+   Falling pressure is always allowed — bloom transitions and
+   pressure-mode → flow-mode handoffs are legitimate channeling signals,
+   and the dC/dt detector counts both signs of conductance change as
+   diagnostic. The 0.5 bar precondition gates out the near-atmospheric
+   window where small absolute jitter would otherwise read as a 15 %
+   relative rise.
 
 Contiguous qualifying times collapse into windows; gaps ≤
 `WINDOW_GAP_MERGE_SEC` (0.3 s) are merged.
