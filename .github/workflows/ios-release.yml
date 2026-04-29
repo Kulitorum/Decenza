@@ -43,7 +43,7 @@ jobs:
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 
-      - name: Pin Xcode to 26.0.1
+      - name: Pin Xcode to 26.1.1
         run: |
           # macos-26 default is Xcode 26.2, whose clang adds a strict check
           # that refuses to compile when more than one *_DEPLOYMENT_TARGET
@@ -53,14 +53,24 @@ jobs:
           # which trips the check inside Xcode's PhaseScriptExecution
           # subprocesses where we can't easily scrub them.
           #
-          # Xcode 26.0.1 ships an earlier clang from the same Xcode 26 family,
-          # so it satisfies App Store Connect's iOS 26 SDK requirement, but
-          # without the new env-conflict check. Pinning here keeps the SDK
-          # gate satisfied while sidestepping the build failure on macos-26.
-          # Tracked separately as a Qt-toolchain follow-up.
-          sudo xcode-select -s /Applications/Xcode_26.0.1.app/Contents/Developer
+          # We pin to Xcode 26.1.1 because:
+          #   - It satisfies App Store Connect's iOS 26 SDK requirement
+          #     (paired with the iOS 26.1 SDK, also in the Xcode 26 family).
+          #   - macos-26 only has iOS platform support installed for the
+          #     iOS 26.1 / 26.2 / 26.4 runtimes (see runner image readme).
+          #     Xcode 26.0.1 lacks the iOS platform component on this image,
+          #     so xcodebuild errors with "iOS 26.0 is not installed" before
+          #     it gets anywhere near a compile.
+          #   - 26.1.1's clang predates the strict deployment-target env
+          #     check (introduced in 26.2), so the conflicting platform env
+          #     vars from the runner image don't trip it.
+          #
+          # The durable fix is upstream — CMake's automoc compiler-ABI test
+          # should be passing -target explicitly so it doesn't depend on
+          # env-var fallback. Tracked as #925.
+          sudo xcode-select -s /Applications/Xcode_26.1.1.app/Contents/Developer
           xcodebuild -version
-          echo "DEVELOPER_DIR=/Applications/Xcode_26.0.1.app/Contents/Developer" >> $GITHUB_ENV
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.1.1.app/Contents/Developer" >> $GITHUB_ENV
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
