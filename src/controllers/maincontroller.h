@@ -166,7 +166,6 @@ public slots:
     // DYE: upload pending shot with current metadata from Settings
     Q_INVOKABLE void uploadPendingShot();
 
-
     // Developer mode: generate fake shot data for testing UI
     Q_INVOKABLE void generateFakeShotData();
 
@@ -301,7 +300,6 @@ private:
     QString m_pendingDebugLog;
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
     bool m_savingShot = false;     // Guard against overlapping async saves
-
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;
