@@ -202,6 +202,10 @@ private slots:
         scale.mockSetConnected(true);
         tc.setScale(&scale);
 
+        // ScaleDevice's destructor emits a DISCONNECTED warning as the mock goes out
+        // of scope at test end; mark it expected per docs/CLAUDE_MD/TESTING.md.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("DISCONNECTED"));
+
         // Populate state so onSettlingComplete passes every guard and reaches the
         // sawLearningComplete emit: drip=1.5g, flow=1.5ml/s, overshoot=0.5g.
         tc.m_weightAtStop = 35.0;
