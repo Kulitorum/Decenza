@@ -174,13 +174,17 @@ jobs:
         run: |
           mkdir -p build/ios
           cd build/ios
+          # Only wrap CC/CXX with ccache. Wrapping LD/LDPLUSPLUS routes the
+          # link step through ccache (which doesn't cache link products) and
+          # — because LD points at launch-c — forces the C++ link through
+          # the clang driver instead of clang++, so -lc++ is never auto-
+          # added and the link fails with missing __cxa_*/__gxx_personality
+          # symbols. Leave LD/LDPLUSPLUS at Xcode defaults.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS="$CCACHE_LAUNCH_CXX"
+            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
 
       - name: Build and Archive
         env:
