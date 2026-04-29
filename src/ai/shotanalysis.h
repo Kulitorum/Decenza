@@ -323,12 +323,127 @@ public:
                                      int expectedFrameCount = -1,
                                      double firstFrameConfiguredSeconds = -1.0);
 
-    // Generate a concise shot summary from curve data. Returns a list of
-    // noteworthy observations + a verdict. Used by ShotAnalysisDialog.qml.
-    // flowGoal is the profile's target flow curve and drives grind-direction analysis (may be empty).
-    // pressureGoal is accepted for API symmetry but currently unused.
-    // analysisFlags controls suppression of checks for profiles where certain
-    // behaviors are intentional — see ProfileKnowledge::analysisFlags for values.
+    // Structured detector outputs — the typed values that drive each
+    // observation line in `summaryLines`. Exposed so external consumers
+    // (MCP `shots_get_detail`, regression tests) can read the same signals
+    // the in-app Shot Summary dialog renders without parsing prose. Kept
+    // strictly in sync with `summaryLines` by construction: `analyzeShot`
+    // populates this struct first, then formats each line FROM the struct,
+    // so a detector flip moves both fields together.
+    //
+    // Field semantics — most detectors follow a "checked / not-checked"
+    // pattern. `*Checked == false` means the detector was suppressed
+    // (pour truncated cascade, beverage-type skip, profile analysisFlag,
+    // or insufficient input data); the rest of that detector's fields are
+    // unset / default. Distinguishing "not checked" from "checked, no
+    // signal" matters to consumers — silence on a skipped detector is
+    // not the same as silence on a clean shot.
+    struct DetectorResults {
+        // === Pour-truncated (puck failure) — runs first; dominates the cascade ===
+        // detectPourTruncated() is gated only by beverage type, so for
+        // espresso it always evaluates and `pourTruncated` is meaningful
+        // on every shot. peakPressureBar is set only when the detector
+        // fires (used in the warning line).
+        bool pourTruncated = false;
+        double peakPressureBar = 0.0;
+
+        // === Channeling (dC/dt) ===
+        bool channelingChecked = false;
+        QString channelingSeverity;       // "" if !checked; else "none" | "transient" | "sustained"
+        double channelingSpikeTimeSec = 0.0;  // 0 unless transient/sustained
+
+        // === Flow trend during extraction ===
+        // delta = (avg flow in last 30% of pour) − (avg in first 30%).
+        bool flowTrendChecked = false;
+        QString flowTrend;                // "" if !checked; "stable" | "rising" | "falling"
+        double flowTrendDeltaMlPerSec = 0.0;
+
+        // === Preinfusion drip ===
+        // Observation only — fires when preinfusion weight > 0.5 g and
+        // duration > 1 s. Not part of the warning/caution cascade.
+        bool preinfusionObserved = false;
+        double preinfusionDripWeightG = 0.0;
+        double preinfusionDripDurationSec = 0.0;
+
+        // === Temperature stability ===
+        bool tempStabilityChecked = false;
+        bool tempIntentionalStepping = false;
+        double tempAvgDeviationC = 0.0;
+        bool tempUnstable = false;
+
+        // === Grind direction (mirrors GrindCheck plus a derived label) ===
+        bool grindChecked = false;
+        bool grindHasData = false;
+        bool grindChokedPuck = false;
+        bool grindYieldOvershoot = false;
+        double grindFlowDeltaMlPerSec = 0.0;
+        qsizetype grindSampleCount = 0;
+        // "" if !hasData. Otherwise one of:
+        //   "yieldOvershoot" — gusher (precedes chokedPuck/delta in the cascade)
+        //   "chokedPuck"     — pressurized but flow ~0
+        //   "tooFine"        — flow averaged below goal beyond threshold
+        //   "tooCoarse"      — flow averaged above goal beyond threshold
+        //   "onTarget"       — flow tracked goal within tolerance
+        QString grindDirection;
+
+        // === Skip-first-frame ===
+        bool skipFirstFrame = false;
+
+        // === Verdict category (no prose) ===
+        // Stable enum-like string for downstream agents. The dialog's
+        // English verdict text is composed from this category but is NOT
+        // exposed via this struct — verdict prose is dialog UX, not API
+        // surface. Possible values:
+        //   "clean"                    — no warnings or cautions
+        //   "puckTruncated"            — pour never pressurized
+        //   "skipFirstFrame"           — frame 0 not executed
+        //   "yieldOvershoot"           — gusher
+        //   "chokedPuck"               — puck choked off
+        //   "puckIntegrityGrindFine"   — channeling/warning + grind too fine
+        //   "puckIntegrityGrindCoarse" — channeling/warning + grind too coarse
+        //   "puckIntegrity"            — warning, no clear grind direction
+        //   "minorIssuesGrindFine"     — caution-only + grind too fine
+        //   "minorIssuesGrindCoarse"   — caution-only + grind too coarse
+        //   "minorIssues"              — caution-only, no clear grind direction
+        QString verdictCategory;
+    };
+
+    // Combined output of the shot-summary pipeline. `lines` is the prose
+    // observation list (same as legacy `generateSummary` return value);
+    // `detectors` holds the structured intermediates the lines were
+    // formatted from. Sharing one return value guarantees the prose and
+    // the structured data describe the same evaluation — no chance for
+    // them to drift across consumers.
+    struct AnalysisResult {
+        QVariantList lines;
+        DetectorResults detectors;
+    };
+
+    // Run the full shot-summary pipeline. Returns both the prose lines
+    // (rendered by the in-app Shot Summary dialog and fed into the AI
+    // advisor prompt) and the structured detector results (consumed by
+    // MCP `shots_get_detail` so external agents can read the same
+    // signals without parsing prose). All detectors run once and feed
+    // both outputs.
+    static AnalysisResult analyzeShot(const QVector<QPointF>& pressure,
+                                       const QVector<QPointF>& flow,
+                                       const QVector<QPointF>& weight,
+                                       const QVector<QPointF>& temperature,
+                                       const QVector<QPointF>& temperatureGoal,
+                                       const QVector<QPointF>& conductanceDerivative,
+                                       const QList<HistoryPhaseMarker>& phases,
+                                       const QString& beverageType,
+                                       double duration,
+                                       const QVector<QPointF>& pressureGoal = {},
+                                       const QVector<QPointF>& flowGoal = {},
+                                       const QStringList& analysisFlags = {},
+                                       double firstFrameConfiguredSeconds = -1.0,
+                                       double targetWeightG = 0.0,
+                                       double finalWeightG = 0.0);
+
+    // Backwards-compatible thin wrapper — equivalent to
+    // analyzeShot(...).lines. Existing callers (in-app dialog, AI advisor
+    // prompt builder) keep working unchanged.
     static QVariantList generateSummary(const QVector<QPointF>& pressure,
                                          const QVector<QPointF>& flow,
                                          const QVector<QPointF>& weight,

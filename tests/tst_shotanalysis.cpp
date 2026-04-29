@@ -1222,6 +1222,178 @@ private slots:
                      qPrintable("green puck-stable line leaked through suppression: " + text));
         }
     }
+    // ---- Structured detector results (analyzeShot) ----
+    //
+    // The structured `DetectorResults` struct exists so external consumers
+    // (MCP `shots_get_detail`, regression harnesses) can read the same
+    // signals the in-app dialog renders without parsing prose. These tests
+    // lock in the contract that `lines` and `detectors` describe the same
+    // evaluation — a detector flip moves both fields together. If you
+    // change a verdict string or detector phrasing, the matching field in
+    // DetectorResults must change with it (or these tests will fail).
+
+    // Choked-puck shot: structured fields must mirror the prose verdict.
+    void analyzeShot_chokedPuck_structuredFieldsMatchProse()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0,  "preinfusion",       1, /*isFlowMode=*/true),
+            phase(6.0,  "rise and hold",     2, /*isFlowMode=*/false),
+            phase(10.0, "decline",           3, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure = concat(flatSeries(0.0, 5.9, 1.7),
+                                            rampSeries(5.9, 6.0, 1.7, 6.6));
+        pressure = concat(pressure, flatSeries(6.1, 60.0, 6.6));
+        QVector<QPointF> flow = concat(flatSeries(0.0, 6.0, 7.5),
+                                        flatSeries(6.1, 60.0, 0.2));
+        QVector<QPointF> flowGoal = flatSeries(0.0, 60.0, 7.5);
+        QVector<QPointF> temperature = flatSeries(0.0, 60.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 60.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 60.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 60.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        const auto& d = result.detectors;
+        QVERIFY(d.grindChecked);
+        QVERIFY(d.grindHasData);
+        QVERIFY(d.grindChokedPuck);
+        QCOMPARE(d.grindDirection, QStringLiteral("chokedPuck"));
+        QCOMPARE(d.verdictCategory, QStringLiteral("chokedPuck"));
+        QVERIFY(!d.pourTruncated);
+
+        // Cross-check: prose still names the same diagnosis. If this
+        // assertion fails alongside grindDirection still being "chokedPuck",
+        // the lines and detectors have drifted — analyzeShot must keep them
+        // in lockstep.
+        bool sawChokedVerdict = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["type"].toString() == "verdict"
+                && m["text"].toString().contains("Puck choked", Qt::CaseInsensitive))
+                sawChokedVerdict = true;
+        }
+        QVERIFY2(sawChokedVerdict, "structured chokedPuck verdict must match prose");
+    }
+
+    // Pour-truncated cascade: when pourTruncated fires, downstream detectors
+    // must report `checked == false` so MCP consumers don't read their
+    // default fields as "clean signal."
+    void analyzeShot_pourTruncated_suppressedDetectorsReportNotChecked()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0, "pour",              1, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);  // puck failure
+        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
+        QVector<QPointF> temperature = flatSeries(0.0, 7.0, 82.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 7.0, 82.0);
+        QVector<QPointF> dCdt;
+        for (double t = 2.0; t <= 7.0; t += 0.05)
+            dCdt.append(QPointF(t, 4.5));  // would normally trigger sustained channeling
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 7.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        const auto& d = result.detectors;
+        QVERIFY(d.pourTruncated);
+        QVERIFY(d.peakPressureBar > 0.0);
+        QCOMPARE(d.verdictCategory, QStringLiteral("puckTruncated"));
+        // Cascade: channeling/grind suppressed — must report not-checked
+        // (distinct from "checked, no signal"). Flow trend is also
+        // suppressed but its `checked` flag may stay false for the same
+        // reason; we don't require a specific value, only that the prose
+        // and structured fields agree.
+        QVERIFY2(!d.channelingChecked,
+                 "pourTruncated must suppress channeling check");
+        QVERIFY2(!d.grindChecked,
+                 "pourTruncated must suppress grind check");
+    }
+
+    // Clean shot: structured `verdictCategory == "clean"` must match the
+    // "Clean shot. Puck held well." prose verdict.
+    void analyzeShot_cleanShot_verdictCategoryMatches()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",              1, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure = concat(rampSeries(0.0, 8.0, 1.0, 9.0),
+                                            flatSeries(8.1, 30.0, 9.0));
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/36.0);
+
+        const auto& d = result.detectors;
+        QCOMPARE(d.verdictCategory, QStringLiteral("clean"));
+        QVERIFY(!d.pourTruncated);
+        QVERIFY(!d.skipFirstFrame);
+
+        bool sawCleanVerdict = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["type"].toString() == "verdict"
+                && m["text"].toString().contains("Clean shot", Qt::CaseInsensitive))
+                sawCleanVerdict = true;
+        }
+        QVERIFY2(sawCleanVerdict, "structured clean verdict must match prose");
+    }
+
+    // Backwards compatibility: the legacy generateSummary() wrapper must
+    // return the same line list as analyzeShot(...).lines. If this fails,
+    // the wrapper has drifted — every QML/AI consumer downstream is
+    // affected.
+    void generateSummary_isThinWrapperOverAnalyzeShot()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",              1, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure = concat(rampSeries(0.0, 8.0, 1.0, 9.0),
+                                            flatSeries(8.1, 30.0, 9.0));
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+
+        const QVariantList legacy = ShotAnalysis::generateSummary(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 30.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+        const auto fresh = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 30.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        QCOMPARE(legacy.size(), fresh.lines.size());
+        for (int i = 0; i < legacy.size(); ++i) {
+            QCOMPARE(legacy[i].toMap()["text"].toString(),
+                     fresh.lines[i].toMap()["text"].toString());
+            QCOMPARE(legacy[i].toMap()["type"].toString(),
+                     fresh.lines[i].toMap()["type"].toString());
+        }
+    }
 };
 
 QTEST_MAIN(tst_ShotAnalysis)

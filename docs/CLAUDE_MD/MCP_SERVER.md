@@ -273,6 +273,49 @@ MCP tool responses are consumed by LLMs (Claude, ChatGPT, etc.) which cannot rel
 
 When adding new MCP tool responses, never return raw numbers that require domain knowledge to interpret. An AI seeing `"pressure": 9.0` doesn't know if that's bar, PSI, or kPa. Use `"pressureBar": 9.0` instead.
 
+### Shot Detector Outputs (`shots_get_detail`, `shots_compare`)
+
+`shots_get_detail` and `shots_compare` return two complementary views of the in-app Shot Summary detector pipeline:
+
+- **`summaryLines`** — the same human-readable observation list rendered by the in-app Shot Summary dialog. Each entry is `{"text": "...", "type": "good" | "caution" | "warning" | "observation" | "verdict"}`. Useful when you want to surface the dialog's own framing.
+- **`detectorResults`** — structured outputs of the detectors, intended as the primary signal for external agents. Avoids parsing prose, and the field shapes are stable across detector wording changes.
+
+Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cannot drift: the prose lines are formatted FROM the same struct that becomes `detectorResults`. A detector flip moves both fields together.
+
+`detectorResults` shape (fields are present only when their `checked` flag / `hasData` flag is true):
+
+```json
+{
+  "channeling": { "checked": true, "severity": "none" | "transient" | "sustained", "spikeTimeSec": 18.2 },
+  "flowTrend":  { "checked": true, "direction": "stable" | "rising" | "falling", "deltaMlPerSec": 0.3 },
+  "preinfusion": { "observed": true, "dripWeightG": 1.4, "durationSec": 8.3 },
+  "tempStability": { "checked": true, "intentionalStepping": false, "avgDeviationC": 1.1, "unstable": false },
+  "grind": {
+    "checked": true, "hasData": true,
+    "direction": "tooFine" | "tooCoarse" | "onTarget" | "chokedPuck" | "yieldOvershoot",
+    "deltaMlPerSec": -0.6, "sampleCount": 142,
+    "chokedPuck": false, "yieldOvershoot": false
+  },
+  "pourTruncated": false,
+  "peakPressureBar": 9.1,        // present only when pourTruncated == true
+  "skipFirstFrame": false,
+  "verdictCategory": "minorIssuesGrindFine"
+}
+```
+
+`verdictCategory` values:
+- `"clean"` — no warnings or cautions
+- `"puckTruncated"` — pour never pressurized; channeling / grind / temp signals are unreliable
+- `"skipFirstFrame"` — DE1 firmware bug or first-step too short
+- `"yieldOvershoot"` — gusher (yield ran > 20% over target)
+- `"chokedPuck"` — pressurized but flow ~0
+- `"puckIntegrityGrindFine"` / `"puckIntegrityGrindCoarse"` / `"puckIntegrity"` — channeling-class warning, with grind direction when known
+- `"minorIssuesGrindFine"` / `"minorIssuesGrindCoarse"` / `"minorIssues"` — caution-only
+
+When a detector's `checked` (or `hasData`) flag is `false`, the detector was suppressed — most often by the `pourTruncated` cascade, but also by beverage-type skips (filter / pourover) or per-profile analysis flags (e.g. `flow_trend_ok`). Treat that as "no signal for this detector," not "clean signal."
+
+The five legacy badge booleans (`channelingDetected`, `temperatureUnstable`, `grindIssueDetected`, `skipFirstFrameDetected`, `pourTruncatedDetected`) remain available for backwards compatibility and are computed identically — `detectorResults` is a superset.
+
 ## Resources (SSE Notifications)
 
 | URI | Description | Notification Trigger |

@@ -667,30 +667,35 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
     return false;
 }
 
-QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
-                                             const QVector<QPointF>& flow,
-                                             const QVector<QPointF>& weight,
-                                             const QVector<QPointF>& temperature,
-                                             const QVector<QPointF>& temperatureGoal,
-                                             const QVector<QPointF>& conductanceDerivative,
-                                             const QList<HistoryPhaseMarker>& phases,
-                                             const QString& beverageType,
-                                             double duration,
-                                             const QVector<QPointF>& pressureGoal,
-                                             const QVector<QPointF>& flowGoal,
-                                             const QStringList& analysisFlags,
-                                             double firstFrameConfiguredSeconds,
-                                             double targetWeightG,
-                                             double finalWeightG)
+ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
+    const QVector<QPointF>& pressure,
+    const QVector<QPointF>& flow,
+    const QVector<QPointF>& weight,
+    const QVector<QPointF>& temperature,
+    const QVector<QPointF>& temperatureGoal,
+    const QVector<QPointF>& conductanceDerivative,
+    const QList<HistoryPhaseMarker>& phases,
+    const QString& beverageType,
+    double duration,
+    const QVector<QPointF>& pressureGoal,
+    const QVector<QPointF>& flowGoal,
+    const QStringList& analysisFlags,
+    double firstFrameConfiguredSeconds,
+    double targetWeightG,
+    double finalWeightG)
 {
-    QVariantList lines;
+    AnalysisResult result;
+    QVariantList& lines = result.lines;
+    DetectorResults& d = result.detectors;
 
     if (pressure.size() < 10) {
         QVariantMap line;
         line["text"] = QStringLiteral("Not enough data to analyze.");
         line["type"] = QStringLiteral("observation");
         lines.append(line);
-        return lines;
+        // Leave detectors at defaults — every "checked" flag stays false,
+        // signalling "no analysis was possible" to MCP consumers.
+        return result;
     }
 
     // --- Find phase boundaries ---
@@ -712,6 +717,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     // pressure is computed locally for the warning text — detectPourTruncated
     // doesn't return it.
     const bool pourTruncated = detectPourTruncated(pressure, pourStart, pourEnd, beverageType);
+    d.pourTruncated = pourTruncated;
     double peakPressureBar = 0.0;
     if (pourTruncated) {
         for (const auto& pt : pressure) {
@@ -719,6 +725,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
             if (pt.x() > pourEnd) break;
             if (pt.y() > peakPressureBar) peakPressureBar = pt.y();
         }
+        d.peakPressureBar = peakPressureBar;
     }
 
     // --- dC/dt analysis (channeling) ---
@@ -741,14 +748,19 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         ChannelingSeverity severity = detectChannelingFromDerivative(
             conductanceDerivative, pourStart, pourEnd, windows, &spikeTime);
 
+        d.channelingChecked = true;
+        d.channelingSpikeTimeSec = spikeTime;
         QVariantMap line;
         if (severity == ChannelingSeverity::Sustained) {
+            d.channelingSeverity = QStringLiteral("sustained");
             line["text"] = QStringLiteral("Sustained channeling detected in dC/dt \u2014 puck prep issue");
             line["type"] = QStringLiteral("warning");
         } else if (severity == ChannelingSeverity::Transient) {
+            d.channelingSeverity = QStringLiteral("transient");
             line["text"] = QStringLiteral("Transient channel at %1s (self-healed)").arg(spikeTime, 0, 'f', 0);
             line["type"] = QStringLiteral("caution");
         } else {
+            d.channelingSeverity = QStringLiteral("none");
             line["text"] = QStringLiteral("Puck stable \u2014 no channeling spikes in dC/dt");
             line["type"] = QStringLiteral("good");
         }
@@ -771,16 +783,23 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
             if (progress > 0.7) { flowEndSum += fp.y(); ++flowEndCount; }
         }
         if (flowStartCount > 0 && flowEndCount > 0) {
-            double delta = (flowEndSum / flowEndCount) - (flowStartSum / flowStartCount);
-            QVariantMap line;
+            const double delta = (flowEndSum / flowEndCount) - (flowStartSum / flowStartCount);
+            d.flowTrendChecked = true;
+            d.flowTrendDeltaMlPerSec = delta;
             if (delta > 0.5) {
+                d.flowTrend = QStringLiteral("rising");
+                QVariantMap line;
                 line["text"] = QStringLiteral("Flow rose %1 mL/s during extraction (puck erosion)").arg(delta, 0, 'f', 1);
                 line["type"] = QStringLiteral("caution");
                 lines.append(line);
             } else if (delta < -0.5) {
+                d.flowTrend = QStringLiteral("falling");
+                QVariantMap line;
                 line["text"] = QStringLiteral("Flow dropped %1 mL/s (fines migration or clogging)").arg(std::abs(delta), 0, 'f', 1);
                 line["type"] = QStringLiteral("caution");
                 lines.append(line);
+            } else {
+                d.flowTrend = QStringLiteral("stable");
             }
         }
     }
@@ -792,9 +811,12 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
             if (wp.x() <= preinfEnd) preinfWeight = wp.y();
             else break;
         }
-        double firstPhaseTime = phases.isEmpty() ? 0 : phases.first().time;
-        double preinfDuration = preinfEnd - firstPhaseTime;
+        const double firstPhaseTime = phases.isEmpty() ? 0 : phases.first().time;
+        const double preinfDuration = preinfEnd - firstPhaseTime;
         if (preinfWeight > 0.5 && preinfDuration > 1.0) {
+            d.preinfusionObserved = true;
+            d.preinfusionDripWeightG = preinfWeight;
+            d.preinfusionDripDurationSec = preinfDuration;
             QVariantMap line;
             line["text"] = QStringLiteral("Preinfusion: %1g in %2s")
                 .arg(preinfWeight, 0, 'f', 1).arg(preinfDuration, 0, 'f', 1);
@@ -811,9 +833,14 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     if (!pourTruncated
         && temperature.size() > 10 && temperatureGoal.size() > 10 && pourStart > 0
         && reachedExtractionPhase(phases, duration)) {
-        if (!hasIntentionalTempStepping(temperatureGoal)) {
-            double avgDev = avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd);
+        d.tempStabilityChecked = true;
+        if (hasIntentionalTempStepping(temperatureGoal)) {
+            d.tempIntentionalStepping = true;
+        } else {
+            const double avgDev = avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd);
+            d.tempAvgDeviationC = avgDev;
             if (avgDev > TEMP_UNSTABLE_THRESHOLD) {
+                d.tempUnstable = true;
                 QVariantMap line;
                 line["text"] = QStringLiteral("Temperature drifted %1\u00B0C from goal on average").arg(avgDev, 0, 'f', 1);
                 line["type"] = QStringLiteral("caution");
@@ -842,6 +869,12 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                             beverageType, analysisFlags,
                             pressure,
                             targetWeightG, finalWeightG);
+    d.grindChecked = !pourTruncated;
+    d.grindHasData = grind.hasData;
+    d.grindChokedPuck = grind.chokedPuck;
+    d.grindYieldOvershoot = grind.yieldOvershoot;
+    d.grindFlowDeltaMlPerSec = grind.delta;
+    d.grindSampleCount = grind.sampleCount;
     if (grind.hasData) {
         if (grind.yieldOvershoot) {
             // Gusher: yield blew past target by > 20%. The puck offered too
@@ -852,6 +885,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
             // satisfy in practice \u2014 and even then, gusher is the more
             // applicable diagnosis) and the directional flow-vs-goal
             // caution. Order matches the verdict cascade below.
+            d.grindDirection = QStringLiteral("yieldOvershoot");
             const double overG = finalWeightG - targetWeightG;
             QVariantMap line;
             line["text"] = QStringLiteral("Yield ran %1 g over target \u2014 "
@@ -860,23 +894,28 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
             line["type"] = QStringLiteral("warning");
             lines.append(line);
         } else if (grind.chokedPuck) {
+            d.grindDirection = QStringLiteral("chokedPuck");
             QVariantMap line;
             line["text"] = QStringLiteral("Pour produced near-zero flow while pressure held \u2014 "
                 "puck choked, grind way too fine");
             line["type"] = QStringLiteral("warning");
             lines.append(line);
         } else if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
+            d.grindDirection = QStringLiteral("tooFine");
             QVariantMap line;
             line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
                 .arg(std::abs(grind.delta), 0, 'f', 1);
             line["type"] = QStringLiteral("caution");
             lines.append(line);
         } else if (grind.delta > FLOW_DEVIATION_THRESHOLD) {
+            d.grindDirection = QStringLiteral("tooCoarse");
             QVariantMap line;
             line["text"] = QStringLiteral("Flow averaged %1 ml/s above target \u2014 grind may be too coarse")
                 .arg(grind.delta, 0, 'f', 1);
             line["type"] = QStringLiteral("caution");
             lines.append(line);
+        } else {
+            d.grindDirection = QStringLiteral("onTarget");
         }
     }
 
@@ -907,6 +946,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     // on profiles with frame[0].seconds == 2.
     const bool skipFirstFrame = detectSkipFirstFrame(
         phases, /*expectedFrameCount=*/-1, firstFrameConfiguredSeconds);
+    d.skipFirstFrame = skipFirstFrame;
     if (skipFirstFrame) {
         QVariantMap line;
         line["text"] = QStringLiteral("First profile step skipped \u2014 "
@@ -934,6 +974,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         // detectors explicitly is important: a user who sees no Channeling
         // chip might otherwise assume "OK at least no channeling," which is
         // wrong on a puck failure.
+        d.verdictCategory = QStringLiteral("puckTruncated");
         verdict["text"] = QStringLiteral("Verdict: Don't tune off this shot \u2014 "
             "peak pressure never built, so the other quality signals "
             "(channeling, grind direction, temp) are unreliable. Check prep "
@@ -941,6 +982,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     } else if (skipFirstFrame) {
         // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice
         // so the user isn't told to adjust grind when the real fix is a power-cycle.
+        d.verdictCategory = QStringLiteral("skipFirstFrame");
         verdict["text"] = QStringLiteral("Verdict: First profile step was skipped \u2014 "
             "power-cycle the machine to fix a firmware bug, "
             "or review the profile's first step settings.");
@@ -954,6 +996,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         // both flag, so it sits above chokedPuck here. Both deserve their
         // own emphatic verdict rather than collapsing into the generic
         // "Puck integrity issue" line below.
+        d.verdictCategory = QStringLiteral("yieldOvershoot");
         verdict["text"] = QStringLiteral("Verdict: Pour gushed past target \u2014 grind way too coarse. Grind much finer.");
     } else if (grind.chokedPuck) {
         // Pressure built but the puck refused to extract \u2014 the diagnosis is
@@ -964,6 +1007,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         // dynamics that look like a choke (frame 1 takes over a profile
         // step that holds high pressure with low flow); fixing the machine
         // is the prerequisite, after which the user can re-evaluate grind.
+        d.verdictCategory = QStringLiteral("chokedPuck");
         verdict["text"] = QStringLiteral("Verdict: Puck choked \u2014 grind way too fine. Coarsen significantly.");
     } else if (hasWarning) {
         // Channeling is a puck-prep finding. The flow-vs-goal grind direction
@@ -975,10 +1019,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         const bool grindFine = grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD;
         const bool grindCoarse = grind.hasData && grind.delta > FLOW_DEVIATION_THRESHOLD;
         if (grindFine) {
+            d.verdictCategory = QStringLiteral("puckIntegrityGrindFine");
             verdict["text"] = QStringLiteral("Verdict: Puck integrity issue \u2014 improve distribution. Grind is running fine \u2014 try coarser.");
         } else if (grindCoarse) {
+            d.verdictCategory = QStringLiteral("puckIntegrityGrindCoarse");
             verdict["text"] = QStringLiteral("Verdict: Puck integrity issue \u2014 improve distribution. Grind is running coarse \u2014 try finer.");
         } else {
+            d.verdictCategory = QStringLiteral("puckIntegrity");
             verdict["text"] = QStringLiteral("Verdict: Puck integrity issue \u2014 improve distribution.");
         }
     } else if (hasCaution) {
@@ -988,17 +1035,44 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
         const bool grindFine = grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD;
         const bool grindCoarse = grind.hasData && grind.delta > FLOW_DEVIATION_THRESHOLD;
         if (grindFine) {
+            d.verdictCategory = QStringLiteral("minorIssuesGrindFine");
             verdict["text"] = QStringLiteral("Verdict: Grind appears too fine \u2014 try coarser.");
         } else if (grindCoarse) {
+            d.verdictCategory = QStringLiteral("minorIssuesGrindCoarse");
             verdict["text"] = QStringLiteral("Verdict: Grind appears too coarse \u2014 try finer.");
         } else {
+            d.verdictCategory = QStringLiteral("minorIssues");
             verdict["text"] = QStringLiteral("Verdict: Decent shot with minor issues to watch.");
         }
     } else {
+        d.verdictCategory = QStringLiteral("clean");
         verdict["text"] = QStringLiteral("Verdict: Clean shot. Puck held well.");
     }
     verdict["type"] = QStringLiteral("verdict");
     lines.append(verdict);
 
-    return lines;
+    return result;
+}
+
+QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
+                                             const QVector<QPointF>& flow,
+                                             const QVector<QPointF>& weight,
+                                             const QVector<QPointF>& temperature,
+                                             const QVector<QPointF>& temperatureGoal,
+                                             const QVector<QPointF>& conductanceDerivative,
+                                             const QList<HistoryPhaseMarker>& phases,
+                                             const QString& beverageType,
+                                             double duration,
+                                             const QVector<QPointF>& pressureGoal,
+                                             const QVector<QPointF>& flowGoal,
+                                             const QStringList& analysisFlags,
+                                             double firstFrameConfiguredSeconds,
+                                             double targetWeightG,
+                                             double finalWeightG)
+{
+    return analyzeShot(pressure, flow, weight, temperature, temperatureGoal,
+                       conductanceDerivative, phases, beverageType, duration,
+                       pressureGoal, flowGoal, analysisFlags,
+                       firstFrameConfiguredSeconds, targetWeightG, finalWeightG)
+        .lines;
 }
