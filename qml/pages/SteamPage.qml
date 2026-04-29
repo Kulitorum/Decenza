@@ -398,10 +398,15 @@ Page {
                                         // restores reactivity without falling back to a bare
                                         // imperative assignment.
                                         steamingFlowSlider.value = Qt.binding(function() { return Settings.brew.steamFlow })
-                                        // Push the new flow over BLE. Don't push timeout — the
-                                        // DE1's session timer is already running on the prior
-                                        // value and a mid-session timeout change risks an
-                                        // immediate stop if the new value is < elapsed.
+                                        // Push both the new duration (via ShotSettings) and the
+                                        // new flow (via MMR) so a mid-session preset switch
+                                        // actually changes when steaming stops — matching the
+                                        // hot water page's vessel-pill behaviour and the
+                                        // existing +5s/-5s buttons. If the new duration is less
+                                        // than elapsed, the DE1 firmware will end the session,
+                                        // which is the user's intent when picking a smaller
+                                        // preset.
+                                        MainController.setSteamTimeoutImmediate(modelData.duration)
                                         MainController.setSteamFlowImmediate(flow)
                                     }
                                 }
