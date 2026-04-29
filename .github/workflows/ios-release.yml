@@ -96,7 +96,12 @@ jobs:
               sudo mv "$XCODE_BIN/$tool" "$XCODE_BIN/$tool.real"
               sudo tee "$XCODE_BIN/$tool" >/dev/null <<EOF
           #!/bin/sh
-          unset MACOSX_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
+          # Strip ALL platform deployment-target env vars (including IPHONEOS).
+          # The user's local Mac has none of these set in the shell and Qt
+          # 6.10.3 + Xcode 26 builds fine; we match that env. Target/SDK come
+          # in via -target / -isysroot flags on the actual link line, so iOS
+          # is still correctly identified without IPHONEOS_DEPLOYMENT_TARGET.
+          unset MACOSX_DEPLOYMENT_TARGET IPHONEOS_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
           exec "$XCODE_BIN/$tool.real" "\$@"
           EOF
               sudo chmod +x "$XCODE_BIN/$tool"
