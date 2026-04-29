@@ -10,19 +10,20 @@ Item {
 
     property bool showMl: Settings.app.waterLevelDisplayUnit === "ml"
 
-    // Margin = mm of water remaining before firmware halts the machine.
+    // Margin = mm of water above the user's configured refill threshold.
     // waterLevelMm = rawSensorMm + 5mm offset (sensor mounted above intake).
     // waterRefillPoint is in raw sensor mm (sent to firmware as-is).
     // So: margin = waterLevelMm - sensorOffset - waterRefillPoint = rawSensorMm - waterRefillPoint.
+    // "Refill" appears at margin <= 0, i.e. when raw water level reaches the user's setting.
     readonly property real sensorOffset: 5.0
     readonly property real margin: DE1Device.waterLevelMm - sensorOffset - Settings.app.waterRefillPoint
     readonly property string warningState: {
         // No warning when disconnected — waterLevelMm initializes to 0.0 which would
         // falsely trigger "critical" on every startup until the first BLE update arrives.
         if (!DE1Device.connected) return "ok"
-        if (margin > 7) return "ok"
-        if (margin > 5) return "caution"
-        if (margin > 3) return "low"
+        if (margin > 5) return "ok"
+        if (margin > 2) return "caution"
+        if (margin > 0) return "low"
         return "critical"
     }
     readonly property bool isPulsing: warningState !== "ok"
