@@ -1,9 +1,9 @@
 #include "shotsummarizer.h"
 #include "shotanalysis.h"
-#include "../history/shothistorystorage.h"  // HistoryPhaseMarker — passed to ShotAnalysis mode-aware detectors
+#include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::generateSummary
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
-#include "../network/visualizeruploader.h"
+#include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
 #include "../core/grinderaliases.h"
 
 #include <cmath>
@@ -58,16 +58,17 @@ QString ShotSummarizer::profileTypeDescription(const QString& editorType)
     return QString();
 }
 
-void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary,
-                                                const QVector<QPointF>& flowData,
-                                                const QVector<QPointF>& conductanceDerivative) const
+// Compute pour-window bounds from summary.phases. Matches the same fallback
+// chain ShotAnalysis::generateSummary uses internally: prefer a "pour" phase,
+// fall back to the first preinfusion/start, and use the last phase end (or
+// total duration) for the close. Used by the per-phase temp-instability
+// gate; the channeling/temp/grind detectors live entirely inside
+// ShotAnalysis::generateSummary now.
+static void computePourWindow(const ShotSummary& summary,
+                              double& pourStart, double& pourEnd)
 {
-    summary.channelingDetected = false;
-
-    // Find pour boundaries — match ShotAnalysis::generateSummary and
-    // ShotHistoryStorage save-path derivation so all three agree on the
-    // 2-second transition-skip window.
-    double pourStart = 0, pourEnd = summary.totalDuration;
+    pourStart = 0;
+    pourEnd = summary.totalDuration;
     for (const auto& phase : summary.phases) {
         QString lower = phase.name.toLower();
         if (lower.contains("pour")) pourStart = phase.startTime;
@@ -82,68 +83,21 @@ void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary,
         }
     }
     if (!summary.phases.isEmpty()) pourEnd = summary.phases.last().endTime;
-
-    // Skip filter/turbo shots — dC/dt is noisy when flow is very high or unregulated.
-    if (ShotAnalysis::shouldSkipChannelingCheck(summary.beverageType, flowData, pourStart, pourEnd))
-        return;
-
-    // Skip profiles where minor channeling is intentional (e.g. Allongé).
-    // Keeps the stored badge aligned with what generateSummary() shows in the popup.
-    if (getAnalysisFlags(summary.profileKbId).contains(QStringLiteral("channeling_expected")))
-        return;
-
-    // Use dC/dt (conductance derivative) — the most diagnostic puck-integrity
-    // signal. Only a Sustained event counts toward the stored "channeling"
-    // anomaly flag; transient self-healed channels show up in the popup but
-    // do not trip the badge or AI observation. Build mode-aware inclusion
-    // windows so pressure-mode ramps / lever declines / flow-mode
-    // transitions don't get mistaken for puck-prep failures. PhaseSummary
-    // already carries isFlowMode; synthesize HistoryPhaseMarker spans from
-    // the phase list so ShotAnalysis can mask correctly.
-    QList<HistoryPhaseMarker> phaseMarkers;
-    phaseMarkers.reserve(summary.phases.size());
-    for (const auto& ph : summary.phases) {
-        HistoryPhaseMarker m;
-        m.time = ph.startTime;
-        m.label = ph.name;
-        m.isFlowMode = ph.isFlowMode;
-        phaseMarkers.append(m);
-    }
-    const auto windows = ShotAnalysis::buildChannelingWindows(
-        summary.pressureCurve, flowData,
-        summary.pressureGoalCurve, summary.flowGoalCurve,
-        phaseMarkers, pourStart, pourEnd);
-
-    auto severity = ShotAnalysis::detectChannelingFromDerivative(
-        conductanceDerivative, pourStart, pourEnd, windows);
-    summary.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
 }
 
-void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
+void ShotSummarizer::markPerPhaseTempInstability(ShotSummary& summary,
     const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
 {
-    if (tempGoalData.isEmpty()) {
-        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
-        summary.temperatureUnstable = tempStdDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
-        return;
-    }
-
-    bool overallUnstable = false;
+    if (tempGoalData.isEmpty()) return;
 
     for (auto& phase : summary.phases) {
         if (ShotAnalysis::hasIntentionalTempStepping(tempGoalData, phase.startTime, phase.endTime)) {
             phase.temperatureUnstable = false;
             continue;
         }
-
         double avgDev = ShotAnalysis::avgTempDeviation(tempData, tempGoalData, phase.startTime, phase.endTime);
-        if (avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD) {
-            phase.temperatureUnstable = true;
-            overallUnstable = true;
-        }
+        phase.temperatureUnstable = (avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD);
     }
-
-    summary.temperatureUnstable = overallUnstable;
 }
 
 ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
@@ -219,12 +173,13 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.enjoymentScore = metadata.espressoEnjoyment;
     summary.tastingNotes = metadata.espressoNotes;
 
-    // Extraction indicators
-    summary.timeToFirstDrip = findTimeToFirstDrip(flowData);
-    // Channeling and temperature stability done after phase processing (see below)
-
-    // Get phase markers from shot data
-    QVariantList markers = shotData->phaseMarkersVariant();
+    // Phase processing — build PhaseSummary (per-phase metrics for the AI
+    // prompt) and HistoryPhaseMarker (typed input for ShotAnalysis::generateSummary)
+    // in a single pass over the typed marker list. Detector orchestration runs
+    // after the loop.
+    QList<HistoryPhaseMarker> historyMarkers;
+    const auto& markers = shotData->phaseMarkersList();
+    historyMarkers.reserve(markers.size());
 
     if (markers.isEmpty()) {
         // No markers - create a single "Extraction" phase
@@ -249,7 +204,6 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         phase.flowAtEnd = findValueAtTime(flowData, summary.totalDuration);
 
         phase.avgTemperature = calculateAverage(tempData, 0, summary.totalDuration);
-        phase.tempStability = calculateStdDev(tempData, 0, summary.totalDuration);
 
         double startWeight = findValueAtTime(cumulativeWeightData, 0);
         double endWeight = findValueAtTime(cumulativeWeightData, summary.totalDuration);
@@ -257,22 +211,31 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
 
         summary.phases.append(phase);
     } else {
-        // Process each phase from markers
         for (qsizetype i = 0; i < markers.size(); i++) {
-            QVariantMap marker = markers[i].toMap();
-            double startTime = marker["time"].toDouble();
-            double endTime = (i + 1 < markers.size())
-                ? markers[i + 1].toMap()["time"].toDouble()
-                : summary.totalDuration;
+            const PhaseMarker& marker = markers[i];
 
+            // Build the typed marker input for ShotAnalysis::generateSummary
+            // alongside the per-phase metrics. Keeps the two derived views in
+            // lockstep without re-iterating the list.
+            HistoryPhaseMarker h;
+            h.time = marker.time;
+            h.label = marker.label;
+            h.frameNumber = marker.frameNumber;
+            h.isFlowMode = marker.isFlowMode;
+            h.transitionReason = marker.transitionReason;
+            historyMarkers.append(h);
+
+            double startTime = marker.time;
+            double endTime = (i + 1 < markers.size()) ? markers[i + 1].time
+                                                       : summary.totalDuration;
             if (endTime <= startTime) continue;
 
             PhaseSummary phase;
-            phase.name = marker["label"].toString();
+            phase.name = marker.label;
             phase.startTime = startTime;
             phase.endTime = endTime;
             phase.duration = endTime - startTime;
-            phase.isFlowMode = marker["isFlowMode"].toBool();
+            phase.isFlowMode = marker.isFlowMode;
 
             // Pressure metrics
             phase.avgPressure = calculateAverage(pressureData, startTime, endTime);
@@ -292,30 +255,41 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
 
             // Temperature metrics
             phase.avgTemperature = calculateAverage(tempData, startTime, endTime);
-            phase.tempStability = calculateStdDev(tempData, startTime, endTime);
 
             // Weight gained
             double startWeight = findValueAtTime(cumulativeWeightData, startTime);
             double endWeight = findValueAtTime(cumulativeWeightData, endTime);
             phase.weightGained = endWeight - startWeight;
 
-            // Track preinfusion duration
-            QString lowerName = phase.name.toLower();
-            if (lowerName.contains("preinfus") || lowerName.contains("pre-infus") ||
-                lowerName.contains("bloom") || lowerName.contains("soak")) {
-                summary.preinfusionDuration += phase.duration;
-            } else {
-                summary.mainExtractionDuration += phase.duration;
-            }
-
             summary.phases.append(phase);
         }
     }
 
-    // Per-phase anomaly detection (must run after phases are populated)
+    // Detector orchestration delegated to ShotAnalysis::generateSummary — the
+    // same call ShotHistoryStorage::generateShotSummary makes for the in-app
+    // dialog. Single source of truth for the suppression cascade (pour
+    // truncated → channeling/temp/grind forced false). See SHOT_REVIEW.md §3.
     const auto& tempGoalData = shotData->temperatureGoalData();
-    calculateTemperatureStability(summary, tempData, tempGoalData);
-    detectChannelingInPhases(summary, flowData, shotData->conductanceDerivativeData());
+    const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
+    const double firstFrameSeconds = (profile && !profile->steps().isEmpty())
+        ? profile->steps().first().seconds : -1.0;
+
+    summary.summaryLines = ShotAnalysis::generateSummary(
+        pressureData, flowData, cumulativeWeightData, tempData, tempGoalData,
+        shotData->conductanceDerivativeData(), historyMarkers,
+        summary.beverageType, summary.totalDuration,
+        summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
+        firstFrameSeconds, summary.targetWeight, summary.finalWeight);
+
+    // pourTruncated tracked separately to gate per-phase temp markers — those
+    // aren't part of generateSummary's aggregated output but they appear in
+    // the prompt's per-phase block, so they need their own suppression.
+    double pourStart = 0, pourEnd = summary.totalDuration;
+    computePourWindow(summary, pourStart, pourEnd);
+    summary.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
+        pressureData, pourStart, pourEnd, summary.beverageType);
+    if (!summary.pourTruncatedDetected)
+        markPerPhaseTempInstability(summary, tempData, tempGoalData);
 
     return summary;
 }
@@ -342,27 +316,28 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     summary.profileNotes = shotData.value("profileNotes").toString();
     summary.profileKbId = shotData.value("profileKbId").toString();
 
-    // Extract profile type from stored profile JSON
-    QString profileJson = shotData.value("profileJson").toString();
+    // Parse stored profile JSON once and use it for: (1) editorType-derived
+    // profile-style description, (2) frame description, (3) firstFrameSeconds
+    // for skip-first-frame detection. Was three separate parses; now one.
+    const QString profileJson = shotData.value("profileJson").toString();
+    QJsonDocument profileDoc;
     if (!profileJson.isEmpty()) {
-        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+        profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
         if (profileDoc.isObject()) {
-            QJsonObject profileObj = profileDoc.object();
+            const QJsonObject profileObj = profileDoc.object();
             // Derive editorType from title + profileType (matching Profile::editorType()).
             // Legacy shots may also have is_recipe_mode + recipe.editorType as a fallback.
             QString editorType;
-            QString title = profileObj["title"].toString();
-            QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+            const QString title = profileObj["title"].toString();
+            const QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
             if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
                 editorType = QStringLiteral("dflow");
             else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
                 editorType = QStringLiteral("aflow");
             if (editorType.isEmpty()) {
                 // Legacy fallback: is_recipe_mode + recipe.editorType (pre-PR#579 shots)
-                bool isRecipeMode = profileObj["is_recipe_mode"].toBool(false);
-                if (isRecipeMode && profileObj.contains("recipe")) {
+                if (profileObj["is_recipe_mode"].toBool(false) && profileObj.contains("recipe"))
                     editorType = profileObj["recipe"].toObject()["editorType"].toString();
-                }
             }
             if (editorType.isEmpty()) {
                 QString profileType = profileObj["legacy_profile_type"].toString();
@@ -370,9 +345,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
                 if (profileType == QLatin1String("settings_2a")) editorType = QStringLiteral("pressure");
                 else if (profileType == QLatin1String("settings_2b")) editorType = QStringLiteral("flow");
             }
-            if (!editorType.isEmpty() && editorType != QLatin1String("advanced")) {
+            if (!editorType.isEmpty() && editorType != QLatin1String("advanced"))
                 summary.profileType = profileTypeDescription(editorType);
-            }
         }
         summary.profileRecipeDescription = Profile::describeFramesFromJson(profileJson);
     }
@@ -408,14 +382,29 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
-    // Phase markers (temperature stability runs after phases are populated)
+    // Phase processing — build PhaseSummary (per-phase metrics for the prompt)
+    // and HistoryPhaseMarker (typed input for ShotAnalysis::generateSummary)
+    // in a single pass over the stored phase list. Skipped-phase rows still
+    // contribute their HistoryPhaseMarker (frame transitions matter to
+    // skip-first-frame detection even when their span is degenerate).
+    QList<HistoryPhaseMarker> historyMarkers;
+    const QVariantList phases = shotData.value("phases").toList();
+    historyMarkers.reserve(phases.size());
 
-    QVariantList phases = shotData.value("phases").toList();
     if (!phases.isEmpty()) {
         for (qsizetype i = 0; i < phases.size(); i++) {
-            QVariantMap marker = phases[i].toMap();
-            double startTime = marker.value("time", 0.0).toDouble();
-            double endTime = (i + 1 < phases.size())
+            const QVariantMap marker = phases[i].toMap();
+
+            HistoryPhaseMarker h;
+            h.time = marker.value("time", 0.0).toDouble();
+            h.label = marker.value("label").toString();
+            h.frameNumber = marker.value("frameNumber", 0).toInt();
+            h.isFlowMode = marker.value("isFlowMode", false).toBool();
+            h.transitionReason = marker.value("transitionReason").toString();
+            historyMarkers.append(h);
+
+            const double startTime = h.time;
+            const double endTime = (i + 1 < phases.size())
                 ? phases[i + 1].toMap().value("time", 0.0).toDouble()
                 : summary.totalDuration;
             if (endTime <= startTime) continue;
@@ -425,7 +414,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
             phase.startTime = startTime;
             phase.endTime = endTime;
             phase.duration = endTime - startTime;
-            phase.isFlowMode = marker.value("isFlowMode", false).toBool();
+            phase.isFlowMode = h.isFlowMode;
 
             phase.pressureAtStart = findValueAtTime(summary.pressureCurve, startTime);
             phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, (startTime + endTime) / 2);
@@ -442,7 +431,6 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
             phase.minFlow = calculateMin(summary.flowCurve, startTime, endTime);
 
             phase.avgTemperature = calculateAverage(summary.tempCurve, startTime, endTime);
-            phase.tempStability = calculateStdDev(summary.tempCurve, startTime, endTime);
 
             double startWeight = findValueAtTime(summary.weightCurve, startTime);
             double endWeight = findValueAtTime(summary.weightCurve, endTime);
@@ -474,7 +462,6 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         phase.minFlow = calculateMin(summary.flowCurve, 0, summary.totalDuration);
 
         phase.avgTemperature = calculateAverage(summary.tempCurve, 0, summary.totalDuration);
-        phase.tempStability = calculateStdDev(summary.tempCurve, 0, summary.totalDuration);
 
         if (!summary.weightCurve.isEmpty()) {
             double startWeight = findValueAtTime(summary.weightCurve, 0);
@@ -485,10 +472,41 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         summary.phases.append(phase);
     }
 
-    // Per-phase anomaly detection (must run after phases are populated)
-    calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
-    QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
-    detectChannelingInPhases(summary, summary.flowCurve, derivCurve);
+    // Detector orchestration delegated to ShotAnalysis::generateSummary —
+    // see summarize() for rationale. historyMarkers was already populated
+    // alongside the PhaseSummary list above (single pass).
+    const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
+
+    // First-frame seconds reuses the profileDoc parsed at the top of this
+    // function — Profile::fromJson normalizes both modern and legacy shapes,
+    // so skip-first-frame detection stays accurate on legacy shots whose
+    // first frame was configured > 2 s.
+    double firstFrameSeconds = -1.0;
+    if (profileDoc.isObject()) {
+        const Profile p = Profile::fromJson(profileDoc);
+        if (!p.steps().isEmpty())
+            firstFrameSeconds = p.steps().first().seconds;
+    }
+
+    const QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
+
+    // Per-shot yieldOverride drives the choked-puck yield arm — matches
+    // ShotHistoryStorage::generateShotSummary's input for the dialog.
+    const double targetWeightG = shotData.value("yieldOverride").toDouble();
+
+    summary.summaryLines = ShotAnalysis::generateSummary(
+        summary.pressureCurve, summary.flowCurve, summary.weightCurve,
+        summary.tempCurve, summary.tempGoalCurve, derivCurve, historyMarkers,
+        summary.beverageType, summary.totalDuration,
+        summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
+        firstFrameSeconds, targetWeightG, summary.finalWeight);
+
+    double pourStart = 0, pourEnd = summary.totalDuration;
+    computePourWindow(summary, pourStart, pourEnd);
+    summary.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
+        summary.pressureCurve, pourStart, pourEnd, summary.beverageType);
+    if (!summary.pourTruncatedDetected)
+        markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
 
     return summary;
 }
@@ -668,7 +686,9 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
             out << "\u00B0C ";
             out << QString::number(weight, 'f', 1) << "g\n";
         }
-        if (phase.temperatureUnstable)
+        // Suppress per-phase temp instability when the puck never built \u2014
+        // temp drift on a failed pour is a downstream symptom, not signal.
+        if (phase.temperatureUnstable && !summary.pourTruncatedDetected)
             out << "- **Temperature instability**: Average temperature deviated from target by >2\u00B0C during this phase\n";
         out << "\n";
     }
@@ -691,14 +711,52 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     }
     out << "\n";
 
-    // Observations (anomaly flags)
-    if (summary.channelingDetected || summary.temperatureUnstable) {
-        out << "## Observations\n\n";
-        if (summary.channelingDetected)
-            out << "- **Puck integrity**: Sustained channeling in the conductance derivative (dC/dt) during extraction — indicates the puck is losing integrity, not following profile intent\n";
-        if (summary.temperatureUnstable)
-            out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C during stable-temperature phases — this suggests the machine is not reaching or maintaining the setpoint\n";
+    // Detector observations — the same line list ShotAnalysis::generateSummary
+    // produces for the in-app Shot Summary dialog. Sharing that output keeps
+    // the AI advisor in lockstep with the badge UI: the suppression cascade
+    // (pour truncated → channeling / temp / grind forced false) is enforced
+    // once, in generateSummary, and every consumer sees the same conclusions.
+    //
+    // The preamble frames the lines as detector evidence rather than advice
+    // to parrot. Without it, an LLM that sees "Verdict: Puck choked — grind
+    // way too fine" tends to repeat the verdict back instead of producing
+    // the dial-in reasoning the user actually needs.
+    QString verdictText;
+    QVariantList nonVerdictLines;
+    for (const QVariant& v : summary.summaryLines) {
+        const QVariantMap line = v.toMap();
+        if (line.value(QStringLiteral("type")).toString() == QLatin1String("verdict"))
+            verdictText = line.value(QStringLiteral("text")).toString();
+        else
+            nonVerdictLines.append(v);
+    }
+
+    if (!nonVerdictLines.isEmpty()) {
+        out << "## Detector Observations\n\n";
+        out << "The lines below come from the same deterministic detectors that drive the\n";
+        out << "in-app Shot Summary dialog the user sees. Treat them as diagnostic signals\n";
+        out << "(evidence), not your conclusions. Severity tags reflect detector confidence,\n";
+        out << "not your final assessment:\n\n";
+        out << "- [warning] high-confidence failure mode (sustained channeling, choked puck, pour truncated, frame skip)\n";
+        out << "- [caution] directional hint (grind drift, flow trend, temp drift)\n";
+        out << "- [good] positive signal (puck stable)\n";
+        out << "- [observation] context (preinfusion drip mass)\n\n";
+        out << "Cross-check against the raw curves above and the user's tasting feedback\n";
+        out << "before recommending an action.\n\n";
+        for (const QVariant& v : nonVerdictLines) {
+            const QVariantMap line = v.toMap();
+            out << "- [" << line.value(QStringLiteral("type")).toString() << "] "
+                << line.value(QStringLiteral("text")).toString() << "\n";
+        }
         out << "\n";
+    }
+
+    if (!verdictText.isEmpty()) {
+        out << "## Dialog Verdict\n\n";
+        out << "This is the one-sentence summary the user sees in the dialog. Do not just\n";
+        out << "repeat it — synthesize dial-in advice that explains *why* and *what to\n";
+        out << "change next*.\n\n";
+        out << "> " << verdictText << "\n\n";
     }
 
     return prompt;
@@ -1399,36 +1457,6 @@ double ShotSummarizer::calculateMin(const QVector<QPointF>& data, double startTi
         }
     }
     return minVal == std::numeric_limits<double>::infinity() ? 0 : minVal;
-}
-
-double ShotSummarizer::calculateStdDev(const QVector<QPointF>& data, double startTime, double endTime) const
-{
-    if (data.isEmpty()) return 0;
-
-    double avg = calculateAverage(data, startTime, endTime);
-    double sumSquares = 0;
-    int count = 0;
-
-    for (const auto& point : data) {
-        if (point.x() >= startTime && point.x() <= endTime) {
-            double diff = point.y() - avg;
-            sumSquares += diff * diff;
-            count++;
-        }
-    }
-
-    return count > 1 ? std::sqrt(sumSquares / (count - 1)) : 0;
-}
-
-double ShotSummarizer::findTimeToFirstDrip(const QVector<QPointF>& flowData) const
-{
-    const double threshold = 0.5;  // mL/s - when we consider "drip" has started
-    for (const auto& point : flowData) {
-        if (point.y() >= threshold) {
-            return point.x();
-        }
-    }
-    return 0;
 }
 
 QString ShotSummarizer::sharedCorePhilosophy()

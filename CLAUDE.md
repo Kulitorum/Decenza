@@ -155,7 +155,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `AI_ADVISOR.md` | AI dialing assistant design |
 | `SETTINGS.md` | Settings architecture: 7 domain sub-objects, how to add properties/domains, QML access pattern, build-blast rules |
 
-Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs/SHOT_REVIEW.md) when working on the post-shot review / shot detail pages, the four quality-badge detectors (channeling, grind issue, temperature unstable, skip-first-frame), the Shot Summary dialog, badge persistence, or `src/ai/shotanalysis.{h,cpp}`. It is the source of truth for detector internals, gate semantics, and the recompute-on-load contract; keep it in sync when changing any of the above.
+Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs/SHOT_REVIEW.md) when working on the post-shot review / shot detail pages, the five quality-badge detectors (pour truncated, channeling, grind issue, temperature unstable, skip-first-frame), the Shot Summary dialog, badge persistence, or `src/ai/shotanalysis.{h,cpp}`. It is the source of truth for detector internals, gate semantics, and the recompute-on-load contract; keep it in sync when changing any of the above.
 
 ## Development Environment
 

@@ -175,6 +175,30 @@ add_decenza_test(tst_shotanalysis
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
 )
 
+# --- tst_shotsummarizer: AI-prompt suppression cascade (issue #921) ---
+# Pins the contract that ShotSummarizer's prompt path delegates detector
+# orchestration to ShotAnalysis::generateSummary, so puck-failure shots
+# can't leak misleading channeling/temp observations to the AI advisor.
+# Qt::Quick + fastlinerenderer come in transitively via shotdatamodel.h —
+# summarizeFromHistory() doesn't touch ShotDataModel itself, but the
+# shotsummarizer.cpp translation unit links its symbols.
+find_package(Qt6 REQUIRED COMPONENTS Quick Charts)
+add_decenza_test(tst_shotsummarizer
+    tst_shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CODEC_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Charts)
+target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- shot_corpus_regression: run shot_eval --validate against the curated
 # corpus under tests/data/shots/. Ensures future ShotAnalysis changes don't
 # silently flip any of the golden verdicts (e.g., re-introduce a lever-ramp

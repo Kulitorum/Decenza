@@ -38,7 +38,6 @@ struct PhaseSummary {
 
     // Temperature metrics (C)
     double avgTemperature = 0;
-    double tempStability = 0;  // Std deviation
     bool temperatureUnstable = false;
 
     // Weight gained during this phase
@@ -76,17 +75,21 @@ struct ShotSummary {
     QVector<QPointF> flowGoalCurve;
     QVector<QPointF> tempGoalCurve;
 
-    // Extraction indicators
-    double timeToFirstDrip = 0;  // When flow > 0.5 mL/s
-    double preinfusionDuration = 0;
-    double mainExtractionDuration = 0;
-
     // Profile knowledge base ID (from DB or computed at summarize time)
     QString profileKbId;
 
-    // Anomaly flags
-    bool channelingDetected = false;  // Sustained dC/dt elevation (puck integrity loss)
-    bool temperatureUnstable = false; // >2C variation
+    // Pre-computed observation lines from ShotAnalysis::generateSummary —
+    // the same list that drives the in-app Shot Summary dialog. Each entry is
+    // a QVariantMap with "text" (QString) and "type" (QString: "good" |
+    // "caution" | "warning" | "observation" | "verdict"). Sharing the dialog's
+    // output keeps the AI advisor's prompt and the badge UI in lockstep, so
+    // the suppression cascade (pour truncated → channeling/temp/grind forced
+    // false) is enforced in exactly one place. See docs/SHOT_REVIEW.md §3.
+    QVariantList summaryLines;
+
+    // Pour-truncated flag — gates the per-phase temperature markers below
+    // (which generateSummary's aggregate output doesn't surface).
+    bool pourTruncatedDetected = false;
 
     // DYE metadata (from user input)
     QString beanBrand;
@@ -156,13 +159,12 @@ private:
     double calculateAverage(const QVector<QPointF>& data, double startTime, double endTime) const;
     double calculateMax(const QVector<QPointF>& data, double startTime, double endTime) const;
     double calculateMin(const QVector<QPointF>& data, double startTime, double endTime) const;
-    double calculateStdDev(const QVector<QPointF>& data, double startTime, double endTime) const;
-    double findTimeToFirstDrip(const QVector<QPointF>& flowData) const;
     static QString profileTypeDescription(const QString& editorType);
-    void detectChannelingInPhases(ShotSummary& summary,
-                                   const QVector<QPointF>& flowData,
-                                   const QVector<QPointF>& conductanceDerivative) const;
-    void calculateTemperatureStability(ShotSummary& summary,
+    // Per-phase temperature instability. Sets only PhaseSummary::temperatureUnstable;
+    // the aggregate "Temperature drifted X°C from goal" observation is produced by
+    // ShotAnalysis::generateSummary instead. Skipped when summary.pourTruncatedDetected
+    // is true (a pour that never built pressure can't yield a meaningful temp signal).
+    void markPerPhaseTempInstability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 
     // Shared prompt sections
