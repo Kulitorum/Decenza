@@ -307,6 +307,32 @@ Rectangle {
                                 selectionScrollTimer.stop()
                             }
                         }
+
+                        // Apply any pending scroll target the moment the new
+                        // Markdown layout is reflected in contentHeight, then
+                        // wake the render thread. Driving the scroll off the
+                        // layout-completion signal (rather than Qt.callLater,
+                        // which fires before the layout pass settles) is what
+                        // keeps the response visible on mobile without needing
+                        // a tap to wake the render loop.
+                        onContentHeightChanged: {
+                            var kind = overlay._pendingScrollKind
+                            if (kind === "bottom") {
+                                conversationFlickable.contentY = Math.max(0,
+                                    conversationFlickable.contentHeight - conversationFlickable.height)
+                                overlay._pendingScrollKind = ""
+                            } else if (kind === "preResponse") {
+                                conversationFlickable.contentY = Math.max(0, overlay._preResponseHeight)
+                                overlay._pendingScrollKind = ""
+                            }
+                            // Force a scene graph repaint on every layout pass.
+                            // The render thread on mobile can stay asleep through
+                            // property changes that originate from network reply
+                            // signals; this catches any async layout finalization
+                            // (e.g. Markdown reflow) that happens after the scroll.
+                            conversationText.update()
+                            conversationFlickable.update()
+                        }
                     }
 
                     Timer {
@@ -598,6 +624,21 @@ Rectangle {
         closePolicy: Dialog.CloseOnEscape
         onOpened: inputDialogTextArea.forceActiveFocus()
 
+        // Send button stages the message here, then closes. The actual send
+        // runs in onClosed so conversation.followUp() / ask() — which emit
+        // historyChanged synchronously — only mutate the overlay once the
+        // dialog has fully animated away and the keyboard has finished hiding.
+        // Sending during the close transition leaves the render thread on
+        // mobile in a stale-paint state and the response flashes-then-vanishes
+        // until the user taps the screen.
+        property string _pendingMessage: ""
+        onClosed: {
+            if (_pendingMessage.length === 0) return
+            conversationInput.text = _pendingMessage
+            _pendingMessage = ""
+            conversationInput.sendFollowUp()
+        }
+
         // Keyboard height for iOS shrink-above-keyboard layout.
         // Android uses adjustPan (window shifts), so always full height.
         property real keyboardHeight: {
@@ -654,11 +695,12 @@ Rectangle {
                     enabled: inputDialogTextArea.text.length > 0 && inputRow.canSend
                     onClicked: {
                         Qt.inputMethod.commit()
-                        // Route through conversationInput.sendFollowUp() to reuse
-                        // context-prepending and ask()/followUp() branching logic
-                        conversationInput.text = inputDialogTextArea.text
+                        // Stage the message and close; inputDialog.onClosed runs
+                        // sendFollowUp() once the dialog + keyboard transitions
+                        // are complete, so the overlay isn't being mutated on
+                        // an obscured/animating surface.
+                        inputDialog._pendingMessage = inputDialogTextArea.text
                         inputDialog.close()
-                        conversationInput.sendFollowUp()
                     }
                 }
 
@@ -718,43 +760,45 @@ Rectangle {
         }
     }
 
-    // Scroll management for conversation updates
+    // Scroll management for conversation updates.
+    // Scroll targets are staged here and applied by conversationText.onContentHeightChanged
+    // once the new Markdown has fully laid out — driving the scroll + repaint
+    // off the layout-completion event (instead of Qt.callLater, which fires
+    // before the layout pass settles) is what keeps the response visible on
+    // mobile without needing a tap to wake the render loop.
     property real _preResponseHeight: 0
     property bool _waitingForResponse: false
+    property string _pendingScrollKind: ""  // "" | "bottom" | "preResponse"
     Connections {
         target: MainController.aiManager ? MainController.aiManager.conversation : null
         function onResponseReceived(response) {
             overlay._waitingForResponse = false
-            // Refresh text with the response, then scroll to top of new response
-            conversationText.text = MainController.aiManager.conversation.getConversationText()
-            Qt.callLater(function() {
-                conversationFlickable.contentY = Math.max(0, overlay._preResponseHeight)
-                // Mobile render thread can stay asleep when a property changes from
-                // a network reply. Force a scene graph repaint so the reply appears
-                // without requiring a touch to wake the render loop.
-                conversationText.update()
-                conversationFlickable.update()
-            })
+            // Scroll target was staged by onHistoryChanged (which aiconversation.cpp
+            // emits immediately before responseReceived). The TextArea's
+            // onContentHeightChanged handler ran the scroll + update() inside
+            // that text= assignment, so there's nothing left to do here.
         }
         function onErrorOccurred(error) {
             // Reset flag so the next send captures scroll position correctly
             overlay._waitingForResponse = false
+            overlay._pendingScrollKind = ""
         }
         function onHistoryChanged() {
+            var isResponse = overlay._waitingForResponse
             // Only save the scroll target when the user sends (before response arrives).
-            // The response triggers historyChanged too, but we handle that in onResponseReceived.
-            if (!overlay._waitingForResponse) {
+            // The response triggers historyChanged too — its scroll target is
+            // _preResponseHeight, captured below on the user-send path.
+            if (!isResponse) {
                 overlay._preResponseHeight = conversationText.contentHeight
                 overlay._waitingForResponse = true
             }
-            // Refresh conversation text
+            // Stage the scroll target before mutating text. The text= assignment
+            // updates contentHeight synchronously, which fires
+            // conversationText.onContentHeightChanged in the same JS turn —
+            // that handler reads _pendingScrollKind, performs the scroll, and
+            // wakes the render thread.
+            overlay._pendingScrollKind = isResponse ? "preResponse" : "bottom"
             conversationText.text = MainController.aiManager.conversation.getConversationText()
-            // Scroll to bottom to show the user's message / thinking indicator
-            Qt.callLater(function() {
-                conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
-                conversationText.update()
-                conversationFlickable.update()
-            })
         }
     }
 
