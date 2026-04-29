@@ -31,12 +31,12 @@
 
 ## 6. Observability
 
-- [x] 6.1 `qInfo()` log line added in `MainController::onShotEnded` (every classifier eval) and in `saveAbortedShotAnyway` (replay path). Format: `[discard-classifier] extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4` with verdict ∈ `{aborted, kept}` and action ∈ `{discarded, saved, saved-anyway}`. Uses async logger via standard Qt logging hook.
+- [x] 6.1 `qInfo()` log line added in `MainController::onShotEnded` (every classifier eval). Format: `[discard-classifier] extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4` with verdict ∈ `{aborted, kept}` and action ∈ `{discarded, saved}`. Uses async logger via standard Qt logging hook.
 
 ## 7. Verification
 
-- [ ] 7.1 Manual: with toggle on, start an espresso shot and immediately tap the stop button before the first frame runs. Verify the toast appears with the message and `Save anyway` button, and that the shot does not appear in history. Verify the toggle off case saves it normally. *(Manual on-device check — deferred to user.)*
-- [ ] 7.2 Manual: tap `Save anyway` on the toast and verify the shot appears in history with the same metadata. Repeat with visualizer auto-upload enabled and verify upload runs. *(Manual on-device check — deferred to user.)*
+- [ ] 7.1 Manual: with toggle on, start an espresso shot and immediately tap the stop button before the first frame runs. Verify the notification toast appears with the message ("Shot did not start — not recorded") and that the shot does not appear in history. Verify the toggle-off case saves it normally. *(Manual on-device check — deferred to user.)*
+- [N/A] 7.2 No "Save anyway" recovery path — see 8.1. A discarded shot is intentionally irrecoverable; nothing to verify here.
 - [x] 7.3 Desktop build clean (Qt Creator: 57 s, 0 warnings, 0 errors). Other platforms (Windows / iOS / Android) deferred — no platform-specific code in this change.
 
 ## 8. Post-review changes (PR #912 review feedback)

@@ -45,7 +45,7 @@ Suspicious data anomalies (Londonium ids 801 / 438: 2.7-s and 3.6-s with full 36
 
 ## Impact
 
-- **Affected specs**: new `shot-save-filter` capability with two requirements (aborted-shot classifier + save-time filter, and the toast/undo surface).
+- **Affected specs**: new `shot-save-filter` capability with two requirements (aborted-shot classifier + save-time filter, and the notification toast).
 - **Affected code**:
   - `src/controllers/maincontroller.{h,cpp}` — classifier call site in `endShot()` save path; emits a new `shotDiscarded(durationSec, finalWeightG)` signal.
   - `src/controllers/abortedshotclassifier.h` — new header-only `decenza::isAbortedShot()` pure function with the threshold constants.

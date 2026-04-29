@@ -419,7 +419,7 @@ Item {
 
                             Text {
                                 text: TranslationManager.translate("settings.calibration.discardAbortedShotsDesc",
-                                    "Don't save espresso shots shorter than 10 s with less than 5 g yield. A toast with a Save anyway action will appear.")
+                                    "Don't save espresso shots shorter than 10 s with less than 5 g yield. A brief notification will appear when one is dropped.")
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 color: Theme.textSecondaryColor
