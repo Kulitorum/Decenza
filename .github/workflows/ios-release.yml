@@ -111,6 +111,13 @@ jobs:
 
       - name: Configure CMake
         run: |
+          # The macos-26 runner image sets MACOSX_DEPLOYMENT_TARGET=26.2 in
+          # the shell env. Xcode 26's clang refuses to compile when conflicting
+          # *_DEPLOYMENT_TARGET env vars are present (the iOS toolchain sets
+          # IPHONEOS_DEPLOYMENT_TARGET=17.0 for the iOS target, and the host's
+          # 26.2 leaks in alongside it). Unset before invoking qt-cmake so the
+          # compiler-ABI introspection it runs doesn't trip the new check.
+          unset MACOSX_DEPLOYMENT_TARGET
           mkdir -p build/ios
           cd build/ios
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
@@ -120,11 +127,16 @@ jobs:
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
             -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS="$CCACHE_LAUNCH_CXX"
-            
+
       - name: Build and Archive
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # See the Configure CMake step for why this is needed. xcodebuild
+          # forks autogen scripts that re-invoke clang for CMake's ABI test;
+          # the host MACOSX_DEPLOYMENT_TARGET must be cleared so the iOS
+          # cross-compile target doesn't conflict.
+          unset MACOSX_DEPLOYMENT_TARGET
           cd build/ios
 
           # Build archive
