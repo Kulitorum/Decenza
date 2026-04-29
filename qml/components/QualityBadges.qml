@@ -14,6 +14,12 @@ Item {
     required property bool temperatureUnstable
     required property bool grindIssueDetected
     required property bool skipFirstFrameDetected
+    // Puck-failure flag (peak pressure < PRESSURE_FLOOR_BAR). Dominant: when
+    // true the C++ detector path forces the other four flags to false so this
+    // chip stands alone. The clean-extraction green chip below also gates on
+    // this — without that, a suppressed puck-failure shot would render the
+    // wrong all-clear.
+    required property bool pourTruncatedDetected
 
     signal summaryRequested()
 
@@ -130,6 +136,42 @@ Item {
             }
         }
 
+        // Puck-failed badge (red) — peak pressure stayed below PRESSURE_FLOOR_BAR.
+        // Sits before skipFirstFrame so it reads first when both fire.
+        Rectangle {
+            visible: root.pourTruncatedDetected
+            width: puckFailedRow.width + Theme.spacingMedium * 2
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
+            color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
+            border.color: Theme.errorColor
+            border.width: Theme.scaled(1)
+
+            Accessible.role: Accessible.StaticText
+            Accessible.name: puckFailedText.text
+            Accessible.focusable: true
+
+            Row {
+                id: puckFailedRow
+                anchors.centerIn: parent
+                spacing: Theme.scaled(4)
+                Rectangle {
+                    width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                    color: Theme.errorColor; anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+                Tr {
+                    id: puckFailedText
+                    key: "badges.puckFailed"
+                    fallback: "Puck failed"
+                    font: Theme.captionFont
+                    color: Theme.errorColor
+                    anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+            }
+        }
+
         // Skip-first-frame badge (red) — DE1 firmware bug or very short first step
         Rectangle {
             visible: root.skipFirstFrameDetected
@@ -167,7 +209,7 @@ Item {
 
         // Clean extraction badge (green) — only shown when no flags are set
         Rectangle {
-            visible: !root.channelingDetected && !root.temperatureUnstable && !root.grindIssueDetected && !root.skipFirstFrameDetected
+            visible: !root.channelingDetected && !root.temperatureUnstable && !root.grindIssueDetected && !root.skipFirstFrameDetected && !root.pourTruncatedDetected
             width: cleanRow.width + Theme.spacingMedium * 2
             height: Theme.scaled(28)
             radius: Theme.scaled(14)

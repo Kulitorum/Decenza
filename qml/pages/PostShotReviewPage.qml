@@ -150,13 +150,14 @@ Page {
                 // below catches the persist event.
             }
         }
-        function onShotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue, skipFirstFrame) {
+        function onShotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue, skipFirstFrame, pourTruncated) {
             if (shotId !== postShotReviewPage.editShotId) return
             var updated = Object.assign({}, editShotData)
             updated.channelingDetected = channeling
             updated.temperatureUnstable = tempUnstable
             updated.grindIssueDetected = grindIssue
             updated.skipFirstFrameDetected = skipFirstFrame
+            updated.pourTruncatedDetected = pourTruncated
             editShotData = updated
         }
         function onShotMetadataUpdated(shotId, success) {
@@ -393,13 +394,15 @@ Page {
                                         || editShotData.channelingDetected
                                         || editShotData.temperatureUnstable
                                         || editShotData.grindIssueDetected
-                                        || editShotData.skipFirstFrameDetected)
+                                        || editShotData.skipFirstFrameDetected
+                                        || editShotData.pourTruncatedDetected)
                             Layout.fillWidth: false
                             Layout.maximumWidth: postShotReviewPage.width * 0.5
                             channelingDetected: editShotData.channelingDetected ?? false
                             temperatureUnstable: editShotData.temperatureUnstable ?? false
                             grindIssueDetected: editShotData.grindIssueDetected ?? false
                             skipFirstFrameDetected: editShotData.skipFirstFrameDetected ?? false
+                            pourTruncatedDetected: editShotData.pourTruncatedDetected ?? false
                             onSummaryRequested: reviewAnalysisDialog.open()
                         }
 

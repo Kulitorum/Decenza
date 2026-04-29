@@ -703,8 +703,27 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
     if (pourStart == 0 && preinfEnd > 0) pourStart = preinfEnd;
 
+    // --- Pour-truncated detection (runs first; dominates the cascade) ---
+    // When peak pressure stayed below PRESSURE_FLOOR_BAR the puck never built,
+    // so channeling / flow-trend / temp-stability / grind blocks are all
+    // reading off curves the failed puck didn't produce. Skip those blocks
+    // entirely when this fires, and emit a single "Puck failed" warning +
+    // verdict that names the meta-action ("don't tune off this shot"). Peak
+    // pressure is computed locally for the warning text — detectPourTruncated
+    // doesn't return it.
+    const bool pourTruncated = detectPourTruncated(pressure, pourStart, pourEnd, beverageType);
+    double peakPressureBar = 0.0;
+    if (pourTruncated) {
+        for (const auto& pt : pressure) {
+            if (pt.x() < pourStart) continue;
+            if (pt.x() > pourEnd) break;
+            if (pt.y() > peakPressureBar) peakPressureBar = pt.y();
+        }
+    }
+
     // --- dC/dt analysis (channeling) ---
-    bool skipChanneling = shouldSkipChannelingCheck(beverageType, flow, pourStart, pourEnd)
+    bool skipChanneling = pourTruncated
+        || shouldSkipChannelingCheck(beverageType, flow, pourStart, pourEnd)
         || analysisFlags.contains(QStringLiteral("channeling_expected"));
 
     if (!skipChanneling && !conductanceDerivative.isEmpty()) {
@@ -738,8 +757,10 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
 
     // --- Flow trend during extraction ---
     // Skipped for profiles where declining/rising flow is intentional (e.g. Cremina lever).
+    // Suppressed when pourTruncated fires — rising/falling flow is meaningless on a puck
+    // that never built pressure.
     const bool flowTrendOk = analysisFlags.contains(QStringLiteral("flow_trend_ok"));
-    if (!flowTrendOk && pourStart > 0 && pourEnd > pourStart && flow.size() > 10) {
+    if (!pourTruncated && !flowTrendOk && pourStart > 0 && pourEnd > pourStart && flow.size() > 10) {
         double flowStartSum = 0, flowEndSum = 0;
         int flowStartCount = 0, flowEndCount = 0;
         const double pourSpan = pourEnd - pourStart;
@@ -785,7 +806,10 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     // --- Temperature stability ---
     // Gated on reachedExtractionPhase so aborted shots that died during
     // preinfusion-start (frame 0 only) don't fire on the preheat ramp.
-    if (temperature.size() > 10 && temperatureGoal.size() > 10 && pourStart > 0
+    // Suppressed when pourTruncated fires — temp drift on a puck that never
+    // built is a downstream symptom, not a useful diagnosis.
+    if (!pourTruncated
+        && temperature.size() > 10 && temperatureGoal.size() > 10 && pourStart > 0
         && reachedExtractionPhase(phases, duration)) {
         if (!hasIntentionalTempStepping(temperatureGoal)) {
             double avgDev = avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd);
@@ -805,11 +829,19 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     // analyzeFlowVsGoal() also runs additively on pressure-mode portions of
     // the pour, so a shot with a healthy flow-mode preinfusion AND a choked
     // pressure-mode tail can have both delta near zero and chokedPuck true.
-    const GrindCheck grind = analyzeFlowVsGoal(flow, flowGoal, phases,
-                                                pourStart, pourEnd,
-                                                beverageType, analysisFlags,
-                                                pressure,
-                                                targetWeightG, finalWeightG);
+    //
+    // Suppressed when pourTruncated fires: with peak < 2.5 bar the flow-mode
+    // phases tracked the preinfusion goal perfectly (puck wasn't holding
+    // water back) so delta sits at ~0, and the pressure-mode arms can never
+    // satisfy their 4 bar / 15 s gate. The detector reads "no signal," which
+    // would FP a "Clean shot" verdict on a puck failure.
+    const GrindCheck grind = pourTruncated
+        ? GrindCheck{}
+        : analyzeFlowVsGoal(flow, flowGoal, phases,
+                            pourStart, pourEnd,
+                            beverageType, analysisFlags,
+                            pressure,
+                            targetWeightG, finalWeightG);
     if (grind.hasData) {
         if (grind.yieldOvershoot) {
             // Gusher: yield blew past target by > 20%. The puck offered too
@@ -849,16 +881,20 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
     }
 
     // --- Pour truncated (puck failure) ---
-    // Catches shots that the channeling + grind detectors miss: pressure
-    // never builds, conductance saturates, flow tracks preinfusion goal, so
-    // every normal detector stays silent. Looking straight at peak pressure
-    // exposes the failure. Emits its own warning line (not a verdict — the
-    // existing verdict machinery covers that below).
-    const bool pourTruncated = detectPourTruncated(pressure, pourStart, pourEnd, beverageType);
+    // Detection ran at the top of the function; this block emits the
+    // user-facing warning line. The cause list spans the full population:
+    // grind way too coarse, distribution failure (massive channel), no/loose
+    // puck or missing basket, severe underdose, or a profile that doesn't
+    // enforce a pressure cap (high flow goal with no ceiling). The user
+    // can't discriminate among those from the curve — verdict below tells
+    // them to fix prep and pull again rather than tune off this shot.
     if (pourTruncated) {
         QVariantMap line;
-        line["text"] = QStringLiteral("Pour never pressurized \u2014 puck failed "
-            "(massive channel, missing puck, or grind radically too coarse)");
+        line["text"] = QStringLiteral("Pour never pressurized (peak %1 bar) \u2014 "
+            "puck offered no resistance. Likely causes: grind way too coarse, "
+            "distribution failure, no/loose puck, severe underdose, or profile "
+            "without a pressure cap.")
+            .arg(peakPressureBar, 0, 'f', 1);
         line["type"] = QStringLiteral("warning");
         lines.append(line);
     }
@@ -890,11 +926,18 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
 
     QVariantMap verdict;
     if (pourTruncated) {
-        // Dominates over every other signal — if the puck failed to build
-        // pressure, channeling / grind direction / temperature advice are
-        // all irrelevant. User needs to know the puck failed.
-        verdict["text"] = QStringLiteral("Verdict: Puck failed \u2014 pour never "
-            "pressurized. Check dose, distribution, and whether grind is drastically too coarse.");
+        // Dominates over every other signal. Lead with the meta-action
+        // ("don't tune off this shot") because peak pressure never built —
+        // the channeling / grind / temp detectors are reading off curves the
+        // failed puck didn't produce, so their silence (or any drift they
+        // happen to flag) is not a tuning signal. Naming the unreliable
+        // detectors explicitly is important: a user who sees no Channeling
+        // chip might otherwise assume "OK at least no channeling," which is
+        // wrong on a puck failure.
+        verdict["text"] = QStringLiteral("Verdict: Don't tune off this shot \u2014 "
+            "peak pressure never built, so the other quality signals "
+            "(channeling, grind direction, temp) are unreliable. Check prep "
+            "(dose, distribution, basket, grind) and pull another.");
     } else if (skipFirstFrame) {
         // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice
         // so the user isn't told to adjust grind when the real fix is a power-cycle.

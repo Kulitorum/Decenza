@@ -194,12 +194,13 @@ Page {
                 }
             }
 
-            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes, skipframe:yes)
+            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes, skipframe:yes, puckfailed:yes)
             var flagKeywords = [
                 { pattern: /\bchanneling:yes\b/gi, filterKey: "filterChanneling" },
                 { pattern: /\btemp:yes\b/gi, filterKey: "filterTemperatureUnstable" },
                 { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" },
-                { pattern: /\bskipframe:yes\b/gi, filterKey: "filterSkipFirstFrame" }
+                { pattern: /\bskipframe:yes\b/gi, filterKey: "filterSkipFirstFrame" },
+                { pattern: /\bpuckfailed:yes\b/gi, filterKey: "filterPourTruncated" }
             ]
             for (var j = 0; j < flagKeywords.length; j++) {
                 var fk = flagKeywords[j]
@@ -211,7 +212,7 @@ Page {
 
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
-            searchText = searchText.replace(/\b(channeling|temp|grind|skipframe):yes\b/gi, "")
+            searchText = searchText.replace(/\b(channeling|temp|grind|skipframe|puckfailed):yes\b/gi, "")
 
             // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
@@ -604,6 +605,7 @@ Page {
                         parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
                     var issues = []
+                    if (model.pourTruncatedDetected) issues.push("puck failed")
                     if (model.channelingDetected) issues.push("channeling")
                     if (model.temperatureUnstable) issues.push("temp unstable")
                     if (model.grindIssueDetected) issues.push("grind issue")
@@ -739,7 +741,15 @@ Page {
                                 Accessible.ignored: true
                             }
 
-                            // Quality issue indicator dots
+                            // Quality issue indicator dots. Order: red puckFailed first
+                            // (most severe — shot has no tuning signal), then channeling
+                            // (red), temp/grind (orange), skipFirstFrame (red).
+                            Rectangle {
+                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                color: Theme.errorColor
+                                visible: model.pourTruncatedDetected ?? false
+                                Accessible.ignored: true
+                            }
                             Rectangle {
                                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor

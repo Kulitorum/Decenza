@@ -736,6 +736,24 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 12;
     }
 
+    // Migration 13: Add pour_truncated_detected flag.
+    // Catches puck failures where peak pressure stayed below PRESSURE_FLOOR_BAR
+    // (puck offered no resistance — channeling/temp/grind detectors stay silent
+    // or fire wrong because the curves they read off never built). When this
+    // flag is true the other three quality flags are forced to false both at
+    // save time and via drift-on-load, so the UI shows a single red "Puck
+    // failed" chip rather than a contradictory mix.
+    if (currentVersion < 13) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 13 (pour_truncated_detected)";
+
+        if (!hasColumn("shots", "pour_truncated_detected"))
+            query.exec("ALTER TABLE shots ADD COLUMN pour_truncated_detected INTEGER DEFAULT 0");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (13)");
+        currentVersion = 13;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -931,6 +949,17 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             }
         }
 
+        // Pour-truncated detection runs first because it dominates: when peak
+        // pressure stayed below PRESSURE_FLOOR_BAR the puck never built, so
+        // the channeling/temp/grind signals are read off curves that don't
+        // mean what they normally mean (conductance saturated → derivative
+        // flat, flow tracked preinfusion goal → grind delta ≈ 0, temp drift
+        // measured against a pour that didn't really happen). When this fires
+        // we force the other three flags to false below so the UI shows a
+        // single red "Puck failed" chip rather than a contradictory mix.
+        data.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
+            tmpRecord.pressure, pourStart, pourEnd, data.beverageType);
+
         // Channeling detection uses dC/dt (the Gaussian-smoothed conductance
         // derivative) — it catches channels invisible to flow/pressure alone
         // and works regardless of frame mode. computeConductanceDerivative()
@@ -940,7 +969,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // onto it yet — suppresses false positives on lever, D-Flow decline,
         // and pressure ramps.
         data.channelingDetected = false;
-        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
+        if (!data.pourTruncatedDetected
+            && !ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("channeling_expected"))) {
             const auto channelWindows = ShotAnalysis::buildChannelingWindows(
                 tmpRecord.pressure, flowPts,
@@ -959,10 +989,12 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // matches generateSummary and prevents avgTempDeviation from averaging
         // from t=0 (which would include the preheat ramp) when phase labels
         // are unusual enough that no Pour/infus/Start marker was found.
+        // Suppressed when pourTruncated fires — see the comment above.
         data.temperatureUnstable = false;
         const auto& tempPts = shotData->temperatureData();
         const auto& tempGoalPts = shotData->temperatureGoalData();
-        if (tempPts.size() > 10 && tempGoalPts.size() > 10 && pourStart > 0
+        if (!data.pourTruncatedDetected
+            && tempPts.size() > 10 && tempGoalPts.size() > 10 && pourStart > 0
             && ShotAnalysis::reachedExtractionPhase(tmpRecord.phases, duration)) {
             if (!ShotAnalysis::hasIntentionalTempStepping(tempGoalPts)) {
                 double avgDev = ShotAnalysis::avgTempDeviation(tempPts, tempGoalPts, pourStart, pourEnd);
@@ -976,7 +1008,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // mode aware — restricts averaging to flow-controlled phases so the
         // check no longer compares actual flow against a pressure-mode
         // profile's flow limiter (80's Espresso, Cremina, Londinium pour).
-        if (!ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
+        // Suppressed when pourTruncated fires — see the comment above.
+        data.grindIssueDetected = false;
+        if (!data.pourTruncatedDetected
+            && !ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 flowPts, shotData->flowGoalData(), tmpRecord.phases,
                 pourStart, pourEnd, data.beverageType,
@@ -1085,7 +1120,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
                     channeling_detected, temperature_unstable, grind_issue_detected,
-                    skip_first_frame_detected
+                    skip_first_frame_detected, pour_truncated_detected
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1095,7 +1130,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
                     :channeling_detected, :temperature_unstable, :grind_issue_detected,
-                    :skip_first_frame_detected
+                    :skip_first_frame_detected, :pour_truncated_detected
                 )
             )");
 
@@ -1130,6 +1165,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":temperature_unstable", data.temperatureUnstable ? 1 : 0);
             query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
             query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
+            query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1396,6 +1432,7 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.filterTemperatureUnstable = filterMap.value("filterTemperatureUnstable", false).toBool();
     filter.filterGrindIssue = filterMap.value("filterGrindIssue", false).toBool();
     filter.filterSkipFirstFrame = filterMap.value("filterSkipFirstFrame", false).toBool();
+    filter.filterPourTruncated = filterMap.value("filterPourTruncated", false).toBool();
     filter.sortColumn = filterMap.value("sortField", "timestamp").toString();
     filter.sortDirection = filterMap.value("sortDirection", "DESC").toString();
     return filter;
@@ -1478,6 +1515,9 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     }
     if (filter.filterSkipFirstFrame) {
         conditions << "skip_first_frame_detected = 1";
+    }
+    if (filter.filterPourTruncated) {
+        conditions << "pour_truncated_detected = 1";
     }
 
     if (conditions.isEmpty()) {
@@ -1573,7 +1613,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
                    channeling_detected, temperature_unstable, grind_issue_detected,
-                   skip_first_frame_detected
+                   skip_first_frame_detected, pour_truncated_detected
             FROM shots
             WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
             %2
@@ -1588,7 +1628,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
                    channeling_detected, temperature_unstable, grind_issue_detected,
-                   skip_first_frame_detected
+                   skip_first_frame_detected, pour_truncated_detected
             FROM shots
             %1
             %2
@@ -1657,6 +1697,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["temperatureUnstable"] = query.value(18).toInt() != 0;
                             shot["grindIssueDetected"] = query.value(19).toInt() != 0;
                             shot["skipFirstFrameDetected"] = query.value(20).toInt() != 0;
+                            shot["pourTruncatedDetected"] = query.value(21).toInt() != 0;
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());
@@ -1732,7 +1773,8 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
                     record.channelingDetected,
                     record.temperatureUnstable,
                     record.grindIssueDetected,
-                    record.skipFirstFrameDetected);
+                    record.skipFirstFrameDetected,
+                    record.pourTruncatedDetected);
             }
         }, Qt::QueuedConnection);
     });
@@ -1757,7 +1799,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
         bool recordFound = false;
         bool badgesPersisted = false;
         bool newChanneling = false, newTempUnstable = false;
-        bool newGrindIssue = false, newSkipFirstFrame = false;
+        bool newGrindIssue = false, newSkipFirstFrame = false, newPourTruncated = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
             ShotRecord record = loadShotRecordStatic(db, shotId, &badgesPersisted);
@@ -1767,14 +1809,15 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             newTempUnstable = record.temperatureUnstable;
             newGrindIssue = record.grindIssueDetected;
             newSkipFirstFrame = record.skipFirstFrameDetected;
+            newPourTruncated = record.pourTruncatedDetected;
         });
 
         if (!recordFound || !badgesPersisted || *destroyed) return;
         QMetaObject::invokeMethod(
             this,
-            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, destroyed]() {
+            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, newPourTruncated, destroyed]() {
                 if (*destroyed) return;
-                emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame);
+                emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, newPourTruncated);
             },
             Qt::QueuedConnection);
     });
@@ -1948,6 +1991,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["temperatureUnstable"] = record.temperatureUnstable;
     result["grindIssueDetected"] = record.grindIssueDetected;
     result["skipFirstFrameDetected"] = record.skipFirstFrameDetected;
+    result["pourTruncatedDetected"] = record.pourTruncatedDetected;
 
     // Phase summaries for UI (computed at save time or on-the-fly for legacy shots)
     if (!record.phaseSummariesJson.isEmpty()) {
@@ -2084,7 +2128,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
                channeling_detected, temperature_unstable, grind_issue_detected,
-               skip_first_frame_detected
+               skip_first_frame_detected, pour_truncated_detected
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -2131,6 +2175,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.temperatureUnstable = query.value(31).toInt() != 0;
     record.grindIssueDetected = query.value(32).toInt() != 0;
     record.skipFirstFrameDetected = query.value(33).toInt() != 0;
+    record.pourTruncatedDetected = query.value(34).toInt() != 0;
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -2139,6 +2184,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     const bool storedTempUnstable = record.temperatureUnstable;
     const bool storedGrindIssue = record.grindIssueDetected;
     const bool storedSkipFirstFrame = record.skipFirstFrameDetected;
+    const bool storedPourTruncated = record.pourTruncatedDetected;
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
         query.bindValue(0, shotId);
@@ -2198,6 +2244,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
     // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
     // pressure / phases, which are always available.
+    record.pourTruncatedDetected = false;
     if (!record.pressure.isEmpty()) {
         double pourStart = 0, pourEnd = record.pressure.last().x();
         for (const auto& pm : record.phases) {
@@ -2210,9 +2257,18 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             }
         }
 
+        // Pour-truncated runs first because it dominates the badge cascade —
+        // see the matching comment in saveShotData. When this fires the
+        // channeling / temp / grind blocks are gated off so the UI shows a
+        // single red "Puck failed" chip rather than wrong-diagnosis chips
+        // read off curves the failed puck didn't produce.
+        record.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
+            record.pressure, pourStart, pourEnd, record.summary.beverageType);
+
         // Channeling (dC/dt with mode-aware windowing)
         record.channelingDetected = false;
-        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
+        if (!record.pourTruncatedDetected
+            && !ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
             && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("channeling_expected"))) {
             const auto windows = ShotAnalysis::buildChannelingWindows(
                 record.pressure, record.flow,
@@ -2229,9 +2285,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         // > 0 conjunct matches generateSummary and prevents avgTempDeviation
         // from averaging from t=0 (which would include the preheat ramp)
         // when phase labels are unusual enough that no Pour/infus/Start
-        // marker was found.
+        // marker was found. Suppressed when pourTruncated fires.
         record.temperatureUnstable = false;
-        if (record.temperature.size() > 10 && record.temperatureGoal.size() > 10 && pourStart > 0
+        if (!record.pourTruncatedDetected
+            && record.temperature.size() > 10 && record.temperatureGoal.size() > 10 && pourStart > 0
             && ShotAnalysis::reachedExtractionPhase(record.phases, record.summary.duration)) {
             if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
                 double avgDev = ShotAnalysis::avgTempDeviation(record.temperature, record.temperatureGoal, pourStart, pourEnd);
@@ -2242,9 +2299,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         // Grind direction (flow-vs-goal + choked-puck arms). Reset before the
         // skip-check so filter/pourover/tea/steam/cleaning shots clear any
         // stale stored value (the channeling/temp resets above are the same
-        // pattern).
+        // pattern). Suppressed when pourTruncated fires.
         record.grindIssueDetected = false;
-        if (!ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
+        if (!record.pourTruncatedDetected
+            && !ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 record.flow, record.flowGoal, record.phases,
                 pourStart, pourEnd, record.summary.beverageType,
@@ -2270,17 +2328,20 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     const bool flagsChanged = (storedChanneling != record.channelingDetected
         || storedTempUnstable != record.temperatureUnstable
         || storedGrindIssue != record.grindIssueDetected
-        || storedSkipFirstFrame != record.skipFirstFrameDetected);
+        || storedSkipFirstFrame != record.skipFirstFrameDetected
+        || storedPourTruncated != record.pourTruncatedDetected);
     if (flagsChanged) {
         QSqlQuery upd(db);
         upd.prepare("UPDATE shots SET channeling_detected=:c,"
                     " temperature_unstable=:t, grind_issue_detected=:g,"
                     " skip_first_frame_detected=:s,"
+                    " pour_truncated_detected=:p,"
                     " updated_at = strftime('%s', 'now') WHERE id=:id");
         upd.bindValue(":c", record.channelingDetected ? 1 : 0);
         upd.bindValue(":t", record.temperatureUnstable ? 1 : 0);
         upd.bindValue(":g", record.grindIssueDetected ? 1 : 0);
         upd.bindValue(":s", record.skipFirstFrameDetected ? 1 : 0);
+        upd.bindValue(":p", record.pourTruncatedDetected ? 1 : 0);
         upd.bindValue(":id", shotId);
         if (upd.exec()) {
             if (outBadgesPersisted) *outBadgesPersisted = true;

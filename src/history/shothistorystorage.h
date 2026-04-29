@@ -221,7 +221,7 @@ signals:
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
     void grinderFieldsUpdated(int updatedCount);
-    void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool temperatureUnstable, bool grindIssueDetected, bool skipFirstFrameDetected);
+    void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool temperatureUnstable, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 
 private:
     bool createTables();
