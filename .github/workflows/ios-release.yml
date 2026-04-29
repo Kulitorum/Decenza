@@ -88,16 +88,64 @@ jobs:
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
 
+      - name: Replace Xcode clang/clang++ with env-scrubbing shims
+        run: |
+          # Xcode 26.1+ clang has a strict check: if more than one platform's
+          # *_DEPLOYMENT_TARGET env var is set when clang runs, refuse to
+          # compile with "conflicting deployment targets". The macos-26
+          # runner image pre-exports MACOSX/IPHONESIMULATOR/MACCATALYST
+          # values; xcodebuild then layers IPHONEOS_DEPLOYMENT_TARGET=17.0
+          # from the iOS toolchain on top. Four platform vars in one
+          # subprocess env trips the check.
+          #
+          # Verified that Xcode 26.4.1 (the version we pin above for libc++
+          # ABI compatibility) carries the same strict check — see
+          # https://github.com/Kulitorum/Decenza/actions/runs/25129294929
+          # for the failure when the shim was removed as a test.
+          #
+          # Earlier failed approaches in this PR's history:
+          #   - parent-shell unset: doesn't reach PhaseScriptExecution
+          #     subprocesses (xcodebuild re-injects from build settings)
+          #   - CMAKE_C/CXX_COMPILER override to a wrapper: qt-cmake's iOS
+          #     toolchain forces the variables back to absolute Xcode paths
+          #     after we set them, so the wrapper isn't called for CMake's
+          #     AUTOMOC compiler-ABI test (the actual failing call site)
+          #   - Pinning Xcode 26.0.1: lacks iOS platform on macos-26
+          #   - Pinning Xcode 26.1.1: still has the strict check
+          #
+          # Replacing the Xcode clang/clang++ binaries directly intercepts
+          # every invocation — CMake's ABI test, AUTOMOC predefs subprocess,
+          # the actual compile, ccache-wrapped calls. The runner is an
+          # ephemeral VM so modifying the Xcode bundle doesn't persist
+          # across jobs.
+          #
+          # Long-term durable fix is upstream: CMake's AUTOMOC predefs
+          # script should pass -target explicitly so it doesn't depend on
+          # env-var fallback. Tracked as #925.
+          set -e
+          XCODE_BIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+          for tool in clang clang++; do
+            if [ -f "$XCODE_BIN/$tool" ] && [ ! -f "$XCODE_BIN/$tool.real" ]; then
+              sudo mv "$XCODE_BIN/$tool" "$XCODE_BIN/$tool.real"
+              sudo tee "$XCODE_BIN/$tool" >/dev/null <<EOF
+          #!/bin/sh
+          # Strip ALL platform deployment-target env vars. The developer's
+          # local Mac has none of these set in the shell and Qt 6.10.3 +
+          # Xcode 26.4.1 builds cleanly there; we match that env. Target/SDK
+          # come in via -target / -isysroot flags on the actual link line.
+          unset MACOSX_DEPLOYMENT_TARGET IPHONEOS_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
+          exec "$XCODE_BIN/$tool.real" "\$@"
+          EOF
+              sudo chmod +x "$XCODE_BIN/$tool"
+            fi
+          done
+
       - name: Create ccache compiler wrappers
         run: |
-          # Standard ccache plumbing — wraps clang/clang++ so xcodebuild's
-          # CMAKE_XCODE_ATTRIBUTE_CC/CXX/LD/LDPLUSPLUS path runs through ccache.
-          # NOTE: this run intentionally has NO env-scrubbing shim on the Xcode
-          # toolchain binaries — testing whether Xcode 26.4.1's clang carries
-          # the strict deployment-target conflict check from 26.1+. If the
-          # build succeeds, the shim is unnecessary and can stay removed; if
-          # it fails with "conflicting deployment targets", we restore the
-          # shim and the cleaner workflow becomes shim+ccache, both needed.
+          # Wraps clang/clang++ for ccache. The Xcode toolchain binaries are
+          # already replaced with env-scrubbing shims (step above), so the
+          # call chain at compile time is:
+          #   xcodebuild → launch-c → ccache → /…/clang (shim) → unset → clang.real
           WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
           mkdir -p "$WRAPPER_DIR"
           CLANG=$(xcrun -f clang)
