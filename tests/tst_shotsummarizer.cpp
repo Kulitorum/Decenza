@@ -144,8 +144,14 @@ private slots:
         const QString prompt = summarizer.buildUserPrompt(summary);
         QVERIFY2(prompt.contains(QStringLiteral("## Detector Observations")),
                  "prompt must include the Detector Observations section header");
-        QVERIFY2(prompt.contains(QStringLiteral("## Dialog Verdict")),
-                 "prompt must include the Dialog Verdict section header");
+        // Verdict is computed (asserted on summary.summaryLines above) but
+        // deliberately NOT emitted to the AI prompt — the prescriptive
+        // conclusion would anchor the LLM. The AI reasons from the same
+        // observations the verdict was built from.
+        QVERIFY2(!prompt.contains(QStringLiteral("## Dialog Verdict")),
+                 "verdict section must not be rendered in the AI prompt");
+        QVERIFY2(!prompt.contains(QStringLiteral("Don't tune off this shot")),
+                 "verdict text must not leak into the AI prompt");
         QVERIFY2(prompt.contains(QStringLiteral("Pour never pressurized")),
                  "prompt must surface the puck-failed warning to the AI");
         QVERIFY2(!prompt.contains(QStringLiteral("Puck integrity")),
@@ -154,6 +160,67 @@ private slots:
                  "old hand-rolled 'Temperature deviation' line must be gone");
         QVERIFY2(!prompt.contains(QStringLiteral("Sustained channeling")),
                  "channeling line must not reach the prompt on a truncated pour");
+    }
+
+    // Aborted-during-preinfusion shape: frame 0 only, no real extraction phase.
+    // Pin the contract that markPerPhaseTempInstability is gated on
+    // ShotAnalysis::reachedExtractionPhase — without the gate, the per-phase
+    // prompt block would emit "Temperature instability" on the preheat ramp
+    // even though generateSummary correctly suppresses the aggregate caution.
+    // Matches the gate the aggregate detector got in PR #898.
+    void abortedPreinfusionDoesNotFlagPerPhaseTemp()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["duration"] = 3.0;  // very short — died during preinfusion-start
+        shot["doseWeight"] = 18.0;
+        shot["finalWeight"] = 0.5;
+
+        // Pressure built enough to clear pourTruncated (peak >= 2.5 bar) — we
+        // want to isolate the reachedExtractionPhase gate, not the puck-failure
+        // cascade.
+        QVariantList pressure;
+        appendFlat(pressure, 0.0, 3.0, 4.0);
+
+        QVariantList flow;
+        appendFlat(flow, 0.0, 3.0, 0.5);
+
+        // 5°C below goal — would trigger per-phase temperatureUnstable on its
+        // own. Must stay false because the shot never reached extraction.
+        QVariantList temperature, temperatureGoal;
+        appendFlat(temperature, 0.0, 3.0, 88.0);
+        appendFlat(temperatureGoal, 0.0, 3.0, 93.0);
+
+        QVariantList weight;
+        appendFlat(weight, 0.0, 3.0, 0.5);
+
+        // Only frame 0 marker — no frame >= 1 sample lasted, so
+        // reachedExtractionPhase must return false.
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = QVariantList();
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        ShotSummary summary = summarizer.summarizeFromHistory(shot);
+
+        QVERIFY2(!summary.pourTruncatedDetected,
+                 "test setup: pressure peaked above floor so pourTruncated should not fire");
+        for (const PhaseSummary& phase : summary.phases) {
+            QVERIFY2(!phase.temperatureUnstable,
+                     "per-phase temp markers must be suppressed when the shot didn't reach extraction");
+        }
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        QVERIFY2(!prompt.contains(QStringLiteral("Temperature instability")),
+                 "preheat-ramp drift must not surface in the prompt for aborted-preinfusion shots");
     }
 
     // Sanity: a healthy shot (peak pressure ~9 bar) flows through the same
@@ -213,11 +280,11 @@ private slots:
         const QString prompt = summarizer.buildUserPrompt(summary);
         QVERIFY2(prompt.contains(QStringLiteral("## Detector Observations")),
                  "Observations section must still render on healthy shots");
-        QVERIFY2(prompt.contains(QStringLiteral("## Dialog Verdict")),
-                 "verdict section must always render");
+        QVERIFY2(!prompt.contains(QStringLiteral("## Dialog Verdict")),
+                 "verdict section is never emitted to the AI prompt");
     }
 };
 
-QTEST_APPLESS_MAIN(tst_ShotSummarizer)
+QTEST_GUILESS_MAIN(tst_ShotSummarizer)
 
 #include "tst_shotsummarizer.moc"

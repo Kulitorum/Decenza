@@ -58,12 +58,12 @@ QString ShotSummarizer::profileTypeDescription(const QString& editorType)
     return QString();
 }
 
-// Compute pour-window bounds from summary.phases. Matches the same fallback
-// chain ShotAnalysis::generateSummary uses internally: prefer a "pour" phase,
-// fall back to the first preinfusion/start, and use the last phase end (or
-// total duration) for the close. Used by the per-phase temp-instability
-// gate; the channeling/temp/grind detectors live entirely inside
-// ShotAnalysis::generateSummary now.
+// Compute pour-window bounds from summary.phases. Approximates the
+// phase-boundary logic in ShotAnalysis::generateSummary (prefer a "pour"
+// phase, fall back to the first preinfusion/start, use the last phase end
+// for the close). The exact window does not need to match generateSummary's
+// because this is only used to gate markPerPhaseTempInstability — the
+// channeling/temp/grind detectors live entirely inside generateSummary.
 static void computePourWindow(const ShotSummary& summary,
                               double& pourStart, double& pourEnd)
 {
@@ -215,8 +215,12 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             const PhaseMarker& marker = markers[i];
 
             // Build the typed marker input for ShotAnalysis::generateSummary
-            // alongside the per-phase metrics. Keeps the two derived views in
-            // lockstep without re-iterating the list.
+            // alongside the per-phase metrics. The two lists can differ in
+            // length — degenerate phases (endTime <= startTime) skip the
+            // PhaseSummary append below but still contribute their marker
+            // (frame transitions matter to skip-first-frame detection even
+            // when their span is degenerate). They are consumed by different
+            // code paths and never joined by index.
             HistoryPhaseMarker h;
             h.time = marker.time;
             h.label = marker.label;
@@ -283,12 +287,16 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
 
     // pourTruncated tracked separately to gate per-phase temp markers — those
     // aren't part of generateSummary's aggregated output but they appear in
-    // the prompt's per-phase block, so they need their own suppression.
+    // the prompt's per-phase block, so they need their own suppression. The
+    // reachedExtractionPhase gate matches generateSummary's aggregate-temp
+    // gate (added in PR #898) so aborted-during-preinfusion shots don't get
+    // flagged on the preheat ramp.
     double pourStart = 0, pourEnd = summary.totalDuration;
     computePourWindow(summary, pourStart, pourEnd);
     summary.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
         pressureData, pourStart, pourEnd, summary.beverageType);
-    if (!summary.pourTruncatedDetected)
+    if (!summary.pourTruncatedDetected
+        && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
         markPerPhaseTempInstability(summary, tempData, tempGoalData);
 
     return summary;
@@ -490,8 +498,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     const QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
 
-    // Per-shot yieldOverride drives the choked-puck yield arm — matches
-    // ShotHistoryStorage::generateShotSummary's input for the dialog.
+    // Per-shot yieldOverride drives both arms of the grind-vs-yield check
+    // (the choked-puck yield arm and the gusher arm added in PR #910) —
+    // matches ShotHistoryStorage::generateShotSummary's input for the dialog.
     const double targetWeightG = shotData.value("yieldOverride").toDouble();
 
     summary.summaryLines = ShotAnalysis::generateSummary(
@@ -505,7 +514,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     computePourWindow(summary, pourStart, pourEnd);
     summary.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
         summary.pressureCurve, pourStart, pourEnd, summary.beverageType);
-    if (!summary.pourTruncatedDetected)
+    if (!summary.pourTruncatedDetected
+        && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
         markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
 
     return summary;
@@ -712,51 +722,46 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     out << "\n";
 
     // Detector observations — the same line list ShotAnalysis::generateSummary
-    // produces for the in-app Shot Summary dialog. Sharing that output keeps
-    // the AI advisor in lockstep with the badge UI: the suppression cascade
-    // (pour truncated → channeling / temp / grind forced false) is enforced
-    // once, in generateSummary, and every consumer sees the same conclusions.
+    // produces for the in-app Shot Summary dialog, minus the verdict line.
     //
-    // The preamble frames the lines as detector evidence rather than advice
-    // to parrot. Without it, an LLM that sees "Verdict: Puck choked — grind
-    // way too fine" tends to repeat the verdict back instead of producing
-    // the dial-in reasoning the user actually needs.
-    QString verdictText;
+    // Why omit the verdict: the verdict is a deterministic, prescriptive
+    // conclusion ("Puck choked — grind way too fine. Coarsen significantly.")
+    // computed from the same observations the AI is already seeing. Including
+    // it would anchor the LLM on a pre-cooked answer and collapse the
+    // advisor's job to "say it again with bean context." Letting the AI reason
+    // independently from the deterministic *signals* (which it can't reliably
+    // compute from raw curves on its own — see the channeling and choked-puck
+    // arms) preserves the value-add over the badge UI. The user still sees
+    // the verdict in the dialog; the AI synthesizes its own.
+    //
+    // The preamble frames severity tags as detector confidence, not the
+    // advisor's final assessment, to discourage parroting [warning] lines as
+    // imperatives.
     QVariantList nonVerdictLines;
     for (const QVariant& v : summary.summaryLines) {
-        const QVariantMap line = v.toMap();
-        if (line.value(QStringLiteral("type")).toString() == QLatin1String("verdict"))
-            verdictText = line.value(QStringLiteral("text")).toString();
-        else
+        if (v.toMap().value(QStringLiteral("type")).toString() != QLatin1String("verdict"))
             nonVerdictLines.append(v);
     }
 
     if (!nonVerdictLines.isEmpty()) {
         out << "## Detector Observations\n\n";
         out << "The lines below come from the same deterministic detectors that drive the\n";
-        out << "in-app Shot Summary dialog the user sees. Treat them as diagnostic signals\n";
+        out << "in-app Shot Summary badges the user sees. Treat them as diagnostic signals\n";
         out << "(evidence), not your conclusions. Severity tags reflect detector confidence,\n";
         out << "not your final assessment:\n\n";
-        out << "- [warning] high-confidence failure mode (sustained channeling, choked puck, pour truncated, frame skip)\n";
+        out << "- [warning] high-confidence failure mode (sustained channeling, choked puck, yield overshoot/gusher, pour truncated, frame skip)\n";
         out << "- [caution] directional hint (grind drift, flow trend, temp drift)\n";
         out << "- [good] positive signal (puck stable)\n";
         out << "- [observation] context (preinfusion drip mass)\n\n";
-        out << "Cross-check against the raw curves above and the user's tasting feedback\n";
-        out << "before recommending an action.\n\n";
+        out << "Cross-check against the raw curves above and the user's tasting feedback,\n";
+        out << "and reason independently — you have richer context (bean, prior shots,\n";
+        out << "tasting notes) than the deterministic detectors do.\n\n";
         for (const QVariant& v : nonVerdictLines) {
             const QVariantMap line = v.toMap();
             out << "- [" << line.value(QStringLiteral("type")).toString() << "] "
                 << line.value(QStringLiteral("text")).toString() << "\n";
         }
         out << "\n";
-    }
-
-    if (!verdictText.isEmpty()) {
-        out << "## Dialog Verdict\n\n";
-        out << "This is the one-sentence summary the user sees in the dialog. Do not just\n";
-        out << "repeat it — synthesize dial-in advice that explains *why* and *what to\n";
-        out << "change next*.\n\n";
-        out << "> " << verdictText << "\n\n";
     }
 
     return prompt;

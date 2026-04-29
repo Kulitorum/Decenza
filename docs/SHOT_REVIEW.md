@@ -419,6 +419,23 @@ take effect on summary text the same way they do on badges — no save-time
 freeze. There is no DB persistence for summary lines; they're regenerated
 on demand.
 
+### AI advisor consumes the same line list (PR #930)
+
+The in-app AI advisor's prompt is built by `ShotSummarizer::buildUserPrompt`,
+which ships the same `generateSummary` line list under a `## Detector
+Observations` section with a preamble framing the lines as detector
+evidence (severity tags `[warning]` / `[caution]` / `[good]` /
+`[observation]`). The `verdict` line is filtered out so the AI reasons
+from the same observations the verdict was built from rather than
+anchoring on the dialog's pre-cooked conclusion. The suppression cascade
+is enforced in exactly one place — `generateSummary` — so the badge UI,
+the dialog, and the AI advisor cannot drift.
+
+External MCP-connected agents currently see only the cascaded boolean
+flags via `convertShotRecord`, not the formatted line list. See
+Issue #931 for the design discussion (full parity vs intentional
+data-plane layering).
+
 ---
 
 ## 4. Persistence semantics
@@ -600,8 +617,27 @@ To add a fixture:
 - PR #922 / Issue #903 — fifth badge `pourTruncatedDetected` ("Puck failed"),
   suppression cascade across save / load / `generateSummary`,
   meta-action verdict ("Don't tune off this shot"), migration 13.
-- Issue #921 — `ShotSummarizer` (AI advisor prompt path) does not yet
-  share the suppression cascade; tracked as a follow-up to PR #922.
+- PR #930 / Issue #921 — `ShotSummarizer` (AI advisor prompt path) now
+  shares the suppression cascade. Detector orchestration delegates to
+  `ShotAnalysis::generateSummary`, the same call `ShotHistoryStorage::generateShotSummary`
+  makes for the dialog. The prompt's `## Detector Observations` section
+  emits `generateSummary`'s line list verbatim with severity tags
+  (`[warning]` / `[caution]` / `[good]` / `[observation]`) under a preamble
+  framing the lines as detector evidence. The `verdict` line is filtered
+  out before emission so the AI reasons from the same observations the
+  user sees in the dialog without anchoring on the dialog's prescriptive
+  conclusion. Per-phase `PhaseSummary::temperatureUnstable` markers are
+  gated on the same `reachedExtractionPhase` + `pourTruncatedDetected`
+  cascade the aggregate temp detector uses. Cleanup: dropped dead
+  `ShotSummary` fields (`channelingDetected`, `temperatureUnstable`,
+  `timeToFirstDrip`, `preinfusionDuration`, `mainExtractionDuration`)
+  and the wrapper helpers (`detectChannelingInPhases`,
+  `calculateTemperatureStability`) they fed.
+- Issue #931 — MCP `shots_get_detail` / `shots_compare` still expose
+  only the boolean badge flags (cascade applied), not the formatted
+  `summaryLines`. Followup to #921 / #930; design call pending between
+  full parity (Option A: emit lines on the MCP payload) and "data
+  plane" layering (Option B: external agents do their own analysis).
 
 External resources that informed the diagnostic patterns:
 

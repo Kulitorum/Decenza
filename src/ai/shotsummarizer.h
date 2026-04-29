@@ -162,8 +162,11 @@ private:
     static QString profileTypeDescription(const QString& editorType);
     // Per-phase temperature instability. Sets only PhaseSummary::temperatureUnstable;
     // the aggregate "Temperature drifted X°C from goal" observation is produced by
-    // ShotAnalysis::generateSummary instead. Skipped when summary.pourTruncatedDetected
-    // is true (a pour that never built pressure can't yield a meaningful temp signal).
+    // ShotAnalysis::generateSummary instead. Callers must gate on
+    // !pourTruncatedDetected AND ShotAnalysis::reachedExtractionPhase() — same
+    // gates the aggregate detector uses. Without the reachedExtractionPhase
+    // check, aborted-during-preinfusion shots get false positives on the
+    // preheat ramp; see SHOT_REVIEW.md §2.3 and PR #898.
     void markPerPhaseTempInstability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 
