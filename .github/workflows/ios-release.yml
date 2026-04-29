@@ -43,35 +43,6 @@ jobs:
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 
-      - name: Pin Xcode to 26.1.1
-        run: |
-          # macos-26 default is Xcode 26.2, whose clang adds a strict check
-          # that refuses to compile when more than one *_DEPLOYMENT_TARGET
-          # env var is set. The runner image exports MACOSX, IPHONESIMULATOR,
-          # and MACCATALYST values (all from the macOS 26 host); the iOS
-          # cross-compile adds IPHONEOS=17.0 — four platform vars in one env,
-          # which trips the check inside Xcode's PhaseScriptExecution
-          # subprocesses where we can't easily scrub them.
-          #
-          # We pin to Xcode 26.1.1 because:
-          #   - It satisfies App Store Connect's iOS 26 SDK requirement
-          #     (paired with the iOS 26.1 SDK, also in the Xcode 26 family).
-          #   - macos-26 only has iOS platform support installed for the
-          #     iOS 26.1 / 26.2 / 26.4 runtimes (see runner image readme).
-          #     Xcode 26.0.1 lacks the iOS platform component on this image,
-          #     so xcodebuild errors with "iOS 26.0 is not installed" before
-          #     it gets anywhere near a compile.
-          #   - 26.1.1's clang predates the strict deployment-target env
-          #     check (introduced in 26.2), so the conflicting platform env
-          #     vars from the runner image don't trip it.
-          #
-          # The durable fix is upstream — CMake's automoc compiler-ABI test
-          # should be passing -target explicitly so it doesn't depend on
-          # env-var fallback. Tracked as #925.
-          sudo xcode-select -s /Applications/Xcode_26.1.1.app/Contents/Developer
-          xcodebuild -version
-          echo "DEVELOPER_DIR=/Applications/Xcode_26.1.1.app/Contents/Developer" >> $GITHUB_ENV
-
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -91,19 +62,48 @@ jobs:
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
 
-      - name: Create ccache compiler wrappers
+      - name: Create compiler wrappers (ccache + DEPLOYMENT_TARGET env scrub)
         run: |
-          # Use CMAKE_XCODE_ATTRIBUTE_CC/CXX approach (same as macOS).
-          # CMake configure uses the real compiler; only xcodebuild uses wrappers.
+          # Two roles for these wrappers:
+          #
+          # 1. ccache cache hits — same as on macOS.
+          # 2. Scrub host platform DEPLOYMENT_TARGET env vars so Xcode 26.1+
+          #    clang's strict env-conflict check doesn't trip when CMake's
+          #    AUTOMOC ABI test (CMakeCXXCompilerABI.cpp) re-invokes clang
+          #    inside an xcodebuild PhaseScriptExecution subprocess. The
+          #    macos-26 runner image pre-exports MACOSX_DEPLOYMENT_TARGET=26.2,
+          #    IPHONESIMULATOR_DEPLOYMENT_TARGET=26.2, MACCATALYST_DEPLOYMENT
+          #    _TARGET=25.2 (and probably others); xcodebuild then layers
+          #    IPHONEOS_DEPLOYMENT_TARGET=17.0 from the iOS toolchain on top.
+          #    With four platform vars set at once, clang refuses with:
+          #      "conflicting deployment targets, both '26.2' and '17.0'"
+          #    Unsetting in the parent shell doesn't reach
+          #    PhaseScriptExecution subprocesses (xcodebuild re-injects
+          #    them). Doing it inside the wrapper is the durable fix —
+          #    every clang invocation, however nested, gets a clean env.
+          #
+          # The wrapper is wired in two places below:
+          #   - CMAKE_XCODE_ATTRIBUTE_CC/CXX → real compile (Xcode generator).
+          #   - CMAKE_C/CXX_COMPILER         → CMake's own ABI tests, which
+          #                                    is the failing call site.
+          # Both paths now go through the env-scrub.
           WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
           mkdir -p "$WRAPPER_DIR"
           CLANG=$(xcrun -f clang)
           CLANGPP=$(xcrun -f clang++)
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
+          # Note: leading-arg trim handles the case where Xcode passes the
+          # absolute compiler path as $1; we drop it and exec the real one.
+          ENV_SCRUB='unset MACOSX_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET'
+          printf '#!/bin/sh\n%s\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$ENV_SCRUB" "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
+          printf '#!/bin/sh\n%s\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$ENV_SCRUB" "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
           chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
           echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
           echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
+          # Print contents for log-debugging
+          echo "--- launch-c ---"
+          cat "$WRAPPER_DIR/launch-c"
+          echo "--- launch-cxx ---"
+          cat "$WRAPPER_DIR/launch-cxx"
 
       - name: Install Apple certificate and provisioning profile
         env:
@@ -140,18 +140,22 @@ jobs:
 
       - name: Configure CMake
         run: |
-          # The macos-26 runner image sets MACOSX_DEPLOYMENT_TARGET=26.2 in
-          # the shell env. Xcode 26's clang refuses to compile when conflicting
-          # *_DEPLOYMENT_TARGET env vars are present (the iOS toolchain sets
-          # IPHONEOS_DEPLOYMENT_TARGET=17.0 for the iOS target, and the host's
-          # 26.2 leaks in alongside it). Unset before invoking qt-cmake so the
-          # compiler-ABI introspection it runs doesn't trip the new check.
-          unset MACOSX_DEPLOYMENT_TARGET
+          # The wrappers built above ensure every clang invocation — including
+          # the AUTOMOC compiler-ABI test that runs inside xcodebuild's
+          # PhaseScriptExecution — has the host platform DEPLOYMENT_TARGET
+          # env vars unset before exec'ing the real compiler. Wire them in
+          # via:
+          #   - CMAKE_C/CXX_COMPILER         → CMake's own ABI tests
+          #     (CMakeCXXCompilerABI.cpp, used by AUTOMOC predefs). This is
+          #     the actual failing call site.
+          #   - CMAKE_XCODE_ATTRIBUTE_CC/CXX → real Xcode-driven compile.
           mkdir -p build/ios
           cd build/ios
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_C_COMPILER="$CCACHE_LAUNCH_C" \
+            -DCMAKE_CXX_COMPILER="$CCACHE_LAUNCH_CXX" \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
             -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
@@ -161,11 +165,6 @@ jobs:
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # See the Configure CMake step for why this is needed. xcodebuild
-          # forks autogen scripts that re-invoke clang for CMake's ABI test;
-          # the host MACOSX_DEPLOYMENT_TARGET must be cleared so the iOS
-          # cross-compile target doesn't conflict.
-          unset MACOSX_DEPLOYMENT_TARGET
           cd build/ios
 
           # Build archive
