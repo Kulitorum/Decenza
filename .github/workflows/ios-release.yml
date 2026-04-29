@@ -192,11 +192,19 @@ jobs:
           # the clang driver instead of clang++, so -lc++ is never auto-
           # added and the link fails with missing __cxa_*/__gxx_personality
           # symbols. Leave LD/LDPLUSPLUS at Xcode defaults.
+          #
+          # Force -lc++ -lc++abi explicitly: when CC/CXX point at a non-
+          # Apple wrapper, Xcode also strips its "auto add C++ runtime"
+          # logic from the link step, producing undefined std::* symbols
+          # (run 25133536323 etc.). The diff against the green non-ccache
+          # build was the absence of -ivfsstatcache (SDK statcache) and
+          # the auto C++ runtime link.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
+            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
+            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi"
 
       - name: Build and Archive
         env:
