@@ -112,8 +112,7 @@ jobs:
           # -isysroot flags on the actual command line, so iOS is still
           # correctly identified. With IPHONEOS preserved in the env,
           # clang++'s implicit libc++ resolution at link time goes wrong
-          # and the link fails with undefined std::* symbols (run
-          # 25132542710). Matches the previously-green config (27c0551f).
+          # and the link fails with undefined std::* symbols.
           #
           # Long-term durable fix is upstream: CMake's AUTOMOC predefs
           # script should pass -target explicitly so it doesn't depend on
@@ -186,19 +185,15 @@ jobs:
         run: |
           mkdir -p build/ios
           cd build/ios
-          # Only wrap CC/CXX with ccache. Wrapping LD/LDPLUSPLUS routes the
-          # link step through ccache (which doesn't cache link products) and
-          # — because LD points at launch-c — forces the C++ link through
-          # the clang driver instead of clang++, so -lc++ is never auto-
-          # added and the link fails with missing __cxa_*/__gxx_personality
-          # symbols. Leave LD/LDPLUSPLUS at Xcode defaults.
+          # Wrap only CC/CXX with ccache (not LD/LDPLUSPLUS): ccache
+          # doesn't cache link products, and pointing LD at launch-c forces
+          # the C++ link through the `clang` driver instead of `clang++`,
+          # which drops the implicit -lc++ and breaks the link.
           #
-          # Force -lc++ -lc++abi explicitly: when CC/CXX point at a non-
-          # Apple wrapper, Xcode also strips its "auto add C++ runtime"
-          # logic from the link step, producing undefined std::* symbols
-          # (run 25133536323 etc.). The diff against the green non-ccache
-          # build was the absence of -ivfsstatcache (SDK statcache) and
-          # the auto C++ runtime link.
+          # Once CC/CXX point at a non-Apple wrapper, Xcode also stops
+          # auto-adding the C++ runtime libraries to the Ld phase (and
+          # drops -ivfsstatcache and other Apple-internal flags). Compen-
+          # sate by setting -lc++ -lc++abi in OTHER_LDFLAGS explicitly.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
