@@ -4,6 +4,7 @@
 #include "../core/settings.h"
 #include "../machine/machinestate.h"
 #include <QDebug>
+#include <QScopeGuard>
 
 ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
     : QObject(parent)
@@ -491,7 +492,13 @@ void ShotTimingController::onSettlingComplete()
     // Settling is done - stop display timer and notify UI
     m_displayTimer.stop();
     emit sawSettlingChanged();
-    emit shotProcessingReady();
+
+    // Defer shotProcessingReady until after sawLearningComplete fires. onShotEnded()
+    // calls ShotDebugLogger::stopCapture(), so any qDebug emitted after that point is
+    // dropped from the per-shot log. SAW_LEARNING.md requires the [SAW] accuracy /
+    // accumulated / committed lines to land in the per-shot log, so we run the SAW
+    // path first and emit shotProcessingReady on scope exit.
+    auto deferProcessing = qScopeGuard([this] { emit shotProcessingReady(); });
 
     // Check scale is still connected
     if (!m_scale || !m_scale->isConnected()) {
