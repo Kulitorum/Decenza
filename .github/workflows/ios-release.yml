@@ -43,34 +43,31 @@ jobs:
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 
-      - name: Pin Xcode to 26.1.1
+      - name: Pin Xcode to 26.4.1 (matches developer's local libc++ ABI)
         run: |
-          # macos-26 default is Xcode 26.2, whose clang adds a strict check
-          # that refuses to compile when more than one *_DEPLOYMENT_TARGET
-          # env var is set. The runner image exports MACOSX, IPHONESIMULATOR,
-          # and MACCATALYST values (all from the macOS 26 host); the iOS
-          # cross-compile adds IPHONEOS=17.0 — four platform vars in one env,
-          # which trips the check inside Xcode's PhaseScriptExecution
-          # subprocesses where we can't easily scrub them.
+          # macos-26's default Xcode (26.2) ships a libc++ revision that
+          # doesn't include the [abi:ue170006] unstable-ABI symbols Qt
+          # 6.10.3's prebuilt iOS binaries reference (qtshadertools,
+          # libQt6BundledSpirv_Cross). Result: link fails with
+          #   Undefined symbols: std::length_error::length_error[abi:ue170006]
+          #   ... vtable for spirv_cross::CompilerError ...
           #
-          # We pin to Xcode 26.1.1 because:
-          #   - It satisfies App Store Connect's iOS 26 SDK requirement
-          #     (paired with the iOS 26.1 SDK, also in the Xcode 26 family).
-          #   - macos-26 only has iOS platform support installed for the
-          #     iOS 26.1 / 26.2 / 26.4 runtimes (see runner image readme).
-          #     Xcode 26.0.1 lacks the iOS platform component on this image,
-          #     so xcodebuild errors with "iOS 26.0 is not installed" before
-          #     it gets anywhere near a compile.
-          #   - 26.1.1's clang predates the strict deployment-target env
-          #     check (introduced in 26.2), so the conflicting platform env
-          #     vars from the runner image don't trip it.
+          # Xcode 26.4.1 (Apple clang 21.0.0 build 2100.0.123.102) ships the
+          # matching libc++ revision and is the version the developer builds
+          # with locally on macOS 26.4 — same Qt 6.10.3 binaries link cleanly
+          # there. The macos-26 runner image has 26.4.1 installed alongside
+          # the default 26.2 with full iOS platform support (iOS 26.4 SDK +
+          # simulator runtimes per the runner readme).
           #
-          # The durable fix is upstream — CMake's automoc compiler-ABI test
-          # should be passing -target explicitly so it doesn't depend on
-          # env-var fallback. Tracked as #925.
-          sudo xcode-select -s /Applications/Xcode_26.1.1.app/Contents/Developer
+          # The deployment-target shim installed below is still needed:
+          # 26.4.1's clang carries the same strict env-conflict check from
+          # 26.1+, and the runner image still pre-exports MACOSX/IPHONESIMU-
+          # LATOR/MACCATALYST values. Pin + shim are complementary, not
+          # redundant.
+          sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
           xcodebuild -version
-          echo "DEVELOPER_DIR=/Applications/Xcode_26.1.1.app/Contents/Developer" >> $GITHUB_ENV
+          xcrun --sdk iphoneos clang --version | head -3
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.4.1.app/Contents/Developer" >> $GITHUB_ENV
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -85,16 +82,62 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
-          key: ios-arm64
+          # Key includes a shim-revision tag (s2 = "shim revision 2: also
+          # unsets IPHONEOS_DEPLOYMENT_TARGET"). Bump this whenever the
+          # shim's env-scrub list changes — the shim's behavior affects
+          # compile output, but ccache's compiler_check (even with
+          # %compiler% -v) sees the same banner from clang.real regardless
+          # of which env vars the shim drops, so a key bump is the only
+          # reliable way to invalidate.
+          key: ios-arm64-xcode26.4.1-s2
           max-size: 500M
 
       - name: Configure ccache for CI
-        run: ccache --set-config=compiler_check=content
+        # Run %compiler% -v so the hash captures the real compiler the shim
+        # execs (clang.real), not just the shim shell script. This catches
+        # underlying Xcode upgrades automatically. (Shim-script changes
+        # still need a manual cache-key bump above — see comment there.)
+        run: ccache --set-config=compiler_check='%compiler% -v'
+
+      - name: Replace Xcode clang/clang++ with env-scrubbing shims
+        run: |
+          # The shim sits on the *active* Xcode (26.4.1, set by the pin step
+          # above) and intercepts ALL clang invocations — both xcodebuild's
+          # native compile path and the AUTOMOC PhaseScriptExecution that
+          # calls clang directly without going through CMAKE_XCODE_ATTRIBUTE
+          # _CC (which is why a wrapper-only approach can't catch it).
+          #
+          # Unset ALL platform DEPLOYMENT_TARGET env vars including
+          # IPHONEOS_DEPLOYMENT_TARGET. Target/SDK come in via -target /
+          # -isysroot flags on the actual command line, so iOS is still
+          # correctly identified. With IPHONEOS preserved in the env,
+          # clang++'s implicit libc++ resolution at link time goes wrong
+          # and the link fails with undefined std::* symbols.
+          #
+          # Long-term durable fix is upstream: CMake's AUTOMOC predefs
+          # script should pass -target explicitly so it doesn't depend on
+          # env-var fallback. Tracked as #925.
+          set -e
+          XCODE_BIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+          for tool in clang clang++; do
+            if [ -f "$XCODE_BIN/$tool" ] && [ ! -f "$XCODE_BIN/$tool.real" ]; then
+              sudo mv "$XCODE_BIN/$tool" "$XCODE_BIN/$tool.real"
+              sudo tee "$XCODE_BIN/$tool" >/dev/null <<EOF
+          #!/bin/sh
+          unset MACOSX_DEPLOYMENT_TARGET IPHONEOS_DEPLOYMENT_TARGET IPHONESIMULATOR_DEPLOYMENT_TARGET MACCATALYST_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET
+          exec "$XCODE_BIN/$tool.real" "\$@"
+          EOF
+              sudo chmod +x "$XCODE_BIN/$tool"
+            fi
+          done
 
       - name: Create ccache compiler wrappers
         run: |
-          # Use CMAKE_XCODE_ATTRIBUTE_CC/CXX approach (same as macOS).
-          # CMake configure uses the real compiler; only xcodebuild uses wrappers.
+          # Standard ccache plumbing. The Xcode toolchain binaries are already
+          # replaced with env-scrubbing shims (step above), so the call chain
+          # at compile time is:
+          #   xcodebuild → launch-c → ccache → /…/clang (shim) → clang.real
+          # The shim handles env scrub; the wrapper only adds ccache.
           WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
           mkdir -p "$WRAPPER_DIR"
           CLANG=$(xcrun -f clang)
@@ -140,32 +183,28 @@ jobs:
 
       - name: Configure CMake
         run: |
-          # The macos-26 runner image sets MACOSX_DEPLOYMENT_TARGET=26.2 in
-          # the shell env. Xcode 26's clang refuses to compile when conflicting
-          # *_DEPLOYMENT_TARGET env vars are present (the iOS toolchain sets
-          # IPHONEOS_DEPLOYMENT_TARGET=17.0 for the iOS target, and the host's
-          # 26.2 leaks in alongside it). Unset before invoking qt-cmake so the
-          # compiler-ABI introspection it runs doesn't trip the new check.
-          unset MACOSX_DEPLOYMENT_TARGET
           mkdir -p build/ios
           cd build/ios
+          # Wrap only CC/CXX with ccache (not LD/LDPLUSPLUS): ccache
+          # doesn't cache link products, and pointing LD at launch-c forces
+          # the C++ link through the `clang` driver instead of `clang++`,
+          # which drops the implicit -lc++ and breaks the link.
+          #
+          # Once CC/CXX point at a non-Apple wrapper, Xcode also stops
+          # auto-adding the C++ runtime libraries to the Ld phase (and
+          # drops -ivfsstatcache and other Apple-internal flags). Compen-
+          # sate by setting -lc++ -lc++abi in OTHER_LDFLAGS explicitly.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS="$CCACHE_LAUNCH_CXX"
+            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi"
 
       - name: Build and Archive
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # See the Configure CMake step for why this is needed. xcodebuild
-          # forks autogen scripts that re-invoke clang for CMake's ABI test;
-          # the host MACOSX_DEPLOYMENT_TARGET must be cleared so the iOS
-          # cross-compile target doesn't conflict.
-          unset MACOSX_DEPLOYMENT_TARGET
           cd build/ios
 
           # Build archive
