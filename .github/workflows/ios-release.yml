@@ -43,6 +43,25 @@ jobs:
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 
+      - name: Pin Xcode to 26.0.1
+        run: |
+          # macos-26 default is Xcode 26.2, whose clang adds a strict check
+          # that refuses to compile when more than one *_DEPLOYMENT_TARGET
+          # env var is set. The runner image exports MACOSX, IPHONESIMULATOR,
+          # and MACCATALYST values (all from the macOS 26 host); the iOS
+          # cross-compile adds IPHONEOS=17.0 — four platform vars in one env,
+          # which trips the check inside Xcode's PhaseScriptExecution
+          # subprocesses where we can't easily scrub them.
+          #
+          # Xcode 26.0.1 ships an earlier clang from the same Xcode 26 family,
+          # so it satisfies App Store Connect's iOS 26 SDK requirement, but
+          # without the new env-conflict check. Pinning here keeps the SDK
+          # gate satisfied while sidestepping the build failure on macos-26.
+          # Tracked separately as a Qt-toolchain follow-up.
+          sudo xcode-select -s /Applications/Xcode_26.0.1.app/Contents/Developer
+          xcodebuild -version
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.0.1.app/Contents/Developer" >> $GITHUB_ENV
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
