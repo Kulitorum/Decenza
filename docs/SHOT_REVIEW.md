@@ -42,18 +42,30 @@ shared `shotReview/advancedMode` setting toggles information density on both.
 
 ### Quality badges
 
-Four independent flags, surfaced via `qml/components/QualityBadges.qml`. When
-any fire, those chips show; when none fire, a single green "Clean extraction"
-chip shows. None of the chips suppress the others. A tappable "Shot
-Summary" chip always sits at the end of the row — it's the entry point to
-the analysis dialog described in §3.
+Five flags, surfaced via `qml/components/QualityBadges.qml`. When any fire,
+those chips show; when none fire, a single green "Clean extraction" chip
+shows. A tappable "Shot Summary" chip always sits at the end of the row —
+it's the entry point to the analysis dialog described in §3.
 
 | Flag                       | Color  | Label                  | Source                       |
 | -------------------------- | ------ | ---------------------- | ---------------------------- |
+| `pourTruncatedDetected`    | red    | "Puck failed"          | `detectPourTruncated`        |
 | `channelingDetected`       | red    | "Channeling detected"  | `detectChannelingFromDerivative` |
 | `temperatureUnstable`      | orange | "Temp unstable"        | `avgTempDeviation` + threshold |
 | `grindIssueDetected`       | orange | "Grind issue"          | `detectGrindIssue` (`analyzeFlowVsGoal`) |
 | `skipFirstFrameDetected`   | red    | "First step skipped"   | `detectSkipFirstFrame`       |
+
+**Suppression cascade.** `pourTruncatedDetected` is dominant: when it fires,
+`channelingDetected` / `temperatureUnstable` / `grindIssueDetected` are
+forced to false at save time, in the load-time recompute, and inside
+`generateSummary`. The puck failed to build pressure, so the curves the
+other three detectors read off don't mean what they normally mean
+(conductance saturates → derivative flat, flow tracks preinfusion goal →
+grind delta ≈ 0, temp drift measured against a pour that didn't really
+happen). `skipFirstFrameDetected` is **not** suppressed — it's a
+machine/profile issue orthogonal to puck integrity. The clean-extraction
+green chip's visibility gate also includes `!pourTruncatedDetected` so a
+suppressed puck-failure shot can't fall through to the wrong all-clear.
 
 The badges are recomputed on every shot load (see §4) so detector improvements
 take effect on existing shots without a manual re-analyze.
@@ -62,7 +74,7 @@ take effect on existing shots without a manual re-analyze.
 
 ## 2. Detector internals
 
-All four detectors live in `src/ai/shotanalysis.{h,cpp}` as static methods on
+All five detectors live in `src/ai/shotanalysis.{h,cpp}` as static methods on
 `ShotAnalysis`. Tuning constants are defined at the top of the header so they
 can be tweaked in one place. The header is heavily commented — read it
 alongside this section.
@@ -194,7 +206,7 @@ virtual scale (dose-aware flow integration), so the arm fires headless too.
 
 ### 2.3 Temperature unstable
 
-The simplest of the four. `temperatureUnstable = true` when:
+The simplest of the five. `temperatureUnstable = true` when:
 
 - `temperature` and `temperatureGoal` both have > 10 samples, AND
 - `pourStart > 0` (a Pour / infus / Start phase marker was found — without
@@ -252,14 +264,28 @@ malformed.
 `firstFrameConfiguredSeconds` is fed in by callers from `ProfileFrameInfo`
 (parsed from the stored profile JSON via `profileFrameInfoFromJson`).
 
-### 2.5 Pour truncated (used by the summary path, not a badge)
+### 2.5 Pour truncated (puck failed)
 
 `detectPourTruncated` returns true when peak pressure inside the pour window
 stays below `PRESSURE_FLOOR_BAR` (2.5). It catches the failure mode where
 conductance saturates at its clamp, `dC/dt` is flat, and flow tracks the
-preinfusion goal perfectly — every other detector goes silent. Currently used
-inside `ShotAnalysis::generateSummary` (the user-facing observation list); not
-wired to a separate badge column.
+preinfusion goal perfectly — every other detector goes silent or fires the
+wrong diagnosis. Skipped for filter / pourover / tea / steam / cleaning
+beverages where low pressure is expected.
+
+**Suppression cascade.** When this detector fires, the save block, the
+load-time recompute, and `generateSummary` all force `channelingDetected`
+/ `temperatureUnstable` / `grindIssueDetected` to false. See §1 for the
+rationale; see §4 for where it's enforced.
+
+**Population the badge catches.** A puck-failure shot can come from any of:
+grind way too coarse, distribution failure (massive channel), no/loose
+puck or missing basket, severe underdose, profile misconfigured (high
+flow goal with no pressure cap), or an early abort. The user can't
+discriminate among these from the curve, so the verdict text leads with
+the meta-action ("Don't tune off this shot — peak pressure never built,
+so the other quality signals are unreliable") rather than naming a
+specific fix.
 
 ---
 
@@ -304,36 +330,48 @@ from the observation lines.
 
 ### Observations emitted
 
-Order follows `generateSummary` top-to-bottom:
+`generateSummary` computes `pourTruncated` first; when it fires, the
+channeling / flow-trend / temperature / grind blocks below all skip
+emission entirely. The list collapses to a single warning + the
+puck-failed verdict. Order otherwise follows `generateSummary`
+top-to-bottom:
 
 1. **Channeling status** — uses the same `buildChannelingWindows` +
    `detectChannelingFromDerivative` path as the badge. Emits **Sustained**
    ("warning"), **Transient** ("caution") with the spike timestamp, or a
    "Puck stable" ("good") line. Skipped for filter / pourover / tea /
-   steam / cleaning beverages, turbo shots, and profiles with the
-   `channeling_expected` analysis flag.
+   steam / cleaning beverages, turbo shots, profiles with the
+   `channeling_expected` analysis flag, **and when `pourTruncated`
+   fires**.
 2. **Flow trend** — compares mean flow in the first 30% of the pour
    against the last 30%. ±0.5 mL/s thresholds emit "Flow rose … (puck
    erosion)" or "Flow dropped … (fines migration or clogging)" as
    "caution". Suppressed for profiles with the `flow_trend_ok` analysis
    flag (Cremina lever and similar where declining/rising flow is by
-   design).
+   design), **and when `pourTruncated` fires**.
 3. **Preinfusion drip** — when preinfusion lasted > 1 s and at least 0.5 g
    landed during it, emits "Preinfusion: Xg in Ys" as an "observation".
+   Not gated on `pourTruncated` — drip mass is a fact, not a diagnosis.
 4. **Temperature stability** — when `hasIntentionalTempStepping` is false
    and `avgTempDeviation` exceeds 2 °C, emits "Temperature drifted X °C
-   from goal on average" as "caution".
+   from goal on average" as "caution". **Suppressed when `pourTruncated`
+   fires.**
 5. **Grind direction** — uses the same `analyzeFlowVsGoal` path as the
    badge. Emits one of: "Pour produced near-zero flow while pressure
    held — puck choked" ("warning") when `chokedPuck` fires, "Flow
    averaged X mL/s below target — grind may be too fine" ("caution"),
    "Flow averaged X mL/s above target — grind may be too coarse"
-   ("caution"), or nothing when within tolerance.
+   ("caution"), or nothing when within tolerance. **Suppressed when
+   `pourTruncated` fires.**
 6. **Pour truncated** — `detectPourTruncated`. Emits "Pour never
-   pressurized — puck failed" as "warning" when peak pressure stayed
-   under 2.5 bar.
+   pressurized (peak X bar) — puck offered no resistance. Likely
+   causes: grind way too coarse, distribution failure, no/loose puck,
+   severe underdose, or profile without a pressure cap." as "warning"
+   when peak pressure stayed under 2.5 bar. The actual peak value is
+   substituted into the line.
 7. **Skip first frame** — `detectSkipFirstFrame`. Emits "First profile
-   step skipped — likely a DE1 firmware bug…" as "warning".
+   step skipped — likely a DE1 firmware bug…" as "warning". Not gated
+   on `pourTruncated` — frame-skip is orthogonal to puck integrity.
 
 ### Verdict precedence
 
@@ -341,9 +379,12 @@ Exactly one verdict line is appended to every summary. The cascade picks
 the first match (more specific failures take precedence over generic
 puck-integrity advice):
 
-1. **Pour truncated** → "Puck failed — pour never pressurized." Dominates
-   over channeling / grind / temperature, since the puck never built any
-   resistance worth analyzing.
+1. **Pour truncated** → "Don't tune off this shot — peak pressure never
+   built, so the other quality signals (channeling, grind direction,
+   temp) are unreliable. Check prep (dose, distribution, basket, grind)
+   and pull another." Dominates over channeling / grind / temperature
+   since the puck never built any resistance worth analyzing; leads with
+   the meta-action because the shot has no useful tuning signal.
 2. **Skip first frame** → "First profile step was skipped — power-cycle…"
    Pre-empts choked-puck because a frame-skip can synthesise extraction
    dynamics that resemble a choke; fix the machine first, then re-evaluate.
@@ -384,20 +425,28 @@ on demand.
 
 ### Save-time: stored columns
 
-The `shots` table has four flag columns: `channeling_detected`,
-`temperature_unstable`, `grind_issue_detected`, `skip_first_frame_detected`.
-At shot save (or import), the badges are computed once from the captured
-curves and written into these columns alongside the rest of the shot record.
+The `shots` table has five flag columns: `pour_truncated_detected`,
+`channeling_detected`, `temperature_unstable`, `grind_issue_detected`,
+`skip_first_frame_detected`. At shot save (or import), the badges are
+computed once from the captured curves and written into these columns
+alongside the rest of the shot record.
 
-### Load-time: always recompute (PR #893)
+`pour_truncated_detected` is computed **first** at save time. When it's
+true, `channeling_detected` / `temperature_unstable` / `grind_issue_detected`
+are forced to false (their gates check `!data.pourTruncatedDetected`).
+`skip_first_frame_detected` is not gated.
+
+### Load-time: always recompute (PR #893, extended for the 5th badge in PR #922)
 
 `ShotHistoryStorage::loadShotRecordStatic` reads the stored columns, then
-**unconditionally recomputes all four badges** from the loaded curve data
-before returning. This means the in-memory `ShotRecord` always reflects the
-current detector logic, regardless of when the shot was saved or under which
-detector version. The recompute block lives in `loadShotRecordStatic` (around
-the comment "Always recompute every quality badge from the loaded curve
-data").
+**unconditionally recomputes all five badges** from the loaded curve data
+before returning. The same suppression cascade runs here: `pourTruncated`
+is computed first and the channeling / temp / grind blocks are gated on
+`!record.pourTruncatedDetected`. This means the in-memory `ShotRecord`
+always reflects the current detector logic and the cascade is consistent
+between save and load. The recompute block lives in `loadShotRecordStatic`
+(around the comment "Always recompute every quality badge from the loaded
+curve data").
 
 The recompute uses on-the-fly derived curves for legacy shots that lack them:
 `computeDerivedCurves` fills `conductanceDerivative` from `pressure`/`flow`
@@ -407,11 +456,13 @@ when the shot predates migration 10 (the `conductance` column).
 
 When a shot is opened in `ShotDetailPage` or `PostShotReviewPage`, QML calls
 `MainController.shotHistory.requestReanalyzeBadges(id)`. That method runs on
-the DB worker thread and recomputes the four flags. If at least one flag
+the DB worker thread and recomputes the five flags. If at least one flag
 differs from the stored value, it issues an `UPDATE` *and* emits
-`shotBadgesUpdated` so the UI can refresh without a full reload. If every
-flag already matches the stored value, the worker exits silently — no
-`UPDATE`, no signal, no UI refresh.
+`shotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue,
+skipFirstFrame, pourTruncated)` (six args; the puck-failure flag was added
+in PR #922) so the UI can refresh without a full reload. If every flag
+already matches the stored value, the worker exits silently — no `UPDATE`,
+no signal, no UI refresh.
 
 The wiring lives at `qml/pages/ShotDetailPage.qml` (in `onShotReady`) and
 `qml/pages/PostShotReviewPage.qml`. The visualizer-update reload path
@@ -442,7 +493,7 @@ require another sweep.
 
 ### Detector logic
 
-- `src/ai/shotanalysis.{h,cpp}` — all four detectors, `analyzeFlowVsGoal`,
+- `src/ai/shotanalysis.{h,cpp}` — all five detectors, `analyzeFlowVsGoal`,
   `buildChannelingWindows`, `detectChannelingFromDerivative`,
   `detectGrindIssue`, `detectSkipFirstFrame`, `detectPourTruncated`,
   `hasIntentionalTempStepping`, `avgTempDeviation`, `shouldSkipChannelingCheck`,
@@ -459,7 +510,8 @@ require another sweep.
     reads the stored columns.
   - `generateShotSummary` — Q_INVOKABLE bridge that converts a QML
     `shotData` map into the typed inputs for `ShotAnalysis::generateSummary`.
-  - DB migration for the four flag columns.
+  - DB migrations for the five flag columns (10–13; migration 13 adds
+    `pour_truncated_detected`).
   - `computeDerivedCurves` — fills conductance / dC/dt for legacy shots that
     predate migration 10.
   - `profileFrameInfoFromJson` — extracts `frameCount` and
@@ -483,9 +535,10 @@ require another sweep.
   visible and renders the resulting `{ text, type }` lines.
 - `qml/pages/ShotDetailPage.qml` and `qml/pages/PostShotReviewPage.qml` —
   consume `shotData.channelingDetected` / `temperatureUnstable` /
-  `grindIssueDetected` / `skipFirstFrameDetected`, listen for
-  `shotBadgesUpdated`, call `requestReanalyzeBadges` on load, host the
-  `ShotAnalysisDialog` instance and wire `summaryRequested` to `open()`.
+  `grindIssueDetected` / `skipFirstFrameDetected` / `pourTruncatedDetected`,
+  listen for `shotBadgesUpdated`, call `requestReanalyzeBadges` on load,
+  host the `ShotAnalysisDialog` instance and wire `summaryRequested` to
+  `open()`.
 - `qml/pages/ShotHistoryPage.qml` — filter chips that consume the stored
   columns.
 
@@ -541,6 +594,14 @@ To add a fixture:
   view.
 - Issue #894 — residual stored-column drift (history-list filter and
   `shots_list` MCP read stored, not recomputed values).
+- PR #898 — `temperatureUnstable` gating fix (`reachedExtractionPhase`).
+- PR #901 — flow/pressure-mode rising-pressure gate fix.
+- PR #910 — yield-overshoot ("gusher") arm in `analyzeFlowVsGoal`.
+- PR #922 / Issue #903 — fifth badge `pourTruncatedDetected` ("Puck failed"),
+  suppression cascade across save / load / `generateSummary`,
+  meta-action verdict ("Don't tune off this shot"), migration 13.
+- Issue #921 — `ShotSummarizer` (AI advisor prompt path) does not yet
+  share the suppression cascade; tracked as a follow-up to PR #922.
 
 External resources that informed the diagnostic patterns:
 

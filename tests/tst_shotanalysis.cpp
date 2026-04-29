@@ -1093,6 +1093,135 @@ private slots:
         // Pour window starts at 2 s — misses the fill spike.
         QCOMPARE(ShotAnalysis::detectPourTruncated(pressure, 2.0, 8.0), true);
     }
+
+    // ---- Suppression cascade in generateSummary ----
+    //
+    // When pourTruncated fires, the channeling / flow-trend / temp-stability /
+    // grind blocks all read off curves the failed puck didn't produce, so
+    // their output is unreliable. The summary path suppresses those blocks
+    // entirely and emits a single "Pour never pressurized" warning + the
+    // "Don't tune off this shot" verdict instead. These tests lock in that
+    // behaviour so a future tweak to one of the suppressed blocks can't
+    // accidentally re-introduce a wrong-diagnosis line on a puck-failure
+    // shot. Mirror of issue #903 — see the issue for the user-visible bug
+    // (shot 868 firing "Temp unstable" while the actual signal was a 0.63
+    // bar peak puck failure).
+
+    // Warning line must include the actual peak pressure inside the pour
+    // window (the value the user looks at) and the verdict must lead with
+    // "Don't tune off this shot" rather than the old "Puck failed" wording.
+    void pourTruncated_summary_warningIncludesPeakAndVerdictNamesMetaAction()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0, "pour",              1, /*isFlowMode=*/true),
+        };
+        // Flat 0.6 bar across the pour — well below PRESSURE_FLOOR_BAR (2.5).
+        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);
+        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
+        QVector<QPointF> temperature = flatSeries(0.0, 7.0, 80.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 7.0, 82.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 7.0, 0.0);
+        QVector<QPointF> weight;
+
+        const QVariantList lines = ShotAnalysis::generateSummary(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, /*beverageType=*/"espresso", /*duration=*/7.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        bool sawTruncatedWarning = false;
+        QString warningText;
+        QString verdictText;
+        for (const QVariant& v : lines) {
+            const QVariantMap m = v.toMap();
+            const QString type = m["type"].toString();
+            const QString text = m["text"].toString();
+            if (type == "warning" && text.contains("never pressurized", Qt::CaseInsensitive)) {
+                sawTruncatedWarning = true;
+                warningText = text;
+            }
+            if (type == "verdict")
+                verdictText = text;
+        }
+        QVERIFY2(sawTruncatedWarning, "expected the pour-truncated warning line");
+        QVERIFY2(warningText.contains("peak 0.6 bar"),
+                 qPrintable("warning was: " + warningText));
+        QVERIFY2(verdictText.contains("Don't tune off this shot", Qt::CaseInsensitive),
+                 qPrintable("verdict was: " + verdictText));
+        QVERIFY2(verdictText.contains("unreliable", Qt::CaseInsensitive),
+                 qPrintable("verdict should name the unreliable signals: " + verdictText));
+    }
+
+    // Temperature drift well above the 2°C threshold must NOT produce a
+    // "Temperature drifted" caution line when pourTruncated fires. This is
+    // the exact misdiagnosis from shot 868 — fix is the suppression gate in
+    // generateSummary.
+    void pourTruncated_summary_suppressesTempDriftLine()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0, "pour",              1, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);  // puck failure
+        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
+        // 5°C below goal — would normally trip the temp-unstable detector.
+        QVector<QPointF> temperature = flatSeries(0.0, 7.0, 77.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 7.0, 82.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 7.0, 0.0);
+        QVector<QPointF> weight;
+
+        const QVariantList lines = ShotAnalysis::generateSummary(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, /*beverageType=*/"espresso", /*duration=*/7.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        for (const QVariant& v : lines) {
+            const QVariantMap m = v.toMap();
+            const QString text = m["text"].toString();
+            QVERIFY2(!text.contains("Temperature drifted", Qt::CaseInsensitive),
+                     qPrintable("temp-drift line leaked through suppression: " + text));
+        }
+    }
+
+    // Sustained dC/dt elevation must NOT produce a channeling line (or its
+    // green "Puck stable — no channeling spikes" companion) when
+    // pourTruncated fires — the conductance signal is unreliable when peak
+    // pressure stayed below floor.
+    void pourTruncated_summary_suppressesChannelingLines()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0, "pour",              1, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);  // puck failure
+        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
+        QVector<QPointF> temperature = flatSeries(0.0, 7.0, 82.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 7.0, 82.0);
+        // Synthetic dC/dt with a sustained run above the elevated threshold.
+        QVector<QPointF> dCdt;
+        for (double t = 2.0; t <= 7.0; t += 0.05)
+            dCdt.append(QPointF(t, 4.5));  // > CHANNELING_DC_ELEVATED (3.0)
+        QVector<QPointF> weight;
+
+        const QVariantList lines = ShotAnalysis::generateSummary(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, /*beverageType=*/"espresso", /*duration=*/7.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        for (const QVariant& v : lines) {
+            const QVariantMap m = v.toMap();
+            const QString text = m["text"].toString();
+            QVERIFY2(!text.contains("channeling", Qt::CaseInsensitive)
+                     || text.contains("never pressurized", Qt::CaseInsensitive)
+                     || text.contains("Don't tune off", Qt::CaseInsensitive),
+                     qPrintable("channeling line leaked through suppression: " + text));
+            QVERIFY2(!text.contains("Puck stable", Qt::CaseInsensitive),
+                     qPrintable("green puck-stable line leaked through suppression: " + text));
+        }
+    }
 };
 
 QTEST_MAIN(tst_ShotAnalysis)

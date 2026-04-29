@@ -4,10 +4,11 @@
   "shots": [
     {
       "file": "80s_puck_failure.json",
-      "description": "Shot 868 — catastrophic puck failure. 80's Espresso, 0.6 bar peak, 37g in 7s. Puck offered no resistance; channeling + grind detectors are blind to this because conductance saturates and flow tracks preinfusion goal perfectly. detectPourTruncated must catch it.",
+      "description": "Shot 868 — catastrophic puck failure. 80's Espresso, 0.6 bar peak, 37g in 7s. Puck offered no resistance; channeling + grind detectors are blind to this because conductance saturates and flow tracks preinfusion goal perfectly. detectPourTruncated must catch it. PR #922 promoted this to a red 'Puck failed' badge; the verdict text leads with the meta-action (don't tune off the shot) since the user can't discriminate among the prep failures from the curve.",
       "expect": {
         "channeling": "None",
-        "pourTruncated": true
+        "pourTruncated": true,
+        "summaryVerdictContains": "Don't tune off this shot"
       }
     },
     {
@@ -21,11 +22,12 @@
     },
     {
       "file": "puck_failure_short_gusher.json",
-      "description": "Extreme puck failure — 2.2s total, 0g yield. Extracted nothing because the machine bailed out immediately. Redundantly caught by both pourTruncated and grindIssue.",
+      "description": "Extreme puck failure — 2.2s total, 0g yield. Extracted nothing because the machine bailed out immediately. shot_eval reports both pourTruncated and grindIssue at the detector level (they fire independently); the production storage path applies PR #922's suppression cascade so only the puckFailed badge appears in the UI.",
       "expect": {
         "channeling": "None",
         "grindIssue": true,
-        "pourTruncated": true
+        "pourTruncated": true,
+        "summaryVerdictContains": "Don't tune off this shot"
       }
     },
     {

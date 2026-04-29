@@ -92,11 +92,22 @@ struct ShotRecord {
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") for profile-aware analysis
     QString profileKbId;
 
-    // Quality flags (computed at save time, recomputed on-the-fly for legacy shots)
+    // Quality flags (computed at save time, recomputed on-the-fly for legacy shots).
+    //
+    // pourTruncatedDetected is the dominant flag — when it fires, the puck never
+    // built pressure, so channeling / temp / grind signals are unreliable readings
+    // off curves the failed puck didn't produce. The save and load paths force
+    // those three (channelingDetected, temperatureUnstable, grindIssueDetected) to
+    // false in that case so the UI doesn't show contradictory "Temp unstable" or
+    // "Clean extraction" chips on top of a puck failure. skipFirstFrameDetected
+    // is NOT suppressed — it's a machine/profile issue orthogonal to puck
+    // integrity and can co-fire with pourTruncatedDetected.
+    // See ShotAnalysis::detectPourTruncated for the underlying detector.
     bool channelingDetected = false;
     bool temperatureUnstable = false;
     bool grindIssueDetected = false;
     bool skipFirstFrameDetected = false;
+    bool pourTruncatedDetected = false;
 
     // Phase summaries JSON (per-phase metrics: duration, avgPressure, avgFlow, weightGained, etc.)
     QString phaseSummariesJson;
@@ -144,6 +155,7 @@ struct ShotFilter {
     bool filterTemperatureUnstable = false;
     bool filterGrindIssue = false;
     bool filterSkipFirstFrame = false;
+    bool filterPourTruncated = false;
     QString sortColumn = "timestamp";
     QString sortDirection = "DESC";
 };
@@ -181,11 +193,15 @@ struct ShotSaveData {
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;
 
-    // Quality flags (computed at save time using ShotAnalysis helpers)
+    // Quality flags (computed at save time using ShotAnalysis helpers). When
+    // pourTruncatedDetected fires, channelingDetected / temperatureUnstable /
+    // grindIssueDetected are forced to false; skipFirstFrameDetected is not.
+    // See the matching comment on ShotRecord.
     bool channelingDetected = false;
     bool temperatureUnstable = false;
     bool grindIssueDetected = false;
     bool skipFirstFrameDetected = false;
+    bool pourTruncatedDetected = false;
 
     // Phase summaries JSON (per-phase metrics for UI display)
     QString phaseSummariesJson;
