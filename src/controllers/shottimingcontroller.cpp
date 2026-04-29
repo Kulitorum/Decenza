@@ -493,11 +493,11 @@ void ShotTimingController::onSettlingComplete()
     m_displayTimer.stop();
     emit sawSettlingChanged();
 
-    // Defer shotProcessingReady until after sawLearningComplete fires. onShotEnded()
-    // calls ShotDebugLogger::stopCapture(), so any qDebug emitted after that point is
-    // dropped from the per-shot log. SAW_LEARNING.md requires the [SAW] accuracy /
-    // accumulated / committed lines to land in the per-shot log, so we run the SAW
-    // path first and emit shotProcessingReady on scope exit.
+    // Emit shotProcessingReady on scope exit so qDebug from the SAW path lands in
+    // the per-shot log before the downstream slot closes the capture window.
+    // SAW_LEARNING.md requires those lines in the per-shot log. Relies on direct
+    // (same-thread) connections — a queued connection on either signal would defeat
+    // the ordering.
     auto deferProcessing = qScopeGuard([this] { emit shotProcessingReady(); });
 
     // Check scale is still connected

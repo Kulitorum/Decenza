@@ -167,4 +167,8 @@ private:
     // Display timer (for smooth UI updates between BLE samples)
     QTimer m_displayTimer;
     qint64 m_displayTimeBase = 0;  // Wall clock when shot started
+
+#ifdef DECENZA_TESTING
+    friend class tst_Settling;
+#endif
 };
