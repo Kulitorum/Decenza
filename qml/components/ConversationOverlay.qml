@@ -47,15 +47,23 @@ Rectangle {
 
     onVisibleChanged: {
         if (!visible && inputDialog.visible) {
+            // Drop any staged Send so inputDialog.onClosed doesn't fire a
+            // followUp() against this now-hidden overlay. The user explicitly
+            // dismissed the conversation; honour that and don't ship the
+            // message in the background.
+            inputDialog._pendingMessage = ""
             inputDialog.close()
         }
     }
 
     function open() {
         visible = true
-        Qt.callLater(function() {
-            conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
-        })
+        // Scroll synchronously now that the overlay is visible. The TextArea
+        // bound `text` to getConversationText() at creation, so contentHeight
+        // is already current — no need to defer through Qt.callLater (which
+        // would race against any pending Markdown reflow).
+        conversationFlickable.contentY = Math.max(0,
+            conversationFlickable.contentHeight - conversationFlickable.height)
     }
 
     /**
@@ -239,6 +247,15 @@ Rectangle {
                             onClicked: {
                                 if (MainController.aiManager) {
                                     MainController.aiManager.clearCurrentConversation()
+                                    // Reset the scroll state machine. clearHistory() emits
+                                    // historyChanged but never responseReceived/errorOccurred,
+                                    // so without this the next user-send onHistoryChanged would
+                                    // see _waitingForResponse left at true and treat the send
+                                    // as a response — scrolling to a stale _preResponseHeight
+                                    // instead of the bottom.
+                                    overlay._waitingForResponse = false
+                                    overlay._pendingScrollKind = ""
+                                    overlay._preResponseHeight = 0
                                     // Re-fetch historical context on background thread
                                     if (overlay.shotId > 0) {
                                         overlay.historicalContext = ""
@@ -774,9 +791,13 @@ Rectangle {
         function onResponseReceived(response) {
             overlay._waitingForResponse = false
             // Scroll target was staged by onHistoryChanged (which aiconversation.cpp
-            // emits immediately before responseReceived). The TextArea's
-            // onContentHeightChanged handler ran the scroll + update() inside
-            // that text= assignment, so there's nothing left to do here.
+            // emits immediately before responseReceived). In the common case the
+            // text= assignment changed contentHeight, so onContentHeightChanged
+            // already ran the scroll and consumed _pendingScrollKind. Clear it
+            // defensively here in case contentHeight didn't change (e.g. response
+            // produced an identical height) — otherwise the stale "preResponse"
+            // sentinel would be consumed by the next unrelated layout pass.
+            overlay._pendingScrollKind = ""
         }
         function onErrorOccurred(error) {
             // Reset flag so the next send captures scroll position correctly
