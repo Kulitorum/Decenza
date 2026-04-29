@@ -82,11 +82,21 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
-          key: ios-arm64
+          # Key bumped to xcode26.4.1: the prior `ios-arm64` cache holds
+          # objects compiled against an older Xcode/libc++ revision. With
+          # the env-scrubbing shim in place, compiler_check=content hashed
+          # the (unchanging) shim script instead of the real compiler, so
+          # those stale objects were being served on Xcode 26.4.1 runs and
+          # link-failed against the newer libc++ ABI.
+          key: ios-arm64-xcode26.4.1
           max-size: 500M
 
       - name: Configure ccache for CI
-        run: ccache --set-config=compiler_check=content
+        # Run %compiler% -v so the hash captures the real compiler the shim
+        # execs (clang.real), not just the shim shell script. Without this,
+        # an Xcode bump leaves cached objects orphaned to the old SDK's
+        # libc++ symbol set and the link fails with undefined std symbols.
+        run: ccache --set-config=compiler_check='%compiler% -v'
 
       - name: Replace Xcode clang/clang++ with env-scrubbing shims
         run: |
