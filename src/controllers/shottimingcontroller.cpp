@@ -4,6 +4,7 @@
 #include "../core/settings.h"
 #include "../machine/machinestate.h"
 #include <QDebug>
+#include <QScopeGuard>
 
 ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
     : QObject(parent)
@@ -491,7 +492,13 @@ void ShotTimingController::onSettlingComplete()
     // Settling is done - stop display timer and notify UI
     m_displayTimer.stop();
     emit sawSettlingChanged();
-    emit shotProcessingReady();
+
+    // Emit shotProcessingReady on scope exit so qDebug from the SAW path lands in
+    // the per-shot log before the downstream slot closes the capture window.
+    // SAW_LEARNING.md requires those lines in the per-shot log. Relies on direct
+    // (same-thread) connections — a queued connection on either signal would defeat
+    // the ordering.
+    auto deferProcessing = qScopeGuard([this] { emit shotProcessingReady(); });
 
     // Check scale is still connected
     if (!m_scale || !m_scale->isConnected()) {

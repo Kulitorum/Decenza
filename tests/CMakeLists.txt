@@ -342,6 +342,7 @@ add_decenza_test(tst_saw
 find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
 add_decenza_test(tst_settling
     tst_settling.cpp
+    mocks/MockScaleDevice.h
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp

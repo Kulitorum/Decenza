@@ -1,10 +1,12 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QRegularExpression>
+#include <QStringList>
 
 #include "models/shotdatamodel.h"
 #include "controllers/shottimingcontroller.h"
 #include "ble/de1device.h"
+#include "mocks/MockScaleDevice.h"
 
 // Test SAW settling behavior: trimSettlingData(), m_sawSettling flag lifecycle,
 // and the interaction between settling completion and shot save ordering.
@@ -187,6 +189,59 @@ private slots:
         // Settlement depends on the timer, so just verify settling is still active
         // (not prematurely cancelled by the guard itself).
         QVERIFY(tc.isSawSettling());
+    }
+
+    void sawLearningCompleteFiresBeforeShotProcessingReady() {
+        // SAW_LEARNING.md requires the [SAW] accuracy / accumulated / committed lines
+        // to land in the per-shot debug log. shotProcessingReady triggers stopCapture
+        // downstream, so sawLearningComplete (and the qDebug it drives) must fire first.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        MockScaleDevice scale;
+        scale.mockSetConnected(true);
+        tc.setScale(&scale);
+
+        // ScaleDevice's destructor emits a DISCONNECTED warning as the mock goes out
+        // of scope at test end; mark it expected per docs/CLAUDE_MD/TESTING.md.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("DISCONNECTED"));
+
+        // Populate state so onSettlingComplete passes every guard and reaches the
+        // sawLearningComplete emit: drip=1.5g, flow=1.5ml/s, overshoot=0.5g.
+        tc.m_weightAtStop = 35.0;
+        tc.m_flowRateAtStop = 1.5;
+        tc.m_targetWeightAtStop = 36.0;
+        tc.m_weight = 36.5;
+        tc.m_sawSettling = true;
+
+        QStringList order;
+        QObject::connect(&tc, &ShotTimingController::sawLearningComplete,
+                         [&order](double, double, double) { order << "sawLearningComplete"; });
+        QObject::connect(&tc, &ShotTimingController::shotProcessingReady,
+                         [&order]() { order << "shotProcessingReady"; });
+
+        tc.onSettlingComplete();
+
+        QCOMPARE(order, (QStringList{"sawLearningComplete", "shotProcessingReady"}));
+    }
+
+    void shotProcessingReadyEmittedOnEarlyReturnFromSettling() {
+        // Even when SAW learning is skipped (e.g. scale disconnected at settling),
+        // shotProcessingReady must still fire — the QScopeGuard in onSettlingComplete
+        // is what guarantees this on every code path.
+        DE1Device device;
+        ShotTimingController tc(&device);
+        // No scale set → onSettlingComplete takes the "scale disconnected" early return.
+        tc.m_sawSettling = true;
+
+        QSignalSpy sawSpy(&tc, &ShotTimingController::sawLearningComplete);
+        QSignalSpy readySpy(&tc, &ShotTimingController::shotProcessingReady);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Scale disconnected"));
+        tc.onSettlingComplete();
+
+        QCOMPARE(sawSpy.count(), 0);   // learning skipped
+        QCOMPARE(readySpy.count(), 1); // but shot still saves
     }
 
     void startShotCancelsSettlingAndEmitsReady() {
