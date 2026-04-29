@@ -96,10 +96,13 @@ struct ShotRecord {
     //
     // pourTruncatedDetected is the dominant flag — when it fires, the puck never
     // built pressure, so channeling / temp / grind signals are unreliable readings
-    // off curves the failed puck didn't produce. The save and load paths suppress
-    // the other three flags to false in that case so the UI doesn't show
-    // contradictory "Temp unstable" or "Clean extraction" chips on top of a puck
-    // failure. See ShotAnalysis::detectPourTruncated for the underlying detector.
+    // off curves the failed puck didn't produce. The save and load paths force
+    // those three (channelingDetected, temperatureUnstable, grindIssueDetected) to
+    // false in that case so the UI doesn't show contradictory "Temp unstable" or
+    // "Clean extraction" chips on top of a puck failure. skipFirstFrameDetected
+    // is NOT suppressed — it's a machine/profile issue orthogonal to puck
+    // integrity and can co-fire with pourTruncatedDetected.
+    // See ShotAnalysis::detectPourTruncated for the underlying detector.
     bool channelingDetected = false;
     bool temperatureUnstable = false;
     bool grindIssueDetected = false;
@@ -191,8 +194,9 @@ struct ShotSaveData {
     QString profileKbId;
 
     // Quality flags (computed at save time using ShotAnalysis helpers). When
-    // pourTruncatedDetected fires the other three are forced to false — see the
-    // matching comment on ShotRecord.
+    // pourTruncatedDetected fires, channelingDetected / temperatureUnstable /
+    // grindIssueDetected are forced to false; skipFirstFrameDetected is not.
+    // See the matching comment on ShotRecord.
     bool channelingDetected = false;
     bool temperatureUnstable = false;
     bool grindIssueDetected = false;

@@ -15,10 +15,12 @@ Item {
     required property bool grindIssueDetected
     required property bool skipFirstFrameDetected
     // Puck-failure flag (peak pressure < PRESSURE_FLOOR_BAR). Dominant: when
-    // true the C++ detector path forces the other four flags to false so this
-    // chip stands alone. The clean-extraction green chip below also gates on
-    // this — without that, a suppressed puck-failure shot would render the
-    // wrong all-clear.
+    // true the C++ detector path forces channeling/temp/grind to false so
+    // this chip stands alone. (skipFirstFrameDetected is intentionally NOT
+    // suppressed — it's a machine/profile issue orthogonal to puck integrity
+    // and can co-fire with this chip.) The clean-extraction green chip
+    // below also gates on this — without that, a suppressed puck-failure
+    // shot would render the wrong all-clear.
     required property bool pourTruncatedDetected
 
     signal summaryRequested()

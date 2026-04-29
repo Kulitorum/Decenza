@@ -1002,16 +1002,27 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             }
         }
 
-        // Grind issue detection: flow persistently above or below goal during
-        // pour. Skip for turbo/filter shots (high-flow profiles have wide
-        // natural flow variation that would cause false positives). Phase-
-        // mode aware — restricts averaging to flow-controlled phases so the
-        // check no longer compares actual flow against a pressure-mode
-        // profile's flow limiter (80's Espresso, Cremina, Londinium pour).
-        // Suppressed when pourTruncated fires — see the comment above.
+        // Grind issue detection. Phase-mode aware — restricts flow-vs-goal
+        // averaging to flow-controlled phases so the check no longer compares
+        // actual flow against a pressure-mode profile's flow limiter (80's
+        // Espresso, Cremina, Londinium pour). Suppressed when pourTruncated
+        // fires — see the comment above.
+        //
+        // Note: we deliberately do NOT gate this on shouldSkipChannelingCheck
+        // (the turbo / non-espresso skip used by the dC/dt detector). The
+        // yield-overshoot arm in analyzeFlowVsGoal is documented to fire
+        // independently of any flow-rate window because a gusher often has
+        // high avg flow that would trigger the turbo skip; gating with
+        // shouldSkipChannelingCheck would mask that arm on exactly the
+        // population it was designed to catch (turbo gushers with peak
+        // pressure just above PRESSURE_FLOOR_BAR). analyzeFlowVsGoal already
+        // handles non-espresso beverages and intentionally-skipped profiles
+        // via its internal `bevSkip` and `grind_check_skip` checks; the
+        // pressure-mode choke arms have their own 4 bar × 15 s gate that
+        // turbo shots can't satisfy; the flow-vs-goal averaging is gated on
+        // flow-mode phase windows that turbo profiles handle correctly.
         data.grindIssueDetected = false;
-        if (!data.pourTruncatedDetected
-            && !ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)) {
+        if (!data.pourTruncatedDetected) {
             data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 flowPts, shotData->flowGoalData(), tmpRecord.phases,
                 pourStart, pourEnd, data.beverageType,
@@ -2296,13 +2307,18 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             }
         }
 
-        // Grind direction (flow-vs-goal + choked-puck arms). Reset before the
-        // skip-check so filter/pourover/tea/steam/cleaning shots clear any
-        // stale stored value (the channeling/temp resets above are the same
-        // pattern). Suppressed when pourTruncated fires.
+        // Grind direction (flow-vs-goal + choked-puck + yield-overshoot arms).
+        // Reset before the gate so filter/pourover/tea/steam/cleaning shots
+        // clear any stale stored value via analyzeFlowVsGoal's internal skip
+        // (the channeling/temp resets above are the same pattern). Suppressed
+        // when pourTruncated fires.
+        //
+        // No outer shouldSkipChannelingCheck gate — see the matching comment
+        // in saveShotData. Skipping turbo here would mask the yield-overshoot
+        // arm on turbo gushers, which contradicts the arm's documented
+        // independence from flow-rate windows.
         record.grindIssueDetected = false;
-        if (!record.pourTruncatedDetected
-            && !ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)) {
+        if (!record.pourTruncatedDetected) {
             record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
                 record.flow, record.flowGoal, record.phases,
                 pourStart, pourEnd, record.summary.beverageType,

@@ -367,7 +367,8 @@ struct EvaluatedShot {
     bool grindSkipped = false;
     bool skippedInProd = false;  // production-path short-circuit (cleaning/filter/etc)
     bool pourTruncated = false;  // peak pressure never reached PRESSURE_FLOOR_BAR
-    QString verdict;
+    QString verdict;             // channeling-severity label for the table view (NOT the user-facing verdict)
+    QString summaryVerdict;      // user-facing verdict text from ShotAnalysis::generateSummary; populated lazily for --validate
 };
 
 // Count elevated samples + find max spike in a dC/dt series across a time
@@ -469,6 +470,30 @@ EvaluatedShot evaluate(const LoadedShot& s)
     // because the puck never built pressure at all.
     ev.pourTruncated = ShotAnalysis::detectPourTruncated(
         s.pressure, s.pourStart, s.pourEnd, s.beverageType);
+
+    // User-facing verdict text. Calls into the same generateSummary() that the
+    // Shot Summary popup uses, so the manifest can lock in the verdict-cascade
+    // wording and catch regressions to the suppression rules (e.g. PR #922's
+    // pourTruncated → "Don't tune off this shot" verdict). Pass empty vectors
+    // for weight / temperature / temperatureGoal — the function tolerates
+    // missing curves and skips the corresponding observation lines, but the
+    // verdict cascade still picks the right branch from pressure / flow / dC/dt
+    // and the phase markers, which is what the manifest gates check.
+    {
+        const QVariantList lines = ShotAnalysis::generateSummary(
+            s.pressure, s.flow, /*weight=*/{}, /*temperature=*/{},
+            /*temperatureGoal=*/{}, s.conductanceDerivative, s.phases,
+            s.beverageType, s.durationSec, s.pressureGoal, s.flowGoal,
+            /*analysisFlags=*/{}, /*firstFrameConfiguredSeconds=*/-1.0,
+            s.targetWeightG, s.yieldG);
+        for (const QVariant& v : lines) {
+            const QVariantMap m = v.toMap();
+            if (m.value(QStringLiteral("type")).toString() == QStringLiteral("verdict")) {
+                ev.summaryVerdict = m.value(QStringLiteral("text")).toString();
+                break;
+            }
+        }
+    }
 
     // Short verdict for the table: report any direction the two detectors
     // disagree on — that's what the user cares about when evaluating a
@@ -689,6 +714,17 @@ int main(int argc, char** argv)
                     mismatches << QStringLiteral("pourTruncated: want=%1 got=%2")
                                       .arg(want ? "true" : "false",
                                            ev.pourTruncated ? "true" : "false");
+            }
+            // Substring match against the user-facing verdict text — guards
+            // wording regressions in the verdict cascade (e.g. the puck-failed
+            // "Don't tune off this shot" lead-in from PR #922). Substring
+            // rather than exact so manifest authors can lock in the
+            // diagnostic phrase without freezing the entire sentence.
+            if (expect.contains("summaryVerdictContains")) {
+                const QString want = expect.value("summaryVerdictContains").toString();
+                if (!ev.summaryVerdict.contains(want, Qt::CaseInsensitive))
+                    mismatches << QStringLiteral("summaryVerdictContains: want=%1 got=%2")
+                                      .arg(want, ev.summaryVerdict);
             }
 
             if (mismatches.isEmpty()) {
