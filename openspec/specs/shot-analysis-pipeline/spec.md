@@ -151,3 +151,57 @@ The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly.
 - **AND** `detectSkipFirstFrame` SHALL return `false` (no second frame to skip to)
 - **AND** `skipFirstFrameDetected` SHALL be `false`
 
+### Requirement: Shot detail loads SHALL run `analyzeShot` exactly once
+
+When a shot is loaded via `ShotHistoryStorage::loadShotRecordStatic` and immediately serialized via `ShotHistoryStorage::convertShotRecord` (the canonical detail-load path), the application SHALL invoke `ShotAnalysis::analyzeShot` exactly once for that shot. The `AnalysisResult` produced by `loadShotRecordStatic`'s recompute SHALL be cached on the returned `ShotRecord` (via an optional field), and `convertShotRecord` SHALL read from that cache when present instead of running `analyzeShot` a second time.
+
+When `convertShotRecord` is called on a `ShotRecord` that was NOT produced by `loadShotRecordStatic` — direct construction in `ShotHistoryExporter`, in tests, or any other path that bypasses the load helper — the cache MAY be absent. In that case, `convertShotRecord` SHALL fall back to running `analyzeShot` inline so behavior remains correct end-to-end.
+
+The cached `AnalysisResult` SHALL be invalidated (cleared / reset) if any input curve on the `ShotRecord` is mutated after load. Today no caller mutates `ShotRecord` between `loadShotRecordStatic` and `convertShotRecord`, but the field's docstring SHALL document this invariant so future callers don't introduce a stale-cache bug.
+
+`analyzeShot`'s signature, the badge column projection (`decenza::applyBadgesToTarget`), the prose `summaryLines`, and the structured `detectorResults` JSON SHALL all be unchanged. This is a pure caller-side dedup.
+
+#### Scenario: Standard detail-load path runs analyzeShot once
+
+- **GIVEN** a shot record loaded via `loadShotRecordStatic`
+- **WHEN** the same `ShotRecord` is then passed to `convertShotRecord`
+- **THEN** `loadShotRecordStatic` SHALL have populated `record.cachedAnalysis` with the `AnalysisResult` it computed
+- **AND** `convertShotRecord` SHALL read `summaryLines` and `detectorResults` from the cached struct without invoking `ShotAnalysis::analyzeShot` itself
+
+#### Scenario: Direct-construction caller falls back to inline analyzeShot
+
+- **GIVEN** a `ShotRecord` constructed directly (e.g. `ShotHistoryExporter`) without `cachedAnalysis`
+- **WHEN** `convertShotRecord(record)` is invoked
+- **THEN** `convertShotRecord` SHALL invoke `ShotAnalysis::analyzeShot` inline
+- **AND** the resulting `summaryLines` and `detectorResults` SHALL be identical to what the cached path would produce for the same input
+
+#### Scenario: Cached and fallback paths produce equivalent output
+
+- **GIVEN** two equivalent `ShotRecord`s for the same shot, `A` with `cachedAnalysis` populated and `B` without
+- **WHEN** `convertShotRecord(A)` and `convertShotRecord(B)` are both invoked
+- **THEN** the resulting QVariantMap's `summaryLines`, `detectorResults`, and all five badge boolean fields SHALL be byte-equal across the two calls
+
+### Requirement: `analyzeShot` input preparation SHALL live in exactly one helper
+
+The two helper lookups required to populate `analyzeShot`'s arguments — `ShotSummarizer::getAnalysisFlags(profileKbId)` and `profileFrameInfoFromJson(profileJson)` — SHALL be consolidated into a single `decenza::prepareAnalysisInputs` helper (declared in `src/history/shotanalysisinputs.h`). The helper SHALL accept any `ShotRecord`-shaped or `ShotSaveData`-shaped source that exposes `profileKbId` and `profileJson` fields, and return a typed `AnalysisInputs` struct containing the `analysisFlags`, `firstFrameSeconds`, and `frameCount` values.
+
+The three storage-layer `analyzeShot` call sites (`saveShotData`, `loadShotRecordStatic`, `convertShotRecord`) SHALL each invoke `prepareAnalysisInputs` once and pass the resulting fields into `analyzeShot`. None of them SHALL retain inline calls to `getAnalysisFlags` or `profileFrameInfoFromJson` for the purpose of building `analyzeShot` arguments.
+
+`analyzeShot`'s signature, the badge column projection, the prose `summaryLines`, and the structured `detectorResults` JSON SHALL all remain unchanged. This is a pure refactor.
+
+A future addition to `analyzeShot`'s required inputs (e.g. a new `analysisFlags` flag, a new `ProfileFrameInfo` field) SHALL be made by extending `AnalysisInputs` and `prepareAnalysisInputs` once, with the three call sites picking up the new field automatically.
+
+#### Scenario: Save-time call site uses the helper
+
+- **GIVEN** a `ShotSaveData` with populated `profileKbId` and `profileJson`
+- **WHEN** `saveShotData` reaches the `analyzeShot` call
+- **THEN** `saveShotData` SHALL invoke `decenza::prepareAnalysisInputs(data)` exactly once
+- **AND** SHALL pass `inputs.analysisFlags`, `inputs.firstFrameSeconds`, and `inputs.frameCount` into `analyzeShot`
+- **AND** SHALL NOT have any inline `getAnalysisFlags` or `profileFrameInfoFromJson` call remaining
+
+#### Scenario: All three storage call sites produce equivalent inputs
+
+- **GIVEN** the same shot's data exposed via three lenses (the live `ShotSaveData` at save time, the loaded `ShotRecord` at load time, the same `ShotRecord` passed through `convertShotRecord`)
+- **WHEN** `prepareAnalysisInputs` is invoked in each
+- **THEN** the resulting `AnalysisInputs` SHALL be byte-equal across all three calls (same `analysisFlags`, same `firstFrameSeconds`, same `frameCount`)
+
