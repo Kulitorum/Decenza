@@ -24,6 +24,8 @@
 #include <QString>
 
 #include "ai/shotsummarizer.h"
+#include "models/shotdatamodel.h"
+#include "network/visualizeruploader.h"
 
 namespace {
 
@@ -69,6 +71,74 @@ bool linesContainType(const QVariantList& lines, const QString& type)
         if (v.toMap().value("type").toString() == type) return true;
     }
     return false;
+}
+
+// Time-series sample for the live-path builder. ShotDataModel::addSample
+// takes 10 positional args (time, pressure, flow, temperature, mixTemp,
+// pressureGoal, flowGoal, temperatureGoal, frameNumber, isFlowMode); this
+// struct elides mixTemp (aliased to temperature inside the builder) and
+// frameNumber (production code's addSample marks frameNumber Q_UNUSED, so
+// the value never lands anywhere — only the phase markers carry frame
+// information). Tests should declare per-sample shapes here and let the
+// builder fan them out.
+struct LiveSample {
+    double t;
+    double pressure;
+    double flow;
+    double temperature;
+    double pressureGoal;
+    double flowGoal;
+    double temperatureGoal;
+    bool isFlowMode;
+};
+
+// Builds a real ShotDataModel from a flat list of LiveSample structs plus
+// matching phase markers. Live-path tests need a ShotDataModel* (not a
+// QVariantMap), so we exercise the same public ingestion API the production
+// code uses (addSample, addWeightSample, addPhaseMarker), then run
+// computeConductanceDerivative() to populate the dC/dt series.
+//
+// `finalWeight` lets the caller anchor the synthesized cumulative weight
+// curve to the same final weight passed to summarize() — without it, the
+// curve and the summarize() finalWeight argument disagree, and any future
+// test extension that asserts on weight-derived detector output (yield
+// arms, weight gained) would silently read inconsistent data. When
+// `weightSamples` is supplied explicitly the synthetic curve is skipped.
+//
+// The ShotDataModel is owned by the caller's stack frame; destruction
+// happens at scope exit via RAII, no QObject parent involved.
+void populateLiveShot(ShotDataModel* model,
+                      const std::vector<LiveSample>& samples,
+                      const QList<std::tuple<double, QString, int, bool>>& phases,
+                      double finalWeight,
+                      const std::vector<QPointF>& weightSamples = {})
+{
+    for (const auto& [t, label, frameNumber, isFlowMode] : phases) {
+        model->addPhaseMarker(t, label, frameNumber, isFlowMode);
+    }
+    const double totalDuration = samples.empty() ? 0.0 : samples.back().t;
+    for (const LiveSample& s : samples) {
+        model->addSample(s.t, s.pressure, s.flow, s.temperature, s.temperature,
+                         s.pressureGoal, s.flowGoal, s.temperatureGoal,
+                         /*frameNumber=*/-1, s.isFlowMode);
+        // Synthesize a linear cumulative weight ramp from 0 to finalWeight
+        // when the caller didn't supply explicit weight samples. Using
+        // finalWeight as the endpoint keeps the curve consistent with the
+        // summarize() finalWeight argument so weight-dependent detectors
+        // see matching data on both sides.
+        if (weightSamples.empty() && totalDuration > 0.0) {
+            const double w = (s.t / totalDuration) * finalWeight;
+            // ShotDataModel::addWeightSample drops samples below 0.1 g, so
+            // skip the start-of-shot 0 g sample explicitly.
+            if (w >= 0.1) {
+                model->addWeightSample(s.t, w);
+            }
+        }
+    }
+    for (const QPointF& w : weightSamples) {
+        model->addWeightSample(w.x(), w.y());
+    }
+    model->computeConductanceDerivative();
 }
 
 } // namespace
@@ -425,6 +495,141 @@ private slots:
                      slowSummary.summaryLines[i].toMap().value("type").toString());
         }
         QCOMPARE(fastSummary.pourTruncatedDetected, slowSummary.pourTruncatedDetected);
+    }
+
+    // ---- Live-path tests (summarize via ShotDataModel*) ----
+    //
+    // The history-path tests above feed QVariantMap shapes into
+    // summarizeFromHistory(); these mirror them on the live path so the
+    // ShotDataModel input adapter doesn't regress. After PR #945 (I) both
+    // paths share runShotAnalysisAndPopulate() — so a divergence here
+    // would mean the live-path adapter built different inputs (curves,
+    // markers, frame info, target weight) than the history adapter for
+    // the same shot, not a detector-orchestration drift.
+
+    // Live-path puck-failure: same shape as
+    // pourTruncatedSuppressesChannelingAndTempLines but the input is a
+    // real ShotDataModel rather than a QVariantMap. Sets pressureGoal=9.0
+    // throughout the pour-mode phase so buildChannelingWindows produces
+    // a real inclusion window — without that, channeling would stay
+    // silent because no flow/pressure goal exists, and the assertion
+    // !"Sustained channeling" would pass for the wrong reason.
+    void summarize_pourTruncated_suppressesChannelingAndTempLines_live()
+    {
+        ShotDataModel model;
+        std::vector<LiveSample> samples;
+        // Preinfusion 0–8 s: flow-mode, flowGoal 1.5.
+        for (double t = 0.0; t <= 8.0; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/1.0, /*flow=*/1.5,
+                /*temperature=*/88.0, /*pressureGoal=*/0.0, /*flowGoal=*/1.5,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/true});
+        }
+        // Pour 8–30 s: pressure-mode, pressureGoal 9.0. Actual pressure
+        // stays at 1.0 bar to trip pourTruncated; the steady pressureGoal
+        // gives buildChannelingWindows a non-empty window, so the cascade
+        // actually has something to suppress.
+        for (double t = 8.0 + 0.1; t <= 30.0 + 1e-9; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/1.0, /*flow=*/1.5,
+                /*temperature=*/88.0, /*pressureGoal=*/9.0, /*flowGoal=*/0.0,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/false});
+        }
+        populateLiveShot(&model, samples,
+            {{0.0, QStringLiteral("Preinfusion"), 0, true},
+             {8.0, QStringLiteral("Pour"), 1, false}},
+            /*finalWeight=*/36.0);
+
+        ShotMetadata metadata;
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarize(&model, /*profile=*/nullptr,
+            metadata, /*doseWeight=*/18.0, /*finalWeight=*/36.0);
+
+        QVERIFY2(summary.pourTruncatedDetected,
+                 "puck-failure shape must set pourTruncatedDetected");
+        QVERIFY2(linesContain(summary.summaryLines, QStringLiteral("Pour never pressurized")),
+                 "summaryLines must contain the puck-failed warning");
+        QVERIFY2(!linesContain(summary.summaryLines, QStringLiteral("Sustained channeling")),
+                 "channeling line must be suppressed by the cascade");
+        QVERIFY2(!linesContain(summary.summaryLines, QStringLiteral("Temperature drifted")),
+                 "temperature drift line must be suppressed by the cascade");
+        QVERIFY2(linesContainType(summary.summaryLines, QStringLiteral("verdict")),
+                 "every shot must end with a verdict line");
+    }
+
+    // Live-path aborted-preinfusion: pin the reachedExtractionPhase gate on
+    // the live path. Mirrors abortedPreinfusionDoesNotFlagPerPhaseTemp;
+    // sample isFlowMode and the marker isFlowMode are both `false` to
+    // match the history-path mirror exactly.
+    void summarize_abortedPreinfusion_doesNotFlagPerPhaseTemp_live()
+    {
+        ShotDataModel model;
+        std::vector<LiveSample> samples;
+        // Pressure peaks at 4 bar so pourTruncated does NOT fire — we want to
+        // isolate the per-phase temp gate, not the puck-failure cascade.
+        for (double t = 0.0; t <= 3.0 + 1e-9; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/4.0, /*flow=*/0.5,
+                /*temperature=*/88.0, /*pressureGoal=*/0.0, /*flowGoal=*/0.0,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/false});
+        }
+        // Frame 0 only, isFlowMode=false to mirror the history-path test —
+        // reachedExtractionPhase must return false.
+        populateLiveShot(&model, samples,
+            {{0.0, QStringLiteral("Preinfusion"), 0, false}},
+            /*finalWeight=*/0.5);
+
+        ShotMetadata metadata;
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarize(&model, /*profile=*/nullptr,
+            metadata, /*doseWeight=*/18.0, /*finalWeight=*/0.5);
+
+        QVERIFY2(!summary.pourTruncatedDetected,
+                 "test setup: 4-bar peak should not trip pourTruncated");
+        for (const PhaseSummary& phase : summary.phases) {
+            QVERIFY2(!phase.temperatureUnstable,
+                     "per-phase temp markers must stay false on aborted-preinfusion shots");
+        }
+        QVERIFY2(linesContainType(summary.summaryLines, QStringLiteral("verdict")),
+                 "every shot must end with a verdict line");
+    }
+
+    // Live-path healthy shot: sanity check that the live adapter doesn't
+    // over-suppress observations on a clean 9-bar shot. Mirrors
+    // healthyShotKeepsObservationsAndDoesNotTruncate.
+    void summarize_healthyShot_keepsObservations_live()
+    {
+        ShotDataModel model;
+        std::vector<LiveSample> samples;
+        // Preinfusion 0–8 s @ 2 bar, pour 8–30 s @ 9 bar.
+        for (double t = 0.0; t <= 8.0; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/2.0, /*flow=*/2.0,
+                /*temperature=*/93.0, /*pressureGoal=*/0.0, /*flowGoal=*/2.0,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/true});
+        }
+        for (double t = 8.0 + 0.1; t <= 30.0 + 1e-9; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/9.0, /*flow=*/2.0,
+                /*temperature=*/93.0, /*pressureGoal=*/9.0, /*flowGoal=*/0.0,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/false});
+        }
+        populateLiveShot(&model, samples,
+            {{0.0, QStringLiteral("Preinfusion"), 0, true},
+             {8.0, QStringLiteral("Pour"), 1, false}},
+            /*finalWeight=*/36.0);
+
+        ShotMetadata metadata;
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarize(&model, /*profile=*/nullptr,
+            metadata, /*doseWeight=*/18.0, /*finalWeight=*/36.0);
+
+        QVERIFY2(!summary.pourTruncatedDetected,
+                 "healthy 9-bar shot must not be flagged as puck-failure");
+        QVERIFY2(!linesContain(summary.summaryLines, QStringLiteral("Pour never pressurized")),
+                 "puck-failed warning must be absent on a healthy shot");
+        QVERIFY2(linesContainType(summary.summaryLines, QStringLiteral("verdict")),
+                 "every shot must end with a verdict line");
     }
 
     // Cascade integrity through the fast path: when shotData carries a
