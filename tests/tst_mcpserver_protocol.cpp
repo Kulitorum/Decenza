@@ -100,15 +100,15 @@ private:
 
         for (const QByteArray& line : raw.split('\n')) {
             const QByteArray lower = line.trimmed().toLower();
-            const auto extract = [&](const QByteArray& want) {
+            const auto extract = [&]() {
                 return QString::fromUtf8(line.mid(line.indexOf(':') + 1).trimmed());
             };
             if (lower.startsWith("mcp-session-id:"))
-                out.sessionId = extract("mcp-session-id");
+                out.sessionId = extract();
             else if (lower.startsWith("mcp-protocol-version:"))
-                out.protocolVersion = extract("mcp-protocol-version");
+                out.protocolVersion = extract();
             else if (lower.startsWith("access-control-allow-origin:"))
-                out.allowOrigin = extract("access-control-allow-origin");
+                out.allowOrigin = extract();
         }
 
         const qsizetype bodyStart = raw.indexOf("\r\n\r\n");
@@ -227,6 +227,34 @@ private slots:
         const QString sid = openSession(server, "2025-11-25");
         auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 99), sid);
         QCOMPARE(resp.statusCode, 200);
+    }
+
+    void autoRecoveredSessionAdoptsClientProtocolVersion()
+    {
+        // Regression for the lockout where a stale Mcp-Session-Id forced the
+        // server to auto-create a new session, which kept the default
+        // 2025-03-26 protocol version. The very next protocol-version-mismatch
+        // check then 400'd a client whose previous session had negotiated
+        // 2025-11-25 — defeating the auto-recovery the comment claims to
+        // provide. Auto-recovery must adopt the header.
+        McpServer server;
+
+        // Two live sessions so the fallback "reuse the sole session" branch
+        // doesn't fire — we want to drive the auto-create path specifically.
+        const QString sid1 = openSession(server, "2025-11-25");
+        QVERIFY(!sid1.isEmpty());
+        const QString sid2 = openSession(server, "2025-11-25");
+        QVERIFY(!sid2.isEmpty());
+
+        // Client sends a stale session id and the version it had previously
+        // negotiated. Pre-fix this path returned HTTP 400.
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 99),
+                             "00000000-0000-0000-0000-000000000000",
+                             {{"MCP-Protocol-Version", "2025-11-25"}});
+
+        QCOMPARE(resp.statusCode, 200);
+        QVERIFY(resp.jsonBody.contains("result"));
+        QCOMPARE(resp.protocolVersion, QString("2025-11-25"));
     }
 
     void protocolVersionHeaderEchoedInResponse()

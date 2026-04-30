@@ -952,7 +952,12 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     AccessibleButton {
+                        // Mirror the guard on the inline setup-page link: only show
+                        // when the shot server is actually listening, otherwise
+                        // `shotServer.url` is empty and Qt.openUrlExternally("/mcp/setup")
+                        // gets resolved against the qrc base on macOS.
                         visible: Settings.mcp.mcpEnabled && MainController.shotServer
+                            && MainController.shotServer.url.length > 0
                         text: TranslationManager.translate("settings.ai.mcp.help.openGuide", "Open Web Guide")
                         accessibleName: TranslationManager.translate("settings.ai.mcp.help.openGuideAccessible", "Open MCP setup guide in browser")
                         onClicked: {

@@ -97,7 +97,7 @@ McpServer::McpServer(QObject* parent)
             m_allowedOrigins.insert(QStringLiteral("https://%1:*").arg(host));
         } else if (addr.protocol() == QAbstractSocket::IPv6Protocol) {
             QString host = addr.toString();
-            const int pct = host.indexOf(QLatin1Char('%'));
+            const qsizetype pct = host.indexOf(QLatin1Char('%'));
             if (pct >= 0) host.truncate(pct);  // strip zone id
             m_allowedOrigins.insert(QStringLiteral("http://[%1]:*").arg(host));
             m_allowedOrigins.insert(QStringLiteral("https://[%1]:*").arg(host));
@@ -386,8 +386,13 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                         return;
                     }
                     // Mark as initialized — the client already completed initialize
-                    // in a prior session, so skip the handshake requirement
+                    // in a prior session, so skip the handshake requirement.
+                    // Adopt the client's MCP-Protocol-Version when present so the
+                    // mismatch check below doesn't immediately 400 a recovered
+                    // client whose prior negotiation was newer than our default.
                     session->setInitialized(true);
+                    if (!protocolHeader.isEmpty())
+                        session->setProtocolVersion(protocolHeader);
                 }
             }
             // MCP-Protocol-Version header check (required by 2025-06-18 for
@@ -1107,6 +1112,7 @@ static const char* httpStatusText(int code)
     case 202: return "Accepted";
     case 204: return "No Content";
     case 400: return "Bad Request";
+    case 403: return "Forbidden";
     case 405: return "Method Not Allowed";
     case 429: return "Too Many Requests";
     default:  return "Unknown";

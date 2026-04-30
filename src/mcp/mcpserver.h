@@ -186,6 +186,6 @@ private:
     // Limits
     static constexpr int MaxSessions = 8;
     static constexpr int MaxSseConnections = 4;
-    static constexpr int SessionTimeoutMinutes = 30;  // safety net — orphan cleanup only runs during session creation
+    static constexpr int SessionTimeoutMinutes = 30;  // idle-session cleanup; runs every 60s on m_cleanupTimer and again opportunistically when a new session is created
     static constexpr int RateLimitPerMinute = 60;
 };
