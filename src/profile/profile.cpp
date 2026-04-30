@@ -556,21 +556,12 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
     }
 
-    // Sync espresso_temperature from first frame for advanced profiles only.
-    // Simple profiles (settings_2a/2b) have explicit espresso_temperature that is
-    // authoritative — their frames may be stale from a prior conversion.
-    bool isSimpleProfile = (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b");
-    if (!isSimpleProfile && !profile.m_steps.isEmpty()) {
-        if (!obj.contains("espresso_temperature")) {
-            profile.m_espressoTemperature = profile.m_steps.first().temperature;
-        } else {
-            double firstFrameTemp = profile.m_steps.first().temperature;
-            if (qAbs(profile.m_espressoTemperature - firstFrameTemp) > 0.1) {
-                qDebug() << "Syncing espresso_temperature from" << profile.m_espressoTemperature
-                         << "to first frame temp" << firstFrameTemp;
-                profile.m_espressoTemperature = firstFrameTemp;
-            }
-        }
+    // Default espresso_temperature from first frame only when the JSON omits it,
+    // so we never store NaN/0. Otherwise the top-level value is authoritative —
+    // it can legitimately differ from steps[0].temperature (e.g. a cooler group
+    // preheat target paired with a hotter preinfusion ramp).
+    if (!obj.contains("espresso_temperature") && !profile.m_steps.isEmpty()) {
+        profile.m_espressoTemperature = profile.m_steps.first().temperature;
     }
 
     // De1app defaults NumberOfPreinfuseFrames to 0 when the field is missing
