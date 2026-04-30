@@ -205,3 +205,120 @@ A future addition to `analyzeShot`'s required inputs (e.g. a new `analysisFlags`
 - **WHEN** `prepareAnalysisInputs` is invoked in each
 - **THEN** the resulting `AnalysisInputs` SHALL be byte-equal across all three calls (same `analysisFlags`, same `firstFrameSeconds`, same `frameCount`)
 
+### Requirement: ShotHistoryStorage's implementation SHALL be split across multiple translation units by concern
+
+`ShotHistoryStorage`'s ~2500-line implementation SHALL be split across at least three translation units to make navigation tractable for future contributors:
+
+1. `shothistorystorage.cpp` — DB lifecycle, save path, load + recompute. Core lifecycle for a shot record.
+2. `shothistorystorage_queries.cpp` — `requestShotsFiltered`, `requestRecentShotsByKbId`, `requestAutoFavorites`, distinct-value cache, `queryGrinderContext`. Read-only query helpers.
+3. `shothistorystorage_serialize.cpp` — `convertShotRecord` and its `pointsToVariant` lambdas. Serialization to QVariantMap for QML / MCP / web consumption.
+
+The class declaration SHALL remain in a single header (`shothistorystorage.h`); only the implementation is split. No public API change. The split SHALL preserve behavior — `git log --follow` continues to work for individual function histories because functions move atomically with their callers.
+
+#### Scenario: Splitting does not change observable behavior
+
+- **GIVEN** the codebase before the split, with all tests passing
+- **WHEN** the split is applied
+- **THEN** every test in `tst_dbmigration`, `tst_shotanalysis`, `tst_shotrecord_cache`, `tst_shotsummarizer`, and other suites that exercise `ShotHistoryStorage` SHALL continue to pass without modification
+
+#### Scenario: Header surface is unchanged
+
+- **GIVEN** the post-split codebase
+- **WHEN** an external caller `#include "history/shothistorystorage.h"`
+- **THEN** the same set of public methods SHALL be visible, with the same signatures, as before the split
+
+### Requirement: Per-marker `PhaseSummary` construction SHALL live in exactly one helper
+
+The per-marker loop that builds `PhaseSummary` entries from a curve set + phase markers SHALL be implemented in a single static helper `ShotSummarizer::buildPhaseSummariesForRange`. Both call sites — `ShotSummarizer::summarize()` (live path) and `ShotSummarizer::summarizeFromHistory()` (saved-shot path) — SHALL invoke this helper instead of their own inline loops.
+
+The helper SHALL preserve the existing semantics: degenerate phases (`endTime <= startTime`) are skipped, but the corresponding `HistoryPhaseMarker` is still appended to the marker list (which is built in parallel by the caller and used by both `analyzeShot` and the helper). The four curve-helper static functions (`findValueAtTime`, `calculateAverage`, `calculateMax`, `calculateMin`) remain the math source of truth.
+
+A future addition to `PhaseSummary`'s field set or per-phase metric computation SHALL be a one-place change in the helper, not a two-place edit across the two call sites.
+
+#### Scenario: Live and history paths produce identical PhaseSummary lists
+
+- **GIVEN** a shot with 3 phases (preinfusion, pour, decline)
+- **WHEN** the same curve data is fed through both `summarize()` (with a `ShotDataModel*`) and `summarizeFromHistory()` (with the equivalent `QVariantMap`)
+- **THEN** the resulting `ShotSummary::phases` lists SHALL be byte-equal across the two calls
+
+#### Scenario: Degenerate phase is skipped but marker is preserved
+
+- **GIVEN** a marker list with one phase where `endTime <= startTime`
+- **WHEN** `buildPhaseSummariesForRange` is invoked
+- **THEN** the returned `QList<PhaseSummary>` SHALL NOT include an entry for the degenerate phase
+- **AND** the caller's `historyMarkers` list (built in parallel) SHALL still contain the corresponding `HistoryPhaseMarker` so `analyzeShot`'s skip-first-frame detection sees it
+
+### Requirement: `DetectorResults` SHALL expose the pour window `analyzeShot` computed
+
+`ShotAnalysis::DetectorResults` SHALL include `pourStartSec` and `pourEndSec` fields populated by `analyzeShot` from the same `pourStart` / `pourEnd` locals it uses internally for the suppression cascade and detector gates. These fields SHALL be the canonical pour-window values for any consumer that needs them.
+
+`ShotSummarizer::computePourWindow` SHALL be deleted. Its sole consumer (the `markPerPhaseTempInstability` gate) SHALL read from `AnalysisResult::detectors::pourStartSec` / `pourEndSec` instead.
+
+`ShotHistoryStorage::convertShotRecord` SHALL serialize the two new fields onto the MCP `detectorResults` JSON object so external agents have access to the same pour-window values the in-app cascade uses.
+
+#### Scenario: Pour window matches analyzeShot's internal computation
+
+- **GIVEN** any shot with phase markers
+- **WHEN** `analyzeShot` is invoked
+- **THEN** `result.detectors.pourStartSec` SHALL equal the `pourStart` value `analyzeShot` uses internally for its suppression-cascade gates
+- **AND** `result.detectors.pourEndSec` SHALL equal the corresponding `pourEnd` value
+
+#### Scenario: ShotSummarizer's per-phase temp gate uses the exposed window
+
+- **GIVEN** a shot for which `markPerPhaseTempInstability` would run (not pour-truncated, reached extraction phase)
+- **WHEN** `ShotSummarizer::summarize` or `summarizeFromHistory` runs
+- **THEN** the gate's pour-window inputs SHALL come from `summary.pourStartSec` / `pourEndSec` (or equivalent cached `AnalysisResult` fields)
+- **AND** `computePourWindow` SHALL no longer exist in the codebase
+
+#### Scenario: MCP consumers see the pour window
+
+- **GIVEN** a shot served via `shots_get_detail`
+- **WHEN** the response is rendered
+- **THEN** `detectorResults.pourStartSec` and `detectorResults.pourEndSec` SHALL be present and reflect the same values used internally for cascade gating
+
+### Requirement: ShotSummarizer's detector-orchestration glue SHALL live in exactly one helper
+
+`ShotSummarizer::summarize` (live shot) and `ShotSummarizer::summarizeFromHistory` (saved shot) SHALL each delegate their final detector-orchestration block to a single private static helper `ShotSummarizer::runShotAnalysisAndPopulate`. The helper accepts pre-extracted typed inputs (curves, markers, beverage type, analysis flags, frame info, target/final weights) plus an optional cached `AnalysisResult`, and populates the passed-in `ShotSummary`'s `summaryLines`, `pourTruncatedDetected`, and per-phase `temperatureUnstable` markers.
+
+The two callers SHALL retain their respective input-adapter roles (live extracts from `ShotDataModel*`; history extracts from `QVariantMap` via `variantListToPoints`) but SHALL NOT contain duplicated `analyzeShot`-call + result-unpacking + `markPerPhaseTempInstability`-gating logic.
+
+The fast-path optimization from change `dedup-ai-advisor-history-path` (reading pre-computed `summaryLines` when present on `summarizeFromHistory`'s input) SHALL be preserved by passing the cached `AnalysisResult` to the helper when applicable; the helper's `cachedAnalysis.has_value()` branch handles the rest.
+
+#### Scenario: Live and history paths reuse the same orchestration helper
+
+- **GIVEN** the same shot data presented to both `summarize(ShotDataModel*, ...)` and `summarizeFromHistory(QVariantMap)`
+- **WHEN** the two functions run
+- **THEN** both SHALL call `ShotSummarizer::runShotAnalysisAndPopulate` with equivalent inputs
+- **AND** the resulting `ShotSummary` SHALL be byte-equal across the two paths (same `summaryLines`, same `pourTruncatedDetected`, same per-phase `temperatureUnstable` flags)
+
+#### Scenario: Cached AnalysisResult fast-path is preserved through the helper
+
+- **GIVEN** a `summarizeFromHistory` call where `shotData["summaryLines"]` is non-empty
+- **WHEN** the helper is invoked with a cached `AnalysisResult` derived from those lines
+- **THEN** the helper SHALL NOT re-run `analyzeShot`
+- **AND** SHALL populate `summary.summaryLines` from the cache and derive `pourTruncatedDetected` from `cachedAnalysis.detectors.pourTruncated`
+
+### Requirement: `ShotSummarizer::summarize` (live shot path) SHALL have direct unit-test coverage
+
+The live-shot summary path `ShotSummarizer::summarize(const ShotDataModel*, const Profile*, const ShotMetadata&, double doseWeight, double finalWeight)` SHALL be exercised by at least three direct unit tests in `tst_shotsummarizer.cpp`, mirroring the canonical scenarios already covered for the saved-shot path:
+
+1. **Puck-failure suppression cascade**: a shot whose pressure stays below `PRESSURE_FLOOR_BAR` produces `pourTruncatedDetected = true`, the `"Pour never pressurized"` warning line, the puck-failed verdict, and NO channeling / temp-drift lines.
+2. **Aborted-during-preinfusion gate**: a shot that died during preinfusion-start does NOT flag per-phase `temperatureUnstable`, even with a large measured temp deviation, because `reachedExtractionPhase` returns false.
+3. **Healthy shot baseline**: a clean shot produces non-empty observation lines, a verdict line, and `pourTruncatedDetected = false`.
+
+The tests SHALL use a `MockShotDataModel` (or equivalent test double) that exposes the curve and phase-marker accessor methods `summarize()` reads. The mock SHALL NOT depend on the full `ShotDataModel` runtime (no signals, no `QObject`-machinery beyond what's needed to satisfy the function signature).
+
+#### Scenario: Live path puck-failure test passes
+
+- **GIVEN** a `MockShotDataModel` populated with puck-failure curves (pressure flat at 1.0 bar, flow at preinfusion goal, conductance derivative spikes)
+- **WHEN** `summarize(mock, profile, metadata, 18.0, 36.0)` runs
+- **THEN** the resulting `ShotSummary::pourTruncatedDetected` SHALL be `true`
+- **AND** `summaryLines` SHALL contain the `"Pour never pressurized"` warning
+- **AND** SHALL NOT contain `"Sustained channeling"` or `"Temperature drifted"` lines
+
+#### Scenario: Live and history paths produce equivalent summaries (optional)
+
+- **GIVEN** the same shot data presented to `summarize()` (via mock) and `summarizeFromHistory()` (via QVariantMap)
+- **WHEN** both run
+- **THEN** the resulting `ShotSummary::summaryLines`, `pourTruncatedDetected`, and `phases` SHALL be byte-equal
+
