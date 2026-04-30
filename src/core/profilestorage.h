@@ -70,6 +70,9 @@ public:
     // Migrate profiles from internal to external storage (call after permission granted)
     Q_INVOKABLE void migrateProfilesToExternal();
 
+    // One-time migration: moves history dir from inside profiles/ to a sibling location
+    void migrateHistoryToNewPath();
+
 signals:
     void configuredChanged();
     void folderSelected(bool success);

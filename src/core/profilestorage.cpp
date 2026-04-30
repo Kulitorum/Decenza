@@ -26,6 +26,9 @@ ProfileStorage::ProfileStorage(QObject* parent)
     if (isConfigured()) {
         migrateProfilesToExternal();
     }
+
+    // One-time migration: history dir was incorrectly nested inside profiles/
+    migrateHistoryToNewPath();
 }
 
 bool ProfileStorage::isConfigured() const {
@@ -123,9 +126,9 @@ QString ProfileStorage::downloadedProfilesPath() const {
 }
 
 QString ProfileStorage::userHistoryPath() const {
-    QString basePath = isConfigured() ? externalProfilesPath() : fallbackPath();
+    QString basePath = externalProfilesPath(); // non-empty only on Android
     if (basePath.isEmpty()) {
-        basePath = fallbackPath();
+        basePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     }
     QString path = basePath + "/history";
     QDir dir(path);
@@ -136,12 +139,29 @@ QString ProfileStorage::userHistoryPath() const {
 }
 
 QString ProfileStorage::userHistoryPathIfExists() const {
-    QString basePath = isConfigured() ? externalProfilesPath() : fallbackPath();
+    QString basePath = externalProfilesPath(); // non-empty only on Android
     if (basePath.isEmpty()) {
-        basePath = fallbackPath();
+        basePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     }
     QString path = basePath + "/history";
     return QDir(path).exists() ? path : QString();
+}
+
+void ProfileStorage::migrateHistoryToNewPath()
+{
+    const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString oldPath = appData + "/profiles/history";
+    const QString newPath = appData + "/history";
+
+    QDir oldDir(oldPath);
+    if (!oldDir.exists()) return;
+
+    if (!QDir().rename(oldPath, newPath)) {
+        qWarning() << "[ProfileStorage] Failed to migrate history directory from"
+                   << oldPath << "to" << newPath;
+        return;
+    }
+    qDebug() << "[ProfileStorage] Migrated history from" << oldPath << "to" << newPath;
 }
 
 QStringList ProfileStorage::listProfiles() const {
