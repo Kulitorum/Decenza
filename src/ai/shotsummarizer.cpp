@@ -265,10 +265,10 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.enjoymentScore = metadata.espressoEnjoyment;
     summary.tastingNotes = metadata.espressoNotes;
 
-    // Phase processing — build PhaseSummary (per-phase metrics for the AI
-    // prompt) and HistoryPhaseMarker (typed input for ShotAnalysis::analyzeShot)
-    // in a single pass over the typed marker list. Detector orchestration runs
-    // after the loop.
+    // Phase processing — walk the typed marker list once to build the
+    // HistoryPhaseMarker stream `analyzeShot` consumes, then hand that stream
+    // to buildPhaseSummariesForRange to compute the per-phase metrics for
+    // the AI prompt. Detector orchestration runs after both passes complete.
     QList<HistoryPhaseMarker> historyMarkers;
     const auto& markers = shotData->phaseMarkersList();
     historyMarkers.reserve(markers.size());
@@ -448,7 +448,10 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
             const QVariantMap marker = v.toMap();
             HistoryPhaseMarker h;
             h.time = marker.value("time", 0.0).toDouble();
-            h.label = marker.value("label").toString();
+            // Match the pre-helper inline loop's fallback: legacy/malformed
+            // shotData rows with a missing "label" key surface as "Phase"
+            // rather than empty string in the per-phase prompt block.
+            h.label = marker.value("label", "Phase").toString();
             h.frameNumber = marker.value("frameNumber", 0).toInt();
             h.isFlowMode = marker.value("isFlowMode", false).toBool();
             h.transitionReason = marker.value("transitionReason").toString();
