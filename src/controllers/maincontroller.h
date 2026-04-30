@@ -209,6 +209,7 @@ signals:
     void flowCalibrationAutoUpdated(const QString& profileTitle, double oldValue, double newValue);
 
     // Aborted-shot classifier: shot did not start and was discarded (not saved to history).
+    // Always fires when the classifier triggers — there is no user opt-out.
     // Informational only — the shot is intentionally not recoverable.
     void shotDiscarded(double durationSec, double finalWeightG);
 

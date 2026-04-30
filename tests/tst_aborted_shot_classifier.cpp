@@ -82,9 +82,8 @@ private slots:
         QVERIFY(!isAbortedShot(30.0, 1.0));   // long but no yield → kept (diagnostic)
     }
 
-    // The classifier itself is a pure function. The toggle that gates whether
-    // a shot's verdict actually causes a drop lives in MainController; this
-    // test documents that the function does not consult any global state.
+    // The classifier itself is a pure function — same inputs always produce
+    // the same output, no global state consulted.
     void noHiddenState() {
         // Same inputs → same output, regardless of how many times we call it.
         for (int i = 0; i < 5; ++i) {
