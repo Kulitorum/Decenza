@@ -26,6 +26,13 @@ public:
     bool initialized() const { return m_initialized; }
     void setInitialized(bool v) { m_initialized = v; }
 
+    // Negotiated MCP protocol version for this session. The default — applied
+    // to legacy/auto-recovered sessions that never observed an `initialize` —
+    // matches the spec's compatibility rule: assume `2025-03-26` for clients
+    // that pre-date the `MCP-Protocol-Version` request header requirement.
+    QString protocolVersion() const { return m_protocolVersion; }
+    void setProtocolVersion(const QString& v) { m_protocolVersion = v; }
+
     QJsonObject clientCapabilities() const { return m_clientCapabilities; }
     void setClientCapabilities(const QJsonObject& caps) { m_clientCapabilities = caps; }
 
@@ -58,4 +65,5 @@ private:
     bool m_hadSseSocket = false;
     QSet<QString> m_subscribedResources;
     int m_controlCallCount = 0;
+    QString m_protocolVersion = QStringLiteral("2025-03-26");
 };

@@ -9,6 +9,7 @@
 #include <QPair>
 #include <QPointer>
 #include <QList>
+#include <QSet>
 #include <optional>
 
 class McpSession;
@@ -122,6 +123,18 @@ private:
                           const QString& sessionId = QString(),
                           const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {});
 
+    // Tool result construction — emits both `content[]` text (for legacy
+    // 2025-03-26 clients) and `structuredContent` (for 2025-06-18+ clients).
+    // If the tool result carries a `_resourceLinks` array, those entries are
+    // converted into `resource_link` content blocks and stripped from
+    // `structuredContent`.
+    QJsonObject buildToolCallResponse(const QJsonObject& toolResult) const;
+
+    // Origin allowlist. Empty Origin header is always accepted; loopback and
+    // the host's own LAN IPs (computed from QNetworkInterface at construction)
+    // are the only browser origins that match.
+    bool isOriginAllowed(const QString& origin) const;
+
     // Dependencies
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
@@ -157,6 +170,12 @@ private:
     QList<QPointer<QTcpSocket>> m_sseClients;
     void broadcastSseNotification(const QString& resourceUri);
 
+    // Cached set of allowed Origin values, populated once at construction
+    // from loopback addresses and the host's LAN IPs. Each entry is a
+    // lowercase scheme://host[:port] string with no trailing slash; entries
+    // ending in `:*` match any port.
+    QSet<QString> m_allowedOrigins;
+
     // In-app confirmation (machine_start_* tools)
     std::optional<PendingConfirmation> m_pendingConfirmation;
 
@@ -167,6 +186,6 @@ private:
     // Limits
     static constexpr int MaxSessions = 8;
     static constexpr int MaxSseConnections = 4;
-    static constexpr int SessionTimeoutMinutes = 30;  // safety net — orphan cleanup only runs during session creation
+    static constexpr int SessionTimeoutMinutes = 30;  // idle-session cleanup; runs every 60s on m_cleanupTimer and again opportunistically when a new session is created
     static constexpr int RateLimitPerMinute = 60;
 };

@@ -17,6 +17,9 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
+#include <QNetworkInterface>
+#include <QHostAddress>
+#include <QUrl>
 
 // Tool registration functions (implemented in mcptools_*.cpp)
 void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
@@ -75,6 +78,54 @@ McpServer::McpServer(QObject* parent)
             session->resetControlCalls();
     });
     m_rateLimitTimer->start();
+
+    // Loopback. Match any port on these hosts since LAN browsers often
+    // pick an ephemeral dev-server port.
+    m_allowedOrigins.insert(QStringLiteral("http://localhost:*"));
+    m_allowedOrigins.insert(QStringLiteral("https://localhost:*"));
+    m_allowedOrigins.insert(QStringLiteral("http://127.0.0.1:*"));
+    m_allowedOrigins.insert(QStringLiteral("https://127.0.0.1:*"));
+    m_allowedOrigins.insert(QStringLiteral("http://[::1]:*"));
+    m_allowedOrigins.insert(QStringLiteral("https://[::1]:*"));
+
+    // Host's own LAN IPs — same machine, any port.
+    for (const QHostAddress& addr : QNetworkInterface::allAddresses()) {
+        if (addr.isLoopback() || addr.isNull()) continue;
+        if (addr.protocol() == QAbstractSocket::IPv4Protocol) {
+            const QString host = addr.toString();
+            m_allowedOrigins.insert(QStringLiteral("http://%1:*").arg(host));
+            m_allowedOrigins.insert(QStringLiteral("https://%1:*").arg(host));
+        } else if (addr.protocol() == QAbstractSocket::IPv6Protocol) {
+            QString host = addr.toString();
+            const qsizetype pct = host.indexOf(QLatin1Char('%'));
+            if (pct >= 0) host.truncate(pct);  // strip zone id
+            m_allowedOrigins.insert(QStringLiteral("http://[%1]:*").arg(host));
+            m_allowedOrigins.insert(QStringLiteral("https://[%1]:*").arg(host));
+        }
+    }
+}
+
+bool McpServer::isOriginAllowed(const QString& origin) const
+{
+    // Empty Origin (CLI clients, mcp-remote, MCP Inspector CLI) is always allowed.
+    if (origin.isEmpty()) return true;
+
+    const QString lower = origin.toLower();
+    if (m_allowedOrigins.contains(lower)) return true;
+
+    // Wildcard-port match: compare scheme://host[:any port] against entries
+    // ending in ":*".
+    const QUrl url(origin);
+    if (!url.isValid() || url.scheme().isEmpty() || url.host().isEmpty())
+        return false;
+
+    const QString host = url.host().toLower();
+    const QString scheme = url.scheme().toLower();
+    const QString hostBracketed = host.contains(QLatin1Char(':'))
+        ? QStringLiteral("[%1]").arg(host)  // bracket IPv6 literals
+        : host;
+    const QString anyPort = QStringLiteral("%1://%2:*").arg(scheme, hostBracketed);
+    return m_allowedOrigins.contains(anyPort);
 }
 
 void McpServer::registerAllTools()
@@ -208,22 +259,84 @@ McpServer::~McpServer()
     qDeleteAll(m_sessions);
 }
 
+QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult) const
+{
+    // Pull out optional `_resourceLinks` array — tools that want to attach
+    // resource_link content blocks declare them as a side-channel here so the
+    // structured payload itself stays clean. Each entry is
+    // { "uri": "...", "title": "...", "mimeType": "..." (optional) }.
+    QJsonObject sanitized = toolResult;
+    QJsonArray resourceLinks = sanitized.take(QStringLiteral("_resourceLinks")).toArray();
+
+    QJsonArray content;
+
+    // Resource link blocks first — they're cheap to render and let clients
+    // that subscribe to resource updates correlate the result with a URI.
+    for (const QJsonValue& v : std::as_const(resourceLinks)) {
+        QJsonObject src = v.toObject();
+        QJsonObject block;
+        block["type"] = "resource_link";
+        block["uri"] = src.value("uri").toString();
+        const QString lt = src.value("title").toString();
+        if (!lt.isEmpty()) block["title"] = lt;
+        const QString mt = src.value("mimeType").toString();
+        block["mimeType"] = mt.isEmpty() ? QStringLiteral("application/json") : mt;
+        const QString ld = src.value("description").toString();
+        if (!ld.isEmpty()) block["description"] = ld;
+        content.append(block);
+    }
+
+    // Text content block — kept for backward compatibility with 2025-03-26
+    // clients that don't read structuredContent. Newer clients still see it
+    // and ignore it once they consume structuredContent.
+    QJsonObject textBlock;
+    textBlock["type"] = "text";
+    textBlock["text"] = QString::fromUtf8(QJsonDocument(sanitized).toJson(QJsonDocument::Compact));
+    content.append(textBlock);
+
+    QJsonObject result;
+    result["content"] = content;
+    result["structuredContent"] = sanitized;
+    return result;
+}
+
 void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                                    const QString& path, const QByteArray& headers,
                                    const QByteArray& body)
 {
     Q_UNUSED(path)
 
-    // Extract Mcp-Session or Mcp-Session-Id header (spec uses Mcp-Session-Id,
-    // but some clients send Mcp-Session — accept both for compatibility)
+    // Extract relevant request headers in a single pass:
+    //   - Mcp-Session-Id / Mcp-Session: session identifier
+    //   - MCP-Protocol-Version:        negotiated protocol version (per 2025-06-18)
+    //   - Origin:                      browser-supplied origin (per 2025-11-25)
     QString sessionHeader;
+    QString protocolHeader;
+    QString originHeader;
     for (const QByteArray& line : headers.split('\n')) {
-        QByteArray lower = line.trimmed().toLower();
-        if (lower.startsWith("mcp-session-id:") || lower.startsWith("mcp-session:")) {
-            sessionHeader = QString::fromUtf8(line.mid(line.indexOf(':') + 1).trimmed());
-            break;
+        const QByteArray trimmed = line.trimmed();
+        const QByteArray lower = trimmed.toLower();
+        if (sessionHeader.isEmpty() &&
+            (lower.startsWith("mcp-session-id:") || lower.startsWith("mcp-session:"))) {
+            sessionHeader = QString::fromUtf8(trimmed.mid(trimmed.indexOf(':') + 1).trimmed());
+        } else if (protocolHeader.isEmpty() && lower.startsWith("mcp-protocol-version:")) {
+            protocolHeader = QString::fromUtf8(trimmed.mid(trimmed.indexOf(':') + 1).trimmed());
+        } else if (originHeader.isEmpty() && lower.startsWith("origin:")) {
+            originHeader = QString::fromUtf8(trimmed.mid(trimmed.indexOf(':') + 1).trimmed());
         }
     }
+
+    // Origin allowlist check (DNS-rebinding protection per 2025-11-25). Done
+    // before any JSON-RPC parsing so a foreign Origin can't even reach the
+    // dispatcher. Stash the validated origin on the socket so sendHttpResponse
+    // can echo it back via Access-Control-Allow-Origin.
+    if (!isOriginAllowed(originHeader)) {
+        qDebug() << "McpServer: Rejecting request from disallowed Origin:" << originHeader;
+        sendHttpResponse(socket, 403, "Origin not allowed", "text/plain");
+        return;
+    }
+    if (socket && !originHeader.isEmpty())
+        socket->setProperty("mcpOrigin", originHeader);
 
     if (method == "POST") {
         // JSON-RPC request
@@ -273,10 +386,34 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                         return;
                     }
                     // Mark as initialized — the client already completed initialize
-                    // in a prior session, so skip the handshake requirement
+                    // in a prior session, so skip the handshake requirement.
+                    // Adopt the client's MCP-Protocol-Version when present so the
+                    // mismatch check below doesn't immediately 400 a recovered
+                    // client whose prior negotiation was newer than our default.
                     session->setInitialized(true);
+                    if (!protocolHeader.isEmpty())
+                        session->setProtocolVersion(protocolHeader);
                 }
             }
+            // MCP-Protocol-Version header check (required by 2025-06-18 for
+            // every non-initialize HTTP request after the session is set up).
+            // - Skip on `initialize` itself: the version is being negotiated.
+            // - Skip on uninitialized sessions: clients legitimately may not
+            //   know the version yet (e.g. on `notifications/initialized`).
+            // - When absent, the spec says assume `2025-03-26` — sessions
+            //   default to that, so no action needed.
+            if (!protocolHeader.isEmpty() && session && session->initialized()
+                && rpcMethod != "initialize"
+                && protocolHeader != session->protocolVersion()) {
+                qDebug() << "McpServer: Protocol version mismatch — header"
+                         << protocolHeader << "session" << session->protocolVersion();
+                sendHttpResponse(socket, 400,
+                    "Protocol version mismatch (negotiated " + session->protocolVersion().toUtf8()
+                        + ", header " + protocolHeader.toUtf8() + ")",
+                    "text/plain", session->id());
+                return;
+            }
+
             if (!session->initialized() && rpcMethod != "notifications/initialized"
                 && rpcMethod != "ping") {
                 sendJsonRpcError(socket, -32600, "Session not initialized",
@@ -344,11 +481,18 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         response.append("Content-Type: text/event-stream\r\n");
         response.append("Cache-Control: no-cache\r\n");
         response.append("Connection: keep-alive\r\n");
-        response.append("Access-Control-Allow-Origin: *\r\n");
-        response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session\r\n");
+        if (!originHeader.isEmpty()) {
+            response.append("Access-Control-Allow-Origin: " + originHeader.toUtf8() + "\r\n");
+            response.append("Access-Control-Allow-Credentials: true\r\n");
+            response.append("Vary: Origin\r\n");
+        } else {
+            response.append("Access-Control-Allow-Origin: *\r\n");
+        }
+        response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session, MCP-Protocol-Version\r\n");
         if (sseSession) {
             response.append("Mcp-Session-Id: " + sseSession->id().toUtf8() + "\r\n");
             response.append("Mcp-Session: " + sseSession->id().toUtf8() + "\r\n");
+            response.append("MCP-Protocol-Version: " + sseSession->protocolVersion().toUtf8() + "\r\n");
         }
         response.append("\r\n");
         socket->write(response);
@@ -386,10 +530,11 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         sendHttpResponse(socket, 200, "{}", "application/json");
 
     } else if (method == "OPTIONS") {
-        // CORS preflight
+        // CORS preflight. MCP-Protocol-Version is required on every request
+        // after `initialize` per 2025-06-18, so it must be in the allowlist.
         sendHttpResponse(socket, 204, "", "", QString(),
                          {{"Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS"},
-                          {"Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session, Mcp-Session-Id"},
+                          {"Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session, Mcp-Session-Id, MCP-Protocol-Version"},
                           {"Access-Control-Max-Age", "86400"}});
 
     } else {
@@ -449,11 +594,17 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     serverInfo["name"] = "Decenza MCP Server";
     serverInfo["version"] = "1.0.0";
 
-    // Negotiate protocol version — accept what the client requests if we support it
+    // Negotiate protocol version — accept what the client requests if we support it,
+    // otherwise return our preferred version (the first entry).
     QString clientVersion = params["protocolVersion"].toString();
-    static const QStringList supportedVersions = {"2025-03-26", "2024-11-05"};
+    static const QStringList supportedVersions = {
+        "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"
+    };
     QString negotiatedVersion = supportedVersions.contains(clientVersion)
         ? clientVersion : supportedVersions.first();
+
+    if (session)
+        session->setProtocolVersion(negotiatedVersion);
 
     QJsonObject result;
     result["protocolVersion"] = negotiatedVersion;
@@ -506,15 +657,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         confirmPayload["action"] = toolName;
         confirmPayload["description"] = confirmationDescription(toolName);
         confirmPayload["parameters"] = arguments;
-
-        QJsonObject result;
-        QJsonArray content;
-        QJsonObject textContent;
-        textContent["type"] = "text";
-        textContent["text"] = QString::fromUtf8(QJsonDocument(confirmPayload).toJson(QJsonDocument::Compact));
-        content.append(textContent);
-        result["content"] = content;
-        return result;
+        return buildToolCallResponse(confirmPayload);
     }
 
     // Strip the confirmed key before passing to tool handler
@@ -591,14 +734,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         return result;
     }
 
-    QJsonObject result;
-    QJsonArray content;
-    QJsonObject textContent;
-    textContent["type"] = "text";
-    textContent["text"] = QString::fromUtf8(QJsonDocument(toolResult).toJson(QJsonDocument::Compact));
-    content.append(textContent);
-    result["content"] = content;
-    return result;
+    return buildToolCallResponse(toolResult);
 }
 
 QJsonObject McpServer::handleResourcesList(const QJsonObject& params, McpSession* session)
@@ -638,6 +774,7 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
                 content["uri"] = uri;
                 content["mimeType"] = "application/json";
                 content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
+                content["structuredContent"] = resourceData;
                 contents.append(content);
                 result["contents"] = contents;
                 sendJsonRpcResponse(socketPtr, result, reqId, sessId);
@@ -675,6 +812,7 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     content["uri"] = uri;
     content["mimeType"] = "application/json";
     content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
+    content["structuredContent"] = resourceData;
     contents.append(content);
     result["contents"] = contents;
     return result;
@@ -822,13 +960,7 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
         QJsonObject deniedPayload;
         deniedPayload["error"] = "User denied confirmation for " + pending.toolName;
 
-        QJsonObject result;
-        QJsonArray content;
-        QJsonObject textContent;
-        textContent["type"] = "text";
-        textContent["text"] = QString::fromUtf8(QJsonDocument(deniedPayload).toJson(QJsonDocument::Compact));
-        content.append(textContent);
-        result["content"] = content;
+        QJsonObject result = buildToolCallResponse(deniedPayload);
         result["isError"] = true;
         sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
         return;
@@ -871,14 +1003,8 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
         return;
     }
 
-    QJsonObject result;
-    QJsonArray content;
-    QJsonObject textContent;
-    textContent["type"] = "text";
-    textContent["text"] = QString::fromUtf8(QJsonDocument(toolResult).toJson(QJsonDocument::Compact));
-    content.append(textContent);
-    result["content"] = content;
-    sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+    sendJsonRpcResponse(pending.socket, buildToolCallResponse(toolResult),
+                        pending.requestId, pending.sessionId);
 }
 
 void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVariant& requestId,
@@ -889,14 +1015,7 @@ void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVarian
         return;
     }
 
-    QJsonObject result;
-    QJsonArray content;
-    QJsonObject textContent;
-    textContent["type"] = "text";
-    textContent["text"] = QString::fromUtf8(QJsonDocument(toolResult).toJson(QJsonDocument::Compact));
-    content.append(textContent);
-    result["content"] = content;
-    sendJsonRpcResponse(socket, result, requestId, sessionId);
+    sendJsonRpcResponse(socket, buildToolCallResponse(toolResult), requestId, sessionId);
 }
 
 bool McpServer::needsInAppConfirmation(const QString& toolName) const
@@ -993,6 +1112,7 @@ static const char* httpStatusText(int code)
     case 202: return "Accepted";
     case 204: return "No Content";
     case 400: return "Bad Request";
+    case 403: return "Forbidden";
     case 405: return "Method Not Allowed";
     case 429: return "Too Many Requests";
     default:  return "Unknown";
@@ -1023,10 +1143,25 @@ void McpServer::sendHttpResponse(QTcpSocket* socket, int statusCode,
     if (!sessionId.isEmpty()) {
         response.append("Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n");
         response.append("Mcp-Session: " + sessionId.toUtf8() + "\r\n");
+        // Echo the negotiated protocol version so clients can detect server
+        // choice on raw HTTP debugging. Per 2025-06-18 the header is required
+        // on requests; emitting it on responses is informational.
+        if (auto* s = m_sessions.value(sessionId, nullptr))
+            response.append("MCP-Protocol-Version: " + s->protocolVersion().toUtf8() + "\r\n");
     }
 
-    response.append("Access-Control-Allow-Origin: *\r\n");
-    response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session\r\n");
+    // Echo the validated request Origin back if one was supplied; otherwise
+    // fall back to `*` for non-browser clients (mcp-remote, curl, MCP Inspector
+    // CLI). Echo-back lets browsers send credentials with `Allow-Credentials`.
+    const QString reqOrigin = socket ? socket->property("mcpOrigin").toString() : QString();
+    if (!reqOrigin.isEmpty()) {
+        response.append("Access-Control-Allow-Origin: " + reqOrigin.toUtf8() + "\r\n");
+        response.append("Access-Control-Allow-Credentials: true\r\n");
+        response.append("Vary: Origin\r\n");
+    } else {
+        response.append("Access-Control-Allow-Origin: *\r\n");
+    }
+    response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session, MCP-Protocol-Version\r\n");
 
     for (const auto& header : extraHeaders)
         response.append(header.first + ": " + header.second + "\r\n");

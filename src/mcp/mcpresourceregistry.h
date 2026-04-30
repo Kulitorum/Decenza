@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mcptoolregistry.h"
+
 #include <QObject>
 #include <QString>
 #include <QJsonObject>
@@ -60,8 +62,20 @@ public:
             QJsonObject resJson;
             resJson["uri"] = res.uri;
             resJson["name"] = res.name;
+            // MCP 2025-06-18: separate human-readable `title` from `name`.
+            // Existing registrations already use a display-name-y string in
+            // `name` (e.g. "Machine State"), so reuse it here. New code
+            // should treat `name` as the programmatic identifier.
+            resJson["title"] = res.name;
             resJson["description"] = res.description;
             resJson["mimeType"] = res.mimeType;
+
+            // MCP 2025-11-25: icons array — derived from URI prefix.
+            QJsonArray icons = McpRegistryHelpers::iconsArrayFromQrc(
+                McpRegistryHelpers::iconQrcForResource(res.uri));
+            if (!icons.isEmpty())
+                resJson["icons"] = icons;
+
             result.append(resJson);
         }
         return result;

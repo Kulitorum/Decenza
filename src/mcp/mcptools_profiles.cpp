@@ -25,18 +25,27 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             if (!profileManager) return result;
 
             QJsonArray profiles;
+            QJsonArray links;
             QVariantList all = profileManager->availableProfiles();
             for (const QVariant& v : all) {
                 QVariantMap pm = v.toMap();
                 QJsonObject p;
-                p["filename"] = pm["name"].toString();
+                const QString filename = pm["name"].toString();
+                p["filename"] = filename;
                 p["title"] = pm["title"].toString();
                 p["editorType"] = pm["editorType"].toString();
                 p["readOnly"] = pm["readOnly"].toBool();
                 profiles.append(p);
+
+                QJsonObject link;
+                link["uri"] = QStringLiteral("decenza://profiles/") + filename;
+                link["title"] = pm["title"].toString();
+                link["mimeType"] = "application/json";
+                links.append(link);
             }
             result["profiles"] = profiles;
             result["count"] = profiles.size();
+            result["_resourceLinks"] = links;
             return result;
         },
         "read");
@@ -50,18 +59,29 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             QJsonObject result;
             if (!profileManager) return result;
 
-            result["filename"] = profileManager->baseProfileName();
+            const QString filename = profileManager->baseProfileName();
+            result["filename"] = filename;
             result["modified"] = profileManager->isProfileModified();
             result["readOnly"] = profileManager->isCurrentProfileReadOnly();
 
             QVariantMap profile = profileManager->getCurrentProfile();
+            QString profileTitle;
             if (!profile.isEmpty()) {
-                result["title"] = profile["title"].toString();
+                profileTitle = profile["title"].toString();
+                result["title"] = profileTitle;
                 result["editorType"] = profileManager->currentEditorType();
                 result["targetWeightG"] = profileManager->profileTargetWeight();
                 result["targetTemperatureC"] = profileManager->profileTargetTemperature();
                 if (profileManager->profileHasRecommendedDose())
                     result["recommendedDoseG"] = profileManager->profileRecommendedDose();
+            }
+
+            if (!filename.isEmpty()) {
+                QJsonObject link;
+                link["uri"] = QStringLiteral("decenza://profiles/") + filename;
+                link["title"] = profileTitle.isEmpty() ? filename : profileTitle;
+                link["mimeType"] = "application/json";
+                result["_resourceLinks"] = QJsonArray{ link };
             }
             return result;
         },
@@ -96,6 +116,13 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
 
             // Convert QVariantMap to QJsonObject
             result = QJsonObject::fromVariantMap(profile);
+
+            QJsonObject link;
+            link["uri"] = QStringLiteral("decenza://profiles/") + filename;
+            link["title"] = profile["title"].toString().isEmpty()
+                ? filename : profile["title"].toString();
+            link["mimeType"] = "application/json";
+            result["_resourceLinks"] = QJsonArray{ link };
             return result;
         },
         "read");

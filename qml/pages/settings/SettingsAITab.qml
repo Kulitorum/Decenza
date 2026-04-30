@@ -455,15 +455,23 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Setup page link (visible when MCP enabled)
+                // Setup page link (visible only when the shot server is actually
+                // listening — `shotServer.url` returns empty until then, and a
+                // bare "/mcp/setup" gets resolved against the qrc base by
+                // Qt.openUrlExternally on macOS, popping a "no application"
+                // dialog instead of opening the browser).
                 ColumnLayout {
-                    visible: Settings.mcp.mcpEnabled && MainController.shotServer
+                    readonly property string mcpSetupUrl: (Settings.mcp.mcpEnabled && MainController.shotServer
+                        && MainController.shotServer.url.length > 0)
+                        ? MainController.shotServer.url + "/mcp/setup" : ""
+
+                    visible: mcpSetupUrl.length > 0
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
 
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.setupPageLabel", "Setup page:") + " "
-                            + (MainController.shotServer ? MainController.shotServer.url : "") + "/mcp/setup"
+                            + parent.mcpSetupUrl
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(12)
                         font.underline: true
@@ -476,7 +484,10 @@ KeyboardAwareContainer {
                             id: setupLinkArea
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.openUrlExternally((MainController.shotServer ? MainController.shotServer.url : "") + "/mcp/setup")
+                            onClicked: {
+                                if (parent.parent.mcpSetupUrl.length > 0)
+                                    Qt.openUrlExternally(parent.parent.mcpSetupUrl)
+                            }
                         }
                         Accessible.onPressAction: setupLinkArea.clicked(null)
                     }
@@ -941,7 +952,12 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     AccessibleButton {
+                        // Mirror the guard on the inline setup-page link: only show
+                        // when the shot server is actually listening, otherwise
+                        // `shotServer.url` is empty and Qt.openUrlExternally("/mcp/setup")
+                        // gets resolved against the qrc base on macOS.
                         visible: Settings.mcp.mcpEnabled && MainController.shotServer
+                            && MainController.shotServer.url.length > 0
                         text: TranslationManager.translate("settings.ai.mcp.help.openGuide", "Open Web Guide")
                         accessibleName: TranslationManager.translate("settings.ai.mcp.help.openGuideAccessible", "Open MCP setup guide in browser")
                         onClicked: {
