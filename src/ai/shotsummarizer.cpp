@@ -466,6 +466,27 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
                                                  summary.totalDuration));
     }
 
+    // Fast path: when shotData came out of ShotHistoryStorage::convertShotRecord
+    // it already carries `summaryLines` (from convertShotRecord's analyzeShot
+    // pass) and `detectorResults.pourTruncated`. Reuse those directly instead
+    // of running analyzeShot a second time on the same data — the two paths
+    // are byte-identical by construction (same code, same inputs). Per-phase
+    // temperature markers are still gated on the same conditions as the
+    // slow path; only the detector orchestration block is bypassed.
+    const QVariantList preComputedLines = shotData.value("summaryLines").toList();
+    if (!preComputedLines.isEmpty()) {
+        summary.summaryLines = preComputedLines;
+        const QVariantMap preDetectors = shotData.value("detectorResults").toMap();
+        summary.pourTruncatedDetected = preDetectors.value("pourTruncated").toBool();
+        if (!summary.pourTruncatedDetected
+            && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
+            markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
+        return summary;
+    }
+
+    // Slow path: legacy shotData (e.g. imported shots, direct test callers,
+    // any QVariantMap that didn't flow through convertShotRecord) lacks the
+    // pre-computed fields. Fall through to the inline detector orchestration.
     // Detector orchestration delegated to ShotAnalysis::analyzeShot (via the
     // generateSummary wrapper) — see summarize() for rationale. historyMarkers
     // was already populated alongside the PhaseSummary list above (single pass).

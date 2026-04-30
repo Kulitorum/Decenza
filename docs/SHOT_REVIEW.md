@@ -441,9 +441,14 @@ Observations` section with a preamble framing the lines as detector
 evidence (severity tags `[warning]` / `[caution]` / `[good]` /
 `[observation]`). The `verdict` line is filtered out so the AI reasons
 from the same observations the verdict was built from rather than
-anchoring on the dialog's pre-cooked conclusion. The suppression cascade
-is enforced in exactly one place — `analyzeShot` — so the badge UI,
-the dialog, and the AI advisor cannot drift.
+anchoring on the dialog's pre-cooked conclusion. On historical shots,
+`ShotSummarizer::summarizeFromHistory` prefers the pre-computed
+`shotData.summaryLines` (populated by `convertShotRecord`'s `analyzeShot`
+pass) and only falls back to running the inline detector orchestration
+when that field is absent — same fast/fallback pattern the dialog uses,
+same correctness guarantee. The suppression cascade is enforced in
+exactly one place — `analyzeShot` — so the badge UI, the dialog, and
+the AI advisor cannot drift.
 
 ### External MCP agents see structured detectors (PR #933, resolved Issue #931)
 
