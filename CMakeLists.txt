@@ -290,6 +290,8 @@ set(SOURCES
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/history/shothistorystorage.cpp
+    src/history/shothistorystorage_internal.cpp
+    src/history/shothistorystorage_serialize.cpp
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
     src/history/shotimporter.cpp
@@ -454,6 +456,7 @@ set(HEADERS
     src/ai/shotsummarizer.h
     src/history/shothistory_types.h
     src/history/shothistorystorage.h
+    src/history/shothistorystorage_internal.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
     src/history/shotimporter.h
