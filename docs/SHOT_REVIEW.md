@@ -299,20 +299,26 @@ QML side is a thin display layer.
 
 ### Pipeline
 
-`ShotAnalysisDialog` (visible) →
-`MainController.shotHistory.generateShotSummary(shotData)` (Q_INVOKABLE on
-`ShotHistoryStorage`) →
-`ShotAnalysis::analyzeShot(...)` →
-`AnalysisResult { lines, detectors }`. The dialog reads `lines` (a
-`QVariantList` of `{ text, type }` entries) and renders them via a
-`Repeater` with a colored dot per line. External MCP consumers read
-`detectors` (a typed `DetectorResults` struct serialized as
-`detectorResults` JSON on `shots_get_detail`).
+There are two consumer paths that share a single detector pass:
 
-`ShotAnalysis::generateSummary(...)` still exists as a thin wrapper that
-returns `analyzeShot(...).lines`; existing callers that only want the
-prose lines (the Q_INVOKABLE bridge above, the AI advisor prompt builder)
-keep working unchanged.
+- **In-app dialog path** (returns prose only):
+  `ShotAnalysisDialog` (visible) →
+  `MainController.shotHistory.generateShotSummary(shotData)` (Q_INVOKABLE on
+  `ShotHistoryStorage`) →
+  `ShotAnalysis::generateSummary(...)` *(thin wrapper that returns
+  `analyzeShot(...).lines`)* →
+  `QVariantList` of `{ text, type }` lines →
+  `Repeater` in the dialog with a colored dot per line.
+- **MCP path** (returns prose + structured detectors):
+  `convertShotRecord` → `ShotAnalysis::analyzeShot(...)` →
+  `AnalysisResult { lines, detectors }` → emitted as `summaryLines` plus a
+  nested `detectorResults` JSON object on every shot record served by
+  `shots_get_detail` / `shots_compare`.
+
+Both paths run the same `analyzeShot` body. The dialog discards `detectors`;
+MCP serializes the full struct. Existing callers that only want the prose
+lines (the Q_INVOKABLE bridge above, the AI advisor prompt builder) keep
+working unchanged through the `generateSummary` wrapper.
 
 `generateShotSummary` is the bridge that converts the QML `shotData` map
 into the typed vectors `analyzeShot` expects (pressure, flow, weight,

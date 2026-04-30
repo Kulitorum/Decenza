@@ -150,7 +150,7 @@ public:
 
     // Get structured analysis flags for a KB entry by its ID.
     // Returns empty list if kbId is not found. Flags are parsed from "AnalysisFlags:" lines
-    // in profile_knowledge.md and control which checks generateSummary() suppresses.
+    // in profile_knowledge.md and control which checks analyzeShot() suppresses.
     static QStringList getAnalysisFlags(const QString& kbId);
 
 private:
@@ -162,7 +162,7 @@ private:
     static QString profileTypeDescription(const QString& editorType);
     // Per-phase temperature instability. Sets only PhaseSummary::temperatureUnstable;
     // the aggregate "Temperature drifted X°C from goal" observation is produced by
-    // ShotAnalysis::generateSummary instead. Callers must gate on
+    // ShotAnalysis::analyzeShot instead. Callers must gate on
     // !pourTruncatedDetected AND ShotAnalysis::reachedExtractionPhase() — same
     // gates the aggregate detector uses. Without the reachedExtractionPhase
     // check, aborted-during-preinfusion shots get false positives on the
@@ -182,7 +182,7 @@ private:
         QString name;       // Display name (e.g. "D-Flow")
         QString content;    // Full markdown section for this profile
         // Structured flags parsed from "AnalysisFlags: flag1, flag2" lines.
-        // Used by generateSummary() to suppress false positives for profiles
+        // Used by analyzeShot() to suppress false positives for profiles
         // where specific behaviors are intentional. Current flags:
         //   flow_trend_ok       — don't flag declining/rising flow as a caution
         //   channeling_expected — minor channeling is normal for this profile

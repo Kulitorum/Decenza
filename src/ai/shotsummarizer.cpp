@@ -1,6 +1,6 @@
 #include "shotsummarizer.h"
 #include "shotanalysis.h"
-#include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::generateSummary
+#include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::analyzeShot
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
@@ -59,11 +59,11 @@ QString ShotSummarizer::profileTypeDescription(const QString& editorType)
 }
 
 // Compute pour-window bounds from summary.phases. Approximates the
-// phase-boundary logic in ShotAnalysis::generateSummary (prefer a "pour"
+// phase-boundary logic in ShotAnalysis::analyzeShot (prefer a "pour"
 // phase, fall back to the first preinfusion/start, use the last phase end
-// for the close). The exact window does not need to match generateSummary's
+// for the close). The exact window does not need to match analyzeShot's
 // because this is only used to gate markPerPhaseTempInstability — the
-// channeling/temp/grind detectors live entirely inside generateSummary.
+// channeling/temp/grind detectors live entirely inside analyzeShot.
 static void computePourWindow(const ShotSummary& summary,
                               double& pourStart, double& pourEnd)
 {
@@ -174,7 +174,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.tastingNotes = metadata.espressoNotes;
 
     // Phase processing — build PhaseSummary (per-phase metrics for the AI
-    // prompt) and HistoryPhaseMarker (typed input for ShotAnalysis::generateSummary)
+    // prompt) and HistoryPhaseMarker (typed input for ShotAnalysis::analyzeShot)
     // in a single pass over the typed marker list. Detector orchestration runs
     // after the loop.
     QList<HistoryPhaseMarker> historyMarkers;
@@ -214,7 +214,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         for (qsizetype i = 0; i < markers.size(); i++) {
             const PhaseMarker& marker = markers[i];
 
-            // Build the typed marker input for ShotAnalysis::generateSummary
+            // Build the typed marker input for ShotAnalysis::analyzeShot
             // alongside the per-phase metrics. The two lists can differ in
             // length — degenerate phases (endTime <= startTime) skip the
             // PhaseSummary append below but still contribute their marker
@@ -269,9 +269,10 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         }
     }
 
-    // Detector orchestration delegated to ShotAnalysis::generateSummary — the
-    // same call ShotHistoryStorage::generateShotSummary makes for the in-app
-    // dialog. Single source of truth for the suppression cascade (pour
+    // Detector orchestration delegated to ShotAnalysis::analyzeShot (via the
+    // generateSummary wrapper, since this caller only needs the prose lines)
+    // — the same path ShotHistoryStorage::generateShotSummary takes for the
+    // in-app dialog. Single source of truth for the suppression cascade (pour
     // truncated → channeling/temp/grind forced false). See SHOT_REVIEW.md §3.
     const auto& tempGoalData = shotData->temperatureGoalData();
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
@@ -286,9 +287,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         firstFrameSeconds, summary.targetWeight, summary.finalWeight);
 
     // pourTruncated tracked separately to gate per-phase temp markers — those
-    // aren't part of generateSummary's aggregated output but they appear in
+    // aren't part of analyzeShot's aggregated output but they appear in
     // the prompt's per-phase block, so they need their own suppression. The
-    // reachedExtractionPhase gate matches generateSummary's aggregate-temp
+    // reachedExtractionPhase gate matches analyzeShot's aggregate-temp
     // gate (added in PR #898) so aborted-during-preinfusion shots don't get
     // flagged on the preheat ramp.
     double pourStart = 0, pourEnd = summary.totalDuration;
@@ -391,7 +392,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     if (summary.pressureCurve.isEmpty()) return summary;
 
     // Phase processing — build PhaseSummary (per-phase metrics for the prompt)
-    // and HistoryPhaseMarker (typed input for ShotAnalysis::generateSummary)
+    // and HistoryPhaseMarker (typed input for ShotAnalysis::analyzeShot)
     // in a single pass over the stored phase list. Skipped-phase rows still
     // contribute their HistoryPhaseMarker (frame transitions matter to
     // skip-first-frame detection even when their span is degenerate).
@@ -480,9 +481,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         summary.phases.append(phase);
     }
 
-    // Detector orchestration delegated to ShotAnalysis::generateSummary —
-    // see summarize() for rationale. historyMarkers was already populated
-    // alongside the PhaseSummary list above (single pass).
+    // Detector orchestration delegated to ShotAnalysis::analyzeShot (via the
+    // generateSummary wrapper) — see summarize() for rationale. historyMarkers
+    // was already populated alongside the PhaseSummary list above (single pass).
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
 
     // First-frame seconds reuses the profileDoc parsed at the top of this
@@ -721,7 +722,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     }
     out << "\n";
 
-    // Detector observations — the same line list ShotAnalysis::generateSummary
+    // Detector observations — the same line list ShotAnalysis::analyzeShot
     // produces for the in-app Shot Summary dialog, minus the verdict line.
     //
     // Why omit the verdict: the verdict is a deterministic, prescriptive

@@ -939,7 +939,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     }
 
     // --- Skip-first-frame ---
-    // Re-derive from phase markers (already available) so generateSummary() does not
+    // Re-derive from phase markers (already available) so analyzeShot() does not
     // need a separate skipFirstFrameDetected parameter. Catches FW bug (machine
     // never executed frame 0) or profile first step running far shorter than
     // configured. firstFrameConfiguredSeconds (when known) avoids false-positives
