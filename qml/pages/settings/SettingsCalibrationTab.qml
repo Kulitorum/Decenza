@@ -389,54 +389,6 @@ Item {
                     }
                 }
 
-                // Discard shots that did not start (issue #899)
-                Rectangle {
-                    objectName: "discardAbortedShots"
-                    Layout.fillWidth: true
-                    implicitHeight: discardAbortedContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: discardAbortedContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.spacingSmall
-
-                        Text {
-                            text: TranslationManager.translate("settings.calibration.discardAbortedShots", "Discard Shots That Did Not Start")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                            Accessible.ignored: true
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                text: TranslationManager.translate("settings.calibration.discardAbortedShotsDesc",
-                                    "Don't save espresso shots shorter than 10 s with less than 5 g yield. A brief notification will appear when one is dropped.")
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                color: Theme.textSecondaryColor
-                                font.family: Theme.bodyFont.family
-                                font.pixelSize: Theme.scaled(12)
-                                Accessible.ignored: true
-                            }
-
-                            StyledSwitch {
-                                checked: Settings.brew.discardAbortedShots
-                                accessibleName: TranslationManager.translate("settings.calibration.discardAbortedShots", "Discard shots that did not start")
-                                onToggled: Settings.brew.discardAbortedShots = checked
-                            }
-                        }
-                    }
-                }
-
                 // Steam Health Monitor
                 Rectangle {
                     objectName: "steamHealth"

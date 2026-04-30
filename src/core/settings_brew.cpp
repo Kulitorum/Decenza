@@ -733,15 +733,3 @@ void SettingsBrew::setIgnoreVolumeWithScale(bool enabled) {
     }
 }
 
-// Discard aborted shots
-
-bool SettingsBrew::discardAbortedShots() const {
-    return m_settings.value("espresso/discardAbortedShots", true).toBool();
-}
-
-void SettingsBrew::setDiscardAbortedShots(bool enabled) {
-    if (discardAbortedShots() != enabled) {
-        m_settings.setValue("espresso/discardAbortedShots", enabled);
-        emit discardAbortedShotsChanged();
-    }
-}

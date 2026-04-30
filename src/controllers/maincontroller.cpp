@@ -1810,20 +1810,17 @@ void MainController::onShotEnded() {
     bool showPostShot = m_settings->visualizer()->visualizerShowAfterShot();
 
     // Aborted-shot classifier: drop shots that did not start (extraction < 10s AND yield < 5g).
-    // Validated against an 882-shot corpus — 5/882 (0.57%) discarded, all genuine "did not
-    // start" cases. See openspec/changes/add-discard-aborted-shots.
+    // Always on — validated against an 882-shot corpus, 5/882 (0.57%) discarded, all genuine
+    // "did not start" cases. See openspec/changes/add-discard-aborted-shots.
     {
-        const bool discardEnabled = m_settings->brew()->discardAbortedShots();
         const bool aborted = decenza::isAbortedShot(duration, finalWeight);
-        const QString action = (aborted && discardEnabled) ? QStringLiteral("discarded")
-                                                            : QStringLiteral("saved");
         qInfo().noquote() << QStringLiteral("[discard-classifier] extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4")
             .arg(QString::number(duration, 'f', 3),
                  QString::number(finalWeight, 'f', 1),
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),
-                 action);
+                 aborted ? QStringLiteral("discarded") : QStringLiteral("saved"));
 
-        if (aborted && discardEnabled) {
+        if (aborted) {
             emit shotDiscarded(duration, finalWeight);
             // Skip save, skip auto-upload, skip post-shot review navigation.
             // Reset extraction flag so subsequent operations don't re-trigger shot logic.
