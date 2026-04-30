@@ -198,6 +198,34 @@ private:
     void markPerPhaseTempInstability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 
+    // Run the detector pipeline and stamp the result onto `summary`.
+    //
+    // The body that previously sat at the tail of both `summarize()` (live)
+    // and `summarizeFromHistory()` (saved-shot slow path) is identical
+    // post-PR #944 (H): call `analyzeShot`, copy `summaryLines`, derive
+    // `pourTruncatedDetected`, then conditionally call
+    // `markPerPhaseTempInstability` under the cascade gate. This helper is
+    // the single place that orchestration lives so the live and saved-shot
+    // paths can no longer drift on detector wiring. The fast path of
+    // `summarizeFromHistory` still bypasses this helper — it consumes a
+    // pre-computed AnalysisResult from the convertShotRecord serialization
+    // (PR #939, D) and runs the same gate inline; that's a different code
+    // shape (no analyzeShot call to make) so it stays separate.
+    void runShotAnalysisAndPopulate(ShotSummary& summary,
+        const QVector<QPointF>& pressure,
+        const QVector<QPointF>& flow,
+        const QVector<QPointF>& weight,
+        const QVector<QPointF>& temperature,
+        const QVector<QPointF>& temperatureGoal,
+        const QVector<QPointF>& conductanceDerivative,
+        const QList<HistoryPhaseMarker>& markers,
+        const QVector<QPointF>& pressureGoal,
+        const QVector<QPointF>& flowGoal,
+        const QStringList& analysisFlags,
+        double firstFrameSeconds,
+        double targetWeightG,
+        int frameCount) const;
+
     // Shared prompt sections
     static QString sharedCorePhilosophy();
     static QString sharedGrinderGuidance();
