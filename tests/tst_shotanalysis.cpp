@@ -1359,6 +1359,105 @@ private slots:
         QVERIFY2(sawCleanVerdict, "structured clean verdict must match prose");
     }
 
+    // Pour window exposure: `pourStartSec`/`pourEndSec` must reflect the
+    // phase-boundary range analyzeShot computed internally. MCP consumers
+    // (`shots_get_detail`) read these directly instead of re-deriving the
+    // window from phase markers; the previous `ShotSummarizer::computePourWindow`
+    // re-derivation is what let drift creep in (PR #944 deleted it).
+    // ShotSummarizer's per-phase temperature instability check iterates
+    // `summary.phases` directly and doesn't read these fields — only the
+    // `pourTruncatedDetected` cascade gate couples it to analyzeShot.
+    void analyzeShot_pourWindow_matchesPhaseBoundaries()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",              1, /*isFlowMode=*/false),
+            phase(28.0, "end",              2, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure = concat(rampSeries(0.0, 8.0, 1.0, 9.0),
+                                            flatSeries(8.1, 30.0, 9.0));
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal);
+        const auto& d = result.detectors;
+        QCOMPARE(d.pourStartSec, 8.0);
+        QCOMPARE(d.pourEndSec, 28.0);
+    }
+
+    // No-marker whole-shot fallback: when phases is empty but pressure data
+    // is present, analyzeShot still runs but the boundary loop produces no
+    // hits, so pourStart stays at 0 and pourEnd stays at the full shot
+    // duration. ShotSummarizer's per-phase temp gate sees this as "whole
+    // shot is the pour window" — same behavior as the deleted
+    // computePourWindow's `pourEnd = summary.totalDuration` default.
+    void analyzeShot_pourWindow_noMarkers_spansWholeShot()
+    {
+        const double duration = 30.0;
+        QVector<QPointF> pressure = flatSeries(0.0, duration, 9.0);
+        QVector<QPointF> flow = flatSeries(0.0, duration, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, duration, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, duration, 0.0, 36.0);
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, /*phases=*/{}, "espresso", duration);
+        const auto& d = result.detectors;
+        QCOMPARE(d.pourStartSec, 0.0);
+        QCOMPARE(d.pourEndSec, duration);
+    }
+
+    // Insufficient-data early return: when pressure.size() < 10, analyzeShot
+    // returns immediately with default detector fields. pourStartSec and
+    // pourEndSec stay at their `0.0` defaults — consumers must treat that
+    // as "no analysis was possible," not "valid window starting at 0."
+    void analyzeShot_pourWindow_insufficientData_defaultsToZero()
+    {
+        QVector<QPointF> pressure;  // empty — triggers early return
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, /*flow=*/{}, /*weight=*/{}, /*temperature=*/{},
+            /*tempGoal=*/{}, /*dCdt=*/{}, /*phases=*/{}, "espresso", 30.0);
+        const auto& d = result.detectors;
+        QCOMPARE(d.pourStartSec, 0.0);
+        QCOMPARE(d.pourEndSec, 0.0);
+    }
+
+    // Preinfusion-only fallback: when no "pour" phase is present, analyzeShot
+    // uses the first preinfusion/start boundary as pourStart. MCP consumers
+    // read this directly instead of re-deriving the window from phase markers
+    // (the previous `ShotSummarizer::computePourWindow` did exactly that and
+    // was the drift hazard PR #944 closed).
+    void analyzeShot_pourWindow_preinfusionOnly_usesPreinfusionBoundary()
+    {
+        const double duration = 30.0;
+        QList<HistoryPhaseMarker> phases{
+            phase(2.0, "preinfusion", 0, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = flatSeries(0.0, duration, 9.0);
+        QVector<QPointF> flow = flatSeries(0.0, duration, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, duration, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, duration, 0.0, 36.0);
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", duration);
+        const auto& d = result.detectors;
+        QCOMPARE(d.pourStartSec, 2.0);
+        QCOMPARE(d.pourEndSec, duration);
+    }
+
     // Backwards compatibility: the legacy generateSummary() wrapper must
     // return the same line list as analyzeShot(...).lines. If this fails,
     // the wrapper has drifted — every QML/AI consumer downstream is

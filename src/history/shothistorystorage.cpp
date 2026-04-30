@@ -2046,6 +2046,8 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 
         detectorResults["pourTruncated"] = d.pourTruncated;
         if (d.pourTruncated) detectorResults["peakPressureBar"] = d.peakPressureBar;
+        detectorResults["pourStartSec"] = d.pourStartSec;
+        detectorResults["pourEndSec"] = d.pourEndSec;
         detectorResults["skipFirstFrame"] = d.skipFirstFrame;
         detectorResults["verdictCategory"] = d.verdictCategory;
 

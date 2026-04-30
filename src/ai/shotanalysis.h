@@ -353,6 +353,23 @@ public:
         bool pourTruncated = false;
         double peakPressureBar = 0.0;
 
+        // === Pour window (seconds) ===
+        // The phase-boundary range analyzeShot computed internally to gate
+        // every other detector. Exposed so MCP `shots_get_detail` consumers
+        // and regression tests can read the same window the cascade used
+        // instead of re-deriving it from phase markers. Removing that
+        // duplication is what let the previous `ShotSummarizer::computePourWindow`
+        // drift from analyzeShot's logic; see PR #944.
+        //
+        // pourStartSec is 0.0 when no "preinfusion"/"pour" markers are
+        // present (the boundary loop didn't fire); pourEndSec defaults to
+        // shot duration when no "end" marker is present. Both fields stay
+        // at 0.0 only when analyzeShot took the insufficient-data early
+        // return (pressure.size() < 10) — distinguishable from the no-marker
+        // case by pourEndSec being 0.0 instead of the shot duration.
+        double pourStartSec = 0.0;
+        double pourEndSec = 0.0;
+
         // === Channeling (dC/dt) ===
         bool channelingChecked = false;
         QString channelingSeverity;       // "" if !checked; else "none" | "transient" | "sustained"
