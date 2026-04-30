@@ -58,9 +58,9 @@
 
 ## 9. Verification
 
-- [ ] 9.1 Connect with `mcp-remote` and verify negotiation lands on `2025-11-25` and tools still work end-to-end. — runtime test.
-- [ ] 9.2 Connect with MCP Inspector (web) and confirm `Origin` is echoed correctly, `tools/list` shows `title` and `icons`, and `tools/call` responses carry `structuredContent`. — runtime test.
-- [ ] 9.3 Send a request with `MCP-Protocol-Version: 2024-11-05` after negotiating `2025-11-25` → expect HTTP 400. — runtime test.
-- [ ] 9.4 Send a request with `Origin: http://evil.example` → expect HTTP 403 and no JSON-RPC processing. — runtime test.
-- [ ] 9.5 Confirm an old-spec client (`2025-03-26`) still works: same tool calls, text content blocks still rendered. — runtime test.
+- [ ] 9.1 Connect with `mcp-remote` and verify negotiation lands on `2025-11-25` and tools still work end-to-end. — pending end-to-end test from a Claude Desktop client.
+- [x] 9.2 Verified against the local Decenza MCP at `localhost:8888`: `tools/list` returns auto-derived `title` (e.g. `machine_start_hot_water` → `"Machine Start Hot Water"`), every tool has an `icons` array with a `data:image/svg+xml;base64,…` entry, every `inputSchema` declares `"$schema": "https://json-schema.org/draft/2020-12/schema"`, and `tools/call` responses include both `content[]` (with a `resource_link` block plus the legacy `text` block) and a populated `structuredContent` field.
+- [x] 9.3 Sent `tools/call` with `MCP-Protocol-Version: 2024-11-05` after negotiating `2025-11-25` → server returns HTTP 400 with body `"Protocol version mismatch (negotiated 2025-11-25, header 2024-11-05)"`.
+- [x] 9.4 Sent `initialize` with `Origin: http://evil.example` → server returns HTTP 403 before any JSON-RPC parsing.
+- [x] 9.5 Initialized as `2025-03-26`, ran `tools/call machine_get_state` → server still negotiates `2025-03-26` and returns a valid result with the legacy `text` content block intact (and the new `structuredContent` field, which 2025-03-26 clients ignore).
 - [x] 9.6 Run `openspec validate update-mcp-protocol-2025-11-25 --strict --no-interactive` — passes.

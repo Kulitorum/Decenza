@@ -510,6 +510,37 @@ add_decenza_test(tst_mcpserver_session
 target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_mcpserver_protocol: 2025-11-25 spec compliance (version negotiation,
+# MCP-Protocol-Version header validation, Origin allowlist, structuredContent,
+# resource_link extraction, title/icons/$schema). Stubs out tool/resource
+# registration like tst_mcpserver_session — same dependency footprint.
+find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+add_decenza_test(tst_mcpserver_protocol
+    tst_mcpserver_protocol.cpp
+    ${MCP_MOC_HEADERS}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcpserver_protocol PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
+target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
+
+# Compile the production qrc so :/icons/* paths resolve at runtime — the
+# `icons[]` round-trip test reads SVGs out of the resource bundle and would
+# fail with an empty array otherwise.
+target_sources(tst_mcpserver_protocol PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+set_target_properties(tst_mcpserver_protocol PROPERTIES AUTORCC ON)
+
 # --- tst_accessibility_announcements: announce() routing rule (platform vs TTS) ---
 # AccessibilityManager pulls TextToSpeech (m_tts construction in initTts) and
 # QQuickWindow (root-window lookup in dispatchPlatformAnnouncement). The test
