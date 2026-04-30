@@ -682,7 +682,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     const QStringList& analysisFlags,
     double firstFrameConfiguredSeconds,
     double targetWeightG,
-    double finalWeightG)
+    double finalWeightG,
+    int expectedFrameCount)
 {
     AnalysisResult result;
     QVariantList& lines = result.lines;
@@ -945,7 +946,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     // configured. firstFrameConfiguredSeconds (when known) avoids false-positives
     // on profiles with frame[0].seconds == 2.
     const bool skipFirstFrame = detectSkipFirstFrame(
-        phases, /*expectedFrameCount=*/-1, firstFrameConfiguredSeconds);
+        phases, expectedFrameCount, firstFrameConfiguredSeconds);
     d.skipFirstFrame = skipFirstFrame;
     if (skipFirstFrame) {
         QVariantMap line;

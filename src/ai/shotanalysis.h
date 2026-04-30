@@ -446,7 +446,8 @@ public:
                                        const QStringList& analysisFlags = {},
                                        double firstFrameConfiguredSeconds = -1.0,
                                        double targetWeightG = 0.0,
-                                       double finalWeightG = 0.0);
+                                       double finalWeightG = 0.0,
+                                       int expectedFrameCount = -1);
 
     // Backwards-compatible thin wrapper — equivalent to
     // analyzeShot(...).lines. Existing callers (in-app dialog, AI advisor

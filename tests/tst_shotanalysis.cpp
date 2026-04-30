@@ -2,6 +2,7 @@
 
 #include "ai/shotanalysis.h"
 #include "history/shothistorystorage.h"
+#include "history/shotbadgeprojection.h"
 
 class tst_ShotAnalysis : public QObject {
     Q_OBJECT
@@ -1393,6 +1394,273 @@ private slots:
             QCOMPARE(legacy[i].toMap()["type"].toString(),
                      fresh.lines[i].toMap()["type"].toString());
         }
+    }
+    // ---- Badge projection (decenza::deriveBadgesFromAnalysis) ----
+    //
+    // The five boolean quality-badge columns are now a deterministic
+    // projection of ShotAnalysis::DetectorResults via the helper in
+    // src/history/shotbadgeprojection.h. saveShotData and loadShotRecordStatic
+    // both call analyzeShot once and apply the projection — the cascade
+    // lives in exactly one place. These table-driven cases lock in the
+    // projection contract documented in SHOT_REVIEW.md §4. If any cell of
+    // the mapping table is changed, the matching test case must change with
+    // it (or the test fails — which is the whole point of these locks).
+
+    void badgeProjection_cleanShot_allFalse()
+    {
+        // No detectors fired, no warnings — the canonical clean shot.
+        ShotAnalysis::DetectorResults d;
+        d.channelingChecked = true;
+        d.channelingSeverity = QStringLiteral("none");
+        d.flowTrendChecked = true;
+        d.flowTrend = QStringLiteral("stable");
+        d.tempStabilityChecked = true;
+        d.tempUnstable = false;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindDirection = QStringLiteral("onTarget");
+        d.grindFlowDeltaMlPerSec = 0.0;
+        d.verdictCategory = QStringLiteral("clean");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(!flags.pourTruncatedDetected);
+        QVERIFY(!flags.channelingDetected);
+        QVERIFY(!flags.temperatureUnstable);
+        QVERIFY(!flags.grindIssueDetected);
+        QVERIFY(!flags.skipFirstFrameDetected);
+    }
+
+    void badgeProjection_pourTruncated_onlyTruncatedFires()
+    {
+        // Cascade dominator: when pourTruncated fires, the suppressed
+        // detectors leave their flags at default. skipFirstFrameDetected is
+        // explicitly NOT suppressed by the cascade per the SHOT_REVIEW.md
+        // contract — it can independently fire on the same shot.
+        ShotAnalysis::DetectorResults d;
+        d.pourTruncated = true;
+        d.peakPressureBar = 1.2;
+        // analyzeShot would leave channelingChecked / grindChecked / etc.
+        // false in the truncated cascade (that's the cascade contract).
+        d.verdictCategory = QStringLiteral("puckTruncated");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(flags.pourTruncatedDetected,
+                 "pourTruncated must project to pourTruncatedDetected");
+        QVERIFY2(!flags.channelingDetected,
+                 "cascade must leave channelingDetected at false");
+        QVERIFY2(!flags.temperatureUnstable,
+                 "cascade must leave temperatureUnstable at false");
+        QVERIFY2(!flags.grindIssueDetected,
+                 "cascade must leave grindIssueDetected at false");
+        QVERIFY2(!flags.skipFirstFrameDetected,
+                 "skipFirstFrame is independent — must be false when not flagged");
+    }
+
+    void badgeProjection_pourTruncatedAndSkipFirstFrame_bothFire()
+    {
+        // skipFirstFrameDetected is NOT suppressed by the pourTruncated
+        // cascade — they can co-fire. Locks in the PR #922 invariant.
+        ShotAnalysis::DetectorResults d;
+        d.pourTruncated = true;
+        d.skipFirstFrame = true;
+        d.verdictCategory = QStringLiteral("puckTruncated");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(flags.pourTruncatedDetected);
+        QVERIFY(flags.skipFirstFrameDetected);
+        QVERIFY(!flags.channelingDetected);
+        QVERIFY(!flags.temperatureUnstable);
+        QVERIFY(!flags.grindIssueDetected);
+    }
+
+    void badgeProjection_sustainedChanneling_firesBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.channelingChecked = true;
+        d.channelingSeverity = QStringLiteral("sustained");
+        d.channelingSpikeTimeSec = 18.2;
+        d.verdictCategory = QStringLiteral("puckIntegrity");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(flags.channelingDetected,
+                 "Sustained channeling must fire the badge");
+    }
+
+    void badgeProjection_transientChanneling_doesNotFireBadge()
+    {
+        // Critical regression lock: Transient channeling shows in the dialog
+        // and in MCP detectorResults, but the boolean badge stays false.
+        // Matches PR #922's invariant. If this test ever fails alongside
+        // a "transient" severity in DetectorResults, the projection drifted.
+        ShotAnalysis::DetectorResults d;
+        d.channelingChecked = true;
+        d.channelingSeverity = QStringLiteral("transient");
+        d.channelingSpikeTimeSec = 8.4;
+        d.verdictCategory = QStringLiteral("minorIssues");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(!flags.channelingDetected,
+                 "Transient channeling must NOT fire the badge (PR #922 invariant)");
+    }
+
+    void badgeProjection_chokedPuck_firesGrindBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindChokedPuck = true;
+        d.grindDirection = QStringLiteral("chokedPuck");
+        d.verdictCategory = QStringLiteral("chokedPuck");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(flags.grindIssueDetected);
+    }
+
+    void badgeProjection_yieldOvershoot_firesGrindBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindYieldOvershoot = true;
+        d.grindDirection = QStringLiteral("yieldOvershoot");
+        d.verdictCategory = QStringLiteral("yieldOvershoot");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(flags.grindIssueDetected);
+    }
+
+    void badgeProjection_grindDeltaAboveThreshold_firesBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindFlowDeltaMlPerSec = ShotAnalysis::FLOW_DEVIATION_THRESHOLD + 0.1;
+        d.grindDirection = QStringLiteral("tooCoarse");
+        d.verdictCategory = QStringLiteral("minorIssuesGrindCoarse");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(flags.grindIssueDetected,
+                 "delta above FLOW_DEVIATION_THRESHOLD must fire the grind badge");
+    }
+
+    void badgeProjection_grindDeltaBelowThresholdNegative_firesBadge()
+    {
+        // Negative delta means flow ran below goal (grind too fine). The
+        // |delta| > threshold check uses absolute value.
+        ShotAnalysis::DetectorResults d;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindFlowDeltaMlPerSec = -(ShotAnalysis::FLOW_DEVIATION_THRESHOLD + 0.1);
+        d.grindDirection = QStringLiteral("tooFine");
+        d.verdictCategory = QStringLiteral("minorIssuesGrindFine");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(flags.grindIssueDetected,
+                 "negative delta below threshold (|delta| > threshold) must fire the grind badge");
+    }
+
+    void badgeProjection_grindDeltaWithinTolerance_doesNotFireBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindFlowDeltaMlPerSec = 0.1;  // well within tolerance
+        d.grindDirection = QStringLiteral("onTarget");
+        d.verdictCategory = QStringLiteral("clean");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(!flags.grindIssueDetected,
+                 "delta within tolerance must NOT fire the grind badge");
+    }
+
+    void badgeProjection_grindNoData_doesNotFireBadge()
+    {
+        // hasData=false must short-circuit the grind projection — even if
+        // by some strange path one of the sub-flags is set, the badge stays
+        // false because the projection ANDs hasData with the OR of the arms.
+        ShotAnalysis::DetectorResults d;
+        d.grindChecked = true;
+        d.grindHasData = false;
+        d.grindChokedPuck = true;  // sub-flag set without hasData — defensive
+        d.grindFlowDeltaMlPerSec = 5.0;  // way above threshold
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(!flags.grindIssueDetected,
+                 "grind badge requires hasData=true (defensive against partial state)");
+    }
+
+    void badgeProjection_skipFirstFrame_firesBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.skipFirstFrame = true;
+        d.verdictCategory = QStringLiteral("skipFirstFrame");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(flags.skipFirstFrameDetected);
+    }
+
+    void badgeProjection_tempUnstable_firesBadge()
+    {
+        // tempUnstable already encodes the gates inside analyzeShot
+        // (tempStabilityChecked && !tempIntentionalStepping && avgDev > threshold);
+        // the projection just reads the flag.
+        ShotAnalysis::DetectorResults d;
+        d.tempStabilityChecked = true;
+        d.tempIntentionalStepping = false;
+        d.tempAvgDeviationC = 3.0;
+        d.tempUnstable = true;
+        d.verdictCategory = QStringLiteral("minorIssues");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(flags.temperatureUnstable);
+    }
+
+    void badgeProjection_tempIntentionalStepping_doesNotFireBadge()
+    {
+        // D-Flow style profile with intentional temp stepping: tempUnstable
+        // stays false even with a large measured deviation, because the
+        // gate is held inside analyzeShot. Locks in that the projection
+        // doesn't second-guess the struct.
+        ShotAnalysis::DetectorResults d;
+        d.tempStabilityChecked = true;
+        d.tempIntentionalStepping = true;
+        d.tempAvgDeviationC = 8.0;  // would normally trip threshold
+        d.tempUnstable = false;
+        d.verdictCategory = QStringLiteral("clean");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(!flags.temperatureUnstable,
+                 "intentional temp stepping must NOT fire the temp badge");
+    }
+
+    void badgeProjection_applyBadgesToTarget_writesAllFiveFields()
+    {
+        // Compile-time + runtime check that the templated apply helper
+        // writes all five fields onto a target struct shape. Uses a local
+        // throwaway struct that mimics ShotSaveData / ShotRecord's badge
+        // surface — keeps this test independent of the storage TU layout.
+        struct FakeTarget {
+            bool pourTruncatedDetected = false;
+            bool channelingDetected = false;
+            bool temperatureUnstable = false;
+            bool grindIssueDetected = false;
+            bool skipFirstFrameDetected = false;
+        };
+        FakeTarget t;
+        ShotAnalysis::DetectorResults d;
+        d.pourTruncated = true;
+        d.skipFirstFrame = true;
+        d.channelingSeverity = QStringLiteral("sustained");
+        d.tempUnstable = true;
+        d.grindHasData = true;
+        d.grindChokedPuck = true;
+
+        decenza::applyBadgesToTarget(t, d);
+        QVERIFY(t.pourTruncatedDetected);
+        QVERIFY(t.channelingDetected);
+        QVERIFY(t.temperatureUnstable);
+        QVERIFY(t.grindIssueDetected);
+        QVERIFY(t.skipFirstFrameDetected);
     }
 };
 

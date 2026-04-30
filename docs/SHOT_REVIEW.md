@@ -57,8 +57,13 @@ it's the entry point to the analysis dialog described in §3.
 
 **Suppression cascade.** `pourTruncatedDetected` is dominant: when it fires,
 `channelingDetected` / `temperatureUnstable` / `grindIssueDetected` are
-forced to false at save time, in the load-time recompute, and inside
-`analyzeShot`. The puck failed to build pressure, so the curves the
+forced to false. The cascade is enforced in exactly one place —
+`ShotAnalysis::analyzeShot` — and the boolean badge columns are a
+deterministic projection of the resulting `DetectorResults` struct (see
+§4 mapping table; helper at `src/history/shotbadgeprojection.h`). Save-
+time, load-time recompute, the dialog, the AI advisor, and MCP
+`shots_get_detail` all share that one pipeline and projection. The puck
+failed to build pressure, so the curves the
 other three detectors read off don't mean what they normally mean
 (conductance saturates → derivative flat, flow tracks preinfusion goal →
 grind delta ≈ 0, temp drift measured against a pour that didn't really
@@ -479,22 +484,54 @@ The `shots` table has five flag columns: `pour_truncated_detected`,
 computed once from the captured curves and written into these columns
 alongside the rest of the shot record.
 
-`pour_truncated_detected` is computed **first** at save time. When it's
-true, `channeling_detected` / `temperature_unstable` / `grind_issue_detected`
-are forced to false (their gates check `!data.pourTruncatedDetected`).
-`skip_first_frame_detected` is not gated.
+### Single-pass detector pipeline + projection (post PR #934, #935, #936)
+
+`saveShotData` and `loadShotRecordStatic` both compute all five quality
+badges via a single `ShotAnalysis::analyzeShot(...)` call and project the
+booleans from the returned `DetectorResults` struct using the helper in
+`src/history/shotbadgeprojection.h`. The cascade lives in exactly one
+place — `analyzeShot`'s body — and the badge columns are a deterministic
+projection of the typed struct. No more hand-rolled per-detector calls
+or hand-rolled gate conditions in the storage layer.
+
+**Badge ↔ `DetectorResults` mapping:**
+
+| Badge column | `DetectorResults` projection |
+|---|---|
+| `pourTruncatedDetected` | `d.pourTruncated` |
+| `channelingDetected` | `d.channelingSeverity == "sustained"` (Transient does NOT fire the badge) |
+| `temperatureUnstable` | `d.tempUnstable` (gates `tempStabilityChecked` / `!intentionalStepping` / `avgDev > threshold` already applied inside `analyzeShot`) |
+| `grindIssueDetected` | `d.grindHasData && (d.grindChokedPuck \|\| d.grindYieldOvershoot \|\| std::abs(d.grindFlowDeltaMlPerSec) > FLOW_DEVIATION_THRESHOLD)` |
+| `skipFirstFrameDetected` | `d.skipFirstFrame` |
+
+Notes on the projection:
+
+- `channelingDetected` deliberately uses `Sustained`-only. Transient
+  channeling shows in the dialog as a "Transient channel at Xs"
+  caution line and in MCP `detectorResults.channeling.severity` as
+  `"transient"`, but the boolean badge column stays `false`. Carries
+  forward PR #922's invariant.
+- `grindIssueDetected` mirrors `ShotAnalysis::detectGrindIssue` exactly.
+  The `grindHasData` conjunct is a defensive zero — it short-circuits
+  the projection if any of the grind sub-flags are set on a struct
+  whose `hasData` is false.
+- `tempUnstable` already encodes its gates inside `analyzeShot`, so the
+  projection just reads the flag — no caller-side `pourStart > 0` or
+  `reachedExtractionPhase` conjuncts needed.
+- `pourTruncated` and `skipFirstFrame` are 1:1 with their struct fields.
+
+The projection is unit-tested via `tst_shotanalysis::badgeProjection_*` —
+each row of the mapping table has at least one regression test, including
+the load-bearing `Transient` carve-out.
 
 ### Load-time: always recompute (PR #893, extended for the 5th badge in PR #922)
 
 `ShotHistoryStorage::loadShotRecordStatic` reads the stored columns, then
 **unconditionally recomputes all five badges** from the loaded curve data
-before returning. The same suppression cascade runs here: `pourTruncated`
-is computed first and the channeling / temp / grind blocks are gated on
-`!record.pourTruncatedDetected`. This means the in-memory `ShotRecord`
-always reflects the current detector logic and the cascade is consistent
-between save and load. The recompute block lives in `loadShotRecordStatic`
-(around the comment "Always recompute every quality badge from the loaded
-curve data").
+before returning. The recompute is now a single `analyzeShot` + projection
+call (post PR #936), so it cannot diverge from the save-time computation.
+This means the in-memory `ShotRecord` always reflects the current detector
+logic and the cascade is consistent between save and load.
 
 The recompute uses on-the-fly derived curves for legacy shots that lack them:
 `computeDerivedCurves` fills `conductanceDerivative` from `pressure`/`flow`

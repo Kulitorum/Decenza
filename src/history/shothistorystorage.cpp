@@ -2,6 +2,7 @@
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
+#include "history/shotbadgeprojection.h"
 #include "core/grinderaliases.h"
 #include "models/shotdatamodel.h"
 #include "profile/profile.h"
@@ -937,110 +938,29 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         data.phaseSummariesJson = tmpRecord.phaseSummariesJson;
 
         // Channeling detection using shared ShotAnalysis helpers
-        const auto& flowPts = shotData->flowData();
-        double pourStart = 0, pourEnd = duration;
-        for (const auto& pm : tmpRecord.phases) {
-            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
-            if (pm.label == "End") pourEnd = pm.time;
-        }
-        if (pourStart == 0) {
-            for (const auto& pm : tmpRecord.phases) {
-                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
-            }
-        }
-
-        // Pour-truncated detection runs first because it dominates: when peak
-        // pressure stayed below PRESSURE_FLOOR_BAR the puck never built, so
-        // the channeling/temp/grind signals are read off curves that don't
-        // mean what they normally mean (conductance saturated → derivative
-        // flat, flow tracked preinfusion goal → grind delta ≈ 0, temp drift
-        // measured against a pour that didn't really happen). When this fires
-        // we force the other three flags to false below so the UI shows a
-        // single red "Puck failed" chip rather than a contradictory mix.
-        data.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
-            tmpRecord.pressure, pourStart, pourEnd, data.beverageType);
-
-        // Channeling detection uses dC/dt (the Gaussian-smoothed conductance
-        // derivative) — it catches channels invisible to flow/pressure alone
-        // and works regardless of frame mode. computeConductanceDerivative()
-        // above populates the series we read here. Mode-aware inclusion
-        // windows (built from phase markers + goal curves) mask out phases
-        // where the control goal is ramping or the actual hasn't converged
-        // onto it yet — suppresses false positives on lever, D-Flow decline,
-        // and pressure ramps.
-        data.channelingDetected = false;
-        if (!data.pourTruncatedDetected
-            && !ShotAnalysis::shouldSkipChannelingCheck(data.beverageType, flowPts, pourStart, pourEnd)
-            && !ShotSummarizer::getAnalysisFlags(data.profileKbId).contains(QStringLiteral("channeling_expected"))) {
-            const auto channelWindows = ShotAnalysis::buildChannelingWindows(
-                tmpRecord.pressure, flowPts,
-                shotData->pressureGoalData(), shotData->flowGoalData(),
-                tmpRecord.phases, pourStart, pourEnd);
-            auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                shotData->conductanceDerivativeData(), pourStart, pourEnd,
-                channelWindows);
-            data.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
-        }
-
-        // Temperature stability using shared ShotAnalysis helpers. Gated on
-        // reachedExtractionPhase so aborted shots that died during preinfusion-
-        // start don't get flagged for temp drift caused by the machine still
-        // preheating against an 82 °C goal. The pourStart > 0 conjunct
-        // matches analyzeShot and prevents avgTempDeviation from averaging
-        // from t=0 (which would include the preheat ramp) when phase labels
-        // are unusual enough that no Pour/infus/Start marker was found.
-        // Suppressed when pourTruncated fires — see the comment above.
-        data.temperatureUnstable = false;
-        const auto& tempPts = shotData->temperatureData();
-        const auto& tempGoalPts = shotData->temperatureGoalData();
-        if (!data.pourTruncatedDetected
-            && tempPts.size() > 10 && tempGoalPts.size() > 10 && pourStart > 0
-            && ShotAnalysis::reachedExtractionPhase(tmpRecord.phases, duration)) {
-            if (!ShotAnalysis::hasIntentionalTempStepping(tempGoalPts)) {
-                double avgDev = ShotAnalysis::avgTempDeviation(tempPts, tempGoalPts, pourStart, pourEnd);
-                data.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
-            }
-        }
-
-        // Grind issue detection. Phase-mode aware — restricts flow-vs-goal
-        // averaging to flow-controlled phases so the check no longer compares
-        // actual flow against a pressure-mode profile's flow limiter (80's
-        // Espresso, Cremina, Londinium pour). Suppressed when pourTruncated
-        // fires — see the comment above.
-        //
-        // Note: we deliberately do NOT gate this on shouldSkipChannelingCheck
-        // (the turbo / non-espresso skip used by the dC/dt detector). The
-        // yield-overshoot arm in analyzeFlowVsGoal is documented to fire
-        // independently of any flow-rate window because a gusher often has
-        // high avg flow that would trigger the turbo skip; gating with
-        // shouldSkipChannelingCheck would mask that arm on exactly the
-        // population it was designed to catch (turbo gushers with peak
-        // pressure just above PRESSURE_FLOOR_BAR). analyzeFlowVsGoal already
-        // handles non-espresso beverages and intentionally-skipped profiles
-        // via its internal `bevSkip` and `grind_check_skip` checks; the
-        // pressure-mode choke arms have their own 4 bar × 15 s gate that
-        // turbo shots can't satisfy; the flow-vs-goal averaging is gated on
-        // flow-mode phase windows that turbo profiles handle correctly.
-        data.grindIssueDetected = false;
-        if (!data.pourTruncatedDetected) {
-            data.grindIssueDetected = ShotAnalysis::detectGrindIssue(
-                flowPts, shotData->flowGoalData(), tmpRecord.phases,
-                pourStart, pourEnd, data.beverageType,
-                ShotSummarizer::getAnalysisFlags(data.profileKbId),
-                shotData->pressureData(),
-                data.yieldOverride, data.finalWeight);
-        }
-
-        // Skip-first-frame detection: check whether frame 0 was absent or ran
-        // far shorter than configured, indicating a known DE1 firmware bug or
-        // a misconfigured profile first step.
+        // Compute all five quality badges via a single ShotAnalysis::analyzeShot
+        // pass and project the booleans from DetectorResults using the
+        // documented mapping. This unifies the save-time, load-time, and
+        // dialog/AI/MCP cascades on one pipeline — the cascade lives in exactly
+        // one place (analyzeShot's body). See docs/SHOT_REVIEW.md §4 for the
+        // full mapping table and decenza::deriveBadgesFromAnalysis (in
+        // history/shotbadgeprojection.h) for the projection rules.
+        const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(data.profileKbId);
         const double firstFrameSec = (profile && !profile->steps().isEmpty())
             ? profile->steps().first().seconds
             : -1.0;
-        data.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
-            tmpRecord.phases,
-            profile ? static_cast<int>(profile->steps().size()) : -1,
-            firstFrameSec);
+        const int frameCount = profile ? static_cast<int>(profile->steps().size()) : -1;
+        const auto analysis = ShotAnalysis::analyzeShot(
+            tmpRecord.pressure, shotData->flowData(),
+            shotData->cumulativeWeightData(),
+            shotData->temperatureData(), shotData->temperatureGoalData(),
+            shotData->conductanceDerivativeData(),
+            tmpRecord.phases, data.beverageType, duration,
+            shotData->pressureGoalData(), shotData->flowGoalData(),
+            analysisFlags, firstFrameSec,
+            data.yieldOverride, data.finalWeight,
+            frameCount);
+        decenza::applyBadgesToTarget(data, analysis.detectors);
     }
 
     // Compress sample data on main thread (reads QObject data vectors)
@@ -2336,85 +2256,32 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
     // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
     // pressure / phases, which are always available.
-    record.pourTruncatedDetected = false;
-    if (!record.pressure.isEmpty()) {
-        double pourStart = 0, pourEnd = record.pressure.last().x();
-        for (const auto& pm : record.phases) {
-            if (pm.label.toLower().contains("pour")) pourStart = pm.time;
-            if (pm.label == "End") pourEnd = pm.time;
-        }
-        if (pourStart == 0) {
-            for (const auto& pm : record.phases) {
-                if (pm.label.toLower().contains("infus") || pm.label == "Start") { pourStart = pm.time; break; }
-            }
-        }
-
-        // Pour-truncated runs first because it dominates the badge cascade —
-        // see the matching comment in saveShotData. When this fires the
-        // channeling / temp / grind blocks are gated off so the UI shows a
-        // single red "Puck failed" chip rather than wrong-diagnosis chips
-        // read off curves the failed puck didn't produce.
-        record.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
-            record.pressure, pourStart, pourEnd, record.summary.beverageType);
-
-        // Channeling (dC/dt with mode-aware windowing)
-        record.channelingDetected = false;
-        if (!record.pourTruncatedDetected
-            && !ShotAnalysis::shouldSkipChannelingCheck(record.summary.beverageType, record.flow, pourStart, pourEnd)
-            && !ShotSummarizer::getAnalysisFlags(record.profileKbId).contains(QStringLiteral("channeling_expected"))) {
-            const auto windows = ShotAnalysis::buildChannelingWindows(
-                record.pressure, record.flow,
-                record.pressureGoal, record.flowGoal,
-                record.phases, pourStart, pourEnd);
-            auto severity = ShotAnalysis::detectChannelingFromDerivative(
-                record.conductanceDerivative, pourStart, pourEnd, windows);
-            record.channelingDetected = (severity == ShotAnalysis::ChannelingSeverity::Sustained);
-        }
-
-        // Temperature stability. Gated on reachedExtractionPhase so aborted
-        // shots that died during preinfusion-start don't get flagged for
-        // temp drift caused by the machine still preheating. The pourStart
-        // > 0 conjunct matches analyzeShot and prevents avgTempDeviation
-        // from averaging from t=0 (which would include the preheat ramp)
-        // when phase labels are unusual enough that no Pour/infus/Start
-        // marker was found. Suppressed when pourTruncated fires.
-        record.temperatureUnstable = false;
-        if (!record.pourTruncatedDetected
-            && record.temperature.size() > 10 && record.temperatureGoal.size() > 10 && pourStart > 0
-            && ShotAnalysis::reachedExtractionPhase(record.phases, record.summary.duration)) {
-            if (!ShotAnalysis::hasIntentionalTempStepping(record.temperatureGoal)) {
-                double avgDev = ShotAnalysis::avgTempDeviation(record.temperature, record.temperatureGoal, pourStart, pourEnd);
-                record.temperatureUnstable = avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD;
-            }
-        }
-
-        // Grind direction (flow-vs-goal + choked-puck + yield-overshoot arms).
-        // Reset before the gate so filter/pourover/tea/steam/cleaning shots
-        // clear any stale stored value via analyzeFlowVsGoal's internal skip
-        // (the channeling/temp resets above are the same pattern). Suppressed
-        // when pourTruncated fires.
-        //
-        // No outer shouldSkipChannelingCheck gate — see the matching comment
-        // in saveShotData. Skipping turbo here would mask the yield-overshoot
-        // arm on turbo gushers, which contradicts the arm's documented
-        // independence from flow-rate windows.
-        record.grindIssueDetected = false;
-        if (!record.pourTruncatedDetected) {
-            record.grindIssueDetected = ShotAnalysis::detectGrindIssue(
-                record.flow, record.flowGoal, record.phases,
-                pourStart, pourEnd, record.summary.beverageType,
-                ShotSummarizer::getAnalysisFlags(record.profileKbId),
-                record.pressure,
-                record.yieldOverride, record.summary.finalWeight);
-        }
-    }
-
-    // Skip-first-frame: phase markers only — no curves needed.
-    record.skipFirstFrameDetected = false;
-    if (!record.phases.isEmpty()) {
-        const ProfileFrameInfo info = profileFrameInfoFromJson(record.profileJson);
-        record.skipFirstFrameDetected = ShotAnalysis::detectSkipFirstFrame(
-            record.phases, info.frameCount, info.firstFrameSeconds);
+    // Compute all five quality badges via a single ShotAnalysis::analyzeShot
+    // pass and project the booleans from DetectorResults. The cascade lives in
+    // exactly one place (analyzeShot's body) and the badge columns are a
+    // deterministic projection — see decenza::deriveBadgesFromAnalysis (in
+    // history/shotbadgeprojection.h) and docs/SHOT_REVIEW.md §4 for the
+    // full mapping table.
+    //
+    // analyzeShot tolerates empty / partial inputs (its internal
+    // pressure.size() < 10 short-circuit handles aborted shots), so the
+    // outer "if (!record.pressure.isEmpty())" guard the per-detector code
+    // used to need is no longer required — analyzeShot returns clean
+    // defaults for any input shape it can't handle, which the projection
+    // helper interprets as "all badges false."
+    {
+        const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
+        const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
+        const auto analysis = ShotAnalysis::analyzeShot(
+            record.pressure, record.flow, record.weight,
+            record.temperature, record.temperatureGoal,
+            record.conductanceDerivative,
+            record.phases, record.summary.beverageType, record.summary.duration,
+            record.pressureGoal, record.flowGoal,
+            analysisFlags, frameInfo.firstFrameSeconds,
+            record.yieldOverride, record.summary.finalWeight,
+            frameInfo.frameCount);
+        decenza::applyBadgesToTarget(record, analysis.detectors);
     }
 
     // Persist any drift between the stored badge columns and the recomputed values
