@@ -469,10 +469,18 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // Fast path: when shotData came out of ShotHistoryStorage::convertShotRecord
     // it already carries `summaryLines` (from convertShotRecord's analyzeShot
     // pass) and `detectorResults.pourTruncated`. Reuse those directly instead
-    // of running analyzeShot a second time on the same data — the two paths
-    // are byte-identical by construction (same code, same inputs). Per-phase
-    // temperature markers are still gated on the same conditions as the
-    // slow path; only the detector orchestration block is bypassed.
+    // of running analyzeShot a second time on the same data — both the fast
+    // path's pre-computed lines and the slow path's recomputation invoke the
+    // same analyzeShot body on equivalent inputs, so the two paths produce
+    // matching observation lines. Per-phase temperature markers are still
+    // gated on the same conditions as the slow path; only the detector
+    // orchestration block is bypassed.
+    //
+    // Precondition: callers populating `summaryLines` MUST also populate
+    // `detectorResults.pourTruncated` (convertShotRecord does both, atomically).
+    // If detectorResults is absent, .toBool() defaults to false, so a callsite
+    // that stuffs only summaryLines could mis-suppress per-phase temp markers
+    // on a truncated-pour shot. Today no such callsite exists.
     const QVariantList preComputedLines = shotData.value("summaryLines").toList();
     if (!preComputedLines.isEmpty()) {
         summary.summaryLines = preComputedLines;
@@ -507,7 +515,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     // Per-shot yieldOverride drives both arms of the grind-vs-yield check
     // (the choked-puck yield arm and the gusher arm added in PR #910) —
-    // matches ShotHistoryStorage::generateShotSummary's input for the dialog.
+    // matches the input convertShotRecord passes to analyzeShot.
     const double targetWeightG = shotData.value("yieldOverride").toDouble();
 
     summary.summaryLines = ShotAnalysis::generateSummary(

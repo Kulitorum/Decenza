@@ -445,8 +445,8 @@ anchoring on the dialog's pre-cooked conclusion. On historical shots,
 `ShotSummarizer::summarizeFromHistory` prefers the pre-computed
 `shotData.summaryLines` (populated by `convertShotRecord`'s `analyzeShot`
 pass) and only falls back to running the inline detector orchestration
-when that field is absent — same fast/fallback pattern the dialog uses,
-same correctness guarantee. The suppression cascade is enforced in
+when that field is absent. Both paths invoke the same `analyzeShot` body,
+so they produce equivalent observation lines. The suppression cascade is enforced in
 exactly one place — `analyzeShot` — so the badge UI, the dialog, and
 the AI advisor cannot drift.
 

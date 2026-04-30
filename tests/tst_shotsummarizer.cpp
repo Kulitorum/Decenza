@@ -413,7 +413,7 @@ private slots:
         const ShotSummary fastSummary = summarizer.summarizeFromHistory(fastShot);
 
         QCOMPARE(fastSummary.summaryLines.size(), slowSummary.summaryLines.size());
-        for (int i = 0; i < slowSummary.summaryLines.size(); ++i) {
+        for (qsizetype i = 0; i < slowSummary.summaryLines.size(); ++i) {
             QCOMPARE(fastSummary.summaryLines[i].toMap().value("text").toString(),
                      slowSummary.summaryLines[i].toMap().value("text").toString());
             QCOMPARE(fastSummary.summaryLines[i].toMap().value("type").toString(),
