@@ -78,7 +78,7 @@ struct ShotSummary {
     // Profile knowledge base ID (from DB or computed at summarize time)
     QString profileKbId;
 
-    // Pre-computed observation lines from ShotAnalysis::generateSummary —
+    // Pre-computed observation lines from ShotAnalysis::analyzeShot —
     // the same list that drives the in-app Shot Summary dialog. Each entry is
     // a QVariantMap with "text" (QString) and "type" (QString: "good" |
     // "caution" | "warning" | "observation" | "verdict"). Sharing the dialog's
@@ -88,7 +88,7 @@ struct ShotSummary {
     QVariantList summaryLines;
 
     // Pour-truncated flag — gates the per-phase temperature markers below
-    // (which generateSummary's aggregate output doesn't surface).
+    // (which analyzeShot's aggregate output doesn't surface).
     bool pourTruncatedDetected = false;
 
     // DYE metadata (from user input)
