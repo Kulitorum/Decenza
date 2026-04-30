@@ -289,13 +289,21 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
     const double firstFrameSeconds = (profile && !profile->steps().isEmpty())
         ? profile->steps().first().seconds : -1.0;
+    // Pass the profile's real frame count so detectSkipFirstFrame correctly
+    // suppresses 1-frame profiles (no second frame to skip to). Without this,
+    // analyzeShot would default to expectedFrameCount = -1 and emit a false-
+    // positive "First profile step skipped" line on every 1-frame shot — a
+    // divergence from the save/load/MCP paths which already pass frameCount.
+    const int frameCount = (profile && !profile->steps().isEmpty())
+        ? static_cast<int>(profile->steps().size()) : -1;
 
     summary.summaryLines = ShotAnalysis::generateSummary(
         pressureData, flowData, cumulativeWeightData, tempData, tempGoalData,
         shotData->conductanceDerivativeData(), historyMarkers,
         summary.beverageType, summary.totalDuration,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
-        firstFrameSeconds, summary.targetWeight, summary.finalWeight);
+        firstFrameSeconds, summary.targetWeight, summary.finalWeight,
+        frameCount);
 
     // pourTruncated tracked separately to gate per-phase temp markers — those
     // aren't part of analyzeShot's aggregated output but they appear in
@@ -476,10 +484,12 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // so skip-first-frame detection stays accurate on legacy shots whose
     // first frame was configured > 2 s.
     double firstFrameSeconds = -1.0;
+    int frameCount = -1;
     if (profileDoc.isObject()) {
         const Profile p = Profile::fromJson(profileDoc);
         if (!p.steps().isEmpty())
             firstFrameSeconds = p.steps().first().seconds;
+        frameCount = static_cast<int>(p.steps().size());
     }
 
     const QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
@@ -494,7 +504,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         summary.tempCurve, summary.tempGoalCurve, derivCurve, historyMarkers,
         summary.beverageType, summary.totalDuration,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
-        firstFrameSeconds, targetWeightG, summary.finalWeight);
+        firstFrameSeconds, targetWeightG, summary.finalWeight,
+        frameCount);
 
     double pourStart = 0, pourEnd = summary.totalDuration;
     computePourWindow(summary, pourStart, pourEnd);

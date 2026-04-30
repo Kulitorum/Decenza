@@ -1069,11 +1069,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              const QStringList& analysisFlags,
                                              double firstFrameConfiguredSeconds,
                                              double targetWeightG,
-                                             double finalWeightG)
+                                             double finalWeightG,
+                                             int expectedFrameCount)
 {
     return analyzeShot(pressure, flow, weight, temperature, temperatureGoal,
                        conductanceDerivative, phases, beverageType, duration,
                        pressureGoal, flowGoal, analysisFlags,
-                       firstFrameConfiguredSeconds, targetWeightG, finalWeightG)
+                       firstFrameConfiguredSeconds, targetWeightG, finalWeightG,
+                       expectedFrameCount)
         .lines;
 }

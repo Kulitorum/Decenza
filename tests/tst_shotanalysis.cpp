@@ -1378,17 +1378,31 @@ private slots:
         QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
         QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
 
+        // Pass non-default expectedFrameCount on both call sites — locks in
+        // that the wrapper threads it through to analyzeShot identically.
+        // Without this assertion, a future change that drops the parameter
+        // from the wrapper would silently regress 1-frame-profile callers
+        // (the dialog and the live AI advisor). Pre-merge of #934/#935 the
+        // wrapper hardcoded -1 and the dialog/AI advisor diverged from
+        // save/load/MCP for 1-frame profiles — see SHOT_REVIEW.md §4.
+        const int frameCount = 2;
         const QVariantList legacy = ShotAnalysis::generateSummary(
             pressure, flow, weight, temperature, temperatureGoal,
             dCdt, phases, "espresso", 30.0,
-            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/0.0, /*finalWeightG=*/0.0,
+            frameCount);
         const auto fresh = ShotAnalysis::analyzeShot(
             pressure, flow, weight, temperature, temperatureGoal,
             dCdt, phases, "espresso", 30.0,
-            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/0.0, /*finalWeightG=*/0.0,
+            frameCount);
 
         QCOMPARE(legacy.size(), fresh.lines.size());
-        for (int i = 0; i < legacy.size(); ++i) {
+        for (qsizetype i = 0; i < legacy.size(); ++i) {
             QCOMPARE(legacy[i].toMap()["text"].toString(),
                      fresh.lines[i].toMap()["text"].toString());
             QCOMPARE(legacy[i].toMap()["type"].toString(),

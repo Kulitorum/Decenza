@@ -2367,15 +2367,23 @@ QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData
     const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(
         shotData["profileKbId"].toString());
 
+    // Extract both frame fields from a single ProfileFrameInfo so the dialog
+    // path agrees with save/load/MCP on detectSkipFirstFrame's suppression
+    // for 1-frame profiles. Without this the wrapper defaulted
+    // expectedFrameCount to -1 and could emit a false-positive
+    // "First profile step skipped" line on a 1-frame profile while the
+    // badge underneath stayed false.
+    const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(shotData["profileJson"].toString());
     return ShotAnalysis::generateSummary(
         pressure, flow, weight, temperature, temperatureGoal,
         conductanceDerivative, phases,
         shotData["beverageType"].toString(),
         shotData["duration"].toDouble(),
         pressureGoal, flowGoal, analysisFlags,
-        profileFrameInfoFromJson(shotData["profileJson"].toString()).firstFrameSeconds,
+        frameInfo.firstFrameSeconds,
         shotData["yieldOverride"].toDouble(),
-        shotData["finalWeight"].toDouble());
+        shotData["finalWeight"].toDouble(),
+        frameInfo.frameCount);
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
