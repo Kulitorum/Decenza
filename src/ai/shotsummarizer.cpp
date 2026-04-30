@@ -94,6 +94,62 @@ PhaseSummary ShotSummarizer::makeWholeShotPhase(const QVector<QPointF>& pressure
     return phase;
 }
 
+QList<PhaseSummary> ShotSummarizer::buildPhaseSummariesForRange(
+    const QVector<QPointF>& pressure,
+    const QVector<QPointF>& flow,
+    const QVector<QPointF>& temperature,
+    const QVector<QPointF>& weight,
+    const QList<HistoryPhaseMarker>& markers,
+    double totalDuration)
+{
+    QList<PhaseSummary> phases;
+    phases.reserve(markers.size());
+    for (qsizetype i = 0; i < markers.size(); i++) {
+        const HistoryPhaseMarker& marker = markers[i];
+        const double startTime = marker.time;
+        const double endTime = (i + 1 < markers.size())
+            ? markers[i + 1].time
+            : totalDuration;
+        // Degenerate phases (endTime <= startTime) skip the per-phase metric
+        // computation but the caller's parallel marker list still appended
+        // the corresponding HistoryPhaseMarker — frame transitions matter to
+        // skip-first-frame detection even when their span is degenerate.
+        if (endTime <= startTime) continue;
+
+        PhaseSummary phase;
+        phase.name = marker.label;
+        phase.startTime = startTime;
+        phase.endTime = endTime;
+        phase.duration = endTime - startTime;
+        phase.isFlowMode = marker.isFlowMode;
+
+        phase.avgPressure = calculateAverage(pressure, startTime, endTime);
+        phase.maxPressure = calculateMax(pressure, startTime, endTime);
+        phase.minPressure = calculateMin(pressure, startTime, endTime);
+        phase.pressureAtStart = findValueAtTime(pressure, startTime);
+        phase.pressureAtMiddle = findValueAtTime(pressure, (startTime + endTime) / 2);
+        phase.pressureAtEnd = findValueAtTime(pressure, endTime);
+
+        phase.avgFlow = calculateAverage(flow, startTime, endTime);
+        phase.maxFlow = calculateMax(flow, startTime, endTime);
+        phase.minFlow = calculateMin(flow, startTime, endTime);
+        phase.flowAtStart = findValueAtTime(flow, startTime);
+        phase.flowAtMiddle = findValueAtTime(flow, (startTime + endTime) / 2);
+        phase.flowAtEnd = findValueAtTime(flow, endTime);
+
+        phase.avgTemperature = calculateAverage(temperature, startTime, endTime);
+
+        if (!weight.isEmpty()) {
+            const double startWeight = findValueAtTime(weight, startTime);
+            const double endWeight = findValueAtTime(weight, endTime);
+            phase.weightGained = endWeight - startWeight;
+        }
+
+        phases.append(phase);
+    }
+    return phases;
+}
+
 // Compute pour-window bounds from summary.phases. Approximates the
 // phase-boundary logic in ShotAnalysis::analyzeShot (prefer a "pour"
 // phase, fall back to the first preinfusion/start, use the last phase end
@@ -209,10 +265,10 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.enjoymentScore = metadata.espressoEnjoyment;
     summary.tastingNotes = metadata.espressoNotes;
 
-    // Phase processing — build PhaseSummary (per-phase metrics for the AI
-    // prompt) and HistoryPhaseMarker (typed input for ShotAnalysis::analyzeShot)
-    // in a single pass over the typed marker list. Detector orchestration runs
-    // after the loop.
+    // Phase processing — walk the typed marker list once to build the
+    // HistoryPhaseMarker stream `analyzeShot` consumes, then hand that stream
+    // to buildPhaseSummariesForRange to compute the per-phase metrics for
+    // the AI prompt. Detector orchestration runs after both passes complete.
     QList<HistoryPhaseMarker> historyMarkers;
     const auto& markers = shotData->phaseMarkersList();
     historyMarkers.reserve(markers.size());
@@ -222,16 +278,15 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
                                                  tempData, cumulativeWeightData,
                                                  summary.totalDuration));
     } else {
+        // Build the typed marker list once; it feeds both the per-phase
+        // metric helper and ShotAnalysis::analyzeShot. The marker list can
+        // differ in length from the resulting PhaseSummary list — degenerate
+        // phases (endTime <= startTime) contribute a marker (frame
+        // transitions matter to skip-first-frame detection) but no
+        // PhaseSummary entry. They are consumed by different code paths
+        // and never joined by index.
         for (qsizetype i = 0; i < markers.size(); i++) {
             const PhaseMarker& marker = markers[i];
-
-            // Build the typed marker input for ShotAnalysis::analyzeShot
-            // alongside the per-phase metrics. The two lists can differ in
-            // length — degenerate phases (endTime <= startTime) skip the
-            // PhaseSummary append below but still contribute their marker
-            // (frame transitions matter to skip-first-frame detection even
-            // when their span is degenerate). They are consumed by different
-            // code paths and never joined by index.
             HistoryPhaseMarker h;
             h.time = marker.time;
             h.label = marker.label;
@@ -239,45 +294,10 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             h.isFlowMode = marker.isFlowMode;
             h.transitionReason = marker.transitionReason;
             historyMarkers.append(h);
-
-            double startTime = marker.time;
-            double endTime = (i + 1 < markers.size()) ? markers[i + 1].time
-                                                       : summary.totalDuration;
-            if (endTime <= startTime) continue;
-
-            PhaseSummary phase;
-            phase.name = marker.label;
-            phase.startTime = startTime;
-            phase.endTime = endTime;
-            phase.duration = endTime - startTime;
-            phase.isFlowMode = marker.isFlowMode;
-
-            // Pressure metrics
-            phase.avgPressure = calculateAverage(pressureData, startTime, endTime);
-            phase.maxPressure = calculateMax(pressureData, startTime, endTime);
-            phase.minPressure = calculateMin(pressureData, startTime, endTime);
-            phase.pressureAtStart = findValueAtTime(pressureData, startTime);
-            phase.pressureAtMiddle = findValueAtTime(pressureData, (startTime + endTime) / 2);
-            phase.pressureAtEnd = findValueAtTime(pressureData, endTime);
-
-            // Flow metrics
-            phase.avgFlow = calculateAverage(flowData, startTime, endTime);
-            phase.maxFlow = calculateMax(flowData, startTime, endTime);
-            phase.minFlow = calculateMin(flowData, startTime, endTime);
-            phase.flowAtStart = findValueAtTime(flowData, startTime);
-            phase.flowAtMiddle = findValueAtTime(flowData, (startTime + endTime) / 2);
-            phase.flowAtEnd = findValueAtTime(flowData, endTime);
-
-            // Temperature metrics
-            phase.avgTemperature = calculateAverage(tempData, startTime, endTime);
-
-            // Weight gained
-            double startWeight = findValueAtTime(cumulativeWeightData, startTime);
-            double endWeight = findValueAtTime(cumulativeWeightData, endTime);
-            phase.weightGained = endWeight - startWeight;
-
-            summary.phases.append(phase);
         }
+        summary.phases = buildPhaseSummariesForRange(
+            pressureData, flowData, tempData, cumulativeWeightData,
+            historyMarkers, summary.totalDuration);
     }
 
     // Detector orchestration delegated to ShotAnalysis::analyzeShot (via the
@@ -419,52 +439,28 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     historyMarkers.reserve(phases.size());
 
     if (!phases.isEmpty()) {
-        for (qsizetype i = 0; i < phases.size(); i++) {
-            const QVariantMap marker = phases[i].toMap();
-
+        // Build the typed marker list once; it feeds both the per-phase
+        // metric helper and ShotAnalysis::analyzeShot. Skipped-phase rows
+        // (degenerate spans handled by buildPhaseSummariesForRange) still
+        // contribute their HistoryPhaseMarker because frame transitions
+        // matter to skip-first-frame detection.
+        for (const QVariant& v : phases) {
+            const QVariantMap marker = v.toMap();
             HistoryPhaseMarker h;
             h.time = marker.value("time", 0.0).toDouble();
-            h.label = marker.value("label").toString();
+            // Match the pre-helper inline loop's fallback: legacy/malformed
+            // shotData rows with a missing "label" key surface as "Phase"
+            // rather than empty string in the per-phase prompt block.
+            h.label = marker.value("label", "Phase").toString();
             h.frameNumber = marker.value("frameNumber", 0).toInt();
             h.isFlowMode = marker.value("isFlowMode", false).toBool();
             h.transitionReason = marker.value("transitionReason").toString();
             historyMarkers.append(h);
-
-            const double startTime = h.time;
-            const double endTime = (i + 1 < phases.size())
-                ? phases[i + 1].toMap().value("time", 0.0).toDouble()
-                : summary.totalDuration;
-            if (endTime <= startTime) continue;
-
-            PhaseSummary phase;
-            phase.name = marker.value("label", "Phase").toString();
-            phase.startTime = startTime;
-            phase.endTime = endTime;
-            phase.duration = endTime - startTime;
-            phase.isFlowMode = h.isFlowMode;
-
-            phase.pressureAtStart = findValueAtTime(summary.pressureCurve, startTime);
-            phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, (startTime + endTime) / 2);
-            phase.pressureAtEnd = findValueAtTime(summary.pressureCurve, endTime);
-            phase.avgPressure = calculateAverage(summary.pressureCurve, startTime, endTime);
-            phase.maxPressure = calculateMax(summary.pressureCurve, startTime, endTime);
-            phase.minPressure = calculateMin(summary.pressureCurve, startTime, endTime);
-
-            phase.flowAtStart = findValueAtTime(summary.flowCurve, startTime);
-            phase.flowAtMiddle = findValueAtTime(summary.flowCurve, (startTime + endTime) / 2);
-            phase.flowAtEnd = findValueAtTime(summary.flowCurve, endTime);
-            phase.avgFlow = calculateAverage(summary.flowCurve, startTime, endTime);
-            phase.maxFlow = calculateMax(summary.flowCurve, startTime, endTime);
-            phase.minFlow = calculateMin(summary.flowCurve, startTime, endTime);
-
-            phase.avgTemperature = calculateAverage(summary.tempCurve, startTime, endTime);
-
-            double startWeight = findValueAtTime(summary.weightCurve, startTime);
-            double endWeight = findValueAtTime(summary.weightCurve, endTime);
-            phase.weightGained = endWeight - startWeight;
-
-            summary.phases.append(phase);
         }
+        summary.phases = buildPhaseSummariesForRange(
+            summary.pressureCurve, summary.flowCurve,
+            summary.tempCurve, summary.weightCurve,
+            historyMarkers, summary.totalDuration);
     }
 
     if (summary.phases.isEmpty()) {

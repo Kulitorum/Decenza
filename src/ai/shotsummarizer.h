@@ -11,6 +11,7 @@
 class ShotDataModel;
 class Profile;
 struct ShotMetadata;
+struct HistoryPhaseMarker;
 
 // Summary of a single phase (e.g., Preinfusion, Extraction)
 struct PhaseSummary {
@@ -172,6 +173,21 @@ private:
                                            const QVector<QPointF>& temperature,
                                            const QVector<QPointF>& weight,
                                            double totalDuration);
+    // Build per-phase metric summaries from a typed marker list + the four
+    // curve series. Skips phases with `endTime <= startTime` (degenerate
+    // spans contribute nothing to per-phase metrics) but the caller's
+    // parallel HistoryPhaseMarker list still includes them so the marker
+    // stream `analyzeShot` consumes is unaffected. Single source of truth
+    // shared by `summarize()` (live shot) and `summarizeFromHistory()`
+    // (saved shot) — both paths build the typed marker list from their
+    // own input source then call this helper.
+    static QList<PhaseSummary> buildPhaseSummariesForRange(
+        const QVector<QPointF>& pressure,
+        const QVector<QPointF>& flow,
+        const QVector<QPointF>& temperature,
+        const QVector<QPointF>& weight,
+        const QList<HistoryPhaseMarker>& markers,
+        double totalDuration);
     // Per-phase temperature instability. Sets only PhaseSummary::temperatureUnstable;
     // the aggregate "Temperature drifted X°C from goal" observation is produced by
     // ShotAnalysis::analyzeShot instead. Callers must gate on
