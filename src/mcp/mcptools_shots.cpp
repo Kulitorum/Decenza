@@ -166,6 +166,23 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["count"] = shots.size();
                     result["total"] = totalCount;
                     result["offset"] = offset;
+
+                    // Per MCP 2025-06-18: emit a resource_link block per shot
+                    // pointing at decenza://shots/{id} so subscribing clients
+                    // can correlate the result with future resource updates.
+                    QJsonArray links;
+                    for (const QJsonValue& v : std::as_const(shots)) {
+                        const QJsonObject s = v.toObject();
+                        QJsonObject link;
+                        link["uri"] = QStringLiteral("decenza://shots/")
+                            + QString::number(s.value("id").toVariant().toLongLong());
+                        link["title"] = QStringLiteral("Shot #%1 — %2")
+                            .arg(s.value("id").toVariant().toLongLong())
+                            .arg(s.value("profileName").toString(QStringLiteral("(unknown profile)")));
+                        link["mimeType"] = "application/json";
+                        links.append(link);
+                    }
+                    result["_resourceLinks"] = links;
                 }
 
                 QMetaObject::invokeMethod(qApp, [respond, result]() {
@@ -216,6 +233,14 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     }
                 })) {
                     result["error"] = "Failed to open shot database";
+                }
+
+                if (!result.contains("error")) {
+                    QJsonObject link;
+                    link["uri"] = QStringLiteral("decenza://shots/") + QString::number(shotId);
+                    link["title"] = QStringLiteral("Shot #%1").arg(shotId);
+                    link["mimeType"] = "application/json";
+                    result["_resourceLinks"] = QJsonArray{ link };
                 }
 
                 QMetaObject::invokeMethod(qApp, [respond, result]() {

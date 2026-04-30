@@ -176,6 +176,14 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
             result["platform"] = platform;
 
+            // Per MCP 2025-06-18: link the result to the canonical resource so
+            // subscribing clients see updates flow through decenza://machine/state.
+            QJsonObject link;
+            link["uri"] = QStringLiteral("decenza://machine/state");
+            link["title"] = QStringLiteral("Machine State");
+            link["mimeType"] = "application/json";
+            result["_resourceLinks"] = QJsonArray{ link };
+
             // Steam health — only included when status is "monitor" or "warning"
             if (mainController) {
                 auto info = computeSteamHealth(mainController->steamHealthTracker());
@@ -216,6 +224,12 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                 result["scaleFlowRateMlPerSec"] = machineState->scaleFlowRate();
                 result["shotTimeSec"] = machineState->shotTime();
             }
+
+            QJsonObject link;
+            link["uri"] = QStringLiteral("decenza://machine/telemetry");
+            link["title"] = QStringLiteral("Machine Telemetry");
+            link["mimeType"] = "application/json";
+            result["_resourceLinks"] = QJsonArray{ link };
 
             // Include time-series data during active shot
             if (mainController && machineState && machineState->isFlowing()) {

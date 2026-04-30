@@ -9,6 +9,7 @@
 #include <QPair>
 #include <QPointer>
 #include <QList>
+#include <QSet>
 #include <optional>
 
 class McpSession;
@@ -122,6 +123,18 @@ private:
                           const QString& sessionId = QString(),
                           const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {});
 
+    // Tool result construction — emits both `content[]` text (for legacy
+    // 2025-03-26 clients) and `structuredContent` (for 2025-06-18+ clients).
+    // If the tool result carries a `_resourceLinks` array, those entries are
+    // converted into `resource_link` content blocks and stripped from
+    // `structuredContent`.
+    QJsonObject buildToolCallResponse(const QJsonObject& toolResult) const;
+
+    // Origin allowlist. Empty Origin header is always accepted; loopback and
+    // the host's own LAN IPs (computed from QNetworkInterface at construction)
+    // are the only browser origins that match.
+    bool isOriginAllowed(const QString& origin) const;
+
     // Dependencies
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
@@ -156,6 +169,12 @@ private:
     // bounded by MaxSseConnections (4) — linear scans are trivial.
     QList<QPointer<QTcpSocket>> m_sseClients;
     void broadcastSseNotification(const QString& resourceUri);
+
+    // Cached set of allowed Origin values, populated once at construction
+    // from loopback addresses and the host's LAN IPs. Each entry is a
+    // lowercase scheme://host[:port] string with no trailing slash; entries
+    // ending in `:*` match any port.
+    QSet<QString> m_allowedOrigins;
 
     // In-app confirmation (machine_start_* tools)
     std::optional<PendingConfirmation> m_pendingConfirmation;
