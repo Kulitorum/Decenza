@@ -56,6 +56,32 @@ static ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
     return info;
 }
 
+// Bundle of every helper-derived input ShotAnalysis::analyzeShot needs that
+// isn't already on the ShotRecord/ShotSaveData. Single source of truth so
+// the three storage-layer call sites (saveShotData, loadShotRecordStatic,
+// convertShotRecord) prepare analyzeShot arguments identically.
+//
+// A future addition to analyzeShot's required helper-derived inputs (e.g.
+// a new analysisFlags flag, a new ProfileFrameInfo field) is a one-place
+// change here and a one-line update at each call site — instead of three
+// inline preparation blocks that have to stay in sync by hand.
+struct AnalysisInputs {
+    QStringList analysisFlags;
+    double firstFrameSeconds = -1.0;
+    int frameCount = -1;
+};
+
+static AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
+                                            const QString& profileJson)
+{
+    AnalysisInputs inputs;
+    inputs.analysisFlags = ShotSummarizer::getAnalysisFlags(profileKbId);
+    const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(profileJson);
+    inputs.firstFrameSeconds = frameInfo.firstFrameSeconds;
+    inputs.frameCount = frameInfo.frameCount;
+    return inputs;
+}
+
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
 ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
@@ -948,11 +974,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // one place (analyzeShot's body). See docs/SHOT_REVIEW.md §4 for the
         // full mapping table and decenza::deriveBadgesFromAnalysis (in
         // history/shotbadgeprojection.h) for the projection rules.
-        const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(data.profileKbId);
-        const double firstFrameSec = (profile && !profile->steps().isEmpty())
-            ? profile->steps().first().seconds
-            : -1.0;
-        const int frameCount = profile ? static_cast<int>(profile->steps().size()) : -1;
+        const AnalysisInputs inputs = prepareAnalysisInputs(data.profileKbId, data.profileJson);
         const auto analysis = ShotAnalysis::analyzeShot(
             tmpRecord.pressure, shotData->flowData(),
             shotData->cumulativeWeightData(),
@@ -960,9 +982,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             shotData->conductanceDerivativeData(),
             tmpRecord.phases, data.beverageType, duration,
             shotData->pressureGoalData(), shotData->flowGoalData(),
-            analysisFlags, firstFrameSec,
+            inputs.analysisFlags, inputs.firstFrameSeconds,
             data.yieldOverride, data.finalWeight,
-            frameCount);
+            inputs.frameCount);
         decenza::applyBadgesToTarget(data, analysis.detectors);
     }
 
@@ -1943,27 +1965,31 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // `cachedAnalysis`. Fall through to running analyzeShot inline so
     // behavior stays correct end-to-end.
     {
+        // Fast path: when the ShotRecord came out of loadShotRecordStatic,
+        // the AnalysisResult is already cached on `record.cachedAnalysis`.
+        // Read from there to avoid running analyzeShot a second time on
+        // identical inputs.
+        //
+        // Slow path: direct-construction callers (tests, any future path
+        // that bypasses loadShotRecordStatic) hand us a ShotRecord without
+        // `cachedAnalysis`. prepareAnalysisInputs bundles analysisFlags +
+        // firstFrameSeconds + frameCount so this call site stays in
+        // lock-step with saveShotData and loadShotRecordStatic — same
+        // lookups, same args passed to analyzeShot.
         ShotAnalysis::AnalysisResult analysisOwned;  // storage if we need to compute
         const ShotAnalysis::AnalysisResult* analysisPtr = nullptr;
         if (record.cachedAnalysis.has_value()) {
             analysisPtr = &record.cachedAnalysis.value();
         } else {
-            const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
-            // Read both fields from the profile JSON: firstFrameSeconds gates
-            // detectSkipFirstFrame's short-first-step branch; frameCount drives
-            // the suppression for 1-frame profiles (no second frame to skip to)
-            // and the malformed-marker check. Both must match the args
-            // loadShotRecordStatic passes in its own analyzeShot call so the
-            // structured detectorResults emitted to MCP and the boolean badge
-            // columns in the DB cannot disagree on skipFirstFrameDetected.
-            const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
+            const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
             analysisOwned = ShotAnalysis::analyzeShot(
                 record.pressure, record.flow, record.weight,
                 record.temperature, record.temperatureGoal, record.conductanceDerivative,
                 record.phases, record.summary.beverageType, record.summary.duration,
-                record.pressureGoal, record.flowGoal, analysisFlags,
-                frameInfo.firstFrameSeconds, record.yieldOverride, record.summary.finalWeight,
-                frameInfo.frameCount);
+                record.pressureGoal, record.flowGoal,
+                inputs.analysisFlags, inputs.firstFrameSeconds,
+                record.yieldOverride, record.summary.finalWeight,
+                inputs.frameCount);
             analysisPtr = &analysisOwned;
         }
         const ShotAnalysis::AnalysisResult& analysis = *analysisPtr;
@@ -2290,17 +2316,16 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // defaults for any input shape it can't handle, which the projection
     // helper interprets as "all badges false."
     {
-        const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
-        const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
+        const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
         auto analysis = ShotAnalysis::analyzeShot(
             record.pressure, record.flow, record.weight,
             record.temperature, record.temperatureGoal,
             record.conductanceDerivative,
             record.phases, record.summary.beverageType, record.summary.duration,
             record.pressureGoal, record.flowGoal,
-            analysisFlags, frameInfo.firstFrameSeconds,
+            inputs.analysisFlags, inputs.firstFrameSeconds,
             record.yieldOverride, record.summary.finalWeight,
-            frameInfo.frameCount);
+            inputs.frameCount);
         decenza::applyBadgesToTarget(record, analysis.detectors);
         // Cache the AnalysisResult on the ShotRecord so convertShotRecord
         // (called next in the requestShot path) doesn't have to re-run
