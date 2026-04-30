@@ -532,6 +532,9 @@ add_decenza_test(tst_mcpserver_protocol
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
