@@ -216,10 +216,13 @@ even when no detector saw any data.
 
 **Coverage signal.** `DetectorResults.grindCoverage` carries one of:
 
-- `"verified"` — `hasData=true`. Distinguishes "we saw a healthy pour"
-  from the prior silent inference. Set whenever any arm produced data,
-  including the choked / overshoot / direction cases (the verdict already
-  carries the diagnosis; coverage just acknowledges the detector ran).
+- `"verified"` — `hasData=true`. The detector ran with enough data to
+  produce a result. Set whether or not the result is healthy: a
+  verified-clean pour AND a chokedPuck/yieldOvershoot/large-delta pour
+  BOTH carry `"verified"`. Coverage signals data availability, not
+  health outcome — the verdict and `grindDirection` carry the specific
+  diagnosis; consumers wanting "verified clean" specifically should
+  read `grindVerifiedClean` directly.
 - `"notAnalyzable"` — espresso shot, non-degenerate pour window, `hasData=false`.
   Common on simple two-marker profiles (A-Flow, La Pavoni, Malabar,
   Italian Style) where Arm 1's flow-mode window lies entirely before

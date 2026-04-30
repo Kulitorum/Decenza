@@ -1418,10 +1418,12 @@ private slots:
             phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
             phase(20.0, "pour",       1, /*isFlowMode=*/false),
         };
-        // Pressure stays under 4 bar throughout — Arm 2 never accumulates
-        // pressurizedDuration. Arm 1's flow-mode window is [0, 20] entirely
-        // before pourStart=20.
-        QVector<QPointF> pressure = flatSeries(0.0, 25.0, 2.5);
+        // Pressure stays under 4 bar (CHOKED_PRESSURE_MIN_BAR) throughout
+        // — Arm 2 never accumulates pressurizedDuration. Arm 1's flow-mode
+        // window is [0, 20] entirely before pourStart=20. Use 3.5 bar to
+        // sit comfortably above pourTruncated's 2.5 bar floor and below
+        // Arm 2's 4 bar gate, avoiding boundary-value fragility.
+        QVector<QPointF> pressure = flatSeries(0.0, 25.0, 3.5);
         QVector<QPointF> flow = flatSeries(0.0, 25.0, 1.5);
         QVector<QPointF> pressureGoal = pressure;
         QVector<QPointF> flowGoal = flatSeries(0.0, 25.0, 1.5);
@@ -1438,7 +1440,7 @@ private slots:
             /*targetWeightG=*/0.0, /*finalWeightG=*/30.0);
 
         const auto& d = result.detectors;
-        QVERIFY(!d.pourTruncated);  // 2.5 bar peak is exactly at the floor — falls below in this fixture's case
+        QVERIFY(!d.pourTruncated);  // 3.5 bar peak is above PRESSURE_FLOOR_BAR (2.5)
         QVERIFY(!d.grindHasData);
         QVERIFY(!d.grindVerifiedClean);
         QCOMPARE(d.grindCoverage, QStringLiteral("notAnalyzable"));

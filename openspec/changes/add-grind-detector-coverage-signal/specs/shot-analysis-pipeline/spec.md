@@ -9,7 +9,14 @@ The grind detector SHALL emit a `grindCoverage` signal taking one of three value
 `ShotAnalysis::analyzeShot` SHALL populate a new `DetectorResults::grindCoverage`
 field with one of three string values:
 
-- `"verified"` — `GrindCheck.hasData == true && GrindCheck.verifiedClean == true`.
+- `"verified"` — `GrindCheck.hasData == true`. The detector ran with enough
+  data to produce a result. Set whether or not the result is healthy: a
+  shot whose Arm 2 gates passed without a choke firing AND a shot that
+  fired `chokedPuck`, `yieldOvershoot`, or a large `delta` BOTH carry
+  `coverage = "verified"`. The verdict and `grindDirection` already
+  carry the specific diagnosis; coverage signals data availability,
+  not health outcome. Consumers wanting "verified clean" specifically
+  should read `grindVerifiedClean` directly.
 - `"notAnalyzable"` — `GrindCheck.hasData == false && GrindCheck.skipped == false`,
   AND the espresso shot's pour window was non-degenerate (`pourEndSec > pourStartSec`),
   AND the beverage type is not in the non-espresso skip list.

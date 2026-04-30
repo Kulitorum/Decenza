@@ -311,6 +311,7 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
 `verdictCategory` values:
 - `"clean"` — no warnings or cautions; grind was verified or skipped
 - `"cleanGrindNotAnalyzable"` — no warnings or cautions, but the grind detector could not analyze this profile shape (Arm 1 windows lay before pourStart and Arm 2's pressurized-duration gate didn't fire). Distinct from `"clean"` so consumers can differentiate "verified healthy" from "we silently had no data."
+- `"insufficientData"` — pressure series had fewer than 10 samples; `analyzeShot` bailed without running any detectors (every `checked` flag stays false).
 - `"puckTruncated"` — pour never pressurized; channeling / grind / temp signals are unreliable
 - `"skipFirstFrame"` — DE1 firmware bug or first-step too short
 - `"yieldOvershoot"` — gusher (yield ran > 20% over target)

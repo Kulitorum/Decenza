@@ -226,7 +226,7 @@ public:
         // Number of qualifying samples averaged (flow-vs-goal path) or the
         // count of pressurized samples observed (choked-puck path).
         qsizetype sampleCount = 0;
-        bool hasData = false;        // true when at least one arm produced a result (flow-vs-goal averaging, choked-puck check, yield-overshoot, or — post add-grind-detector-coverage-signal — the choked-puck loop's gates passed even without firing a choke)
+        bool hasData = false;        // true when at least one arm produced a result (flow-vs-goal averaging, choked-puck check, yield-overshoot, or the choked-puck loop's gates passed without firing a choke — the verified-clean path)
         bool skipped = false;        // true when suppressed by a flag or beverage type
         bool chokedPuck = false;     // true when the pressure-mode choke check fired — either mean pressurized flow below CHOKED_FLOW_MAX_MLPS (severe) or yield/target below CHOKED_YIELD_RATIO_MAX (moderate)
         bool yieldOvershoot = false; // true when yield/target > YIELD_OVERSHOOT_RATIO_MIN — gusher; mutually exclusive with chokedPuck only on the yield-ratio sub-arm (one < 0.85, the other > 1.20). chokedPuck's flow sub-arm could in principle co-fire, but a gusher cannot satisfy its 15s × 4 bar gate in practice.
@@ -408,13 +408,25 @@ public:
         //   "chokedPuck"     — pressurized but flow ~0
         //   "tooFine"        — flow averaged below goal beyond threshold
         //   "tooCoarse"      — flow averaged above goal beyond threshold
-        //   "onTarget"       — flow tracked goal within tolerance
+        //   "onTarget"       — flow tracked goal within tolerance OR Arm 2
+        //                      verified a healthy pour without Arm 1 data.
+        //                      Read grindSampleCount before assuming
+        //                      "onTarget" implies Arm 1 averaged ≥ 5
+        //                      qualifying samples — sampleCount can be 0
+        //                      on the verified-clean path when Arm 1's
+        //                      flow-mode window produced no data.
         QString grindDirection;
         // Coverage signal for the grind detector. Populated for espresso
         // shots where the pourTruncated cascade is NOT active. Possible
         // values:
-        //   "verified"      — gates passed, grindVerifiedClean == true
-        //                     (positive "we saw a healthy pour" signal)
+        //   "verified"      — grindHasData == true. The detector ran with
+        //                     enough data to produce a result. Set whether
+        //                     or not the result is healthy: a verified-clean
+        //                     pour AND a chokedPuck/yieldOvershoot/large-delta
+        //                     pour BOTH carry "verified". Coverage signals
+        //                     data availability, not health outcome — read
+        //                     grindVerifiedClean / grindDirection / verdict
+        //                     for the diagnosis.
         //   "notAnalyzable" — espresso shot, non-degenerate window, but
         //                     neither arm produced data (e.g. pure flow-mode
         //                     two-frame profile, or pressurized < 15s)
@@ -434,6 +446,9 @@ public:
         //   "clean"                       — no warnings or cautions; grind verified or skipped
         //   "cleanGrindNotAnalyzable"     — no warnings or cautions, but the grind detector
         //                                   could not analyze this profile shape
+        //   "insufficientData"            — pressure series < 10 samples; analyzeShot
+        //                                   bailed without running detectors (every
+        //                                   `checked` flag stays false)
         //   "puckTruncated"               — pour never pressurized
         //   "skipFirstFrame"              — frame 0 not executed
         //   "yieldOvershoot"              — gusher

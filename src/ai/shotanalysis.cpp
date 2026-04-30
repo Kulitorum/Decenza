@@ -571,9 +571,13 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
             // Gates passed, no choke fired, no overshoot, and Arm 1 (if it
             // ran) found delta within tolerance. The puck behaved.
             result.verifiedClean = true;
-            // Leave sampleCount as Arm 1 set it (or 0 if only Arm 2 ran),
-            // so consumers reading sampleCount see Arm 1's qualifying-
-            // samples count when both arms produced data.
+            // Leave sampleCount as Arm 1 set it. Note Arm 1 assigns
+            // sampleCount before its own count >= 5 gate, so the value
+            // here is whatever Arm 1 saw — could be the qualifying-samples
+            // count (≥ 5) when Arm 1 produced data, a partial count
+            // (1-4) when Arm 1 ran but didn't pass its gate, or 0 when
+            // Arm 1's block was bypassed entirely (empty flowModeRanges
+            // or no flowGoal).
         }
     }
 
@@ -710,7 +714,10 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         line["type"] = QStringLiteral("observation");
         lines.append(line);
         // Leave detectors at defaults — every "checked" flag stays false,
-        // signalling "no analysis was possible" to MCP consumers.
+        // signalling "no analysis was possible" to MCP consumers. Set
+        // verdictCategory explicitly so consumers performing strict enum
+        // matches don't see an empty string for this edge case.
+        d.verdictCategory = QStringLiteral("insufficientData");
         return result;
     }
 
@@ -887,7 +894,13 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                             beverageType, analysisFlags,
                             pressure,
                             targetWeightG, finalWeightG);
-    d.grindChecked = !pourTruncated;
+    // Mirror channelingChecked / flowTrendChecked: `checked` reflects whether
+    // the detector ran, not whether it was reachable. pourTruncated cascade
+    // and the beverage / grind_check_skip skip path both leave grindChecked
+    // false so MCP consumers don't misread `checked == true` + `hasData ==
+    // false` as "ran but found nothing" when the detector was actually
+    // suppressed by config.
+    d.grindChecked = !pourTruncated && !grind.skipped;
     d.grindHasData = grind.hasData;
     d.grindChokedPuck = grind.chokedPuck;
     d.grindYieldOvershoot = grind.yieldOvershoot;
@@ -910,9 +923,11 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             d.grindCoverage = QStringLiteral("notAnalyzable");
         } else {
             // hasData=true but not verifiedClean → an actual issue fired
-            // (chokedPuck, yieldOvershoot, or large delta). The detector
-            // had data and used it; "verified" would be misleading because
-            // the verdict already carries the diagnosis.
+            // (chokedPuck, yieldOvershoot, or large delta). Coverage is
+            // still "verified" because the detector ran and produced
+            // data — coverage signals data availability, not health
+            // outcome. The specific diagnosis is in grindDirection and
+            // the verdict.
             d.grindCoverage = QStringLiteral("verified");
         }
     }
