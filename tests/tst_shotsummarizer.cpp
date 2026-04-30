@@ -457,6 +457,129 @@ private slots:
                      "pourTruncated cascade must suppress per-phase temp markers in fast path");
         }
     }
+
+    // ---- buildPhaseSummariesForRange dedup (post-G) ----
+    //
+    // The shared helper consolidates ~50 lines of per-marker phase metric
+    // computation that used to be duplicated across summarize() and
+    // summarizeFromHistory(). These tests exercise it indirectly through
+    // the public summarizeFromHistory interface to lock in the dedup
+    // contract: degenerate spans contribute no PhaseSummary, per-phase
+    // metrics are computed correctly, marker list construction is unchanged.
+
+    // Degenerate span: when two consecutive markers share a timestamp,
+    // the helper skips the empty-span phase but the marker stream
+    // analyzeShot consumes still gets every marker (frame transitions
+    // matter to skip-first-frame detection regardless of span width).
+    void summarizeFromHistory_degenerateSpansSkipped()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["duration"] = 30.0;
+        shot["doseWeight"] = 18.0;
+        shot["finalWeight"] = 36.0;
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 8.0, 1.0);
+        appendFlat(pressure, 8.0, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        appendFlat(weight, 0.0, 30.0, 36.0);
+
+        // Three markers, but the first two share a timestamp → first phase
+        // is degenerate (endTime == startTime).
+        QVariantList phaseList;
+        appendPhase(phaseList, 0.0, QStringLiteral("preinfusion"), 0);
+        appendPhase(phaseList, 0.0, QStringLiteral("transition"), 1);
+        appendPhase(phaseList, 8.0, QStringLiteral("pour"), 2);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phaseList;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+
+        // marker[0]: startTime=0, endTime=markers[1].time=0 → degenerate, skip.
+        // marker[1]: startTime=0, endTime=markers[2].time=8 → 8s span.
+        // marker[2]: startTime=8, endTime=30 → 22s span.
+        // → 2 PhaseSummary entries expected (the degenerate first marker dropped).
+        QCOMPARE(summary.phases.size(), 2);
+        QCOMPARE(summary.phases[0].name, QStringLiteral("transition"));
+        QCOMPARE(summary.phases[0].startTime, 0.0);
+        QCOMPARE(summary.phases[0].endTime, 8.0);
+        QCOMPARE(summary.phases[1].name, QStringLiteral("pour"));
+        QCOMPARE(summary.phases[1].startTime, 8.0);
+        QCOMPARE(summary.phases[1].endTime, 30.0);
+    }
+
+    // Per-phase metrics: a known-shape shot must produce known per-phase
+    // metric values. Locks in that the helper computes the same
+    // averages/extrema/weight-gain as the legacy inline loop.
+    void summarizeFromHistory_perPhaseMetricsAreCorrect()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["duration"] = 30.0;
+        shot["doseWeight"] = 18.0;
+        shot["finalWeight"] = 36.0;
+
+        // Two phases: preinfusion 0–7.9s at 1.0 bar / 1.8 ml/s; pour
+        // 8.1–30s at 9.0 bar / 1.8 ml/s. Sampling deliberately leaves a
+        // gap at t=8.0 (the marker boundary) so calculateAverage's
+        // inclusive [start, end] window doesn't pick up either side's
+        // boundary sample with the wrong value. Weight ramps linearly
+        // 0→36g over [0, 30].
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 7.9, 1.0);
+        appendFlat(pressure, 8.1, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        for (double t = 0.0; t <= 30.0 + 1e-9; t += 0.1) {
+            QVariantMap p; p["x"] = t; p["y"] = 36.0 * (t / 30.0);
+            weight.append(p);
+        }
+
+        QVariantList phaseList;
+        appendPhase(phaseList, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phaseList, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phaseList;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+
+        QCOMPARE(summary.phases.size(), 2);
+        // Preinfusion (0–8s): pressure flat at 1.0, flow flat at 1.8,
+        // temp flat at 92, weight grew from 0 to ~9.6g.
+        QCOMPARE(summary.phases[0].name, QStringLiteral("Preinfusion"));
+        QCOMPARE(summary.phases[0].avgPressure, 1.0);
+        QCOMPARE(summary.phases[0].avgFlow, 1.8);
+        QCOMPARE(summary.phases[0].avgTemperature, 92.0);
+        QVERIFY(qFuzzyCompare(summary.phases[0].weightGained, 9.6));
+        // Pour (8–30s): pressure flat at 9.0, weight grew ~26.4g.
+        QCOMPARE(summary.phases[1].name, QStringLiteral("Pour"));
+        QCOMPARE(summary.phases[1].avgPressure, 9.0);
+        QVERIFY(qFuzzyCompare(summary.phases[1].weightGained, 26.4));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)
