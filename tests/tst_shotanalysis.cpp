@@ -1512,7 +1512,7 @@ private slots:
     //
     // The five boolean quality-badge columns are now a deterministic
     // projection of ShotAnalysis::DetectorResults via the helper in
-    // src/history/shotbadgeprojection.h. saveShotData and loadShotRecordStatic
+    // src/history/shotbadgeprojection.h. saveShot and loadShotRecordStatic
     // both call analyzeShot once and apply the projection — the cascade
     // lives in exactly one place. These table-driven cases lock in the
     // projection contract documented in SHOT_REVIEW.md §4. If any cell of

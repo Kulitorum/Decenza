@@ -8,7 +8,7 @@
 // Projection from the typed ShotAnalysis::DetectorResults struct onto the
 // five boolean quality-badge columns persisted in the `shots` DB table and
 // surfaced via QualityBadges.qml. Single source of truth for the badge↔struct
-// mapping — used by both save-time computation (saveShotData) and the
+// mapping — used by both save-time computation (saveShot) and the
 // recompute-on-load path (loadShotRecordStatic) so the cascade definition
 // lives in exactly one place. See docs/SHOT_REVIEW.md §4 for the full
 // mapping table.

@@ -69,7 +69,7 @@ The live-path entry point `ShotSummarizer::summarize(ShotDataModel*)` is OUT OF 
 
 ### Requirement: Save and load paths SHALL derive boolean quality badges from `DetectorResults` via a single documented projection
 
-`ShotHistoryStorage::saveShotData` (save-time badge computation) and `ShotHistoryStorage::loadShotRecordStatic` (recompute-on-load) SHALL invoke `ShotAnalysis::analyzeShot(...)` exactly once per shot and project the five boolean badge columns from the returned `DetectorResults` struct using the documented mapping. Neither function SHALL retain hand-rolled per-detector calls or hand-rolled cascade gate conditions; the cascade SHALL live in exactly one place — `ShotAnalysis::analyzeShot`.
+`ShotHistoryStorage::saveShot` (save-time badge computation) and `ShotHistoryStorage::loadShotRecordStatic` (recompute-on-load) SHALL invoke `ShotAnalysis::analyzeShot(...)` exactly once per shot and project the five boolean badge columns from the returned `DetectorResults` struct using the documented mapping. Neither function SHALL retain hand-rolled per-detector calls or hand-rolled cascade gate conditions; the cascade SHALL live in exactly one place — `ShotAnalysis::analyzeShot`.
 
 The projection mapping SHALL be implemented in `decenza::deriveBadgesFromAnalysis` (header-only, in `src/history/shotbadgeprojection.h`) as:
 
@@ -185,7 +185,7 @@ The cached `AnalysisResult` SHALL be invalidated (cleared / reset) if any input 
 
 The two helper lookups required to populate `analyzeShot`'s arguments — `ShotSummarizer::getAnalysisFlags(profileKbId)` and `profileFrameInfoFromJson(profileJson)` — SHALL be consolidated into a single `decenza::prepareAnalysisInputs` helper (declared in `src/history/shotanalysisinputs.h`). The helper SHALL accept any `ShotRecord`-shaped or `ShotSaveData`-shaped source that exposes `profileKbId` and `profileJson` fields, and return a typed `AnalysisInputs` struct containing the `analysisFlags`, `firstFrameSeconds`, and `frameCount` values.
 
-The three storage-layer `analyzeShot` call sites (`saveShotData`, `loadShotRecordStatic`, `convertShotRecord`) SHALL each invoke `prepareAnalysisInputs` once and pass the resulting fields into `analyzeShot`. None of them SHALL retain inline calls to `getAnalysisFlags` or `profileFrameInfoFromJson` for the purpose of building `analyzeShot` arguments.
+The three storage-layer `analyzeShot` call sites (`saveShot`, `loadShotRecordStatic`, `convertShotRecord`) SHALL each invoke `prepareAnalysisInputs` once and pass the resulting fields into `analyzeShot`. None of them SHALL retain inline calls to `getAnalysisFlags` or `profileFrameInfoFromJson` for the purpose of building `analyzeShot` arguments.
 
 `analyzeShot`'s signature, the badge column projection, the prose `summaryLines`, and the structured `detectorResults` JSON SHALL all remain unchanged. This is a pure refactor.
 
@@ -194,8 +194,8 @@ A future addition to `analyzeShot`'s required inputs (e.g. a new `analysisFlags`
 #### Scenario: Save-time call site uses the helper
 
 - **GIVEN** a `ShotSaveData` with populated `profileKbId` and `profileJson`
-- **WHEN** `saveShotData` reaches the `analyzeShot` call
-- **THEN** `saveShotData` SHALL invoke `decenza::prepareAnalysisInputs(data)` exactly once
+- **WHEN** `saveShot` reaches the `analyzeShot` call
+- **THEN** `saveShot` SHALL invoke `decenza::prepareAnalysisInputs(data)` exactly once
 - **AND** SHALL pass `inputs.analysisFlags`, `inputs.firstFrameSeconds`, and `inputs.frameCount` into `analyzeShot`
 - **AND** SHALL NOT have any inline `getAnalysisFlags` or `profileFrameInfoFromJson` call remaining
 

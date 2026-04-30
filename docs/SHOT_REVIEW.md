@@ -233,7 +233,7 @@ The simplest of the five. `temperatureUnstable = true` when:
 where the goal is non-zero.
 
 The `pourStart > 0` and `reachedExtractionPhase` guards live exclusively
-in `analyzeShot`. Save-time (`saveShotData`), load-time recompute
+in `analyzeShot`. Save-time (`saveShot`), load-time recompute
 (`loadShotRecordStatic`), the dialog, the AI advisor, and MCP all
 delegate to the same `analyzeShot` body, so the cascade definition is
 the gates — no risk of asymmetry across the call sites and no chance for
@@ -492,7 +492,7 @@ alongside the rest of the shot record.
 
 ### Single-pass detector pipeline + projection (post PR #934, #935, #936)
 
-`saveShotData` and `loadShotRecordStatic` both compute all five quality
+`saveShot` and `loadShotRecordStatic` both compute all five quality
 badges via a single `ShotAnalysis::analyzeShot(...)` call and project the
 booleans from the returned `DetectorResults` struct using the helper in
 `src/history/shotbadgeprojection.h`. The cascade lives in exactly one

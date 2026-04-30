@@ -5,10 +5,11 @@
 // analyzeShot-fast-path-vs-fallback branch — a separate concern from the
 // DB lifecycle / save / load code that lives in shothistorystorage.cpp.
 //
-// All ShotHistoryStorage state is reached through the `record` argument
-// (no `this` pointers needed for static helpers; convertShotRecord itself
-// is non-static but doesn't touch any member). Behavior is identical to
-// the pre-split implementation.
+// convertShotRecord is a static method (declared `static` in
+// shothistorystorage.h), so all state is reached through the `record`
+// argument with no `this` pointer involved — that's what makes the
+// file split mechanical. Behavior is identical to the pre-split
+// implementation.
 
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
@@ -109,7 +110,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // bypasses loadShotRecordStatic) hand us a ShotRecord without
     // `cachedAnalysis`. prepareAnalysisInputs bundles analysisFlags +
     // firstFrameSeconds + frameCount so this call site stays in lock-step
-    // with saveShotData and loadShotRecordStatic — same lookups, same args
+    // with saveShot and loadShotRecordStatic — same lookups, same args
     // passed to analyzeShot.
     {
         ShotAnalysis::AnalysisResult analysisOwned;  // storage if we need to compute

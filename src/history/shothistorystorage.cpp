@@ -674,7 +674,7 @@ bool ShotHistoryStorage::runMigrations()
     }
 
     // Migration 10: Add quality flags for shot review badges.
-    // Computed at save time by saveShotData() using ShotAnalysis helpers directly
+    // Computed at save time by saveShot() using ShotAnalysis helpers directly
     // (avoids a ShotSummarizer dependency); recomputed on-the-fly inside
     // loadShotRecordStatic() for shots that predate this migration.
     if (currentVersion < 10) {
@@ -780,7 +780,7 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     // Weight-based flow rate (g/s) for visualizer export
     root["weightFlowRate"] = pointsToJsonObject(shotData->weightFlowRateData());
 
-    // Phase summaries for UI display (pre-computed by saveShotData() via computePhaseSummaries)
+    // Phase summaries for UI display (pre-computed by saveShot() via computePhaseSummaries)
     if (!phaseSummariesJson.isEmpty()) {
         root["phaseSummaries"] = QJsonDocument::fromJson(phaseSummariesJson.toUtf8()).array();
     }
@@ -1830,7 +1830,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
     return results;
 }
 
-// convertShotRecord — moved to shothistorystorage_serialize.cpp.
+// convertShotRecord (the QVariantMap projection consumed by requestShot,
+// ShotServer, and the AI advisor) lives in shothistorystorage_serialize.cpp.
 
 void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
 {

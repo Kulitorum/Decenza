@@ -5,7 +5,7 @@
 `src/history/shothistorystorage.cpp` is ~2500 lines and has grown five distinct logical concerns:
 
 1. **Database lifecycle**: `initialize`, migrations, `withTempDb` integration.
-2. **Save path**: `saveShot`, `saveShotData`, `saveShotStatic`, the helper `prepareAnalysisInputs`, all the data-extraction-on-main-thread logic.
+2. **Save path**: `saveShot`, `saveShotStatic`, the helper `prepareAnalysisInputs`, all the data-extraction-on-main-thread logic.
 3. **Load + recompute**: `loadShotRecordStatic`, the badge recompute block, the lazy-persist write-back, `requestReanalyzeBadges`, `computeDerivedCurves`, `computePhaseSummaries`.
 4. **Serialization**: `convertShotRecord` (~180 lines including the new cached-analysis fast path), the `pointsToVariant` helpers.
 5. **Query helpers**: `requestShotsFiltered`, `buildFilterQuery`, `requestRecentShotsByKbId`, `loadRecentShotsByKbIdStatic`, `requestAutoFavorites`, `requestDistinctCache`, the distinct-value cache logic, `queryGrinderContext`.

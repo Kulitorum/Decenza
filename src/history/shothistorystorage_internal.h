@@ -1,9 +1,10 @@
 #pragma once
 
-// Internal helpers shared between the three ShotHistoryStorage translation
-// units (shothistorystorage.cpp + shothistorystorage_queries.cpp +
-// shothistorystorage_serialize.cpp). NOT part of the public API — do not
-// include from outside src/history/.
+// Internal helpers shared between the ShotHistoryStorage translation units
+// (today: shothistorystorage.cpp + shothistorystorage_serialize.cpp; the
+// queries split planned in openspec/changes/split-shothistorystorage-by-concern/
+// will add a third TU). NOT part of the public API — do not include from
+// outside src/history/.
 
 #include <QString>
 #include <QStringList>
@@ -24,7 +25,7 @@ ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson);
 
 // Bundle of every helper-derived input ShotAnalysis::analyzeShot needs that
 // isn't already on the ShotRecord/ShotSaveData. Single source of truth so
-// the three storage-layer call sites (saveShotData, loadShotRecordStatic,
+// the three storage-layer call sites (saveShot, loadShotRecordStatic,
 // convertShotRecord) prepare analyzeShot arguments identically.
 //
 // A future addition to analyzeShot's required helper-derived inputs (e.g.
@@ -43,9 +44,9 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
 
 // True when the OS reports a 12-hour locale (e.g. "h:mm AP" rather than
 // "HH:mm"). Cached after the first call so we don't re-walk QLocale on every
-// row. Used by the date-formatting code in convertShotRecord,
-// requestShotsFiltered, and requestAutoFavoriteGroupDetails — the three
-// places that emit `dateTime` strings to QML.
+// row. Used by the date-formatting code that emits `dateTime` strings to
+// QML across the storage TUs (currently three call sites; grep
+// `use12h\\b` to find them).
 bool use12h();
 
 } // namespace decenza::storage::detail
