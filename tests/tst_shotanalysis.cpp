@@ -1094,7 +1094,7 @@ private slots:
         QCOMPARE(ShotAnalysis::detectPourTruncated(pressure, 2.0, 8.0), true);
     }
 
-    // ---- Suppression cascade in generateSummary ----
+    // ---- Suppression cascade in analyzeShot ----
     //
     // When pourTruncated fires, the channeling / flow-trend / temp-stability /
     // grind blocks all read off curves the failed puck didn't produce, so
@@ -1156,7 +1156,7 @@ private slots:
     // Temperature drift well above the 2°C threshold must NOT produce a
     // "Temperature drifted" caution line when pourTruncated fires. This is
     // the exact misdiagnosis from shot 868 — fix is the suppression gate in
-    // generateSummary.
+    // analyzeShot.
     void pourTruncated_summary_suppressesTempDriftLine()
     {
         QList<HistoryPhaseMarker> phases{

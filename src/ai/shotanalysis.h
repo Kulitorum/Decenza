@@ -233,7 +233,7 @@ public:
     };
 
     // Grind direction check — the canonical implementation shared by the
-    // badge path (detectGrindIssue) and the summary path (generateSummary).
+    // badge path (detectGrindIssue) and the summary path (analyzeShot).
     //
     // Two paths feed the same GrindCheck result:
     //   1. Flow-vs-goal averaging across flow-controlled phases (the primary
@@ -323,13 +323,19 @@ public:
                                      int expectedFrameCount = -1,
                                      double firstFrameConfiguredSeconds = -1.0);
 
-    // Structured detector outputs — the typed values that drive each
-    // observation line in `summaryLines`. Exposed so external consumers
-    // (MCP `shots_get_detail`, regression tests) can read the same signals
-    // the in-app Shot Summary dialog renders without parsing prose. Kept
-    // strictly in sync with `summaryLines` by construction: `analyzeShot`
-    // populates this struct first, then formats each line FROM the struct,
-    // so a detector flip moves both fields together.
+    // Structured detector outputs — the typed values behind the in-app
+    // Shot Summary dialog's detector evaluations. Exposed so external
+    // consumers (MCP `shots_get_detail`, regression tests) can read the
+    // same signals without parsing prose. Every observation line in
+    // `summaryLines` is formatted from one of these fields, but the
+    // struct is a *superset* of what `summaryLines` renders: clean signals
+    // (e.g. `flowTrend = "stable"`, `grindDirection = "onTarget"`,
+    // `tempUnstable = false`) are captured here even when no prose line
+    // is emitted — silence in the dialog is not silence in the struct.
+    // Kept in sync with `summaryLines` by construction: `analyzeShot`
+    // populates this struct as it walks the detectors and formats lines
+    // from the same intermediates, so a detector flip moves both
+    // outputs together.
     //
     // Field semantics — most detectors follow a "checked / not-checked"
     // pattern. `*Checked == false` means the detector was suppressed
@@ -410,10 +416,11 @@ public:
 
     // Combined output of the shot-summary pipeline. `lines` is the prose
     // observation list (same as legacy `generateSummary` return value);
-    // `detectors` holds the structured intermediates the lines were
-    // formatted from. Sharing one return value guarantees the prose and
-    // the structured data describe the same evaluation — no chance for
-    // them to drift across consumers.
+    // `detectors` holds the structured intermediates that lines were
+    // formatted from, plus clean-signal fields the dialog leaves silent
+    // (see DetectorResults). Sharing one return value guarantees both
+    // outputs describe the same evaluation — no chance for them to
+    // drift across consumers.
     struct AnalysisResult {
         QVariantList lines;
         DetectorResults detectors;

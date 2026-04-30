@@ -58,7 +58,7 @@ it's the entry point to the analysis dialog described in §3.
 **Suppression cascade.** `pourTruncatedDetected` is dominant: when it fires,
 `channelingDetected` / `temperatureUnstable` / `grindIssueDetected` are
 forced to false at save time, in the load-time recompute, and inside
-`generateSummary`. The puck failed to build pressure, so the curves the
+`analyzeShot`. The puck failed to build pressure, so the curves the
 other three detectors read off don't mean what they normally mean
 (conductance saturates → derivative flat, flow tracks preinfusion goal →
 grind delta ≈ 0, temp drift measured against a pour that didn't really
@@ -228,7 +228,7 @@ The simplest of the five. `temperatureUnstable = true` when:
 where the goal is non-zero.
 
 The `pourStart > 0` and `reachedExtractionPhase` guards are applied at
-all three call sites (`generateSummary`, `saveShot`, `loadShotRecordStatic`)
+all three call sites (`analyzeShot`, `saveShot`, `loadShotRecordStatic`)
 so live, save-time, and recompute-on-load all converge on the same flag
 value — important because `loadShotRecordStatic` writes drift back to the
 DB (see §4) and any asymmetry would silently flip flags between sessions.
@@ -274,7 +274,7 @@ wrong diagnosis. Skipped for filter / pourover / tea / steam / cleaning
 beverages where low pressure is expected.
 
 **Suppression cascade.** When this detector fires, the save block, the
-load-time recompute, and `generateSummary` all force `channelingDetected`
+load-time recompute, and `analyzeShot` all force `channelingDetected`
 / `temperatureUnstable` / `grindIssueDetected` to false. See §1 for the
 rationale; see §4 for where it's enforced.
 
@@ -302,12 +302,20 @@ QML side is a thin display layer.
 `ShotAnalysisDialog` (visible) →
 `MainController.shotHistory.generateShotSummary(shotData)` (Q_INVOKABLE on
 `ShotHistoryStorage`) →
-`ShotAnalysis::generateSummary(...)` →
-`QVariantList` of `{ text, type }` lines →
-`Repeater` in the dialog with a colored dot per line.
+`ShotAnalysis::analyzeShot(...)` →
+`AnalysisResult { lines, detectors }`. The dialog reads `lines` (a
+`QVariantList` of `{ text, type }` entries) and renders them via a
+`Repeater` with a colored dot per line. External MCP consumers read
+`detectors` (a typed `DetectorResults` struct serialized as
+`detectorResults` JSON on `shots_get_detail`).
+
+`ShotAnalysis::generateSummary(...)` still exists as a thin wrapper that
+returns `analyzeShot(...).lines`; existing callers that only want the
+prose lines (the Q_INVOKABLE bridge above, the AI advisor prompt builder)
+keep working unchanged.
 
 `generateShotSummary` is the bridge that converts the QML `shotData` map
-into the typed vectors `generateSummary` expects (pressure, flow, weight,
+into the typed vectors `analyzeShot` expects (pressure, flow, weight,
 temperature + goals, conductance derivative, phases, beverage type, profile
 JSON for first-frame seconds, yield override + final weight for the choked-
 puck yield arm). Empty / missing fields are tolerated where the underlying
@@ -330,10 +338,10 @@ from the observation lines.
 
 ### Observations emitted
 
-`generateSummary` computes `pourTruncated` first; when it fires, the
+`analyzeShot` computes `pourTruncated` first; when it fires, the
 channeling / flow-trend / temperature / grind blocks below all skip
 emission entirely. The list collapses to a single warning + the
-puck-failed verdict. Order otherwise follows `generateSummary`
+puck-failed verdict. Order otherwise follows `analyzeShot`
 top-to-bottom:
 
 1. **Channeling status** — uses the same `buildChannelingWindows` +
@@ -422,19 +430,36 @@ on demand.
 ### AI advisor consumes the same line list (PR #930)
 
 The in-app AI advisor's prompt is built by `ShotSummarizer::buildUserPrompt`,
-which ships the same `generateSummary` line list under a `## Detector
+which ships the same `analyzeShot` line list under a `## Detector
 Observations` section with a preamble framing the lines as detector
 evidence (severity tags `[warning]` / `[caution]` / `[good]` /
 `[observation]`). The `verdict` line is filtered out so the AI reasons
 from the same observations the verdict was built from rather than
 anchoring on the dialog's pre-cooked conclusion. The suppression cascade
-is enforced in exactly one place — `generateSummary` — so the badge UI,
+is enforced in exactly one place — `analyzeShot` — so the badge UI,
 the dialog, and the AI advisor cannot drift.
 
-External MCP-connected agents currently see only the cascaded boolean
-flags via `convertShotRecord`, not the formatted line list. See
-Issue #931 for the design discussion (full parity vs intentional
-data-plane layering).
+### External MCP agents see structured detectors (PR #933, resolved Issue #931)
+
+`ShotHistoryStorage::convertShotRecord` runs `ShotAnalysis::analyzeShot`
+once per shot conversion and emits both `summaryLines` (the prose list
+the dialog renders) and a nested `detectorResults` JSON object on every
+shot record served by `shots_get_detail` / `shots_compare`. The
+`detectorResults` shape is documented in
+[`docs/CLAUDE_MD/MCP_SERVER.md`](CLAUDE_MD/MCP_SERVER.md) under "Shot
+Detector Outputs" and mirrors the `ShotAnalysis::DetectorResults` C++
+struct: channeling severity, flow trend, grind direction (with
+`chokedPuck` / `yieldOvershoot` flags), pour-truncated + peak pressure,
+skip-first-frame, and a stable enum-like `verdictCategory` string.
+
+The struct is a *superset* of what `summaryLines` renders — clean
+signals (`flowTrend = "stable"`, `grindDirection = "onTarget"`) appear
+in `detectorResults` but produce no prose line. The verdict prose is
+intentionally NOT exposed as a separate field; external agents read
+`verdictCategory` and compose their own framing.
+
+The five legacy badge booleans (`channelingDetected`, etc.) on
+`convertShotRecord` remain available for backwards compatibility.
 
 ---
 
@@ -514,8 +539,10 @@ require another sweep.
   `buildChannelingWindows`, `detectChannelingFromDerivative`,
   `detectGrindIssue`, `detectSkipFirstFrame`, `detectPourTruncated`,
   `hasIntentionalTempStepping`, `avgTempDeviation`, `shouldSkipChannelingCheck`,
-  `generateSummary` (the Shot Summary dialog text — see §3), all tuning
-  constants.
+  `analyzeShot` (returns `AnalysisResult { lines, detectors }` — feeds
+  the Shot Summary dialog and MCP; see §3), `generateSummary` (thin
+  wrapper returning `analyzeShot(...).lines`), `DetectorResults` /
+  `AnalysisResult` structs, all tuning constants.
 
 ### Persistence
 
@@ -526,7 +553,11 @@ require another sweep.
   - `requestShotsFiltered` + `buildFilterQuery` — history-list filter that
     reads the stored columns.
   - `generateShotSummary` — Q_INVOKABLE bridge that converts a QML
-    `shotData` map into the typed inputs for `ShotAnalysis::generateSummary`.
+    `shotData` map into the typed inputs for `ShotAnalysis::analyzeShot`
+    and returns the prose `lines`.
+  - `convertShotRecord` — runs `analyzeShot` once per shot conversion;
+    emits `summaryLines` (prose) and a nested `detectorResults` JSON
+    object on every shot record served by MCP / web endpoints.
   - DB migrations for the five flag columns (10–13; migration 13 adds
     `pour_truncated_detected`).
   - `computeDerivedCurves` — fills conductance / dC/dt for legacy shots that
@@ -615,13 +646,13 @@ To add a fixture:
 - PR #901 — flow/pressure-mode rising-pressure gate fix.
 - PR #910 — yield-overshoot ("gusher") arm in `analyzeFlowVsGoal`.
 - PR #922 / Issue #903 — fifth badge `pourTruncatedDetected` ("Puck failed"),
-  suppression cascade across save / load / `generateSummary`,
+  suppression cascade across save / load / `analyzeShot`,
   meta-action verdict ("Don't tune off this shot"), migration 13.
 - PR #930 / Issue #921 — `ShotSummarizer` (AI advisor prompt path) now
   shares the suppression cascade. Detector orchestration delegates to
-  `ShotAnalysis::generateSummary`, the same call `ShotHistoryStorage::generateShotSummary`
+  `ShotAnalysis::analyzeShot`, the same call `ShotHistoryStorage::generateShotSummary`
   makes for the dialog. The prompt's `## Detector Observations` section
-  emits `generateSummary`'s line list verbatim with severity tags
+  emits `analyzeShot`'s line list verbatim with severity tags
   (`[warning]` / `[caution]` / `[good]` / `[observation]`) under a preamble
   framing the lines as detector evidence. The `verdict` line is filtered
   out before emission so the AI reasons from the same observations the
@@ -633,11 +664,16 @@ To add a fixture:
   `timeToFirstDrip`, `preinfusionDuration`, `mainExtractionDuration`)
   and the wrapper helpers (`detectChannelingInPhases`,
   `calculateTemperatureStability`) they fed.
-- Issue #931 — MCP `shots_get_detail` / `shots_compare` still expose
-  only the boolean badge flags (cascade applied), not the formatted
-  `summaryLines`. Followup to #921 / #930; design call pending between
-  full parity (Option A: emit lines on the MCP payload) and "data
-  plane" layering (Option B: external agents do their own analysis).
+- PR #933 / Issue #931 — `convertShotRecord` runs `analyzeShot` once
+  per shot conversion and emits both `summaryLines` (prose) and
+  structured `detectorResults` JSON on `shots_get_detail` /
+  `shots_compare`. Refactored `generateSummary` into a thin wrapper
+  over the new `analyzeShot()` entry point that returns
+  `AnalysisResult { lines, detectors }`. The `DetectorResults` struct
+  is the source for prose; sharing one detector pass keeps both
+  outputs in lockstep. Verdict prose is intentionally NOT exposed —
+  agents read the stable `verdictCategory` enum instead. Field
+  reference: `docs/CLAUDE_MD/MCP_SERVER.md` "Shot Detector Outputs".
 
 External resources that informed the diagnostic patterns:
 

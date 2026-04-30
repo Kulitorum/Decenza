@@ -986,7 +986,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // reachedExtractionPhase so aborted shots that died during preinfusion-
         // start don't get flagged for temp drift caused by the machine still
         // preheating against an 82 °C goal. The pourStart > 0 conjunct
-        // matches generateSummary and prevents avgTempDeviation from averaging
+        // matches analyzeShot and prevents avgTempDeviation from averaging
         // from t=0 (which would include the preheat ramp) when phase labels
         // are unusual enough that no Pour/infus/Start marker was found.
         // Suppressed when pourTruncated fires — see the comment above.
@@ -2374,7 +2374,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         // Temperature stability. Gated on reachedExtractionPhase so aborted
         // shots that died during preinfusion-start don't get flagged for
         // temp drift caused by the machine still preheating. The pourStart
-        // > 0 conjunct matches generateSummary and prevents avgTempDeviation
+        // > 0 conjunct matches analyzeShot and prevents avgTempDeviation
         // from averaging from t=0 (which would include the preheat ramp)
         // when phase labels are unusual enough that no Pour/infus/Start
         // marker was found. Suppressed when pourTruncated fires.
