@@ -232,11 +232,13 @@ The simplest of the five. `temperatureUnstable = true` when:
 `avgTempDeviation` is the average absolute deviation over the pour window
 where the goal is non-zero.
 
-The `pourStart > 0` and `reachedExtractionPhase` guards are applied at
-all three call sites (`analyzeShot`, `saveShot`, `loadShotRecordStatic`)
-so live, save-time, and recompute-on-load all converge on the same flag
-value — important because `loadShotRecordStatic` writes drift back to the
-DB (see §4) and any asymmetry would silently flip flags between sessions.
+The `pourStart > 0` and `reachedExtractionPhase` guards live exclusively
+in `analyzeShot`. Save-time (`saveShotData`), load-time recompute
+(`loadShotRecordStatic`), the dialog, the AI advisor, and MCP all
+delegate to the same `analyzeShot` body, so the cascade definition is
+the gates — no risk of asymmetry across the call sites and no chance for
+`loadShotRecordStatic`'s drift-on-load write-back to disagree with what
+save produced (see §4).
 
 ### 2.4 Skip first frame
 
@@ -278,10 +280,12 @@ preinfusion goal perfectly — every other detector goes silent or fires the
 wrong diagnosis. Skipped for filter / pourover / tea / steam / cleaning
 beverages where low pressure is expected.
 
-**Suppression cascade.** When this detector fires, the save block, the
-load-time recompute, and `analyzeShot` all force `channelingDetected`
-/ `temperatureUnstable` / `grindIssueDetected` to false. See §1 for the
-rationale; see §4 for where it's enforced.
+**Suppression cascade.** When this detector fires, `analyzeShot` (the
+single enforcement point) skips the channeling, temperature, and grind
+blocks, leaving those `DetectorResults` fields at their `false` defaults.
+The badge projection then reads those defaults so `channelingDetected` /
+`temperatureUnstable` / `grindIssueDetected` all stay `false`. See §1
+for the rationale; see §4 for the projection mapping.
 
 **Population the badge catches.** A puck-failure shot can come from any of:
 grind way too coarse, distribution failure (massive channel), no/loose

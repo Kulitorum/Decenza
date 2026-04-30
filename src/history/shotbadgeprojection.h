@@ -26,8 +26,9 @@
 //     so no caller-side conjuncts are needed.
 //   - pourTruncated and skipFirstFrame are 1:1 with their struct fields.
 //
-// Header-only by design: lets unit tests (tst_shotanalysis_badge_projection)
-// call the projection directly without linking the full storage TU.
+// Header-only by design: lets unit tests (`tst_shotanalysis`'s
+// `badgeProjection_*` methods) call the projection directly without linking
+// the full storage TU.
 
 namespace decenza {
 

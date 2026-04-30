@@ -741,9 +741,13 @@ bool ShotHistoryStorage::runMigrations()
     // Catches puck failures where peak pressure stayed below PRESSURE_FLOOR_BAR
     // (puck offered no resistance — channeling/temp/grind detectors stay silent
     // or fire wrong because the curves they read off never built). When this
-    // flag is true the other three quality flags are forced to false both at
-    // save time and via drift-on-load, so the UI shows a single red "Puck
-    // failed" chip rather than a contradictory mix.
+    // flag is true the other three quality flags stay false because
+    // ShotAnalysis::analyzeShot's suppression cascade skips the
+    // channeling/temp/grind blocks, leaving those DetectorResults fields at
+    // their defaults; the badge projection (decenza::deriveBadgesFromAnalysis)
+    // then reads those defaults. The cascade lives in exactly one place —
+    // ShotAnalysis::analyzeShot — and the UI shows a single red "Puck failed"
+    // chip rather than a contradictory mix.
     if (currentVersion < 13) {
         qDebug() << "ShotHistoryStorage: Running migration to version 13 (pour_truncated_detected)";
 
@@ -937,7 +941,6 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         computePhaseSummaries(tmpRecord);
         data.phaseSummariesJson = tmpRecord.phaseSummariesJson;
 
-        // Channeling detection using shared ShotAnalysis helpers
         // Compute all five quality badges via a single ShotAnalysis::analyzeShot
         // pass and project the booleans from DetectorResults using the
         // documented mapping. This unifies the save-time, load-time, and
@@ -1940,13 +1943,21 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // detectPourTruncated as the dominant signal.
     {
         const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
-        const double firstFrameSeconds = profileFrameInfoFromJson(record.profileJson).firstFrameSeconds;
+        // Read both fields from the profile JSON: firstFrameSeconds gates
+        // detectSkipFirstFrame's short-first-step branch; frameCount drives
+        // the suppression for 1-frame profiles (no second frame to skip to)
+        // and the malformed-marker check. Both must match the args
+        // loadShotRecordStatic passes in its own analyzeShot call so the
+        // structured detectorResults emitted to MCP and the boolean badge
+        // columns in the DB cannot disagree on skipFirstFrameDetected.
+        const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
         const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
             record.pressure, record.flow, record.weight,
             record.temperature, record.temperatureGoal, record.conductanceDerivative,
             record.phases, record.summary.beverageType, record.summary.duration,
             record.pressureGoal, record.flowGoal, analysisFlags,
-            firstFrameSeconds, record.yieldOverride, record.summary.finalWeight);
+            frameInfo.firstFrameSeconds, record.yieldOverride, record.summary.finalWeight,
+            frameInfo.frameCount);
         result["summaryLines"] = analysis.lines;
 
         const auto& d = analysis.detectors;
