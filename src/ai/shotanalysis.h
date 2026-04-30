@@ -353,6 +353,19 @@ public:
         bool pourTruncated = false;
         double peakPressureBar = 0.0;
 
+        // === Pour window (seconds) ===
+        // The phase-boundary range analyzeShot computed internally to gate
+        // every other detector. Exposed so downstream consumers (the per-
+        // phase temperature instability check in ShotSummarizer, MCP
+        // consumers, regression tests) read the same window the cascade
+        // used instead of re-deriving it from phase markers — that
+        // duplication is what previously let `computePourWindow` drift
+        // from analyzeShot's logic. Default 0.0 means "not set" (e.g. when
+        // analyzeShot returned the no-phase-data fallback before computing
+        // the window).
+        double pourStartSec = 0.0;
+        double pourEndSec = 0.0;
+
         // === Channeling (dC/dt) ===
         bool channelingChecked = false;
         QString channelingSeverity;       // "" if !checked; else "none" | "transient" | "sustained"

@@ -150,32 +150,6 @@ QList<PhaseSummary> ShotSummarizer::buildPhaseSummariesForRange(
     return phases;
 }
 
-// Compute pour-window bounds from summary.phases. Approximates the
-// phase-boundary logic in ShotAnalysis::analyzeShot (prefer a "pour"
-// phase, fall back to the first preinfusion/start, use the last phase end
-// for the close). The exact window does not need to match analyzeShot's
-// because this is only used to gate markPerPhaseTempInstability — the
-// channeling/temp/grind detectors live entirely inside analyzeShot.
-static void computePourWindow(const ShotSummary& summary,
-                              double& pourStart, double& pourEnd)
-{
-    pourStart = 0;
-    pourEnd = summary.totalDuration;
-    for (const auto& phase : summary.phases) {
-        QString lower = phase.name.toLower();
-        if (lower.contains("pour")) pourStart = phase.startTime;
-    }
-    if (pourStart == 0) {
-        for (const auto& phase : summary.phases) {
-            QString lower = phase.name.toLower();
-            if (lower.contains("infus") || lower == "start") {
-                pourStart = phase.startTime;
-                break;
-            }
-        }
-    }
-    if (!summary.phases.isEmpty()) pourEnd = summary.phases.last().endTime;
-}
 
 void ShotSummarizer::markPerPhaseTempInstability(ShotSummary& summary,
     const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
@@ -316,24 +290,22 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     const int frameCount = (profile && !profile->steps().isEmpty())
         ? static_cast<int>(profile->steps().size()) : -1;
 
-    summary.summaryLines = ShotAnalysis::generateSummary(
+    const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
         pressureData, flowData, cumulativeWeightData, tempData, tempGoalData,
         shotData->conductanceDerivativeData(), historyMarkers,
         summary.beverageType, summary.totalDuration,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
         firstFrameSeconds, summary.targetWeight, summary.finalWeight,
         frameCount);
+    summary.summaryLines = analysis.lines;
 
-    // pourTruncated tracked separately to gate per-phase temp markers — those
-    // aren't part of analyzeShot's aggregated output but they appear in
-    // the prompt's per-phase block, so they need their own suppression. The
-    // reachedExtractionPhase gate matches analyzeShot's aggregate-temp
-    // gate (added in PR #898) so aborted-during-preinfusion shots don't get
-    // flagged on the preheat ramp.
-    double pourStart = 0, pourEnd = summary.totalDuration;
-    computePourWindow(summary, pourStart, pourEnd);
-    summary.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
-        pressureData, pourStart, pourEnd, summary.beverageType);
+    // pourTruncated reads from the same AnalysisResult that produced
+    // summaryLines, so live and history paths agree on the cascade gate.
+    // markPerPhaseTempInstability iterates summary.phases directly — it
+    // doesn't need a pour window. The reachedExtractionPhase gate matches
+    // analyzeShot's aggregate-temp gate (PR #898) so aborted-during-
+    // preinfusion shots don't get flagged on the preheat ramp.
+    summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
     if (!summary.pourTruncatedDetected
         && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
         markPerPhaseTempInstability(summary, tempData, tempGoalData);
@@ -523,18 +495,16 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // matches the input convertShotRecord passes to analyzeShot.
     const double targetWeightG = shotData.value("yieldOverride").toDouble();
 
-    summary.summaryLines = ShotAnalysis::generateSummary(
+    const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
         summary.pressureCurve, summary.flowCurve, summary.weightCurve,
         summary.tempCurve, summary.tempGoalCurve, derivCurve, historyMarkers,
         summary.beverageType, summary.totalDuration,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
         firstFrameSeconds, targetWeightG, summary.finalWeight,
         frameCount);
+    summary.summaryLines = analysis.lines;
 
-    double pourStart = 0, pourEnd = summary.totalDuration;
-    computePourWindow(summary, pourStart, pourEnd);
-    summary.pourTruncatedDetected = ShotAnalysis::detectPourTruncated(
-        summary.pressureCurve, pourStart, pourEnd, summary.beverageType);
+    summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
     if (!summary.pourTruncatedDetected
         && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
         markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
