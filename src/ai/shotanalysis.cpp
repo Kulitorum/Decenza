@@ -553,12 +553,27 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         const bool yieldShortfall = targetWeightG > 0.0
             && finalWeightG > 0.0
             && (finalWeightG / targetWeightG) < CHOKED_YIELD_RATIO_MAX;
+        // Set hasData when the choked-puck loop sees enough pressurized
+        // samples to speak — even when no choke fires. This gives
+        // downstream consumers a positive "we saw enough to evaluate"
+        // signal instead of silently treating no-choke as no-data, which
+        // is what produced the long-running gap on simple two-marker
+        // (Preinfusion + Pour) profiles: A-Flow, La Pavoni, Malabar,
+        // Italian Style. See openspec/specs/shot-analysis-pipeline.
+        result.hasData = true;
         if (flowChoked || yieldShortfall) {
-            result.hasData = true;
             result.chokedPuck = true;
             result.sampleCount = flowSamples;
             // Leave delta carrying its flow-vs-goal meaning; consumers
             // short-circuit on chokedPuck before reading delta.
+        } else if (!result.yieldOvershoot
+                   && std::abs(result.delta) <= FLOW_DEVIATION_THRESHOLD) {
+            // Gates passed, no choke fired, no overshoot, and Arm 1 (if it
+            // ran) found delta within tolerance. The puck behaved.
+            result.verifiedClean = true;
+            // Leave sampleCount as Arm 1 set it (or 0 if only Arm 2 ran),
+            // so consumers reading sampleCount see Arm 1's qualifying-
+            // samples count when both arms produced data.
         }
     }
 
@@ -876,8 +891,31 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     d.grindHasData = grind.hasData;
     d.grindChokedPuck = grind.chokedPuck;
     d.grindYieldOvershoot = grind.yieldOvershoot;
+    d.grindVerifiedClean = grind.verifiedClean;
     d.grindFlowDeltaMlPerSec = grind.delta;
     d.grindSampleCount = grind.sampleCount;
+    // Coverage signal: distinguishes "verified clean" from "no usable data
+    // on this profile shape" so the dialog can stop claiming "Puck held
+    // well." on shots where the detector simply couldn't see anything.
+    // Suppressed when pourTruncated fires (the cascade dominator already
+    // explains why the grind block was skipped). Also empty when the pour
+    // window is degenerate — pourEnd <= pourStart means the marker stream
+    // was malformed (legacy time-base bug); nothing useful to say.
+    if (!pourTruncated && pourEnd > pourStart) {
+        if (grind.skipped) {
+            d.grindCoverage = QStringLiteral("skipped");
+        } else if (grind.verifiedClean) {
+            d.grindCoverage = QStringLiteral("verified");
+        } else if (!grind.hasData) {
+            d.grindCoverage = QStringLiteral("notAnalyzable");
+        } else {
+            // hasData=true but not verifiedClean → an actual issue fired
+            // (chokedPuck, yieldOvershoot, or large delta). The detector
+            // had data and used it; "verified" would be misleading because
+            // the verdict already carries the diagnosis.
+            d.grindCoverage = QStringLiteral("verified");
+        }
+    }
     if (grind.hasData) {
         if (grind.yieldOvershoot) {
             // Gusher: yield blew past target by > 20%. The puck offered too
@@ -919,7 +957,31 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             lines.append(line);
         } else {
             d.grindDirection = QStringLiteral("onTarget");
+            if (grind.verifiedClean) {
+                // Positive "we saw a healthy pressurized pour and the puck
+                // tracked goal" signal. Today's verdict on lever / two-frame
+                // profiles infers "Clean" from no-data; this line confirms
+                // it from data. Skipped when the detector was silent
+                // (hasData=false), which is handled by the notAnalyzable
+                // branch below.
+                QVariantMap line;
+                line["text"] = QStringLiteral("Grind tracked goal during pour");
+                line["type"] = QStringLiteral("good");
+                lines.append(line);
+            }
         }
+    } else if (d.grindCoverage == QStringLiteral("notAnalyzable")) {
+        // Espresso shot, non-degenerate window, but neither arm produced
+        // data. Common on simple two-frame profiles (Preinfusion + Pour:
+        // A-Flow, La Pavoni, Malabar, Italian Style) where Arm 1's
+        // flow-mode windows lie entirely before pourStart and Arm 2's
+        // pressurized-duration gate isn't met. Stop pretending the puck
+        // held well — say so out loud.
+        QVariantMap line;
+        line["text"] = QStringLiteral("Could not analyze grind on this profile shape — "
+            "check flow trend, channeling, and taste instead");
+        line["type"] = QStringLiteral("observation");
+        lines.append(line);
     }
 
     // --- Pour truncated (puck failure) ---
@@ -1047,6 +1109,12 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             d.verdictCategory = QStringLiteral("minorIssues");
             verdict["text"] = QStringLiteral("Verdict: Decent shot with minor issues to watch.");
         }
+    } else if (d.grindCoverage == QStringLiteral("notAnalyzable")) {
+        // No warnings, no cautions, but the grind detector silently bailed
+        // on this profile shape — the cascade has been claiming "Puck held
+        // well." on these shots regardless of actual grind. Be honest.
+        d.verdictCategory = QStringLiteral("cleanGrindNotAnalyzable");
+        verdict["text"] = QStringLiteral("Verdict: Clean shot, but grind could not be evaluated for this profile shape.");
     } else {
         d.verdictCategory = QStringLiteral("clean");
         verdict["text"] = QStringLiteral("Verdict: Clean shot. Puck held well.");

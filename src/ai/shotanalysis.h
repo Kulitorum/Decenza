@@ -226,10 +226,11 @@ public:
         // Number of qualifying samples averaged (flow-vs-goal path) or the
         // count of pressurized samples observed (choked-puck path).
         qsizetype sampleCount = 0;
-        bool hasData = false;        // true when at least one arm produced a result (flow-vs-goal averaging, choked-puck check, or yield-overshoot — see analyzeFlowVsGoal docs)
+        bool hasData = false;        // true when at least one arm produced a result (flow-vs-goal averaging, choked-puck check, yield-overshoot, or — post add-grind-detector-coverage-signal — the choked-puck loop's gates passed even without firing a choke)
         bool skipped = false;        // true when suppressed by a flag or beverage type
         bool chokedPuck = false;     // true when the pressure-mode choke check fired — either mean pressurized flow below CHOKED_FLOW_MAX_MLPS (severe) or yield/target below CHOKED_YIELD_RATIO_MAX (moderate)
         bool yieldOvershoot = false; // true when yield/target > YIELD_OVERSHOOT_RATIO_MIN — gusher; mutually exclusive with chokedPuck only on the yield-ratio sub-arm (one < 0.85, the other > 1.20). chokedPuck's flow sub-arm could in principle co-fire, but a gusher cannot satisfy its 15s × 4 bar gate in practice.
+        bool verifiedClean = false;  // true when the choked-puck loop saw enough pressurized samples to speak (≥ 5 samples, ≥ 15s ≥ 4 bar) AND neither chokedPuck nor yieldOvershoot fired AND |delta| ≤ FLOW_DEVIATION_THRESHOLD. Distinguishes "verified clean" from "no data" so the summary can emit a positive [good] line on profiles where today the detector silently passes.
     };
 
     // Grind direction check — the canonical implementation shared by the
@@ -399,6 +400,7 @@ public:
         bool grindHasData = false;
         bool grindChokedPuck = false;
         bool grindYieldOvershoot = false;
+        bool grindVerifiedClean = false;
         double grindFlowDeltaMlPerSec = 0.0;
         qsizetype grindSampleCount = 0;
         // "" if !hasData. Otherwise one of:
@@ -408,6 +410,18 @@ public:
         //   "tooCoarse"      — flow averaged above goal beyond threshold
         //   "onTarget"       — flow tracked goal within tolerance
         QString grindDirection;
+        // Coverage signal for the grind detector. Populated for espresso
+        // shots where the pourTruncated cascade is NOT active. Possible
+        // values:
+        //   "verified"      — gates passed, grindVerifiedClean == true
+        //                     (positive "we saw a healthy pour" signal)
+        //   "notAnalyzable" — espresso shot, non-degenerate window, but
+        //                     neither arm produced data (e.g. pure flow-mode
+        //                     two-frame profile, or pressurized < 15s)
+        //   "skipped"       — non-espresso beverage or grind_check_skip flag
+        //   ""              — pourTruncated cascade suppressed grind block,
+        //                     OR pour window degenerate (pourEnd <= pourStart)
+        QString grindCoverage;
 
         // === Skip-first-frame ===
         bool skipFirstFrame = false;
@@ -417,17 +431,19 @@ public:
         // English verdict text is composed from this category but is NOT
         // exposed via this struct — verdict prose is dialog UX, not API
         // surface. Possible values:
-        //   "clean"                    — no warnings or cautions
-        //   "puckTruncated"            — pour never pressurized
-        //   "skipFirstFrame"           — frame 0 not executed
-        //   "yieldOvershoot"           — gusher
-        //   "chokedPuck"               — puck choked off
-        //   "puckIntegrityGrindFine"   — channeling/warning + grind too fine
-        //   "puckIntegrityGrindCoarse" — channeling/warning + grind too coarse
-        //   "puckIntegrity"            — warning, no clear grind direction
-        //   "minorIssuesGrindFine"     — caution-only + grind too fine
-        //   "minorIssuesGrindCoarse"   — caution-only + grind too coarse
-        //   "minorIssues"              — caution-only, no clear grind direction
+        //   "clean"                       — no warnings or cautions; grind verified or skipped
+        //   "cleanGrindNotAnalyzable"     — no warnings or cautions, but the grind detector
+        //                                   could not analyze this profile shape
+        //   "puckTruncated"               — pour never pressurized
+        //   "skipFirstFrame"              — frame 0 not executed
+        //   "yieldOvershoot"              — gusher
+        //   "chokedPuck"                  — puck choked off
+        //   "puckIntegrityGrindFine"      — channeling/warning + grind too fine
+        //   "puckIntegrityGrindCoarse"    — channeling/warning + grind too coarse
+        //   "puckIntegrity"               — warning, no clear grind direction
+        //   "minorIssuesGrindFine"        — caution-only + grind too fine
+        //   "minorIssuesGrindCoarse"      — caution-only + grind too coarse
+        //   "minorIssues"                 — caution-only, no clear grind direction
         QString verdictCategory;
     };
 

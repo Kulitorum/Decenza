@@ -203,6 +203,36 @@ imported shots without target metadata correctly stay silent.
 `finalWeightG` works on either a real BLE scale or Decenza's `FlowScale`
 virtual scale (dose-aware flow integration), so the arm fires headless too.
 
+**Verified-clean signal.** When the choked-puck loop's gates pass
+(≥ 5 flow samples, ≥ 15 s pressurized at ≥ 4 bar) AND none of `chokedPuck`,
+`yieldOvershoot`, or `|delta| > FLOW_DEVIATION_THRESHOLD` fires,
+`GrindCheck.verifiedClean = true` and `result.hasData = true` — the puck
+was healthy and we have data to back that claim. The Shot Summary dialog
+emits a `[good]` line "Grind tracked goal during pour." This is a positive
+signal distinct from the prior implicit "no badge fired ⇒ assume clean"
+behavior — without it, profiles whose Arm 1 windows lie entirely before
+`pourStart` (simple two-marker Preinfusion + Pour shapes) silently pass
+even when no detector saw any data.
+
+**Coverage signal.** `DetectorResults.grindCoverage` carries one of:
+
+- `"verified"` — `hasData=true`. Distinguishes "we saw a healthy pour"
+  from the prior silent inference. Set whenever any arm produced data,
+  including the choked / overshoot / direction cases (the verdict already
+  carries the diagnosis; coverage just acknowledges the detector ran).
+- `"notAnalyzable"` — espresso shot, non-degenerate pour window, `hasData=false`.
+  Common on simple two-marker profiles (A-Flow, La Pavoni, Malabar,
+  Italian Style) where Arm 1's flow-mode window lies entirely before
+  `pourStart` and Arm 2's pressurized-duration gate isn't met. The dialog
+  emits `[observation]` "Could not analyze grind on this profile shape — …"
+  and the verdict cascade switches to "Clean shot, but grind could not be
+  evaluated for this profile shape." instead of the bare "Clean shot. Puck
+  held well."
+- `"skipped"` — non-espresso beverage or `grind_check_skip` flag.
+- `""` (empty) — pourTruncated cascade is active (the dominator already
+  explains why the grind block was skipped) OR the pour window is
+  degenerate (`pourEnd <= pourStart`).
+
 **Hard skips** (`skipped = true`, both arms suppressed):
 
 - Beverage type is `filter`, `pourover`, `tea`, `steam`, or `cleaning`.
@@ -383,8 +413,11 @@ top-to-bottom:
    held — puck choked" ("warning") when `chokedPuck` fires, "Flow
    averaged X mL/s below target — grind may be too fine" ("caution"),
    "Flow averaged X mL/s above target — grind may be too coarse"
-   ("caution"), or nothing when within tolerance. **Suppressed when
-   `pourTruncated` fires.**
+   ("caution"), "Grind tracked goal during pour" ("good") when
+   `verifiedClean` is true, or — when the detector had no analyzable
+   data on a non-degenerate espresso pour — "Could not analyze grind on
+   this profile shape — check flow trend, channeling, and taste
+   instead" ("observation"). **Suppressed when `pourTruncated` fires.**
 6. **Pour truncated** — `detectPourTruncated`. Emits "Pour never
    pressurized (peak X bar) — puck offered no resistance. Likely
    causes: grind way too coarse, distribution failure, no/loose puck,
@@ -426,7 +459,14 @@ puck-integrity advice):
    only caution is a grind direction," but the implementation does not
    actually check for uniqueness — a directional grind delta wins over
    a co-occurring temperature or flow-trend caution.)
-6. **Otherwise** → "Clean shot. Puck held well."
+6. **Otherwise, grind not analyzable** → "Clean shot, but grind could not
+   be evaluated for this profile shape." Fires when no warnings/cautions
+   were emitted AND `grindCoverage == "notAnalyzable"`. Distinguishes
+   "verified clean pour" from "we silently had no data to speak from"
+   on simple two-marker profiles (Preinfusion + Pour: A-Flow, La Pavoni,
+   Malabar, Italian Style). `verdictCategory == "cleanGrindNotAnalyzable"`.
+7. **Otherwise** → "Clean shot. Puck held well." `verdictCategory == "clean"`.
+   Used when grind was verified or skipped (non-espresso).
 
 ### Triggering and lifecycle
 
@@ -542,6 +582,12 @@ logic and the cascade is consistent between save and load.
 The recompute uses on-the-fly derived curves for legacy shots that lack them:
 `computeDerivedCurves` fills `conductanceDerivative` from `pressure`/`flow`
 when the shot predates migration 10 (the `conductance` column).
+
+The grind coverage signal (`grindCoverage`, `grindVerifiedClean`) is part
+of the `DetectorResults` payload that `analyzeShot` produces; like
+`summaryLines`, it is **not** stored in the database — it is recomputed
+on every load and emitted by `convertShotRecord` as part of the
+structured `detectorResults` JSON for MCP / dialog consumers.
 
 ### Lazy persist on view (PR #893)
 

@@ -1359,6 +1359,146 @@ private slots:
         QVERIFY2(sawCleanVerdict, "structured clean verdict must match prose");
     }
 
+    // Grind coverage signal — verified clean: a healthy pressurized pour
+    // with no choke / no overshoot / on-target flow must set
+    // grindVerifiedClean=true, emit `grindCoverage="verified"`, and append
+    // a [good] line confirming the puck tracked goal. Without this signal
+    // the dialog falls back on inferring "Clean" from no-data, which is
+    // exactly the long-running gap on simple two-marker profiles.
+    void analyzeShot_grindCoverage_verifiedCleanEmitsPositiveLine()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",              1, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure = concat(rampSeries(0.0, 8.0, 1.0, 9.0),
+                                            flatSeries(8.1, 30.0, 9.0));
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 2.0);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 2.0);
+        QVector<QPointF> temperature = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 30.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/36.0);
+
+        const auto& d = result.detectors;
+        QVERIFY(d.grindHasData);
+        QVERIFY(d.grindVerifiedClean);
+        QVERIFY(!d.grindChokedPuck);
+        QVERIFY(!d.grindYieldOvershoot);
+        QCOMPARE(d.grindCoverage, QStringLiteral("verified"));
+        QCOMPARE(d.verdictCategory, QStringLiteral("clean"));
+
+        bool sawVerifiedLine = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["type"].toString() == "good"
+                && m["text"].toString().contains("Grind tracked goal", Qt::CaseInsensitive))
+                sawVerifiedLine = true;
+        }
+        QVERIFY2(sawVerifiedLine, "verified-clean shot must emit [good] line");
+    }
+
+    // Grind coverage signal — not analyzable: a two-marker profile whose
+    // pour-mode phase never sustains 4 bar long enough to satisfy Arm 2
+    // (and whose flow-mode windows are entirely before pourStart, so Arm 1
+    // sees no qualifying samples) must produce a notAnalyzable coverage
+    // signal, the [observation] line, and the alternate verdict text.
+    // Regression for the 248-shot silent population in the audit.
+    void analyzeShot_grindCoverage_notAnalyzableEmitsObservation()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(20.0, "pour",       1, /*isFlowMode=*/false),
+        };
+        // Pressure stays under 4 bar throughout — Arm 2 never accumulates
+        // pressurizedDuration. Arm 1's flow-mode window is [0, 20] entirely
+        // before pourStart=20.
+        QVector<QPointF> pressure = flatSeries(0.0, 25.0, 2.5);
+        QVector<QPointF> flow = flatSeries(0.0, 25.0, 1.5);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 25.0, 1.5);
+        QVector<QPointF> temperature = flatSeries(0.0, 25.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 25.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 25.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 25.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/0.0, /*finalWeightG=*/30.0);
+
+        const auto& d = result.detectors;
+        QVERIFY(!d.pourTruncated);  // 2.5 bar peak is exactly at the floor — falls below in this fixture's case
+        QVERIFY(!d.grindHasData);
+        QVERIFY(!d.grindVerifiedClean);
+        QCOMPARE(d.grindCoverage, QStringLiteral("notAnalyzable"));
+        QCOMPARE(d.verdictCategory, QStringLiteral("cleanGrindNotAnalyzable"));
+
+        bool sawObservation = false;
+        bool sawAlternateVerdict = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["type"].toString() == "observation"
+                && m["text"].toString().contains("Could not analyze grind", Qt::CaseInsensitive))
+                sawObservation = true;
+            if (m["type"].toString() == "verdict"
+                && m["text"].toString().contains("grind could not be evaluated", Qt::CaseInsensitive))
+                sawAlternateVerdict = true;
+        }
+        QVERIFY2(sawObservation, "notAnalyzable shot must emit [observation] line");
+        QVERIFY2(sawAlternateVerdict, "notAnalyzable shot must emit alternate verdict");
+    }
+
+    // Grind coverage signal — pourTruncated cascade: when the pour never
+    // pressurized, the grind coverage signal must be absent (empty string),
+    // not "verified" or "notAnalyzable" — the cascade dominator already
+    // explains why the grind block was skipped, and emitting a coverage
+    // value would imply the detector ran.
+    void analyzeShot_grindCoverage_pourTruncatedSuppresses()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0, "pour",              1, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);  // puck failure
+        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
+        QVector<QPointF> temperature = flatSeries(0.0, 7.0, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, 7.0, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, 7.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, temperature, temperatureGoal,
+            dCdt, phases, "espresso", 7.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
+
+        const auto& d = result.detectors;
+        QVERIFY(d.pourTruncated);
+        QVERIFY2(d.grindCoverage.isEmpty(),
+                 "pourTruncated cascade must omit grindCoverage");
+        QVERIFY(!d.grindVerifiedClean);
+
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            const QString text = m["text"].toString();
+            QVERIFY2(!text.contains("Grind tracked goal", Qt::CaseInsensitive),
+                     "pourTruncated cascade must not emit verified-clean line");
+            QVERIFY2(!text.contains("Could not analyze grind", Qt::CaseInsensitive),
+                     "pourTruncated cascade must not emit notAnalyzable line");
+        }
+    }
+
     // Pour window exposure: `pourStartSec`/`pourEndSec` must reflect the
     // phase-boundary range analyzeShot computed internally. MCP consumers
     // (`shots_get_detail`) read these directly instead of re-deriving the
@@ -1541,6 +1681,34 @@ private slots:
         QVERIFY(!flags.temperatureUnstable);
         QVERIFY(!flags.grindIssueDetected);
         QVERIFY(!flags.skipFirstFrameDetected);
+    }
+
+    // Badge projection — verifiedClean: the new positive grind signal must
+    // NOT fire grindIssueDetected. The badge column gates on actual issues
+    // (chokedPuck, yieldOvershoot, large delta), not on hasData. This locks
+    // in the invariant that adding the verified-clean branch can't sneak
+    // a false-positive grind badge into the cascade.
+    void badgeProjection_grindVerifiedClean_doesNotFireBadge()
+    {
+        ShotAnalysis::DetectorResults d;
+        d.channelingChecked = true;
+        d.channelingSeverity = QStringLiteral("none");
+        d.tempStabilityChecked = true;
+        d.tempUnstable = false;
+        d.grindChecked = true;
+        d.grindHasData = true;
+        d.grindVerifiedClean = true;          // new positive signal
+        d.grindChokedPuck = false;
+        d.grindYieldOvershoot = false;
+        d.grindFlowDeltaMlPerSec = 0.0;
+        d.grindDirection = QStringLiteral("onTarget");
+        d.grindCoverage = QStringLiteral("verified");
+        d.verdictCategory = QStringLiteral("clean");
+
+        const auto flags = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY2(!flags.grindIssueDetected,
+                 "verifiedClean must not fire grindIssueDetected — only "
+                 "chokedPuck/yieldOvershoot/large-delta should");
     }
 
     void badgeProjection_pourTruncated_onlyTruncatedFires()

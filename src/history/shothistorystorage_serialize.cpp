@@ -177,6 +177,10 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             grind["sampleCount"] = static_cast<qlonglong>(d.grindSampleCount);
             grind["chokedPuck"] = d.grindChokedPuck;
             grind["yieldOvershoot"] = d.grindYieldOvershoot;
+            grind["verifiedClean"] = d.grindVerifiedClean;
+        }
+        if (!d.grindCoverage.isEmpty()) {
+            grind["coverage"] = d.grindCoverage;
         }
         detectorResults["grind"] = grind;
 

@@ -294,7 +294,8 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
     "checked": true, "hasData": true,
     "direction": "tooFine" | "tooCoarse" | "onTarget" | "chokedPuck" | "yieldOvershoot",
     "deltaMlPerSec": -0.6, "sampleCount": 142,
-    "chokedPuck": false, "yieldOvershoot": false
+    "chokedPuck": false, "yieldOvershoot": false, "verifiedClean": false,
+    "coverage": "verified" | "notAnalyzable" | "skipped"  // present unless pourTruncated cascade is active
   },
   "pourTruncated": false,
   "peakPressureBar": 9.1,        // present only when pourTruncated == true
@@ -308,13 +309,20 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
 ```
 
 `verdictCategory` values:
-- `"clean"` — no warnings or cautions
+- `"clean"` — no warnings or cautions; grind was verified or skipped
+- `"cleanGrindNotAnalyzable"` — no warnings or cautions, but the grind detector could not analyze this profile shape (Arm 1 windows lay before pourStart and Arm 2's pressurized-duration gate didn't fire). Distinct from `"clean"` so consumers can differentiate "verified healthy" from "we silently had no data."
 - `"puckTruncated"` — pour never pressurized; channeling / grind / temp signals are unreliable
 - `"skipFirstFrame"` — DE1 firmware bug or first-step too short
 - `"yieldOvershoot"` — gusher (yield ran > 20% over target)
 - `"chokedPuck"` — pressurized but flow ~0
 - `"puckIntegrityGrindFine"` / `"puckIntegrityGrindCoarse"` / `"puckIntegrity"` — channeling-class warning, with grind direction when known
 - `"minorIssuesGrindFine"` / `"minorIssuesGrindCoarse"` / `"minorIssues"` — caution-only
+
+`grind.coverage` values:
+- `"verified"` — the choked-puck loop saw enough pressurized samples to evaluate. Set whenever any arm produced data, including the choked / overshoot / direction cases (the verdict already carries the diagnosis; coverage just acknowledges the detector ran).
+- `"notAnalyzable"` — espresso shot, non-degenerate window, but neither arm produced data (most often a simple two-marker Preinfusion + Pour profile where Arm 1's flow-mode window lies entirely before pourStart and Arm 2's pressurized-duration gate isn't met).
+- `"skipped"` — non-espresso beverage or `grind_check_skip` analysis flag.
+- Field absent — the pourTruncated cascade is suppressing the grind block entirely, OR the pour window is degenerate (`pourEnd <= pourStart`).
 
 When a detector's `checked` (or `hasData`) flag is `false`, the detector was suppressed — most often by the `pourTruncated` cascade, but also by beverage-type skips (filter / pourover) or per-profile analysis flags (e.g. `flow_trend_ok`). Treat that as "no signal for this detector," not "clean signal."
 
