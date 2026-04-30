@@ -708,6 +708,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         if (label == "end") pourEnd = phase.time;
     }
     if (pourStart == 0 && preinfEnd > 0) pourStart = preinfEnd;
+    d.pourStartSec = pourStart;
+    d.pourEndSec = pourEnd;
 
     // --- Pour-truncated detection (runs first; dominates the cascade) ---
     // When peak pressure stayed below PRESSURE_FLOOR_BAR the puck never built,

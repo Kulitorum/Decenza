@@ -298,6 +298,8 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
   },
   "pourTruncated": false,
   "peakPressureBar": 9.1,        // present only when pourTruncated == true
+  "pourStartSec": 6.2,           // phase-boundary window analyzeShot used to gate every other detector
+  "pourEndSec": 32.8,            // both 0.0 when phase markers were absent and the no-data fallback ran
   "skipFirstFrame": false,
   "verdictCategory": "minorIssuesGrindFine"
 }
