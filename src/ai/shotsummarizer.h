@@ -198,19 +198,25 @@ private:
     void markPerPhaseTempInstability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 
-    // Run the detector pipeline and stamp the result onto `summary`.
+    // Run the detector pipeline and stamp the result onto `summary`: call
+    // `ShotAnalysis::analyzeShot`, copy `summaryLines` from the result,
+    // derive `pourTruncatedDetected` from `detectors.pourTruncated`, then
+    // conditionally call `markPerPhaseTempInstability` under the cascade
+    // gate (`!pourTruncatedDetected && reachedExtractionPhase(markers, ...)`).
     //
-    // The body that previously sat at the tail of both `summarize()` (live)
-    // and `summarizeFromHistory()` (saved-shot slow path) is identical
-    // post-PR #944 (H): call `analyzeShot`, copy `summaryLines`, derive
-    // `pourTruncatedDetected`, then conditionally call
-    // `markPerPhaseTempInstability` under the cascade gate. This helper is
-    // the single place that orchestration lives so the live and saved-shot
-    // paths can no longer drift on detector wiring. The fast path of
-    // `summarizeFromHistory` still bypasses this helper — it consumes a
-    // pre-computed AnalysisResult from the convertShotRecord serialization
-    // (PR #939, D) and runs the same gate inline; that's a different code
-    // shape (no analyzeShot call to make) so it stays separate.
+    // Preconditions on `summary`: `beverageType`, `totalDuration`, and
+    // `finalWeight` must already be populated — this helper reads them off
+    // `summary` rather than taking them as parameters. `finalWeight` in
+    // particular drives the grind-vs-yield arms inside `analyzeShot`; a
+    // forgotten assignment leaves it at 0.0 and silently disables those arms.
+    //
+    // Used by `summarize()` (live) and the slow path of `summarizeFromHistory()`
+    // (saved-shot recompute), so those two paths can no longer drift on
+    // detector wiring. The fast path of `summarizeFromHistory` bypasses
+    // this helper — it consumes pre-computed `summaryLines` +
+    // `detectorResults.pourTruncated` from `convertShotRecord` (PR #939, D)
+    // and runs the same cascade gate inline; that gate must be kept in
+    // sync with this helper's gate.
     void runShotAnalysisAndPopulate(ShotSummary& summary,
         const QVector<QPointF>& pressure,
         const QVector<QPointF>& flow,

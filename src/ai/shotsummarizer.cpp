@@ -303,11 +303,11 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             historyMarkers, summary.totalDuration);
     }
 
-    // Detector orchestration delegated to ShotAnalysis::analyzeShot — both
-    // the prose lines and the structured pourTruncated flag are read from
-    // the same AnalysisResult so the suppression cascade (pour truncated →
-    // channeling/temp/grind forced false) lives in exactly one place.
-    // See SHOT_REVIEW.md §3.
+    // Detector orchestration delegated to runShotAnalysisAndPopulate, the
+    // shared helper that wraps analyzeShot and stamps both summaryLines and
+    // pourTruncatedDetected onto summary. The suppression cascade (pour
+    // truncated → channeling/temp/grind forced false) lives in exactly one
+    // place — see SHOT_REVIEW.md §3.
     const auto& tempGoalData = shotData->temperatureGoalData();
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
     const double firstFrameSeconds = (profile && !profile->steps().isEmpty())
@@ -485,10 +485,10 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     // Slow path: legacy shotData (e.g. imported shots, direct test callers,
     // any QVariantMap that didn't flow through convertShotRecord) lacks the
-    // pre-computed fields. Run analyzeShot directly to derive both lines and
-    // pourTruncated from the same AnalysisResult — see summarize() for
-    // rationale. historyMarkers was already populated alongside the
-    // PhaseSummary list above (single pass).
+    // pre-computed fields. Delegate detector orchestration to
+    // runShotAnalysisAndPopulate, the same helper summarize() uses on the
+    // live path — see summarize() for rationale. historyMarkers was already
+    // populated alongside the PhaseSummary list above (single pass).
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
 
     // First-frame seconds reuses the profileDoc parsed at the top of this
