@@ -321,8 +321,12 @@ There are two consumer paths that share a single detector pass:
   of `{ text, type }` lines rendered by a `Repeater` with a colored dot
   per line.
 - **MCP path** (returns prose + structured detectors):
-  `convertShotRecord` → `ShotAnalysis::analyzeShot(...)` →
-  `AnalysisResult { lines, detectors }` → emitted as `summaryLines` plus a
+  `convertShotRecord` → reads `record.cachedAnalysis` populated by
+  `loadShotRecordStatic`'s earlier `analyzeShot` pass (single computation
+  per detail load). Falls back to `ShotAnalysis::analyzeShot(...)` inline
+  only for direct-construction callers (`ShotHistoryExporter`, tests) that
+  bypass `loadShotRecordStatic`. Either way the result is an
+  `AnalysisResult { lines, detectors }` emitted as `summaryLines` plus a
   nested `detectorResults` JSON object on every shot record served by
   `shots_get_detail` / `shots_compare`.
 

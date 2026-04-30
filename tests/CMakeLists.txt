@@ -329,6 +329,21 @@ add_decenza_test(tst_dbmigration
 target_link_libraries(tst_dbmigration PRIVATE Qt6::Charts Qt6::Quick)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_shotrecord_cache: ShotRecord::cachedAnalysis dedup + fallback ---
+add_decenza_test(tst_shotrecord_cache
+    tst_shotrecord_cache.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${HISTORY_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_shotrecord_cache PRIVATE Qt6::Charts Qt6::Quick)
+target_include_directories(tst_shotrecord_cache PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo) ---
 add_decenza_test(tst_scaleprotocol
     tst_scaleprotocol.cpp

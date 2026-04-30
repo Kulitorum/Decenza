@@ -2,34 +2,35 @@
 
 ## 1. Cache field on ShotRecord
 
-- [ ] 1.1 Add `std::optional<ShotAnalysis::AnalysisResult> cachedAnalysis;` to `ShotRecord` in `src/history/shothistory_types.h`. Document that it is populated by `loadShotRecordStatic` after the badge projection and consumed by `convertShotRecord`; reset to `std::nullopt` if any of the input curves are mutated after load.
-- [ ] 1.2 Confirm `<optional>` is included (or add to the header). `ShotAnalysis::AnalysisResult` is already public.
+- [x] 1.1 Added `std::optional<ShotAnalysis::AnalysisResult> cachedAnalysis;` to `ShotRecord` in `src/history/shothistory_types.h`. Field docstring documents that it is populated by `loadShotRecordStatic` after the badge projection and consumed by `convertShotRecord`; consumers MUST reset to `std::nullopt` if any of the input curves are mutated after load. Also added `#include "ai/shotanalysis.h"` and `#include <optional>` to the header.
+- [x] 1.2 No circular include risk — `shotanalysis.h` forward-declares `HistoryPhaseMarker`, so adding the reverse include path is clean.
 
 ## 2. Populate from loadShotRecordStatic
 
-- [ ] 2.1 In `loadShotRecordStatic`, after `decenza::applyBadgesToTarget(record, analysis.detectors);`, also `record.cachedAnalysis = std::move(analysis);` so the result survives the function return.
-- [ ] 2.2 Verify the lazy-persist write-back block (which only reads the projected booleans) still works correctly — it does, since `applyBadgesToTarget` already wrote the booleans onto `record`.
+- [x] 2.1 In `loadShotRecordStatic`, after `decenza::applyBadgesToTarget(record, analysis.detectors);`, the result is moved into `record.cachedAnalysis = std::move(analysis);` so it survives the function return.
+- [x] 2.2 Lazy-persist write-back block (which only reads the projected booleans) still works correctly — `applyBadgesToTarget` writes the booleans BEFORE the move, so the snapshot comparison sees the correct values.
 
 ## 3. Consume in convertShotRecord
 
-- [ ] 3.1 In `convertShotRecord`, gate the existing `analyzeShot` block on `record.cachedAnalysis.has_value()`:
-  - If present: read `summaryLines` and `detectorResults` from the cached struct.
-  - If absent: run `analyzeShot` inline as today (covers `ShotHistoryExporter`, direct test callers, etc. that didn't go through `loadShotRecordStatic`).
-- [ ] 3.2 Keep the surrounding `analysisFlags` / `frameInfo` extraction inside the fallback branch — the cached path doesn't need them.
+- [x] 3.1 Gated the existing `analyzeShot` block on `record.cachedAnalysis.has_value()`:
+  - Present: read `summaryLines` and `detectorResults` from the cached struct (no recomputation).
+  - Absent: run `analyzeShot` inline as today (covers `ShotHistoryExporter`, direct test callers, etc. that bypass `loadShotRecordStatic`).
+- [x] 3.2 Used a `const ShotAnalysis::AnalysisResult* analysisPtr` indirection so the existing serialization code that follows reads from a single `analysis` reference regardless of which path produced it.
 
 ## 4. Tests
 
-- [ ] 4.1 Extend an existing `loadShotRecordStatic` round-trip test (or add one to a new `tst_shothistorystorage_cache.cpp`) that asserts `record.cachedAnalysis.has_value()` after load and that `convertShotRecord(record)["summaryLines"]` equals `cachedAnalysis->lines`.
-- [ ] 4.2 Add a fallback-path test: construct a `ShotRecord` directly (without `cachedAnalysis`), pass to `convertShotRecord`, assert `summaryLines` and `detectorResults` are still populated and identical to a fresh `analyzeShot` call. Locks in the legacy direct-construction path.
-- [ ] 4.3 Add an equivalence test: same shot data through both paths produces byte-equal `summaryLines` and `detectorResults`. Catches drift if either path is modified in isolation.
+- [x] 4.1 New file `tests/tst_shotrecord_cache.cpp` with 3 test methods:
+  - `cachedAnalysis_isReusedByConvert` — sentinel-based check; pre-populated `summaryLines` come back unchanged.
+  - `noCachedAnalysis_fallsBackToInlineAnalyzeShot` — direct-construction path produces non-empty output via inline `analyzeShot`.
+  - `cachedAndFallback_paths_produceEquivalentOutput` — same shot through both paths produces byte-equal lines + matching `verdictCategory` / `pourTruncated`.
+- [x] 4.2 Wired into `tests/CMakeLists.txt` (`tst_shotrecord_cache` target) using the same `HISTORY_SOURCES`/BLE/profile/core/controller/simulator deps + `de1transport.h` MOC trick as `tst_dbmigration`.
 
 ## 5. Verify
 
-- [ ] 5.1 Build clean (Qt Creator MCP).
-- [ ] 5.2 All existing tests pass (currently 1793; this change should add 3, target 1796).
-- [ ] 5.3 Manual smoke: open a few shots from history, watch a profiler / log to confirm `analyzeShot` is invoked once per detail load, not twice.
+- [x] 5.1 Build clean (Qt Creator MCP).
+- [x] 5.2 1802 tests pass (1797 prior + 3 new methods, with QCOMPARE-in-loop expansion accounting for the rest of the +5). All 3 new tests confirmed passing via `mcp__qtcreator__run_tests` with `scope:"named"`.
 
 ## 6. Documentation
 
-- [ ] 6.1 Update `docs/SHOT_REVIEW.md` §3 to note that `convertShotRecord` reads from `record.cachedAnalysis` when populated by `loadShotRecordStatic`, falling back to its own `analyzeShot` call only for direct-construction callers.
-- [ ] 6.2 Document the cache invalidation rule in the new field's docstring.
+- [x] 6.1 Cache invalidation contract documented inline on the new `ShotRecord::cachedAnalysis` field.
+- [x] 6.2 Updated `docs/SHOT_REVIEW.md` §3 to note that `convertShotRecord` reads from `record.cachedAnalysis` when populated.

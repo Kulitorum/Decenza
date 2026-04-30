@@ -1,11 +1,14 @@
 #pragma once
 
+#include "ai/shotanalysis.h"
+
 #include <QString>
 #include <QStringList>
 #include <QByteArray>
 #include <QPointF>
 #include <QVector>
 #include <QList>
+#include <optional>
 
 // Lightweight shot summary for list display
 struct HistoryShotSummary {
@@ -111,6 +114,23 @@ struct ShotRecord {
 
     // Phase summaries JSON (per-phase metrics: duration, avgPressure, avgFlow, weightGained, etc.)
     QString phaseSummariesJson;
+
+    // Cached output of ShotAnalysis::analyzeShot, populated by
+    // ShotHistoryStorage::loadShotRecordStatic after the badge projection
+    // runs. ShotHistoryStorage::convertShotRecord reads from this when
+    // present so the detector pipeline runs exactly once per detail-load
+    // (load + convert), not twice. When absent — direct construction in
+    // ShotHistoryExporter, tests, or any path that bypasses
+    // loadShotRecordStatic — convertShotRecord falls back to running
+    // analyzeShot inline.
+    //
+    // Invalidation rule: if any input curve on this ShotRecord
+    // (pressure/flow/temperature/etc.) is mutated after load, callers
+    // MUST reset cachedAnalysis to std::nullopt. Today no caller mutates
+    // ShotRecord between loadShotRecordStatic and convertShotRecord, so
+    // this is structurally safe — but the rule is documented here so
+    // future callers don't introduce a stale-cache bug.
+    std::optional<ShotAnalysis::AnalysisResult> cachedAnalysis;
 };
 
 // Grinder settings context from shot history (shared by MCP and in-app AI)

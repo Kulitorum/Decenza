@@ -1933,31 +1933,40 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // call guarantees the prose and the structured fields describe the same
     // evaluation — no chance for them to drift across consumers.
     //
-    // Cost is a handful of linear scans over the curve vectors, bounded by
-    // the shot length; acceptable to run on every shot conversion. The
-    // existing badge booleans above (channelingDetected, etc.) come from the
-    // load-time detector resweep on the ShotRecord and remain the canonical
-    // gate for the suppression cascade in the SQL columns; the new
-    // detectorResults are a richer view of the same shot for downstream
-    // analysis. Same suppression cascade applies because both paths share
-    // detectPourTruncated as the dominant signal.
+    // Fast path: when the ShotRecord came out of loadShotRecordStatic, the
+    // AnalysisResult is already cached on `record.cachedAnalysis` (populated
+    // alongside the badge projection). Read from there to avoid running
+    // analyzeShot a second time on identical inputs.
+    //
+    // Slow path: direct-construction callers (ShotHistoryExporter, tests,
+    // any path that bypasses loadShotRecordStatic) hand us a ShotRecord
+    // without `cachedAnalysis`. Fall through to running analyzeShot inline
+    // so behavior stays correct end-to-end.
     {
-        const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
-        // Read both fields from the profile JSON: firstFrameSeconds gates
-        // detectSkipFirstFrame's short-first-step branch; frameCount drives
-        // the suppression for 1-frame profiles (no second frame to skip to)
-        // and the malformed-marker check. Both must match the args
-        // loadShotRecordStatic passes in its own analyzeShot call so the
-        // structured detectorResults emitted to MCP and the boolean badge
-        // columns in the DB cannot disagree on skipFirstFrameDetected.
-        const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
-        const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
-            record.pressure, record.flow, record.weight,
-            record.temperature, record.temperatureGoal, record.conductanceDerivative,
-            record.phases, record.summary.beverageType, record.summary.duration,
-            record.pressureGoal, record.flowGoal, analysisFlags,
-            frameInfo.firstFrameSeconds, record.yieldOverride, record.summary.finalWeight,
-            frameInfo.frameCount);
+        ShotAnalysis::AnalysisResult analysisOwned;  // storage if we need to compute
+        const ShotAnalysis::AnalysisResult* analysisPtr = nullptr;
+        if (record.cachedAnalysis.has_value()) {
+            analysisPtr = &record.cachedAnalysis.value();
+        } else {
+            const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
+            // Read both fields from the profile JSON: firstFrameSeconds gates
+            // detectSkipFirstFrame's short-first-step branch; frameCount drives
+            // the suppression for 1-frame profiles (no second frame to skip to)
+            // and the malformed-marker check. Both must match the args
+            // loadShotRecordStatic passes in its own analyzeShot call so the
+            // structured detectorResults emitted to MCP and the boolean badge
+            // columns in the DB cannot disagree on skipFirstFrameDetected.
+            const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
+            analysisOwned = ShotAnalysis::analyzeShot(
+                record.pressure, record.flow, record.weight,
+                record.temperature, record.temperatureGoal, record.conductanceDerivative,
+                record.phases, record.summary.beverageType, record.summary.duration,
+                record.pressureGoal, record.flowGoal, analysisFlags,
+                frameInfo.firstFrameSeconds, record.yieldOverride, record.summary.finalWeight,
+                frameInfo.frameCount);
+            analysisPtr = &analysisOwned;
+        }
+        const ShotAnalysis::AnalysisResult& analysis = *analysisPtr;
         result["summaryLines"] = analysis.lines;
 
         const auto& d = analysis.detectors;
@@ -2283,7 +2292,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     {
         const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(record.profileKbId);
         const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(record.profileJson);
-        const auto analysis = ShotAnalysis::analyzeShot(
+        auto analysis = ShotAnalysis::analyzeShot(
             record.pressure, record.flow, record.weight,
             record.temperature, record.temperatureGoal,
             record.conductanceDerivative,
@@ -2293,6 +2302,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.yieldOverride, record.summary.finalWeight,
             frameInfo.frameCount);
         decenza::applyBadgesToTarget(record, analysis.detectors);
+        // Cache the AnalysisResult on the ShotRecord so convertShotRecord
+        // (called next in the requestShot path) doesn't have to re-run
+        // analyzeShot on the same inputs. See cachedAnalysis docstring on
+        // ShotRecord for the invalidation contract.
+        record.cachedAnalysis = std::move(analysis);
     }
 
     // Persist any drift between the stored badge columns and the recomputed values
