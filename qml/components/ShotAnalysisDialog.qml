@@ -28,10 +28,18 @@ Dialog {
     header: null
     footer: null
 
-    // Analysis computed in C++ via ShotHistoryStorage.generateShotSummary()
-    property var analysisLines: analysisDialog.visible
-        ? MainController.shotHistory.generateShotSummary(shotData)
-        : []
+    // Analysis lines: prefer the pre-computed `summaryLines` field that
+    // ShotHistoryStorage::convertShotRecord populates via its analyzeShot()
+    // call. Fall back to invoking generateShotSummary() only when the input
+    // map didn't flow through convertShotRecord (legacy entry points,
+    // imported shots without the new field). The fallback path is byte-
+    // identical to the fast path because both ultimately call analyzeShot().
+    property var analysisLines: {
+        if (!analysisDialog.visible) return []
+        var pre = shotData ? shotData.summaryLines : null
+        if (Array.isArray(pre) && pre.length > 0) return pre
+        return MainController.shotHistory.generateShotSummary(shotData)
+    }
 
     contentItem: ColumnLayout {
         spacing: Theme.spacingSmall

@@ -303,12 +303,14 @@ There are two consumer paths that share a single detector pass:
 
 - **In-app dialog path** (returns prose only):
   `ShotAnalysisDialog` (visible) →
-  `MainController.shotHistory.generateShotSummary(shotData)` (Q_INVOKABLE on
-  `ShotHistoryStorage`) →
-  `ShotAnalysis::generateSummary(...)` *(thin wrapper that returns
-  `analyzeShot(...).lines`)* →
-  `QVariantList` of `{ text, type }` lines →
-  `Repeater` in the dialog with a colored dot per line.
+  reads `shotData.summaryLines` directly when present (populated by
+  `convertShotRecord`'s `analyzeShot` pass — no second computation).
+  Falls back to `MainController.shotHistory.generateShotSummary(shotData)`
+  →  `ShotAnalysis::generateSummary(...)` *(thin wrapper that returns
+  `analyzeShot(...).lines`)* only for legacy `shotData` maps that didn't
+  flow through `convertShotRecord`. Either path yields a `QVariantList`
+  of `{ text, type }` lines rendered by a `Repeater` with a colored dot
+  per line.
 - **MCP path** (returns prose + structured detectors):
   `convertShotRecord` → `ShotAnalysis::analyzeShot(...)` →
   `AnalysisResult { lines, detectors }` → emitted as `summaryLines` plus a
