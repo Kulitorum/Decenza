@@ -154,12 +154,24 @@ public:
     static QStringList getAnalysisFlags(const QString& kbId);
 
 private:
-    // Helper methods
-    double findValueAtTime(const QVector<QPointF>& data, double time) const;
-    double calculateAverage(const QVector<QPointF>& data, double startTime, double endTime) const;
-    double calculateMax(const QVector<QPointF>& data, double startTime, double endTime) const;
-    double calculateMin(const QVector<QPointF>& data, double startTime, double endTime) const;
+    // Curve helpers — pure functions, kept static so they can be called from
+    // file-scope helpers (e.g. makeWholeShotPhase) without a ShotSummarizer
+    // instance.
+    static double findValueAtTime(const QVector<QPointF>& data, double time);
+    static double calculateAverage(const QVector<QPointF>& data, double startTime, double endTime);
+    static double calculateMax(const QVector<QPointF>& data, double startTime, double endTime);
+    static double calculateMin(const QVector<QPointF>& data, double startTime, double endTime);
     static QString profileTypeDescription(const QString& editorType);
+    // Build a synthetic single-phase PhaseSummary spanning the full shot.
+    // Used as a fallback for shots with no phase markers (legacy shots, or
+    // shots aborted before frame 0 emitted) so callers don't have to
+    // special-case the no-markers shape. Both summarize() and
+    // summarizeFromHistory() share this helper.
+    static PhaseSummary makeWholeShotPhase(const QVector<QPointF>& pressure,
+                                           const QVector<QPointF>& flow,
+                                           const QVector<QPointF>& temperature,
+                                           const QVector<QPointF>& weight,
+                                           double totalDuration);
     // Per-phase temperature instability. Sets only PhaseSummary::temperatureUnstable;
     // the aggregate "Temperature drifted X°C from goal" observation is produced by
     // ShotAnalysis::generateSummary instead. Callers must gate on

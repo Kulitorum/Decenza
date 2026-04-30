@@ -58,6 +58,42 @@ QString ShotSummarizer::profileTypeDescription(const QString& editorType)
     return QString();
 }
 
+PhaseSummary ShotSummarizer::makeWholeShotPhase(const QVector<QPointF>& pressure,
+                                                const QVector<QPointF>& flow,
+                                                const QVector<QPointF>& temperature,
+                                                const QVector<QPointF>& weight,
+                                                double totalDuration)
+{
+    PhaseSummary phase;
+    phase.name = QStringLiteral("Extraction");
+    phase.startTime = 0;
+    phase.endTime = totalDuration;
+    phase.duration = totalDuration;
+
+    phase.avgPressure = calculateAverage(pressure, 0, totalDuration);
+    phase.maxPressure = calculateMax(pressure, 0, totalDuration);
+    phase.minPressure = calculateMin(pressure, 0, totalDuration);
+    phase.pressureAtStart = findValueAtTime(pressure, 0);
+    phase.pressureAtMiddle = findValueAtTime(pressure, totalDuration / 2);
+    phase.pressureAtEnd = findValueAtTime(pressure, totalDuration);
+
+    phase.avgFlow = calculateAverage(flow, 0, totalDuration);
+    phase.maxFlow = calculateMax(flow, 0, totalDuration);
+    phase.minFlow = calculateMin(flow, 0, totalDuration);
+    phase.flowAtStart = findValueAtTime(flow, 0);
+    phase.flowAtMiddle = findValueAtTime(flow, totalDuration / 2);
+    phase.flowAtEnd = findValueAtTime(flow, totalDuration);
+
+    phase.avgTemperature = calculateAverage(temperature, 0, totalDuration);
+
+    if (!weight.isEmpty()) {
+        const double startWeight = findValueAtTime(weight, 0);
+        const double endWeight = findValueAtTime(weight, totalDuration);
+        phase.weightGained = endWeight - startWeight;
+    }
+    return phase;
+}
+
 // Compute pour-window bounds from summary.phases. Approximates the
 // phase-boundary logic in ShotAnalysis::generateSummary (prefer a "pour"
 // phase, fall back to the first preinfusion/start, use the last phase end
@@ -182,34 +218,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     historyMarkers.reserve(markers.size());
 
     if (markers.isEmpty()) {
-        // No markers - create a single "Extraction" phase
-        PhaseSummary phase;
-        phase.name = "Extraction";
-        phase.startTime = 0;
-        phase.endTime = summary.totalDuration;
-        phase.duration = summary.totalDuration;
-
-        phase.avgPressure = calculateAverage(pressureData, 0, summary.totalDuration);
-        phase.maxPressure = calculateMax(pressureData, 0, summary.totalDuration);
-        phase.minPressure = calculateMin(pressureData, 0, summary.totalDuration);
-        phase.pressureAtStart = findValueAtTime(pressureData, 0);
-        phase.pressureAtMiddle = findValueAtTime(pressureData, summary.totalDuration / 2);
-        phase.pressureAtEnd = findValueAtTime(pressureData, summary.totalDuration);
-
-        phase.avgFlow = calculateAverage(flowData, 0, summary.totalDuration);
-        phase.maxFlow = calculateMax(flowData, 0, summary.totalDuration);
-        phase.minFlow = calculateMin(flowData, 0, summary.totalDuration);
-        phase.flowAtStart = findValueAtTime(flowData, 0);
-        phase.flowAtMiddle = findValueAtTime(flowData, summary.totalDuration / 2);
-        phase.flowAtEnd = findValueAtTime(flowData, summary.totalDuration);
-
-        phase.avgTemperature = calculateAverage(tempData, 0, summary.totalDuration);
-
-        double startWeight = findValueAtTime(cumulativeWeightData, 0);
-        double endWeight = findValueAtTime(cumulativeWeightData, summary.totalDuration);
-        phase.weightGained = endWeight - startWeight;
-
-        summary.phases.append(phase);
+        summary.phases.append(makeWholeShotPhase(pressureData, flowData,
+                                                 tempData, cumulativeWeightData,
+                                                 summary.totalDuration));
     } else {
         for (qsizetype i = 0; i < markers.size(); i++) {
             const PhaseMarker& marker = markers[i];
@@ -449,35 +460,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     }
 
     if (summary.phases.isEmpty()) {
-        PhaseSummary phase;
-        phase.name = "Extraction";
-        phase.startTime = 0;
-        phase.endTime = summary.totalDuration;
-        phase.duration = summary.totalDuration;
-
-        phase.pressureAtStart = findValueAtTime(summary.pressureCurve, 0);
-        phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, summary.totalDuration / 2);
-        phase.pressureAtEnd = findValueAtTime(summary.pressureCurve, summary.totalDuration);
-        phase.avgPressure = calculateAverage(summary.pressureCurve, 0, summary.totalDuration);
-        phase.maxPressure = calculateMax(summary.pressureCurve, 0, summary.totalDuration);
-        phase.minPressure = calculateMin(summary.pressureCurve, 0, summary.totalDuration);
-
-        phase.flowAtStart = findValueAtTime(summary.flowCurve, 0);
-        phase.flowAtMiddle = findValueAtTime(summary.flowCurve, summary.totalDuration / 2);
-        phase.flowAtEnd = findValueAtTime(summary.flowCurve, summary.totalDuration);
-        phase.avgFlow = calculateAverage(summary.flowCurve, 0, summary.totalDuration);
-        phase.maxFlow = calculateMax(summary.flowCurve, 0, summary.totalDuration);
-        phase.minFlow = calculateMin(summary.flowCurve, 0, summary.totalDuration);
-
-        phase.avgTemperature = calculateAverage(summary.tempCurve, 0, summary.totalDuration);
-
-        if (!summary.weightCurve.isEmpty()) {
-            double startWeight = findValueAtTime(summary.weightCurve, 0);
-            double endWeight = findValueAtTime(summary.weightCurve, summary.totalDuration);
-            phase.weightGained = endWeight - startWeight;
-        }
-
-        summary.phases.append(phase);
+        summary.phases.append(makeWholeShotPhase(summary.pressureCurve, summary.flowCurve,
+                                                 summary.tempCurve, summary.weightCurve,
+                                                 summary.totalDuration));
     }
 
     // Detector orchestration delegated to ShotAnalysis::generateSummary —
@@ -1401,7 +1386,7 @@ When taste is flat/thin but the profile calls for coarse grind, explore temperat
 Keep responses concise and practical. The goal is a better-tasting next brew, not a perfect analysis.)");
 }
 
-double ShotSummarizer::findValueAtTime(const QVector<QPointF>& data, double time) const
+double ShotSummarizer::findValueAtTime(const QVector<QPointF>& data, double time)
 {
     if (data.isEmpty()) return 0;
 
@@ -1423,7 +1408,7 @@ double ShotSummarizer::findValueAtTime(const QVector<QPointF>& data, double time
     return p1.y() + t * (p2.y() - p1.y());
 }
 
-double ShotSummarizer::calculateAverage(const QVector<QPointF>& data, double startTime, double endTime) const
+double ShotSummarizer::calculateAverage(const QVector<QPointF>& data, double startTime, double endTime)
 {
     if (data.isEmpty()) return 0;
 
@@ -1438,7 +1423,7 @@ double ShotSummarizer::calculateAverage(const QVector<QPointF>& data, double sta
     return count > 0 ? sum / count : 0;
 }
 
-double ShotSummarizer::calculateMax(const QVector<QPointF>& data, double startTime, double endTime) const
+double ShotSummarizer::calculateMax(const QVector<QPointF>& data, double startTime, double endTime)
 {
     if (data.isEmpty()) return 0;
 
@@ -1451,7 +1436,7 @@ double ShotSummarizer::calculateMax(const QVector<QPointF>& data, double startTi
     return maxVal == -std::numeric_limits<double>::infinity() ? 0 : maxVal;
 }
 
-double ShotSummarizer::calculateMin(const QVector<QPointF>& data, double startTime, double endTime) const
+double ShotSummarizer::calculateMin(const QVector<QPointF>& data, double startTime, double endTime)
 {
     if (data.isEmpty()) return 0;
 
