@@ -597,16 +597,25 @@ bool ShotAnalysis::detectPourTruncated(const QVector<QPointF>& pressure,
         || bev == QStringLiteral("cleaning"))
         return false;
 
-    if (pressure.size() < 10 || pourEnd <= pourStart) return false;
+    if (pressure.size() < 10) return false;
 
-    // Scan the pour window for peak pressure. We look only inside the pour
-    // (not the entire sample range) because some profiles briefly spike
-    // during fill before the puck is engaged — that's not diagnostic of
-    // whether extraction actually built pressure.
+    // Scan the pour window for peak pressure. We normally look only inside
+    // the pour (not the entire sample range) because some profiles briefly
+    // spike during fill before the puck is engaged — that's not diagnostic
+    // of whether extraction actually built pressure. But when the window is
+    // degenerate (pourEnd <= pourStart, which happens on shots that aborted
+    // before the first pour-class phase marker landed) the marker-derived
+    // window is unusable: in that case, scan the whole series. The 2.5 bar
+    // floor is conservative enough that any shot that built real extraction
+    // pressure crosses it somewhere — if no sample reaches the floor across
+    // the entire series, the puck demonstrably never built.
+    const bool windowValid = (pourEnd > pourStart);
     double peakBar = 0.0;
     for (const auto& pt : pressure) {
-        if (pt.x() < pourStart) continue;
-        if (pt.x() > pourEnd) break;
+        if (windowValid) {
+            if (pt.x() < pourStart) continue;
+            if (pt.x() > pourEnd) break;
+        }
         if (pt.y() > peakBar) peakBar = pt.y();
     }
     return peakBar < PRESSURE_FLOOR_BAR;

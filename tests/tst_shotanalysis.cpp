@@ -1080,6 +1080,24 @@ private slots:
         QCOMPARE(ShotAnalysis::detectPourTruncated(pressure, 0.0, 10.0, ""), true);
     }
 
+    // Inverted pour window (pourEnd < pourStart) happens when a shot is
+    // stopped before the first pour-class phase marker lands — e.g.
+    // a 2.3 s abort whose "Pour" marker timestamp is 2.5 s. Bailing out
+    // there hides genuine puck-failure shots (peak pressure under 2.5 bar
+    // across the entire series). Fall back to scanning the whole series
+    // when the marker-derived window is unusable. Regression for shot 875.
+    void pourTruncated_invertedWindow_scansFullSeries()
+    {
+        // Mirrors shot 875: 12 samples, peak ~0.35 bar, pourStart > pourEnd.
+        QVector<QPointF> pressure;
+        const double peaks[] = {0.04, 0.06, 0.08, 0.10, 0.12, 0.14,
+                                 0.16, 0.18, 0.20, 0.26, 0.32, 0.35};
+        double t = 0.0;
+        for (double p : peaks) { pressure.append(QPointF(t, p)); t += 0.21; }
+        // pourStart (2.5) > pourEnd (2.28) — degenerate window.
+        QCOMPARE(ShotAnalysis::detectPourTruncated(pressure, 2.5, 2.28), true);
+    }
+
     // Peak happening outside the pour window (e.g. during fill) should not
     // count — we're diagnosing extraction pressure.
     void pourTruncated_peakOutsidePourWindow_fires()
