@@ -145,10 +145,11 @@ private slots:
 
     // Equivalence test: feed the same shot through both paths and assert
     // byte-equal output. Catches drift if the cached or fallback branches
-    // are later modified to compute differently. The cache value is taken
-    // from the fallback's own analyzeShot invocation, so they're guaranteed
-    // to match by construction — this test pins down that no transformation
-    // happens between cache write and convertShotRecord read.
+    // are later modified to compute differently. Both records are built
+    // from the same buildHealthyRecord() seed and analyzeShot is
+    // deterministic, so we expect identical output — this test pins down
+    // that no transformation happens between cache write and
+    // convertShotRecord read on the cached path.
     void cachedAndFallback_paths_produceEquivalentOutput()
     {
         ShotRecord recordFallback = buildHealthyRecord();

@@ -1938,10 +1938,10 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // alongside the badge projection). Read from there to avoid running
     // analyzeShot a second time on identical inputs.
     //
-    // Slow path: direct-construction callers (ShotHistoryExporter, tests,
-    // any path that bypasses loadShotRecordStatic) hand us a ShotRecord
-    // without `cachedAnalysis`. Fall through to running analyzeShot inline
-    // so behavior stays correct end-to-end.
+    // Slow path: direct-construction callers (tests, any future path that
+    // bypasses loadShotRecordStatic) hand us a ShotRecord without
+    // `cachedAnalysis`. Fall through to running analyzeShot inline so
+    // behavior stays correct end-to-end.
     {
         ShotAnalysis::AnalysisResult analysisOwned;  // storage if we need to compute
         const ShotAnalysis::AnalysisResult* analysisPtr = nullptr;
