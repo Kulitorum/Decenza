@@ -1360,10 +1360,13 @@ private slots:
     }
 
     // Pour window exposure: `pourStartSec`/`pourEndSec` must reflect the
-    // phase-boundary range analyzeShot computed internally. ShotSummarizer's
-    // per-phase temperature instability gate reads these directly instead of
-    // re-deriving the window from PhaseSummary names; if analyzeShot's
-    // boundary logic changes, both consumers stay in sync.
+    // phase-boundary range analyzeShot computed internally. MCP consumers
+    // (`shots_get_detail`) read these directly instead of re-deriving the
+    // window from phase markers; the previous `ShotSummarizer::computePourWindow`
+    // re-derivation is what let drift creep in (PR #944 deleted it).
+    // ShotSummarizer's per-phase temperature instability check iterates
+    // `summary.phases` directly and doesn't read these fields — only the
+    // `pourTruncatedDetected` cascade gate couples it to analyzeShot.
     void analyzeShot_pourWindow_matchesPhaseBoundaries()
     {
         QList<HistoryPhaseMarker> phases{
@@ -1398,19 +1401,20 @@ private slots:
     // computePourWindow's `pourEnd = summary.totalDuration` default.
     void analyzeShot_pourWindow_noMarkers_spansWholeShot()
     {
-        QVector<QPointF> pressure = flatSeries(0.0, 30.0, 9.0);
-        QVector<QPointF> flow = flatSeries(0.0, 30.0, 1.8);
-        QVector<QPointF> temperature = flatSeries(0.0, 30.0, 92.0);
-        QVector<QPointF> temperatureGoal = flatSeries(0.0, 30.0, 92.0);
-        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
-        QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+        const double duration = 30.0;
+        QVector<QPointF> pressure = flatSeries(0.0, duration, 9.0);
+        QVector<QPointF> flow = flatSeries(0.0, duration, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, duration, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, duration, 0.0, 36.0);
 
         const auto result = ShotAnalysis::analyzeShot(
             pressure, flow, weight, temperature, temperatureGoal,
-            dCdt, /*phases=*/{}, "espresso", 30.0);
+            dCdt, /*phases=*/{}, "espresso", duration);
         const auto& d = result.detectors;
         QCOMPARE(d.pourStartSec, 0.0);
-        QCOMPARE(d.pourEndSec, 30.0);
+        QCOMPARE(d.pourEndSec, duration);
     }
 
     // Insufficient-data early return: when pressure.size() < 10, analyzeShot
@@ -1429,27 +1433,29 @@ private slots:
     }
 
     // Preinfusion-only fallback: when no "pour" phase is present, analyzeShot
-    // uses the first preinfusion/start boundary as pourStart. ShotSummarizer's
-    // gate now reads this directly — previously its own `computePourWindow`
-    // helper duplicated the same fallback logic and could drift.
+    // uses the first preinfusion/start boundary as pourStart. MCP consumers
+    // read this directly instead of re-deriving the window from phase markers
+    // (the previous `ShotSummarizer::computePourWindow` did exactly that and
+    // was the drift hazard PR #944 closed).
     void analyzeShot_pourWindow_preinfusionOnly_usesPreinfusionBoundary()
     {
+        const double duration = 30.0;
         QList<HistoryPhaseMarker> phases{
             phase(2.0, "preinfusion", 0, /*isFlowMode=*/true),
         };
-        QVector<QPointF> pressure = flatSeries(0.0, 30.0, 9.0);
-        QVector<QPointF> flow = flatSeries(0.0, 30.0, 1.8);
-        QVector<QPointF> temperature = flatSeries(0.0, 30.0, 92.0);
-        QVector<QPointF> temperatureGoal = flatSeries(0.0, 30.0, 92.0);
-        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
-        QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+        QVector<QPointF> pressure = flatSeries(0.0, duration, 9.0);
+        QVector<QPointF> flow = flatSeries(0.0, duration, 1.8);
+        QVector<QPointF> temperature = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> temperatureGoal = flatSeries(0.0, duration, 92.0);
+        QVector<QPointF> dCdt = flatSeries(0.0, duration, 0.0);
+        QVector<QPointF> weight = rampSeries(0.0, duration, 0.0, 36.0);
 
         const auto result = ShotAnalysis::analyzeShot(
             pressure, flow, weight, temperature, temperatureGoal,
-            dCdt, phases, "espresso", 30.0);
+            dCdt, phases, "espresso", duration);
         const auto& d = result.detectors;
         QCOMPARE(d.pourStartSec, 2.0);
-        QCOMPARE(d.pourEndSec, 30.0);
+        QCOMPARE(d.pourEndSec, duration);
     }
 
     // Backwards compatibility: the legacy generateSummary() wrapper must

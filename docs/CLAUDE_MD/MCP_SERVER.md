@@ -298,8 +298,10 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
   },
   "pourTruncated": false,
   "peakPressureBar": 9.1,        // present only when pourTruncated == true
-  "pourStartSec": 6.2,           // phase-boundary window analyzeShot used to gate every other detector
-  "pourEndSec": 32.8,            // both 0.0 when phase markers were absent and the no-data fallback ran
+  "pourStartSec": 6.2,           // phase-boundary window analyzeShot used to gate every other detector;
+                                 //   stays 0.0 when no "preinfusion"/"pour" markers are present (whole-shot fallback)
+  "pourEndSec": 32.8,            // defaults to shot duration when no "end" marker is present;
+                                 //   both fields are 0.0 only on the insufficient-data early return (pressure.size() < 10)
   "skipFirstFrame": false,
   "verdictCategory": "minorIssuesGrindFine"
 }
