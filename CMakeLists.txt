@@ -292,6 +292,7 @@ set(SOURCES
     src/history/shothistorystorage.cpp
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp
+    src/history/shothistorystorage_queries.cpp
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
     src/history/shotimporter.cpp

@@ -307,6 +307,7 @@ set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
@@ -478,6 +479,7 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -504,6 +506,7 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
