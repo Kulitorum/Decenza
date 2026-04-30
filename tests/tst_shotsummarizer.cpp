@@ -283,6 +283,175 @@ private slots:
         QVERIFY2(!prompt.contains(QStringLiteral("## Dialog Verdict")),
                  "verdict section is never emitted to the AI prompt");
     }
+    // ---- Fast path: pre-computed summaryLines from convertShotRecord ----
+    //
+    // PR #933 made ShotHistoryStorage::convertShotRecord run analyzeShot per
+    // shot conversion and stash the prose in shotData["summaryLines"]. The
+    // historical-shot AI advisor path used to call generateSummary inline
+    // anyway — running the full detector pipeline a second time on the same
+    // data. summarizeFromHistory now reuses the pre-computed lines when
+    // present, falling back to the inline computation only for legacy
+    // shotData maps that didn't flow through convertShotRecord.
+
+    // Helper: build a healthy-shot QVariantMap (peak pressure ~9 bar, normal
+    // flow, no drift). Used by the fast/slow path equivalence tests below.
+    static QVariantMap buildHealthyShotMap()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["duration"] = 30.0;
+        shot["doseWeight"] = 18.0;
+        shot["finalWeight"] = 36.0;
+        shot["yieldOverride"] = 36.0;
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 8.0, 1.0);
+        appendFlat(pressure, 8.0, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        appendFlat(weight, 0.0, 30.0, 36.0);
+
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+        return shot;
+    }
+
+    // Sentinel test: when shotData carries a non-empty summaryLines field,
+    // summarizeFromHistory MUST return those exact lines without recomputing.
+    // Achieved by stuffing a clearly-fake sentinel into summaryLines that no
+    // real detector would produce — if recomputation ran, the sentinel would
+    // be replaced with the real (non-sentinel) line list.
+    void summarizeFromHistory_usesPreComputedLines()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+
+        // Sentinel that no real analyzer would emit.
+        QVariantMap sentinel;
+        sentinel["text"] = QStringLiteral("__SENTINEL__ pre-computed line");
+        sentinel["type"] = QStringLiteral("good");
+        QVariantMap sentinelVerdict;
+        sentinelVerdict["text"] = QStringLiteral("Verdict: __SENTINEL__");
+        sentinelVerdict["type"] = QStringLiteral("verdict");
+
+        QVariantList preLines;
+        preLines.append(sentinel);
+        preLines.append(sentinelVerdict);
+        shot["summaryLines"] = preLines;
+
+        // Also stash a detectorResults map so pourTruncatedDetected gets
+        // derived from there rather than computed.
+        QVariantMap detectors;
+        detectors["pourTruncated"] = false;
+        shot["detectorResults"] = detectors;
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+
+        QCOMPARE(summary.summaryLines.size(), 2);
+        QCOMPARE(summary.summaryLines[0].toMap().value("text").toString(),
+                 QStringLiteral("__SENTINEL__ pre-computed line"));
+        QCOMPARE(summary.summaryLines[1].toMap().value("text").toString(),
+                 QStringLiteral("Verdict: __SENTINEL__"));
+        QVERIFY2(!summary.pourTruncatedDetected,
+                 "pourTruncatedDetected must be derived from detectorResults.pourTruncated");
+    }
+
+    // Fallback test: when summaryLines is missing/empty, the inline detector
+    // path still runs and produces real (non-sentinel) lines. Locks in that
+    // legacy callers (imported shots, direct test invocations) keep working.
+    void summarizeFromHistory_fallsBackWhenNoSummaryLines()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+        // Deliberately omit summaryLines.
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+
+        QVERIFY2(!summary.summaryLines.isEmpty(),
+                 "fallback inline detector path must populate summaryLines");
+        QVERIFY2(linesContainType(summary.summaryLines, QStringLiteral("verdict")),
+                 "every shot must end with a verdict line");
+        // Healthy shot: should NOT be flagged as truncated.
+        QVERIFY2(!summary.pourTruncatedDetected,
+                 "healthy shot must not flag pourTruncatedDetected");
+    }
+
+    // Equivalence test: a shotData with pre-computed summaryLines AND a
+    // shotData without must produce identical summary.summaryLines (modulo
+    // the fact that the pre-computed path uses whatever was passed in). To
+    // make this meaningful, run the slow path FIRST to get the real lines,
+    // then feed those into the fast path and confirm the result matches.
+    // This catches drift if the fast-path branch is ever modified to do
+    // something different than just reading the pre-computed field.
+    void summarizeFromHistory_fastAndSlowPathsAgree()
+    {
+        QVariantMap slowShot = buildHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary slowSummary = summarizer.summarizeFromHistory(slowShot);
+
+        // Now build a fast-path shot by stuffing the slow-path's lines and
+        // pourTruncated into a fresh map. summarizeFromHistory MUST produce
+        // an equivalent summary.
+        QVariantMap fastShot = buildHealthyShotMap();
+        fastShot["summaryLines"] = slowSummary.summaryLines;
+        QVariantMap detectors;
+        detectors["pourTruncated"] = slowSummary.pourTruncatedDetected;
+        fastShot["detectorResults"] = detectors;
+        const ShotSummary fastSummary = summarizer.summarizeFromHistory(fastShot);
+
+        QCOMPARE(fastSummary.summaryLines.size(), slowSummary.summaryLines.size());
+        for (qsizetype i = 0; i < slowSummary.summaryLines.size(); ++i) {
+            QCOMPARE(fastSummary.summaryLines[i].toMap().value("text").toString(),
+                     slowSummary.summaryLines[i].toMap().value("text").toString());
+            QCOMPARE(fastSummary.summaryLines[i].toMap().value("type").toString(),
+                     slowSummary.summaryLines[i].toMap().value("type").toString());
+        }
+        QCOMPARE(fastSummary.pourTruncatedDetected, slowSummary.pourTruncatedDetected);
+    }
+
+    // Cascade integrity through the fast path: when shotData carries a
+    // detectorResults.pourTruncated == true, summarizeFromHistory MUST set
+    // summary.pourTruncatedDetected = true AND skip the per-phase temp
+    // instability marking, exactly like the slow path's cascade.
+    void summarizeFromHistory_fastPathPreservesPourTruncatedCascade()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+        // Stash any non-empty summaryLines (content irrelevant for this assertion).
+        QVariantMap line;
+        line["text"] = QStringLiteral("dummy");
+        line["type"] = QStringLiteral("good");
+        QVariantList lines;
+        lines.append(line);
+        shot["summaryLines"] = lines;
+
+        QVariantMap detectors;
+        detectors["pourTruncated"] = true;
+        shot["detectorResults"] = detectors;
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+
+        QVERIFY2(summary.pourTruncatedDetected,
+                 "fast path must derive pourTruncatedDetected from detectorResults");
+        // Per-phase temperature markers must NOT be set when pourTruncated fires.
+        for (const PhaseSummary& phase : summary.phases) {
+            QVERIFY2(!phase.temperatureUnstable,
+                     "pourTruncated cascade must suppress per-phase temp markers in fast path");
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)
