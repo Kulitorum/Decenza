@@ -58,8 +58,9 @@ public:
     // Get the downloaded profiles path (for profiles imported from Visualizer)
     QString downloadedProfilesPath() const;
 
-    // Get the user history path (sibling of the user profiles folder) for shot export.
-    // Creates the directory if it doesn't already exist.
+    // Get the path for shot history exports. On Android with storage permission it is
+    // a sibling of user/ under Documents/Decenza; on other platforms it is a sibling
+    // of profiles/ under AppDataLocation. Creates the directory if it doesn't already exist.
     QString userHistoryPath() const;
 
     // Like userHistoryPath(), but returns an empty string instead of creating the
@@ -70,13 +71,16 @@ public:
     // Migrate profiles from internal to external storage (call after permission granted)
     Q_INVOKABLE void migrateProfilesToExternal();
 
-    // One-time migration: moves history dir from inside profiles/ to a sibling location
-    void migrateHistoryToNewPath();
-
 signals:
     void configuredChanged();
     void folderSelected(bool success);
 
 private:
     bool m_setupSkipped = false;
+
+    // Moves history dir from AppDataLocation/profiles/history → AppDataLocation/history.
+    // Safe to call every startup — no-ops when the old path is absent (idempotent by design,
+    // no guard flag needed). Desktop-only: on Android with external storage the old broken
+    // path never existed under AppDataLocation.
+    void migrateHistoryToNewPath();
 };
