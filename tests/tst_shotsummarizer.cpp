@@ -8,10 +8,11 @@
 // Post-#933 the canonical pipeline is ShotAnalysis::analyzeShot, which
 // returns both prose lines and a structured DetectorResults struct.
 // ShotSummarizer's live path calls it via the generateSummary wrapper
-// (lines only); the historical-shot path (post-#935) prefers the
-// pre-computed shotData.summaryLines that ShotHistoryStorage::convertShotRecord
-// populates from its own analyzeShot pass. Either way the suppression cascade
-// is enforced in exactly one place. These tests pin the contract:
+// (lines only); the historical-shot path (post-#935) reuses
+// shotData.summaryLines from ShotHistoryStorage::convertShotRecord's
+// analyzeShot pass when present, falling back to an inline re-run for
+// legacy or partial shots. Either way the suppression cascade is
+// enforced in exactly one place. These tests pin the contract:
 // pourTruncatedDetected fires on low-peak shots, channeling/temp lines are
 // suppressed, the "Puck failed" warning + verdict reach the prompt, and a
 // healthy shot still surfaces the normal observations.

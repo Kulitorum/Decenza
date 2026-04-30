@@ -62,9 +62,10 @@ static ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson)
 // convertShotRecord) prepare analyzeShot arguments identically.
 //
 // A future addition to analyzeShot's required helper-derived inputs (e.g.
-// a new analysisFlags flag, a new ProfileFrameInfo field) is a one-place
-// change here and a one-line update at each call site — instead of three
-// inline preparation blocks that have to stay in sync by hand.
+// a new analysisFlags entry, a new firstFrameSeconds/frameCount sibling)
+// is a one-place change here and a one-line update at each call site —
+// instead of three inline preparation blocks that have to stay in sync
+// by hand.
 struct AnalysisInputs {
     QStringList analysisFlags;
     double firstFrameSeconds = -1.0;
