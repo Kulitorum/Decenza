@@ -1811,7 +1811,7 @@ void MainController::onShotEnded() {
 
     // Aborted-shot classifier: drop shots that did not start (extraction < 10s AND yield < 5g).
     // Always on — validated against an 882-shot corpus, 5/882 (0.57%) discarded, all genuine
-    // "did not start" cases. See openspec/changes/add-discard-aborted-shots.
+    // "did not start" cases. See openspec/specs/shot-save-filter/spec.md.
     {
         const bool aborted = decenza::isAbortedShot(duration, finalWeight);
         qInfo().noquote() << QStringLiteral("[discard-classifier] extractionDurationSec=%1 finalWeightG=%2 verdict=%3 action=%4")

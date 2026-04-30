@@ -7,16 +7,15 @@ TBD - created by archiving change add-discard-aborted-shots. Update Purpose afte
 
 When an espresso extraction ends and reaches the save path, the application SHALL classify the shot as *aborted* iff BOTH of the following hold: `extractionDuration < 10.0 s` AND `finalWeight < 5.0 g`. The two clauses form a conjunction; either alone is insufficient to classify the shot as aborted. Long-running low-yield shots (e.g. a choked puck producing 1 g over 60 s) MUST NOT classify as aborted, because their graphs are diagnostically valuable.
 
-When the `Settings.brew.discardAbortedShots` toggle is `true` (default) AND the classifier returns *aborted*, the application SHALL skip persisting the shot to `ShotHistoryStorage` AND SHALL skip any visualizer auto-upload for that shot. When the toggle is `false`, the classifier SHALL NOT be consulted and all shots SHALL save as they do today.
+When the classifier returns *aborted*, the application SHALL skip persisting the shot to `ShotHistoryStorage` AND SHALL skip any visualizer auto-upload for that shot. The classifier runs unconditionally — there is no user-facing opt-out.
 
 The classification SHALL apply only to shots that flow through the espresso save path (`MainController::endShot()` with `m_extractionStarted == true`). Steam, hot water, flush, and cleaning operations are out of scope and SHALL not be evaluated against this classifier.
 
-The two threshold values (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in the C++ source. They SHALL NOT be exposed as user-tunable settings; the only user-facing control is the boolean discard toggle.
+The two threshold values (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in the C++ source. They SHALL NOT be exposed as user-tunable settings.
 
 #### Scenario: Canonical preinfusion abort is discarded
 
-- **GIVEN** the discard toggle is enabled
-- **AND** an espresso shot ends with `extractionDuration = 2.3 s` and `finalWeight = 1.1 g`
+- **GIVEN** an espresso shot ends with `extractionDuration = 2.3 s` and `finalWeight = 1.1 g`
 - **WHEN** `endShot()` reaches the save path
 - **THEN** the classifier SHALL return *aborted*
 - **AND** `ShotHistoryStorage::saveShot()` SHALL NOT be called for this shot
@@ -25,32 +24,21 @@ The two threshold values (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in th
 
 #### Scenario: Long, low-yield choke is preserved
 
-- **GIVEN** the discard toggle is enabled
-- **AND** an espresso shot ends with `extractionDuration = 59.6 s` and `finalWeight = 1.1 g`
+- **GIVEN** an espresso shot ends with `extractionDuration = 59.6 s` and `finalWeight = 1.1 g`
 - **WHEN** `endShot()` reaches the save path
 - **THEN** the classifier SHALL return *kept* (duration ≥ 10 s)
 - **AND** the shot SHALL be saved normally to history
 
 #### Scenario: Short shot with real yield is preserved
 
-- **GIVEN** the discard toggle is enabled
-- **AND** an espresso shot ends with `extractionDuration = 7.3 s` and `finalWeight = 37.4 g` (turbo-style)
+- **GIVEN** an espresso shot ends with `extractionDuration = 7.3 s` and `finalWeight = 37.4 g` (turbo-style)
 - **WHEN** `endShot()` reaches the save path
 - **THEN** the classifier SHALL return *kept* (yield ≥ 5 g)
 - **AND** the shot SHALL be saved normally to history
 
-#### Scenario: Toggle off bypasses the classifier entirely
-
-- **GIVEN** the discard toggle is disabled (`Settings.brew.discardAbortedShots == false`)
-- **AND** an espresso shot ends with `extractionDuration = 2.3 s` and `finalWeight = 1.1 g`
-- **WHEN** `endShot()` reaches the save path
-- **THEN** the classifier SHALL NOT be evaluated
-- **AND** the shot SHALL be saved normally to history
-
 #### Scenario: Boundary — exactly at threshold is preserved
 
-- **GIVEN** the discard toggle is enabled
-- **AND** an espresso shot ends with `extractionDuration = 10.0 s` and `finalWeight = 4.9 g`
+- **GIVEN** an espresso shot ends with `extractionDuration = 10.0 s` and `finalWeight = 4.9 g`
 - **WHEN** `endShot()` reaches the save path
 - **THEN** the classifier SHALL return *kept* because the duration clause uses strict `<` (not `<=`)
 - **AND** the shot SHALL be saved normally to history
@@ -64,7 +52,6 @@ The two threshold values (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in th
 
 #### Scenario: Every classifier evaluation is logged
 
-- **GIVEN** the discard toggle is enabled
 - **WHEN** an espresso shot ends and the classifier runs
 - **THEN** the application SHALL log a single line via the async logger containing: `extractionDuration` (seconds, 3 decimal places), `finalWeight` (grams, 1 decimal place), the verdict (`aborted` or `kept`), and the action (`discarded` or `saved`)
 
