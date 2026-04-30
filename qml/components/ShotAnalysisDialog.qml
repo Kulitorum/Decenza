@@ -31,9 +31,9 @@ Dialog {
     // Analysis lines: prefer the pre-computed `summaryLines` field that
     // ShotHistoryStorage::convertShotRecord populates via its analyzeShot()
     // call. Fall back to invoking generateShotSummary() only when the input
-    // map didn't flow through convertShotRecord (legacy entry points,
-    // imported shots without the new field). The fallback path is byte-
-    // identical to the fast path because both ultimately call analyzeShot().
+    // map didn't flow through convertShotRecord (e.g. a partially-constructed
+    // map that bypassed serialization). Both paths invoke the same analyzeShot
+    // detector body — the rendered observations match line-for-line.
     property var analysisLines: {
         if (!analysisDialog.visible) return []
         var pre = shotData ? shotData.summaryLines : null
