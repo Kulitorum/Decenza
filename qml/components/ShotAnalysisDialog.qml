@@ -28,17 +28,15 @@ Dialog {
     header: null
     footer: null
 
-    // Analysis lines: prefer the pre-computed `summaryLines` field that
-    // ShotHistoryStorage::convertShotRecord populates via its analyzeShot()
-    // call. Fall back to invoking generateShotSummary() only when the input
-    // map didn't flow through convertShotRecord (e.g. a partially-constructed
-    // map that bypassed serialization). Both paths invoke the same analyzeShot
-    // detector body — the rendered observations match line-for-line.
+    // Analysis lines come from `shotData.summaryLines`, populated by
+    // ShotHistoryStorage::convertShotRecord's analyzeShot() pass. Empty
+    // fallback when the field is missing — better to render the dialog
+    // header with no body than to risk a divergent recomputation. Any
+    // shotData that reaches the dialog has flowed through convertShotRecord,
+    // so the empty case is theoretical.
     property var analysisLines: {
         if (!analysisDialog.visible) return []
-        var pre = shotData ? shotData.summaryLines : null
-        if (Array.isArray(pre) && pre.length > 0) return pre
-        return MainController.shotHistory.generateShotSummary(shotData)
+        return Array.isArray(shotData?.summaryLines) ? shotData.summaryLines : []
     }
 
     contentItem: ColumnLayout {

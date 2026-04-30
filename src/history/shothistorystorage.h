@@ -97,10 +97,6 @@ public:
     // Delete shot(s)
     Q_INVOKABLE void deleteShots(const QVariantList& shotIds);
 
-    // Generate a concise shot quality summary from a shot data QVariantMap.
-    // Returns a list of {text, type} maps for display in ShotAnalysisDialog.
-    Q_INVOKABLE QVariantList generateShotSummary(const QVariantMap& shotData) const;
-
     // Async: runs delete on background thread, emits shotDeleted()
     Q_INVOKABLE void requestDeleteShot(qint64 shotId);
 

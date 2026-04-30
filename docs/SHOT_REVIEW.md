@@ -312,14 +312,12 @@ There are two consumer paths that share a single detector pass:
 
 - **In-app dialog path** (returns prose only):
   `ShotAnalysisDialog` (visible) →
-  reads `shotData.summaryLines` directly when present (populated by
-  `convertShotRecord`'s `analyzeShot` pass — no second computation).
-  Falls back to `MainController.shotHistory.generateShotSummary(shotData)`
-  →  `ShotAnalysis::generateSummary(...)` *(thin wrapper that returns
-  `analyzeShot(...).lines`)* only for legacy `shotData` maps that didn't
-  flow through `convertShotRecord`. Either path yields a `QVariantList`
-  of `{ text, type }` lines rendered by a `Repeater` with a colored dot
-  per line.
+  reads `shotData.summaryLines` directly (populated by
+  `convertShotRecord`'s `analyzeShot` pass). When `summaryLines` is
+  absent, the dialog renders its header with no body — preferable to
+  recomputation through a parallel reconstruction path. The result is
+  a `QVariantList` of `{ text, type }` lines rendered by a `Repeater`
+  with a colored dot per line.
 - **MCP path** (returns prose + structured detectors):
   `convertShotRecord` → reads `record.cachedAnalysis` populated by
   `loadShotRecordStatic`'s earlier `analyzeShot` pass (single computation
@@ -331,16 +329,11 @@ There are two consumer paths that share a single detector pass:
   `shots_get_detail` / `shots_compare`.
 
 Both paths run the same `analyzeShot` body. The dialog discards `detectors`;
-MCP serializes the full struct. Existing callers that only want the prose
-lines (the Q_INVOKABLE bridge above, the AI advisor prompt builder) keep
-working unchanged through the `generateSummary` wrapper.
-
-`generateShotSummary` is the bridge that converts the QML `shotData` map
-into the typed vectors `analyzeShot` expects (pressure, flow, weight,
-temperature + goals, conductance derivative, phases, beverage type, profile
-JSON for first-frame seconds, yield override + final weight for the choked-
-puck yield arm). Empty / missing fields are tolerated where the underlying
-detector tolerates them.
+MCP serializes the full struct. The AI advisor's prompt builder
+(`ShotSummarizer::summarize` / `summarizeFromHistory`) reads its prose
+lines through the `generateSummary` wrapper for the live-shot path or
+directly from the pre-computed `shotData.summaryLines` for the
+historical-shot path.
 
 ### Line types and rendering
 
@@ -440,13 +433,11 @@ puck-integrity advice):
 The dialog is instantiated declaratively inside `ShotDetailPage.qml` and
 `PostShotReviewPage.qml`. The `Shot Summary` chip in `QualityBadges.qml`
 emits `summaryRequested()` on tap, which the host page handles by calling
-`open()` on its `ShotAnalysisDialog` instance. Analysis lines are
-recomputed each time the dialog becomes visible (the
-`MainController.shotHistory.generateShotSummary(shotData)` binding only
-fires while `analysisDialog.visible` is true), so detector improvements
-take effect on summary text the same way they do on badges — no save-time
-freeze. There is no DB persistence for summary lines; they're regenerated
-on demand.
+`open()` on its `ShotAnalysisDialog` instance. Analysis lines come from
+`shotData.summaryLines`, populated by `convertShotRecord`'s `analyzeShot`
+pass on every shot load, so detector improvements take effect on summary
+text the same way they do on badges — no save-time freeze. There is no
+DB persistence for summary lines; they're regenerated on every load.
 
 ### AI advisor consumes the same line list (PR #930)
 
@@ -610,12 +601,11 @@ require another sweep.
   - `requestReanalyzeBadges` — lazy-persist worker.
   - `requestShotsFiltered` + `buildFilterQuery` — history-list filter that
     reads the stored columns.
-  - `generateShotSummary` — Q_INVOKABLE bridge that converts a QML
-    `shotData` map into the typed inputs for `ShotAnalysis::analyzeShot`
-    and returns the prose `lines`.
-  - `convertShotRecord` — runs `analyzeShot` once per shot conversion;
+  - `convertShotRecord` — runs `analyzeShot` once per shot conversion
+    (or reuses `record.cachedAnalysis` populated by `loadShotRecordStatic`);
     emits `summaryLines` (prose) and a nested `detectorResults` JSON
-    object on every shot record served by MCP / web endpoints.
+    object on every shot record served by MCP / web endpoints. The dialog
+    reads `summaryLines` directly from the resulting `shotData` map.
   - DB migrations for the five flag columns (10–13; migration 13 adds
     `pour_truncated_detected`).
   - `computeDerivedCurves` — fills conductance / dC/dt for legacy shots that
@@ -636,9 +626,9 @@ require another sweep.
 - `qml/components/QualityBadges.qml` — chip rendering. One chip per active
   flag; when none active, a single "Clean extraction" chip; always a
   trailing "Shot Summary" chip that emits `summaryRequested()`.
-- `qml/components/ShotAnalysisDialog.qml` — Shot Summary dialog. Calls
-  `MainController.shotHistory.generateShotSummary(shotData)` while
-  visible and renders the resulting `{ text, type }` lines.
+- `qml/components/ShotAnalysisDialog.qml` — Shot Summary dialog. Reads
+  `shotData.summaryLines` directly (populated by `convertShotRecord`)
+  and renders the `{ text, type }` lines via a `Repeater`.
 - `qml/pages/ShotDetailPage.qml` and `qml/pages/PostShotReviewPage.qml` —
   consume `shotData.channelingDetected` / `temperatureUnstable` /
   `grindIssueDetected` / `skipFirstFrameDetected` / `pourTruncatedDetected`,
@@ -708,8 +698,9 @@ To add a fixture:
   meta-action verdict ("Don't tune off this shot"), migration 13.
 - PR #930 / Issue #921 — `ShotSummarizer` (AI advisor prompt path) now
   shares the suppression cascade. Detector orchestration delegates to
-  `ShotAnalysis::analyzeShot`, the same call `ShotHistoryStorage::generateShotSummary`
-  makes for the dialog. The prompt's `## Detector Observations` section
+  `ShotAnalysis::analyzeShot` — the same pipeline `convertShotRecord`
+  uses to populate `summaryLines` for the dialog. The prompt's
+  `## Detector Observations` section
   emits `analyzeShot`'s line list verbatim with severity tags
   (`[warning]` / `[caution]` / `[good]` / `[observation]`) under a preamble
   framing the lines as detector evidence. The `verdict` line is filtered

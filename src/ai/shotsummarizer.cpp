@@ -281,10 +281,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     }
 
     // Detector orchestration delegated to ShotAnalysis::analyzeShot (via the
-    // generateSummary wrapper, since this caller only needs the prose lines)
-    // — the same path ShotHistoryStorage::generateShotSummary takes for the
-    // in-app dialog. Single source of truth for the suppression cascade (pour
-    // truncated → channeling/temp/grind forced false). See SHOT_REVIEW.md §3.
+    // generateSummary wrapper, since this caller only needs the prose lines).
+    // Single source of truth for the suppression cascade (pour truncated →
+    // channeling/temp/grind forced false). See SHOT_REVIEW.md §3.
     const auto& tempGoalData = shotData->temperatureGoalData();
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
     const double firstFrameSeconds = (profile && !profile->steps().isEmpty())

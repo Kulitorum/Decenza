@@ -2343,63 +2343,6 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     return record;
 }
 
-QVariantList ShotHistoryStorage::generateShotSummary(const QVariantMap& shotData) const
-{
-    auto variantToPoints = [](const QVariant& v) {
-        QVector<QPointF> pts;
-        const QVariantList list = v.toList();
-        pts.reserve(list.size());
-        for (const auto& item : list) {
-            QVariantMap m = item.toMap();
-            pts.append(QPointF(m["x"].toDouble(), m["y"].toDouble()));
-        }
-        return pts;
-    };
-
-    QVector<QPointF> pressure = variantToPoints(shotData["pressure"]);
-    QVector<QPointF> flow = variantToPoints(shotData["flow"]);
-    QVector<QPointF> weight = variantToPoints(shotData["weight"]);
-    QVector<QPointF> temperature = variantToPoints(shotData["temperature"]);
-    QVector<QPointF> temperatureGoal = variantToPoints(shotData["temperatureGoal"]);
-    QVector<QPointF> conductanceDerivative = variantToPoints(shotData["conductanceDerivative"]);
-    QVector<QPointF> pressureGoal = variantToPoints(shotData["pressureGoal"]);
-    QVector<QPointF> flowGoal = variantToPoints(shotData["flowGoal"]);
-
-    QList<HistoryPhaseMarker> phases;
-    const QVariantList phaseList = shotData["phases"].toList();
-    for (const auto& pv : phaseList) {
-        QVariantMap pm = pv.toMap();
-        HistoryPhaseMarker marker;
-        marker.time = pm["time"].toDouble();
-        marker.label = pm["label"].toString();
-        marker.frameNumber = pm["frameNumber"].toInt();
-        marker.isFlowMode = pm["isFlowMode"].toBool();
-        marker.transitionReason = pm["transitionReason"].toString();
-        phases.append(marker);
-    }
-
-    const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(
-        shotData["profileKbId"].toString());
-
-    // Extract both frame fields from a single ProfileFrameInfo so the dialog
-    // path agrees with save/load/MCP on detectSkipFirstFrame's suppression
-    // for 1-frame profiles. Without this the wrapper defaulted
-    // expectedFrameCount to -1 and could emit a false-positive
-    // "First profile step skipped" line on a 1-frame profile while the
-    // badge underneath stayed false.
-    const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(shotData["profileJson"].toString());
-    return ShotAnalysis::generateSummary(
-        pressure, flow, weight, temperature, temperatureGoal,
-        conductanceDerivative, phases,
-        shotData["beverageType"].toString(),
-        shotData["duration"].toDouble(),
-        pressureGoal, flowGoal, analysisFlags,
-        frameInfo.firstFrameSeconds,
-        shotData["yieldOverride"].toDouble(),
-        shotData["finalWeight"].toDouble(),
-        frameInfo.frameCount);
-}
-
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     const QString& grinderModel, const QString& beverageType)
 {

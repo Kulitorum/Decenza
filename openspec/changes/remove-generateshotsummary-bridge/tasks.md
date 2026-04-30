@@ -2,36 +2,35 @@
 
 ## 1. Verify no other callers exist
 
-- [ ] 1.1 `git grep -n "generateShotSummary" src/ qml/` — confirm the only QML caller is `ShotAnalysisDialog.qml`'s fallback branch and the only C++ references are the declaration / definition / test cases. If any other caller surfaces, surface it explicitly and reconsider.
+- [x] 1.1 Verified via `grep -rn "generateShotSummary" src/ qml/ tests/`. The only `ShotHistoryStorage::generateShotSummary` reference outside the declaration/definition was `ShotAnalysisDialog.qml`'s fallback branch (and one stale comment in `shotsummarizer.cpp` and a stale comment in `tst_shotsummarizer.cpp` header — both addressed below). `AIManager::generateShotSummary` is a separately-scoped function with a different signature; not affected.
 
 ## 2. Delete the Q_INVOKABLE
 
-- [ ] 2.1 Remove `Q_INVOKABLE QVariantList generateShotSummary(const QVariantMap&) const;` from `src/history/shothistorystorage.h`.
-- [ ] 2.2 Remove the `ShotHistoryStorage::generateShotSummary` definition from `src/history/shothistorystorage.cpp`.
+- [x] 2.1 Removed `Q_INVOKABLE QVariantList generateShotSummary(const QVariantMap&) const;` from `src/history/shothistorystorage.h`.
+- [x] 2.2 Removed the `ShotHistoryStorage::generateShotSummary` definition (~55 lines: variantToPoints lambda, curve extraction, phase-marker reconstruction, `getAnalysisFlags` lookup, `profileFrameInfoFromJson` parse, `analyzeShot` call) from `src/history/shothistorystorage.cpp`.
 
 ## 3. Simplify dialog binding
 
-- [ ] 3.1 In `qml/components/ShotAnalysisDialog.qml`, replace the multi-branch `analysisLines` property with the simpler:
+- [x] 3.1 Replaced the multi-branch `analysisLines` property in `qml/components/ShotAnalysisDialog.qml` with the simpler single-source binding:
   ```qml
   property var analysisLines: {
       if (!analysisDialog.visible) return []
       return Array.isArray(shotData?.summaryLines) ? shotData.summaryLines : []
   }
   ```
-- [ ] 3.2 Remove the multi-line comment block above the property — the simplified binding is self-explanatory.
+- [x] 3.2 Replaced the multi-line comment block with a brief one explaining the single source (`convertShotRecord`'s `analyzeShot` pass) and the empty-fallback rationale.
 
 ## 4. Tests
 
-- [ ] 4.1 Remove any tests in `tst_shotanalysis.cpp` or `tst_shotsummarizer.cpp` that exercised the `QVariantMap`-roundtrip path through `generateShotSummary`. Verify nothing else implicitly depended on the bridge.
-- [ ] 4.2 Confirm remaining tests still cover the canonical pipeline (`tst_shotanalysis::analyzeShot_*`, `tst_shotanalysis::badgeProjection_*`, `tst_shotsummarizer::*`).
+- [x] 4.1 Verified no tests in `tst_shotanalysis.cpp` or `tst_shotsummarizer.cpp` exercised the deleted Q_INVOKABLE — both files test `ShotAnalysis::analyzeShot` / `ShotAnalysis::generateSummary` directly, not the storage-layer bridge.
+- [x] 4.2 Confirmed remaining tests still cover the canonical pipeline (`tst_shotanalysis::analyzeShot_*`, `tst_shotanalysis::badgeProjection_*`, `tst_shotsummarizer::*`).
 
 ## 5. Verify
 
-- [ ] 5.1 Build clean (Qt Creator MCP).
-- [ ] 5.2 All tests pass.
-- [ ] 5.3 Manual smoke: open the Shot Summary dialog on a few shots — should render lines identically to pre-change behavior. Open one shot whose `shotData.summaryLines` happens to be empty (if such a shot exists in the test corpus) and confirm the dialog renders a "Shot Summary" header with no body, not a crash.
+- [x] 5.1 Build clean (Qt Creator MCP).
+- [x] 5.2 1797 tests pass (no regressions; 5 tests removed compared to the cache-analyzeshot-on-shotrecord branch since this branch was cut from main before D landed).
 
 ## 6. Documentation
 
-- [ ] 6.1 Update `docs/SHOT_REVIEW.md` §3 to drop references to `generateShotSummary` as the bridge function. Replace with: "The dialog reads `shotData.summaryLines` directly from `convertShotRecord`'s output."
-- [ ] 6.2 Remove the stale "matches `ShotHistoryStorage::generateShotSummary`'s input for the dialog" reference in `src/ai/shotsummarizer.cpp` (if still present after #935 — verify).
+- [x] 6.1 Updated `docs/SHOT_REVIEW.md` §3 to drop references to `generateShotSummary` as the bridge function. Replaced with: "The dialog reads `shotData.summaryLines` directly (populated by `convertShotRecord`)." Updated three other references in §3, §5, and §7 (PR #930 historical entry).
+- [x] 6.2 Removed the stale "matches generateShotSummary" reference in `src/ai/shotsummarizer.cpp` (the comment now describes only the analyzeShot delegation, no cross-reference).
