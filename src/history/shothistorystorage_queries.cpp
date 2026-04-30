@@ -7,7 +7,7 @@
 //
 // Owning concerns (per openspec/changes/split-shothistorystorage-by-concern/):
 //   - filtered queries: requestShotsFiltered + buildFilterQuery + parseFilterMap +
-//     formatFtsQuery + s_sortColumnMap (the FTS5 + sort whitelist).
+//     formatFtsQuery (FTS5 query construction) + s_sortColumnMap (sort-column whitelist).
 //   - recents-by-kbId: requestRecentShotsByKbId + loadRecentShotsByKbIdStatic.
 //   - distinct-value cache: requestDistinctCache + requestDistinctValueAsync +
 //     getDistinctValues + invalidateDistinctCache + getDistinct* getters +

@@ -29,11 +29,11 @@
 #endif
 
 // Internal helpers (use12h, ProfileFrameInfo, AnalysisInputs,
-// profileFrameInfoFromJson, prepareAnalysisInputs) are now declared in
-// shothistorystorage_internal.h and shared with shothistorystorage_serialize.cpp.
+// profileFrameInfoFromJson, prepareAnalysisInputs) are declared in
+// shothistorystorage_internal.h and shared with shothistorystorage_serialize.cpp
+// and shothistorystorage_queries.cpp.
 using decenza::storage::detail::AnalysisInputs;
 using decenza::storage::detail::prepareAnalysisInputs;
-using decenza::storage::detail::use12h;
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
@@ -2418,7 +2418,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
             channeling_detected, temperature_unstable, grind_issue_detected,
-            skip_first_frame_detected
+            skip_first_frame_detected, pour_truncated_detected
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -2428,7 +2428,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
             :channeling_detected, :temperature_unstable, :grind_issue_detected,
-            :skip_first_frame_detected
+            :skip_first_frame_detected, :pour_truncated_detected
         )
     )");
 
@@ -2465,6 +2465,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);
     query.bindValue(":grind_issue_detected", record.grindIssueDetected ? 1 : 0);
     query.bindValue(":skip_first_frame_detected", record.skipFirstFrameDetected ? 1 : 0);
+    query.bindValue(":pour_truncated_detected", record.pourTruncatedDetected ? 1 : 0);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();

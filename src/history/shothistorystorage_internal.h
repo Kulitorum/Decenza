@@ -1,10 +1,9 @@
 #pragma once
 
-// Internal helpers shared between the ShotHistoryStorage translation units
-// (today: shothistorystorage.cpp + shothistorystorage_serialize.cpp; the
-// queries split planned in openspec/changes/split-shothistorystorage-by-concern/
-// will add a third TU). NOT part of the public API — do not include from
-// outside src/history/.
+// Internal helpers shared between the three ShotHistoryStorage translation
+// units: shothistorystorage.cpp, shothistorystorage_serialize.cpp, and
+// shothistorystorage_queries.cpp. NOT part of the public API — do not
+// include from outside src/history/.
 
 #include <QString>
 #include <QStringList>
@@ -45,8 +44,8 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
 // True when the OS reports a 12-hour locale (e.g. "h:mm AP" rather than
 // "HH:mm"). Cached after the first call so we don't re-walk QLocale on every
 // row. Used by the date-formatting code that emits `dateTime` strings to
-// QML across the storage TUs (currently three call sites; grep
-// `use12h\\b` to find them).
+// QML — see `convertShotRecord` in shothistorystorage_serialize.cpp and
+// the filtered-list / auto-favorite paths in shothistorystorage_queries.cpp.
 bool use12h();
 
 } // namespace decenza::storage::detail
