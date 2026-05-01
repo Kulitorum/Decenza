@@ -121,7 +121,8 @@ Call: profiles_get_params
 Expect: editorType="pressure"
 Expect present: espressoPressure, pressureEnd, preinfusionTime, holdTime, simpleDeclineTime, tempStart, tempHold, limiterValue
 Expect also present (suffixed aliases per #992): espressoPressureBar, pressureEndBar,
-        preinfusionTimeSec, holdTimeSec, simpleDeclineTimeSec, tempStartC, tempHoldC.
+        preinfusionStopPressureBar, preinfusionTimeSec, holdTimeSec, simpleDeclineTimeSec,
+        tempStartC, tempHoldC.
         Each alias has the same value as its un-suffixed sibling — both forms round-trip.
 Expect absent: fillTemperature, pourFlow, rampTime, steps
 ```
@@ -132,6 +133,8 @@ Call: profiles_set_active (filename: "flow_profile_for_straight_espresso", confi
 Call: profiles_get_params
 Expect: editorType="flow"
 Expect present: holdFlow, flowEnd, preinfusionTime, holdTime, simpleDeclineTime, tempStart, limiterValue
+Expect also present (suffixed aliases per #992): holdFlowMlPerSec, flowEndMlPerSec,
+        preinfusionTimeSec, holdTimeSec, simpleDeclineTimeSec, tempStartC.
 Expect absent: espressoPressure, pressureEnd, fillTemperature, pourFlow, rampTime, steps
 ```
 
@@ -141,6 +144,9 @@ Call: profiles_set_active (filename: "d_flow_q", confirmed: true)
 Call: profiles_get_params
 Expect: editorType="dflow"
 Expect present: fillTemperature, fillPressure, fillFlow, infusePressure, infuseTime, pourTemperature, pourFlow, pourPressure
+Expect also present (suffixed aliases per #992): fillTemperatureC, fillPressureBar,
+        fillFlowMlPerSec, infusePressureBar, infuseTimeSec, pourTemperatureC,
+        pourFlowMlPerSec, pourPressureBar.
 Expect absent: preinfusionTime, espressoPressure, holdFlow, rampTime, steps
 ```
 
@@ -150,6 +156,7 @@ Call: profiles_set_active (filename: "a_flow_default_medium", confirmed: true)
 Call: profiles_get_params
 Expect: editorType="aflow"
 Expect present: (all dflow fields) + rampTime, rampDownEnabled, flowExtractionUp, secondFillEnabled
+Expect also present (suffixed aliases per #992): rampTimeSec, plus all dflow aliases above.
 Expect absent: preinfusionTime, espressoPressure, steps
 ```
 

@@ -228,6 +228,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 {"pourPressure", "pourPressureBar"},
                 {"espressoPressure", "espressoPressureBar"},
                 {"pressureEnd", "pressureEndBar"},
+                {"preinfusionStopPressure", "preinfusionStopPressureBar"},
                 // mL/s
                 {"fillFlow", "fillFlowMlPerSec"},
                 {"pourFlow", "pourFlowMlPerSec"},
