@@ -81,9 +81,9 @@ add_decenza_test(tst_aborted_shot_classifier
     tst_aborted_shot_classifier.cpp
 )
 
-# --- tst_mcptools_dialing_helpers: pure session-grouping algorithm (issue #1009) ---
-add_decenza_test(tst_mcptools_dialing_helpers
-    tst_mcptools_dialing_helpers.cpp
+# --- tst_dialing_helpers: pure session-grouping algorithm (issue #1009) ---
+add_decenza_test(tst_dialing_helpers
+    tst_dialing_helpers.cpp
 )
 
 # --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
@@ -238,7 +238,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_dialing_blocks.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/dialing_blocks.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp

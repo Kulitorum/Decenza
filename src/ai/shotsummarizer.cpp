@@ -5,8 +5,8 @@
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
 #include "../core/grinderaliases.h"
-#include "../mcp/mcptools_dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
-#include "../mcp/mcptools_dialing_blocks.h"   // shared buildCurrentBeanBlock — single source of truth for currentBean
+#include "dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
+#include "dialing_blocks.h"   // shared buildCurrentBeanBlock — single source of truth for currentBean
 
 #include <cmath>
 #include <algorithm>
@@ -549,7 +549,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
     // Delegates to the shared helper so this surface and
     // `dialing_get_context.currentBean` produce byte-equivalent JSON for
     // the same resolved shot.
-    McpDialingBlocks::CurrentBeanBlockInputs in;
+    DialingBlocks::CurrentBeanBlockInputs in;
     in.beanBrand = summary.beanBrand;
     in.beanType = summary.beanType;
     in.roastLevel = summary.roastLevel;
@@ -559,7 +559,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
     in.grinderBurrs = summary.grinderBurrs;
     in.grinderSetting = summary.grinderSetting;
     in.doseWeightG = summary.doseWeight;
-    return McpDialingBlocks::buildCurrentBeanBlock(in);
+    return DialingBlocks::buildCurrentBeanBlock(in);
 }
 
 static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)

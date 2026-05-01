@@ -32,7 +32,7 @@
 #include "core/settings_dye.h"
 #include "history/shotprojection.h"
 #include "history/shothistory_types.h"
-#include "mcp/mcptools_dialing_blocks.h"
+#include "ai/dialing_blocks.h"
 
 namespace {
 
@@ -441,7 +441,7 @@ private slots:
     // user-prompt path
     // (`AIManager::buildUserPromptObjectForShot(...)["currentBean"]`)
     // build through the shared
-    // `McpDialingBlocks::buildCurrentBeanBlock`, sourced solely from the
+    // `DialingBlocks::buildCurrentBeanBlock`, sourced solely from the
     // resolved shot. Pinned end-to-end so future drift between the two
     // builders fails the test rather than confusing the LLM with two
     // disagreeing views of the same shot.
@@ -489,7 +489,7 @@ private slots:
         // `mcptools_dialing.cpp:200`-block exactly — same field-by-field
         // mapping from `sd` (the resolved shot) into
         // `CurrentBeanBlockInputs`).
-        McpDialingBlocks::CurrentBeanBlockInputs in;
+        DialingBlocks::CurrentBeanBlockInputs in;
         in.beanBrand = shot.beanBrand;
         in.beanType = shot.beanType;
         in.roastLevel = shot.roastLevel;
@@ -499,7 +499,7 @@ private slots:
         in.grinderBurrs = shot.grinderBurrs;
         in.grinderSetting = shot.grinderSetting;
         in.doseWeightG = shot.doseWeightG;
-        const QJsonObject mcpCurrentBean = McpDialingBlocks::buildCurrentBeanBlock(in);
+        const QJsonObject mcpCurrentBean = DialingBlocks::buildCurrentBeanBlock(in);
 
         // The contract: byte-equivalent JSON for the same shot.
         QCOMPARE(inAppCurrentBean, mcpCurrentBean);
@@ -705,7 +705,7 @@ private slots:
     }
 
     // ---------------------------------------------------------------------
-    // McpDialingBlocks gating — preconditions that short-circuit before
+    // DialingBlocks gating — preconditions that short-circuit before
     // touching the DB / Settings / ProfileManager. These cases ship the
     // omission contract (empty QJsonObject so callers suppress the key)
     // without needing real DB infrastructure.
@@ -723,7 +723,7 @@ private slots:
             QVariantMap{{"x", 28.0}, {"y", 1.8}},
             QVariantMap{{"x", 29.0}, {"y", 2.0}},
             QVariantMap{{"x", 30.0}, {"y", 2.1}}};
-        const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(nullptr, nullptr, shot);
+        const QJsonObject sp = DialingBlocks::buildSawPredictionBlock(nullptr, nullptr, shot);
         QVERIFY(sp.isEmpty());
     }
 
@@ -742,7 +742,7 @@ private slots:
             QVariantMap{{"x", 29.0}, {"y", 4.2}},
             QVariantMap{{"x", 30.0}, {"y", 4.1}}};
         Settings settings;
-        const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
+        const QJsonObject sp = DialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
         QVERIFY(sp.isEmpty());
     }
 
@@ -757,7 +757,7 @@ private slots:
             QStringLiteral("Bean"), QStringLiteral("Type"),
             QStringLiteral("Profile"), QString(), QString());
         Settings settings;
-        const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
+        const QJsonObject sp = DialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
         QVERIFY(sp.isEmpty());
     }
 
@@ -767,7 +767,7 @@ private slots:
         // before any DB access. (We can't easily stand up a real DB here;
         // this test pins the gating, not the DB query path.)
         QSqlDatabase db; // default-constructed: invalid, never used
-        const QJsonArray arr = McpDialingBlocks::buildDialInSessionsBlock(
+        const QJsonArray arr = DialingBlocks::buildDialInSessionsBlock(
             db, QString(), 1, 5);
         QVERIFY(arr.isEmpty());
     }
@@ -776,7 +776,7 @@ private slots:
     {
         QSqlDatabase db;
         ShotProjection shot;
-        const QJsonObject obj = McpDialingBlocks::buildBestRecentShotBlock(
+        const QJsonObject obj = DialingBlocks::buildBestRecentShotBlock(
             db, QString(), 1, shot);
         QVERIFY(obj.isEmpty());
     }
@@ -784,7 +784,7 @@ private slots:
     void grinderContextBlock_returnsEmpty_whenGrinderModelEmpty()
     {
         QSqlDatabase db;
-        const QJsonObject obj = McpDialingBlocks::buildGrinderContextBlock(
+        const QJsonObject obj = DialingBlocks::buildGrinderContextBlock(
             db, QString(), QStringLiteral("espresso"), QString());
         QVERIFY(obj.isEmpty());
     }

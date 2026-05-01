@@ -1,6 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
-#include "mcptools_dialing_blocks.h"
+#include "../ai/dialing_blocks.h"
 #include "../ai/aimanager.h"
 #include "../ai/shotsummarizer.h"
 #include "../ai/aiprovider.h"
@@ -146,11 +146,11 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // the userPromptUsed echo is byte-equivalent
                         // across surfaces. See openspec
                         // add-dialing-blocks-to-advisor.
-                        dialInSessions = McpDialingBlocks::buildDialInSessionsBlock(
+                        dialInSessions = DialingBlocks::buildDialInSessionsBlock(
                             db, shot.profileKbId, resolvedShotId, 5);
-                        bestRecentShot = McpDialingBlocks::buildBestRecentShotBlock(
+                        bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                             db, shot.profileKbId, resolvedShotId, shot);
-                        grinderContext = McpDialingBlocks::buildGrinderContextBlock(
+                        grinderContext = DialingBlocks::buildGrinderContextBlock(
                             db, shot.grinderModel, shot.beverageType, shot.beanBrand);
                     }
                 });
@@ -202,7 +202,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // grinderContext from bg thread; sawPrediction
                         // built here on the main thread). Same shape the
                         // in-app advisor produces — both surfaces call
-                        // the same helpers in McpDialingBlocks.
+                        // the same helpers in DialingBlocks.
                         QJsonObject userPromptObj = ai->buildUserPromptObjectForShot(shot);
                         if (userPromptObj.isEmpty()) {
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});

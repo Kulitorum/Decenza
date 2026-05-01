@@ -1,9 +1,9 @@
 #include <QTest>
-#include "mcp/mcptools_dialing_helpers.h"
+#include "ai/dialing_helpers.h"
 
-using namespace McpDialingHelpers;
+using namespace DialingHelpers;
 
-class TstMcpToolsDialingHelpers : public QObject
+class TstDialingHelpers : public QObject
 {
     Q_OBJECT
 
@@ -46,12 +46,12 @@ private slots:
     void estimateFlowAtCutoff_customWindow();
 };
 
-void TstMcpToolsDialingHelpers::emptyInput_returnsNoSessions()
+void TstDialingHelpers::emptyInput_returnsNoSessions()
 {
     QVERIFY(groupSessions({}).isEmpty());
 }
 
-void TstMcpToolsDialingHelpers::singleShot_returnsOneSessionOfOne()
+void TstDialingHelpers::singleShot_returnsOneSessionOfOne()
 {
     const auto sessions = groupSessions({1000});
     QCOMPARE(sessions.size(), qsizetype(1));
@@ -59,7 +59,7 @@ void TstMcpToolsDialingHelpers::singleShot_returnsOneSessionOfOne()
     QCOMPARE(sessions[0][0], qsizetype(0));
 }
 
-void TstMcpToolsDialingHelpers::twoAdjacentShots_inSameSession()
+void TstDialingHelpers::twoAdjacentShots_inSameSession()
 {
     // Two shots 7 minutes apart — well within the 60-min threshold.
     const auto sessions = groupSessions({2000, 2000 - 7 * 60});
@@ -69,7 +69,7 @@ void TstMcpToolsDialingHelpers::twoAdjacentShots_inSameSession()
     QCOMPARE(sessions[0][1], qsizetype(1));
 }
 
-void TstMcpToolsDialingHelpers::twoFarApartShots_inSeparateSessions()
+void TstDialingHelpers::twoFarApartShots_inSeparateSessions()
 {
     // Two shots 24 hours apart.
     const auto sessions = groupSessions({100000, 100000 - 24 * 3600});
@@ -80,7 +80,7 @@ void TstMcpToolsDialingHelpers::twoFarApartShots_inSeparateSessions()
     QCOMPARE(sessions[1][0], qsizetype(1));
 }
 
-void TstMcpToolsDialingHelpers::issueExample_threeShots_twoSessions()
+void TstDialingHelpers::issueExample_threeShots_twoSessions()
 {
     // Mirrors the issue #1009 example: shots 884 (today 9:36), 883 (today 9:29),
     // 882 (yesterday 10:09). 884 and 883 are 7 min apart — same session.
@@ -99,7 +99,7 @@ void TstMcpToolsDialingHelpers::issueExample_threeShots_twoSessions()
     QCOMPARE(sessions[1][0], qsizetype(2));
 }
 
-void TstMcpToolsDialingHelpers::exactlyAtThreshold_groupsTogether()
+void TstDialingHelpers::exactlyAtThreshold_groupsTogether()
 {
     // Exactly at the threshold (gap == threshold) → still same session.
     const auto sessions = groupSessions({3600, 0}, /*thresholdSec=*/3600);
@@ -107,14 +107,14 @@ void TstMcpToolsDialingHelpers::exactlyAtThreshold_groupsTogether()
     QCOMPARE(sessions[0].size(), qsizetype(2));
 }
 
-void TstMcpToolsDialingHelpers::justOverThreshold_breaksSession()
+void TstDialingHelpers::justOverThreshold_breaksSession()
 {
     // 1 second over the threshold → distinct sessions.
     const auto sessions = groupSessions({3601, 0}, /*thresholdSec=*/3600);
     QCOMPARE(sessions.size(), qsizetype(2));
 }
 
-void TstMcpToolsDialingHelpers::thresholdIsConfigurable()
+void TstDialingHelpers::thresholdIsConfigurable()
 {
     // With a 30-min threshold, a 45-min gap should split.
     const auto sessions = groupSessions({3600, 3600 - 45 * 60}, /*thresholdSec=*/30 * 60);
@@ -129,13 +129,13 @@ void TstMcpToolsDialingHelpers::thresholdIsConfigurable()
 // vacuum-sealed) is misleading data dressed as precise data — many users
 // freeze beans, and the previous advisory note was demonstrably skimmed.
 
-void TstMcpToolsDialingHelpers::buildBeanFreshness_emptyRoastDate_returnsEmptyObject()
+void TstDialingHelpers::buildBeanFreshness_emptyRoastDate_returnsEmptyObject()
 {
     QCOMPARE(buildBeanFreshness(QString()), QJsonObject());
     QCOMPARE(buildBeanFreshness(QStringLiteral("")), QJsonObject());
 }
 
-void TstMcpToolsDialingHelpers::buildBeanFreshness_populatedRoastDate_carriesFreshnessKnownAndInstruction()
+void TstDialingHelpers::buildBeanFreshness_populatedRoastDate_carriesFreshnessKnownAndInstruction()
 {
     const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"));
     QCOMPARE(block["roastDate"].toString(), QStringLiteral("2026-04-15"));
@@ -152,7 +152,7 @@ void TstMcpToolsDialingHelpers::buildBeanFreshness_populatedRoastDate_carriesFre
              "instruction must surface the freezing pattern that breaks calendar-age reasoning");
 }
 
-void TstMcpToolsDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()
+void TstDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()
 {
     // The block intentionally contains NO precomputed day count under any
     // field name. This is the load-bearing contract — adding back any
@@ -187,13 +187,13 @@ void TstMcpToolsDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()
 // surface once on `session.context` and zero times on per-shot entries.
 
 namespace {
-McpDialingHelpers::ShotIdentity makeIdentity(const QString& gBrand,
+DialingHelpers::ShotIdentity makeIdentity(const QString& gBrand,
                                               const QString& gModel,
                                               const QString& gBurrs,
                                               const QString& bBrand,
                                               const QString& bType)
 {
-    McpDialingHelpers::ShotIdentity id;
+    DialingHelpers::ShotIdentity id;
     id.grinderBrand = gBrand;
     id.grinderModel = gModel;
     id.grinderBurrs = gBurrs;
@@ -203,7 +203,7 @@ McpDialingHelpers::ShotIdentity makeIdentity(const QString& gBrand,
 }
 } // namespace
 
-void TstMcpToolsDialingHelpers::hoistSessionContext_emptySession_returnsEmpty()
+void TstDialingHelpers::hoistSessionContext_emptySession_returnsEmpty()
 {
     const auto out = hoistSessionContext({});
     QVERIFY(out.context.grinderBrand.isEmpty());
@@ -211,7 +211,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_emptySession_returnsEmpty()
     QVERIFY(out.perShotOverrides.isEmpty());
 }
 
-void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsShareIdentity_contextHasAllOverridesEmpty()
+void TstDialingHelpers::hoistSessionContext_allShotsShareIdentity_contextHasAllOverridesEmpty()
 {
     // Mirrors the Northbound 80's Espresso 4-shot iteration session.
     const auto shot = makeIdentity(
@@ -219,7 +219,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsShareIdentity_contex
         QStringLiteral("63mm Mazzer Kony conical"),
         QStringLiteral("Northbound Coffee Roasters"),
         QStringLiteral("Spring Tour 2026 #2"));
-    const QList<McpDialingHelpers::ShotIdentity> shots{shot, shot, shot, shot};
+    const QList<DialingHelpers::ShotIdentity> shots{shot, shot, shot, shot};
 
     const auto out = hoistSessionContext(shots);
 
@@ -239,7 +239,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsShareIdentity_contex
     }
 }
 
-void TstMcpToolsDialingHelpers::hoistSessionContext_oneShotDiffersOnBeanBrand_onlyThatShotOverrides()
+void TstDialingHelpers::hoistSessionContext_oneShotDiffersOnBeanBrand_onlyThatShotOverrides()
 {
     const auto a = makeIdentity(
         QStringLiteral("Niche"), QStringLiteral("Zero"),
@@ -249,7 +249,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_oneShotDiffersOnBeanBrand_on
         QStringLiteral("Niche"), QStringLiteral("Zero"),
         QStringLiteral("63mm conical"),
         QStringLiteral("Prodigal"), QStringLiteral("Buenos Aires"));
-    const QList<McpDialingHelpers::ShotIdentity> shots{a, b, a};
+    const QList<DialingHelpers::ShotIdentity> shots{a, b, a};
 
     const auto out = hoistSessionContext(shots);
 
@@ -274,7 +274,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_oneShotDiffersOnBeanBrand_on
     QVERIFY(out.perShotOverrides[2].beanBrand.isEmpty());
 }
 
-void TstMcpToolsDialingHelpers::hoistSessionContext_singleShotSession_contextCarriesIdentity()
+void TstDialingHelpers::hoistSessionContext_singleShotSession_contextCarriesIdentity()
 {
     const auto only = makeIdentity(
         QStringLiteral("Niche"), QStringLiteral("Zero"),
@@ -289,7 +289,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_singleShotSession_contextCar
     QVERIFY(out.perShotOverrides[0].beanBrand.isEmpty());
 }
 
-void TstMcpToolsDialingHelpers::hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty()
+void TstDialingHelpers::hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty()
 {
     // Shot[0] has no recorded grinderBurrs (legacy import); shots[1+] do.
     // Context should pick the first non-empty value rather than leave it
@@ -303,7 +303,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_firstShotEmptyForField_falls
         QStringLiteral("Niche"), QStringLiteral("Zero"),
         QStringLiteral("63mm conical"),
         QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
-    const QList<McpDialingHelpers::ShotIdentity> shots{a, b, b};
+    const QList<DialingHelpers::ShotIdentity> shots{a, b, b};
 
     const auto out = hoistSessionContext(shots);
 
@@ -319,7 +319,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_firstShotEmptyForField_falls
     QVERIFY(out.perShotOverrides[2].grinderBurrs.isEmpty());
 }
 
-void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsEmptyForField_contextOmitsField()
+void TstDialingHelpers::hoistSessionContext_allShotsEmptyForField_contextOmitsField()
 {
     // No shot has a recorded grinderBurrs — context.grinderBurrs stays
     // empty, and the JSON serializer omits the field from `context`.
@@ -327,7 +327,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsEmptyForField_contex
         QStringLiteral("Niche"), QStringLiteral("Zero"),
         QString(),
         QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
-    const QList<McpDialingHelpers::ShotIdentity> shots{a, a, a};
+    const QList<DialingHelpers::ShotIdentity> shots{a, a, a};
 
     const auto out = hoistSessionContext(shots);
 
@@ -344,7 +344,7 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsEmptyForField_contex
 // (current vs best-rated past shot). Direction is `from -> to`; pin that
 // here so the AI's "what moved" envelope reads consistently.
 
-void TstMcpToolsDialingHelpers::buildShotChangeDiff_identicalShots_emptyDiff()
+void TstDialingHelpers::buildShotChangeDiff_identicalShots_emptyDiff()
 {
     ShotDiffInputs s;
     s.grinderSetting = QStringLiteral("4.5");
@@ -359,7 +359,7 @@ void TstMcpToolsDialingHelpers::buildShotChangeDiff_identicalShots_emptyDiff()
              "two shots with identical fields must produce no diff");
 }
 
-void TstMcpToolsDialingHelpers::buildShotChangeDiff_directionIsFromTo()
+void TstDialingHelpers::buildShotChangeDiff_directionIsFromTo()
 {
     // changeFromBest example from #1020 issue: best=18g/9-grind, current=20g/4.5-grind
     ShotDiffInputs best;
@@ -380,7 +380,7 @@ void TstMcpToolsDialingHelpers::buildShotChangeDiff_directionIsFromTo()
     QCOMPARE(diff["yieldG"].toString(), QStringLiteral("40.2 -> 35.9 g (-4.3)"));
 }
 
-void TstMcpToolsDialingHelpers::buildShotChangeDiff_zeroFieldsSkipped()
+void TstDialingHelpers::buildShotChangeDiff_zeroFieldsSkipped()
 {
     // When either side has 0 for a numeric field, skip the diff — there's
     // no meaningful comparison to be made (e.g. legacy shots without TDS).
@@ -401,7 +401,7 @@ void TstMcpToolsDialingHelpers::buildShotChangeDiff_zeroFieldsSkipped()
     QVERIFY(diff.contains("durationSec"));
 }
 
-void TstMcpToolsDialingHelpers::buildShotChangeDiff_emptyStringsSkipped()
+void TstDialingHelpers::buildShotChangeDiff_emptyStringsSkipped()
 {
     // Same rule for strings: blank on either side = no diff.
     ShotDiffInputs from;
@@ -419,7 +419,7 @@ void TstMcpToolsDialingHelpers::buildShotChangeDiff_emptyStringsSkipped()
              "identical strings must not produce a diff entry");
 }
 
-void TstMcpToolsDialingHelpers::buildShotChangeDiff_changeFromBestExample()
+void TstDialingHelpers::buildShotChangeDiff_changeFromBestExample()
 {
     // Mirrors the issue #1020 example: best is shot 802 on Prodigal Buenos
     // Aires at grind 9 / 18g / 40.2g, current is shot 884 on Northbound at
@@ -459,12 +459,12 @@ QVariantMap makeSample(double t, double y)
 }
 } // namespace
 
-void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_emptySamples_returnsZero()
+void TstDialingHelpers::estimateFlowAtCutoff_emptySamples_returnsZero()
 {
     QCOMPARE(estimateFlowAtCutoff({}, 30.0), 0.0);
 }
 
-void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_zeroDuration_returnsZero()
+void TstDialingHelpers::estimateFlowAtCutoff_zeroDuration_returnsZero()
 {
     // No duration → no window. Defensive: legacy shots with bogus durations.
     QVariantList samples;
@@ -472,7 +472,7 @@ void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_zeroDuration_returnsZero()
     QCOMPARE(estimateFlowAtCutoff(samples, 0.0), 0.0);
 }
 
-void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_averagesLastTwoSeconds()
+void TstDialingHelpers::estimateFlowAtCutoff_averagesLastTwoSeconds()
 {
     // Shot duration = 30s; default window = 2s → samples in [28, 30] count.
     QVariantList samples;
@@ -487,7 +487,7 @@ void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_averagesLastTwoSeconds()
     QVERIFY(qFuzzyCompare(avg, 1.8));
 }
 
-void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_skipsZeroFlowSamples()
+void TstDialingHelpers::estimateFlowAtCutoff_skipsZeroFlowSamples()
 {
     // y == 0 (drip detected as zero, scale rounding) shouldn't drag the avg
     // down — the SAW prediction wants the flow regime that drove pour
@@ -501,7 +501,7 @@ void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_skipsZeroFlowSamples()
     QVERIFY(qFuzzyCompare(avg, 1.5));
 }
 
-void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_shortShot_clampsWindowToZero()
+void TstDialingHelpers::estimateFlowAtCutoff_shortShot_clampsWindowToZero()
 {
     // Shot shorter than the window — window must clamp to t >= 0 so we
     // average the whole shot rather than emit garbage.
@@ -514,7 +514,7 @@ void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_shortShot_clampsWindowToZer
     QVERIFY(qFuzzyCompare(avg, 1.5));  // (1.0 + 2.0) / 2
 }
 
-void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_customWindow()
+void TstDialingHelpers::estimateFlowAtCutoff_customWindow()
 {
     QVariantList samples;
     samples.append(makeSample(25.0, 1.0));
@@ -527,6 +527,6 @@ void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_customWindow()
     QVERIFY(qFuzzyCompare(estimateFlowAtCutoff(samples, 30.0, 1.0), 3.0));
 }
 
-QTEST_APPLESS_MAIN(TstMcpToolsDialingHelpers)
+QTEST_APPLESS_MAIN(TstDialingHelpers)
 
-#include "tst_mcptools_dialing_helpers.moc"
+#include "tst_dialing_helpers.moc"
