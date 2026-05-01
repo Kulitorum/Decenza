@@ -23,6 +23,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QThread>
@@ -224,19 +225,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "settings");
 
     // settings_set
-    registry->registerAsyncTool(
-        "settings_set",
-        "Update any app setting on the device. This is the tool to use when the user asks to change "
-        "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
-        "brew temperature (espressoTemperature), or any other setting. "
-        "Covers all QML settings tabs: machine, calibration, connections, screensaver, accessibility, AI, "
-        "espresso, steam, water, flush, DYE metadata, MQTT, themes, visualizer, update, data, "
-        "history, language, debug, battery, heater, auto-favorites. "
-        "API keys and passwords are excluded (sensitive). "
-        "For temperature and weight changes on the active profile, this tool handles the profile update automatically. "
-        "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
-        "For discussion and recommendations, respond in chat instead.",
-        QJsonObject{
+    //
+    // Schema is built into a local variable so the property names can be
+    // extracted into validSettingsKeys (one pass at registration time).
+    // The lambda then rejects any args key that's not in the schema instead
+    // of silently ignoring it (#986). Without this, typos like
+    // `setings_set(dyeBenBrand: ...)` succeed with `{updated: []}` errors.
+    QJsonObject settingsSetSchema = QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 // Espresso / profile
@@ -381,10 +376,45 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // Confirmation
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
-        },
-        [profileManager, settings, accessibility, screensaver, translation, battery](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        };
+    QSet<QString> validSettingsKeys;
+    {
+        const QJsonObject props = settingsSetSchema.value("properties").toObject();
+        for (auto it = props.constBegin(); it != props.constEnd(); ++it)
+            validSettingsKeys.insert(it.key());
+    }
+    registry->registerAsyncTool(
+        "settings_set",
+        "Update any app setting on the device. This is the tool to use when the user asks to change "
+        "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
+        "brew temperature (espressoTemperature), or any other setting. "
+        "Covers all QML settings tabs: machine, calibration, connections, screensaver, accessibility, AI, "
+        "espresso, steam, water, flush, DYE metadata, MQTT, themes, visualizer, update, data, "
+        "history, language, debug, battery, heater, auto-favorites. "
+        "API keys and passwords are excluded (sensitive). "
+        "For temperature and weight changes on the active profile, this tool handles the profile update automatically. "
+        "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
+        "For discussion and recommendations, respond in chat instead.",
+        settingsSetSchema,
+        [profileManager, settings, accessibility, screensaver, translation, battery, validSettingsKeys](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+
+            // Reject unknown keys before applying any setters. Catches typos
+            // and outdated names that would otherwise return {updated: []}
+            // and look like a server-side problem to an LLM.
+            QStringList unknownKeys;
+            for (auto it = args.constBegin(); it != args.constEnd(); ++it) {
+                if (!validSettingsKeys.contains(it.key()))
+                    unknownKeys.append(it.key());
+            }
+            if (!unknownKeys.isEmpty()) {
+                respond(QJsonObject{
+                    {"error", "Unknown settings key(s)"},
+                    {"unknownKeys", QJsonArray::fromStringList(unknownKeys)}
+                });
                 return;
             }
 

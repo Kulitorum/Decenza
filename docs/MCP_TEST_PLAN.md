@@ -304,10 +304,26 @@ Call: settings_get (keys: ["espressoTemperature"])
 Expect: response contains espressoTemperatureC (un-suffixed write name still works).
 ```
 
+### 5.1b settings_get — unknown category / keys reject
+```
+Call: settings_get (category: "preferences")
+Expect: error="Unknown category 'preferences'", validCategories array present.
+Call: settings_get (keys: ["nonexistentKey"])
+Expect: error="Unknown settings key(s)", unknownKeys=["nonexistentKey"].
+Call: settings_get (keys: ["dyeBeanBrand", "typoo"])
+Expect: error, unknownKeys=["typoo"] (mixed valid+invalid is still an error).
+```
+
 ### 5.2 settings_set — DYE metadata
 ```
 Call: settings_set (dyeBeanBrand: "MCP Test Brand", dyeGrinderSetting: "99", confirmed: true)
 Expect: success=true, updated includes "dyeBeanBrand" and "dyeGrinderSetting"
+```
+
+### 5.2a settings_set — unknown key reject
+```
+Call: settings_set (nonexistentKey: 42, confirmed: true)
+Expect: error="Unknown settings key(s)", unknownKeys=["nonexistentKey"]. No setters fire.
 ```
 
 ### 5.3 Cleanup: restore DYE
