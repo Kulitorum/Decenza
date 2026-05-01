@@ -450,6 +450,129 @@ private slots:
         QVERIFY(structured.contains("items"));
     }
 
+    // ─── Spec-version gating: 2024-11-05 clients see only legacy fields ───
+    //
+    // Strict 2024-11-05 validators reject responses carrying fields introduced
+    // in newer specs. The server must omit those fields when the negotiated
+    // protocol version pre-dates their introduction. Each test below pins the
+    // exact field contract for the legacy version so a future spec bump can't
+    // silently re-leak a newer field.
+
+    void toolsListAt2024_11_05OmitsNewerSpecFields()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "shots_get_detail",
+            "Test tool",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject { return QJsonObject{}; },
+            "read");
+
+        const QString sid = openSession(server, "2024-11-05");
+        auto resp = sendHttp(server, "POST", rpcBody("tools/list", {}, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonArray tools = resp.jsonBody["result"].toObject()["tools"].toArray();
+        QCOMPARE(tools.size(), 1);
+        const QJsonObject t = tools[0].toObject();
+
+        // 2025-06-18 fields must NOT appear.
+        QVERIFY2(!t.contains("title"), "tools/list at 2024-11-05 must omit title");
+        // 2025-11-25 fields must NOT appear.
+        QVERIFY2(!t.contains("icons"), "tools/list at 2024-11-05 must omit icons");
+        QVERIFY2(!t["inputSchema"].toObject().contains("$schema"),
+                 "tools/list at 2024-11-05 must omit $schema dialect");
+
+        // Universal fields must still be present.
+        QCOMPARE(t["name"].toString(), QString("shots_get_detail"));
+        QVERIFY(t.contains("description"));
+        QVERIFY(t["inputSchema"].toObject().contains("type"));
+    }
+
+    void resourcesListAt2024_11_05OmitsNewerSpecFields()
+    {
+        McpServer server;
+        server.resourceRegistry()->registerResource(
+            "decenza://shots/42", "Shot 42", "A test shot", "application/json",
+            []() -> QJsonObject { return QJsonObject{{"id", 42}}; });
+
+        const QString sid = openSession(server, "2024-11-05");
+        auto resp = sendHttp(server, "POST", rpcBody("resources/list", {}, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonArray resources = resp.jsonBody["result"].toObject()["resources"].toArray();
+        QCOMPARE(resources.size(), 1);
+        const QJsonObject r = resources[0].toObject();
+
+        QVERIFY2(!r.contains("title"), "resources/list at 2024-11-05 must omit title");
+        QVERIFY2(!r.contains("icons"), "resources/list at 2024-11-05 must omit icons");
+        QCOMPARE(r["name"].toString(), QString("Shot 42"));
+        QCOMPARE(r["uri"].toString(), QString("decenza://shots/42"));
+    }
+
+    void toolsCallAt2024_11_05OmitsStructuredContentAndResourceLinks()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_listy_tool",
+            "Returns _resourceLinks side-channel",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject {
+                QJsonObject link{{"uri", "decenza://shots/42"}, {"title", "#42"}};
+                return QJsonObject{{"items", QJsonArray{42}},
+                                   {"_resourceLinks", QJsonArray{link}}};
+            },
+            "read");
+
+        const QString sid = openSession(server, "2024-11-05");
+        QJsonObject params;
+        params["name"] = "stub_listy_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+
+        // 2025-06-18 fields must NOT appear at 2024-11-05.
+        QVERIFY2(!result.contains("structuredContent"),
+                 "tools/call at 2024-11-05 must omit structuredContent");
+
+        // content[] must still carry the text block, but no resource_link blocks.
+        const QJsonArray content = result["content"].toArray();
+        QVERIFY2(!content.isEmpty(), "content[] must always be present");
+        bool hasText = false;
+        for (const QJsonValue& v : content) {
+            const QString type = v.toObject()["type"].toString();
+            QVERIFY2(type != "resource_link",
+                     "tools/call at 2024-11-05 must not emit resource_link blocks");
+            if (type == "text") hasText = true;
+        }
+        QVERIFY(hasText);
+    }
+
+    void resourcesReadAt2024_11_05OmitsStructuredContent()
+    {
+        McpServer server;
+        server.resourceRegistry()->registerResource(
+            "decenza://shots/42", "Shot 42", "A test shot", "application/json",
+            []() -> QJsonObject { return QJsonObject{{"id", 42}, {"label", "ok"}}; });
+
+        const QString sid = openSession(server, "2024-11-05");
+        QJsonObject params;
+        params["uri"] = "decenza://shots/42";
+        auto resp = sendHttp(server, "POST", rpcBody("resources/read", params, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonArray contents = resp.jsonBody["result"].toObject()["contents"].toArray();
+        QCOMPARE(contents.size(), 1);
+        const QJsonObject content = contents[0].toObject();
+
+        QVERIFY2(!content.contains("structuredContent"),
+                 "resources/read at 2024-11-05 must omit structuredContent");
+        QVERIFY(content.contains("text"));
+        QCOMPARE(content["uri"].toString(), QString("decenza://shots/42"));
+    }
+
     // ─── Pure helpers ──────────────────────────────────────────────────────
 
     void deriveTitleProducesTitleCaseFromSnakeCase()

@@ -35,6 +35,7 @@ struct PendingConfirmation {
     QString toolName;
     QJsonObject arguments;
     int accessLevel;
+    QString protocolVersion;  // captured at request time so the held response gates spec-versioned fields correctly
 };
 
 class McpServer : public QObject {
@@ -123,12 +124,15 @@ private:
                           const QString& sessionId = QString(),
                           const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {});
 
-    // Tool result construction — emits both `content[]` text (for legacy
-    // 2025-03-26 clients) and `structuredContent` (for 2025-06-18+ clients).
-    // If the tool result carries a `_resourceLinks` array, those entries are
-    // converted into `resource_link` content blocks and stripped from
-    // `structuredContent`.
-    QJsonObject buildToolCallResponse(const QJsonObject& toolResult) const;
+    // Tool result construction. Always emits a `content[]` text block (works
+    // for every protocol version). Spec-versioned additions are gated on the
+    // negotiated protocol version: `structuredContent` and `resource_link`
+    // content blocks are 2025-06-18 features, so 2024-11-05 clients see only
+    // the text block. If the tool result carries a `_resourceLinks` array,
+    // those entries are stripped from `structuredContent` and (when the
+    // version permits) emitted as `resource_link` blocks.
+    QJsonObject buildToolCallResponse(const QJsonObject& toolResult,
+                                       const QString& protocolVersion) const;
 
     // Origin allowlist. Empty Origin header is always accepted; loopback and
     // the host's own LAN IPs (computed from QNetworkInterface at construction)
@@ -179,9 +183,12 @@ private:
     // In-app confirmation (machine_start_* tools)
     std::optional<PendingConfirmation> m_pendingConfirmation;
 
-    // Async tool response helper — sends the tool result back on the held HTTP connection
+    // Async tool response helper — sends the tool result back on the held HTTP connection.
+    // protocolVersion is captured at dispatch time so the deferred response
+    // matches the originating session's negotiated spec.
     void sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVariant& requestId,
-                               const QString& sessionId, const QJsonObject& toolResult);
+                               const QString& sessionId, const QString& protocolVersion,
+                               const QJsonObject& toolResult);
 
     // Limits
     static constexpr int MaxSessions = 8;

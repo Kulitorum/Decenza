@@ -104,6 +104,9 @@ class McpToolRegistry : public QObject {
 public:
     explicit McpToolRegistry(QObject* parent = nullptr) : QObject(parent) {}
 
+    // Tool input schemas are stored in their registered form. The 2025-11-25
+    // `$schema` dialect declaration is stamped per-request in listTools() so
+    // it can be gated on the negotiated protocol version.
     void registerTool(const QString& name, const QString& description,
                       const QJsonObject& inputSchema, McpToolHandler handler,
                       const QString& category)
@@ -111,7 +114,7 @@ public:
         McpToolDefinition tool;
         tool.name = name;
         tool.description = description;
-        tool.inputSchema = McpRegistryHelpers::withJsonSchemaDialect(inputSchema);
+        tool.inputSchema = inputSchema;
         tool.handler = handler;
         tool.category = category;
         m_tools[name] = tool;
@@ -124,7 +127,7 @@ public:
         McpToolDefinition tool;
         tool.name = name;
         tool.description = description;
-        tool.inputSchema = McpRegistryHelpers::withJsonSchemaDialect(inputSchema);
+        tool.inputSchema = inputSchema;
         tool.asyncHandler = handler;
         tool.isAsync = true;
         tool.category = category;
@@ -144,6 +147,7 @@ public:
         static const char* levelNames[] = {"Monitor", "Control", "Full"};
         const bool emitTitle = protocolVersion >= QStringLiteral("2025-06-18");
         const bool emitIcons = protocolVersion >= QStringLiteral("2025-11-25");
+        const bool emitSchemaDialect = protocolVersion >= QStringLiteral("2025-11-25");
 
         QJsonArray result;
         for (auto it = m_tools.constBegin(); it != m_tools.constEnd(); ++it) {
@@ -164,7 +168,9 @@ public:
             } else {
                 toolJson["description"] = tool.description;
             }
-            toolJson["inputSchema"] = tool.inputSchema;
+            toolJson["inputSchema"] = emitSchemaDialect
+                ? McpRegistryHelpers::withJsonSchemaDialect(tool.inputSchema)
+                : tool.inputSchema;
 
             if (emitIcons) {
                 // MCP 2025-11-25: optional icons for client UIs. Derived from the
