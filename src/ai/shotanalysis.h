@@ -176,7 +176,7 @@ public:
     //     flow is only meaningful when the puck sustained pressure.
     //   - Yield arm: yield/target < CHOKED_YIELD_RATIO_MAX — catches moderate
     //     chokes like shot 745 (Adaptive v2, 23 g of 36 g target = 0.64
-    //     ratio, brief 6-8s pressurized window). Requires only flowSamples
+    //     ratio, ~8.8 s pressurized window). Requires only flowSamples
     //     ≥ 5 (any pressurized samples seen) — does NOT require sustained
     //     pressurized duration because its diagnosis is yield-based and
     //     does not read mean pressurized flow. Decoupled from the flow

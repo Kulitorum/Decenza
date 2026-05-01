@@ -817,9 +817,11 @@ private slots:
             phase(0.0,  "preinfusion", 0, /*isFlowMode=*/true),
             phase(8.0,  "pour",        1, /*isFlowMode=*/false),
         };
-        // Pressure ramps to 9 bar over 6 seconds, then drops back below
-        // 4 bar — total pressurized duration ~6 s, under the 15 s flow-arm
-        // gate. Plenty of samples at >= 4 bar to satisfy flowSamples >= 5.
+        // Pressure ramps from 0.5 to 6.5 bar across the 8 s preinfusion
+        // (passes 4 bar partway up), then holds 9 bar from t=8.1-14.0,
+        // then drops to 2.5 bar for the rest of the shot. Total time
+        // above 4 bar ~6 s — under the 15 s flow-arm gate but well over
+        // the 5-sample minimum so the yield arm can fire.
         QVector<QPointF> pressure;
         pressure = concat(pressure, rampSeries(0.0, 8.0, 0.5, 6.5));
         pressure = concat(pressure, flatSeries(8.1, 14.0, 9.0));

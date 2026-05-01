@@ -548,7 +548,7 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     //    meaningful pressure briefly); its diagnosis is yield-based
     //    and does not read mean pressurized flow.
     // The shared gate previously hid shot 745-class misses (Adaptive v2,
-    // 35s pour, 64% yield, 8.76s pressurized) — silenced by the 15s gate
+    // 35s pour, 64% yield, ~8.8 s pressurized) — silenced by the 15s gate
     // even though the yield arm could have spoken. See openspec change
     // tighten-grind-yield-shortfall-arm and #963.
     if (flowSamples >= 5) {
