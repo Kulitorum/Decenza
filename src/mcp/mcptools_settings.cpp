@@ -62,10 +62,20 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // If keys are specified, return those regardless of category.
             // If category is specified, return all settings in that category.
             // If neither, return all settings.
-            auto include = [&](const QString& key, const QString& cat) -> bool {
+            //
+            // The keys filter accepts both the canonical write name (e.g.
+            // "espressoTemperature") and the suffixed read name returned in
+            // the response (e.g. "espressoTemperatureC"). An LLM that reads
+            // a value, stores the field name it received, and asks for it
+            // again must round-trip — see #985.
+            auto include = [&](const QString& key, const QString& cat,
+                               const QString& alias = QString()) -> bool {
                 if (hasKeys) {
-                    for (const auto& k : keys)
-                        if (k.toString() == key) return true;
+                    for (const auto& k : keys) {
+                        const QString s = k.toString();
+                        if (s == key || (!alias.isEmpty() && s == alias))
+                            return true;
+                    }
                     return false;
                 }
                 if (!category.isEmpty()) return category == cat;
@@ -157,25 +167,25 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // API keys excluded — sensitive
 
             // === Espresso ===
-            if (include("espressoTemperature", "espresso")) result["espressoTemperatureC"] = settings->brew()->espressoTemperature();
-            if (include("targetWeight", "espresso")) result["targetWeightG"] = settings->brew()->targetWeight();
+            if (include("espressoTemperature", "espresso", "espressoTemperatureC")) result["espressoTemperatureC"] = settings->brew()->espressoTemperature();
+            if (include("targetWeight", "espresso", "targetWeightG")) result["targetWeightG"] = settings->brew()->targetWeight();
             if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = settings->brew()->lastUsedRatio();
             if (include("currentProfile", "espresso")) result["currentProfile"] = settings->app()->currentProfile();
 
             // === Steam ===
-            if (include("steamTemperature", "steam")) result["steamTemperatureC"] = settings->brew()->steamTemperature();
-            if (include("steamTimeout", "steam")) result["steamTimeoutSec"] = settings->brew()->steamTimeout();
-            if (include("steamFlow", "steam")) result["steamFlowMlPerSec"] = settings->brew()->steamFlow() / 100.0;
+            if (include("steamTemperature", "steam", "steamTemperatureC")) result["steamTemperatureC"] = settings->brew()->steamTemperature();
+            if (include("steamTimeout", "steam", "steamTimeoutSec")) result["steamTimeoutSec"] = settings->brew()->steamTimeout();
+            if (include("steamFlow", "steam", "steamFlowMlPerSec")) result["steamFlowMlPerSec"] = settings->brew()->steamFlow() / 100.0;
             if (include("steamDisabled", "steam")) result["steamDisabled"] = settings->brew()->steamDisabled();
 
             // === Hot Water ===
-            if (include("waterTemperature", "water")) result["waterTemperatureC"] = settings->brew()->waterTemperature();
-            if (include("waterVolume", "water")) result["waterVolumeMl"] = settings->brew()->waterVolume();
+            if (include("waterTemperature", "water", "waterTemperatureC")) result["waterTemperatureC"] = settings->brew()->waterTemperature();
+            if (include("waterVolume", "water", "waterVolumeMl")) result["waterVolumeMl"] = settings->brew()->waterVolume();
             if (include("waterVolumeMode", "water")) result["waterVolumeMode"] = settings->brew()->waterVolumeMode();
-            if (include("hotWaterFlowRate", "water")) result["hotWaterFlowRateMlPerSec"] = settings->hardware()->hotWaterFlowRate() / 10.0;
+            if (include("hotWaterFlowRate", "water", "hotWaterFlowRateMlPerSec")) result["hotWaterFlowRateMlPerSec"] = settings->hardware()->hotWaterFlowRate() / 10.0;
 
             // === Flush ===
-            if (include("flushFlow", "flush")) result["flushFlowMlPerSec"] = settings->brew()->flushFlow();
+            if (include("flushFlow", "flush", "flushFlowMlPerSec")) result["flushFlowMlPerSec"] = settings->brew()->flushFlow();
             if (include("flushSeconds", "flush")) result["flushSeconds"] = settings->brew()->flushSeconds();
 
             // === DYE (bean/grinder metadata) ===
@@ -257,10 +267,10 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // === Heater calibration (stored as tenths internally — divide by 10 to match QML display) ===
             {
                 auto* hw = settings->hardware();
-                if (include("heaterIdleTemp", "heater")) result["heaterIdleTempC"] = hw->heaterIdleTemp() / 10.0;
-                if (include("heaterWarmupFlow", "heater")) result["heaterWarmupFlowMlPerSec"] = hw->heaterWarmupFlow() / 10.0;
-                if (include("heaterTestFlow", "heater")) result["heaterTestFlowMlPerSec"] = hw->heaterTestFlow() / 10.0;
-                if (include("heaterWarmupTimeout", "heater")) result["heaterWarmupTimeoutSec"] = hw->heaterWarmupTimeout() / 10.0;
+                if (include("heaterIdleTemp", "heater", "heaterIdleTempC")) result["heaterIdleTempC"] = hw->heaterIdleTemp() / 10.0;
+                if (include("heaterWarmupFlow", "heater", "heaterWarmupFlowMlPerSec")) result["heaterWarmupFlowMlPerSec"] = hw->heaterWarmupFlow() / 10.0;
+                if (include("heaterTestFlow", "heater", "heaterTestFlowMlPerSec")) result["heaterTestFlowMlPerSec"] = hw->heaterTestFlow() / 10.0;
+                if (include("heaterWarmupTimeout", "heater", "heaterWarmupTimeoutSec")) result["heaterWarmupTimeoutSec"] = hw->heaterWarmupTimeout() / 10.0;
             }
 
             // === Auto-favorites ===
