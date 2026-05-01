@@ -159,9 +159,10 @@ public:
     bool isValid() const { return id != 0; }
 
     // Build the legacy QVariantMap shape — same keys, same nested types as the
-    // pre-Q_GADGET convertShotRecord() return value. Used by callers that still
-    // serialise the projection wholesale (JSON for visualizer/exporter, the
-    // shot-list HTML page, and MCP `shots_get_detail` / `shots_compare`).
+    // pre-Q_GADGET convertShotRecord() return value. Today's only callers are
+    // toJsonObject() (delegates here) and tests. Direct C++ consumers in the
+    // shot-list HTML page and visualizer exporter read fields off the typed
+    // projection instead.
     QVariantMap toVariantMap() const;
 
     // QJsonObject form for MCP (shots_get_detail, shots_compare). Internally

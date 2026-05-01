@@ -49,7 +49,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         // safety on every field name read below.
         const ShotProjection shot = ShotProjection::fromVariantMap(v.toMap());
 
-        int rating = qRound(static_cast<double>(shot.enjoyment));  // 0-100
+        int rating = qRound(static_cast<double>(shot.enjoyment));
 
         double ratio = 0;
         if (shot.doseWeightG > 0) {

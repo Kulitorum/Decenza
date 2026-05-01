@@ -481,12 +481,12 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
         return summary;
     }
 
-    // Slow path: legacy shotData (e.g. imported shots, direct test callers,
-    // any QVariantMap that didn't flow through convertShotRecord) lacks the
-    // pre-computed fields. Delegate detector orchestration to
-    // runShotAnalysisAndPopulate, the same helper summarize() uses on the
-    // live path — see summarize() for rationale. historyMarkers was already
-    // populated alongside the PhaseSummary list above (single pass).
+    // Slow path: shotData not produced by convertShotRecord (imported shots,
+    // direct test callers) has empty summaryLines and needs the full analysis
+    // pipeline. Delegate detector orchestration to runShotAnalysisAndPopulate,
+    // the same helper summarize() uses on the live path — see summarize() for
+    // rationale. historyMarkers was already populated alongside the
+    // PhaseSummary list above (single pass).
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
 
     // First-frame seconds reuses the profileDoc parsed at the top of this
@@ -787,7 +787,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
 
         const double ratio = shot.doseWeightG > 0 ? shot.finalWeightG / shot.doseWeightG : 0;
 
-        out << "### Shot " << (i + 1) << " (" << shot.dateTime << ")\n";
+        out << "### Shot " << (i + 1) << " (" << shot.timestampIso << ")\n";
         out << "- Profile: " << shot.profileName << "\n";
         out << "- Dose: " << QString::number(shot.doseWeightG, 'f', 1) << "g → Yield: "
             << QString::number(shot.finalWeightG, 'f', 1) << "g (1:" << QString::number(ratio, 'f', 1) << ")\n";

@@ -9,7 +9,6 @@ QVariantMap ShotProjection::toVariantMap() const
     QVariantMap m;
     m["id"] = id;
     m["uuid"] = uuid;
-    m["timestamp"] = timestamp;
     m["timestampIso"] = timestampIso;
     m["profileName"] = profileName;
     m["durationSec"] = durationSec;

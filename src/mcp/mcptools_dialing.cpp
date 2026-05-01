@@ -102,7 +102,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             const ShotProjection shot = ShotProjection::fromVariantMap(v.toMap());
                             QJsonObject h;
                             h["id"] = shot.id;
-                            h["timestamp"] = shot.dateTime;
+                            h["timestamp"] = shot.timestampIso;
                             h["profileName"] = shot.profileName;
                             h["doseG"] = shot.doseWeightG;
                             h["yieldG"] = shot.finalWeightG;

@@ -106,6 +106,11 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // AnalysisResult is already cached on `record.cachedAnalysis` (populated
     // alongside the badge projection). Read from there to avoid running
     // analyzeShot a second time on identical inputs.
+    //
+    // Slow path: ShotRecords without a cached analysis (test fixtures, direct
+    // construction) own a fresh AnalysisResult in `analysisOwned`, and
+    // `analysisPtr` points at it — keeping the address stable across the
+    // dereference below.
     {
         ShotAnalysis::AnalysisResult analysisOwned;
         const ShotAnalysis::AnalysisResult* analysisPtr = nullptr;
