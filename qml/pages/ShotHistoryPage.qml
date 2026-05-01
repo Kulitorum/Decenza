@@ -599,8 +599,8 @@ Page {
                     if (model.dateTime) parts.push(model.dateTime)
                     var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
                     if (bean) parts.push(bean)
-                    var doseVal = model.doseWeight || 0
-                    var yieldVal = model.finalWeight || 0
+                    var doseVal = model.doseWeightG || 0
+                    var yieldVal = model.finalWeightG || 0
                     if (doseVal > 0 && yieldVal > 0)
                         parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
@@ -712,11 +712,11 @@ Page {
 
                             Text {
                                 text: {
-                                    var dose = (model.doseWeight || 0).toFixed(1)
-                                    var actual = (model.finalWeight || 0).toFixed(1)
+                                    var dose = (model.doseWeightG || 0).toFixed(1)
+                                    var actual = (model.finalWeightG || 0).toFixed(1)
                                     var yieldText = actual + "g"
                                     var target = model.targetWeightG || 0
-                                    if (target > 0 && Math.abs(target - model.finalWeight) > 0.5) {
+                                    if (target > 0 && Math.abs(target - model.finalWeightG) > 0.5) {
                                         yieldText = actual + "g (" + Math.round(target) + "g)"
                                     }
                                     return dose + "g \u2192 " + yieldText
@@ -727,7 +727,7 @@ Page {
                             }
 
                             Text {
-                                text: (model.duration || 0).toFixed(1) + "s"
+                                text: (model.durationSec || 0).toFixed(1) + "s"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true

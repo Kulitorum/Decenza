@@ -387,9 +387,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     }
 
     // Overall metrics
-    summary.doseWeight = shotData.value("doseWeight", 0.0).toDouble();
-    summary.finalWeight = shotData.value("finalWeight", 0.0).toDouble();
-    summary.totalDuration = shotData.value("duration", 0.0).toDouble();
+    summary.doseWeight = shotData.value("doseWeightG", 0.0).toDouble();
+    summary.finalWeight = shotData.value("finalWeightG", 0.0).toDouble();
+    summary.totalDuration = shotData.value("durationSec", 0.0).toDouble();
     summary.ratio = summary.doseWeight > 0 ? summary.finalWeight / summary.doseWeight : 0;
 
     // DYE metadata
@@ -780,9 +780,9 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         QVariantMap shot = recentShots[i].toMap();
 
         QString dateTime = shot.value("dateTime").toString();
-        double dose = shot.value("doseWeight", 0.0).toDouble();
-        double yield = shot.value("finalWeight", 0.0).toDouble();
-        double duration = shot.value("duration", 0.0).toDouble();
+        double dose = shot.value("doseWeightG", 0.0).toDouble();
+        double yield = shot.value("finalWeightG", 0.0).toDouble();
+        double duration = shot.value("durationSec", 0.0).toDouble();
 
         // Skip entries with no meaningful data (corrupt or incomplete records)
         if (dose <= 0 && yield <= 0 && duration <= 0) continue;

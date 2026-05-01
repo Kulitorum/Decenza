@@ -189,7 +189,7 @@ Page {
                     flowGoalData: shotData.flowGoal || []
                     temperatureGoalData: shotData.temperatureGoal || []
                     phaseMarkers: shotData.phases || []
-                    maxTime: shotData.duration || 60
+                    maxTime: shotData.durationSec || 60
                     Accessible.ignored: true
                 }
 

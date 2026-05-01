@@ -136,7 +136,7 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
         }
     }
 
-    double duration = shotData["duration"].toDouble();
+    double duration = shotData["durationSec"].toDouble();
     if (!validateUpload(beverageType, duration))
         return;
 
@@ -188,8 +188,8 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setField("bean_type", "beanType");
     setField("roast_level", "roastLevel");
     setField("roast_date", "roastDate");
-    setField("bean_weight", "doseWeight");
-    setField("drink_weight", "finalWeight");
+    setField("bean_weight", "doseWeightG");
+    setField("drink_weight", "finalWeightG");
     // Combine brand + model for visualizer (no separate brand field in API)
     {
         QString brand = shotData.value("grinderBrand").toString().trimmed();
@@ -1166,13 +1166,13 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     meta["grinder"] = grinder;
 
     // Weights: use stored final weight from history; fall back to flow-integrated volume if missing
-    double doseWeight = shotData["doseWeight"].toDouble();
-    double finalWeight = shotData["finalWeight"].toDouble();
+    double doseWeight = shotData["doseWeightG"].toDouble();
+    double finalWeight = shotData["finalWeightG"].toDouble();
     if (finalWeight <= 0 && !waterDispensedData.isEmpty())
         finalWeight = waterDispensedData.last().y();  // actual ml (normalized at import)
     if (doseWeight > 0) meta["in"] = doseWeight;
     if (finalWeight > 0) meta["out"] = finalWeight;
-    meta["time"] = shotData["duration"].toDouble();
+    meta["time"] = shotData["durationSec"].toDouble();
 
     root["meta"] = meta;
 

@@ -330,9 +330,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         diffStr("grinderSetting");
                         diffStr("profileName");
                         diffStr("beanBrand");
-                        diffNumUnit("doseWeight", "doseG", "g");
-                        diffNumUnit("finalWeight", "yieldG", "g");
-                        diffNumUnit("duration", "durationSec", "s");
+                        diffNumUnit("doseWeightG", "doseG", "g");
+                        diffNumUnit("finalWeightG", "yieldG", "g");
+                        diffNumUnit("durationSec", "durationSec", "s");
                         diffNumUnit("enjoyment", "enjoyment0to100", "");
 
                         if (diff.size() > 2)

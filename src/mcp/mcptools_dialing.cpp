@@ -104,9 +104,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             h["id"] = shot["id"].toLongLong();
                             h["timestamp"] = shot["dateTime"].toString();
                             h["profileName"] = shot["profileName"].toString();
-                            h["doseG"] = shot["doseWeight"].toDouble();
-                            h["yieldG"] = shot["finalWeight"].toDouble();
-                            h["durationSec"] = shot["duration"].toDouble();
+                            h["doseG"] = shot["doseWeightG"].toDouble();
+                            h["yieldG"] = shot["finalWeightG"].toDouble();
+                            h["durationSec"] = shot["durationSec"].toDouble();
                             h["enjoyment0to100"] = shot["enjoyment"].toInt();
                             h["grinderSetting"] = shot["grinderSetting"].toString();
                             h["grinderModel"] = shot["grinderModel"].toString();
@@ -191,9 +191,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     const auto& sd = dbResult.shotData;
                     QJsonObject shotSummary;
                     shotSummary["profileName"] = sd["profileName"].toString();
-                    shotSummary["doseG"] = sd["doseWeight"].toDouble();
-                    shotSummary["yieldG"] = sd["finalWeight"].toDouble();
-                    shotSummary["durationSec"] = sd["duration"].toDouble();
+                    shotSummary["doseG"] = sd["doseWeightG"].toDouble();
+                    shotSummary["yieldG"] = sd["finalWeightG"].toDouble();
+                    shotSummary["durationSec"] = sd["durationSec"].toDouble();
                     shotSummary["enjoyment0to100"] = sd["enjoyment"].toInt();
                     shotSummary["notes"] = sd["espressoNotes"].toString();
                     shotSummary["beanBrand"] = sd["beanBrand"].toString();
@@ -202,8 +202,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     shotSummary["grinderModel"] = sd["grinderModel"].toString();
                     shotSummary["grinderSetting"] = sd["grinderSetting"].toString();
                     shotSummary["grinderBurrs"] = sd["grinderBurrs"].toString();
-                    double dose = sd["doseWeight"].toDouble();
-                    double yield = sd["finalWeight"].toDouble();
+                    double dose = sd["doseWeightG"].toDouble();
+                    double yield = sd["finalWeightG"].toDouble();
                     if (dose > 0)
                         shotSummary["ratio"] = QString("1:%1").arg(yield / dose, 0, 'f', 2);
                     result["shot"] = shotSummary;

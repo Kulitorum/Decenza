@@ -130,8 +130,8 @@ Page {
                 editBarista = editShotData.barista || ""
                 // Fall back to last-used DYE dose when the shot has no stored dose,
                 // so EY can be computed immediately when TDS arrives.
-                editDoseWeight = (editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dye.dyeBeanWeight
-                editDrinkWeight = editShotData.finalWeight ?? 0
+                editDoseWeight = (editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Settings.dye.dyeBeanWeight
+                editDrinkWeight = editShotData.finalWeightG ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
                 if (editDrinkTds === 0)
@@ -238,8 +238,8 @@ Page {
         editGrinderBurrs !== (editShotData.grinderBurrs || "") ||
         editGrinderSetting !== (editShotData.grinderSetting || "") ||
         editBarista !== (editShotData.barista || "") ||
-        editDoseWeight !== ((editShotData.doseWeight > 0) ? editShotData.doseWeight : Settings.dye.dyeBeanWeight) ||
-        editDrinkWeight !== (editShotData.finalWeight ?? 0) ||
+        editDoseWeight !== ((editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Settings.dye.dyeBeanWeight) ||
+        editDrinkWeight !== (editShotData.finalWeightG ?? 0) ||
         editDrinkTds !== (editShotData.drinkTds ?? 0) ||
         editDrinkEy !== (editShotData.drinkEy ?? 0) ||
         editEnjoyment !== (editShotData.enjoyment ?? 0) ||
@@ -571,7 +571,7 @@ Page {
                     flowGoalData: editShotData.flowGoal || []
                     temperatureGoalData: editShotData.temperatureGoal || []
                     phaseMarkers: editShotData.phases || []
-                    maxTime: editShotData.duration || 60
+                    maxTime: editShotData.durationSec || 60
                 }
 
                 // Tap/drag-to-inspect overlay (shows crosshair, values shown above graph)
@@ -1276,7 +1276,7 @@ Page {
         // Upload / Re-Upload to Visualizer button
         Rectangle {
             id: uploadButton
-            visible: editShotData.duration > 0 && !MainController.visualizer.uploading
+            visible: editShotData.durationSec > 0 && !MainController.visualizer.uploading
             Layout.preferredWidth: uploadButtonContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1337,8 +1337,8 @@ Page {
                             "grinderBurrs": editGrinderBurrs,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
-                            "doseWeight": editDoseWeight,
-                            "finalWeight": editDrinkWeight,
+                            "doseWeightG": editDoseWeight,
+                            "finalWeightG": editDrinkWeight,
                             "drinkTds": editDrinkTds,
                             "drinkEy": editDrinkEy,
                             "enjoyment": editEnjoyment,
@@ -1360,8 +1360,8 @@ Page {
                             "grinderBurrs": editGrinderBurrs,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
-                            "doseWeight": editDoseWeight,
-                            "finalWeight": editDrinkWeight,
+                            "doseWeightG": editDoseWeight,
+                            "finalWeightG": editDrinkWeight,
                             "drinkTds": editDrinkTds,
                             "drinkEy": editDrinkEy,
                             "enjoyment": editEnjoyment,
@@ -1387,7 +1387,7 @@ Page {
         // AI Advice button - visible when AI is configured and we have shot data
         Rectangle {
             id: aiAdviceButton
-            visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.duration > 0
+            visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.durationSec > 0
             Layout.preferredWidth: aiAdviceContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1450,7 +1450,7 @@ Page {
             readonly property bool isClaudeDesktopReady:
                 Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
                 || Settings.network.claudeRcSessionUrl.length > 0
-            visible: editShotData.duration > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
+            visible: editShotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
             opacity: enabled ? 1.0 : 0.5
             Layout.preferredWidth: discussContent.width + 32
@@ -1514,7 +1514,7 @@ Page {
         // Email Prompt button - fallback for users without API keys
         Rectangle {
             id: emailPromptButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.duration > 0
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.durationSec > 0
             Layout.preferredWidth: emailPromptContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)

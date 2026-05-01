@@ -158,9 +158,9 @@ private slots:
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
-        shot["duration"] = 30.0;
-        shot["doseWeight"] = 18.0;
-        shot["finalWeight"] = 36.0;
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
 
         // Pressure that never builds — peak stays at 1.0 bar across the
         // whole pour window. detectPourTruncated fires (peak < 2.5).
@@ -247,9 +247,9 @@ private slots:
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
-        shot["duration"] = 3.0;  // very short — died during preinfusion-start
-        shot["doseWeight"] = 18.0;
-        shot["finalWeight"] = 0.5;
+        shot["durationSec"] = 3.0;  // very short — died during preinfusion-start
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 0.5;
 
         // Pressure built enough to clear pourTruncated (peak >= 2.5 bar) — we
         // want to isolate the reachedExtractionPhase gate, not the puck-failure
@@ -305,9 +305,9 @@ private slots:
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
-        shot["duration"] = 30.0;
-        shot["doseWeight"] = 18.0;
-        shot["finalWeight"] = 36.0;
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
 
         QVariantList pressure;
         appendFlat(pressure, 0.0, 8.0, 2.0);     // preinfusion
@@ -374,9 +374,9 @@ private slots:
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
-        shot["duration"] = 30.0;
-        shot["doseWeight"] = 18.0;
-        shot["finalWeight"] = 36.0;
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
         shot["targetWeightG"] = 36.0;
 
         QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
@@ -680,9 +680,9 @@ private slots:
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
-        shot["duration"] = 30.0;
-        shot["doseWeight"] = 18.0;
-        shot["finalWeight"] = 36.0;
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
 
         QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
         appendFlat(pressure, 0.0, 8.0, 1.0);
@@ -733,9 +733,9 @@ private slots:
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
-        shot["duration"] = 30.0;
-        shot["doseWeight"] = 18.0;
-        shot["finalWeight"] = 36.0;
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
 
         // Two phases: preinfusion 0–7.9s at 1.0 bar / 1.8 ml/s; pour
         // 8.1–30s at 9.0 bar / 1.8 ml/s. Sampling deliberately leaves a
