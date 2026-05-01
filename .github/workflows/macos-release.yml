@@ -64,7 +64,13 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: macos-universal
-          max-size: 500M
+          # macOS builds universal binaries (arm64 + x86_64), so each cache
+          # entry holds a fat object ~2x the size of a single-arch entry.
+          # At 500M, the cache sat at 99% full and evicted ~150 LRU entries
+          # between consecutive builds, causing ~20% miss rate even when
+          # nothing changed source-wise. Linux's single-arch builds fit at
+          # 75% of 500M and don't show the problem.
+          max-size: 2G
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
