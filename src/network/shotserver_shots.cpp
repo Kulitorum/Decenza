@@ -51,6 +51,18 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 
         int rating = qRound(static_cast<double>(shot.enjoyment0to100));
 
+        // Rating chip (matches in-app ShotHistoryPage: "N%" when rated, hidden
+        // when unrated). data-rating= and the rating:N+ search syntax keep using
+        // the numeric value above.
+        QString ratingChip;
+        if (rating > 0) {
+            const QString r = QString::number(rating);
+            ratingChip = QStringLiteral(
+                "<span class=\"shot-rating clickable\" "
+                "onclick=\"event.preventDefault(); event.stopPropagation(); setSearch('rating:") + r + QStringLiteral("+')\">")
+                + r + QStringLiteral("%</span>");
+        }
+
         double ratio = 0;
         if (shot.doseWeightG > 0) {
             ratio = shot.finalWeightG / shot.doseWeightG;
@@ -155,7 +167,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                     </div>
                     <div class="shot-footer">
                         <span class="shot-beans">%14</span>
-                        <span class="shot-rating clickable" onclick="event.preventDefault(); event.stopPropagation(); setSearch('rating:%5+')">rating: %5</span>
+                        %18
                     </div>
                 </a>
             </div>
@@ -176,7 +188,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .arg(beanDisplay)                   // %14 (beans with grind)
         .arg(drinkTds, 0, 'f', 2)           // %15
         .arg(drinkEy, 0, 'f', 2)            // %16
-        .arg(shot.timestamp); // %17 (epoch for sorting)
+        .arg(shot.timestamp)                // %17 (epoch for sorting)
+        .arg(ratingChip);                   // %18 (rating chip HTML — empty when unrated)
     }
 
     // Build HTML in chunks to avoid MSVC string literal size limit
@@ -1032,11 +1045,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         ratio = shot.finalWeightG / shot.doseWeightG;
     }
 
-    int rating = qRound(static_cast<double>(shot.enjoyment0to100) / 20.0);
-    QString stars;
-    for (int i = 0; i < 5; i++) {
-        stars += (i < rating) ? "&#9733;" : "&#9734;";
-    }
+    // Rating display: "N%" when rated, "-" when unrated. Mirrors ShotDetailPage.qml
+    // ("rating: N%" / "-"). 0-100 enjoyment is the canonical scale across the app.
+    QString ratingText = (shot.enjoyment0to100 > 0)
+        ? (QString::number(shot.enjoyment0to100) + QStringLiteral("%"))
+        : QStringLiteral("-");
 
     // Escape for embedding in JavaScript string literals (inside double quotes)
     auto jsEscape = [](const QString& s) -> QString {
@@ -1124,6 +1137,44 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         return "[" + items.join(",") + "]";
     };
     QString phaseData = phasesToJson(shot.phases);
+
+    // Build quality-badge chips and the Shot Summary modal contents from the
+    // analyzeShot() outputs that already arrived on the projection. Mirrors the
+    // in-app QualityBadges + ShotAnalysisDialog. Inserted as the last two args
+    // (%42, %43) in the .arg() chain below, so any stray `%` in summary text
+    // can't shadow a later placeholder.
+    auto badgeChip = [](const QString& kind, const QString& text) -> QString {
+        return QString("<span class=\"badge %1\"><span class=\"dot\"></span>%2</span>")
+            .arg(kind, text);
+    };
+    QString badgesHtml = QStringLiteral("<div class=\"shot-quality\">");
+    const bool hasFlag = shot.channelingDetected || shot.temperatureUnstable
+                       || shot.grindIssueDetected || shot.pourTruncatedDetected
+                       || shot.skipFirstFrameDetected;
+    if (shot.channelingDetected)     badgesHtml += badgeChip("danger",  "Channeling detected");
+    if (shot.temperatureUnstable)    badgesHtml += badgeChip("warning", "Temp unstable");
+    if (shot.grindIssueDetected)     badgesHtml += badgeChip("warning", "Grind issue");
+    if (shot.pourTruncatedDetected)  badgesHtml += badgeChip("danger",  "Puck failed");
+    if (shot.skipFirstFrameDetected) badgesHtml += badgeChip("danger",  "First step skipped");
+    if (!hasFlag)                    badgesHtml += badgeChip("success", "Clean extraction");
+    if (!shot.summaryLines.isEmpty()) {
+        badgesHtml += QStringLiteral(
+            "<button class=\"summary-btn\" onclick=\"openSummaryDialog()\">"
+            "&#128202; Shot Summary</button>");
+    }
+    badgesHtml += QStringLiteral("</div>");
+
+    QString summaryLinesHtml;
+    for (const QVariant& line : shot.summaryLines) {
+        const QVariantMap m = line.toMap();
+        const QString type = m.value("type").toString();
+        const QString text = m.value("text").toString().toHtmlEscaped();
+        summaryLinesHtml += QString("<div class=\"summary-line %1\"><span class=\"line-dot\"></span><span>%2</span></div>")
+            .arg(type, text);
+    }
+    if (summaryLinesHtml.isEmpty()) {
+        summaryLinesHtml = QStringLiteral("<div class=\"summary-line\"><span>No summary available.</span></div>");
+    }
 
     QString html = QString(R"HTML(
 <!DOCTYPE html>
@@ -1225,6 +1276,124 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
+        .shot-quality {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            flex: 1;
+            min-width: 0;
+            padding: 0 0.5rem;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0 0.75rem;
+            height: 28px;
+            border-radius: 14px;
+            border: 1px solid;
+            font-size: 0.75rem;
+            line-height: 1;
+            white-space: nowrap;
+        }
+        .badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .badge.danger { color: #e73249; border-color: #e73249; background: rgba(231,50,73,0.15); }
+        .badge.danger .dot { background: #e73249; }
+        .badge.warning { color: #f0a020; border-color: #f0a020; background: rgba(240,160,32,0.15); }
+        .badge.warning .dot { background: #f0a020; }
+        .badge.success { color: #18c37e; border-color: #18c37e; background: rgba(24,195,126,0.15); }
+        .badge.success .dot { background: #18c37e; }
+        .summary-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0 0.75rem;
+            height: 28px;
+            border-radius: 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-family: inherit;
+            line-height: 1;
+            white-space: nowrap;
+        }
+        .summary-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .summary-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 300;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .summary-modal.open { display: flex; }
+        .summary-modal-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 450px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .summary-modal-content h2 {
+            text-align: center;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        .summary-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            padding: 0.375rem 0;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            line-height: 1.4;
+        }
+        .summary-line .line-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-top: 0.5rem;
+            flex-shrink: 0;
+        }
+        .summary-line.good .line-dot { background: #18c37e; }
+        .summary-line.caution .line-dot { background: #f0a020; }
+        .summary-line.warning .line-dot { background: #e73249; }
+        .summary-line.observation .line-dot { background: var(--text-secondary); }
+        .summary-line.verdict {
+            color: var(--text);
+            font-weight: 500;
+            padding-top: 0.75rem;
+            margin-top: 0.5rem;
+            border-top: 1px solid var(--border);
+        }
+        .summary-line.verdict .line-dot { display: none; }
+        .summary-modal-close {
+            width: 100%;
+            margin-top: 1rem;
+            padding: 0.625rem;
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: #000;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.875rem;
+        }
+        .summary-modal-close:hover { opacity: 0.9; }
         .chart-container {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -1379,10 +1548,6 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         .edit-row .label { color: var(--text-secondary); white-space: nowrap; min-width: 80px; }
         .edit-row .edit-field { flex: 1; text-align: right; }
         .edit-row .edit-input, .edit-row .edit-select { text-align: right; }
-        .star-input { display: inline-flex; gap: 0.25rem; cursor: pointer; font-size: 1.5rem; }
-        .star-input .star { color: var(--border); transition: color 0.1s; user-select: none; }
-        .star-input .star.active { color: var(--accent); }
-        .star-input .star:hover { color: var(--accent); }
         .metric-card .edit-input { text-align: center; width: 80px; }
         .menu-wrapper { position: relative; margin-left: auto; }
         .menu-btn {
@@ -1458,6 +1623,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                 <div class="value rating">%7</div>
                 <div class="label">Rating</div>
             </div>
+            %42
         </div>
 
         <div class="chart-container">
@@ -1551,6 +1717,14 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
     </div>
 
+    <div class="summary-modal" id="summaryModal" onclick="if(event.target===this)closeSummaryDialog()">
+        <div class="summary-modal-content">
+            <h2>Shot Summary</h2>
+            %43
+            <button class="summary-modal-close" onclick="closeSummaryDialog()">OK</button>
+        </div>
+    </div>
+
     <script>
         var shotData = {
             id: %24,
@@ -1623,18 +1797,13 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             originalInfoGridHTML = infoGrid.innerHTML;
             originalActionsDisplay = actionsBar.style.display;
 
-            var stars = shotData.enjoyment > 0 ? Math.round(shotData.enjoyment / 20) : 0;
-            var starHtml = '';
-            for (var i = 1; i <= 5; i++) {
-                starHtml += '<span class="star ' + (i <= stars ? 'active' : '') + '" data-value="' + i + '" onclick="setStarRating(' + i + ')">&#9733;</span>';
-            }
-
             // Build edit form for metrics bar using DOM
             // Note: shotData values are server-escaped and trusted (from our own database)
+            var ratingValue = shotData.enjoyment > 0 ? shotData.enjoyment : 0;
             var metricsHtml =
                 '<div class="metric-card"><input type="number" class="edit-input" id="editDose" step="0.1" value="' + shotData.doseWeightG + '" oninput="autoCalcEY()"><div class="label">Dose (g)</div></div>' +
                 '<div class="metric-card"><input type="number" class="edit-input" id="editYield" step="0.1" value="' + shotData.finalWeightG + '" oninput="autoCalcEY()"><div class="label">Yield (g)</div></div>' +
-                '<div class="metric-card"><div class="star-input" id="starRating" data-value="' + stars + '">' + starHtml + '</div><div class="label">Rating</div></div>';
+                '<div class="metric-card"><input type="number" class="edit-input" id="editRating" min="0" max="100" step="1" value="' + ratingValue + '"><div class="label">Rating (%)</div></div>';
             metricsBar.innerHTML = metricsHtml;
 
             var roastLevels = ['', 'Light', 'Medium-Light', 'Medium', 'Medium-Dark', 'Dark'];
@@ -1698,15 +1867,6 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             if (debugContainer) debugContainer.style.display = originalDebugDisplay;
         }
 
-        function setStarRating(value) {
-            var stars = document.querySelectorAll('#starRating .star');
-            for (var i = 0; i < stars.length; i++) {
-                if (i < value) stars[i].classList.add('active');
-                else stars[i].classList.remove('active');
-            }
-            document.getElementById('starRating').dataset.value = value;
-        }
-
         function autoCalcEY() {
             var dose = parseFloat(document.getElementById('editDose').value) || 0;
             var yieldVal = parseFloat(document.getElementById('editYield').value) || 0;
@@ -1718,8 +1878,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         }
 
         function saveChanges() {
-            var starEl = document.getElementById('starRating');
-            var starValue = parseInt(starEl.dataset.value) || 0;
+            var ratingValue = parseInt(document.getElementById('editRating').value) || 0;
+            ratingValue = Math.max(0, Math.min(100, ratingValue));
 
             var data = {
                 beanBrand: document.getElementById('editBrand').value,
@@ -1733,7 +1893,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                 espressoNotes: document.getElementById('editNotes').value,
                 doseWeight: parseFloat(document.getElementById('editDose').value) || 0,
                 finalWeight: parseFloat(document.getElementById('editYield').value) || 0,
-                enjoyment: starValue * 20,
+                enjoyment: ratingValue,
                 barista: document.getElementById('editBarista').value,
                 beverageType: document.getElementById('editBeverageType').value,
                 drinkTds: parseFloat(document.getElementById('editTds').value) || 0,
@@ -2064,6 +2224,13 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             menu.classList.toggle("open");
         }
 
+        function openSummaryDialog() {
+            document.getElementById("summaryModal").classList.add("open");
+        }
+        function closeSummaryDialog() {
+            document.getElementById("summaryModal").classList.remove("open");
+        }
+
         document.addEventListener("click", function(e) {
             var menu = document.getElementById("menuDropdown");
             var btn = e.target.closest(".menu-btn");
@@ -2089,7 +2256,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     .arg(yieldDisplay)
     .arg(ratio, 0, 'f', 1)
     .arg(shot.durationSec, 0, 'f', 1)
-    .arg(stars)
+    .arg(ratingText)
     .arg(shot.beanBrand.isEmpty() ? "-" : shot.beanBrand.toHtmlEscaped())
     .arg(shot.beanType.isEmpty() ? "-" : shot.beanType.toHtmlEscaped())
     .arg(shot.roastDate.isEmpty() ? "-" : shot.roastDate.toHtmlEscaped())
@@ -2127,7 +2294,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     .arg(shot.drinkEyPct, 0, 'f', 1)                                                 // %38 drinkEy
     .arg(resistanceData)                                                             // %39 resistance
     .arg(jsEscape(shot.grinderBrand))                                                // %40 grinderBrand
-    .arg(jsEscape(shot.grinderBurrs));                                               // %41 grinderBurrs
+    .arg(jsEscape(shot.grinderBurrs))                                                // %41 grinderBurrs
+    .arg(badgesHtml)                                                                 // %42 quality badges + summary button
+    .arg(summaryLinesHtml);                                                          // %43 shot summary modal lines
 }
 
 QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
