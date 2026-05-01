@@ -2,10 +2,10 @@
 
 ## 1. Session-context dedup in dialInSessions
 
-- [ ] 1.1 Add `McpDialingHelpers::hoistSessionContext` (pure, header-only) — given an ordered list of shots in a session, return `{ context: {grinderBrand, grinderModel, grinderBurrs, beanBrand, beanType}, perShotOverrides: [...] }` where `context` carries fields that match across all shots in the session and `perShotOverrides[i]` carries only the fields that differ.
-- [ ] 1.2 Wire helper into `mcptools_dialing.cpp` session-build loop. `sessionObj["context"] = hoisted.context`; `shotToJson` stops emitting the hoisted fields and only emits per-shot overrides.
-- [ ] 1.3 Update `dialing_get_context` tool description to document the new shape (one short sentence).
-- [ ] 1.4 Add tests in `tst_mcptools_dialing_helpers.cpp`:
+- [x] 1.1 Add `McpDialingHelpers::hoistSessionContext` (pure, header-only) — given an ordered list of shots in a session, return `{ context: {grinderBrand, grinderModel, grinderBurrs, beanBrand, beanType}, perShotOverrides: [...] }` where `context` carries fields that match across all shots in the session and `perShotOverrides[i]` carries only the fields that differ.
+- [x] 1.2 Wire helper into `mcptools_dialing.cpp` session-build loop. `sessionObj["context"] = hoisted.context`; `shotToJson` stops emitting the hoisted fields and only emits per-shot overrides.
+- [x] 1.3 Update `dialing_get_context` tool description to document the new shape (one short sentence).
+- [x] 1.4 Add tests in `tst_mcptools_dialing_helpers.cpp`:
   - All shots share identity → `context` has all fields, `perShotOverrides` are empty.
   - One shot in a session has different `beanBrand` → `context` includes the common fields, that shot's override carries `beanBrand` only.
   - Single-shot session → `context` carries the shot's identity, `perShotOverrides[0]` is empty.
@@ -13,49 +13,49 @@
 
 ## 2. Drop result["shot"] JSON block
 
-- [ ] 2.1 Remove the `shotSummary` QJsonObject construction and `result["shot"] = shotSummary;` in `mcptools_dialing.cpp`.
-- [ ] 2.2 Remove the redundant header block from `ShotSummarizer::buildUserPrompt` only if it duplicates fields from the JSON (the prose's "## Shot Summary" header stays — it's the canonical surface now).
-- [ ] 2.3 Update tool description: drop the "recent shot summary" phrase since `shotAnalysis` already covers it.
-- [ ] 2.4 No new tests; remove any tests that asserted on `result["shot"]` if present.
+- [x] 2.1 Remove the `shotSummary` QJsonObject construction and `result["shot"] = shotSummary;` in `mcptools_dialing.cpp`.
+- [x] 2.2 Remove the redundant header block from `ShotSummarizer::buildUserPrompt` only if it duplicates fields from the JSON (the prose's "## Shot Summary" header stays — it's the canonical surface now).
+- [x] 2.3 Update tool description: drop the "recent shot summary" phrase since `shotAnalysis` already covers it.
+- [x] 2.4 No new tests; remove any tests that asserted on `result["shot"]` if present.
 
 ## 3. Move detector-observations legend to the system prompt
 
-- [ ] 3.1 In `ShotSummarizer::buildUserPrompt`, remove the seven-line preamble that explains `[warning] / [caution] / [good] / [observation]` severity tags. Keep the `## Detector Observations` section header and the per-line tags.
-- [ ] 3.2 In `ShotSummarizer::shotAnalysisSystemPrompt`, append the legend to the espresso/filter system prompts so it's taught once per conversation. Reuse the exact text removed from `buildUserPrompt` so the AI's mental model is unchanged.
-- [ ] 3.3 Add tests in `tst_shotsummarizer.cpp`:
+- [x] 3.1 In `ShotSummarizer::buildUserPrompt`, remove the seven-line preamble that explains `[warning] / [caution] / [good] / [observation]` severity tags. Keep the `## Detector Observations` section header and the per-line tags.
+- [x] 3.2 In `ShotSummarizer::shotAnalysisSystemPrompt`, append the legend to the espresso/filter system prompts so it's taught once per conversation. Reuse the exact text removed from `buildUserPrompt` so the AI's mental model is unchanged.
+- [x] 3.3 Add tests in `tst_shotsummarizer.cpp`:
   - `buildUserPrompt` output no longer contains the legend preamble.
   - `shotAnalysisSystemPrompt("espresso", ...)` contains the legend.
 
 ## 4. Move framing strings to the system prompt
 
-- [ ] 4.1 Stop emitting `currentBean.inferredNote` from `mcptools_dialing.cpp` (delete the assignment in `buildCurrentBean`). The structural fields `inferredFromShotId` + `inferredFields` stay.
-- [ ] 4.2 Stop emitting `tastingFeedback.recommendation` when any of the `has*` booleans is false. The structural booleans stay.
-- [ ] 4.3 Stop emitting `currentBean.daysSinceRoastNote` (it's superseded by the `beanFreshness.instruction` block in task 6).
-- [ ] 4.4 Append a unified "How to read structured fields" section to `shotAnalysisSystemPrompt` covering: inferredFields semantics, tastingFeedback gating ("when has* are all false, ASK before suggesting changes"), and beanFreshness gating ("never quote age until freshnessKnown == true").
-- [ ] 4.5 Tests: existing `buildCurrentBean_*` tests in `tst_mcptools_dialing_helpers.cpp` must be updated — `inferredNote` no longer appears; assert its absence on the inference path.
+- [x] 4.1 Stop emitting `currentBean.inferredNote` from `mcptools_dialing.cpp` (delete the assignment in `buildCurrentBean`). The structural fields `inferredFromShotId` + `inferredFields` stay.
+- [x] 4.2 Stop emitting `tastingFeedback.recommendation` when any of the `has*` booleans is false. The structural booleans stay.
+- [x] 4.3 Stop emitting `currentBean.daysSinceRoastNote` (it's superseded by the `beanFreshness.instruction` block in task 6).
+- [x] 4.4 Append a unified "How to read structured fields" section to `shotAnalysisSystemPrompt` covering: inferredFields semantics, tastingFeedback gating ("when has* are all false, ASK before suggesting changes"), and beanFreshness gating ("never quote age until freshnessKnown == true").
+- [x] 4.5 Tests: existing `buildCurrentBean_*` tests in `tst_mcptools_dialing_helpers.cpp` must be updated — `inferredNote` no longer appears; assert its absence on the inference path.
 
 ## 5. Strip roastDate from dialInSessions[].shots[]
 
-- [ ] 5.1 In `mcptools_dialing.cpp`'s `shotToJson` lambda (the per-session shot serializer), remove any emission of `roastDate`. (Verify it's actually being emitted today; the `dialInSessions` shape may already omit it — if so, just lock the omission via test.)
-- [ ] 5.2 Add a regression test in `tst_mcptools_dialing_helpers.cpp` (or a new integration-style harness) asserting that no `roastDate` field appears anywhere under `dialInSessions[].shots[]`.
+- [x] 5.1 In `mcptools_dialing.cpp`'s `shotToJson` lambda (the per-session shot serializer), remove any emission of `roastDate`. (Verify it's actually being emitted today; the `dialInSessions` shape may already omit it — if so, just lock the omission via test.)
+- [x] 5.2 Add a regression test in `tst_mcptools_dialing_helpers.cpp` (or a new integration-style harness) asserting that no `roastDate` field appears anywhere under `dialInSessions[].shots[]`.
 
 ## 6. Replace currentBean roast fields with beanFreshness block
 
-- [ ] 6.1 Add `McpDialingHelpers::buildBeanFreshness(const QString& roastDate)` returning a QJsonObject `{ roastDate, freshnessKnown: false, instruction }`. The `instruction` text is fixed, imperative: `"Calendar age from roastDate is NOT freshness — many users freeze and thaw weekly. ASK the user about storage before applying any bean-aging guidance."` Returns an empty object when `roastDate` is empty.
-- [ ] 6.2 In `mcptools_dialing.cpp`, replace the existing `currentBean.daysSinceRoast` + `currentBean.daysSinceRoastNote` block with `currentBean.beanFreshness = buildBeanFreshness(roastDateStr)`. The DYE roastDate parsing path is no longer needed in this file (only the raw string is forwarded).
-- [ ] 6.3 In `ShotSummarizer::buildUserPrompt`, stop computing the inline "(N days since roast, not necessarily freshness — ask about storage)" parenthetical. Replace with `(roasted YYYY-MM-DD; ask user about storage before reasoning about age)` — no day count.
-- [ ] 6.4 Add tests in `tst_mcptools_dialing_helpers.cpp`:
+- [x] 6.1 Add `McpDialingHelpers::buildBeanFreshness(const QString& roastDate)` returning a QJsonObject `{ roastDate, freshnessKnown: false, instruction }`. The `instruction` text is fixed, imperative: `"Calendar age from roastDate is NOT freshness — many users freeze and thaw weekly. ASK the user about storage before applying any bean-aging guidance."` Returns an empty object when `roastDate` is empty.
+- [x] 6.2 In `mcptools_dialing.cpp`, replace the existing `currentBean.daysSinceRoast` + `currentBean.daysSinceRoastNote` block with `currentBean.beanFreshness = buildBeanFreshness(roastDateStr)`. The DYE roastDate parsing path is no longer needed in this file (only the raw string is forwarded).
+- [x] 6.3 In `ShotSummarizer::buildUserPrompt`, stop computing the inline "(N days since roast, not necessarily freshness — ask about storage)" parenthetical. Replace with `(roasted YYYY-MM-DD; ask user about storage before reasoning about age)` — no day count.
+- [x] 6.4 Add tests in `tst_mcptools_dialing_helpers.cpp`:
   - Empty `roastDate` → empty QJsonObject (no block surfaced).
   - Populated `roastDate` → block has `freshnessKnown: false` and the instruction.
   - The block does NOT contain a precomputed day count under any key.
-- [ ] 6.5 Add a test in `tst_shotsummarizer.cpp` asserting `buildUserPrompt` output contains no "days since roast" string and no day-count number adjacent to a roast date.
+- [x] 6.5 Add a test in `tst_shotsummarizer.cpp` asserting `buildUserPrompt` output contains no "days since roast" string and no day-count number adjacent to a roast date.
 
 ## 7. Per-bean grinderContext.settingsObserved
 
-- [ ] 7.1 Extend `ShotHistoryStorage::queryGrinderContext` to accept an optional `beanBrand` filter (default `QString()` for backwards compatibility). When provided, append `AND bean_brand = :brand` to the SQL and bind a third parameter — same conditional-append pattern already used in `loadRecentShotsByKbIdStatic` and `buildFilterQuery`. Update both the implementation in `shothistorystorage_queries.cpp:591–647` AND the static declaration at `shothistorystorage.h:89`.
-- [ ] 7.2 In `mcptools_dialing.cpp`, pass `dbResult.shotData.beanBrand` to `queryGrinderContext` so the returned context is bean-scoped. Fall back to the unscoped query when `beanBrand` is empty (no bean recorded).
-- [ ] 7.3 When the bean-scoped query returns fewer than 2 distinct settings, also include an `allBeansSettings` array in the response (the unscoped list) so the AI can still see the user's overall range — but tagged so the AI knows it's cross-bean. Document the field semantics in the spec.
-- [ ] 7.4 Tests:
+- [x] 7.1 Extend `ShotHistoryStorage::queryGrinderContext` to accept an optional `beanBrand` filter (default `QString()` for backwards compatibility). When provided, append `AND bean_brand = :brand` to the SQL and bind a third parameter — same conditional-append pattern already used in `loadRecentShotsByKbIdStatic` and `buildFilterQuery`. Update both the implementation in `shothistorystorage_queries.cpp:591–647` AND the static declaration at `shothistorystorage.h:89`.
+- [x] 7.2 In `mcptools_dialing.cpp`, pass `dbResult.shotData.beanBrand` to `queryGrinderContext` so the returned context is bean-scoped. Fall back to the unscoped query when `beanBrand` is empty (no bean recorded).
+- [x] 7.3 When the bean-scoped query returns fewer than 2 distinct settings, also include an `allBeansSettings` array in the response (the unscoped list) so the AI can still see the user's overall range — but tagged so the AI knows it's cross-bean. Document the field semantics in the spec.
+- [x] 7.4 Tests:
   - Add a unit test for `queryGrinderContext` with the new bean filter.
   - Add a test verifying the MCP tool emits `settingsObserved` (bean-scoped) and conditionally `allBeansSettings` (when bean-scoped is sparse).
 
