@@ -187,16 +187,36 @@ negative = fine.
 
 For each pressure-mode phase (or the whole pour window if all phases are
 flow-mode-labeled), accumulate samples where `pressure ≥
-CHOKED_PRESSURE_MIN_BAR` (4.0). Requires `flowSamples ≥ 5` and
-`pressurizedDuration ≥ CHOKED_DURATION_MIN_SEC` (15 s) to fire. Two
-sub-arms feed `chokedPuck`:
+CHOKED_PRESSURE_MIN_BAR` (4.0). Two sub-arms feed `chokedPuck` with
+**split gates**:
 
 - **Severe (flow arm)**: mean pressurized flow `< CHOKED_FLOW_MAX_MLPS` (0.5
-  mL/s). Catches the obvious failures (e.g., 80's Espresso with 1.1 g yield
-  and ~0.3 mL/s mean).
+  mL/s). Requires `flowSamples ≥ 5` AND `pressurizedDuration ≥
+  CHOKED_DURATION_MIN_SEC` (15 s) — needs sustained pressure to compute a
+  meaningful mean flow. Catches obvious failures (e.g., 80's Espresso with
+  1.1 g yield and ~0.3 mL/s mean).
 - **Moderate (yield arm)**: `finalWeightG / targetWeightG < CHOKED_YIELD_RATIO_MAX`
-  (0.85). Catches narrowly-above-flow-threshold cases where the puck still
-  failed (e.g., 25 g of a 36 g target, ~0.6 mL/s mean).
+  (0.70 — tightened from a prior 0.85 by the 500-shot audit). Requires only
+  `flowSamples ≥ 5` (puck saw meaningful pressure briefly) — does NOT
+  require sustained `pressurizedDuration` because its diagnosis is
+  yield-based and does not read mean pressurized flow. Catches shots like
+  745 (Adaptive v2, 23 g of 36 g target = 0.64, brief 6 s pressurized
+  window).
+
+The yield arm decouples from the 15 s flow-arm gate because they answer
+different questions: the flow arm asks "did the puck deliver any flow
+under sustained pressure?" (needs 15 s of pressure to average), the yield
+arm asks "did the puck deliver enough yield, full stop?" (just needs to
+have seen pressure briefly so we know the shot wasn't aborted before
+extraction). The audit found shots that lost both gates simultaneously
+because they shared the duration precondition — fix splits them. See
+openspec change `tighten-grind-yield-shortfall-arm` for the rationale.
+
+The 0.70 threshold is the empirical sweet spot from the 500-shot audit:
+0.85 over-flagged Adaptive v2 fast-pour profiles delivering 71-76% of
+target by design. 0.70 catches the genuine choke shapes (yields under
+~70%) without false-positives on profiles whose normal yield is
+intentionally below target.
 
 The yield arm requires both `targetWeightG > 0` and `finalWeightG > 0` —
 imported shots without target metadata correctly stay silent.
