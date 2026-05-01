@@ -86,6 +86,11 @@ add_decenza_test(tst_mcptools_dialing_helpers
     tst_mcptools_dialing_helpers.cpp
 )
 
+# --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
+add_decenza_test(tst_mcptools_shots_helpers
+    tst_mcptools_shots_helpers.cpp
+)
+
 # --- tst_firmwarepackets: FWMapRequest + firmware chunk byte layout tests
 # (header-only target; no cpp dependency beyond the test itself) ---
 add_decenza_test(tst_firmwarepackets
