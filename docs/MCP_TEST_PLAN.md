@@ -353,6 +353,10 @@ Call: shots_compare (shotIds: [SHOT_ID, SHOT_ID_2])
 Expect: response contains data for both shot IDs, plus a `changes` block diffing
         consecutive shots (durationSec, grinderSetting, doseG/yieldG, enjoyment0to100).
         ~3 KB per shot — no time-series, no debugLog, no profileJson.
+        If both shots share the same profile: top-level `sharedProfile` block
+        carries profileName/profileKbId/profileNotes once, and those fields are
+        omitted from each shot. When shots span multiple profiles, the per-shot
+        fields remain.
 ```
 
 ### 6.4a shots_compare — full

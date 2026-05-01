@@ -328,7 +328,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
         "shots_compare",
         "Side-by-side comparison of 2 or more shots. Default detail='summary' returns "
         "scalars + phase summaries per shot plus a changes diff between consecutive shots "
-        "(~3K chars/shot). Pass detail='full' to include time-series curves and debug logs "
+        "(~3K chars/shot). When all shots share a profile, profileName/profileKbId/"
+        "profileNotes are hoisted to a top-level `sharedProfile` block and omitted from "
+        "each shot. Pass detail='full' to include time-series curves and debug logs "
         "(~85K chars/shot — exceeds typical LLM context with more than 1-2 shots).",
         QJsonObject{
             {"type", "object"},
@@ -385,6 +387,45 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 }
 
                 if (!result.contains("error")) {
+                    // Dedupe shared profile metadata. Comparing dial-in
+                    // iterations on a single recipe is the common case, and
+                    // profileNotes is ~700 chars per shot — hoisting it to
+                    // sharedProfile saves ~20% of payload at N=2 and scales
+                    // with N. When shots span multiple profiles, leave the
+                    // per-shot fields in place.
+                    if (shots.size() >= 2) {
+                        const QJsonObject first = shots.first().toObject();
+                        const QString sharedName = first.value("profileName").toString();
+                        const QString sharedKbId = first.value("profileKbId").toString();
+                        const QString sharedNotes = first.value("profileNotes").toString();
+                        bool allShare = !sharedName.isEmpty();
+                        for (const QJsonValue& v : std::as_const(shots)) {
+                            const QJsonObject s = v.toObject();
+                            if (s.value("profileName").toString() != sharedName ||
+                                s.value("profileKbId").toString() != sharedKbId ||
+                                s.value("profileNotes").toString() != sharedNotes) {
+                                allShare = false;
+                                break;
+                            }
+                        }
+                        if (allShare) {
+                            QJsonArray dedupedShots;
+                            for (const QJsonValue& v : std::as_const(shots)) {
+                                QJsonObject s = v.toObject();
+                                s.remove("profileNotes");
+                                s.remove("profileKbId");
+                                dedupedShots.append(s);
+                            }
+                            shots = dedupedShots;
+                            QJsonObject sharedProfile;
+                            sharedProfile["profileName"] = sharedName;
+                            if (!sharedKbId.isEmpty())
+                                sharedProfile["profileKbId"] = sharedKbId;
+                            if (!sharedNotes.isEmpty())
+                                sharedProfile["profileNotes"] = sharedNotes;
+                            result["sharedProfile"] = sharedProfile;
+                        }
+                    }
                     result["shots"] = shots;
                     result["count"] = shots.size();
                 }
