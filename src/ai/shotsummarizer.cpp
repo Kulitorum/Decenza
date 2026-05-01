@@ -638,6 +638,10 @@ static QJsonObject buildOverallPeaksBlock(const ShotSummary& summary)
 // lines that summarize them already live in `detectorObservations`.
 // Issue #1037: structural fields the AI can iterate over without
 // pattern-matching prose.
+//
+// Threading: pure read of `summary.phases` and the curve members. Safe
+// to call on any thread that owns `summary`. Same threading contract
+// as `buildUserPromptObject` overall.
 static QJsonArray buildPhasesBlock(const ShotSummary& summary)
 {
     QJsonArray phases;
@@ -674,12 +678,28 @@ static QJsonArray buildPhasesBlock(const ShotSummary& summary)
 }
 
 // Build a structured detectorObservations[] array. Each entry is
-// `{type, text}` with `type ∈ {warning, caution, good, observation}`.
+// `{type, kind, text}`:
+//   - `type` ∈ {warning, caution, good, observation} — severity tag.
+//   - `kind` is a stable enum identifier ("channeling_sustained",
+//     "temperature_drift", "grind_too_fine", etc.) populated by the
+//     deterministic detector pipeline. Consumers SHOULD read by `kind`
+//     instead of substring-matching `text`, which is freeform prose
+//     intended for the LLM and may be reworded across releases.
+//   - `text` is the human-readable line shown in the in-app dialog.
+//
 // The verdict line (`type=verdict`) is omitted — it's a deterministic
-// prescriptive conclusion that would anchor the LLM on a pre-cooked
-// answer (see the long rationale in renderShotAnalysisProse). Issue
-// #1037: the structured form lets AIConversation read flag echoes
-// without substring-searching the prose.
+// prescriptive conclusion ("Puck choked — grind way too fine.
+// Coarsen significantly.") that would anchor the LLM on a pre-cooked
+// answer. The non-verdict lines still ship — they are pre-interpreted,
+// severity-tagged observation strings, not raw curve data — but
+// withholding the verdict preserves the LLM's value-add of synthesizing
+// across signals (bean / prior shots / tasting feedback) instead of
+// parroting the verdict line. See the long rationale in
+// renderShotAnalysisProse.
+//
+// `kind` is omitted only for legacy lines that predate #1037 — every
+// production line emitted by ShotAnalysis::analyzeShot today carries
+// one. See `src/ai/shotanalysis.cpp` for the canonical kind list.
 static QJsonArray buildDetectorObservationsBlock(const ShotSummary& summary)
 {
     QJsonArray observations;
@@ -690,6 +710,8 @@ static QJsonArray buildDetectorObservationsBlock(const ShotSummary& summary)
         QJsonObject obs;
         obs["type"] = type;
         obs["text"] = m.value(QStringLiteral("text")).toString();
+        const QString kind = m.value(QStringLiteral("kind")).toString();
+        if (!kind.isEmpty()) obs["kind"] = kind;
         observations.append(obs);
     }
     return observations;

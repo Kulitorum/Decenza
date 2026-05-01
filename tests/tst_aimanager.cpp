@@ -915,6 +915,69 @@ private slots:
                  "no temp-unstable observation present, so the flag must stay false");
     }
 
+    // The structured-array path's stable `kind` enum is the canonical
+    // signal — it's robust against future rewordings of the
+    // human-readable `text` field. Issue #1037: pin that contract.
+    void aiConversation_extractShotFields_readsByStableKindEnum()
+    {
+        // `text` is rewritten so substring matching would fail; only the
+        // `kind` enum carries the signal. The flag must still set.
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"doseG\": 18.0,"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"warning\", \"kind\": \"channeling_sustained\","
+            "       \"text\": \"PUCK PREP ISSUE — totally rewritten in a future release\"},"
+            "      {\"type\": \"caution\", \"kind\": \"temperature_drift\","
+            "       \"text\": \"Heating element behaving oddly\"}"
+            "    ]"
+            "  }"
+            "}");
+
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.fromStructuredEnvelope);
+        QVERIFY2(fields.channelingDetected,
+                 "kind=channeling_sustained must set channelingDetected even when text drifts");
+        QVERIFY2(fields.temperatureUnstable,
+                 "kind=temperature_drift must set temperatureUnstable even when text drifts");
+    }
+
+    // Transient channeling also sets the flag (kind=channeling_transient).
+    void aiConversation_extractShotFields_transientChannelingKindAlsoSetsFlag()
+    {
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"caution\", \"kind\": \"channeling_transient\","
+            "       \"text\": \"Transient channel at 14s (self-healed)\"}"
+            "    ]"
+            "  }"
+            "}");
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.channelingDetected);
+    }
+
+    // Pre-#1037 envelopes ship `text` without `kind`. Substring fallback
+    // against the production text strings (`channeling detected` /
+    // `Temperature drifted`) keeps those envelopes working.
+    void aiConversation_extractShotFields_kindAbsentFallsBackToTextSubstring()
+    {
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"warning\", \"text\": \"Sustained channeling detected in dC/dt\"},"
+            "      {\"type\": \"caution\", \"text\": \"Temperature drifted 2.4\\u00B0C from goal on average\"}"
+            "    ]"
+            "  }"
+            "}");
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.channelingDetected);
+        QVERIFY(fields.temperatureUnstable);
+    }
+
     void aiConversation_extractShotFields_legacyProseFallsBackToRegex()
     {
         const QString content = QStringLiteral(
