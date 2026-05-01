@@ -135,9 +135,16 @@ public:
     // (so the AI knows they exist) but their descriptions note the required level.
     // Access is enforced in callTool — restricted tools return an error when called.
     // 0 = Monitor (read only), 1 = Control (read + control), 2 = Full (all)
-    QJsonArray listTools(int accessLevel) const
+    //
+    // protocolVersion gates spec-versioned optional fields. Strict clients reject
+    // tools/list responses containing fields from a newer spec than was negotiated,
+    // which surfaces as the server connecting with zero tools.
+    QJsonArray listTools(int accessLevel, const QString& protocolVersion) const
     {
         static const char* levelNames[] = {"Monitor", "Control", "Full"};
+        const bool emitTitle = protocolVersion >= QStringLiteral("2025-06-18");
+        const bool emitIcons = protocolVersion >= QStringLiteral("2025-11-25");
+
         QJsonArray result;
         for (auto it = m_tools.constBegin(); it != m_tools.constEnd(); ++it) {
             const auto& tool = it.value();
@@ -145,10 +152,11 @@ public:
 
             QJsonObject toolJson;
             toolJson["name"] = tool.name;
-            // MCP 2025-06-18: human-readable display name distinct from the
-            // programmatic `name`. Auto-derived from snake_case so existing
-            // registrations get a sensible default without per-tool churn.
-            toolJson["title"] = McpRegistryHelpers::deriveTitle(tool.name);
+            if (emitTitle) {
+                // MCP 2025-06-18: human-readable display name distinct from the
+                // programmatic `name`. Auto-derived from snake_case.
+                toolJson["title"] = McpRegistryHelpers::deriveTitle(tool.name);
+            }
             if (required > accessLevel) {
                 int reqClamped = qBound(0, required, 2);
                 toolJson["description"] = QString("[DISABLED — requires '%1' access level in Settings > AI > MCP] ")
@@ -158,13 +166,15 @@ public:
             }
             toolJson["inputSchema"] = tool.inputSchema;
 
-            // MCP 2025-11-25: optional icons for client UIs. Derived from the
-            // tool's name prefix so each tool gets a category-appropriate SVG
-            // without having to thread icons through every registration site.
-            QJsonArray icons = McpRegistryHelpers::iconsArrayFromQrc(
-                McpRegistryHelpers::iconQrcForTool(tool.name));
-            if (!icons.isEmpty())
-                toolJson["icons"] = icons;
+            if (emitIcons) {
+                // MCP 2025-11-25: optional icons for client UIs. Derived from the
+                // tool's name prefix so each tool gets a category-appropriate SVG
+                // without having to thread icons through every registration site.
+                QJsonArray icons = McpRegistryHelpers::iconsArrayFromQrc(
+                    McpRegistryHelpers::iconQrcForTool(tool.name));
+                if (!icons.isEmpty())
+                    toolJson["icons"] = icons;
+            }
 
             result.append(toolJson);
         }

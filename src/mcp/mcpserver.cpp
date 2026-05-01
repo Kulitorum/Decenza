@@ -145,7 +145,8 @@ void McpServer::registerAllTools()
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);
     registerAgentTools(m_toolRegistry);
-    qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
+    qDebug() << "McpServer: Registered"
+             << m_toolRegistry->listTools(2, QStringLiteral("2025-11-25")).size() << "tools";
 }
 
 void McpServer::registerAllResources()
@@ -616,12 +617,13 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
 QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* session)
 {
     Q_UNUSED(params)
-    Q_UNUSED(session)
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
+    const QString protocolVersion = session ? session->protocolVersion()
+                                            : QStringLiteral("2024-11-05");
 
     QJsonObject result;
-    result["tools"] = m_toolRegistry->listTools(accessLevel);
+    result["tools"] = m_toolRegistry->listTools(accessLevel, protocolVersion);
     return result;
 }
 
