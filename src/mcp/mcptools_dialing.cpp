@@ -63,7 +63,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // dialing_get_context
     registry->registerAsyncTool(
         "dialing_get_context",
-        "Get dial-in context: recent shot summary, dial-in history grouped into sessions (runs of "
+        "Get dial-in context: dial-in history grouped into sessions (runs of "
         "shots on the same profile within ~60 minutes of each other, with within-session "
         "changeFromPrev diffs), profile knowledge for the current shot's profile, bean/grinder "
         "metadata, grinder context (observed settings range, step size, and burr-swappable flag), "
@@ -144,7 +144,18 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         for (const auto& v : history)
                             shots.append(ShotProjection::fromVariantMap(v.toMap()));
 
-                        auto shotToJson = [](const ShotProjection& shot) {
+                        // Per-shot serializer. Identity fields
+                        // (`grinderBrand`, `grinderModel`, `grinderBurrs`,
+                        // `beanBrand`, `beanType`) are hoisted to the
+                        // session-level `context` object; per-shot entries
+                        // emit them only as overrides when the shot's
+                        // value differs from the session context. The
+                        // hoisted-field set is computed once per session
+                        // (see hoistSessionContext call below) and the
+                        // override values are passed into this lambda
+                        // alongside the ShotProjection.
+                        auto shotToJson = [](const ShotProjection& shot,
+                                             const McpDialingHelpers::ShotIdentity& override) {
                             QJsonObject h;
                             h["id"] = shot.id;
                             h["timestamp"] = shot.timestampIso;
@@ -156,12 +167,19 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                                 ? QJsonValue(shot.enjoyment0to100)
                                 : QJsonValue(QJsonValue::Null);
                             h["grinderSetting"] = shot.grinderSetting;
-                            h["grinderModel"] = shot.grinderModel;
-                            h["grinderBrand"] = shot.grinderBrand;
-                            h["grinderBurrs"] = shot.grinderBurrs;
+                            // Identity overrides — emit only when this
+                            // shot's value differs from session context.
+                            if (!override.grinderBrand.isEmpty())
+                                h["grinderBrand"] = override.grinderBrand;
+                            if (!override.grinderModel.isEmpty())
+                                h["grinderModel"] = override.grinderModel;
+                            if (!override.grinderBurrs.isEmpty())
+                                h["grinderBurrs"] = override.grinderBurrs;
+                            if (!override.beanBrand.isEmpty())
+                                h["beanBrand"] = override.beanBrand;
+                            if (!override.beanType.isEmpty())
+                                h["beanType"] = override.beanType;
                             h["notes"] = shot.espressoNotes;
-                            h["beanBrand"] = shot.beanBrand;
-                            h["beanType"] = shot.beanType;
                             if (shot.temperatureOverrideC > 0)
                                 h["temperatureOverrideC"] = shot.temperatureOverrideC;
 
@@ -198,9 +216,28 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             for (qsizetype i = indices.size() - 1; i >= 0; --i)
                                 ordered.append(shots[indices[i]]);
 
+                            // Hoist common shot-identity fields to a
+                            // session-level `context`. Per-shot entries
+                            // carry overrides only when they differ from
+                            // context. See openspec change
+                            // optimize-dialing-context-payload, task 1.
+                            QList<McpDialingHelpers::ShotIdentity> identities;
+                            identities.reserve(ordered.size());
+                            for (const ShotProjection& s : ordered) {
+                                McpDialingHelpers::ShotIdentity id;
+                                id.grinderBrand = s.grinderBrand;
+                                id.grinderModel = s.grinderModel;
+                                id.grinderBurrs = s.grinderBurrs;
+                                id.beanBrand = s.beanBrand;
+                                id.beanType = s.beanType;
+                                identities.append(id);
+                            }
+                            const McpDialingHelpers::HoistedSession hoisted =
+                                McpDialingHelpers::hoistSessionContext(identities);
+
                             QJsonArray sessionShots;
                             for (qsizetype i = 0; i < ordered.size(); ++i) {
-                                QJsonObject h = shotToJson(ordered[i]);
+                                QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i]);
                                 if (i > 0) {
                                     QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i]);
                                     h["changeFromPrev"] = diff.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(diff);
@@ -210,21 +247,47 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                                 sessionShots.append(h);
                             }
 
+                            QJsonObject contextObj;
+                            if (!hoisted.context.grinderBrand.isEmpty())
+                                contextObj["grinderBrand"] = hoisted.context.grinderBrand;
+                            if (!hoisted.context.grinderModel.isEmpty())
+                                contextObj["grinderModel"] = hoisted.context.grinderModel;
+                            if (!hoisted.context.grinderBurrs.isEmpty())
+                                contextObj["grinderBurrs"] = hoisted.context.grinderBurrs;
+                            if (!hoisted.context.beanBrand.isEmpty())
+                                contextObj["beanBrand"] = hoisted.context.beanBrand;
+                            if (!hoisted.context.beanType.isEmpty())
+                                contextObj["beanType"] = hoisted.context.beanType;
+
                             QJsonObject sessionObj;
                             sessionObj["sessionStart"] = ordered.first().timestampIso;
                             sessionObj["sessionEnd"] = ordered.last().timestampIso;
                             sessionObj["shotCount"] = static_cast<int>(ordered.size());
+                            if (!contextObj.isEmpty())
+                                sessionObj["context"] = contextObj;
                             sessionObj["shots"] = sessionShots;
                             dbResult.dialInSessions.append(sessionObj);
                         }
                     }
 
                     // --- Grinder context (shared helper) ---
+                    // Per openspec optimize-dialing-context-payload (task 7):
+                    // `settingsObserved` is bean-scoped — filtered to shots
+                    // on the resolved shot's `beanBrand`. Cross-bean
+                    // settings used to surface "you've used grind 9 before"
+                    // recommendations when 9 was on a different bean
+                    // entirely. When the bean-scoped query returns < 2
+                    // distinct settings (the user just switched beans),
+                    // also emit `allBeansSettings` (cross-bean) so the AI
+                    // sees the user's overall range — explicitly tagged
+                    // so it's not misread as bean-specific.
                     QString grinderModel = dbResult.shotData.grinderModel;
                     QString beverageType = dbResult.shotData.beverageType.isEmpty()
                         ? QStringLiteral("espresso") : dbResult.shotData.beverageType;
                     if (!grinderModel.isEmpty()) {
-                        GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(db, grinderModel, beverageType);
+                        const QString beanBrand = dbResult.shotData.beanBrand;
+                        GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
+                            db, grinderModel, beverageType, beanBrand);
                         if (!ctx.settingsObserved.isEmpty()) {
                             QJsonObject grinderCtx;
                             grinderCtx["model"] = ctx.model;
@@ -238,6 +301,23 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                                 grinderCtx["minSetting"] = ctx.minSetting;
                                 grinderCtx["maxSetting"] = ctx.maxSetting;
                                 grinderCtx["smallestStep"] = ctx.smallestStep;
+                            }
+
+                            // Sparse bean-scoped history → also surface
+                            // the cross-bean range. Only do the second
+                            // query when both (a) the bean filter was
+                            // active and (b) the bean-scoped result is
+                            // sparse — otherwise the second query is
+                            // redundant.
+                            if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
+                                GrinderContext crossBean = ShotHistoryStorage::queryGrinderContext(
+                                    db, grinderModel, beverageType);
+                                if (!crossBean.settingsObserved.isEmpty()) {
+                                    QJsonArray allArr;
+                                    for (const auto& s : crossBean.settingsObserved)
+                                        allArr.append(s);
+                                    grinderCtx["allBeansSettings"] = allArr;
+                                }
                             }
                             dbResult.grinderContext = grinderCtx;
                         }
@@ -264,47 +344,30 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     if (!dbResult.grinderContext.isEmpty())
                         result["grinderContext"] = dbResult.grinderContext;
 
-                    // --- Shot summary ---
+                    // --- Resolved shot reference (used by tasting + bean blocks below) ---
+                    // Note: result["shot"] is intentionally NOT emitted (see openspec
+                    // change optimize-dialing-context-payload, task 2). The fields it
+                    // used to carry — profileName, doseG, yieldG, durationSec, ratio,
+                    // grinder, bean, roastLevel, notes, enjoyment — are rendered in
+                    // shotAnalysis prose, which is the single canonical surface for
+                    // resolved-shot summary metadata. Shipping both forced consumers
+                    // to pick a canonical version when precisions / framings differed.
                     const auto& sd = dbResult.shotData;
-                    QJsonObject shotSummary;
-                    shotSummary["profileName"] = sd.profileName;
-                    shotSummary["doseG"] = sd.doseWeightG;
-                    shotSummary["yieldG"] = sd.finalWeightG;
-                    shotSummary["durationSec"] = sd.durationSec;
-                    shotSummary["enjoyment0to100"] = sd.enjoyment0to100 > 0
-                        ? QJsonValue(sd.enjoyment0to100)
-                        : QJsonValue(QJsonValue::Null);
-                    shotSummary["notes"] = sd.espressoNotes;
-                    shotSummary["beanBrand"] = sd.beanBrand;
-                    shotSummary["beanType"] = sd.beanType;
-                    shotSummary["roastLevel"] = sd.roastLevel;
-                    shotSummary["grinderModel"] = sd.grinderModel;
-                    shotSummary["grinderSetting"] = sd.grinderSetting;
-                    shotSummary["grinderBurrs"] = sd.grinderBurrs;
-                    if (sd.doseWeightG > 0)
-                        shotSummary["ratio"] = QString("1:%1").arg(sd.finalWeightG / sd.doseWeightG, 0, 'f', 2);
-                    result["shot"] = shotSummary;
 
                     // --- Tasting feedback completeness ---
-                    // Surface a structured signal so the AI knows whether
+                    // Surface structural booleans so the AI knows whether
                     // taste/measurement data is present before suggesting
-                    // changes. Without this, the AI has to infer from
-                    // null + empty + null and sometimes proceeds with
-                    // curve-only analysis when "ask the user how it
-                    // tasted" is the right move.
+                    // changes. Per openspec optimize-dialing-context-payload
+                    // (task 4), the per-call `recommendation` framing
+                    // string is moved to the system prompt's "How to read
+                    // structured fields" section — taught once per
+                    // conversation. The boolean fields stay; the AI reads
+                    // the "ask first when all are false" gate from the
+                    // system prompt.
                     QJsonObject tastingFeedback;
-                    const bool hasEnjoyment = sd.enjoyment0to100 > 0;
-                    const bool hasNotes = !sd.espressoNotes.trimmed().isEmpty();
-                    const bool hasRefractometer = sd.drinkTdsPct > 0;
-                    tastingFeedback["hasEnjoymentScore"] = hasEnjoyment;
-                    tastingFeedback["hasNotes"] = hasNotes;
-                    tastingFeedback["hasRefractometer"] = hasRefractometer;
-                    if (!hasEnjoyment || !hasNotes || !hasRefractometer) {
-                        tastingFeedback["recommendation"] = QStringLiteral(
-                            "Ask the user how the shot tasted before suggesting changes — "
-                            "score (1–100), 1–2 lines of flavor notes, and a TDS reading if "
-                            "available are the strongest inputs for dial-in advice.");
-                    }
+                    tastingFeedback["hasEnjoymentScore"] = sd.enjoyment0to100 > 0;
+                    tastingFeedback["hasNotes"] = !sd.espressoNotes.trimmed().isEmpty();
+                    tastingFeedback["hasRefractometer"] = sd.drinkTdsPct > 0;
                     result["tastingFeedback"] = tastingFeedback;
 
                     // --- AI-generated shot analysis ---
@@ -347,31 +410,28 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["profileKnowledge"] = profileKnowledge;
 
                     // --- Bean/grinder metadata (current DYE settings) ---
+                    // The `beanFreshness` block replaces the previous
+                    // `roastDate` + `daysSinceRoast` + `daysSinceRoastNote`
+                    // shape. The precomputed day count is intentionally
+                    // absent — calendar age without storage context (frozen
+                    // vs counter, days-since-thawed) is misleading data
+                    // dressed as precise data, and the AI was skimming past
+                    // the advisory note. The new `instruction` reads
+                    // imperative: ASK about storage before quoting age.
                     if (settings) {
                         QJsonObject bean;
                         bean["brand"] = settings->dye()->dyeBeanBrand();
                         bean["type"] = settings->dye()->dyeBeanType();
-                        bean["roastDate"] = settings->dye()->dyeRoastDate();
                         bean["roastLevel"] = settings->dye()->dyeRoastLevel();
                         bean["grinderBrand"] = settings->dye()->dyeGrinderBrand();
                         bean["grinderModel"] = settings->dye()->dyeGrinderModel();
                         bean["grinderBurrs"] = settings->dye()->dyeGrinderBurrs();
                         bean["grinderSetting"] = settings->dye()->dyeGrinderSetting();
                         bean["doseWeightG"] = settings->dye()->dyeBeanWeight();
-                        QString roastDateStr = settings->dye()->dyeRoastDate();
-                        if (!roastDateStr.isEmpty()) {
-                            QDate roastDate = QDate::fromString(roastDateStr, "yyyy-MM-dd");
-                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, Qt::ISODate);
-                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, "MM/dd/yyyy");
-                            if (!roastDate.isValid()) roastDate = QDate::fromString(roastDateStr, "dd/MM/yyyy");
-
-                            if (roastDate.isValid()) {
-                                qint64 days = roastDate.daysTo(QDate::currentDate());
-                                bean["daysSinceRoast"] = days;
-                                bean["daysSinceRoastNote"] = "Days since roast date, NOT freshness. "
-                                    "Many users freeze beans and thaw weekly — ask about storage before assuming degradation.";
-                            }
-                        }
+                        const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(
+                            settings->dye()->dyeRoastDate());
+                        if (!freshness.isEmpty())
+                            bean["beanFreshness"] = freshness;
                         result["currentBean"] = bean;
                     }
 

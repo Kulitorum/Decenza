@@ -86,7 +86,16 @@ public:
 
     // Query observed grinder settings for a grinder model + beverage type.
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
-    static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel, const QString& beverageType);
+    //
+    // `beanBrand` (optional, default empty): when non-empty, restrict the
+    // returned `settingsObserved` to shots whose `bean_brand` matches.
+    // Empty argument preserves the legacy cross-bean behavior. See
+    // openspec change `optimize-dialing-context-payload` task 7 —
+    // cross-bean settings invite "you've used grind 9 before"
+    // recommendations when 9 was on a different bean entirely.
+    static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel,
+                                              const QString& beverageType,
+                                              const QString& beanBrand = QString());
 
     // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
     // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection

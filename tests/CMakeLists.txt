@@ -194,6 +194,13 @@ add_decenza_test(tst_shotanalysis
 # summarizeFromHistory() doesn't touch ShotDataModel itself, but the
 # shotsummarizer.cpp translation unit links its symbols.
 find_package(Qt6 REQUIRED COMPONENTS Quick Charts)
+# Compile the AI resource files (profile knowledge, dial-in reference,
+# claude agent) into the test binary so ShotSummarizer's lazy loaders
+# find them silently. Without this, calls to shotAnalysisSystemPrompt()
+# emit qWarning lines that violate the "no warnings during test runs"
+# policy in docs/CLAUDE_MD/TESTING.md §Test warnings.
+qt_add_resources(TST_SHOTSUMMARIZER_AI_RESOURCES
+    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_shotsummarizer
     tst_shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
@@ -208,6 +215,7 @@ add_decenza_test(tst_shotsummarizer
     ${CORE_SOURCES}
     ${CODEC_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${TST_SHOTSUMMARIZER_AI_RESOURCES}
 )
 target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Charts)
 target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
