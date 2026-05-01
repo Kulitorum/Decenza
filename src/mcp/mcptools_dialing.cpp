@@ -70,8 +70,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         "a tastingFeedback block flagging whether the shot has enjoyment / notes / refractometer "
         "data — when any is missing the block carries a recommendation to ask the user before "
         "suggesting changes — and a bestRecentShot anchor (highest-rated past shot on the same "
-        "profile, with a changeFromBest diff against the current shot) so advice can reference "
-        "what success has looked like, not just what changed since last pull. "
+        "profile within the last 90 days, with a changeFromBest diff against the current shot) "
+        "so advice can reference what success has looked like, not just what changed since last "
+        "pull. The 90-day window keeps the anchor on the user's current setup era; the block "
+        "is omitted when no rated shot in that window exists. "
         "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
         "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
         "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
@@ -284,14 +286,30 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // waste a context block). Omits the block when no
                     // rated shot exists — common early in a user's session
                     // or right after a profile change.
+                    //
+                    // Bounded to the last kBestRecentShotWindowDays so the
+                    // anchor reflects the user's *current* setup era — same
+                    // grinder family, same beans family, same recent
+                    // preferences. An all-time-best from years ago runs on
+                    // different beans, possibly worn burrs, and the
+                    // parameters don't transfer; surfacing it forces the
+                    // AI to either caveat every recommendation or quote
+                    // stale settings and have the user correct it. Better
+                    // to omit the block when nothing recent qualifies.
+                    constexpr qint64 kBestRecentShotWindowDays = 90;
                     if (!dbResult.profileKbId.isEmpty()) {
+                        const qint64 windowFloorSec =
+                            QDateTime::currentSecsSinceEpoch()
+                            - kBestRecentShotWindowDays * 24 * 3600;
                         QSqlQuery bestQ(db);
                         bestQ.prepare(
                             "SELECT id FROM shots "
-                            "WHERE profile_kb_id = ? AND enjoyment > 0 AND id != ? "
+                            "WHERE profile_kb_id = ? AND enjoyment > 0 "
+                            "AND id != ? AND timestamp >= ? "
                             "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
                         bestQ.addBindValue(dbResult.profileKbId);
                         bestQ.addBindValue(resolvedShotId);
+                        bestQ.addBindValue(windowFloorSec);
                         if (bestQ.exec() && bestQ.next()) {
                             const qint64 bestId = bestQ.value(0).toLongLong();
                             ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId);
