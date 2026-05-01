@@ -238,6 +238,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_dialing_blocks.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp

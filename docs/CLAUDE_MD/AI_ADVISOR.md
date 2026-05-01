@@ -90,10 +90,16 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | Aspect | In-App AI | MCP |
 |--------|-----------|-----|
 | **Multi-turn** | Yes (conversation history, shot-to-shot deltas) | No (single tool call, LLM manages context) |
-| **Grinder context format** | Markdown text in user prompt | JSON in tool response |
-| **Bean age** | Computed in `buildUserPrompt()` from shot's `roastDate` | Computed in tool response from `Settings::dyeRoastDate()` |
-| **Current DYE settings** | Not included (shot data has what was saved) | Included as `currentBean` JSON block |
-| **Current profile info** | Not included | Included as `currentProfile` JSON block |
+| **`currentDateTime`** | Not in user prompt (cache stability) | Included at top level of `dialing_get_context` response |
+| **Wrapper fields** | `shotId` lives only on `ai_advisor_invoke` (not in the user prompt itself) | `shotId` shipped at top level |
+
+The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) ship in **both** the in-app advisor's user prompt and `dialing_get_context`'s response, produced by shared helpers in `src/mcp/mcptools_dialing_blocks.h` so the two surfaces cannot drift. See openspec change `add-dialing-blocks-to-advisor`.
+
+### How the In-App Advisor Enriches the User Prompt
+
+`AIManager::analyzeShotWithMetadata` builds the user prompt as a `QJsonObject` via `ShotSummarizer::buildUserPromptObject(summary)`, then a background thread loads the resolved `ShotProjection` and calls the three DB-backed block builders (`buildDialInSessionsBlock`, `buildBestRecentShotBlock`, `buildGrinderContextBlock`). On the main-thread continuation, both **the in-app advisor (`AIManager::analyzeShotWithMetadata`) and the MCP advisor (`ai_advisor_invoke`)** call `AIManager::enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext)`. That single primitive owns the merge step + builds the SAW block from `m_settings` and `m_profileManager` (both main-thread only) — so the two advisor surfaces cannot drift on which blocks land or how. Empty blocks are suppressed (no key, no `null` placeholder). After serialization, the prose history block (`ShotSummarizer::buildHistoryContext`) is appended below the JSON envelope.
+
+Note: `dialing_get_context` (the MCP read tool) shares the four `McpDialingBlocks::*` block builders but does **not** go through `enrichUserPromptObject` — it assembles its own response envelope (top-level `dialInSessions` / `bestRecentShot` / `sawPrediction` / `grinderContext` plus `currentBean`, `profile`, `tastingFeedback`, `shotAnalysis`). The block-level shape is shared by construction; the wrapper envelope is not.
 
 ---
 

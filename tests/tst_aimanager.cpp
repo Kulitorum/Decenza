@@ -22,11 +22,16 @@
 #include <QString>
 #include <QStandardPaths>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QSqlDatabase>
 
 #include "ai/aimanager.h"
 #include "core/settings.h"
 #include "history/shotprojection.h"
 #include "history/shothistory_types.h"
+#include "mcp/mcptools_dialing_blocks.h"
 
 namespace {
 
@@ -322,6 +327,304 @@ private slots:
         const QString setupLine = payload.mid(setupStart, setupEnd - setupStart);
         QVERIFY2(!setupLine.contains(QStringLiteral("  ")),
                  qPrintable("Setup line has double space: " + setupLine));
+    }
+
+    // ---------------------------------------------------------------------
+    // openspec add-dialing-blocks-to-advisor — user-prompt envelope
+    //
+    // Pins the contract that buildUserPromptObjectForShot returns the
+    // canonical four-key envelope (currentBean / profile / tastingFeedback /
+    // shotAnalysis) without any of the four DB-scoped enrichment keys that
+    // the in-app advisor's bg-thread closure layers on. Synchronous callers
+    // (`generateEmailPrompt`, `generateShotSummary`,
+    // `generateHistoryShotSummary`) never see those four enrichment keys —
+    // they're added by callers with DB scope, not by ShotSummarizer itself.
+    // ---------------------------------------------------------------------
+    void buildUserPromptObjectForShot_carriesCanonicalEnvelope()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, QDateTime::currentSecsSinceEpoch(),
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QJsonObject obj = mgr.buildUserPromptObjectForShot(shot);
+        QVERIFY(obj.contains(QStringLiteral("currentBean")));
+        QVERIFY(obj.contains(QStringLiteral("profile")));
+        QVERIFY(obj.contains(QStringLiteral("tastingFeedback")));
+        QVERIFY(obj.contains(QStringLiteral("shotAnalysis")));
+    }
+
+    void buildUserPromptObjectForShot_omitsDialingEnrichmentKeys()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, QDateTime::currentSecsSinceEpoch(),
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QJsonObject obj = mgr.buildUserPromptObjectForShot(shot);
+        // The four DB-scoped enrichment keys are layered on by callers with
+        // DB scope (the in-app advisor's bg-thread closure,
+        // ai_advisor_invoke). They MUST NOT come from the synchronous
+        // envelope builder, otherwise we'd be shipping nulls or stale data.
+        QVERIFY2(!obj.contains(QStringLiteral("dialInSessions")),
+                 "dialInSessions must be added by DB-scoped callers, not the envelope builder");
+        QVERIFY2(!obj.contains(QStringLiteral("bestRecentShot")),
+                 "bestRecentShot must be added by DB-scoped callers, not the envelope builder");
+        QVERIFY2(!obj.contains(QStringLiteral("grinderContext")),
+                 "grinderContext must be added by DB-scoped callers, not the envelope builder");
+        QVERIFY2(!obj.contains(QStringLiteral("sawPrediction")),
+                 "sawPrediction must be added by DB-scoped callers, not the envelope builder");
+    }
+
+    // Cache stability invariant: the user prompt envelope must not embed any
+    // wall-clock value that varies per call. `currentDateTime` (the field
+    // dialing_get_context's response carries at the top level) MUST NOT
+    // appear in the user prompt — including it would bust the prompt cache
+    // on every multi-turn follow-up.
+    void buildUserPromptObjectForShot_omitsCurrentDateTime()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, QDateTime::currentSecsSinceEpoch(),
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QJsonObject obj = mgr.buildUserPromptObjectForShot(shot);
+        const QString json = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        QVERIFY2(!obj.contains(QStringLiteral("currentDateTime")),
+                 "user prompt must not carry a top-level currentDateTime key");
+        QVERIFY2(!json.contains(QStringLiteral("currentDateTime")),
+                 "no currentDateTime substring anywhere in serialized prompt");
+    }
+
+    // Two calls with identical state produce byte-identical envelopes —
+    // load-bearing precondition for Anthropic's prompt cache to hit on
+    // multi-turn follow-ups.
+    void buildUserPromptObjectForShot_byteStableAcrossCalls()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(42, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QString a = QString::fromUtf8(
+            QJsonDocument(mgr.buildUserPromptObjectForShot(shot)).toJson(QJsonDocument::Indented));
+        const QString b = QString::fromUtf8(
+            QJsonDocument(mgr.buildUserPromptObjectForShot(shot)).toJson(QJsonDocument::Indented));
+        QCOMPARE(a, b);
+    }
+
+    // ---------------------------------------------------------------------
+    // enrichUserPromptObject — single-source merge step shared by the in-app
+    // advisor and ai_advisor_invoke. Pins that the four blocks land at the
+    // right keys, that empty blocks are suppressed (no nulls), and that the
+    // merged envelope is byte-stable across calls.
+    // ---------------------------------------------------------------------
+    void enrichUserPromptObject_mergesAllFourBlocks()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        // Synthetic blocks — the merge step is what's under test, not the
+        // bg-thread DB builders. SAW is omitted by the helper (no flow data
+        // on this minimal shot), which is the correct behavior.
+        const QJsonArray dialInSessions{
+            QJsonObject{{"sessionStart", "2026-04-29T09:29:19-06:00"},
+                        {"shotCount", 1}}};
+        const QJsonObject bestRecentShot{{"id", 42}, {"enjoyment0to100", 85}};
+        const QJsonObject grinderContext{{"model", "Zero"}, {"smallestStep", 0.25}};
+
+        mgr.enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext);
+
+        QVERIFY(payload.contains(QStringLiteral("dialInSessions")));
+        QVERIFY(payload.contains(QStringLiteral("bestRecentShot")));
+        QVERIFY(payload.contains(QStringLiteral("grinderContext")));
+        // SAW correctly suppressed — no flow data on a synthetic ShotProjection.
+        QVERIFY2(!payload.contains(QStringLiteral("sawPrediction")),
+                 "SAW must be suppressed when ShotProjection has no usable flow data");
+
+        // Original four-key envelope still intact under the new keys.
+        QVERIFY(payload.contains(QStringLiteral("currentBean")));
+        QVERIFY(payload.contains(QStringLiteral("profile")));
+        QVERIFY(payload.contains(QStringLiteral("tastingFeedback")));
+        QVERIFY(payload.contains(QStringLiteral("shotAnalysis")));
+    }
+
+    void enrichUserPromptObject_suppressesEmptyBlocks()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        // All blocks empty — none of the four enrichment keys should appear,
+        // and crucially no `null` placeholders. dialing_get_context's omission
+        // contract requires absent key, not `null`.
+        mgr.enrichUserPromptObject(payload, shot,
+            QJsonArray{}, QJsonObject{}, QJsonObject{});
+
+        QVERIFY2(!payload.contains(QStringLiteral("dialInSessions")),
+                 "empty dialInSessions must not be added as a key");
+        QVERIFY2(!payload.contains(QStringLiteral("bestRecentShot")),
+                 "empty bestRecentShot must not be added as a key");
+        QVERIFY2(!payload.contains(QStringLiteral("grinderContext")),
+                 "empty grinderContext must not be added as a key");
+        QVERIFY2(!payload.contains(QStringLiteral("sawPrediction")),
+                 "empty sawPrediction must not be added as a key");
+
+        // Serialized output also free of the keys (no `null`-shaped JSON).
+        const QString json = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        QVERIFY(!json.contains(QStringLiteral("dialInSessions")));
+        QVERIFY(!json.contains(QStringLiteral("bestRecentShot")));
+        QVERIFY(!json.contains(QStringLiteral("grinderContext")));
+        QVERIFY(!json.contains(QStringLiteral("sawPrediction")));
+    }
+
+    void enrichUserPromptObject_byteStableAcrossCalls()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(42, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QJsonArray dialInSessions{QJsonObject{{"shotCount", 2}}};
+        const QJsonObject bestRecentShot{{"id", 7}};
+        const QJsonObject grinderContext{{"model", "Zero"}};
+
+        QJsonObject a = mgr.buildUserPromptObjectForShot(shot);
+        mgr.enrichUserPromptObject(a, shot, dialInSessions, bestRecentShot, grinderContext);
+
+        QJsonObject b = mgr.buildUserPromptObjectForShot(shot);
+        mgr.enrichUserPromptObject(b, shot, dialInSessions, bestRecentShot, grinderContext);
+
+        const QString jsonA = QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Indented));
+        const QString jsonB = QString::fromUtf8(QJsonDocument(b).toJson(QJsonDocument::Indented));
+        QCOMPARE(jsonA, jsonB);
+    }
+
+    // ---------------------------------------------------------------------
+    // McpDialingBlocks gating — preconditions that short-circuit before
+    // touching the DB / Settings / ProfileManager. These cases ship the
+    // omission contract (empty QJsonObject so callers suppress the key)
+    // without needing real DB infrastructure.
+    // ---------------------------------------------------------------------
+    void sawPredictionBlock_omittedWhenSettingsNull()
+    {
+        // Espresso shot WITH flow data so we get past the espresso and flow
+        // gates, then assert the settings-null gate fires.
+        ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm"), QStringLiteral("4.0"),
+            QStringLiteral("Bean"), QStringLiteral("Type"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot.flow = QVariantList{
+            QVariantMap{{"x", 28.0}, {"y", 1.8}},
+            QVariantMap{{"x", 29.0}, {"y", 2.0}},
+            QVariantMap{{"x", 30.0}, {"y", 2.1}}};
+        const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(nullptr, nullptr, shot);
+        QVERIFY(sp.isEmpty());
+    }
+
+    void sawPredictionBlock_omittedForNonEspresso()
+    {
+        // Provide flow data so the flow gate would not fire — the
+        // beverage-type gate must be what produces the empty result.
+        ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm"), QStringLiteral("4.0"),
+            QStringLiteral("Bean"), QStringLiteral("Type"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot.beverageType = QStringLiteral("filter");
+        shot.flow = QVariantList{
+            QVariantMap{{"x", 28.0}, {"y", 4.0}},
+            QVariantMap{{"x", 29.0}, {"y", 4.2}},
+            QVariantMap{{"x", 30.0}, {"y", 4.1}}};
+        Settings settings;
+        const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
+        QVERIFY(sp.isEmpty());
+    }
+
+    void sawPredictionBlock_omittedWhenFlowAtCutoffIsZero()
+    {
+        // Espresso shot, empty flow samples → estimateFlowAtCutoff returns
+        // 0 → flow gate fires before the settings/profileManager gates can
+        // be evaluated.
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm"), QStringLiteral("4.0"),
+            QStringLiteral("Bean"), QStringLiteral("Type"),
+            QStringLiteral("Profile"), QString(), QString());
+        Settings settings;
+        const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
+        QVERIFY(sp.isEmpty());
+    }
+
+    void dialInSessionsBlock_returnsEmpty_whenProfileKbIdEmpty()
+    {
+        // Pass an unopened DB ref — the empty-kbId guard short-circuits
+        // before any DB access. (We can't easily stand up a real DB here;
+        // this test pins the gating, not the DB query path.)
+        QSqlDatabase db; // default-constructed: invalid, never used
+        const QJsonArray arr = McpDialingBlocks::buildDialInSessionsBlock(
+            db, QString(), 1, 5);
+        QVERIFY(arr.isEmpty());
+    }
+
+    void bestRecentShotBlock_returnsEmpty_whenProfileKbIdEmpty()
+    {
+        QSqlDatabase db;
+        ShotProjection shot;
+        const QJsonObject obj = McpDialingBlocks::buildBestRecentShotBlock(
+            db, QString(), 1, shot);
+        QVERIFY(obj.isEmpty());
+    }
+
+    void grinderContextBlock_returnsEmpty_whenGrinderModelEmpty()
+    {
+        QSqlDatabase db;
+        const QJsonObject obj = McpDialingBlocks::buildGrinderContextBlock(
+            db, QString(), QStringLiteral("espresso"), QString());
+        QVERIFY(obj.isEmpty());
     }
 
     // Stale serial — a request that's been superseded by a newer one — emits

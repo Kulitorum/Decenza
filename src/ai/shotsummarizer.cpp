@@ -598,13 +598,17 @@ static QJsonObject buildTastingFeedbackBlock(const ShotSummary& summary)
     return tf;
 }
 
-QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode mode) const
+QJsonObject ShotSummarizer::buildUserPromptObject(const ShotSummary& summary, RenderMode mode) const
 {
-    // HistoryBlock mode: per-shot prose embedded under a `### Shot (date)`
-    // header by the caller. Stays prose so the multi-shot history block
-    // reads naturally; JSON-per-shot would be unreadable when concatenated.
+    // HistoryBlock mode has no JSON envelope — its callers concatenate
+    // prose-per-shot under `### Shot (date)` wrappers and never see this
+    // object. The assert catches misuse in dev; the early-return preserves
+    // safe (if useless) behavior in release.
+    Q_ASSERT_X(mode != RenderMode::HistoryBlock,
+               "ShotSummarizer::buildUserPromptObject",
+               "HistoryBlock mode has no JSON envelope; use buildUserPrompt() instead");
     if (mode == RenderMode::HistoryBlock) {
-        return renderShotAnalysisProse(summary, mode);
+        return QJsonObject();
     }
 
     // Standalone mode: JSON envelope so the system prompt's references to
@@ -620,7 +624,20 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode m
     payload["profile"] = buildCurrentProfileBlock(summary);
     payload["tastingFeedback"] = buildTastingFeedbackBlock(summary);
     payload["shotAnalysis"] = renderShotAnalysisProse(summary, mode);
-    return QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Indented));
+    return payload;
+}
+
+QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode mode) const
+{
+    // HistoryBlock mode: per-shot prose embedded under a `### Shot (date)`
+    // header by the caller. Stays prose so the multi-shot history block
+    // reads naturally; JSON-per-shot would be unreadable when concatenated.
+    if (mode == RenderMode::HistoryBlock) {
+        return renderShotAnalysisProse(summary, mode);
+    }
+
+    return QString::fromUtf8(
+        QJsonDocument(buildUserPromptObject(summary, mode)).toJson(QJsonDocument::Indented));
 }
 
 QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, RenderMode mode) const

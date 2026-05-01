@@ -183,6 +183,16 @@ public:
     QString buildUserPrompt(const ShotSummary& summary,
                             RenderMode mode = RenderMode::Standalone) const;
 
+    // Same shape as `buildUserPrompt` but returns the unwrapped envelope so
+    // callers with DB / Settings / ProfileManager scope (the in-app advisor's
+    // bg-thread closure, ai_advisor_invoke) can append the four DB-scoped
+    // blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`,
+    // `grinderContext`) before serializing. `HistoryBlock` mode returns an
+    // empty `QJsonObject` — the prose body lives in `shotAnalysis` only via
+    // `buildUserPrompt`'s string path; HistoryBlock has no envelope.
+    QJsonObject buildUserPromptObject(const ShotSummary& summary,
+                                      RenderMode mode = RenderMode::Standalone) const;
+
     // Format recent shot history as AI context (lightweight, no curve data)
     static QString buildHistoryContext(const QVariantList& recentShots);
 

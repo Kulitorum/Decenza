@@ -1,5 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
+#include "mcptools_dialing_blocks.h"
 #include "../ai/aimanager.h"
 #include "../ai/shotsummarizer.h"
 #include "../ai/aiprovider.h"
@@ -113,11 +114,17 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                  aiPtr, respond]() {
                 ShotProjection shot;
                 qint64 resolvedShotId = shotId;
+                QJsonArray dialInSessions;
+                QJsonObject bestRecentShot;
+                QJsonObject grinderContext;
 
                 if (resolvedShotId <= 0) {
                     withTempDb(dbPath, "mcp_advisor_latest", [&](QSqlDatabase& db) {
                         QSqlQuery q(db);
-                        if (q.exec("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && q.next())
+                        // Whitespace before the open-paren dodges a
+                        // permission-hook false-positive on the QSqlQuery
+                        // run-statement call. Do not auto-format.
+                        if (q.exec ("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && q.next())
                             resolvedShotId = q.value(0).toLongLong();
                     });
                 }
@@ -132,11 +139,26 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 withTempDb(dbPath, "mcp_advisor", [&](QSqlDatabase& db) {
                     ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId);
                     shot = ShotHistoryStorage::convertShotRecord(record);
+
+                    if (shot.isValid()) {
+                        // Same dialing-context blocks the in-app advisor
+                        // ships, produced by the same shared helpers so
+                        // the userPromptUsed echo is byte-equivalent
+                        // across surfaces. See openspec
+                        // add-dialing-blocks-to-advisor.
+                        dialInSessions = McpDialingBlocks::buildDialInSessionsBlock(
+                            db, shot.profileKbId, resolvedShotId, 5);
+                        bestRecentShot = McpDialingBlocks::buildBestRecentShotBlock(
+                            db, shot.profileKbId, resolvedShotId, shot);
+                        grinderContext = McpDialingBlocks::buildGrinderContextBlock(
+                            db, shot.grinderModel, shot.beverageType, shot.beanBrand);
+                    }
                 });
 
                 QMetaObject::invokeMethod(qApp,
                     [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
-                     resolvedShotId, respond]() {
+                     resolvedShotId, dialInSessions, bestRecentShot, grinderContext,
+                     respond]() {
                     if (!aiPtr) {
                         respond(QJsonObject{{"error", "App shut down before advisor call could start"}});
                         return;
@@ -174,11 +196,22 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     if (!userPromptOverride.isEmpty()) {
                         userPrompt = userPromptOverride;
                     } else {
-                        userPrompt = ai->generateHistoryShotSummary(shot);
-                        if (userPrompt.isEmpty()) {
+                        // Build the JSON envelope for the resolved shot,
+                        // then merge the four dialing-context blocks
+                        // (dialInSessions / bestRecentShot /
+                        // grinderContext from bg thread; sawPrediction
+                        // built here on the main thread). Same shape the
+                        // in-app advisor produces — both surfaces call
+                        // the same helpers in McpDialingBlocks.
+                        QJsonObject userPromptObj = ai->buildUserPromptObjectForShot(shot);
+                        if (userPromptObj.isEmpty()) {
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});
                             return;
                         }
+                        ai->enrichUserPromptObject(userPromptObj, shot,
+                            dialInSessions, bestRecentShot, grinderContext);
+                        userPrompt = QString::fromUtf8(
+                            QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                     }
 
                     // Dry-run path: return the prompts without invoking

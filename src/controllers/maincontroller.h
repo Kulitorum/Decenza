@@ -88,6 +88,8 @@ public:
         m_aiManager = aiManager;
         if (m_aiManager && m_shotHistory)
             m_aiManager->setShotHistoryStorage(m_shotHistory);
+        if (m_aiManager && m_profileManager)
+            m_aiManager->setProfileManager(m_profileManager);
         if (m_aiManager && m_dataMigration)
             m_dataMigration->setAIManager(m_aiManager);
     }
