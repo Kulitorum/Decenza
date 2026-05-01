@@ -439,7 +439,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["timestamp"] = shot.timestamp;
     result["notes"] = shot.notes;
     result["barista"] = shot.barista;
-    result["temperatureOverride"] = shot.temperatureOverride;
+    result["temperatureOverrideC"] = shot.temperatureOverride;
     result["targetWeightG"] = shot.targetWeight;
 
     // Format date

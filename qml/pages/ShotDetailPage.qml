@@ -218,7 +218,7 @@ Page {
                             textFormat: Text.RichText
                             text: {
                                 var name = shotData.profileName || TranslationManager.translate("shotdetail.title", "Shot Detail")
-                                var t = shotData.temperatureOverride
+                                var t = shotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
                                     result = name + " (" + Math.round(t) + "\u00B0C)"

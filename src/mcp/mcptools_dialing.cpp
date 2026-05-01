@@ -115,7 +115,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             h["notes"] = shot["espressoNotes"].toString();
                             h["beanBrand"] = shot["beanBrand"].toString();
                             h["beanType"] = shot["beanType"].toString();
-                            double tempOverride = shot["temperatureOverride"].toDouble();
+                            double tempOverride = shot["temperatureOverrideC"].toDouble();
                             if (tempOverride > 0)
                                 h["temperatureOverrideC"] = tempOverride;
 

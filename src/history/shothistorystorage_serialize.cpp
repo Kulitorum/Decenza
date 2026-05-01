@@ -58,7 +58,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["visualizerId"] = record.visualizerId;
     result["visualizerUrl"] = record.visualizerUrl;
     result["debugLog"] = record.debugLog;
-    result["temperatureOverride"] = record.temperatureOverride;
+    result["temperatureOverrideC"] = record.temperatureOverride;
     result["targetWeightG"] = record.targetWeight;
     result["profileJson"] = record.profileJson;
     result["profileKbId"] = record.profileKbId;

@@ -670,7 +670,7 @@ Page {
                                 textFormat: Text.RichText
                                 text: {
                                     var name = model.profileName || ""
-                                    var tempOvr = model.temperatureOverride || 0
+                                    var tempOvr = model.temperatureOverrideC || 0
                                     var result
                                     if (tempOvr > 0) {
                                         result = name + " (" + Math.round(tempOvr) + "\u00B0C)"

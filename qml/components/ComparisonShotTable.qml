@@ -19,7 +19,7 @@ ColumnLayout {
         switch (key) {
             case "profile": {
                 var name = info.profileName || "\u2014"
-                var t = info.temperatureOverride
+                var t = info.temperatureOverrideC
                 return (t !== undefined && t !== null && t > 0) ? name + " (" + Math.round(t) + "\u00B0C)" : name
             }
             case "duration":  return (info.duration || 0).toFixed(1) + "s"

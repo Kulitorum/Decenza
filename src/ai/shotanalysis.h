@@ -244,8 +244,10 @@ public:
         //                    is disabled in that case)
         //   - gatePassed   : flowSamples ≥ 5 AND pressurizedDurationSec ≥ CHOKED_DURATION_MIN_SEC.
         //                    When false, the choked-puck loop returns early without setting
-        //                    chokedPuck / yieldOvershoot / verifiedClean — gate fields here
-        //                    diagnose why.
+        //                    chokedPuck / verifiedClean — gate fields here diagnose why.
+        //                    NOTE: yieldOvershoot is set by an independent pre-gate arm and is
+        //                    NOT covered by this gate; a gate-fail gusher can have gatePassed
+        //                    == false AND yieldOvershoot == true.
         // gateRan == false means Arm 2 was bypassed entirely (empty pressure curve, or skipped
         // beverage type). All gate fields stay at their defaults in that case.
         bool gateRan = false;

@@ -61,7 +61,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         double finalWeight = shot["finalWeight"].toDouble();
         double duration = shot["duration"].toDouble();
         QString grinderSetting = shot["grinderSetting"].toString();
-        double tempOverride = shot["temperatureOverride"].toDouble();  // Always has value
+        double tempOverride = shot["temperatureOverrideC"].toDouble();  // Always has value
         double targetWeight = shot["targetWeightG"].toDouble();  // Always has value
 
         // Escape for JavaScript string (single quotes) and HTML attribute
@@ -1048,7 +1048,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     };
 
     // Temperature and target weight (always have values)
-    double tempOverride = shot["temperatureOverride"].toDouble();
+    double tempOverride = shot["temperatureOverrideC"].toDouble();
     double targetWeight = shot["targetWeightG"].toDouble();
     double finalWeight = shot["finalWeight"].toDouble();
 
@@ -2203,7 +2203,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
         info["dose"] = shot.summary.doseWeight;
         info["finalWeight"] = shot.summary.finalWeight;
         info["targetWeightG"] = shot.targetWeight;
-        info["temperatureOverride"] = shot.temperatureOverride;
+        info["temperatureOverrideC"] = shot.temperatureOverride;
         info["enjoyment"] = shot.summary.enjoyment;
         info["beanBrand"] = shot.summary.beanBrand;
         info["beanType"] = shot.summary.beanType;
@@ -2871,7 +2871,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
             switch (key) {
                 case "profile": {
                     var n = s.name || "\u2014";
-                    return s.temperatureOverride > 0 ? n + " (" + Math.round(s.temperatureOverride) + "\u00B0C)" : n;
+                    return s.temperatureOverrideC > 0 ? n + " (" + Math.round(s.temperatureOverrideC) + "\u00B0C)" : n;
                 }
                 case "duration": return (s.duration || 0).toFixed(1) + "s";
                 case "dose": return (s.dose || 0).toFixed(1) + "g";

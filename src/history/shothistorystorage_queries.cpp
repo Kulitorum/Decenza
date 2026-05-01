@@ -435,7 +435,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["enjoyment"] = query.value(9).toInt();
                             shot["hasVisualizerUpload"] = !query.value(10).isNull();
                             shot["grinderSetting"] = query.value(11).toString();
-                            shot["temperatureOverride"] = query.value(12).toDouble();
+                            shot["temperatureOverrideC"] = query.value(12).toDouble();
                             shot["targetWeightG"] = query.value(13).toDouble();
                             shot["beverageType"] = query.value(14).toString();
                             shot["drinkTds"] = query.value(15).toDouble();
@@ -564,7 +564,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["roastDate"] = query.value("roast_date").toString();
             shot["drinkTds"] = query.value("drink_tds").toDouble();
             shot["drinkEy"] = query.value("drink_ey").toDouble();
-            shot["temperatureOverride"] = query.value("temperature_override").toDouble();
+            shot["temperatureOverrideC"] = query.value("temperature_override").toDouble();
             shot["targetWeightG"] = query.value("yield_override").toDouble();
             shot["profileJson"] = query.value("profile_json").toString();
             shot["beverageType"] = query.value("beverage_type").toString();

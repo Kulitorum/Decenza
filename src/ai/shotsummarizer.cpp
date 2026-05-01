@@ -814,7 +814,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         }
 
         // Temperature override
-        double tempOverride = shot.value("temperatureOverride", 0.0).toDouble();
+        double tempOverride = shot.value("temperatureOverrideC", 0.0).toDouble();
         if (tempOverride > 0) {
             out << "- Temperature override: " << QString::number(tempOverride, 'f', 1) << "°C\n";
         }

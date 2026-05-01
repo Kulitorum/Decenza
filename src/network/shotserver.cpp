@@ -294,7 +294,7 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["enjoyment"] = query.value(9).toDouble();
         row["hasVisualizerUpload"] = !query.value(10).toString().isEmpty();
         row["grinderSetting"] = query.value(11).toString();
-        row["temperatureOverride"] = query.value(12).toDouble();
+        row["temperatureOverrideC"] = query.value(12).toDouble();
         row["targetWeightG"] = query.value(13).toDouble();
         row["beverageType"] = query.value(14).toString();
         row["drinkTds"] = query.value(15).toDouble();
