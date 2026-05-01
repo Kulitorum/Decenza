@@ -12,34 +12,88 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QSet>
 
 void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager)
 {
     // profiles_list
     registry->registerTool(
         "profiles_list",
-        "List all available profiles with their names and filenames",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [profileManager](const QJsonObject&) -> QJsonObject {
+        "List available profiles with optional filters. Returns filename, title, editorType, "
+        "readOnly, and category (parsed from the title's slash prefix — Tea, Cleaning, "
+        "Pour over basket, Test, Visualizer, or null for espresso recipes).",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"editorType", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"pressure", "flow", "dflow", "aflow", "advanced"}},
+                    {"description", "Filter by editor type."}
+                }},
+                {"nameContains", QJsonObject{
+                    {"type", "string"},
+                    {"description", "Substring match against title or filename (case-insensitive)."}
+                }},
+                {"excludeCategories", QJsonObject{
+                    {"type", "array"},
+                    {"items", QJsonObject{{"type", "string"}}},
+                    {"description", "Title-prefix categories to skip, e.g. [\"Tea\", \"Cleaning\", \"Pour over basket\", \"Test\", \"Visualizer\"]."}
+                }},
+                {"readOnly", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "true: only built-in (read-only) profiles. false: only user-writable."}
+                }}
+            }}
+        },
+        [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!profileManager) return result;
+
+            const QString editorTypeFilter = args.value("editorType").toString();
+            const QString nameContains = args.value("nameContains").toString().toLower();
+            const QJsonArray excludeArr = args.value("excludeCategories").toArray();
+            QSet<QString> excludeCategories;
+            for (const auto& v : excludeArr) excludeCategories.insert(v.toString());
+            const bool hasReadOnlyFilter = args.contains("readOnly");
+            const bool readOnlyFilter = args.value("readOnly").toBool();
+
+            // Derive the slash-prefix category from the title. Profiles
+            // titled "Tea/Some Variant" map to category "Tea"; titles
+            // without a slash get null (treated as Espresso recipes).
+            auto categoryOf = [](const QString& title) -> QString {
+                const int slash = title.indexOf('/');
+                return slash > 0 ? title.left(slash) : QString();
+            };
 
             QJsonArray profiles;
             QJsonArray links;
             QVariantList all = profileManager->availableProfiles();
             for (const QVariant& v : all) {
                 QVariantMap pm = v.toMap();
-                QJsonObject p;
                 const QString filename = pm["name"].toString();
+                const QString title = pm["title"].toString();
+                const QString editorType = pm["editorType"].toString();
+                const bool readOnly = pm["readOnly"].toBool();
+                const QString category = categoryOf(title);
+
+                if (!editorTypeFilter.isEmpty() && editorType != editorTypeFilter) continue;
+                if (!nameContains.isEmpty() &&
+                    !title.toLower().contains(nameContains) &&
+                    !filename.toLower().contains(nameContains)) continue;
+                if (!excludeCategories.isEmpty() && excludeCategories.contains(category)) continue;
+                if (hasReadOnlyFilter && readOnly != readOnlyFilter) continue;
+
+                QJsonObject p;
                 p["filename"] = filename;
-                p["title"] = pm["title"].toString();
-                p["editorType"] = pm["editorType"].toString();
-                p["readOnly"] = pm["readOnly"].toBool();
+                p["title"] = title;
+                p["editorType"] = editorType;
+                p["readOnly"] = readOnly;
+                p["category"] = category.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(category);
                 profiles.append(p);
 
                 QJsonObject link;
                 link["uri"] = QStringLiteral("decenza://profiles/") + filename;
-                link["title"] = pm["title"].toString();
+                link["title"] = title;
                 link["mimeType"] = "application/json";
                 links.append(link);
             }

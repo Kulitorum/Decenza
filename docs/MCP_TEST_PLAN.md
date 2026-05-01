@@ -95,8 +95,19 @@ On real headless DE1:
 ### 3.1 profiles_list
 ```
 Call: profiles_list
-Expect: count > 0, each profile has filename, title, editorType
+Expect: count > 0, each profile has filename, title, editorType, readOnly, category
+        (category is the title's slash prefix or null for espresso recipes).
 Verify: editorType values include at least "pressure", "flow", "dflow", "aflow", "advanced"
+```
+
+### 3.1a profiles_list — filtered
+```
+Call: profiles_list (editorType: "dflow")
+Expect: every returned profile has editorType="dflow", count smaller than unfiltered.
+Call: profiles_list (excludeCategories: ["Tea", "Cleaning", "Pour over basket", "Test", "Visualizer"])
+Expect: count is the espresso-only subset (significantly smaller than unfiltered).
+Call: profiles_list (nameContains: "espresso", readOnly: false)
+Expect: only user-writable profiles whose title or filename contains "espresso".
 ```
 
 ### 3.2 profiles_get_active
