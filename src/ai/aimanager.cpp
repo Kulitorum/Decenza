@@ -992,9 +992,9 @@ bool AIManager::isSupportedBeverageType(const QString& beverageType) const
 
 bool AIManager::isMistakeShot(const QVariantMap& shotData) const
 {
-    double duration = shotData.value("duration", 0.0).toDouble();
-    double finalWeight = shotData.value("finalWeight", 0.0).toDouble();
-    double targetWeight = shotData.value("targetWeight", 0.0).toDouble();
+    double duration = shotData.value("durationSec", 0.0).toDouble();
+    double finalWeight = shotData.value("finalWeightG", 0.0).toDouble();
+    double targetWeight = shotData.value("targetWeightG", 0.0).toDouble();
 
     if (duration < 10.0) return true;
     if (finalWeight < 5.0) return true;
