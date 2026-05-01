@@ -7,6 +7,7 @@
 #include "../ai/aimanager.h"
 #include "../ai/shotsummarizer.h"
 #include "../core/settings.h"
+#include "../core/settings_calibration.h"
 #include "../core/settings_dye.h"
 #include "../profile/profile.h"
 
@@ -69,11 +70,17 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         "metadata, grinder context (observed settings range, step size, and burr-swappable flag), "
         "a tastingFeedback block flagging whether the shot has enjoyment / notes / refractometer "
         "data — when any is missing the block carries a recommendation to ask the user before "
+<<<<<<< HEAD
         "suggesting changes — and a bestRecentShot anchor (highest-rated past shot on the same "
         "profile within the last 90 days, with a changeFromBest diff against the current shot) "
         "so advice can reference what success has looked like, not just what changed since last "
         "pull. The 90-day window keeps the anchor on the user's current setup era; the block "
         "is omitted when no rated shot in that window exists. "
+=======
+        "suggesting changes — and a sawPrediction block (predicted post-cut drip in grams from the "
+        "stop-at-weight learner, with sourceTier reporting which model is active so the AI can "
+        "weight its confidence). "
+>>>>>>> 880d5b7a (feat(mcp): add sawPrediction block to dialing_get_context (#1021))
         "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
         "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
         "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
@@ -582,6 +589,71 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         if (profileManager->profileHasRecommendedDose())
                             profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
                         result["profile"] = profileInfo;
+                    }
+
+                    // --- SAW (Stop-at-Weight) prediction (#1021) ---
+                    // Surface the per-(profile, scale) predicted post-cut
+                    // drip so the AI can answer "should I bump my target
+                    // up?" without starting a five-shot grind iteration
+                    // that addresses the wrong variable. Predicted drip
+                    // comes from the same SAW learner the in-app stop
+                    // logic uses — sourceTier reports which model is
+                    // active (perProfile / globalBootstrap / globalPool /
+                    // scaleDefault), so the AI can weight its confidence.
+                    // Read-only signal — AI proposes, user/shots_update/
+                    // settings_set writes. Omitted entirely when no scale
+                    // is configured (no scaleType) or no profile is loaded
+                    // (no filename to key the SAW pair off).
+                    if (settings && profileManager) {
+                        const QString scaleType = settings->scaleType();
+                        const QString profileFilename = profileManager->baseProfileName();
+                        if (!scaleType.isEmpty() && !profileFilename.isEmpty()) {
+                            // The actual SAW math uses the live flow at
+                            // the moment of cutoff; for the post-shot
+                            // context we approximate with the tail of the
+                            // recorded curve via estimateFlowAtCutoff
+                            // (pure helper, unit-tested). Default to
+                            // 1.5 ml/s — typical espresso pour rate —
+                            // when the shot lacks usable flow data so
+                            // imported shots still get a ballpark.
+                            double flowAtCutoff = McpDialingHelpers::estimateFlowAtCutoff(
+                                dbResult.shotData.flow, dbResult.shotData.durationSec);
+                            if (flowAtCutoff <= 0) flowAtCutoff = 1.5;
+
+                            const double predictedDripG =
+                                settings->calibration()->getExpectedDripFor(
+                                    profileFilename, scaleType, flowAtCutoff);
+                            const QString sourceTier =
+                                settings->calibration()->sawModelSource(profileFilename, scaleType);
+                            const double learnedLagSec =
+                                settings->calibration()->sawLearnedLagFor(profileFilename, scaleType);
+                            const int sampleCount =
+                                settings->calibration()->perProfileSawHistory(profileFilename, scaleType).size();
+
+                            QJsonObject sawPrediction;
+                            sawPrediction["profileFilename"] = profileFilename;
+                            sawPrediction["scaleType"] = scaleType;
+                            sawPrediction["flowAtCutoffMlPerSec"] =
+                                QString::number(flowAtCutoff, 'f', 2).toDouble();
+                            sawPrediction["predictedDripG"] =
+                                QString::number(predictedDripG, 'f', 2).toDouble();
+                            sawPrediction["learnedLagSec"] =
+                                QString::number(learnedLagSec, 'f', 2).toDouble();
+                            sawPrediction["sampleCount"] = sampleCount;
+                            sawPrediction["sourceTier"] = sourceTier;
+                            // Only emit a recommendation when the drip is
+                            // meaningfully above scale noise — for sub-
+                            // 0.2 g overshoots the AI shouldn't be
+                            // suggesting target tweaks.
+                            if (predictedDripG >= 0.2) {
+                                sawPrediction["recommendation"] = QString(
+                                    "Set the stop-at-weight target ~%1 g lower than your aim "
+                                    "to land near goal — that's the typical post-cutoff drip "
+                                    "on this (profile, scale) pair.")
+                                        .arg(predictedDripG, 0, 'f', 1);
+                            }
+                            result["sawPrediction"] = sawPrediction;
+                        }
                     }
 
                     // Note: dial-in reference tables and profile knowledge base are now
