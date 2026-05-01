@@ -66,7 +66,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         "Get dial-in context: recent shot summary, dial-in history grouped into sessions (runs of "
         "shots on the same profile within ~60 minutes of each other, with within-session "
         "changeFromPrev diffs), profile knowledge for the current shot's profile, bean/grinder "
-        "metadata, and grinder context (observed settings range, step size, and burr-swappable flag). "
+        "metadata, grinder context (observed settings range, step size, and burr-swappable flag), "
+        "and a tastingFeedback block flagging whether the shot has enjoyment / notes / refractometer "
+        "data — when any is missing the block carries a recommendation to ask the user before "
+        "suggesting changes. "
         "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
         "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
         "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
@@ -281,6 +284,28 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     if (sd.doseWeightG > 0)
                         shotSummary["ratio"] = QString("1:%1").arg(sd.finalWeightG / sd.doseWeightG, 0, 'f', 2);
                     result["shot"] = shotSummary;
+
+                    // --- Tasting feedback completeness ---
+                    // Surface a structured signal so the AI knows whether
+                    // taste/measurement data is present before suggesting
+                    // changes. Without this, the AI has to infer from
+                    // null + empty + null and sometimes proceeds with
+                    // curve-only analysis when "ask the user how it
+                    // tasted" is the right move.
+                    QJsonObject tastingFeedback;
+                    const bool hasEnjoyment = sd.enjoyment0to100 > 0;
+                    const bool hasNotes = !sd.espressoNotes.trimmed().isEmpty();
+                    const bool hasRefractometer = sd.drinkTdsPct > 0;
+                    tastingFeedback["hasEnjoymentScore"] = hasEnjoyment;
+                    tastingFeedback["hasNotes"] = hasNotes;
+                    tastingFeedback["hasRefractometer"] = hasRefractometer;
+                    if (!hasEnjoyment || !hasNotes || !hasRefractometer) {
+                        tastingFeedback["recommendation"] = QStringLiteral(
+                            "Ask the user how the shot tasted before suggesting changes — "
+                            "score (1–100), 1–2 lines of flavor notes, and a TDS reading if "
+                            "available are the strongest inputs for dial-in advice.");
+                    }
+                    result["tastingFeedback"] = tastingFeedback;
 
                     // --- AI-generated shot analysis ---
                     if (mainController && mainController->aiManager()) {
