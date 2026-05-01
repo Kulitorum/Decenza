@@ -292,7 +292,17 @@ Expect: espressoTemperatureC, targetWeightG, steamTemperatureC, waterTemperature
 Save: note dyeBeanBrand as ORIGINAL_BRAND, dyeGrinderSetting as ORIGINAL_GRIND
 ```
 Note: read fields are unit/scale-suffixed (`espressoTemperatureC`, `targetWeightG`),
-write fields drop the suffix (`espressoTemperature`, `targetWeight`).
+write fields drop the suffix (`espressoTemperature`, `targetWeight`). The `keys`
+filter on `settings_get` accepts both forms — passing the suffixed read name an
+LLM saw in a previous response round-trips correctly.
+
+### 5.1a settings_get — keys filter round-trip
+```
+Call: settings_get (keys: ["espressoTemperatureC", "targetWeightG"])
+Expect: both fields present in response (suffixed alias accepted).
+Call: settings_get (keys: ["espressoTemperature"])
+Expect: response contains espressoTemperatureC (un-suffixed write name still works).
+```
 
 ### 5.2 settings_set — DYE metadata
 ```
