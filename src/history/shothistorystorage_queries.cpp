@@ -616,7 +616,14 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     if (!beanBrand.isEmpty()) {
         q.bindValue(":brand", beanBrand);
     }
-    if (!q.exec()) return ctx;
+    if (!q.exec()) {
+        qWarning() << "ShotHistoryStorage::queryGrinderContext: query failed:"
+                   << q.lastError().text()
+                   << "grinderModel=" << grinderModel
+                   << "beverageType=" << ctx.beverageType
+                   << "beanBrand=" << beanBrand;
+        return ctx;
+    }
 
     QSet<double> numericSet;
     ctx.allNumeric = true;
