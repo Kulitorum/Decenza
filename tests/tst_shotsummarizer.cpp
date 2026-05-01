@@ -786,6 +786,186 @@ private slots:
         QCOMPARE(summary.phases[1].avgPressure, 9.0);
         QVERIFY(qFuzzyCompare(summary.phases[1].weightGained, 26.4));
     }
+
+    // Openspec optimize-dialing-context-payload, task 3: the detector-
+    // observations legend (the seven-line preamble explaining
+    // [warning]/[caution]/[good]/[observation] tags) lives in the system
+    // prompt now, not in every per-call prose body. Per-line tags still
+    // emit on individual detector lines; only the legend explanation
+    // moved.
+    void buildUserPrompt_doesNotCarryDetectorLegendPreamble()
+    {
+        // Use the puck-failure shape since it generates non-empty
+        // detector lines (so the `## Detector Observations` header emits).
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+
+        QVariantList pressure;
+        appendFlat(pressure, 0.0, 30.0, 1.0);
+        QVariantList flow;
+        appendFlat(flow, 0.0, 30.0, 1.5);
+        QVariantList temperature, temperatureGoal;
+        appendFlat(temperature, 0.0, 30.0, 88.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 93.0);
+        QVariantList weight;
+        appendFlat(weight, 0.0, 30.0, 36.0);
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = QVariantList();
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+        const QString prompt = summarizer.buildUserPrompt(summary);
+
+        QVERIFY2(prompt.contains(QStringLiteral("## Detector Observations")),
+                 "section header still emits when detector lines are present");
+        // The legend preamble lines must NOT appear in the prose.
+        QVERIFY2(!prompt.contains(QStringLiteral("The lines below come from the same deterministic detectors")),
+                 "legend preamble must NOT appear in per-call prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("Severity tags reflect detector confidence")),
+                 "legend explanation must NOT appear in per-call prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("[warning] high-confidence failure mode")),
+                 "legend explanation bullets must NOT appear in per-call prose");
+        // Per-line tags themselves are still rendered.
+        QVERIFY2(prompt.contains(QStringLiteral("[warning]")) || prompt.contains(QStringLiteral("[caution]")),
+                 "per-line severity tags still emit on detector lines");
+    }
+
+    void shotAnalysisSystemPrompt_carriesDetectorLegend_espresso()
+    {
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("espresso"), QStringLiteral("80's Espresso"),
+            QString(), QString());
+        QVERIFY2(prompt.contains(QStringLiteral("Reading Detector Observations")),
+                 "system prompt must teach how to read detector tags");
+        QVERIFY2(prompt.contains(QStringLiteral("[warning] high-confidence failure mode")),
+                 "system prompt must contain the warning-tag explanation");
+        QVERIFY2(prompt.contains(QStringLiteral("[caution] directional hint")),
+                 "system prompt must contain the caution-tag explanation");
+        QVERIFY2(prompt.contains(QStringLiteral("[good] positive signal")),
+                 "system prompt must contain the good-tag explanation");
+        QVERIFY2(prompt.contains(QStringLiteral("[observation] context")),
+                 "system prompt must contain the observation-tag explanation");
+    }
+
+    void shotAnalysisSystemPrompt_carriesDetectorLegend_filter()
+    {
+        // Filter still wants the legend — detector observations apply
+        // across beverage types (skip-first-frame, channeling).
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("filter"), QStringLiteral("Generic Filter"),
+            QString(), QString());
+        QVERIFY2(prompt.contains(QStringLiteral("Reading Detector Observations")),
+                 "filter system prompt must also carry the detector legend");
+    }
+
+    // Openspec optimize-dialing-context-payload, task 4.4: the system
+    // prompt teaches structural-field gating once per conversation,
+    // replacing per-call framing strings (`tastingFeedback.recommendation`,
+    // `inferredNote`, `daysSinceRoastNote`) that the AI was skimming past.
+    void shotAnalysisSystemPrompt_carriesStructuralFieldGuidance()
+    {
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("espresso"), QStringLiteral("80's Espresso"),
+            QString(), QString());
+        QVERIFY2(prompt.contains(QStringLiteral("How to Read Structured Fields")),
+                 "system prompt must include the structural-field guidance section");
+        // tastingFeedback gating
+        QVERIFY2(prompt.contains(QStringLiteral("tastingFeedback")),
+                 "system prompt must teach tastingFeedback gating");
+        QVERIFY2(prompt.contains(QStringLiteral("ASK the user how the shot tasted"))
+                 || prompt.contains(QStringLiteral("ASK the user")),
+                 "system prompt must contain the imperative ASK directive for taste");
+        // beanFreshness gating
+        QVERIFY2(prompt.contains(QStringLiteral("beanFreshness")),
+                 "system prompt must teach beanFreshness gating");
+        QVERIFY2(prompt.contains(QStringLiteral("freshnessKnown")),
+                 "system prompt must reference the freshnessKnown gate");
+        QVERIFY2(prompt.contains(QStringLiteral("freeze")),
+                 "system prompt must mention freezing as the storage variable that breaks calendar age");
+        // inferredFields gating
+        QVERIFY2(prompt.contains(QStringLiteral("inferredFields")),
+                 "system prompt must teach inferredFields gating");
+    }
+
+    // Openspec optimize-dialing-context-payload, task 6.5: the prose path
+    // must keep the user's entered roast date and a storage caveat, but
+    // SHALL NOT carry any precomputed day count. Calendar age without
+    // storage context (frozen vs counter) is misleading data; the AI must
+    // ASK before quoting age. Pre-change prose emitted "(N days since
+    // roast, not necessarily freshness — ask about storage)"; this test
+    // pins the new shape.
+    void buildUserPrompt_coffeeLine_carriesRoastDateWithoutDayCount()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+        shot["beanBrand"] = QStringLiteral("Northbound Coffee Roasters");
+        shot["beanType"] = QStringLiteral("Spring Tour 2026 #2");
+        shot["roastLevel"] = QStringLiteral("Dark");
+        // ISO date — far enough in the past that any inadvertent
+        // day-count emission would render a multi-digit number we can
+        // grep for.
+        shot["roastDate"] = QStringLiteral("2026-03-30");
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 8.0, 2.0);
+        appendFlat(pressure, 8.0, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        appendFlat(weight, 0.0, 30.0, 36.0);
+
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+        const QString prompt = summarizer.buildUserPrompt(summary);
+
+        QVERIFY2(prompt.contains(QStringLiteral("roasted 2026-03-30")),
+                 "prose must keep the user-entered roast date verbatim");
+        QVERIFY2(prompt.contains(QStringLiteral("ask user about storage")),
+                 "prose must carry the imperative storage caveat next to the date");
+        QVERIFY2(!prompt.contains(QStringLiteral("days since roast")),
+                 "prose must NOT precompute a day-count parenthetical");
+        QVERIFY2(!prompt.contains(QStringLiteral("days post-roast")),
+                 "prose must NOT use any day-count phrasing");
+        // Spot-check: verify no standalone integer rendered adjacent to the
+        // roast date (the pre-change emission "(31 days since roast, ...)"
+        // was the failure mode this test pins).
+        QVERIFY2(!prompt.contains(QStringLiteral("(31 days")) &&
+                 !prompt.contains(QStringLiteral("(32 days")) &&
+                 !prompt.contains(QStringLiteral("(30 days")),
+                 "no day-count parenthetical may appear adjacent to a roast date");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)

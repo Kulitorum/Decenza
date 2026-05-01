@@ -553,17 +553,15 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         out << summary.beanType;
         if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
         if (!summary.roastDate.isEmpty()) {
-            out << ", roasted " << summary.roastDate;
-            QDate roastDate = QDate::fromString(summary.roastDate, "yyyy-MM-dd");
-            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, Qt::ISODate);
-            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, "MM/dd/yyyy");
-            if (!roastDate.isValid()) roastDate = QDate::fromString(summary.roastDate, "dd/MM/yyyy");
-
-            if (roastDate.isValid()) {
-                qint64 days = roastDate.daysTo(QDate::currentDate());
-                if (days >= 0)
-                    out << " (" << days << " days since roast, not necessarily freshness — ask about storage)";
-            }
+            // Per the openspec dialing-context-payload change (task 6): no
+            // precomputed day count in prose. Calendar age without storage
+            // context (frozen / thawed weekly / vacuum-sealed) is misleading
+            // — the AI must ASK about storage before quoting age. The
+            // canonical surface is the JSON `currentBean.beanFreshness`
+            // block; the prose only carries the date as the user entered
+            // it, with a storage caveat.
+            out << ", roasted " << summary.roastDate
+                << " (ask user about storage before reasoning about age)";
         }
         out << "\n";
     }
@@ -741,18 +739,14 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     }
 
     if (!nonVerdictLines.isEmpty()) {
+        // Per openspec optimize-dialing-context-payload (task 3): the
+        // legend explaining `[warning] / [caution] / [good] / [observation]`
+        // tags lives in the system prompt, not in every per-call prose
+        // body. Per-line tags survive here; the AI reads the legend once
+        // per conversation from `shotAnalysisSystemPrompt`. Saves
+        // ~430 chars per per-shot block on the in-app history path that
+        // calls buildUserPrompt N times.
         out << "## Detector Observations\n\n";
-        out << "The lines below come from the same deterministic detectors that drive the\n";
-        out << "in-app Shot Summary badges the user sees. Treat them as diagnostic signals\n";
-        out << "(evidence), not your conclusions. Severity tags reflect detector confidence,\n";
-        out << "not your final assessment:\n\n";
-        out << "- [warning] high-confidence failure mode (sustained channeling, choked puck, yield overshoot/gusher, pour truncated, frame skip)\n";
-        out << "- [caution] directional hint (grind drift, flow trend, temp drift)\n";
-        out << "- [good] positive signal (puck stable)\n";
-        out << "- [observation] context (preinfusion drip mass)\n\n";
-        out << "Cross-check against the raw curves above and the user's tasting feedback,\n";
-        out << "and reason independently — you have richer context (bean, prior shots,\n";
-        out << "tasting notes) than the deterministic detectors do.\n\n";
         for (const QVariant& v : nonVerdictLines) {
             const QVariantMap line = v.toMap();
             out << "- [" << line.value(QStringLiteral("type")).toString() << "] "
@@ -863,6 +857,61 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
                                                    const QString& profileType, const QString& profileKbId)
 {
     QString base = systemPrompt(beverageType);
+
+    // Per openspec optimize-dialing-context-payload (task 4): structural
+    // gating fields live in the JSON payload; their per-call framing
+    // strings (which were skimmed past by the AI) move here, taught once
+    // per conversation.
+    base += QStringLiteral("\n\n## How to Read Structured Fields\n\n"
+        "The `dialing_get_context` JSON payload carries structural fields whose\n"
+        "semantics are consistent across calls. Treat them as gates on your advice:\n\n"
+        "**`tastingFeedback`**: carries booleans `hasEnjoymentScore`, `hasNotes`,\n"
+        "`hasRefractometer`. When ALL three are false, ASK the user how the shot\n"
+        "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
+        "before suggesting changes. Curve-only analysis without taste feedback\n"
+        "misses the variable that matters most.\n\n"
+        "**`currentBean.beanFreshness`**: when present, carries `roastDate`,\n"
+        "`freshnessKnown` (currently always `false` until storage tracking is\n"
+        "added), and an `instruction`. NEVER quote calendar age until\n"
+        "`freshnessKnown` is `true`. Many users freeze beans and thaw weekly —\n"
+        "calendar days from `roastDate` are not freshness without storage context.\n"
+        "ASK the user about storage before applying any bean-aging guidance from\n"
+        "the dial-in reference tables.\n\n"
+        "**`currentBean.inferredFields`**: when present, lists field names that\n"
+        "were inferred from the most recent shot (because the user's DYE settings\n"
+        "were blank), not entered by the user. Confirm with the user before\n"
+        "recommending a change to any inferred field.\n\n"
+        "**`dialInSessions[].context`**: hoists shot-identity fields shared across\n"
+        "an iteration session (`grinderBrand`, `grinderModel`, `grinderBurrs`,\n"
+        "`beanBrand`, `beanType`). When a per-shot entry under `shots[]` omits\n"
+        "one of these fields, that shot uses the session's `context` value.\n"
+        "When a per-shot entry carries the field directly, it overrides the\n"
+        "context for that shot only. CAVEAT: a hoisted context value reflects\n"
+        "the first non-empty value across the session — for legacy shots whose\n"
+        "field was never recorded, the AI sees the modern value as if it\n"
+        "applied. When advising on a specific older shot's grinder/bean, treat\n"
+        "the session context as a best-effort inference, not a guaranteed\n"
+        "match for that shot's actual recorded data.\n");
+
+    // Detector-observations legend. Per openspec optimize-dialing-context-payload
+    // (task 3), this lives in the system prompt (taught once per
+    // conversation) instead of the per-call prose body. Per-shot blocks
+    // still emit `[warning] / [caution] / [good] / [observation]` tags
+    // on individual detector lines; this legend tells the AI how to
+    // weight them.
+    base += QStringLiteral("\n\n## Reading Detector Observations\n\n"
+        "Per-shot blocks may include a `## Detector Observations` section listing\n"
+        "lines tagged with severity. The lines come from the same deterministic\n"
+        "detectors that drive the in-app Shot Summary badges the user sees. Treat\n"
+        "them as diagnostic signals (evidence), not your conclusions. Severity\n"
+        "tags reflect detector confidence, not your final assessment:\n\n"
+        "- [warning] high-confidence failure mode (sustained channeling, choked puck, yield overshoot/gusher, pour truncated, frame skip)\n"
+        "- [caution] directional hint (grind drift, flow trend, temp drift)\n"
+        "- [good] positive signal (puck stable)\n"
+        "- [observation] context (preinfusion drip mass)\n\n"
+        "Cross-check against the raw curves and the user's tasting feedback, and\n"
+        "reason independently — you have richer context (bean, prior shots, tasting\n"
+        "notes) than the deterministic detectors do.\n");
 
     // Append dial-in reference tables for espresso (cacheable, shared with MCP)
     if (beverageType.toLower() != "filter" && beverageType.toLower() != "pourover") {

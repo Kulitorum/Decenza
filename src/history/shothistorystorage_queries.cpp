@@ -589,7 +589,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
 
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
-    const QString& grinderModel, const QString& beverageType)
+    const QString& grinderModel, const QString& beverageType,
+    const QString& beanBrand)
 {
     GrinderContext ctx;
     if (grinderModel.isEmpty()) return ctx;
@@ -597,12 +598,24 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     ctx.model = grinderModel;
     ctx.beverageType = beverageType.isEmpty() ? QStringLiteral("espresso") : beverageType;
 
+    // Build SQL with an optional bean_brand filter — same conditional-
+    // append pattern used by loadRecentShotsByKbIdStatic and
+    // buildFilterQuery in this file.
+    QString sql = QStringLiteral(
+        "SELECT DISTINCT grinder_setting FROM shots "
+        "WHERE grinder_model = :model AND beverage_type = :bev "
+        "AND grinder_setting != ''");
+    if (!beanBrand.isEmpty()) {
+        sql += QStringLiteral(" AND bean_brand = :brand");
+    }
+
     QSqlQuery q(db);
-    q.prepare("SELECT DISTINCT grinder_setting FROM shots "
-              "WHERE grinder_model = :model AND beverage_type = :bev "
-              "AND grinder_setting != ''");
+    q.prepare(sql);
     q.bindValue(":model", grinderModel);
     q.bindValue(":bev", ctx.beverageType);
+    if (!beanBrand.isEmpty()) {
+        q.bindValue(":brand", beanBrand);
+    }
     if (!q.exec()) return ctx;
 
     QSet<double> numericSet;

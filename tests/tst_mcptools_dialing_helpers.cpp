@@ -16,6 +16,19 @@ private slots:
     void exactlyAtThreshold_groupsTogether();
     void justOverThreshold_breaksSession();
     void thresholdIsConfigurable();
+
+    // buildBeanFreshness (openspec optimize-dialing-context-payload, task 6)
+    void buildBeanFreshness_emptyRoastDate_returnsEmptyObject();
+    void buildBeanFreshness_populatedRoastDate_carriesFreshnessKnownAndInstruction();
+    void buildBeanFreshness_neverEmitsAnyDayCountField();
+
+    // hoistSessionContext (openspec optimize-dialing-context-payload, task 1)
+    void hoistSessionContext_emptySession_returnsEmpty();
+    void hoistSessionContext_allShotsShareIdentity_contextHasAllOverridesEmpty();
+    void hoistSessionContext_oneShotDiffersOnBeanBrand_onlyThatShotOverrides();
+    void hoistSessionContext_singleShotSession_contextCarriesIdentity();
+    void hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty();
+    void hoistSessionContext_allShotsEmptyForField_contextOmitsField();
 };
 
 void TstMcpToolsDialingHelpers::emptyInput_returnsNoSessions()
@@ -91,6 +104,223 @@ void TstMcpToolsDialingHelpers::thresholdIsConfigurable()
     // With a 30-min threshold, a 45-min gap should split.
     const auto sessions = groupSessions({3600, 3600 - 45 * 60}, /*thresholdSec=*/30 * 60);
     QCOMPARE(sessions.size(), qsizetype(2));
+}
+
+// ---- buildBeanFreshness (openspec optimize-dialing-context-payload, task 6) ----
+//
+// The block replaces the precomputed `daysSinceRoast` + advisory note with a
+// structured shape that forces the AI to ASK about storage before quoting
+// age. Calendar age without storage context (frozen, thawed weekly,
+// vacuum-sealed) is misleading data dressed as precise data — many users
+// freeze beans, and the previous advisory note was demonstrably skimmed.
+
+void TstMcpToolsDialingHelpers::buildBeanFreshness_emptyRoastDate_returnsEmptyObject()
+{
+    QCOMPARE(buildBeanFreshness(QString()), QJsonObject());
+    QCOMPARE(buildBeanFreshness(QStringLiteral("")), QJsonObject());
+}
+
+void TstMcpToolsDialingHelpers::buildBeanFreshness_populatedRoastDate_carriesFreshnessKnownAndInstruction()
+{
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"));
+    QCOMPARE(block["roastDate"].toString(), QStringLiteral("2026-04-15"));
+    QCOMPARE(block["freshnessKnown"].toBool(), false);
+    QVERIFY2(block.contains("instruction"),
+             "block must carry the imperative storage instruction");
+    const QString instruction = block["instruction"].toString();
+    QVERIFY2(instruction.contains(QStringLiteral("ASK")),
+             "instruction must include an explicit ASK directive");
+    QVERIFY2(instruction.contains(QStringLiteral("storage")),
+             "instruction must reference storage as the missing variable");
+    QVERIFY2(instruction.contains(QStringLiteral("freeze"))
+             || instruction.contains(QStringLiteral("frozen")),
+             "instruction must surface the freezing pattern that breaks calendar-age reasoning");
+}
+
+void TstMcpToolsDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()
+{
+    // The block intentionally contains NO precomputed day count under any
+    // field name. This is the load-bearing contract — adding back any
+    // *days* field undoes the change. Pin it here so a future refactor
+    // can't accidentally reintroduce one.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"));
+    const QStringList forbiddenKeys = {
+        QStringLiteral("daysSinceRoast"),
+        QStringLiteral("calendarDaysSinceRoast"),
+        QStringLiteral("effectiveAgeDays"),
+        QStringLiteral("ageDays"),
+        QStringLiteral("days")
+    };
+    for (const QString& key : forbiddenKeys) {
+        QVERIFY2(!block.contains(key),
+                 qPrintable(QString("beanFreshness must not contain a precomputed day-count field: %1").arg(key)));
+    }
+    // Also verify no key contains the substring "Day" (case-sensitive
+    // since field naming is conventionally camelCase here).
+    for (const QString& key : block.keys()) {
+        QVERIFY2(!key.contains(QStringLiteral("Day")),
+                 qPrintable(QString("unexpected day-related key in beanFreshness: %1").arg(key)));
+    }
+}
+
+// ---- hoistSessionContext (openspec optimize-dialing-context-payload, task 1) ----
+//
+// Empirical anchor: the Northbound 80's Espresso conversation has a 4-shot
+// session where every shot shares the same Niche Zero / 63mm Mazzer Kony /
+// Northbound bean. The pre-change payload repeats those five fields on
+// every shot in `dialInSessions[].shots[]`. After hoisting, the fields
+// surface once on `session.context` and zero times on per-shot entries.
+
+namespace {
+McpDialingHelpers::ShotIdentity makeIdentity(const QString& gBrand,
+                                              const QString& gModel,
+                                              const QString& gBurrs,
+                                              const QString& bBrand,
+                                              const QString& bType)
+{
+    McpDialingHelpers::ShotIdentity id;
+    id.grinderBrand = gBrand;
+    id.grinderModel = gModel;
+    id.grinderBurrs = gBurrs;
+    id.beanBrand = bBrand;
+    id.beanType = bType;
+    return id;
+}
+} // namespace
+
+void TstMcpToolsDialingHelpers::hoistSessionContext_emptySession_returnsEmpty()
+{
+    const auto out = hoistSessionContext({});
+    QVERIFY(out.context.grinderBrand.isEmpty());
+    QVERIFY(out.context.beanBrand.isEmpty());
+    QVERIFY(out.perShotOverrides.isEmpty());
+}
+
+void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsShareIdentity_contextHasAllOverridesEmpty()
+{
+    // Mirrors the Northbound 80's Espresso 4-shot iteration session.
+    const auto shot = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QStringLiteral("63mm Mazzer Kony conical"),
+        QStringLiteral("Northbound Coffee Roasters"),
+        QStringLiteral("Spring Tour 2026 #2"));
+    const QList<McpDialingHelpers::ShotIdentity> shots{shot, shot, shot, shot};
+
+    const auto out = hoistSessionContext(shots);
+
+    QCOMPARE(out.context.grinderBrand, QStringLiteral("Niche"));
+    QCOMPARE(out.context.grinderModel, QStringLiteral("Zero"));
+    QCOMPARE(out.context.grinderBurrs, QStringLiteral("63mm Mazzer Kony conical"));
+    QCOMPARE(out.context.beanBrand, QStringLiteral("Northbound Coffee Roasters"));
+    QCOMPARE(out.context.beanType, QStringLiteral("Spring Tour 2026 #2"));
+    QCOMPARE(out.perShotOverrides.size(), shots.size());
+    for (const auto& override : out.perShotOverrides) {
+        QVERIFY2(override.grinderBrand.isEmpty()
+                 && override.grinderModel.isEmpty()
+                 && override.grinderBurrs.isEmpty()
+                 && override.beanBrand.isEmpty()
+                 && override.beanType.isEmpty(),
+                 "all shots share identity → no per-shot overrides");
+    }
+}
+
+void TstMcpToolsDialingHelpers::hoistSessionContext_oneShotDiffersOnBeanBrand_onlyThatShotOverrides()
+{
+    const auto a = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QStringLiteral("63mm conical"),
+        QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
+    const auto b = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QStringLiteral("63mm conical"),
+        QStringLiteral("Prodigal"), QStringLiteral("Buenos Aires"));
+    const QList<McpDialingHelpers::ShotIdentity> shots{a, b, a};
+
+    const auto out = hoistSessionContext(shots);
+
+    // Grinder fields uniform across all shots → all hoisted, no overrides.
+    QCOMPARE(out.context.grinderBrand, QStringLiteral("Niche"));
+    QCOMPARE(out.context.grinderBurrs, QStringLiteral("63mm conical"));
+    // Bean fields differ on shot[1]; context = shots[0]'s value.
+    QCOMPARE(out.context.beanBrand, QStringLiteral("Northbound"));
+    QCOMPARE(out.context.beanType, QStringLiteral("Spring Tour"));
+
+    QCOMPARE(out.perShotOverrides.size(), 3);
+    // Shot[0] matches context → no override.
+    QVERIFY(out.perShotOverrides[0].beanBrand.isEmpty());
+    QVERIFY(out.perShotOverrides[0].beanType.isEmpty());
+    QVERIFY(out.perShotOverrides[0].grinderBrand.isEmpty());
+    // Shot[1] differs on bean fields → override carries them.
+    QCOMPARE(out.perShotOverrides[1].beanBrand, QStringLiteral("Prodigal"));
+    QCOMPARE(out.perShotOverrides[1].beanType, QStringLiteral("Buenos Aires"));
+    // Shot[1]'s grinder still matches context → no grinder override.
+    QVERIFY(out.perShotOverrides[1].grinderBrand.isEmpty());
+    // Shot[2] matches context → no override.
+    QVERIFY(out.perShotOverrides[2].beanBrand.isEmpty());
+}
+
+void TstMcpToolsDialingHelpers::hoistSessionContext_singleShotSession_contextCarriesIdentity()
+{
+    const auto only = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QStringLiteral("63mm conical"),
+        QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
+    const auto out = hoistSessionContext({only});
+
+    QCOMPARE(out.context.grinderBrand, QStringLiteral("Niche"));
+    QCOMPARE(out.context.beanBrand, QStringLiteral("Northbound"));
+    QCOMPARE(out.perShotOverrides.size(), 1);
+    QVERIFY(out.perShotOverrides[0].grinderBrand.isEmpty());
+    QVERIFY(out.perShotOverrides[0].beanBrand.isEmpty());
+}
+
+void TstMcpToolsDialingHelpers::hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty()
+{
+    // Shot[0] has no recorded grinderBurrs (legacy import); shots[1+] do.
+    // Context should pick the first non-empty value rather than leave it
+    // blank — otherwise shots[1+] would all carry burrs as overrides
+    // even though they agree with each other.
+    const auto a = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QString(),  // empty burrs on legacy shot
+        QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
+    const auto b = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QStringLiteral("63mm conical"),
+        QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
+    const QList<McpDialingHelpers::ShotIdentity> shots{a, b, b};
+
+    const auto out = hoistSessionContext(shots);
+
+    QCOMPARE(out.context.grinderBurrs, QStringLiteral("63mm conical"));
+    // Shot[0] has empty burrs while context has a value — by the spec,
+    // the override carries the field iff `shot[i].field != context.field`.
+    // Empty != "63mm conical", so... but the override emits via
+    // `!override.field.isEmpty()`, so the empty value won't surface in
+    // JSON. This is the correct behavior: legacy shots inherit the
+    // session's modern burr identification rather than blanking it.
+    // The override IS empty for shots[1] and [2] (they match context).
+    QVERIFY(out.perShotOverrides[1].grinderBurrs.isEmpty());
+    QVERIFY(out.perShotOverrides[2].grinderBurrs.isEmpty());
+}
+
+void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsEmptyForField_contextOmitsField()
+{
+    // No shot has a recorded grinderBurrs — context.grinderBurrs stays
+    // empty, and the JSON serializer omits the field from `context`.
+    const auto a = makeIdentity(
+        QStringLiteral("Niche"), QStringLiteral("Zero"),
+        QString(),
+        QStringLiteral("Northbound"), QStringLiteral("Spring Tour"));
+    const QList<McpDialingHelpers::ShotIdentity> shots{a, a, a};
+
+    const auto out = hoistSessionContext(shots);
+
+    QVERIFY2(out.context.grinderBurrs.isEmpty(),
+             "no shot has burrs → context.grinderBurrs stays empty (serializer omits)");
+    for (const auto& override : out.perShotOverrides) {
+        QVERIFY(override.grinderBurrs.isEmpty());
+    }
 }
 
 QTEST_APPLESS_MAIN(TstMcpToolsDialingHelpers)
