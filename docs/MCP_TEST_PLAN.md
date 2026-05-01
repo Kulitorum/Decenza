@@ -693,7 +693,9 @@ un-suffixed writer names. Quick lookup:
 
 PR #984 (#980) extended the suffixed-read convention through `ShotProjection`, so
 `shots_get_detail` and `shots_compare` now match `shots_list` for `enjoyment0to100`,
-`drinkTdsPct`, and `drinkEyPct`. Remaining read/write asymmetries (dose, yield, notes)
+`drinkTdsPct`, and `drinkEyPct`. Per #991, all three fields are emitted as `null`
+(not `0`) on shots that lack a rating or refractometer measurement, so callers can
+distinguish unrated/unmeasured from a deliberate zero. Remaining read/write asymmetries (dose, yield, notes)
 are tracked separately — read names use the projection's full member name (`doseWeightG`,
 `finalWeightG`, `espressoNotes`) while write names use the legacy short form for
 `shots_update`/`settings_set` schemas.
