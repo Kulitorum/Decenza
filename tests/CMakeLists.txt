@@ -220,6 +220,40 @@ add_decenza_test(tst_shotsummarizer
 target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Charts)
 target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_aimanager: canonical-source separation end-to-end (task 10.5) ---
+# Pins the contract that AIManager::emitRecentShotContext hoists profile
+# intent + recipe + setup identity to a single header at the top of the
+# "Previous Shots" section, and that legacy empty-string identity fields
+# read as "inherit" rather than "different." Friend-class access is via
+# `friend class tst_AIManager` under DECENZA_TESTING in aimanager.h.
+qt_add_resources(TST_AIMANAGER_AI_RESOURCES
+    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
+add_decenza_test(tst_aimanager
+    tst_aimanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/aimanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/aiconversation.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
+    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CODEC_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${TST_AIMANAGER_AI_RESOURCES}
+)
+target_link_libraries(tst_aimanager PRIVATE Qt6::Quick Qt6::Charts)
+target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_shotcorpus: Qt Test wrapper around shot_eval --validate.
 # Runs the curated corpus under tests/data/shots/ as part of the regular
 # Qt Test suite so Qt Creator's Tests panel picks it up alongside the

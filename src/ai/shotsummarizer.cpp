@@ -214,7 +214,6 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.profileNotes = profile->profileNotes();
         summary.profileAuthor = profile->author();
         summary.beverageType = profile->beverageType();
-        summary.profileRecipeDescription = profile->describeFrames();
         summary.targetWeight = profile->targetWeight();
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
@@ -384,7 +383,6 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
             if (!editorType.isEmpty() && editorType != QLatin1String("advanced"))
                 summary.profileType = profileTypeDescription(editorType);
         }
-        summary.profileRecipeDescription = Profile::describeFramesFromJson(profileJson);
     }
 
     // Overall metrics
@@ -525,20 +523,28 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     return summary;
 }
 
-QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
+QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode mode) const
 {
     QString prompt;
     QTextStream out(&prompt);
+    const bool isHistoryBlock = (mode == RenderMode::HistoryBlock);
 
-    // Shot summary
-    out << "## Shot Summary\n\n";
-    out << "- **Profile**: " << (summary.profileTitle.isEmpty() ? "Unknown" : summary.profileTitle);
-    if (!summary.profileAuthor.isEmpty()) out << " (by " << summary.profileAuthor << ")";
-    if (!summary.profileType.isEmpty()) out << " — " << summary.profileType;
-    out << "\n";
-    if (!summary.profileNotes.isEmpty()) {
-        out << "- **Profile intent**: " << summary.profileNotes << "\n";
-    }
+    // Shot summary — shot-VARIABLE fields only. Per openspec
+    // optimize-dialing-context-payload (tasks 8 + 9): profile identity
+    // (title / intent / recipe) lives in `result.profile`; bean identity
+    // lives in `currentBean`; grinder brand/model/burrs lives in
+    // `currentBean.grinder*` and `dialInSessions[].context`. The prose
+    // body carries only what changes per-shot (dose, yield, ratio,
+    // duration, grinder setting, extraction, peaks, phase data, detector
+    // observations). Removing these constants saves ~5,400 chars across a
+    // 4-shot history block (the Northbound 80's Espresso baseline).
+    //
+    // `HistoryBlock` mode skips this top-level header line — the caller
+    // (`AIManager::requestRecentShotContext`) wraps each block in its
+    // own `### Shot (date)` header, so the per-shot `## Shot Summary`
+    // header would be redundant under that wrapper.
+    if (!isHistoryBlock)
+        out << "## Shot Summary\n\n";
     out << "- **Dose**: " << QString::number(summary.doseWeight, 'f', 1) << "g → ";
     out << "**Yield**: " << QString::number(summary.finalWeight, 'f', 1) << "g";
     if (summary.targetWeight > 0) {
@@ -552,39 +558,8 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     }
     out << " ratio 1:" << QString::number(summary.ratio, 'f', 1) << "\n";
     out << "- **Duration**: " << QString::number(summary.totalDuration, 'f', 0) << "s\n";
-
-    // Coffee info
-    if (!summary.beanBrand.isEmpty() || !summary.beanType.isEmpty()) {
-        out << "- **Coffee**: " << summary.beanBrand;
-        if (!summary.beanBrand.isEmpty() && !summary.beanType.isEmpty()) out << " - ";
-        out << summary.beanType;
-        if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
-        if (!summary.roastDate.isEmpty()) {
-            // Per the openspec dialing-context-payload change (task 6): no
-            // precomputed day count in prose. Calendar age without storage
-            // context (frozen / thawed weekly / vacuum-sealed) is misleading
-            // — the AI must ASK about storage before quoting age. The
-            // canonical surface is the JSON `currentBean.beanFreshness`
-            // block; the prose only carries the date as the user entered
-            // it, with a storage caveat.
-            out << ", roasted " << summary.roastDate
-                << " (ask user about storage before reasoning about age)";
-        }
-        out << "\n";
-    }
-    if (!summary.grinderBrand.isEmpty() || !summary.grinderModel.isEmpty()) {
-        QString grinderStr = summary.grinderBrand.isEmpty() ? summary.grinderModel
-            : (summary.grinderModel.isEmpty() ? summary.grinderBrand
-               : summary.grinderBrand + " " + summary.grinderModel);
-        out << "- **Grinder**: " << grinderStr;
-        if (!summary.grinderBurrs.isEmpty()) out << " with " << summary.grinderBurrs;
-        // Enrich with burr geometry (e.g. "83mm flat") from grinder database
-        QString geometry = GrinderAliases::burrGeometry(
-            summary.grinderBrand, summary.grinderModel, summary.grinderBurrs);
-        if (!geometry.isEmpty() && !summary.grinderBurrs.contains(geometry))
-            out << " (" << geometry << ")";
-        if (!summary.grinderSetting.isEmpty()) out << " @ " << summary.grinderSetting;
-        out << "\n";
+    if (!summary.grinderSetting.isEmpty()) {
+        out << "- **Grind setting**: " << summary.grinderSetting << "\n";
     }
     if (summary.drinkTds > 0 || summary.drinkEy > 0) {
         out << "- **Extraction**: ";
@@ -612,11 +587,6 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         }
     }
     out << "\n";
-
-    // Profile recipe (frame sequence)
-    if (!summary.profileRecipeDescription.isEmpty()) {
-        out << summary.profileRecipeDescription << "\n";
-    }
 
     // Phase breakdown: start, peak-deviation (most diagnostic), end
     out << "## Phase Data\n\n";
@@ -757,7 +727,13 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         // per conversation from `shotAnalysisSystemPrompt`. Saves
         // ~430 chars per per-shot block on the in-app history path that
         // calls buildUserPrompt N times.
-        out << "## Detector Observations\n\n";
+        //
+        // Per task 10: `HistoryBlock` mode skips this top-level header
+        // line so it doesn't render redundantly under each `### Shot
+        // (date)` wrapper. The per-line tagged observations themselves
+        // still emit (they are shot-variable detector signals).
+        if (!isHistoryBlock)
+            out << "## Detector Observations\n\n";
         for (const QVariant& v : nonVerdictLines) {
             const QVariantMap line = v.toMap();
             out << "- [" << line.value(QStringLiteral("type")).toString() << "] "
@@ -784,6 +760,30 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
     // ShotHistoryStorage::loadRecentShotsByKbIdStatic — that producer emits a
     // map with the same keys as ShotProjection's Q_PROPERTYs, so the round-trip
     // through fromVariantMap() is lossless for the fields read here.
+
+    // Per openspec optimize-dialing-context-payload (task 10.4): the
+    // input list is already filtered by profile_kb_id (loadRecentShotsByKbIdStatic),
+    // so every shot shares the same profile name and recipe. Emit them
+    // once at the top instead of N× per shot. The first shot with a
+    // populated profileJson seeds the recipe (all shots on the same KB
+    // family render to the same frame description).
+    QString profileName, profileRecipe;
+    for (const QVariant& v : recentShots) {
+        const ShotProjection s = ShotProjection::fromVariantMap(v.toMap());
+        if (profileName.isEmpty() && !s.profileName.isEmpty())
+            profileName = s.profileName;
+        if (profileRecipe.isEmpty() && !s.profileJson.isEmpty())
+            profileRecipe = Profile::describeFramesFromJson(s.profileJson);
+        if (!profileName.isEmpty() && !profileRecipe.isEmpty()) break;
+    }
+    if (!profileName.isEmpty()) {
+        out << "### Profile: " << profileName << "\n";
+        if (!profileRecipe.isEmpty())
+            out << profileRecipe << "\n";
+        else
+            out << "\n";
+    }
+
     for (qsizetype i = 0; i < recentShots.size(); ++i) {
         const ShotProjection shot = ShotProjection::fromVariantMap(recentShots[i].toMap());
 
@@ -793,7 +793,9 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         const double ratio = shot.doseWeightG > 0 ? shot.finalWeightG / shot.doseWeightG : 0;
 
         out << "### Shot " << (i + 1) << " (" << shot.timestampIso << ")\n";
-        out << "- Profile: " << shot.profileName << "\n";
+        // `Profile:` and `Recipe:` are hoisted to the single header above
+        // (task 10.4) — per-shot repetition was redundant, the input is
+        // already KB-filtered.
         out << "- Dose: " << QString::number(shot.doseWeightG, 'f', 1) << "g → Yield: "
             << QString::number(shot.finalWeightG, 'f', 1) << "g (1:" << QString::number(ratio, 'f', 1) << ")\n";
         out << "- Duration: " << QString::number(shot.durationSec, 'f', 0) << "s\n";
@@ -842,14 +844,6 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
             out << "- Notes: \"" << shot.espressoNotes << "\"\n";
         }
 
-        // Profile recipe (from stored JSON)
-        if (!shot.profileJson.isEmpty()) {
-            QString recipe = Profile::describeFramesFromJson(shot.profileJson);
-            if (!recipe.isEmpty()) {
-                out << "- Recipe: " << recipe << "\n";
-            }
-        }
-
         out << "\n";
     }
 
@@ -876,6 +870,20 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
     base += QStringLiteral("\n\n## How to Read Structured Fields\n\n"
         "The `dialing_get_context` JSON payload carries structural fields whose\n"
         "semantics are consistent across calls. Treat them as gates on your advice:\n\n"
+        "**`result.profile`**: the single canonical source for profile metadata —\n"
+        "`filename`, `title`, `intent`, `recipe`, `targetWeightG`,\n"
+        "`targetTemperatureC`, and `recommendedDoseG` (when set). Read profile\n"
+        "intent and frame recipe from here. The `shotAnalysis` prose body\n"
+        "carries shot-VARIABLE data only (dose, yield, duration, grind setting,\n"
+        "extraction, peaks, phase data, detector observations) — it never\n"
+        "carries `Profile:`, `Profile intent:`, or `## Profile Recipe`.\n\n"
+        "**`currentBean`** + **`dialInSessions[].context`**: shot-INVARIANT\n"
+        "identity. `currentBean.brand` / `.type` / `.roastLevel` carry bean\n"
+        "identity; `currentBean.grinderBrand` / `.grinderModel` / `.grinderBurrs`\n"
+        "carry grinder identity for the live setup. The `shotAnalysis` prose\n"
+        "carries neither — it never carries a `Coffee:` / `Beans:` line nor a\n"
+        "`Grinder:` line with brand/model/burrs. Only the per-shot variable\n"
+        "`Grind setting:` appears in prose.\n\n"
         "**`tastingFeedback`**: carries booleans `hasEnjoymentScore`, `hasNotes`,\n"
         "`hasRefractometer`. When ALL three are false, ASK the user how the shot\n"
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"

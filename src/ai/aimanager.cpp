@@ -507,66 +507,151 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             }
         });
 
-        // Summarization runs on main thread (ShotSummarizer is owned by AIManager)
+        // Summarization runs on main thread (ShotSummarizer is owned by AIManager).
+        // The render+emit work is in `emitRecentShotContext` so the
+        // canonical-source separation logic can be exercised by tests
+        // (`friend class tst_AIManager`) without standing up a real DB.
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots),
                                          grinderCtx = std::move(grinderCtx),
                                          grinderBrand = std::move(grinderBrand)]() mutable {
             if (!self) return;
-            if (serial != self->m_contextSerial) {
-                // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
-                emit self->recentShotContextReady(QString());
-                return;
-            }
-
-            QString result;
-            QStringList shotSections;
-            for (const auto& qs : qualifiedShots) {
-                ShotSummary summary = self->m_summarizer->summarizeFromHistory(qs.second);
-                QString summaryText = self->m_summarizer->buildUserPrompt(summary);
-                if (summaryText.isEmpty()) continue;
-
-                static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
-                QString dateStr = QDateTime::fromSecsSinceEpoch(qs.first).toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
-                shotSections.prepend(QString("### Shot (%1)\n\n%2").arg(dateStr).arg(summaryText));
-            }
-
-            if (!shotSections.isEmpty()) {
-                result = "## Previous Shots with This Bean & Profile\n\n"
-                         "All shots below use the same profile as the current shot. "
-                         "Do not comment on frame-level recipe details unless they changed between shots. "
-                         "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n" +
-                         shotSections.join("\n\n");
-            }
-
-            // Append grinder context if available (observed settings range and step size)
-            if (!grinderCtx.settingsObserved.isEmpty()) {
-                QString section = "\n\n## Grinder Context\n\n"
-                    "From the user's own shot history with this grinder:\n\n";
-                section += "- **Model**: " + grinderCtx.model + "\n";
-
-                // Burr specs are already shown per-shot in buildUserPrompt().
-                // Only add swappability here — it's grinder-level info not in per-shot data.
-                if (GrinderAliases::isBurrSwappable(grinderBrand, grinderCtx.model))
-                    section += "- **Burr-swappable**: yes (aftermarket burrs available for this grinder)\n";
-
-                section += "- **Settings used for " + grinderCtx.beverageType + "**: "
-                         + grinderCtx.settingsObserved.join(", ") + "\n";
-                if (grinderCtx.allNumeric && grinderCtx.maxSetting > grinderCtx.minSetting) {
-                    section += "- **Range explored**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
-                             + QString::number(grinderCtx.maxSetting) + "\n";
-                    if (grinderCtx.smallestStep > 0) {
-                        section += "- **Smallest step**: " + QString::number(grinderCtx.smallestStep) + "\n";
-                    }
-                }
-                result += section;
-            }
-
-            emit self->recentShotContextReady(result);
+            self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial);
         }, Qt::QueuedConnection);
     });
 
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+void AIManager::emitRecentShotContext(
+    const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
+    const GrinderContext& grinderCtx,
+    const QString& grinderBrand,
+    int serial)
+{
+    if (serial != m_contextSerial) {
+        // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
+        emit recentShotContextReady(QString());
+        return;
+    }
+
+    QString result;
+
+    // Per openspec optimize-dialing-context-payload (task 10.3):
+    // hoist profile + setup constants to a single header at the
+    // top of the history section, then render each shot in
+    // `HistoryBlock` mode so the per-shot blocks carry shot-
+    // variable data only. Saves ~5,400 chars across a 4-shot
+    // history (Northbound 80's Espresso baseline) by killing
+    // N× repetition of profile intent + recipe + grinder/bean
+    // identity.
+    QString profileTitle, profileIntent, profileRecipe;
+    QString setupGrinderBrand, setupGrinderModel, setupGrinderBurrs;
+    QString setupBeanBrand, setupBeanType;
+    // Empty fields read as "unrecorded, inherit" — not "different."
+    // Older shots predating DYE recording have empty grinder/bean
+    // strings; treating those as a mismatch would suppress the
+    // hoisted Setup header for any history that mixes
+    // pre-DYE shots with post-DYE shots. Only flip setupShared
+    // false when both sides are non-empty AND differ. The shared
+    // values are populated lazily via firstNonEmpty so a recorded
+    // value seeds the canonical even if shot[0] was unrecorded.
+    bool setupShared = !qualifiedShots.isEmpty();
+    auto seedOrCompare = [&setupShared](QString& canonical, const QString& v) {
+        if (canonical.isEmpty()) {
+            canonical = v;
+        } else if (!v.isEmpty() && v != canonical) {
+            setupShared = false;
+        }
+    };
+    for (const auto& qs : qualifiedShots) {
+        const ShotProjection& s = qs.second;
+        seedOrCompare(setupGrinderBrand, s.grinderBrand);
+        seedOrCompare(setupGrinderModel, s.grinderModel);
+        seedOrCompare(setupGrinderBurrs, s.grinderBurrs);
+        seedOrCompare(setupBeanBrand, s.beanBrand);
+        seedOrCompare(setupBeanType, s.beanType);
+        if (profileTitle.isEmpty() && !s.profileName.isEmpty())
+            profileTitle = s.profileName;
+        if (profileIntent.isEmpty() && !s.profileNotes.isEmpty())
+            profileIntent = s.profileNotes;
+        if (profileRecipe.isEmpty() && !s.profileJson.isEmpty())
+            profileRecipe = Profile::describeFramesFromJson(s.profileJson);
+    }
+
+    QStringList shotSections;
+    for (const auto& qs : qualifiedShots) {
+        ShotSummary summary = m_summarizer->summarizeFromHistory(qs.second);
+        QString summaryText = m_summarizer->buildUserPrompt(
+            summary, ShotSummarizer::RenderMode::HistoryBlock);
+        if (summaryText.isEmpty()) continue;
+
+        static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
+        QString dateStr = QDateTime::fromSecsSinceEpoch(qs.first).toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
+        shotSections.prepend(QString("### Shot (%1)\n\n%2").arg(dateStr).arg(summaryText));
+    }
+
+    if (!shotSections.isEmpty()) {
+        result = "## Previous Shots with This Bean & Profile\n\n"
+                 "All shots below use the same profile as the current shot. "
+                 "Do not comment on frame-level recipe details unless they changed between shots. "
+                 "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n";
+
+        if (!profileTitle.isEmpty()) {
+            result += "### Profile: " + profileTitle + "\n";
+            if (!profileIntent.isEmpty())
+                result += profileIntent + "\n";
+            if (!profileRecipe.isEmpty())
+                result += profileRecipe;
+            result += "\n";
+        }
+
+        if (setupShared && (!setupGrinderBrand.isEmpty() || !setupGrinderModel.isEmpty()
+                            || !setupBeanBrand.isEmpty() || !setupBeanType.isEmpty())) {
+            result += "### Setup: ";
+            if (!setupGrinderBrand.isEmpty()) result += setupGrinderBrand;
+            if (!setupGrinderModel.isEmpty()) {
+                if (!setupGrinderBrand.isEmpty()) result += " ";
+                result += setupGrinderModel;
+            }
+            if (!setupGrinderBurrs.isEmpty())
+                result += " with " + setupGrinderBurrs;
+            if (!setupBeanBrand.isEmpty() || !setupBeanType.isEmpty()) {
+                result += " on " + setupBeanBrand;
+                if (!setupBeanBrand.isEmpty() && !setupBeanType.isEmpty())
+                    result += " - ";
+                result += setupBeanType;
+            }
+            result += "\n\n";
+        }
+
+        result += shotSections.join("\n\n");
+    }
+
+    // Append grinder context if available (observed settings range and step size)
+    if (!grinderCtx.settingsObserved.isEmpty()) {
+        QString section = "\n\n## Grinder Context\n\n"
+            "From the user's own shot history with this grinder:\n\n";
+        section += "- **Model**: " + grinderCtx.model + "\n";
+
+        // Burr specs are already shown per-shot in buildUserPrompt().
+        // Only add swappability here — it's grinder-level info not in per-shot data.
+        if (GrinderAliases::isBurrSwappable(grinderBrand, grinderCtx.model))
+            section += "- **Burr-swappable**: yes (aftermarket burrs available for this grinder)\n";
+
+        section += "- **Settings used for " + grinderCtx.beverageType + "**: "
+                 + grinderCtx.settingsObserved.join(", ") + "\n";
+        if (grinderCtx.allNumeric && grinderCtx.maxSetting > grinderCtx.minSetting) {
+            section += "- **Range explored**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
+                     + QString::number(grinderCtx.maxSetting) + "\n";
+            if (grinderCtx.smallestStep > 0) {
+                section += "- **Smallest step**: " + QString::number(grinderCtx.smallestStep) + "\n";
+            }
+        }
+        result += section;
+    }
+
+    emit recentShotContextReady(result);
 }
 
 void AIManager::testConnection()

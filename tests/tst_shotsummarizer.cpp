@@ -1085,27 +1085,32 @@ private slots:
                  "system prompt must teach inferredFields gating");
     }
 
-    // Openspec optimize-dialing-context-payload, task 6.5: the prose path
-    // must keep the user's entered roast date and a storage caveat, but
-    // SHALL NOT carry any precomputed day count. Calendar age without
-    // storage context (frozen vs counter) is misleading data; the AI must
-    // ASK before quoting age. Pre-change prose emitted "(N days since
-    // roast, not necessarily freshness — ask about storage)"; this test
-    // pins the new shape.
-    void buildUserPrompt_coffeeLine_carriesRoastDateWithoutDayCount()
+    // Openspec optimize-dialing-context-payload, tasks 8 + 9: the prose
+    // body carries shot-VARIABLE data only. Bean identity (`Coffee:`),
+    // roast date (`roasted YYYY-MM-DD`), grinder brand/model/burrs, and
+    // profile identity (`Profile:` / `Profile intent:` / `## Profile
+    // Recipe`) all live in structured JSON blocks (`currentBean`,
+    // `currentBean.beanFreshness`, `dialInSessions[].context`,
+    // `result.profile`). The grinder *setting* is shot-variable so it
+    // still emits, on a renamed `Grind setting:` line that carries no
+    // brand/model/burrs prefix.
+    void buildUserPrompt_carriesOnlyShotVariableFields()
     {
         QVariantMap shot;
         shot["beverageType"] = QStringLiteral("espresso");
         shot["durationSec"] = 30.0;
         shot["doseWeightG"] = 18.0;
         shot["finalWeightG"] = 36.0;
+        shot["profileName"] = QStringLiteral("80's Espresso");
+        shot["profileNotes"] = QStringLiteral("0.5–1.2 ml/s target through extraction");
         shot["beanBrand"] = QStringLiteral("Northbound Coffee Roasters");
         shot["beanType"] = QStringLiteral("Spring Tour 2026 #2");
         shot["roastLevel"] = QStringLiteral("Dark");
-        // ISO date — far enough in the past that any inadvertent
-        // day-count emission would render a multi-digit number we can
-        // grep for.
         shot["roastDate"] = QStringLiteral("2026-03-30");
+        shot["grinderBrand"] = QStringLiteral("Niche");
+        shot["grinderModel"] = QStringLiteral("Zero");
+        shot["grinderBurrs"] = QStringLiteral("63mm Mazzer Kony conical");
+        shot["grinderSetting"] = QStringLiteral("4.0");
 
         QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
         appendFlat(pressure, 0.0, 8.0, 2.0);
@@ -1134,21 +1139,180 @@ private slots:
         const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
         const QString prompt = summarizer.buildUserPrompt(summary);
 
-        QVERIFY2(prompt.contains(QStringLiteral("roasted 2026-03-30")),
-                 "prose must keep the user-entered roast date verbatim");
-        QVERIFY2(prompt.contains(QStringLiteral("ask user about storage")),
-                 "prose must carry the imperative storage caveat next to the date");
+        // Shot-variable data still emits.
+        QVERIFY2(prompt.contains(QStringLiteral("**Dose**")),
+                 "shot-variable Dose line must still emit");
+        QVERIFY2(prompt.contains(QStringLiteral("**Yield**")),
+                 "shot-variable Yield line must still emit");
+        QVERIFY2(prompt.contains(QStringLiteral("**Duration**")),
+                 "shot-variable Duration line must still emit");
+        QVERIFY2(prompt.contains(QStringLiteral("**Grind setting**: 4.0")),
+                 "shot-variable grinder *setting* still emits on a brand/model-free line");
+
+        // Profile identity must NOT appear in prose (lives in result.profile).
+        QVERIFY2(!prompt.contains(QStringLiteral("**Profile**:")) &&
+                 !prompt.contains(QStringLiteral("Profile:")),
+                 "Profile line must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("Profile intent:")) &&
+                 !prompt.contains(QStringLiteral("**Profile intent**:")),
+                 "Profile intent line must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("## Profile Recipe")),
+                 "Profile Recipe section must NOT appear in prose");
+
+        // Bean identity must NOT appear in prose (lives in currentBean).
+        QVERIFY2(!prompt.contains(QStringLiteral("Northbound Coffee Roasters")),
+                 "bean brand must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("Spring Tour 2026 #2")),
+                 "bean type must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("**Coffee**")) &&
+                 !prompt.contains(QStringLiteral("Coffee:")),
+                 "Coffee line must NOT appear in prose");
+
+        // Roast date + day-count parenthetical must NOT appear in prose
+        // (lives in currentBean.beanFreshness.roastDate).
+        QVERIFY2(!prompt.contains(QStringLiteral("2026-03-30")),
+                 "roast date must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("roasted ")),
+                 "no `roasted YYYY-MM-DD` literal allowed in prose");
         QVERIFY2(!prompt.contains(QStringLiteral("days since roast")),
                  "prose must NOT precompute a day-count parenthetical");
         QVERIFY2(!prompt.contains(QStringLiteral("days post-roast")),
                  "prose must NOT use any day-count phrasing");
-        // Spot-check: verify no standalone integer rendered adjacent to the
-        // roast date (the pre-change emission "(31 days since roast, ...)"
-        // was the failure mode this test pins).
-        QVERIFY2(!prompt.contains(QStringLiteral("(31 days")) &&
-                 !prompt.contains(QStringLiteral("(32 days")) &&
-                 !prompt.contains(QStringLiteral("(30 days")),
-                 "no day-count parenthetical may appear adjacent to a roast date");
+        QVERIFY2(!prompt.contains(QStringLiteral("ask user about storage")),
+                 "the storage caveat now lives in currentBean.beanFreshness.instruction, not prose");
+
+        // Grinder brand/model/burrs must NOT appear in prose (lives in
+        // currentBean.grinder* and dialInSessions[].context).
+        QVERIFY2(!prompt.contains(QStringLiteral("Niche")),
+                 "grinder brand must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("Zero")),
+                 "grinder model must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("63mm Mazzer Kony conical")),
+                 "grinder burr identity must NOT appear in prose");
+        QVERIFY2(!prompt.contains(QStringLiteral("**Grinder**")) &&
+                 !prompt.contains(QStringLiteral("- Grinder:")),
+                 "Grinder identity line must NOT appear in prose (only Grind setting:)");
+    }
+
+    // Openspec optimize-dialing-context-payload, task 8.3 / 9.4: the
+    // system prompt teaches where each piece of data lives. The "How to
+    // Read Structured Fields" section gained pointers to result.profile
+    // (canonical surface for profile metadata) and currentBean (canonical
+    // surface for bean/grinder identity).
+    void shotAnalysisSystemPrompt_teachesCanonicalSourcesForProfileAndBean()
+    {
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("espresso"), QStringLiteral("80's Espresso"),
+            QString(), QString());
+        QVERIFY2(prompt.contains(QStringLiteral("`result.profile`")),
+                 "system prompt must point at result.profile as canonical profile surface");
+        QVERIFY2(prompt.contains(QStringLiteral("intent")) &&
+                 prompt.contains(QStringLiteral("recipe")),
+                 "system prompt must name profile intent + recipe as living in result.profile");
+        QVERIFY2(prompt.contains(QStringLiteral("`currentBean`")),
+                 "system prompt must point at currentBean as canonical bean/grinder identity surface");
+    }
+
+    // Openspec optimize-dialing-context-payload, task 10.5: Standalone vs
+    // HistoryBlock render modes differ ONLY in the two top-level header
+    // lines (`## Shot Summary` and `## Detector Observations`). Body
+    // content (dose, yield, duration, grind setting, peaks, phase data,
+    // per-line detector tags, tasting feedback) is identical so the AI
+    // sees the same shot facts under either wrapper.
+    void buildUserPrompt_historyBlockMode_omitsOnlyTopLevelHeaders()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+        shot["grinderSetting"] = QStringLiteral("4.0");
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 8.0, 2.0);
+        appendFlat(pressure, 8.0, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        appendFlat(weight, 0.0, 30.0, 36.0);
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+        const QString standalone = summarizer.buildUserPrompt(summary, ShotSummarizer::RenderMode::Standalone);
+        const QString historyBlock = summarizer.buildUserPrompt(summary, ShotSummarizer::RenderMode::HistoryBlock);
+
+        // Standalone carries the two top-level header lines.
+        QVERIFY2(standalone.contains(QStringLiteral("## Shot Summary")),
+                 "Standalone mode must emit ## Shot Summary header");
+
+        // HistoryBlock omits ONLY those two header lines.
+        QVERIFY2(!historyBlock.contains(QStringLiteral("## Shot Summary")),
+                 "HistoryBlock must NOT emit ## Shot Summary (caller wraps in ### Shot (date))");
+        QVERIFY2(!historyBlock.contains(QStringLiteral("## Detector Observations")),
+                 "HistoryBlock must NOT emit ## Detector Observations header");
+
+        // Body content is identical between modes.
+        QVERIFY2(historyBlock.contains(QStringLiteral("**Dose**")),
+                 "HistoryBlock must still carry shot-variable Dose");
+        QVERIFY2(historyBlock.contains(QStringLiteral("**Grind setting**: 4.0")),
+                 "HistoryBlock must still carry the per-shot grinder setting");
+        QVERIFY2(historyBlock.contains(QStringLiteral("## Phase Data")),
+                 "HistoryBlock must still emit Phase Data section (shot-variable diagnostic)");
+        QVERIFY2(historyBlock.contains(QStringLiteral("## Tasting Feedback")),
+                 "HistoryBlock must still emit Tasting Feedback section");
+    }
+
+    // Openspec optimize-dialing-context-payload, task 10.4: buildHistoryContext
+    // hoists Profile + Recipe to a single header at the top of its
+    // output rather than emitting them per shot.
+    void buildHistoryContext_hoistsProfileAndRecipeToSingleHeader()
+    {
+        QVariantList shots;
+        for (int i = 0; i < 3; ++i) {
+            QVariantMap m;
+            m["id"] = i + 1;
+            m["timestampIso"] = QStringLiteral("2026-04-30T10:0%1:00").arg(i);
+            m["profileName"] = QStringLiteral("80's Espresso");
+            m["doseWeightG"] = 18.0;
+            m["finalWeightG"] = 36.0 + i;  // small variation
+            m["durationSec"] = 30.0;
+            // Minimal valid profile JSON so describeFramesFromJson returns something.
+            m["profileJson"] = QStringLiteral(
+                R"({"version":2,"title":"80's Espresso","steps":[)"
+                R"({"name":"preinfusion","seconds":8,"flow":4.0,"temperature":92,"transition":"fast"},)"
+                R"({"name":"pour","seconds":22,"pressure":9.0,"temperature":92,"transition":"smooth"}]})");
+            shots.append(m);
+        }
+
+        const QString out = ShotSummarizer::buildHistoryContext(shots);
+
+        // Single Profile header at top.
+        QVERIFY2(out.contains(QStringLiteral("### Profile: 80's Espresso")),
+                 "history context must emit the Profile header once at the top");
+        QCOMPARE(out.count(QStringLiteral("### Profile:")), 1);
+        // The recipe (## Profile Recipe ...) is hoisted to the same top
+        // section, so it appears at most once in the whole output.
+        QVERIFY2(out.count(QStringLiteral("## Profile Recipe")) <= 1,
+                 "Profile Recipe must appear at most once in history context");
+        // Per-shot blocks must NOT carry the per-shot Profile/Recipe lines.
+        QVERIFY2(!out.contains(QStringLiteral("- Profile: ")),
+                 "per-shot blocks must not carry `- Profile:` lines");
+        QVERIFY2(!out.contains(QStringLiteral("- Recipe: ")),
+                 "per-shot blocks must not carry `- Recipe:` lines");
     }
 };
 

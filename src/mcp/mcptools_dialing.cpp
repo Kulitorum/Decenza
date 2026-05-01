@@ -459,15 +459,35 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["currentBean"] = bean;
                     }
 
-                    // --- Current profile info ---
+                    // --- Profile (single canonical block) ---
+                    // Per openspec optimize-dialing-context-payload (task 8):
+                    // `result.profile` is the *only* canonical surface for
+                    // profile metadata. Replaces the legacy `currentProfile`
+                    // block and the prose-only `Profile:` / `Profile intent:` /
+                    // `## Profile Recipe` sections in `shotAnalysis`. The
+                    // intent + recipe describe the resolved SHOT's profile
+                    // (read off `dbResult.shotData.profileNotes` /
+                    // `profileJson` — already in memory, no extra DB query);
+                    // targets describe the CURRENT profile loaded on the
+                    // machine. The asymmetry is intentional — the shot is
+                    // what happened, the targets are what the user can act
+                    // on now.
                     if (profileManager) {
                         QJsonObject profileInfo;
                         profileInfo["filename"] = profileManager->currentProfileName();
+                        profileInfo["title"] = profileManager->currentProfile().title();
+                        if (!sd.profileNotes.isEmpty())
+                            profileInfo["intent"] = sd.profileNotes;
+                        if (!sd.profileJson.isEmpty()) {
+                            const QString recipe = Profile::describeFramesFromJson(sd.profileJson);
+                            if (!recipe.isEmpty())
+                                profileInfo["recipe"] = recipe;
+                        }
                         profileInfo["targetWeightG"] = profileManager->profileTargetWeight();
                         profileInfo["targetTemperatureC"] = profileManager->profileTargetTemperature();
                         if (profileManager->profileHasRecommendedDose())
                             profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
-                        result["currentProfile"] = profileInfo;
+                        result["profile"] = profileInfo;
                     }
 
                     // Note: dial-in reference tables and profile knowledge base are now

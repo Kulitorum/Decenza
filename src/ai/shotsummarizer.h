@@ -55,7 +55,6 @@ struct ShotSummary {
     QString profileNotes;   // Author's description of profile intent/design
     QString profileAuthor;
     QString beverageType;   // "espresso", "filter", etc.
-    QString profileRecipeDescription;  // Compact text description of frame sequence
 
     // Overall metrics
     double totalDuration = 0;
@@ -131,8 +130,27 @@ public:
     // Summarize from historical shot data (typed projection from database)
     ShotSummary summarizeFromHistory(const ShotProjection& shotData) const;
 
-    // Generate text prompt from summary
-    QString buildUserPrompt(const ShotSummary& summary) const;
+    // Per openspec optimize-dialing-context-payload (task 10): the
+    // history-block path that AIManager::requestRecentShotContext walks
+    // (one buildUserPrompt call per historical shot) wraps each block in
+    // its own `### Shot (date)` header — duplicating the per-shot
+    // `## Shot Summary` and `## Detector Observations` markdown
+    // headers the standalone path emits. `HistoryBlock` mode skips ONLY
+    // those two top-level header *lines*; the content under them still
+    // emits (dose, yield, duration, grind setting, peaks, phase data,
+    // detector observation lines with their `[warning] / [good]` tags).
+    // Profile / intent / recipe / Coffee / brand+model+burrs Grinder are
+    // already absent from both `RenderMode` values of `buildUserPrompt`
+    // via tasks 8 and 9 — those strips do NOT extend to the separate
+    // `buildHistoryContext` static helper, which still emits per-shot
+    // grinder + bean lines (its callers don't hoist a setup header).
+    enum class RenderMode { Standalone, HistoryBlock };
+
+    // Generate text prompt from summary. Default `Standalone` preserves
+    // the single-shot rendering used by `dialing_get_context.shotAnalysis`
+    // and the in-app Shot Summary dialog.
+    QString buildUserPrompt(const ShotSummary& summary,
+                            RenderMode mode = RenderMode::Standalone) const;
 
     // Format recent shot history as AI context (lightweight, no curve data)
     static QString buildHistoryContext(const QVariantList& recentShots);
