@@ -113,7 +113,7 @@ private slots:
         cached.detectors.pourTruncated = false;
         record.cachedAnalysis = cached;
 
-        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record);
+        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record).toVariantMap();
         const QVariantList lines = result.value("summaryLines").toList();
 
         QVERIFY2(!lines.isEmpty(), "summaryLines must be populated from the cache");
@@ -133,7 +133,7 @@ private slots:
         ShotRecord record = buildHealthyRecord();
         // cachedAnalysis intentionally left at default (std::nullopt).
 
-        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record);
+        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record).toVariantMap();
         const QVariantList lines = result.value("summaryLines").toList();
         const QVariantMap detectors = result.value("detectorResults").toMap();
 
@@ -153,7 +153,7 @@ private slots:
     void cachedAndFallback_paths_produceEquivalentOutput()
     {
         ShotRecord recordFallback = buildHealthyRecord();
-        const QVariantMap fallbackResult = ShotHistoryStorage::convertShotRecord(recordFallback);
+        const QVariantMap fallbackResult = ShotHistoryStorage::convertShotRecord(recordFallback).toVariantMap();
 
         ShotRecord recordCached = buildHealthyRecord();
         // Run analyzeShot ourselves (matching what loadShotRecordStatic
@@ -168,7 +168,7 @@ private slots:
             /*analysisFlags=*/{}, /*firstFrameSec=*/-1.0,
             recordCached.targetWeight, recordCached.summary.finalWeight,
             /*expectedFrameCount=*/-1);
-        const QVariantMap cachedResult = ShotHistoryStorage::convertShotRecord(recordCached);
+        const QVariantMap cachedResult = ShotHistoryStorage::convertShotRecord(recordCached).toVariantMap();
 
         // summaryLines must match line-for-line.
         const QVariantList fbLines = fallbackResult.value("summaryLines").toList();
@@ -199,7 +199,7 @@ private slots:
         ShotRecord record = buildHealthyRecord();
         record.targetWeight = 36.5;
 
-        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record);
+        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record).toVariantMap();
 
         QVERIFY2(result.contains("targetWeightG"),
                  "shot detail must expose targetWeightG");
@@ -215,7 +215,7 @@ private slots:
         ShotRecord record = buildHealthyRecord();
         record.targetWeight = 36.0;
 
-        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record);
+        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record).toVariantMap();
         const QVariantMap detectors = result.value("detectorResults").toMap();
         const QVariantMap grind = detectors.value("grind").toMap();
 

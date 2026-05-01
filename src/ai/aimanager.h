@@ -8,6 +8,8 @@
 #include <QVariantMap>
 #include <memory>
 
+#include "../history/shotprojection.h"
+
 class QNetworkAccessManager;
 class AIProvider;
 class AIConversation;
@@ -72,7 +74,7 @@ public:
     Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
-    Q_INVOKABLE bool isMistakeShot(const QVariantMap& shotData) const;
+    Q_INVOKABLE bool isMistakeShot(const ShotProjection& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
     static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
 
@@ -115,7 +117,7 @@ public:
                                              const QVariantMap& metadata);
 
     // Generate shot summary from historical shot data (for ShotDetailPage)
-    Q_INVOKABLE QString generateHistoryShotSummary(const QVariantMap& shotData);
+    Q_INVOKABLE QString generateHistoryShotSummary(const ShotProjection& shotData);
 
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);

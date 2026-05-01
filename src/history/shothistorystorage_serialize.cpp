@@ -1,99 +1,100 @@
-// ShotHistoryStorage::convertShotRecord — serialization of a fully-loaded
-// ShotRecord into the QVariantMap shape consumed by QML, MCP, and the
-// Visualizer/Decenza upload flows. Split out of the main TU because it
-// owns ~200 lines of mechanical key-value mapping plus the
-// analyzeShot-fast-path-vs-fallback branch — a separate concern from the
-// DB lifecycle / save / load code that lives in shothistorystorage.cpp.
-//
-// convertShotRecord is a static method (declared `static` in
-// shothistorystorage.h), so all state is reached through the `record`
-// argument with no `this` pointer involved — that's what makes the
-// file split mechanical. Behavior is identical to the pre-split
-// implementation.
+// ShotHistoryStorage::convertShotRecord — builds a typed ShotProjection from
+// a fully-loaded ShotRecord. The body sits next to shothistorystorage.cpp
+// rather than in shotprojection.cpp because it depends on the internal-detail
+// helpers in shothistorystorage_internal.cpp (prepareAnalysisInputs, use12h).
+// Co-locating the call sites means tests that pull in shotprojection.cpp
+// don't transitively need internal.cpp — the dependency edge stays inside
+// the history TU set that already pulls in internal.cpp anyway.
 
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
+#include "shotprojection.h"
 
 #include "ai/shotanalysis.h"
 
 #include <QDateTime>
 #include <QJsonDocument>
 
-QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
+namespace {
+
+QVariantList pointsToVariant(const QVector<QPointF>& points)
+{
+    QVariantList list;
+    list.reserve(points.size());
+    for (const auto& pt : points) {
+        QVariantMap p;
+        p["x"] = pt.x();
+        p["y"] = pt.y();
+        list.append(p);
+    }
+    return list;
+}
+
+} // namespace
+
+ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 {
     using decenza::storage::detail::AnalysisInputs;
     using decenza::storage::detail::prepareAnalysisInputs;
     using decenza::storage::detail::use12h;
 
-    QVariantMap result;
-    if (record.summary.id == 0) return result;
+    ShotProjection p;
+    if (record.summary.id == 0) return p;
 
-    result["id"] = record.summary.id;
-    result["uuid"] = record.summary.uuid;
-    result["timestamp"] = record.summary.timestamp;
-    // ISO 8601 with timezone for MCP consumers (CLAUDE.md: "Never return Unix timestamps")
+    p.id = record.summary.id;
+    p.uuid = record.summary.uuid;
+    p.timestamp = record.summary.timestamp;
     auto isodt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
-    result["timestampIso"] = isodt.toOffsetFromUtc(isodt.offsetFromUtc()).toString(Qt::ISODate);
-    result["profileName"] = record.summary.profileName;
-    result["durationSec"] = record.summary.duration;
-    result["finalWeightG"] = record.summary.finalWeight;
-    result["doseWeightG"] = record.summary.doseWeight;
-    result["beanBrand"] = record.summary.beanBrand;
-    result["beanType"] = record.summary.beanType;
-    result["enjoyment"] = record.summary.enjoyment;
-    result["hasVisualizerUpload"] = record.summary.hasVisualizerUpload;
-    result["beverageType"] = record.summary.beverageType;
-    result["roastDate"] = record.roastDate;
-    result["roastLevel"] = record.roastLevel;
-    result["grinderBrand"] = record.grinderBrand;
-    result["grinderModel"] = record.grinderModel;
-    result["grinderBurrs"] = record.grinderBurrs;
-    result["grinderSetting"] = record.grinderSetting;
-    result["drinkTds"] = record.drinkTds;
-    result["drinkEy"] = record.drinkEy;
-    result["espressoNotes"] = record.espressoNotes;
-    result["beanNotes"] = record.beanNotes;
-    result["barista"] = record.barista;
-    result["profileNotes"] = record.profileNotes;
-    result["visualizerId"] = record.visualizerId;
-    result["visualizerUrl"] = record.visualizerUrl;
-    result["debugLog"] = record.debugLog;
-    result["temperatureOverrideC"] = record.temperatureOverride;
-    result["targetWeightG"] = record.targetWeight;
-    result["profileJson"] = record.profileJson;
-    result["profileKbId"] = record.profileKbId;
+    p.timestampIso = isodt.toOffsetFromUtc(isodt.offsetFromUtc()).toString(Qt::ISODate);
+    p.profileName = record.summary.profileName;
+    p.durationSec = record.summary.duration;
+    p.finalWeightG = record.summary.finalWeight;
+    p.doseWeightG = record.summary.doseWeight;
+    p.beanBrand = record.summary.beanBrand;
+    p.beanType = record.summary.beanType;
+    p.enjoyment = record.summary.enjoyment;
+    p.hasVisualizerUpload = record.summary.hasVisualizerUpload;
+    p.beverageType = record.summary.beverageType;
+    p.roastDate = record.roastDate;
+    p.roastLevel = record.roastLevel;
+    p.grinderBrand = record.grinderBrand;
+    p.grinderModel = record.grinderModel;
+    p.grinderBurrs = record.grinderBurrs;
+    p.grinderSetting = record.grinderSetting;
+    p.drinkTds = record.drinkTds;
+    p.drinkEy = record.drinkEy;
+    p.espressoNotes = record.espressoNotes;
+    p.beanNotes = record.beanNotes;
+    p.barista = record.barista;
+    p.profileNotes = record.profileNotes;
+    p.visualizerId = record.visualizerId;
+    p.visualizerUrl = record.visualizerUrl;
+    p.debugLog = record.debugLog;
+    p.temperatureOverrideC = record.temperatureOverride;
+    p.targetWeightG = record.targetWeight;
+    p.profileJson = record.profileJson;
+    p.profileKbId = record.profileKbId;
 
-    auto pointsToVariant = [](const QVector<QPointF>& points) {
-        QVariantList list;
-        for (const auto& pt : points) {
-            QVariantMap p;
-            p["x"] = pt.x();
-            p["y"] = pt.y();
-            list.append(p);
-        }
-        return list;
-    };
+    p.pressure = pointsToVariant(record.pressure);
+    p.flow = pointsToVariant(record.flow);
+    p.temperature = pointsToVariant(record.temperature);
+    p.temperatureMix = pointsToVariant(record.temperatureMix);
+    p.resistance = pointsToVariant(record.resistance);
+    p.conductance = pointsToVariant(record.conductance);
+    p.darcyResistance = pointsToVariant(record.darcyResistance);
+    p.conductanceDerivative = pointsToVariant(record.conductanceDerivative);
+    p.waterDispensed = pointsToVariant(record.waterDispensed);
+    p.pressureGoal = pointsToVariant(record.pressureGoal);
+    p.flowGoal = pointsToVariant(record.flowGoal);
+    p.temperatureGoal = pointsToVariant(record.temperatureGoal);
+    p.weight = pointsToVariant(record.weight);
+    p.weightFlowRate = pointsToVariant(record.weightFlowRate);
 
-    result["pressure"] = pointsToVariant(record.pressure);
-    result["flow"] = pointsToVariant(record.flow);
-    result["temperature"] = pointsToVariant(record.temperature);
-    result["temperatureMix"] = pointsToVariant(record.temperatureMix);
-    result["resistance"] = pointsToVariant(record.resistance);
-    result["conductance"] = pointsToVariant(record.conductance);
-    result["darcyResistance"] = pointsToVariant(record.darcyResistance);
-    result["conductanceDerivative"] = pointsToVariant(record.conductanceDerivative);
-    result["waterDispensed"] = pointsToVariant(record.waterDispensed);
-    result["pressureGoal"] = pointsToVariant(record.pressureGoal);
-    result["flowGoal"] = pointsToVariant(record.flowGoal);
-    result["temperatureGoal"] = pointsToVariant(record.temperatureGoal);
-    result["weight"] = pointsToVariant(record.weight);
-    result["weightFlowRate"] = pointsToVariant(record.weightFlowRate);
-
-    result["channelingDetected"] = record.channelingDetected;
-    result["temperatureUnstable"] = record.temperatureUnstable;
-    result["grindIssueDetected"] = record.grindIssueDetected;
-    result["skipFirstFrameDetected"] = record.skipFirstFrameDetected;
-    result["pourTruncatedDetected"] = record.pourTruncatedDetected;
+    p.channelingDetected = record.channelingDetected;
+    p.temperatureUnstable = record.temperatureUnstable;
+    p.grindIssueDetected = record.grindIssueDetected;
+    p.skipFirstFrameDetected = record.skipFirstFrameDetected;
+    p.pourTruncatedDetected = record.pourTruncatedDetected;
 
     // Run the full shot-summary detector pipeline once and expose both the
     // prose lines (rendered by the in-app dialog) and the structured detector
@@ -105,15 +106,8 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     // AnalysisResult is already cached on `record.cachedAnalysis` (populated
     // alongside the badge projection). Read from there to avoid running
     // analyzeShot a second time on identical inputs.
-    //
-    // Slow path: direct-construction callers (tests, any future path that
-    // bypasses loadShotRecordStatic) hand us a ShotRecord without
-    // `cachedAnalysis`. prepareAnalysisInputs bundles analysisFlags +
-    // firstFrameSeconds + frameCount so this call site stays in lock-step
-    // with saveShot and loadShotRecordStatic — same lookups, same args
-    // passed to analyzeShot.
     {
-        ShotAnalysis::AnalysisResult analysisOwned;  // storage if we need to compute
+        ShotAnalysis::AnalysisResult analysisOwned;
         const ShotAnalysis::AnalysisResult* analysisPtr = nullptr;
         if (record.cachedAnalysis.has_value()) {
             analysisPtr = &record.cachedAnalysis.value();
@@ -130,7 +124,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             analysisPtr = &analysisOwned;
         }
         const ShotAnalysis::AnalysisResult& analysis = *analysisPtr;
-        result["summaryLines"] = analysis.lines;
+        p.summaryLines = analysis.lines;
 
         const auto& d = analysis.detectors;
         QVariantMap detectorResults;
@@ -178,10 +172,6 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             grind["chokedPuck"] = d.grindChokedPuck;
             grind["yieldOvershoot"] = d.grindYieldOvershoot;
             grind["verifiedClean"] = d.grindVerifiedClean;
-            // yieldRatio is populated whenever Arm 2's gate ran with a known
-            // target+final pair. Lifted to the top of the grind object (in
-            // addition to gates.yieldRatio) so consumers can read the value
-            // both checks compare against without descending into gates.
             if (d.grindGateYieldRatio > 0.0) {
                 grind["yieldRatio"] = d.grindGateYieldRatio;
             }
@@ -189,11 +179,6 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         if (!d.grindCoverage.isEmpty()) {
             grind["coverage"] = d.grindCoverage;
         }
-        // Gate diagnostics from the choked-puck arm. Always emitted when the
-        // arm ran (`gateRan == true`) — even on gate-fail paths — so MCP
-        // consumers can answer "why didn't this badge fire?" without parsing
-        // the cascade source. Thresholds are emitted alongside the inputs
-        // so consumers don't need to re-derive them from CHOKED_* constants.
         if (d.grindGateRan) {
             QVariantMap gates;
             gates["passed"] = d.grindGatePassed;
@@ -218,29 +203,29 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         detectorResults["skipFirstFrame"] = d.skipFirstFrame;
         detectorResults["verdictCategory"] = d.verdictCategory;
 
-        result["detectorResults"] = detectorResults;
+        p.detectorResults = detectorResults;
     }
 
-    // Phase summaries for UI (computed at save time or on-the-fly for legacy shots)
     if (!record.phaseSummariesJson.isEmpty()) {
         QJsonDocument phaseSummariesDoc = QJsonDocument::fromJson(record.phaseSummariesJson.toUtf8());
-        result["phaseSummaries"] = phaseSummariesDoc.toVariant();
+        p.phaseSummaries = phaseSummariesDoc.toVariant();
     }
 
     QVariantList phases;
+    phases.reserve(record.phases.size());
     for (const auto& phase : record.phases) {
-        QVariantMap p;
-        p["time"] = phase.time;
-        p["label"] = phase.label;
-        p["frameNumber"] = phase.frameNumber;
-        p["isFlowMode"] = phase.isFlowMode;
-        p["transitionReason"] = phase.transitionReason;
-        phases.append(p);
+        QVariantMap phaseMap;
+        phaseMap["time"] = phase.time;
+        phaseMap["label"] = phase.label;
+        phaseMap["frameNumber"] = phase.frameNumber;
+        phaseMap["isFlowMode"] = phase.isFlowMode;
+        phaseMap["transitionReason"] = phase.transitionReason;
+        phases.append(phaseMap);
     }
-    result["phases"] = phases;
+    p.phases = phases;
 
     QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
-    result["dateTime"] = dt.toString(use12h() ? "yyyy-MM-dd h:mm:ss AP" : "yyyy-MM-dd HH:mm:ss");
+    p.dateTime = dt.toString(use12h() ? "yyyy-MM-dd h:mm:ss AP" : "yyyy-MM-dd HH:mm:ss");
 
-    return result;
+    return p;
 }

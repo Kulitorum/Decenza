@@ -24,7 +24,7 @@
 
 // Data collected on the background thread (pure SQL results, no QObject access)
 struct DialingDbResult {
-    QVariantMap shotData;
+    ShotProjection shotData;
     QString profileKbId;
     QJsonArray dialInHistory;
     QJsonObject grinderContext;
@@ -99,53 +99,47 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     if (!dbResult.profileKbId.isEmpty()) {
                         QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, dbResult.profileKbId, historyLimit, resolvedShotId);
                         for (const auto& v : history) {
-                            QVariantMap shot = v.toMap();
+                            const ShotProjection shot = ShotProjection::fromVariantMap(v.toMap());
                             QJsonObject h;
-                            h["id"] = shot["id"].toLongLong();
-                            h["timestamp"] = shot["dateTime"].toString();
-                            h["profileName"] = shot["profileName"].toString();
-                            h["doseG"] = shot["doseWeightG"].toDouble();
-                            h["yieldG"] = shot["finalWeightG"].toDouble();
-                            h["durationSec"] = shot["durationSec"].toDouble();
-                            h["enjoyment0to100"] = shot["enjoyment"].toInt();
-                            h["grinderSetting"] = shot["grinderSetting"].toString();
-                            h["grinderModel"] = shot["grinderModel"].toString();
-                            h["grinderBrand"] = shot["grinderBrand"].toString();
-                            h["grinderBurrs"] = shot["grinderBurrs"].toString();
-                            h["notes"] = shot["espressoNotes"].toString();
-                            h["beanBrand"] = shot["beanBrand"].toString();
-                            h["beanType"] = shot["beanType"].toString();
-                            double tempOverride = shot["temperatureOverrideC"].toDouble();
-                            if (tempOverride > 0)
-                                h["temperatureOverrideC"] = tempOverride;
+                            h["id"] = shot.id;
+                            h["timestamp"] = shot.dateTime;
+                            h["profileName"] = shot.profileName;
+                            h["doseG"] = shot.doseWeightG;
+                            h["yieldG"] = shot.finalWeightG;
+                            h["durationSec"] = shot.durationSec;
+                            h["enjoyment0to100"] = shot.enjoyment;
+                            h["grinderSetting"] = shot.grinderSetting;
+                            h["grinderModel"] = shot.grinderModel;
+                            h["grinderBrand"] = shot.grinderBrand;
+                            h["grinderBurrs"] = shot.grinderBurrs;
+                            h["notes"] = shot.espressoNotes;
+                            h["beanBrand"] = shot.beanBrand;
+                            h["beanType"] = shot.beanType;
+                            if (shot.temperatureOverrideC > 0)
+                                h["temperatureOverrideC"] = shot.temperatureOverrideC;
 
                             // For shots saved by MainController, targetWeightG is always
                             // populated (user override → profile target_weight → finalWeight).
                             // The profile-JSON fallback below is defensive for shots imported
                             // from external formats (de1app, visualizer.coffee) where the
                             // shot importer leaves targetWeight at 0.
-                            double targetWeight = shot["targetWeightG"].toDouble();
-                            if (targetWeight > 0) {
-                                h["targetWeightG"] = targetWeight;
-                            } else {
-                                QString profileJson = shot["profileJson"].toString();
-                                if (!profileJson.isEmpty()) {
-                                    QJsonObject profileObj = QJsonDocument::fromJson(profileJson.toUtf8()).object();
-                                    QJsonValue tw = profileObj["target_weight"];
-                                    double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
-                                    if (twVal > 0)
-                                        h["targetWeightG"] = twVal;
-                                }
+                            if (shot.targetWeightG > 0) {
+                                h["targetWeightG"] = shot.targetWeightG;
+                            } else if (!shot.profileJson.isEmpty()) {
+                                QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
+                                QJsonValue tw = profileObj["target_weight"];
+                                double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+                                if (twVal > 0)
+                                    h["targetWeightG"] = twVal;
                             }
                             dbResult.dialInHistory.append(h);
                         }
                     }
 
                     // --- Grinder context (shared helper) ---
-                    QString grinderModel = dbResult.shotData.contains("grinderModel")
-                        ? dbResult.shotData["grinderModel"].toString() : QString();
-                    QString beverageType = dbResult.shotData.value("beverageType", "espresso").toString();
-                    if (beverageType.isEmpty()) beverageType = "espresso";
+                    QString grinderModel = dbResult.shotData.grinderModel;
+                    QString beverageType = dbResult.shotData.beverageType.isEmpty()
+                        ? QStringLiteral("espresso") : dbResult.shotData.beverageType;
                     if (!grinderModel.isEmpty()) {
                         GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(db, grinderModel, beverageType);
                         if (!ctx.settingsObserved.isEmpty()) {
@@ -172,7 +166,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 QMetaObject::invokeMethod(qApp,
                     [respond, dbResult, resolvedShotId, mainController, profileManager, settings]() {
 
-                    if (dbResult.shotData.isEmpty()) {
+                    if (!dbResult.shotData.isValid()) {
                         respond(QJsonObject{{"error", "Shot not found: " + QString::number(resolvedShotId)}});
                         return;
                     }
@@ -190,22 +184,20 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // --- Shot summary ---
                     const auto& sd = dbResult.shotData;
                     QJsonObject shotSummary;
-                    shotSummary["profileName"] = sd["profileName"].toString();
-                    shotSummary["doseG"] = sd["doseWeightG"].toDouble();
-                    shotSummary["yieldG"] = sd["finalWeightG"].toDouble();
-                    shotSummary["durationSec"] = sd["durationSec"].toDouble();
-                    shotSummary["enjoyment0to100"] = sd["enjoyment"].toInt();
-                    shotSummary["notes"] = sd["espressoNotes"].toString();
-                    shotSummary["beanBrand"] = sd["beanBrand"].toString();
-                    shotSummary["beanType"] = sd["beanType"].toString();
-                    shotSummary["roastLevel"] = sd["roastLevel"].toString();
-                    shotSummary["grinderModel"] = sd["grinderModel"].toString();
-                    shotSummary["grinderSetting"] = sd["grinderSetting"].toString();
-                    shotSummary["grinderBurrs"] = sd["grinderBurrs"].toString();
-                    double dose = sd["doseWeightG"].toDouble();
-                    double yield = sd["finalWeightG"].toDouble();
-                    if (dose > 0)
-                        shotSummary["ratio"] = QString("1:%1").arg(yield / dose, 0, 'f', 2);
+                    shotSummary["profileName"] = sd.profileName;
+                    shotSummary["doseG"] = sd.doseWeightG;
+                    shotSummary["yieldG"] = sd.finalWeightG;
+                    shotSummary["durationSec"] = sd.durationSec;
+                    shotSummary["enjoyment0to100"] = sd.enjoyment;
+                    shotSummary["notes"] = sd.espressoNotes;
+                    shotSummary["beanBrand"] = sd.beanBrand;
+                    shotSummary["beanType"] = sd.beanType;
+                    shotSummary["roastLevel"] = sd.roastLevel;
+                    shotSummary["grinderModel"] = sd.grinderModel;
+                    shotSummary["grinderSetting"] = sd.grinderSetting;
+                    shotSummary["grinderBurrs"] = sd.grinderBurrs;
+                    if (sd.doseWeightG > 0)
+                        shotSummary["ratio"] = QString("1:%1").arg(sd.finalWeightG / sd.doseWeightG, 0, 'f', 2);
                     result["shot"] = shotSummary;
 
                     // --- AI-generated shot analysis ---
@@ -217,9 +209,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     }
 
                     // --- Profile knowledge ---
-                    QString profileTitle = sd["profileName"].toString();
-                    QString bevType = sd.value("beverageType", "espresso").toString();
-                    if (bevType.isEmpty()) bevType = "espresso";
+                    QString profileTitle = sd.profileName;
+                    QString bevType = sd.beverageType.isEmpty() ? QStringLiteral("espresso") : sd.beverageType;
                     QString profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
                         bevType, profileTitle, QString(), dbResult.profileKbId);
                     if (!profileKnowledge.isEmpty())

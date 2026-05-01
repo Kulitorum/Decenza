@@ -188,6 +188,8 @@ add_decenza_test(tst_shotsummarizer
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
@@ -296,6 +298,8 @@ set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
@@ -303,11 +307,16 @@ set(PROFILEMANAGER_SOURCES
 )
 
 # History sources (ShotHistoryStorage + transitive deps)
+# shotprojection.h is listed explicitly so AUTOMOC generates the Q_GADGET
+# meta-object — without it, ShotProjection::staticMetaObject is undefined and
+# tests using the gadget fail to link.
 set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
@@ -480,6 +489,8 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -507,6 +518,8 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -535,6 +548,8 @@ add_decenza_test(tst_mcpserver_protocol
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}

@@ -6,6 +6,8 @@
 #include <QVector>
 #include <QPointF>
 
+#include "../history/shotprojection.h"
+
 class ShotDataModel;
 class Settings;
 class Profile;
@@ -56,18 +58,22 @@ public:
                                  const QString& debugLog = QString(),
                                  qint64 shotEpoch = 0);
 
-    // Upload a shot from history (takes QVariantMap from ShotHistoryStorage::getShot())
-    Q_INVOKABLE void uploadShotFromHistory(const QVariantMap& shotData);
+    // Upload a shot from history (takes the typed projection from
+    // ShotHistoryStorage::convertShotRecord). QML callers can pass either a
+    // ShotProjection (from shotReady) or a JS object (post-Object.assign in
+    // PostShotReviewPage); the QVariantMap → ShotProjection meta-converter
+    // registered at startup handles both shapes.
+    Q_INVOKABLE void uploadShotFromHistory(const ShotProjection& shotData);
 
     // Update metadata on an already-uploaded shot (PATCH to visualizer.coffee)
-    Q_INVOKABLE void updateShotOnVisualizer(const QString& visualizerId, const QVariantMap& shotData);
+    Q_INVOKABLE void updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
 
     // Test connection with current credentials
     Q_INVOKABLE void testConnection();
 
-    // Build a visualizer-compatible JSON payload from a ShotHistoryStorage QVariantMap.
+    // Build a visualizer-compatible JSON payload from a ShotProjection.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
-    static QByteArray buildHistoryShotJson(const QVariantMap& shotData);
+    static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
 
 signals:
     void uploadingChanged();

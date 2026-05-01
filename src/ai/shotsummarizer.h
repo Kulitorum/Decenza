@@ -8,6 +8,8 @@
 #include <QPointF>
 #include <QVariant>
 
+#include "../history/shotprojection.h"
+
 class ShotDataModel;
 class Profile;
 struct ShotMetadata;
@@ -120,8 +122,8 @@ public:
                           double doseWeight,
                           double finalWeight) const;
 
-    // Summarize from historical shot data (QVariantMap from database)
-    ShotSummary summarizeFromHistory(const QVariantMap& shotData) const;
+    // Summarize from historical shot data (typed projection from database)
+    ShotSummary summarizeFromHistory(const ShotProjection& shotData) const;
 
     // Generate text prompt from summary
     QString buildUserPrompt(const ShotSummary& summary) const;

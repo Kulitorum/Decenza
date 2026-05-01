@@ -226,9 +226,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
                 if (!withTempDb(dbPath, "mcp_shot_detail", [&](QSqlDatabase& db) {
                     ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
-                    QVariantMap shotMap = ShotHistoryStorage::convertShotRecord(record);
-                    if (!shotMap.isEmpty()) {
-                        result = QJsonObject::fromVariantMap(shotMap);
+                    ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
+                    if (shot.isValid()) {
+                        result = shot.toJsonObject();
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
@@ -286,14 +286,17 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             QThread* thread = QThread::create([dbPath, idArray, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
+                QList<ShotProjection> projections;
 
                 if (!withTempDb(dbPath, "mcp_compare", [&](QSqlDatabase& db) {
                     for (const auto& idVal : idArray) {
                         qint64 shotId = idVal.toInteger();
                         ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
-                        QVariantMap shotMap = ShotHistoryStorage::convertShotRecord(record);
-                        if (!shotMap.isEmpty())
-                            shots.append(QJsonObject::fromVariantMap(shotMap));
+                        ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
+                        if (shot.isValid()) {
+                            shots.append(shot.toJsonObject());
+                            projections.append(std::move(shot));
+                        }
                     }
                 })) {
                     result["error"] = "Failed to open shot database";
@@ -304,36 +307,41 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["count"] = shots.size();
                 }
 
-                // Compute changes between consecutive shots
-                if (shots.size() >= 2) {
+                // Compute changes between consecutive shots. Field-pointer
+                // accessors keep the diff loop compile-time-safe — renaming
+                // ShotProjection::doseWeightG turns the diffNum() call into a
+                // compile error rather than a silent missed-rename bug. The
+                // outKey strings are the MCP-facing schema (doseG, yieldG,
+                // enjoyment0to100), distinct from the projection's field names.
+                if (projections.size() >= 2) {
                     QJsonArray changes;
-                    for (qsizetype i = 1; i < shots.size(); ++i) {
-                        QJsonObject prev = shots[i-1].toObject();
-                        QJsonObject curr = shots[i].toObject();
+                    for (qsizetype i = 1; i < projections.size(); ++i) {
+                        const ShotProjection& prev = projections[i-1];
+                        const ShotProjection& curr = projections[i];
                         QJsonObject diff;
-                        diff["fromShotId"] = prev["id"];
-                        diff["toShotId"] = curr["id"];
+                        diff["fromShotId"] = prev.id;
+                        diff["toShotId"] = curr.id;
 
-                        auto diffStr = [&](const QString& key) {
-                            QString a = prev[key].toString(), b = curr[key].toString();
+                        auto diffStr = [&](QString ShotProjection::*field, const QString& outKey) {
+                            const QString& a = prev.*field;
+                            const QString& b = curr.*field;
                             if (!a.isEmpty() && !b.isEmpty() && a != b)
-                                diff[key] = QString("%1 -> %2").arg(a, b);
+                                diff[outKey] = QString("%1 -> %2").arg(a, b);
                         };
-                        auto diffNumUnit = [&](const QString& srcKey, const QString& outKey, const QString& unit) {
-                            double a = prev[srcKey].toDouble(), b = curr[srcKey].toDouble();
+                        auto diffNum = [&](double a, double b, const QString& outKey, const QString& unit) {
                             if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
                                 diff[outKey] = QString("%1 -> %2 %3 (%4%5)")
                                     .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
                                     .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
                         };
 
-                        diffStr("grinderSetting");
-                        diffStr("profileName");
-                        diffStr("beanBrand");
-                        diffNumUnit("doseWeightG", "doseG", "g");
-                        diffNumUnit("finalWeightG", "yieldG", "g");
-                        diffNumUnit("durationSec", "durationSec", "s");
-                        diffNumUnit("enjoyment", "enjoyment0to100", "");
+                        diffStr(&ShotProjection::grinderSetting, "grinderSetting");
+                        diffStr(&ShotProjection::profileName, "profileName");
+                        diffStr(&ShotProjection::beanBrand, "beanBrand");
+                        diffNum(prev.doseWeightG, curr.doseWeightG, "doseG", "g");
+                        diffNum(prev.finalWeightG, curr.finalWeightG, "yieldG", "g");
+                        diffNum(prev.durationSec, curr.durationSec, "durationSec", "s");
+                        diffNum(prev.enjoyment, curr.enjoyment, "enjoyment0to100", "");
 
                         if (diff.size() > 2)
                             changes.append(diff);

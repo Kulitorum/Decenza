@@ -293,6 +293,7 @@ set(SOURCES
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp
     src/history/shothistorystorage_queries.cpp
+    src/history/shotprojection.cpp
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
     src/history/shotimporter.cpp
@@ -458,6 +459,7 @@ set(HEADERS
     src/history/shothistory_types.h
     src/history/shothistorystorage.h
     src/history/shothistorystorage_internal.h
+    src/history/shotprojection.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
     src/history/shotimporter.h

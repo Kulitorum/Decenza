@@ -24,6 +24,7 @@
 #include <QString>
 
 #include "ai/shotsummarizer.h"
+#include "history/shotprojection.h"
 #include "models/shotdatamodel.h"
 #include "network/visualizeruploader.h"
 
@@ -203,7 +204,7 @@ private slots:
         shot["flowGoal"] = QVariantList();
 
         ShotSummarizer summarizer;
-        ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QVERIFY2(summary.pourTruncatedDetected, "puck-failure shape must set pourTruncatedDetected");
         QVERIFY2(linesContain(summary.summaryLines, QStringLiteral("Pour never pressurized")),
@@ -285,7 +286,7 @@ private slots:
         shot["flowGoal"] = QVariantList();
 
         ShotSummarizer summarizer;
-        ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QVERIFY2(!summary.pourTruncatedDetected,
                  "test setup: pressure peaked above floor so pourTruncated should not fire");
@@ -341,7 +342,7 @@ private slots:
         shot["flowGoal"] = QVariantList();
 
         ShotSummarizer summarizer;
-        ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QVERIFY2(!summary.pourTruncatedDetected,
                  "healthy 9-bar shot must not be flagged as puck-failure");
@@ -433,7 +434,7 @@ private slots:
         shot["detectorResults"] = detectors;
 
         ShotSummarizer summarizer;
-        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QCOMPARE(summary.summaryLines.size(), 2);
         QCOMPARE(summary.summaryLines[0].toMap().value("text").toString(),
@@ -453,7 +454,7 @@ private slots:
         // Deliberately omit summaryLines.
 
         ShotSummarizer summarizer;
-        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QVERIFY2(!summary.summaryLines.isEmpty(),
                  "fallback inline detector path must populate summaryLines");
@@ -475,7 +476,7 @@ private slots:
     {
         QVariantMap slowShot = buildHealthyShotMap();
         ShotSummarizer summarizer;
-        const ShotSummary slowSummary = summarizer.summarizeFromHistory(slowShot);
+        const ShotSummary slowSummary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(slowShot));
 
         // Now build a fast-path shot by stuffing the slow-path's lines and
         // pourTruncated into a fresh map. summarizeFromHistory MUST produce
@@ -485,7 +486,7 @@ private slots:
         QVariantMap detectors;
         detectors["pourTruncated"] = slowSummary.pourTruncatedDetected;
         fastShot["detectorResults"] = detectors;
-        const ShotSummary fastSummary = summarizer.summarizeFromHistory(fastShot);
+        const ShotSummary fastSummary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(fastShot));
 
         QCOMPARE(fastSummary.summaryLines.size(), slowSummary.summaryLines.size());
         for (qsizetype i = 0; i < slowSummary.summaryLines.size(); ++i) {
@@ -652,7 +653,7 @@ private slots:
         shot["detectorResults"] = detectors;
 
         ShotSummarizer summarizer;
-        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QVERIFY2(summary.pourTruncatedDetected,
                  "fast path must derive pourTruncatedDetected from detectorResults");
@@ -711,7 +712,7 @@ private slots:
         shot["flowGoal"] = QVariantList();
 
         ShotSummarizer summarizer;
-        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         // marker[0]: startTime=0, endTime=markers[1].time=0 → degenerate, skip.
         // marker[1]: startTime=0, endTime=markers[2].time=8 → 8s span.
@@ -770,7 +771,7 @@ private slots:
         shot["flowGoal"] = QVariantList();
 
         ShotSummarizer summarizer;
-        const ShotSummary summary = summarizer.summarizeFromHistory(shot);
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
 
         QCOMPARE(summary.phases.size(), 2);
         // Preinfusion (0–8s): pressure flat at 1.0, flow flat at 1.8,

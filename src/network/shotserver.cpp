@@ -1708,7 +1708,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QString dbPath = m_storage->databasePath();
         auto destroyed = m_destroyed;
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
-            QVariantMap shot;
+            ShotProjection shot;
             bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                 shot = ShotHistoryStorage::convertShotRecord(record);
@@ -1818,7 +1818,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QString dbPath = m_storage->databasePath();
         auto destroyed = m_destroyed;
         QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
-            QVariantMap shot;
+            ShotProjection shot;
             bool dbOpened = withTempDb(dbPath, "shs_web_get", [&](QSqlDatabase& db) {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                 shot = ShotHistoryStorage::convertShotRecord(record);
@@ -1831,7 +1831,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
                 } else {
-                    sendJson(socketGuard, QJsonDocument(QJsonObject::fromVariantMap(shot)).toJson());
+                    sendJson(socketGuard, QJsonDocument(shot.toJsonObject()).toJson());
                 }
             }, Qt::QueuedConnection);
         });
