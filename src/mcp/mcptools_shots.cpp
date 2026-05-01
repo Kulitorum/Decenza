@@ -65,6 +65,26 @@ static bool wantsFullDetail(const QJsonObject& args)
     return args.value("detail").toString() == QStringLiteral("full");
 }
 
+// Replace 0 with null for enjoyment0to100/drinkTdsPct/drinkEyPct so MCP
+// consumers can distinguish unrated shots (and shots without TDS/EY
+// measurements) from a deliberate zero. The QML UI already does this
+// implicitly with `(value || 0) > 0 ? value : "-"` on display; this gives
+// the LLM the same signal.
+static void nullifyUnratedFields(QJsonObject& obj)
+{
+    static const char* ratingFields[] = {
+        "enjoyment0to100", "drinkTdsPct", "drinkEyPct"
+    };
+    for (const char* key : ratingFields) {
+        const QString k = QString::fromLatin1(key);
+        if (!obj.contains(k))
+            continue;
+        const double v = obj.value(k).toDouble();
+        if (v <= 0.0)
+            obj[k] = QJsonValue(QJsonValue::Null);
+    }
+}
+
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
 {
     // shots_list
@@ -169,7 +189,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             shot["doseG"] = query.value("dose_weight").toDouble();
                             shot["yieldG"] = query.value("final_weight").toDouble();
                             shot["durationSec"] = query.value("duration_seconds").toDouble();
-                            shot["enjoyment0to100"] = query.value("enjoyment").toInt();
+                            const int enjoyment = query.value("enjoyment").toInt();
+                            shot["enjoyment0to100"] = enjoyment > 0 ? QJsonValue(enjoyment) : QJsonValue(QJsonValue::Null);
                             shot["grinderSetting"] = query.value("grinder_setting").toString();
                             shot["grinderModel"] = query.value("grinder_model").toString();
                             shot["notes"] = query.value("espresso_notes").toString();
@@ -298,6 +319,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         if (!fullDetail)
                             stripTimeSeriesFields(result);
                         stripDetectorInternals(result);
+                        nullifyUnratedFields(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
@@ -378,6 +400,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             if (!fullDetail)
                                 stripTimeSeriesFields(shotJson);
                             stripDetectorInternals(shotJson);
+                            nullifyUnratedFields(shotJson);
                             shots.append(shotJson);
                             projections.append(std::move(shot));
                         }

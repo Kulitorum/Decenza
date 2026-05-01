@@ -107,7 +107,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             h["doseG"] = shot.doseWeightG;
                             h["yieldG"] = shot.finalWeightG;
                             h["durationSec"] = shot.durationSec;
-                            h["enjoyment0to100"] = shot.enjoyment0to100;
+                            h["enjoyment0to100"] = shot.enjoyment0to100 > 0
+                                ? QJsonValue(shot.enjoyment0to100)
+                                : QJsonValue(QJsonValue::Null);
                             h["grinderSetting"] = shot.grinderSetting;
                             h["grinderModel"] = shot.grinderModel;
                             h["grinderBrand"] = shot.grinderBrand;
@@ -188,7 +190,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     shotSummary["doseG"] = sd.doseWeightG;
                     shotSummary["yieldG"] = sd.finalWeightG;
                     shotSummary["durationSec"] = sd.durationSec;
-                    shotSummary["enjoyment0to100"] = sd.enjoyment0to100;
+                    shotSummary["enjoyment0to100"] = sd.enjoyment0to100 > 0
+                        ? QJsonValue(sd.enjoyment0to100)
+                        : QJsonValue(QJsonValue::Null);
                     shotSummary["notes"] = sd.espressoNotes;
                     shotSummary["beanBrand"] = sd.beanBrand;
                     shotSummary["beanType"] = sd.beanType;
