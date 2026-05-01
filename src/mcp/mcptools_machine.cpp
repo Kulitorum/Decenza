@@ -105,7 +105,11 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
     // machine_get_state
     registry->registerTool(
         "machine_get_state",
-        "Get current machine state: phase, connection status, readiness, heating, water level, firmware version, and platform/OS info (Android SDK version, device model, screen size)",
+        "Get current machine state: phase, connection status, readiness, heating, water level, "
+        "firmware version, and live shot scalars. `phase` is the canonical state field — one of "
+        "Disconnected | Sleep | Idle | Heating | Ready | EspressoPreheating | Preinfusion | "
+        "Pouring | Ending | Steaming | HotWater | Flushing | Refill | Descaling | Cleaning. "
+        "Platform/OS info has moved to app_get_info to keep poll responses small.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState, profileManager, mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -127,7 +131,6 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
             if (device) {
                 result["connected"] = device->isConnected();
-                result["stateString"] = device->stateString();
                 result["waterLevelMl"] = device->waterLevelMl();
                 result["waterLevelMm"] = device->waterLevelMm();
                 result["firmwareVersion"] = device->firmwareVersion();
@@ -136,45 +139,6 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                 result["temperatureC"] = device->temperature();
                 result["steamTemperatureC"] = device->steamTemperature();
             }
-
-            // Platform / OS info
-            QJsonObject platform;
-            platform["appVersion"] = QString(VERSION_STRING);
-            platform["qtVersion"] = QString(qVersion());
-            platform["os"] = QSysInfo::prettyProductName().simplified();
-            platform["osType"] = QSysInfo::productType();
-            platform["osVersion"] = QSysInfo::productVersion();
-            platform["kernelType"] = QSysInfo::kernelType();
-            platform["kernelVersion"] = QSysInfo::kernelVersion();
-            platform["architecture"] = QSysInfo::currentCpuArchitecture();
-            platform["deviceModel"] = QSysInfo::machineHostName();
-#ifdef Q_OS_ANDROID
-            // Android SDK version (API level)
-            platform["androidSdkVersion"] = QJniObject::getStaticField<jint>(
-                "android/os/Build$VERSION", "SDK_INT");
-            QJniObject model = QJniObject::getStaticObjectField<jstring>(
-                "android/os/Build", "MODEL");
-            if (model.isValid())
-                platform["deviceModel"] = model.toString();
-            QJniObject manufacturer = QJniObject::getStaticObjectField<jstring>(
-                "android/os/Build", "MANUFACTURER");
-            if (manufacturer.isValid())
-                platform["manufacturer"] = manufacturer.toString();
-#endif
-#ifdef Q_OS_IOS
-            platform["osType"] = "ios";
-#endif
-            // Screen info
-            if (auto* screen = QGuiApplication::primaryScreen()) {
-                platform["screenSize"] = QString("%1x%2")
-                    .arg(screen->size().width()).arg(screen->size().height());
-                platform["screenPhysicalSize"] = QString("%1x%2")
-                    .arg(screen->physicalSize().width(), 0, 'f', 1)
-                    .arg(screen->physicalSize().height(), 0, 'f', 1);
-                platform["screenDpi"] = screen->physicalDotsPerInch();
-                platform["devicePixelRatio"] = screen->devicePixelRatio();
-            }
-            result["platform"] = platform;
 
             // Per MCP 2025-06-18: link the result to the canonical resource so
             // subscribing clients see updates flow through decenza://machine/state.
@@ -199,6 +163,54 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
             }
 
             return result;
+        },
+        "read");
+
+    // app_get_info — diagnostics block previously embedded in machine_get_state.
+    // Split out so tight polling loops (monitoring a shot) don't re-ship ~10
+    // unchanging fields per response (#988).
+    registry->registerTool(
+        "app_get_info",
+        "Get app and device info: appVersion, qtVersion, OS, kernel, architecture, "
+        "deviceModel, screen size/DPI, devicePixelRatio. Diagnostics-grade — call once "
+        "per session, not every poll. machine_get_state used to embed this block.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [](const QJsonObject&) -> QJsonObject {
+            QJsonObject platform;
+            platform["appVersion"] = QString(VERSION_STRING);
+            platform["qtVersion"] = QString(qVersion());
+            platform["os"] = QSysInfo::prettyProductName().simplified();
+            platform["osType"] = QSysInfo::productType();
+            platform["osVersion"] = QSysInfo::productVersion();
+            platform["kernelType"] = QSysInfo::kernelType();
+            platform["kernelVersion"] = QSysInfo::kernelVersion();
+            platform["architecture"] = QSysInfo::currentCpuArchitecture();
+            platform["deviceModel"] = QSysInfo::machineHostName();
+#ifdef Q_OS_ANDROID
+            platform["androidSdkVersion"] = QJniObject::getStaticField<jint>(
+                "android/os/Build$VERSION", "SDK_INT");
+            QJniObject model = QJniObject::getStaticObjectField<jstring>(
+                "android/os/Build", "MODEL");
+            if (model.isValid())
+                platform["deviceModel"] = model.toString();
+            QJniObject manufacturer = QJniObject::getStaticObjectField<jstring>(
+                "android/os/Build", "MANUFACTURER");
+            if (manufacturer.isValid())
+                platform["manufacturer"] = manufacturer.toString();
+#endif
+#ifdef Q_OS_IOS
+            platform["osType"] = "ios";
+#endif
+            if (auto* screen = QGuiApplication::primaryScreen()) {
+                platform["screenSize"] = QString("%1x%2")
+                    .arg(screen->size().width()).arg(screen->size().height());
+                platform["screenPhysicalSize"] = QString("%1x%2")
+                    .arg(screen->physicalSize().width(), 0, 'f', 1)
+                    .arg(screen->physicalSize().height(), 0, 'f', 1);
+                platform["screenDpi"] = screen->physicalDotsPerInch();
+                platform["devicePixelRatio"] = screen->devicePixelRatio();
+            }
+            return platform;
         },
         "read");
 
