@@ -120,6 +120,9 @@ Call: profiles_set_active (filename: "default", confirmed: true)
 Call: profiles_get_params
 Expect: editorType="pressure"
 Expect present: espressoPressure, pressureEnd, preinfusionTime, holdTime, simpleDeclineTime, tempStart, tempHold, limiterValue
+Expect also present (suffixed aliases per #992): espressoPressureBar, pressureEndBar,
+        preinfusionTimeSec, holdTimeSec, simpleDeclineTimeSec, tempStartC, tempHoldC.
+        Each alias has the same value as its un-suffixed sibling — both forms round-trip.
 Expect absent: fillTemperature, pourFlow, rampTime, steps
 ```
 

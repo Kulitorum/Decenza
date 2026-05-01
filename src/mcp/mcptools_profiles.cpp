@@ -209,6 +209,52 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 }
             }
 
+            // Per #992: also emit unit/scale-suffixed aliases so AI agents
+            // see the same convention as profiles_get_active and other read
+            // tools (per CLAUDE.md MCP convention). The un-suffixed names
+            // are kept because they are also the write keys for
+            // profiles_edit_params — both forms now round-trip.
+            static const QPair<const char*, const char*> suffixAliases[] = {
+                // °C
+                {"tempStart", "tempStartC"},
+                {"tempPreinfuse", "tempPreinfuseC"},
+                {"tempHold", "tempHoldC"},
+                {"tempDecline", "tempDeclineC"},
+                {"fillTemperature", "fillTemperatureC"},
+                {"pourTemperature", "pourTemperatureC"},
+                // bar
+                {"fillPressure", "fillPressureBar"},
+                {"infusePressure", "infusePressureBar"},
+                {"pourPressure", "pourPressureBar"},
+                {"espressoPressure", "espressoPressureBar"},
+                {"pressureEnd", "pressureEndBar"},
+                // mL/s
+                {"fillFlow", "fillFlowMlPerSec"},
+                {"pourFlow", "pourFlowMlPerSec"},
+                {"holdFlow", "holdFlowMlPerSec"},
+                {"flowEnd", "flowEndMlPerSec"},
+                {"preinfusionFlowRate", "preinfusionFlowRateMlPerSec"},
+                // s
+                {"fillTimeout", "fillTimeoutSec"},
+                {"infuseTime", "infuseTimeSec"},
+                {"preinfusionTime", "preinfusionTimeSec"},
+                {"holdTime", "holdTimeSec"},
+                {"simpleDeclineTime", "simpleDeclineTimeSec"},
+                {"rampTime", "rampTimeSec"},
+                // g
+                {"infuseWeight", "infuseWeightG"},
+                {"targetWeight", "targetWeightG"},
+                {"dose", "doseG"},
+                // mL
+                {"infuseVolume", "infuseVolumeMl"},
+                {"targetVolume", "targetVolumeMl"},
+            };
+            for (const auto& pair : suffixAliases) {
+                const QString src = QString::fromLatin1(pair.first);
+                if (result.contains(src))
+                    result[QString::fromLatin1(pair.second)] = result.value(src);
+            }
+
             return result;
         },
         "read");
