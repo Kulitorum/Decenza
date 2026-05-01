@@ -238,8 +238,9 @@ inline QJsonObject buildCurrentBean(const CurrentBeanInputs& in)
         bean["inferredFromShotId"] = in.fallbackShotId;
         bean["inferredFields"] = inferredFields;
         bean["inferredNote"] = QStringLiteral(
-            "Listed fields are inferred from the most recent shot, not entered "
-            "by the user. Confirm before recommending a change.");
+            "Listed fields are inferred from the resolved shot (id "
+            "above), not entered by the user. Confirm before recommending "
+            "a change.");
     }
 
     return bean;
