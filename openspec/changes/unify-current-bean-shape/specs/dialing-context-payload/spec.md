@@ -38,7 +38,7 @@ The response SHALL NOT include the static framing strings `currentBean.inferredN
 
 The `currentBean.inferredFromShotId` and `currentBean.inferredFields` fields SHALL NOT appear in the response. The DYE-with-shot-fallback machinery they qualified is removed; `currentBean` is now sourced solely from the resolved shot (see "currentBean SHALL describe the resolved shot's setup, not live DYE").
 
-The `shotAnalysisSystemPrompt` SHALL include a "How to read structured fields" section covering: (a) `tastingFeedback` gating (when all `has*` booleans are false, ASK the user about taste before suggesting changes), and (b) `beanFreshness` gating (never quote calendar age until `freshnessKnown == true`). The `inferredFields` clause that previously appeared in this section SHALL be removed.
+The `shotAnalysisSystemPrompt` SHALL include a "How to read structured fields" section covering: (a) `tastingFeedback` gating (when all `has*` booleans are false, ASK the user about taste before suggesting changes), (b) `beanFreshness` gating (never quote calendar age until `freshnessKnown == true`), and (c) the meaning of empty-string fields on `currentBean` — an empty value means the shot did not record that field (common on legacy shots), NOT that the user has no grinder / bean / etc.; the AI must ask before recommending a change to a blank field. The `inferredFields` clause that previously appeared in this section SHALL be removed.
 
 The `currentBean.daysSinceRoastNote` field is replaced by the `beanFreshness.instruction` field defined in the next requirement, NOT by a system-prompt entry — the freshness instruction is bean-state-specific and benefits from sitting next to the `roastDate` field.
 
@@ -64,6 +64,7 @@ The `currentBean.daysSinceRoastNote` field is replaced by the `beanFreshness.ins
 - **WHEN** rendered
 - **THEN** the output SHALL contain guidance for `tastingFeedback` (when all `has*` are false, ask first)
 - **AND** SHALL contain guidance for `beanFreshness` (never quote age until `freshnessKnown == true`)
+- **AND** SHALL contain guidance teaching that an empty-string `currentBean` field means "the shot did not record that field" (not "the user has no grinder / bean")
 - **AND** SHALL NOT contain a section describing `inferredFields` semantics
 
 ### Requirement: currentBean SHALL expose a beanFreshness block instead of precomputed days-since-roast

@@ -230,8 +230,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // resolved shot, not live DYE. Both this surface and
                     // the in-app advisor's user prompt build through the
                     // same helper so a single system-prompt reading lands
-                    // on byte-equivalent JSON. See openspec change
-                    // unify-current-bean-shape (issue #1043).
+                    // on byte-equivalent JSON.
                     {
                         McpDialingBlocks::CurrentBeanBlockInputs in;
                         in.beanBrand = sd.beanBrand;

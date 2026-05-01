@@ -548,8 +548,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
 {
     // Delegates to the shared helper so this surface and
     // `dialing_get_context.currentBean` produce byte-equivalent JSON for
-    // the same resolved shot. See openspec change unify-current-bean-shape
-    // (issue #1043).
+    // the same resolved shot.
     McpDialingBlocks::CurrentBeanBlockInputs in;
     in.beanBrand = summary.beanBrand;
     in.beanType = summary.beanType;
@@ -995,7 +994,11 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "`.roastLevel` carry bean identity; `currentBean.grinderBrand` /\n"
         "`.grinderModel` / `.grinderBurrs` carry grinder identity. Every field\n"
         "in `currentBean` describes THE SETUP THAT PRODUCED THE RESOLVED SHOT —\n"
-        "not whatever the user has loaded on the machine right now. The\n"
+        "not whatever the user has loaded on the machine right now. An empty\n"
+        "string for any of these fields means the shot did NOT record that field\n"
+        "(common on legacy shots saved before the field was tracked); it does\n"
+        "NOT mean the user has no grinder / bean / etc. Ask the user before\n"
+        "recommending a change to any field that came back blank. The\n"
         "`shotAnalysis` prose carries neither bean nor grinder identity — it\n"
         "never carries a `Coffee:` / `Beans:` line nor a `Grinder:` line with\n"
         "brand/model/burrs. Only the per-shot variable `Grind setting:`\n"

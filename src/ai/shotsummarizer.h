@@ -111,7 +111,11 @@ struct ShotSummary {
     // currentProfile.recommendedDoseG field shipped by dialing_get_context).
     double recommendedDoseG = 0;
 
-    // DYE metadata (from user input)
+    // Bean / grinder / tasting metadata. Source depends on the path:
+    // `summarize()` (live) reads from the just-collected `ShotMetadata`;
+    // `summarizeFromHistory()` reads from the shot's saved database
+    // record. The fields named here mirror the columns under those two
+    // sources — this struct is not itself a live-DYE snapshot.
     QString beanBrand;
     QString beanType;
     QString roastDate;
@@ -164,14 +168,15 @@ public:
     //   carrying currentBean / profile / tastingFeedback / shotAnalysis.
     //   Key names mirror dialing_get_context's response shape so a single
     //   system prompt reads correctly off either surface. The `shotAnalysis`
-    //   field embeds the prose body produced by `renderShotAnalysisProse`
-    //   in `Standalone` mode (which carries the `## Shot Summary` and
-    //   `## Detector Observations` headers `HistoryBlock` mode suppresses).
-    //   Regex consumers in AIConversation match on that prose after
-    //   parsing the JSON envelope first via `extractShotProse`.
-    // - `HistoryBlock` mode: returns prose only, no JSON envelope. The caller
-    //   wraps each block in a `### Shot (date)` header so JSON-per-shot would
-    //   be unreadable when concatenated.
+    //   field embeds prose rendered by `renderShotAnalysisProse(..., Standalone)`
+    //   — that prose carries the `## Shot Summary` and `## Detector
+    //   Observations` headers, which `HistoryBlock` mode strips. Regex
+    //   consumers in AIConversation match on that prose after parsing the
+    //   JSON envelope first via `extractShotProse`.
+    // - `HistoryBlock` mode: returns prose only, no JSON envelope, with
+    //   the two top-level headers stripped. The caller wraps each block
+    //   in a `### Shot (date)` header so JSON-per-shot would be unreadable
+    //   when concatenated.
     //
     // Output is byte-stable for identical input — no wall-clock or per-call
     // values appear in the payload, so prompt caching keeps hitting.

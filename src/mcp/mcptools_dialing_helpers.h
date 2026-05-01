@@ -159,15 +159,6 @@ inline QJsonObject buildBeanFreshness(const QString& roastDate)
     return block;
 }
 
-// `CurrentBeanInputs` and `buildCurrentBean` were retired in
-// unify-current-bean-shape (issue #1043). The DYE-with-shot-fallback
-// helper produced a `currentBean` whose meaning ("the live setup with
-// shot fallback") disagreed with the in-app advisor's `currentBean`
-// ("the setup that produced the shot") for the same shot, including
-// when DYE drifted from the shot between pulls. Both surfaces now build
-// `currentBean` from the resolved shot only, via the shared
-// `McpDialingBlocks::buildCurrentBeanBlock(CurrentBeanBlockInputs&)`.
-
 // Inputs for the per-shot diff that drives both `changeFromPrev` (within a
 // dial-in session) and `changeFromBest` (current vs best-recent). Carries
 // just the fields that change between adjacent shots in a dial-in flow —

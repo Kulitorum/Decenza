@@ -30,13 +30,6 @@ private slots:
     void hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty();
     void hoistSessionContext_allShotsEmptyForField_contextOmitsField();
 
-    // buildCurrentBean: removed in unify-current-bean-shape (issue #1043).
-    // The MCP-only DYE-with-fallback helper was retired in favor of the
-    // shared `McpDialingBlocks::buildCurrentBeanBlock(ShotProjection)` —
-    // both the MCP path and the in-app advisor user prompt build through
-    // it, sourced solely from the resolved shot. Equivalence is exercised
-    // in `tst_aimanager`'s currentBean equivalence test.
-
     // buildShotChangeDiff (issue #1020 — also drives changeFromPrev)
     void buildShotChangeDiff_identicalShots_emptyDiff();
     void buildShotChangeDiff_directionIsFromTo();

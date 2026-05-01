@@ -435,22 +435,25 @@ private slots:
     }
 
     // ---------------------------------------------------------------------
-    // openspec unify-current-bean-shape (issue #1043) — both surfaces
-    // produce byte-equivalent `currentBean` JSON for the same resolved
-    // shot. The MCP path (`dialing_get_context.currentBean`) and the
-    // in-app advisor's user-prompt path
+    // Both surfaces produce byte-equivalent `currentBean` JSON for the
+    // same resolved shot. The MCP path
+    // (`dialing_get_context.currentBean`) and the in-app advisor's
+    // user-prompt path
     // (`AIManager::buildUserPromptObjectForShot(...)["currentBean"]`)
-    // build through the shared `McpDialingBlocks::buildCurrentBeanBlock`,
-    // sourced solely from the resolved shot.
+    // build through the shared
+    // `McpDialingBlocks::buildCurrentBeanBlock`, sourced solely from the
+    // resolved shot. Pinned end-to-end so future drift between the two
+    // builders fails the test rather than confusing the LLM with two
+    // disagreeing views of the same shot.
     // ---------------------------------------------------------------------
     void currentBean_equivalenceAcrossSurfaces()
     {
         QNetworkAccessManager nam;
         // Live DYE state is deliberately divergent from the shot's saved
-        // metadata to model the issue #1043 scenario: the user changed
-        // DYE between pulling the shot and asking the AI about it.
-        // currentBean must NOT pick up the live DYE values on either
-        // surface — the shot is the source of truth.
+        // metadata to model the case where the user changed DYE between
+        // pulling the shot and asking the AI about it. currentBean must
+        // NOT pick up the live DYE values on either surface — the shot is
+        // the source of truth.
         Settings settings;
         settings.dye()->setDyeBeanBrand(QStringLiteral("Live DYE Brand"));
         settings.dye()->setDyeBeanType(QStringLiteral("Live DYE Type"));
