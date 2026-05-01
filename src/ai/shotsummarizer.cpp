@@ -627,6 +627,11 @@ QJsonObject ShotSummarizer::buildUserPromptObject(const ShotSummary& summary, Re
     return payload;
 }
 
+QString ShotSummarizer::buildShotAnalysisProse(const ShotSummary& summary) const
+{
+    return renderShotAnalysisProse(summary, RenderMode::Standalone);
+}
+
 QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode mode) const
 {
     // HistoryBlock mode: per-shot prose embedded under a `### Shot (date)`

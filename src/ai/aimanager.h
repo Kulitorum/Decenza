@@ -128,6 +128,15 @@ public:
     // serializing. Returns an empty object when summarization fails.
     QJsonObject buildUserPromptObjectForShot(const ShotProjection& shotData);
 
+    // Prose-only shot analysis — no JSON envelope, no double-shipped
+    // structured fields. Used by `dialing_get_context` to populate
+    // `result.shotAnalysis` (the structured fields already live at the
+    // top level of the response). The prose is identical to the
+    // `shotAnalysis` field inside `buildUserPromptObjectForShot(shot)`
+    // when that envelope is built in `Standalone` mode — both paths call
+    // `ShotSummarizer::renderShotAnalysisProse` with `RenderMode::Standalone`.
+    QString buildShotAnalysisProseForShot(const ShotProjection& shotData);
+
     // Merge the four dialing-context blocks into a user-prompt envelope.
     // Both the in-app advisor and `ai_advisor_invoke` call this on the
     // main-thread continuation of their bg-thread DB closures, after they

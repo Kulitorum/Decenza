@@ -181,9 +181,15 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     result["tastingFeedback"] = tastingFeedback;
 
                     // --- AI-generated shot analysis ---
+                    // Prose-only — `currentBean` / `profile` /
+                    // `tastingFeedback` already live at the top level of
+                    // the response, so the previously-embedded JSON
+                    // envelope was double-shipping them with disagreeing
+                    // values for the same shot. See openspec change
+                    // drop-nested-envelope-in-dialing-shot-analysis.
                     if (mainController && mainController->aiManager()) {
                         AIManager* ai = mainController->aiManager();
-                        QString analysis = ai->generateHistoryShotSummary(dbResult.shotData);
+                        QString analysis = ai->buildShotAnalysisProseForShot(dbResult.shotData);
                         if (!analysis.isEmpty())
                             result["shotAnalysis"] = analysis;
                     }

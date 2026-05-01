@@ -434,6 +434,74 @@ private slots:
     }
 
     // ---------------------------------------------------------------------
+    // openspec drop-nested-envelope-in-dialing-shot-analysis — pin that
+    // `dialing_get_context.shotAnalysis` is prose-only (no nested JSON
+    // envelope) and that the prose matches the in-app advisor's user-
+    // prompt envelope's `shotAnalysis` field byte-for-byte.
+    // ---------------------------------------------------------------------
+    void buildShotAnalysisProseForShot_returnsProseNotJson()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, QDateTime::currentSecsSinceEpoch(),
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QString prose = mgr.buildShotAnalysisProseForShot(shot);
+        QVERIFY(!prose.isEmpty());
+
+        // Prose body — starts with the Shot Summary header, contains the
+        // Phase Data block.
+        QVERIFY2(prose.contains(QStringLiteral("## Shot Summary")),
+                 "prose body must carry the Shot Summary header");
+        QVERIFY2(prose.contains(QStringLiteral("## Phase Data")),
+                 "prose body must carry the Phase Data header");
+
+        // Not a JSON envelope — must NOT carry the structured-field
+        // block names that the previous nested envelope embedded.
+        QVERIFY2(!prose.contains(QStringLiteral("\"currentBean\"")),
+                 "prose body must not embed a JSON currentBean block");
+        QVERIFY2(!prose.contains(QStringLiteral("\"tastingFeedback\"")),
+                 "prose body must not embed a JSON tastingFeedback block");
+        QVERIFY2(!prose.contains(QStringLiteral("\"profile\":")),
+                 "prose body must not embed a JSON profile block");
+
+        // Parsing the prose as JSON should not yield an object — it's a
+        // markdown string, not a JSON-encoded envelope.
+        QJsonParseError err{};
+        const QJsonDocument doc = QJsonDocument::fromJson(prose.toUtf8(), &err);
+        QVERIFY2(err.error != QJsonParseError::NoError || !doc.isObject(),
+                 "prose body must not parse as a JSON object");
+    }
+
+    void buildShotAnalysisProseForShot_matchesEnvelopeShotAnalysisField()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(42, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        // The prose returned by buildShotAnalysisProseForShot MUST be the
+        // same string the user-prompt envelope carries under its
+        // `shotAnalysis` key — they share the private renderer, and any
+        // future drift would re-introduce the bug this change retired.
+        const QString prose = mgr.buildShotAnalysisProseForShot(shot);
+        const QJsonObject envelope = mgr.buildUserPromptObjectForShot(shot);
+        const QString envelopeShotAnalysis = envelope.value(QStringLiteral("shotAnalysis")).toString();
+
+        QCOMPARE(prose, envelopeShotAnalysis);
+    }
+
+    // ---------------------------------------------------------------------
     // enrichUserPromptObject — single-source merge step shared by the in-app
     // advisor and ai_advisor_invoke. Pins that the four blocks land at the
     // right keys, that empty blocks are suppressed (no nulls), and that the

@@ -415,6 +415,12 @@ QJsonObject AIManager::buildUserPromptObjectForShot(const ShotProjection& shotDa
     return m_summarizer->buildUserPromptObject(summary);
 }
 
+QString AIManager::buildShotAnalysisProseForShot(const ShotProjection& shotData)
+{
+    ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
+    return m_summarizer->buildShotAnalysisProse(summary);
+}
+
 void AIManager::enrichUserPromptObject(QJsonObject& payload,
                                        const ShotProjection& shotData,
                                        const QJsonArray& dialInSessions,
