@@ -312,7 +312,9 @@ Expect: success=true
 ```
 Call: shots_list (limit: 3)
 Expect: count=3, each shot has id, profileName, durationSec, enjoyment0to100,
-        doseG, yieldG, targetWeightG, timestamp (ISO 8601)
+        doseG, yieldG, targetWeightG, timestamp (ISO 8601).
+        Top-level fields: total, offset=0, hasMore=true (if total > 3),
+        nextOffset=3 (or null when hasMore=false).
 Save: note first shot id as SHOT_ID, second shot id as SHOT_ID_2
 ```
 Note: list summaries use unit/scale-suffixed field names (`durationSec`, `doseG`,

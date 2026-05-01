@@ -194,6 +194,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["count"] = shots.size();
                     result["total"] = totalCount;
                     result["offset"] = offset;
+                    const int returned = shots.size();
+                    const bool hasMore = (offset + returned) < totalCount;
+                    result["hasMore"] = hasMore;
+                    result["nextOffset"] = hasMore ? QJsonValue(offset + returned) : QJsonValue(QJsonValue::Null);
 
                     // Per MCP 2025-06-18: emit a resource_link block per shot
                     // pointing at decenza://shots/{id} so subscribing clients
