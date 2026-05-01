@@ -79,10 +79,21 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         const double tempOverride = shot.temperatureOverrideC;  // Always has value
         const double targetWeight = shot.targetWeightG;  // Always has value
 
-        // Escape for JavaScript string (single quotes) and HTML attribute
+        // Escape for JavaScript string (single quotes) and HTML attribute.
+        //
+        // Does NOT double `%` → `%%`: that pattern looks like an arg-placeholder
+        // escape but isn't one — Qt's QString::arg() never reduces `%%` back to
+        // `%` (verified in qtbase qstring.cpp findArgEscapes/replaceArgEscapes),
+        // so doubling caused user-visible `%%` whenever a profile/bean name
+        // contained a `%` followed by a non-digit (the common case, e.g.
+        // "50% off" rendered as "50%% off"). It also failed to escape the
+        // shadow case it was meant to prevent — "%12" would still parse as a
+        // %12 placeholder after doubling because the parser rescans after
+        // each non-match. The residual shadow risk (user typing the literal
+        // text of an unfilled placeholder number into a name) is real but
+        // rare; the rendering bug was always-on and visible.
         auto escapeForJs = [](const QString& s) -> QString {
             QString escaped = s;
-            escaped.replace("%", "%%");      // Must be first — protect QString::arg() placeholders
             escaped.replace("\\", "\\\\");
             escaped.replace("'", "\\'");
             escaped.replace("\"", "&quot;");
@@ -1061,10 +1072,14 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         ? (QString::number(shot.enjoyment0to100) + QStringLiteral("%"))
         : QStringLiteral("-");
 
-    // Escape for embedding in JavaScript string literals (inside double quotes)
+    // Escape for embedding in JavaScript string literals (inside double quotes).
+    // Does NOT double `%` → `%%` — see escapeForJs in generateShotListPage above
+    // for the full rationale. Short version: the doubling was visible-output
+    // wrong (Qt's arg() never reduces `%%` back to `%`) and didn't actually
+    // prevent placeholder shadowing either ("%12" still parses as %12 after
+    // doubling).
     auto jsEscape = [](const QString& s) -> QString {
         QString r = s;
-        r.replace(QLatin1String("%"), QLatin1String("%%"));    // Must be first: prevent %1-%99 arg placeholders
         r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
         r.replace(QLatin1String("\""), QLatin1String("\\\""));
         r.replace(QLatin1String("\n"), QLatin1String("\\n"));
