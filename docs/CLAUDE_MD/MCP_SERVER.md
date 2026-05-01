@@ -86,7 +86,7 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
 | `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale |
 | `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme |
 
@@ -162,7 +162,8 @@ This avoids holding HTTP connections and works naturally with the conversational
 ### Machine State
 | Tool | Description | Category |
 |------|-------------|----------|
-| `machine_get_state` | Phase, connection, readiness, heating status, water level (ml + mm), firmware version, active profile name | read |
+| `machine_get_state` | Phase, connection, readiness, heating status, water level (ml + mm), firmware version, active profile name. Platform/OS info has moved to `app_get_info` (#988) to keep tight polling responses small. | read |
+| `app_get_info` | App and device info: appVersion, qtVersion, OS, kernel, architecture, deviceModel, screen size/DPI, devicePixelRatio. Diagnostics-grade — call once per session. | read |
 | `machine_get_telemetry` | Live pressure, flow, temp, weight, goal values. During a shot, also returns the current shot's time-series data so far (not just the latest sample) so the AI can detect channeling or stalling mid-shot. | read |
 | `steam_get_health` | Detailed steam-system health: baseline + current pressure/temperature, flow-restriction progress toward warn thresholds, status, and recommendation. Used for steam-wand cleaning / descaling guidance. | read |
 
