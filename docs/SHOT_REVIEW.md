@@ -187,32 +187,64 @@ negative = fine.
 
 For each pressure-mode phase (or the whole pour window if all phases are
 flow-mode-labeled), accumulate samples where `pressure ≥
-CHOKED_PRESSURE_MIN_BAR` (4.0). Requires `flowSamples ≥ 5` and
-`pressurizedDuration ≥ CHOKED_DURATION_MIN_SEC` (15 s) to fire. Two
-sub-arms feed `chokedPuck`:
+CHOKED_PRESSURE_MIN_BAR` (4.0). Two sub-arms feed `chokedPuck` with
+**split gates**:
 
 - **Severe (flow arm)**: mean pressurized flow `< CHOKED_FLOW_MAX_MLPS` (0.5
-  mL/s). Catches the obvious failures (e.g., 80's Espresso with 1.1 g yield
-  and ~0.3 mL/s mean).
+  mL/s). Requires `flowSamples ≥ 5` AND `pressurizedDuration ≥
+  CHOKED_DURATION_MIN_SEC` (15 s) — needs sustained pressure to compute a
+  meaningful mean flow. Catches obvious failures (e.g., 80's Espresso with
+  1.1 g yield and ~0.3 mL/s mean).
 - **Moderate (yield arm)**: `finalWeightG / targetWeightG < CHOKED_YIELD_RATIO_MAX`
-  (0.85). Catches narrowly-above-flow-threshold cases where the puck still
-  failed (e.g., 25 g of a 36 g target, ~0.6 mL/s mean).
+  (0.70 — tightened from a prior 0.85 by the 500-shot audit). Requires only
+  `flowSamples ≥ 5` (puck saw meaningful pressure briefly) — does NOT
+  require sustained `pressurizedDuration` because its diagnosis is
+  yield-based and does not read mean pressurized flow. Catches shots like
+  745 (Adaptive v2, 23 g of 36 g target = 0.64, ~8.8 s pressurized
+  window).
+
+The yield arm decouples from the 15 s flow-arm gate because they answer
+different questions: the flow arm asks "did the puck deliver any flow
+under sustained pressure?" (needs 15 s of pressure to average), the yield
+arm asks "did the puck deliver enough yield, full stop?" (just needs to
+have seen pressure briefly so we know the shot wasn't aborted before
+extraction). The audit found shots that lost both gates simultaneously
+because they shared the duration precondition — fix splits them. See
+openspec change `tighten-grind-yield-shortfall-arm` for the rationale.
+
+The 0.70 threshold is the empirical sweet spot from the 500-shot audit:
+0.85 over-flagged Adaptive v2 fast-pour profiles delivering 71-76% of
+target by design. 0.70 catches the genuine choke shapes (yields under
+~70%) without false-positives on profiles whose normal yield is
+intentionally below target.
 
 The yield arm requires both `targetWeightG > 0` and `finalWeightG > 0` —
 imported shots without target metadata correctly stay silent.
 `finalWeightG` works on either a real BLE scale or Decenza's `FlowScale`
 virtual scale (dose-aware flow integration), so the arm fires headless too.
 
-**Verified-clean signal.** When the choked-puck loop's gates pass
-(≥ 5 flow samples, ≥ 15 s pressurized at ≥ 4 bar) AND none of `chokedPuck`,
-`yieldOvershoot`, or `|delta| > FLOW_DEVIATION_THRESHOLD` fires,
-`GrindCheck.verifiedClean = true` and `result.hasData = true` — the puck
-was healthy and we have data to back that claim. The Shot Summary dialog
-emits a `[good]` line "Grind tracked goal during pour." This is a positive
-signal distinct from the prior implicit "no badge fired ⇒ assume clean"
-behavior — without it, profiles whose Arm 1 windows lie entirely before
-`pourStart` (simple two-marker Preinfusion + Pour shapes) silently pass
-even when no detector saw any data.
+**`hasData` and `verifiedClean` are independent signals.** `hasData = true`
+fires whenever EITHER arm produced a result: the flow arm's full gates
+passed (≥ 5 samples AND ≥ 15 s pressurized) regardless of whether a choke
+fired, OR the yield arm fired standalone (≥ 5 pressurized samples AND
+yield/target < 0.70). Either path proves the detector saw enough to speak.
+
+`verifiedClean = true` is stricter — it requires the **flow arm's full
+gates** (≥ 5 samples, ≥ 15 s pressurized at ≥ 4 bar) AND none of
+`chokedPuck`, `yieldOvershoot`, or `|delta| > FLOW_DEVIATION_THRESHOLD`
+fires. The 15 s gate is load-bearing here: a healthy sustained pressurized
+pour is what the positive signal actually asserts. The Shot Summary dialog
+emits a `[good]` line "Grind tracked goal during pour" only on
+`verifiedClean = true`, distinct from the prior implicit "no badge fired
+⇒ assume clean" behavior — without it, profiles whose Arm 1 windows lie
+entirely before `pourStart` (simple two-marker Preinfusion + Pour shapes)
+silently pass even when no detector saw any data.
+
+A shot where `hasData = true` but `verifiedClean = false` means the yield
+arm fired (or, if `chokedPuck=false && yieldOvershoot=false`, the flow
+arm gates passed but the verified-clean criteria didn't hold for some
+other reason). Consumers wanting "verified clean" specifically must read
+`grindVerifiedClean` directly, not just `hasData`.
 
 **Coverage signal.** `DetectorResults.grindCoverage` carries one of:
 

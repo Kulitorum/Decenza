@@ -171,16 +171,26 @@ public:
     // flag:
     //   - Flow arm: mean pressurized flow < CHOKED_FLOW_MAX_MLPS — catches
     //     severe chokes like 80's Espresso shot 890 (1.1 g yield, ~0.3 ml/s
-    //     mean during the pressure-mode tail).
+    //     mean during the pressure-mode tail). Requires flowSamples ≥ 5
+    //     AND pressurizedDuration ≥ CHOKED_DURATION_MIN_SEC because mean
+    //     flow is only meaningful when the puck sustained pressure.
     //   - Yield arm: yield/target < CHOKED_YIELD_RATIO_MAX — catches moderate
-    //     chokes like shot 883 (25 g of 36 g target, ~0.6 ml/s mean — narrowly
-    //     above the flow threshold but the puck still failed to deliver).
-    // Both arms share the `flowSamples ≥ 5 && pressurizedDuration ≥
-    // CHOKED_DURATION_MIN_SEC` gate so neither fires on aborted shots.
+    //     chokes like shot 745 (Adaptive v2, 23 g of 36 g target = 0.64
+    //     ratio, ~8.8 s pressurized window). Requires only flowSamples
+    //     ≥ 5 (any pressurized samples seen) — does NOT require sustained
+    //     pressurized duration because its diagnosis is yield-based and
+    //     does not read mean pressurized flow. Decoupled from the flow
+    //     arm's gate by the 500-shot audit (see #963 / openspec change
+    //     tighten-grind-yield-shortfall-arm).
     static constexpr double CHOKED_PRESSURE_MIN_BAR = 4.0;
     static constexpr double CHOKED_FLOW_MAX_MLPS = 0.5;
     static constexpr double CHOKED_DURATION_MIN_SEC = 15.0;
-    static constexpr double CHOKED_YIELD_RATIO_MAX = 0.85;
+    // Tightened from 0.85 by the 500-shot audit: 0.85 over-flagged
+    // Adaptive v2 fast-pour profiles delivering 71-76% of target by
+    // design. 0.70 is the empirical sweet spot — catches the genuinely
+    // choked shapes (yields under ~70%) without false-positives on
+    // profiles whose normal yield is intentionally below target.
+    static constexpr double CHOKED_YIELD_RATIO_MAX = 0.70;
 
     // Yield-overshoot ("gusher") arm — the inverse of the moderate choked-puck
     // yield arm. Fires when yield/target exceeds this ratio: the puck offered
