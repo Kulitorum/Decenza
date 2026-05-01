@@ -6,9 +6,11 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QVariantMap>
+#include <QPair>
 #include <memory>
 
 #include "../history/shotprojection.h"
+#include "../history/shothistory_types.h"
 
 class QNetworkAccessManager;
 class AIProvider;
@@ -211,8 +213,25 @@ private:
     void evictOldestConversation();
     void migrateFromLegacyConversation();
 
+    // Render the recent-shot-context prose from already-loaded data and
+    // emit `recentShotContextReady` (or an empty string when stale).
+    // `requestRecentShotContext`'s main-thread lambda calls this helper
+    // after the background DB work resolves. Extracted so the
+    // canonical-source separation logic (Profile/Setup hoisting,
+    // HistoryBlock per-shot rendering) can be exercised by tests via
+    // `friend class TstAIManager` without standing up a real DB.
+    void emitRecentShotContext(
+        const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
+        const GrinderContext& grinderCtx,
+        const QString& grinderBrand,
+        int serial);
+
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;
     QList<ConversationEntry> m_conversationIndex;
     bool m_isConversationRequest = false;
+
+#ifdef DECENZA_TESTING
+    friend class tst_AIManager;
+#endif
 };

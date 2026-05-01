@@ -55,7 +55,6 @@ struct ShotSummary {
     QString profileNotes;   // Author's description of profile intent/design
     QString profileAuthor;
     QString beverageType;   // "espresso", "filter", etc.
-    QString profileRecipeDescription;  // Compact text description of frame sequence
 
     // Overall metrics
     double totalDuration = 0;
@@ -135,7 +134,10 @@ public:
     // emits (dose, yield, duration, grind setting, peaks, phase data,
     // detector observation lines with their `[warning] / [good]` tags).
     // Profile / intent / recipe / Coffee / brand+model+burrs Grinder are
-    // already absent from both modes via tasks 8 and 9.
+    // already absent from both `RenderMode` values of `buildUserPrompt`
+    // via tasks 8 and 9 — those strips do NOT extend to the separate
+    // `buildHistoryContext` static helper, which still emits per-shot
+    // grinder + bean lines (its callers don't hoist a setup header).
     enum class RenderMode { Standalone, HistoryBlock };
 
     // Generate text prompt from summary. Default `Standalone` preserves

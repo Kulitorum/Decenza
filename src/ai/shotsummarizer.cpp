@@ -213,7 +213,6 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.profileNotes = profile->profileNotes();
         summary.profileAuthor = profile->author();
         summary.beverageType = profile->beverageType();
-        summary.profileRecipeDescription = profile->describeFrames();
         summary.targetWeight = profile->targetWeight();
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
@@ -383,7 +382,6 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
             if (!editorType.isEmpty() && editorType != QLatin1String("advanced"))
                 summary.profileType = profileTypeDescription(editorType);
         }
-        summary.profileRecipeDescription = Profile::describeFramesFromJson(profileJson);
     }
 
     // Overall metrics
@@ -582,11 +580,6 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode m
         }
     }
     out << "\n";
-
-    // Profile recipe lives in `result.profile.recipe` (single canonical
-    // surface) — see openspec optimize-dialing-context-payload, task 8. The
-    // pre-change emission of `summary.profileRecipeDescription` here
-    // duplicated that JSON field and added ~210 chars per per-shot block.
 
     // Phase breakdown: start, peak-deviation (most diagnostic), end
     out << "## Phase Data\n\n";
