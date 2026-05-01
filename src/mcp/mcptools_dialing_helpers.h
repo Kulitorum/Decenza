@@ -4,6 +4,8 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QtGlobal>
 
 // Helpers extracted from mcptools_dialing.cpp so the pure-logic pieces can be
@@ -291,6 +293,40 @@ inline QJsonObject buildShotChangeDiff(const ShotDiffInputs& from,
     diffNum(from.enjoyment0to100, to.enjoyment0to100,
             QStringLiteral("enjoyment0to100"), QStringLiteral(""));
     return diff;
+}
+
+// Estimate the average pour flow rate over the last `windowSec` seconds of
+// the shot. Drives the sawPrediction block: SAW math needs a representative
+// flow at cutoff, and the tail of the recorded flow curve tracks the same
+// physical flow regime that was active when stop-at-weight engaged.
+//
+// `flowSamples` is the QVariantList shape ShotProjection ships
+// (`{"x": <time>, "y": <flow>}` per entry). `durationSec` is the shot's
+// total duration; the window is `[durationSec - windowSec, durationSec]`,
+// clamped to t >= 0. Samples with y <= 0 (drip, scale noise) are skipped.
+// Returns 0.0 when no usable samples land in the window — caller decides
+// the fallback (typically "default to typical espresso pour rate").
+//
+// Pure function: the only Qt dep is QVariant unboxing.
+inline double estimateFlowAtCutoff(const QVariantList& flowSamples,
+                                    double durationSec,
+                                    double windowSec = 2.0)
+{
+    if (flowSamples.isEmpty() || durationSec <= 0) return 0.0;
+    const double windowStart = qMax(0.0, durationSec - windowSec);
+    double sum = 0.0;
+    int count = 0;
+    for (qsizetype i = flowSamples.size() - 1; i >= 0; --i) {
+        const QVariantMap pt = flowSamples[i].toMap();
+        const double t = pt.value(QStringLiteral("x")).toDouble();
+        if (t < windowStart) break;
+        const double y = pt.value(QStringLiteral("y")).toDouble();
+        if (y > 0) {
+            sum += y;
+            ++count;
+        }
+    }
+    return count > 0 ? sum / count : 0.0;
 }
 
 } // namespace McpDialingHelpers

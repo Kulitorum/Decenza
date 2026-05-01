@@ -45,6 +45,14 @@ private slots:
     void buildShotChangeDiff_zeroFieldsSkipped();
     void buildShotChangeDiff_emptyStringsSkipped();
     void buildShotChangeDiff_changeFromBestExample();
+
+    // estimateFlowAtCutoff (issue #1021)
+    void estimateFlowAtCutoff_emptySamples_returnsZero();
+    void estimateFlowAtCutoff_zeroDuration_returnsZero();
+    void estimateFlowAtCutoff_averagesLastTwoSeconds();
+    void estimateFlowAtCutoff_skipsZeroFlowSamples();
+    void estimateFlowAtCutoff_shortShot_clampsWindowToZero();
+    void estimateFlowAtCutoff_customWindow();
 };
 
 void TstMcpToolsDialingHelpers::emptyInput_returnsNoSessions()
@@ -597,6 +605,89 @@ void TstMcpToolsDialingHelpers::buildShotChangeDiff_changeFromBestExample()
              QStringLiteral("Prodigal -> Northbound Coffee Roasters"));
     QCOMPARE(diff["doseG"].toString(), QStringLiteral("18.0 -> 20.0 g (+2.0)"));
     QCOMPARE(diff["yieldG"].toString(), QStringLiteral("40.2 -> 35.9 g (-4.3)"));
+}
+
+// ---- estimateFlowAtCutoff (issue #1021) ----
+//
+// SAW prediction needs a representative flow rate at the moment of cutoff.
+// We approximate by averaging the tail of the recorded flow curve.
+
+namespace {
+QVariantMap makeSample(double t, double y)
+{
+    QVariantMap m;
+    m["x"] = t;
+    m["y"] = y;
+    return m;
+}
+} // namespace
+
+void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_emptySamples_returnsZero()
+{
+    QCOMPARE(estimateFlowAtCutoff({}, 30.0), 0.0);
+}
+
+void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_zeroDuration_returnsZero()
+{
+    // No duration → no window. Defensive: legacy shots with bogus durations.
+    QVariantList samples;
+    samples.append(makeSample(10.0, 1.5));
+    QCOMPARE(estimateFlowAtCutoff(samples, 0.0), 0.0);
+}
+
+void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_averagesLastTwoSeconds()
+{
+    // Shot duration = 30s; default window = 2s → samples in [28, 30] count.
+    QVariantList samples;
+    samples.append(makeSample(10.0, 0.5));   // outside window
+    samples.append(makeSample(20.0, 1.0));   // outside window
+    samples.append(makeSample(28.0, 1.6));   // inside (boundary)
+    samples.append(makeSample(29.0, 1.8));
+    samples.append(makeSample(30.0, 2.0));
+
+    const double avg = estimateFlowAtCutoff(samples, 30.0);
+    // Average of 1.6, 1.8, 2.0 = 1.8
+    QVERIFY(qFuzzyCompare(avg, 1.8));
+}
+
+void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_skipsZeroFlowSamples()
+{
+    // y == 0 (drip detected as zero, scale rounding) shouldn't drag the avg
+    // down — the SAW prediction wants the flow regime that drove pour
+    // pressure, not stale zero readings between drops.
+    QVariantList samples;
+    samples.append(makeSample(28.0, 1.5));
+    samples.append(makeSample(29.0, 0.0));   // skip
+    samples.append(makeSample(30.0, 1.5));
+
+    const double avg = estimateFlowAtCutoff(samples, 30.0);
+    QVERIFY(qFuzzyCompare(avg, 1.5));
+}
+
+void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_shortShot_clampsWindowToZero()
+{
+    // Shot shorter than the window — window must clamp to t >= 0 so we
+    // average the whole shot rather than emit garbage.
+    QVariantList samples;
+    samples.append(makeSample(0.5, 1.0));
+    samples.append(makeSample(1.0, 2.0));
+
+    // duration=1.0, default window=2.0 → window starts at max(0, 1.0-2.0) = 0
+    const double avg = estimateFlowAtCutoff(samples, 1.0);
+    QVERIFY(qFuzzyCompare(avg, 1.5));  // (1.0 + 2.0) / 2
+}
+
+void TstMcpToolsDialingHelpers::estimateFlowAtCutoff_customWindow()
+{
+    QVariantList samples;
+    samples.append(makeSample(25.0, 1.0));
+    samples.append(makeSample(28.0, 2.0));
+    samples.append(makeSample(30.0, 3.0));
+
+    // 5s window → [25, 30] all three samples → (1+2+3)/3 = 2.0
+    QVERIFY(qFuzzyCompare(estimateFlowAtCutoff(samples, 30.0, 5.0), 2.0));
+    // 1s window → [29, 30] only the t=30 sample → 3.0
+    QVERIFY(qFuzzyCompare(estimateFlowAtCutoff(samples, 30.0, 1.0), 3.0));
 }
 
 QTEST_APPLESS_MAIN(TstMcpToolsDialingHelpers)
