@@ -29,7 +29,7 @@
 
 #include "history/shothistorystorage.h"
 #include "history/shotprojection.h"
-#include "mcp/mcptools_dialing_blocks.h"
+#include "ai/dialing_blocks.h"
 
 namespace {
 
@@ -123,7 +123,7 @@ constexpr qint64 kSecPerDay = 24 * 3600;
 
 } // namespace
 
-class TstMcpToolsDialingBlocks : public QObject
+class TstDialingBlocks : public QObject
 {
     Q_OBJECT
 
@@ -216,7 +216,7 @@ private slots:
 
             // Resolved shot: the most recent (session B). historyLimit big
             // enough to pull all four older shots.
-            const QJsonArray sessions = McpDialingBlocks::buildDialInSessionsBlock(
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-80s"), /*resolvedShotId=*/-1, /*historyLimit=*/10);
 
             // Two sessions, newest first (session B with 1 shot, session A
@@ -269,7 +269,7 @@ private slots:
         const QString path = freshDbPath();
         initAndClose(path);
         withRawDb(path, QStringLiteral("dial_empty"), [&](QSqlDatabase& db) {
-            const QJsonArray sessions = McpDialingBlocks::buildDialInSessionsBlock(
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-no-rows"), -1, 10);
             QVERIFY(sessions.isEmpty());
         });
@@ -323,7 +323,7 @@ private slots:
             const ShotProjection currentProj = projectionForShot(db, currentId);
             QVERIFY(currentProj.isValid());
 
-            const QJsonObject best_ = McpDialingBlocks::buildBestRecentShotBlock(
+            const QJsonObject best_ = DialingBlocks::buildBestRecentShotBlock(
                 db, QStringLiteral("kb-80s"), currentId, currentProj);
 
             QVERIFY(!best_.isEmpty());
@@ -352,7 +352,7 @@ private slots:
         const qint64 now = QDateTime::currentSecsSinceEpoch();
         // Window is 90 days; place the rated shot at 100 days old.
         const qint64 staleTimestamp = now
-            - (McpDialingBlocks::kBestRecentShotWindowDays + 10) * kSecPerDay;
+            - (DialingBlocks::kBestRecentShotWindowDays + 10) * kSecPerDay;
 
         withRawDb(path, QStringLiteral("best_stale"), [&](QSqlDatabase& db) {
             ShotRow stale;
@@ -376,7 +376,7 @@ private slots:
 
             const ShotProjection currentProj = projectionForShot(db, currentId);
 
-            const QJsonObject best_ = McpDialingBlocks::buildBestRecentShotBlock(
+            const QJsonObject best_ = DialingBlocks::buildBestRecentShotBlock(
                 db, QStringLiteral("kb-80s"), currentId, currentProj);
             QVERIFY2(best_.isEmpty(),
                      "no rated shot in the 90-day window must produce an empty block");
@@ -417,7 +417,7 @@ private slots:
                 QVERIFY(insertShot(db, o) > 0);
             }
 
-            const QJsonObject ctx = McpDialingBlocks::buildGrinderContextBlock(
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
                 db, QStringLiteral("Zero"), QStringLiteral("espresso"),
                 QStringLiteral("Northbound"));
 
@@ -460,7 +460,7 @@ private slots:
                 QVERIFY(insertShot(db, r) > 0);
             }
 
-            const QJsonObject ctx = McpDialingBlocks::buildGrinderContextBlock(
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
                 db, QStringLiteral("Zero"), QStringLiteral("espresso"),
                 QStringLiteral("Northbound"));
             QCOMPARE(ctx.value(QStringLiteral("settingsObserved")).toArray().size(), 3);
@@ -478,7 +478,7 @@ private slots:
     // -------------------------------------------------------------------
     // End-to-end parity (issue #1044's headline test) — the four blocks
     // should be byte-equivalent regardless of which "surface" assembled
-    // them, because both paths call the same McpDialingBlocks helpers.
+    // them, because both paths call the same DialingBlocks helpers.
     // The check guards against future drift if either path adds a
     // post-processing step.
     // -------------------------------------------------------------------
@@ -543,11 +543,11 @@ private slots:
                 ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                 ShotProjection sp = ShotHistoryStorage::convertShotRecord(rec);
                 const QString kbId = rec.profileKbId;
-                QJsonArray  sessions = McpDialingBlocks::buildDialInSessionsBlock(
+                QJsonArray  sessions = DialingBlocks::buildDialInSessionsBlock(
                     db, kbId, shotId, kHistoryLimit);
-                QJsonObject best = McpDialingBlocks::buildBestRecentShotBlock(
+                QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
                     db, kbId, shotId, sp);
-                QJsonObject grinder = McpDialingBlocks::buildGrinderContextBlock(
+                QJsonObject grinder = DialingBlocks::buildGrinderContextBlock(
                     db, sp.grinderModel, sp.beverageType, sp.beanBrand);
                 return std::make_tuple(sessions, best, grinder);
             };
@@ -564,11 +564,11 @@ private slots:
             auto runInAppSurface = [&](const QString& kbId, qint64 excludeId) {
                 ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, excludeId);
                 ShotProjection sp = ShotHistoryStorage::convertShotRecord(rec);
-                QJsonArray  sessions = McpDialingBlocks::buildDialInSessionsBlock(
+                QJsonArray  sessions = DialingBlocks::buildDialInSessionsBlock(
                     db, kbId, excludeId, kHistoryLimit);
-                QJsonObject best = McpDialingBlocks::buildBestRecentShotBlock(
+                QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
                     db, kbId, excludeId, sp);
-                QJsonObject grinder = McpDialingBlocks::buildGrinderContextBlock(
+                QJsonObject grinder = DialingBlocks::buildGrinderContextBlock(
                     db, sp.grinderModel, sp.beverageType, sp.beanBrand);
                 return std::make_tuple(sessions, best, grinder);
             };
@@ -610,5 +610,5 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(TstMcpToolsDialingBlocks)
-#include "tst_mcptools_dialing_blocks.moc"
+QTEST_GUILESS_MAIN(TstDialingBlocks)
+#include "tst_dialing_blocks.moc"

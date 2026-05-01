@@ -871,15 +871,109 @@ private slots:
 
     void aiConversation_extractShotFields_detectorFlagsEchoFromShotAnalysisProse()
     {
+        // Use the actual production-emitted strings from
+        // ShotAnalysis::analyzeShot — "Sustained channeling detected"
+        // (lowercase "c" in "channeling") and "Temperature drifted X°C
+        // from goal on average". These are what the deterministic
+        // detector pipeline writes into summaryLines.text, and the
+        // substring matchers in extractShotFields are tuned to them.
         const QString content = QStringLiteral(
             "## Shot (2026-05-01)\n\nHere's my latest shot:\n\n"
             "{"
             "  \"shot\": {\"doseG\": 18.0, \"yieldG\": 36.0},"
-            "  \"shotAnalysis\": \"## Shot Summary\\nChanneling detected during pour.\\nTemperature unstable in phase 2.\""
+            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\\n- [caution] Temperature drifted 2.4\\u00B0C from goal on average\""
             "}\n\nWhat to do?");
 
         const auto fields = AIConversation::extractShotFields(content);
         QVERIFY(fields.fromStructuredEnvelope);
+        QVERIFY(fields.channelingDetected);
+        QVERIFY(fields.temperatureUnstable);
+    }
+
+    // After issue #1037, the structured `shot.detectorObservations[]`
+    // array is the canonical surface for detector flags. extractShotFields
+    // prefers it over substring-searching the prose body — even when the
+    // shotAnalysis prose says the opposite.
+    void aiConversation_extractShotFields_detectorFlagsPreferStructuredArray()
+    {
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"doseG\": 18.0,"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"warning\", \"text\": \"Sustained channeling detected in dC/dt\"}"
+            "    ]"
+            "  },"
+            "  \"shotAnalysis\": \"## Shot Summary\\nNo issues observed.\""
+            "}");
+
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.fromStructuredEnvelope);
+        QVERIFY2(fields.channelingDetected,
+                 "detectorObservations[] takes precedence over the prose body");
+        QVERIFY2(!fields.temperatureUnstable,
+                 "no temp-unstable observation present, so the flag must stay false");
+    }
+
+    // The structured-array path's stable `kind` enum is the canonical
+    // signal — it's robust against future rewordings of the
+    // human-readable `text` field. Issue #1037: pin that contract.
+    void aiConversation_extractShotFields_readsByStableKindEnum()
+    {
+        // `text` is rewritten so substring matching would fail; only the
+        // `kind` enum carries the signal. The flag must still set.
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"doseG\": 18.0,"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"warning\", \"kind\": \"channeling_sustained\","
+            "       \"text\": \"PUCK PREP ISSUE — totally rewritten in a future release\"},"
+            "      {\"type\": \"caution\", \"kind\": \"temperature_drift\","
+            "       \"text\": \"Heating element behaving oddly\"}"
+            "    ]"
+            "  }"
+            "}");
+
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.fromStructuredEnvelope);
+        QVERIFY2(fields.channelingDetected,
+                 "kind=channeling_sustained must set channelingDetected even when text drifts");
+        QVERIFY2(fields.temperatureUnstable,
+                 "kind=temperature_drift must set temperatureUnstable even when text drifts");
+    }
+
+    // Transient channeling also sets the flag (kind=channeling_transient).
+    void aiConversation_extractShotFields_transientChannelingKindAlsoSetsFlag()
+    {
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"caution\", \"kind\": \"channeling_transient\","
+            "       \"text\": \"Transient channel at 14s (self-healed)\"}"
+            "    ]"
+            "  }"
+            "}");
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.channelingDetected);
+    }
+
+    // Pre-#1037 envelopes ship `text` without `kind`. Substring fallback
+    // against the production text strings (`channeling detected` /
+    // `Temperature drifted`) keeps those envelopes working.
+    void aiConversation_extractShotFields_kindAbsentFallsBackToTextSubstring()
+    {
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"warning\", \"text\": \"Sustained channeling detected in dC/dt\"},"
+            "      {\"type\": \"caution\", \"text\": \"Temperature drifted 2.4\\u00B0C from goal on average\"}"
+            "    ]"
+            "  }"
+            "}");
+        const auto fields = AIConversation::extractShotFields(content);
         QVERIFY(fields.channelingDetected);
         QVERIFY(fields.temperatureUnstable);
     }
@@ -895,7 +989,7 @@ private slots:
             "- **Profile**: 80's Espresso\n"
             "- **Score**: 85\n"
             "- **Notes**: \"balanced\"\n"
-            "Channeling detected during pour.\n");
+            "- [warning] Sustained channeling detected in dC/dt\n");
 
         const auto fields = AIConversation::extractShotFields(content);
         QVERIFY2(!fields.fromStructuredEnvelope,

@@ -526,13 +526,64 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
 
             fields.profileTitle = profile.value(QStringLiteral("title")).toString();
 
-            // Detector flags still come from substring search on the
-            // prose body — `ShotSummary` does not yet carry channeling
-            // as a scalar boolean. Issue #1037 will absorb these into a
-            // structured detectorObservations[] array.
-            const QString prose = obj.value(QStringLiteral("shotAnalysis")).toString();
-            fields.channelingDetected = prose.contains(QStringLiteral("Channeling detected"));
-            fields.temperatureUnstable = prose.contains(QStringLiteral("Temperature unstable"));
+            // Detector flags: read by stable `kind` from the structured
+            // `shot.detectorObservations[]` array (issue #1037). Each
+            // entry's `kind` is a fixed enum the deterministic detector
+            // sets (see ShotAnalysis::analyzeShot in
+            // `src/ai/shotanalysis.cpp`) — robust against future
+            // rewordings of the human-readable `text`.
+            //
+            // Two fallback layers, in order:
+            //  1. Some envelopes ship `text` without `kind` (lines that
+            //     predate #1037's kind annotation). Substring-match the
+            //     production text strings against the per-line `text`.
+            //  2. Older envelopes omit `detectorObservations[]` entirely.
+            //     Substring-match the `shotAnalysis` prose body.
+            //
+            // The substring needles match the actual production strings
+            // (case-insensitive). Earlier code looked for "Channeling
+            // detected" (capital C) and "Temperature unstable", neither of
+            // which the detector ever emitted — so detector flags were
+            // always silently false. Fixing here corrects both the
+            // structured-array fallback and the prose path.
+            auto kindIsChanneling = [](const QString& kind) {
+                return kind == QStringLiteral("channeling_sustained")
+                    || kind == QStringLiteral("channeling_transient");
+            };
+            auto containsChannelingText = [](const QString& s) {
+                return s.contains(QStringLiteral("channeling detected"),
+                                  Qt::CaseInsensitive);
+            };
+            auto containsTempInstabilityText = [](const QString& s) {
+                return s.contains(QStringLiteral("Temperature drifted"),
+                                  Qt::CaseInsensitive);
+            };
+            const QJsonArray observations = shot.value(
+                QStringLiteral("detectorObservations")).toArray();
+            if (!observations.isEmpty()) {
+                for (const QJsonValue& v : observations) {
+                    const QJsonObject obs = v.toObject();
+                    const QString kind = obs.value(QStringLiteral("kind")).toString();
+                    const QString text = obs.value(QStringLiteral("text")).toString();
+                    if (!kind.isEmpty()) {
+                        if (kindIsChanneling(kind))
+                            fields.channelingDetected = true;
+                        if (kind == QStringLiteral("temperature_drift"))
+                            fields.temperatureUnstable = true;
+                    } else {
+                        // Pre-#1037 entries without a `kind`: fall back
+                        // to substring on the line's freeform `text`.
+                        if (containsChannelingText(text))
+                            fields.channelingDetected = true;
+                        if (containsTempInstabilityText(text))
+                            fields.temperatureUnstable = true;
+                    }
+                }
+            } else {
+                const QString prose = obj.value(QStringLiteral("shotAnalysis")).toString();
+                fields.channelingDetected = containsChannelingText(prose);
+                fields.temperatureUnstable = containsTempInstabilityText(prose);
+            }
 
             fields.fromStructuredEnvelope = true;
             return fields;
@@ -554,8 +605,11 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
     fields.profileTitle = extract(s_profileRe);
     fields.score = extract(s_scoreRe);
     fields.notes = extract(s_notesRe);
-    fields.channelingDetected = prose.contains(QStringLiteral("Channeling detected"));
-    fields.temperatureUnstable = prose.contains(QStringLiteral("Temperature unstable"));
+    // Same actual production strings the structured path matches above.
+    fields.channelingDetected = prose.contains(
+        QStringLiteral("channeling detected"), Qt::CaseInsensitive);
+    fields.temperatureUnstable = prose.contains(
+        QStringLiteral("Temperature drifted"), Qt::CaseInsensitive);
     fields.fromStructuredEnvelope = false;
     return fields;
 }

@@ -588,6 +588,135 @@ static QJsonObject buildTastingFeedbackBlock(const ShotSummary& summary)
     return tf;
 }
 
+// Helper: peak {value, atSec} over the given curve.
+static QJsonObject peakWithTime(const QVector<QPointF>& curve)
+{
+    double peakVal = 0;
+    double peakTime = 0;
+    for (const auto& pt : curve) {
+        if (pt.y() > peakVal) { peakVal = pt.y(); peakTime = pt.x(); }
+    }
+    QJsonObject obj;
+    obj["value"] = QString::number(peakVal, 'f', 2).toDouble();
+    obj["atSec"] = QString::number(peakTime, 'f', 0).toInt();
+    return obj;
+}
+
+// Helper: peak {value, atSec} for a curve restricted to a [start, end]
+// time window. Used for per-phase peaks within the structured block.
+static QJsonObject peakWithTimeInWindow(const QVector<QPointF>& curve,
+                                         double startTime, double endTime)
+{
+    double peakVal = 0;
+    double peakTime = startTime;
+    for (const auto& pt : curve) {
+        if (pt.x() < startTime || pt.x() > endTime) continue;
+        if (pt.y() > peakVal) { peakVal = pt.y(); peakTime = pt.x(); }
+    }
+    QJsonObject obj;
+    obj["value"] = QString::number(peakVal, 'f', 2).toDouble();
+    obj["atSec"] = QString::number(peakTime, 'f', 0).toInt();
+    return obj;
+}
+
+static QJsonObject buildOverallPeaksBlock(const ShotSummary& summary)
+{
+    QJsonObject peaks;
+    const QJsonObject pressurePeak = peakWithTime(summary.pressureCurve);
+    const QJsonObject flowPeak = peakWithTime(summary.flowCurve);
+    if (pressurePeak.value(QStringLiteral("value")).toDouble() > 0.1)
+        peaks["pressureBar"] = pressurePeak;
+    if (flowPeak.value(QStringLiteral("value")).toDouble() > 0.1)
+        peaks["flowMlPerSec"] = flowPeak;
+    return peaks;
+}
+
+// Build a structured phases[] array. Each phase carries name, duration,
+// control mode, peak pressure / flow within the phase, and per-phase
+// `temperatureUnstable` flag. Phase samples (start / peakDeviation /
+// end) stay in the prose body for now — the deterministic detector
+// lines that summarize them already live in `detectorObservations`.
+// Issue #1037: structural fields the AI can iterate over without
+// pattern-matching prose.
+//
+// Threading: pure read of `summary.phases` and the curve members. Safe
+// to call on any thread that owns `summary`. Same threading contract
+// as `buildUserPromptObject` overall.
+static QJsonArray buildPhasesBlock(const ShotSummary& summary)
+{
+    QJsonArray phases;
+    for (const auto& phase : summary.phases) {
+        QJsonObject p;
+        p["name"] = phase.name;
+        p["durationSec"] = QString::number(phase.duration, 'f', 0).toInt();
+        // Human-readable enum (CLAUDE.md MCP convention).
+        p["controlMode"] = phase.isFlowMode
+            ? QStringLiteral("flow")
+            : QStringLiteral("pressure");
+        QJsonObject phasePeaks;
+        const QJsonObject pp = peakWithTimeInWindow(
+            summary.pressureCurve, phase.startTime, phase.endTime);
+        const QJsonObject fp = peakWithTimeInWindow(
+            summary.flowCurve, phase.startTime, phase.endTime);
+        if (pp.value(QStringLiteral("value")).toDouble() > 0.1)
+            phasePeaks["pressureBar"] = pp;
+        if (fp.value(QStringLiteral("value")).toDouble() > 0.1)
+            phasePeaks["flowMlPerSec"] = fp;
+        if (!phasePeaks.isEmpty()) p["peaks"] = phasePeaks;
+        // Per-phase temperature flag. The same suppression cascade the
+        // prose body uses — a failed pour's temp drift is a downstream
+        // symptom, not signal; intentional cross-phase stepping is
+        // by-design, not instability.
+        if (phase.temperatureUnstable
+            && !summary.pourTruncatedDetected
+            && !summary.tempIntentionalStepping) {
+            p["temperatureUnstable"] = true;
+        }
+        phases.append(p);
+    }
+    return phases;
+}
+
+// Build a structured detectorObservations[] array. Each entry is
+// `{type, kind, text}`:
+//   - `type` ∈ {warning, caution, good, observation} — severity tag.
+//   - `kind` is a stable enum identifier ("channeling_sustained",
+//     "temperature_drift", "grind_too_fine", etc.) populated by the
+//     deterministic detector pipeline. Consumers SHOULD read by `kind`
+//     instead of substring-matching `text`, which is freeform prose
+//     intended for the LLM and may be reworded across releases.
+//   - `text` is the human-readable line shown in the in-app dialog.
+//
+// The verdict line (`type=verdict`) is omitted — it's a deterministic
+// prescriptive conclusion ("Puck choked — grind way too fine.
+// Coarsen significantly.") that would anchor the LLM on a pre-cooked
+// answer. The non-verdict lines still ship — they are pre-interpreted,
+// severity-tagged observation strings, not raw curve data — but
+// withholding the verdict preserves the LLM's value-add of synthesizing
+// across signals (bean / prior shots / tasting feedback) instead of
+// parroting the verdict line. See the long rationale in
+// renderShotAnalysisProse.
+//
+// `kind` is omitted only for legacy lines that predate #1037 — every
+// production line emitted by ShotAnalysis::analyzeShot today carries
+// one. See `src/ai/shotanalysis.cpp` for the canonical kind list.
+static QJsonArray buildDetectorObservationsBlock(const ShotSummary& summary)
+{
+    QJsonArray observations;
+    for (const QVariant& v : summary.summaryLines) {
+        const QVariantMap m = v.toMap();
+        const QString type = m.value(QStringLiteral("type")).toString();
+        if (type == QLatin1String("verdict")) continue;
+        QJsonObject obs;
+        obs["type"] = type;
+        obs["text"] = m.value(QStringLiteral("text")).toString();
+        const QString kind = m.value(QStringLiteral("kind")).toString();
+        if (!kind.isEmpty()) obs["kind"] = kind;
+        observations.append(obs);
+    }
+    return observations;
+}
+
 static QJsonObject buildShotBlock(const ShotSummary& summary)
 {
     // Shot-VARIABLE fields the AIConversation change-detection layer
@@ -599,6 +728,11 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     // `currentBean` / `profile` — this block only carries what the
     // user iterates on.
     //
+    // Issue #1037 layered structured `phases[]`, `detectorObservations[]`,
+    // and `overallPeaks` on top so the AI can iterate over phase data
+    // and detector signals programmatically instead of pattern-matching
+    // prose.
+    //
     // Empty / zero / false fields are omitted so the regex consumer's
     // legacy "field absent on either side ⇒ skip the diff" semantics
     // carry over to the structured path without special-casing.
@@ -608,16 +742,19 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     if (summary.totalDuration > 0) shot["durationSec"] = summary.totalDuration;
     if (summary.ratio > 0) shot["ratio"] = summary.ratio;
     if (!summary.grinderSetting.isEmpty()) shot["grinderSetting"] = summary.grinderSetting;
+    if (summary.drinkTds > 0) shot["extractionTdsPct"] = summary.drinkTds;
+    if (summary.drinkEy > 0) shot["extractionEyPct"] = summary.drinkEy;
     // CLAUDE.md MCP convention: scale lives in the field name for
     // bounded values. Mirrors `dialing_get_context.bestRecentShot.enjoyment0to100`.
     if (summary.enjoymentScore > 0) shot["enjoyment0to100"] = summary.enjoymentScore;
     if (!summary.tastingNotes.isEmpty()) shot["notes"] = summary.tastingNotes;
-    // Detector flag echoes (channeling / temp unstable) are NOT lifted
-    // into this block — `ShotSummary` does not carry them as scalar
-    // booleans today (they live inside `summaryLines` as tagged
-    // observations). The downstream consumer still substring-searches
-    // the prose for those tags. Issue #1037 will absorb them when it
-    // restructures detector observations into a typed array.
+    const QJsonObject overallPeaks = buildOverallPeaksBlock(summary);
+    if (!overallPeaks.isEmpty()) shot["overallPeaks"] = overallPeaks;
+    const QJsonArray phases = buildPhasesBlock(summary);
+    if (!phases.isEmpty()) shot["phases"] = phases;
+    const QJsonArray detectorObservations = buildDetectorObservationsBlock(summary);
+    if (!detectorObservations.isEmpty())
+        shot["detectorObservations"] = detectorObservations;
     return shot;
 }
 

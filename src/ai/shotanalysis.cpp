@@ -741,6 +741,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         QVariantMap line;
         line["text"] = QStringLiteral("Not enough data to analyze.");
         line["type"] = QStringLiteral("observation");
+        line["kind"] = QStringLiteral("insufficient_data");
         lines.append(line);
         // Leave detectors at defaults — every "checked" flag stays false,
         // signalling "no analysis was possible" to MCP consumers. Set
@@ -809,14 +810,17 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             d.channelingSeverity = QStringLiteral("sustained");
             line["text"] = QStringLiteral("Sustained channeling detected in dC/dt \u2014 puck prep issue");
             line["type"] = QStringLiteral("warning");
+            line["kind"] = QStringLiteral("channeling_sustained");
         } else if (severity == ChannelingSeverity::Transient) {
             d.channelingSeverity = QStringLiteral("transient");
             line["text"] = QStringLiteral("Transient channel at %1s (self-healed)").arg(spikeTime, 0, 'f', 0);
             line["type"] = QStringLiteral("caution");
+            line["kind"] = QStringLiteral("channeling_transient");
         } else {
             d.channelingSeverity = QStringLiteral("none");
             line["text"] = QStringLiteral("Puck stable \u2014 no channeling spikes in dC/dt");
             line["type"] = QStringLiteral("good");
+            line["kind"] = QStringLiteral("channeling_none");
         }
         lines.append(line);
     }
@@ -845,12 +849,14 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 QVariantMap line;
                 line["text"] = QStringLiteral("Flow rose %1 mL/s during extraction (puck erosion)").arg(delta, 0, 'f', 1);
                 line["type"] = QStringLiteral("caution");
+                line["kind"] = QStringLiteral("flow_rising");
                 lines.append(line);
             } else if (delta < -0.5) {
                 d.flowTrend = QStringLiteral("falling");
                 QVariantMap line;
                 line["text"] = QStringLiteral("Flow dropped %1 mL/s (fines migration or clogging)").arg(std::abs(delta), 0, 'f', 1);
                 line["type"] = QStringLiteral("caution");
+                line["kind"] = QStringLiteral("flow_falling");
                 lines.append(line);
             } else {
                 d.flowTrend = QStringLiteral("stable");
@@ -875,6 +881,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             line["text"] = QStringLiteral("Preinfusion: %1g in %2s")
                 .arg(preinfWeight, 0, 'f', 1).arg(preinfDuration, 0, 'f', 1);
             line["type"] = QStringLiteral("observation");
+            line["kind"] = QStringLiteral("preinfusion_drip");
             lines.append(line);
         }
     }
@@ -898,6 +905,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 QVariantMap line;
                 line["text"] = QStringLiteral("Temperature drifted %1\u00B0C from goal on average").arg(avgDev, 0, 'f', 1);
                 line["type"] = QStringLiteral("caution");
+                line["kind"] = QStringLiteral("temperature_drift");
                 lines.append(line);
             }
         }
@@ -983,6 +991,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 "puck offered too little resistance, grind way too coarse")
                 .arg(overG, 0, 'f', 1);
             line["type"] = QStringLiteral("warning");
+            line["kind"] = QStringLiteral("grind_yield_overshoot");
             lines.append(line);
         } else if (grind.chokedPuck) {
             d.grindDirection = QStringLiteral("chokedPuck");
@@ -990,6 +999,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             line["text"] = QStringLiteral("Pour produced near-zero flow while pressure held \u2014 "
                 "puck choked, grind way too fine");
             line["type"] = QStringLiteral("warning");
+            line["kind"] = QStringLiteral("grind_choked_puck");
             lines.append(line);
         } else if (grind.delta < -FLOW_DEVIATION_THRESHOLD) {
             d.grindDirection = QStringLiteral("tooFine");
@@ -997,6 +1007,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             line["text"] = QStringLiteral("Flow averaged %1 ml/s below target \u2014 grind may be too fine")
                 .arg(std::abs(grind.delta), 0, 'f', 1);
             line["type"] = QStringLiteral("caution");
+            line["kind"] = QStringLiteral("grind_too_fine");
             lines.append(line);
         } else if (grind.delta > FLOW_DEVIATION_THRESHOLD) {
             d.grindDirection = QStringLiteral("tooCoarse");
@@ -1004,6 +1015,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             line["text"] = QStringLiteral("Flow averaged %1 ml/s above target \u2014 grind may be too coarse")
                 .arg(grind.delta, 0, 'f', 1);
             line["type"] = QStringLiteral("caution");
+            line["kind"] = QStringLiteral("grind_too_coarse");
             lines.append(line);
         } else {
             d.grindDirection = QStringLiteral("onTarget");
@@ -1017,6 +1029,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 QVariantMap line;
                 line["text"] = QStringLiteral("Grind tracked goal during pour");
                 line["type"] = QStringLiteral("good");
+                line["kind"] = QStringLiteral("grind_clean");
                 lines.append(line);
             }
         }
@@ -1031,6 +1044,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         line["text"] = QStringLiteral("Could not analyze grind on this profile shape — "
             "check flow trend, channeling, and taste instead");
         line["type"] = QStringLiteral("observation");
+        line["kind"] = QStringLiteral("grind_not_analyzable");
         lines.append(line);
     }
 
@@ -1050,6 +1064,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             "without a pressure cap.")
             .arg(peakPressureBar, 0, 'f', 1);
         line["type"] = QStringLiteral("warning");
+        line["kind"] = QStringLiteral("pour_truncated");
         lines.append(line);
     }
 
@@ -1068,6 +1083,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             "likely a DE1 firmware bug (power-cycle machine to fix) "
             "or first step too short (check profile settings)");
         line["type"] = QStringLiteral("warning");
+        line["kind"] = QStringLiteral("skip_first_frame");
         lines.append(line);
     }
 
