@@ -5,6 +5,7 @@
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
 #include "../core/grinderaliases.h"
+#include "../mcp/mcptools_dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
 
 #include <cmath>
 #include <algorithm>
@@ -215,6 +216,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.profileAuthor = profile->author();
         summary.beverageType = profile->beverageType();
         summary.targetWeight = profile->targetWeight();
+        summary.targetTemperatureC = profile->espressoTemperature();
+        if (profile->hasRecommendedDose())
+            summary.recommendedDoseG = profile->recommendedDose();
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
         QString editorStr = profile->editorType();
@@ -225,6 +229,10 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         }
 
         summary.profileKbId = computeProfileKbId(profile->title(), editorStr);
+
+        // Frame recipe — describeFramesFromJson takes a JSON string, so
+        // serialize the runtime profile back to JSON for it.
+        summary.profileRecipe = Profile::describeFramesFromJson(profile->toJsonString());
     }
 
     // Get the data vectors
@@ -350,6 +358,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.beverageType = shotData.beverageType.isEmpty() ? QStringLiteral("espresso") : shotData.beverageType;
     summary.profileNotes = shotData.profileNotes;
     summary.profileKbId = shotData.profileKbId;
+    summary.targetWeight = shotData.targetWeightG;
+    if (!shotData.profileJson.isEmpty())
+        summary.profileRecipe = Profile::describeFramesFromJson(shotData.profileJson);
 
     // Parse stored profile JSON once and use it for: (1) editorType-derived
     // profile-style description, (2) frame description, (3) firstFrameSeconds
@@ -360,6 +371,15 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
         profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
         if (profileDoc.isObject()) {
             const QJsonObject profileObj = profileDoc.object();
+            // Profile's brewing temperature target — overridden by the
+            // shot's per-pull temperatureOverrideC if non-zero, else
+            // sourced from the profile's espresso_temperature field.
+            if (shotData.temperatureOverrideC > 0)
+                summary.targetTemperatureC = shotData.temperatureOverrideC;
+            else if (profileObj.contains("espresso_temperature"))
+                summary.targetTemperatureC = profileObj["espresso_temperature"].toDouble();
+            if (profileObj["has_recommended_dose"].toBool(false))
+                summary.recommendedDoseG = profileObj["recommended_dose"].toDouble();
             // Derive editorType from title + profileType (matching Profile::editorType()).
             // Legacy shots may also have is_recipe_mode + recipe.editorType as a fallback.
             QString editorType;
@@ -523,7 +543,87 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     return summary;
 }
 
+static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
+{
+    QJsonObject bean;
+    bean["brand"] = summary.beanBrand;
+    bean["type"] = summary.beanType;
+    bean["roastLevel"] = summary.roastLevel;
+    bean["grinderBrand"] = summary.grinderBrand;
+    bean["grinderModel"] = summary.grinderModel;
+    bean["grinderBurrs"] = summary.grinderBurrs;
+    bean["grinderSetting"] = summary.grinderSetting;
+    bean["doseWeightG"] = summary.doseWeight;
+
+    const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(summary.roastDate);
+    if (!freshness.isEmpty())
+        bean["beanFreshness"] = freshness;
+
+    if (!summary.inferredFields.isEmpty() && summary.inferredFromShotId > 0) {
+        QJsonArray inferred;
+        for (const QString& f : summary.inferredFields) inferred.append(f);
+        bean["inferredFields"] = inferred;
+        bean["inferredFromShotId"] = summary.inferredFromShotId;
+        bean["inferredNote"] = QStringLiteral(
+            "Listed fields are inferred from the resolved shot (id "
+            "above), not entered by the user. Confirm before recommending "
+            "a change.");
+    }
+    return bean;
+}
+
+static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
+{
+    QJsonObject profile;
+    profile["title"] = summary.profileTitle;
+    if (!summary.profileNotes.isEmpty()) profile["intent"] = summary.profileNotes;
+    if (!summary.profileRecipe.isEmpty()) profile["recipe"] = summary.profileRecipe;
+    if (summary.targetWeight > 0) profile["targetWeightG"] = summary.targetWeight;
+    if (summary.targetTemperatureC > 0) profile["targetTemperatureC"] = summary.targetTemperatureC;
+    if (summary.recommendedDoseG > 0) profile["recommendedDoseG"] = summary.recommendedDoseG;
+    return profile;
+}
+
+static QJsonObject buildTastingFeedbackBlock(const ShotSummary& summary)
+{
+    // Only structural booleans — the per-call recommendation framing is
+    // taught once in the system prompt's "How to read structured fields"
+    // section, not repeated per call. Mirrors dialing_get_context's
+    // tastingFeedback shape so a single system prompt reads correctly off
+    // either surface.
+    QJsonObject tf;
+    tf["hasEnjoymentScore"] = summary.enjoymentScore > 0;
+    tf["hasNotes"] = !summary.tastingNotes.isEmpty();
+    tf["hasRefractometer"] = summary.drinkTds > 0 || summary.drinkEy > 0;
+    return tf;
+}
+
 QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode mode) const
+{
+    // HistoryBlock mode: per-shot prose embedded under a `### Shot (date)`
+    // header by the caller. Stays prose so the multi-shot history block
+    // reads naturally; JSON-per-shot would be unreadable when concatenated.
+    if (mode == RenderMode::HistoryBlock) {
+        return renderShotAnalysisProse(summary, mode);
+    }
+
+    // Standalone mode: JSON envelope so the system prompt's references to
+    // `currentBean.*`, `profile.*`, `tastingFeedback.*`, etc., land on
+    // actual fields. The existing prose body lives verbatim under
+    // `shotAnalysis` — preserves the deterministic detector lines,
+    // phase data, etc. in the form the LLM (and the regex consumers in
+    // AIConversation::processShotForConversation) already understand.
+    // Key names mirror dialing_get_context's response shape so a single
+    // system prompt reads correctly off either surface.
+    QJsonObject payload;
+    payload["currentBean"] = buildCurrentBeanBlock(summary);
+    payload["profile"] = buildCurrentProfileBlock(summary);
+    payload["tastingFeedback"] = buildTastingFeedbackBlock(summary);
+    payload["shotAnalysis"] = renderShotAnalysisProse(summary, mode);
+    return QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Indented));
+}
+
+QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, RenderMode mode) const
 {
     QString prompt;
     QTextStream out(&prompt);

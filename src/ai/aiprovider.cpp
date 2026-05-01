@@ -321,9 +321,42 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     requestBody["model"] = QString::fromLatin1(MODEL);
     requestBody["max_tokens"] = 1024;
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
-    requestBody["messages"] = messages;
+    requestBody["messages"] = messagesWithCachedFirstUser(messages);
 
     sendRequest(requestBody);
+}
+
+QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& messages)
+{
+    // The first user message carries the per-shot context, which is stable
+    // across follow-up turns within the cache TTL. Wrap its content in a
+    // structured block with cache_control so subsequent turns read from
+    // cache instead of re-billing the per-shot payload.
+    //
+    // No-op when messages[0] isn't a plain-string user message (caller
+    // pre-wrapped, or first message isn't from user) — preserves input.
+    if (messages.isEmpty()) return messages;
+    QJsonObject first = messages[0].toObject();
+    if (first.value("role").toString() != "user") return messages;
+    if (!first.value("content").isString()) return messages;
+
+    QJsonObject cacheControl;
+    cacheControl["type"] = QString("ephemeral");
+
+    QJsonObject block;
+    block["type"] = QString("text");
+    block["text"] = first.value("content").toString();
+    block["cache_control"] = cacheControl;
+
+    QJsonArray contentArr;
+    contentArr.append(block);
+    first["content"] = contentArr;
+
+    QJsonArray out;
+    out.append(first);
+    for (qsizetype i = 1; i < messages.size(); ++i)
+        out.append(messages[i]);
+    return out;
 }
 
 QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPrompt)

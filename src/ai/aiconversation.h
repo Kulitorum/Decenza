@@ -144,6 +144,15 @@ private:
     static QString summarizeAdvice(const QString& response);
     static QString extractMetric(const QString& content, const QRegularExpression& re);
 
+    // When the per-shot user-message body is the JSON envelope produced by
+    // ShotSummarizer::buildUserPrompt (Standalone), the prose lines our
+    // regexes match on (Dose, Yield, Score, Notes, ## Shot (date) header)
+    // live inside the `shotAnalysis` JSON field. Extract that field if the
+    // input parses as a JSON object with a `shotAnalysis` key; otherwise
+    // return the input unchanged so legacy prose-only stored messages
+    // still match. Pure function.
+    static QString extractShotProse(const QString& content);
+
     struct PreviousShotInfo { QString content; QString shotLabel; };
     PreviousShotInfo findPreviousShot(const QString& excludeLabel = QString()) const;
 
