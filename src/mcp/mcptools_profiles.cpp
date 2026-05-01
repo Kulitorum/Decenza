@@ -52,8 +52,11 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             const QString editorTypeFilter = args.value("editorType").toString();
             const QString nameContains = args.value("nameContains").toString().toLower();
             const QJsonArray excludeArr = args.value("excludeCategories").toArray();
-            QSet<QString> excludeCategories;
-            for (const auto& v : excludeArr) excludeCategories.insert(v.toString());
+            // Lowercase exclusion set so "tea"/"Tea"/"TEA" all match — LLMs
+            // don't always reproduce capitalization from documented examples
+            // verbatim, and the cost of a permissive match here is nil.
+            QSet<QString> excludeCategoriesLower;
+            for (const auto& v : excludeArr) excludeCategoriesLower.insert(v.toString().toLower());
             const bool hasReadOnlyFilter = args.contains("readOnly");
             const bool readOnlyFilter = args.value("readOnly").toBool();
 
@@ -62,7 +65,11 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // without a slash get null (treated as Espresso recipes).
             auto categoryOf = [](const QString& title) -> QString {
                 const int slash = title.indexOf('/');
-                return slash > 0 ? title.left(slash) : QString();
+                // Built-in profile titles use "Foo / Bar" with whitespace
+                // around the slash ("D-Flow / default", "A-Flow / ...",
+                // also produced by profiles_create), so trim to keep
+                // callers matching bare "Tea", "D-Flow", etc.
+                return slash > 0 ? title.left(slash).trimmed() : QString();
             };
 
             QJsonArray profiles;
@@ -80,7 +87,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 if (!nameContains.isEmpty() &&
                     !title.toLower().contains(nameContains) &&
                     !filename.toLower().contains(nameContains)) continue;
-                if (!excludeCategories.isEmpty() && excludeCategories.contains(category)) continue;
+                if (!excludeCategoriesLower.isEmpty() && excludeCategoriesLower.contains(category.toLower())) continue;
                 if (hasReadOnlyFilter && readOnly != readOnlyFilter) continue;
 
                 QJsonObject p;
