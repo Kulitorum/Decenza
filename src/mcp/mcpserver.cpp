@@ -105,6 +105,21 @@ McpServer::McpServer(QObject* parent)
     }
 }
 
+// Authoritative list of MCP protocol versions this server will accept. First
+// entry is also the preferred version returned when a client requests an
+// unrecognized one. Order matters: keep newest first so `supportedVersions.first()`
+// is the latest spec.
+const QStringList& McpServer::supportedProtocolVersions()
+{
+    static const QStringList versions = {
+        QStringLiteral("2025-11-25"),
+        QStringLiteral("2025-06-18"),
+        QStringLiteral("2025-03-26"),
+        QStringLiteral("2024-11-05"),
+    };
+    return versions;
+}
+
 bool McpServer::isOriginAllowed(const QString& origin) const
 {
     // Empty Origin (CLI clients, mcp-remote, MCP Inspector CLI) is always allowed.
@@ -145,13 +160,15 @@ void McpServer::registerAllTools()
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);
     registerAgentTools(m_toolRegistry);
-    qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
+    qDebug() << "McpServer: Registered"
+             << m_toolRegistry->listTools(2, QStringLiteral("2025-11-25")).size() << "tools";
 }
 
 void McpServer::registerAllResources()
 {
     registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_profileManager, m_shotHistory, m_memoryMonitor, m_settings);
-    qDebug() << "McpServer: Registered" << m_resourceRegistry->listResources().size() << "resources";
+    qDebug() << "McpServer: Registered"
+             << m_resourceRegistry->listResources(QStringLiteral("2025-11-25")).size() << "resources";
 }
 
 void McpServer::connectSseNotifications()
@@ -259,8 +276,15 @@ McpServer::~McpServer()
     qDeleteAll(m_sessions);
 }
 
-QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult) const
+QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
+                                              const QString& protocolVersion) const
 {
+    // `structuredContent` and the `resource_link` content block type were
+    // introduced in 2025-06-18. Strict 2024-11-05 clients reject the response
+    // when either appears, so both are gated on the negotiated version.
+    const bool emitStructured = protocolVersion >= QStringLiteral("2025-06-18");
+    const bool emitResourceLinks = protocolVersion >= QStringLiteral("2025-06-18");
+
     // Pull out optional `_resourceLinks` array — tools that want to attach
     // resource_link content blocks declare them as a side-channel here so the
     // structured payload itself stays clean. Each entry is
@@ -270,25 +294,49 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult) cons
 
     QJsonArray content;
 
-    // Resource link blocks first — they're cheap to render and let clients
-    // that subscribe to resource updates correlate the result with a URI.
-    for (const QJsonValue& v : std::as_const(resourceLinks)) {
-        QJsonObject src = v.toObject();
-        QJsonObject block;
-        block["type"] = "resource_link";
-        block["uri"] = src.value("uri").toString();
-        const QString lt = src.value("title").toString();
-        if (!lt.isEmpty()) block["title"] = lt;
-        const QString mt = src.value("mimeType").toString();
-        block["mimeType"] = mt.isEmpty() ? QStringLiteral("application/json") : mt;
-        const QString ld = src.value("description").toString();
-        if (!ld.isEmpty()) block["description"] = ld;
-        content.append(block);
+    if (emitResourceLinks) {
+        // Resource link blocks first — they're cheap to render and let clients
+        // that subscribe to resource updates correlate the result with a URI.
+        for (const QJsonValue& v : std::as_const(resourceLinks)) {
+            QJsonObject src = v.toObject();
+            QJsonObject block;
+            block["type"] = "resource_link";
+            const QString uri = src.value("uri").toString();
+            block["uri"] = uri;
+            // MCP 2025-06-18: `resource_link` carries the same shape as a
+            // `Resource`, where `name` is REQUIRED. Strict clients reject the
+            // whole content[] entry when it's missing. Prefer a side-channel
+            // `name` when the emitter supplied one; otherwise fall back to the
+            // uri's last path segment (e.g. decenza://shots/884 → "884",
+            // decenza://machine/state → "state") so we never ship an entry
+            // without `name`.
+            QString name = src.value("name").toString();
+            if (name.isEmpty() && !uri.isEmpty()) {
+                const qsizetype slash = uri.lastIndexOf('/');
+                const QString tail = slash >= 0 ? uri.mid(slash + 1) : uri;
+                name = tail.isEmpty() ? uri : tail;
+            }
+            if (name.isEmpty()) {
+                // Empty uri AND no provided name — emitter bug. Skip the block
+                // entirely rather than ship a payload that fails strict zod
+                // validation downstream.
+                qWarning() << "McpServer: dropping resource_link with empty name and uri";
+                continue;
+            }
+            block["name"] = name;
+            const QString lt = src.value("title").toString();
+            if (!lt.isEmpty()) block["title"] = lt;
+            const QString mt = src.value("mimeType").toString();
+            block["mimeType"] = mt.isEmpty() ? QStringLiteral("application/json") : mt;
+            const QString ld = src.value("description").toString();
+            if (!ld.isEmpty()) block["description"] = ld;
+            content.append(block);
+        }
     }
 
-    // Text content block — kept for backward compatibility with 2025-03-26
-    // clients that don't read structuredContent. Newer clients still see it
-    // and ignore it once they consume structuredContent.
+    // Text content block is always emitted: it's the only payload that
+    // 2024-11-05 / 2025-03-26 clients read, and 2025-06-18+ clients ignore it
+    // once they consume `structuredContent` below.
     QJsonObject textBlock;
     textBlock["type"] = "text";
     textBlock["text"] = QString::fromUtf8(QJsonDocument(sanitized).toJson(QJsonDocument::Compact));
@@ -296,7 +344,8 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult) cons
 
     QJsonObject result;
     result["content"] = content;
-    result["structuredContent"] = sanitized;
+    if (emitStructured)
+        result["structuredContent"] = sanitized;
     return result;
 }
 
@@ -377,6 +426,15 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                     // to it. Reuse it to avoid leaking a new session on every request.
                     session = m_sessions.begin().value();
                     qDebug() << "McpServer: Stale session header, reusing sole session" << session->id();
+                    // Adopt the client's MCP-Protocol-Version (when present and
+                    // supported) so the mismatch check below doesn't 400 a
+                    // recovered client whose prior negotiation differed from the
+                    // session's. Mirrors the auto-create branch.
+                    if (!protocolHeader.isEmpty()
+                        && supportedProtocolVersions().contains(protocolHeader)
+                        && protocolHeader != session->protocolVersion()) {
+                        session->setProtocolVersion(protocolHeader);
+                    }
                 } else {
                     qDebug() << "McpServer: Session not found (expired or stale), auto-creating new session";
                     session = findOrCreateSession(QString());
@@ -387,12 +445,16 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                     }
                     // Mark as initialized — the client already completed initialize
                     // in a prior session, so skip the handshake requirement.
-                    // Adopt the client's MCP-Protocol-Version when present so the
-                    // mismatch check below doesn't immediately 400 a recovered
-                    // client whose prior negotiation was newer than our default.
+                    // Adopt the client's MCP-Protocol-Version when present and
+                    // supported so the mismatch check below doesn't immediately
+                    // 400 a recovered client whose prior negotiation was newer
+                    // than our default. Reject unrecognized headers so an
+                    // attacker can't push the gate into an unspec'd state.
                     session->setInitialized(true);
-                    if (!protocolHeader.isEmpty())
+                    if (!protocolHeader.isEmpty()
+                        && supportedProtocolVersions().contains(protocolHeader)) {
                         session->setProtocolVersion(protocolHeader);
+                    }
                 }
             }
             // MCP-Protocol-Version header check (required by 2025-06-18 for
@@ -597,14 +659,28 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     // Negotiate protocol version — accept what the client requests if we support it,
     // otherwise return our preferred version (the first entry).
     QString clientVersion = params["protocolVersion"].toString();
-    static const QStringList supportedVersions = {
-        "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"
-    };
+    const QStringList& supportedVersions = supportedProtocolVersions();
     QString negotiatedVersion = supportedVersions.contains(clientVersion)
         ? clientVersion : supportedVersions.first();
 
     if (session)
         session->setProtocolVersion(negotiatedVersion);
+
+    const QJsonObject clientInfo = params["clientInfo"].toObject();
+    auto sanitizeForLog = [](QString s) {
+        // Untrusted strings from the network — cap length and strip newlines so
+        // a hostile or buggy client can't forge log lines or DoS log volume.
+        if (s.size() > 64) s.truncate(64);
+        s.replace(QChar('\n'), QChar(' '));
+        s.replace(QChar('\r'), QChar(' '));
+        return s;
+    };
+    qInfo().nospace()
+        << "McpServer: initialize — client=" << sanitizeForLog(clientInfo["name"].toString())
+        << " v" << sanitizeForLog(clientInfo["version"].toString())
+        << " requested=" << sanitizeForLog(clientVersion)
+        << " negotiated=" << negotiatedVersion
+        << " session=" << (session ? session->id() : QStringLiteral("(none)"));
 
     QJsonObject result;
     result["protocolVersion"] = negotiatedVersion;
@@ -616,12 +692,13 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
 QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* session)
 {
     Q_UNUSED(params)
-    Q_UNUSED(session)
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
+    const QString protocolVersion = session ? session->protocolVersion()
+                                            : QStringLiteral("2024-11-05");
 
     QJsonObject result;
-    result["tools"] = m_toolRegistry->listTools(accessLevel);
+    result["tools"] = m_toolRegistry->listTools(accessLevel, protocolVersion);
     return result;
 }
 
@@ -632,6 +709,8 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     QJsonObject arguments = params["arguments"].toObject();
 
     int accessLevel = m_settings ? m_settings->mcp()->mcpAccessLevel() : 0;
+    const QString protocolVersion = session ? session->protocolVersion()
+                                            : QStringLiteral("2024-11-05");
 
     // Rate limiting for control + settings tools
     QString category = m_toolRegistry->toolCategory(toolName);
@@ -657,7 +736,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         confirmPayload["action"] = toolName;
         confirmPayload["description"] = confirmationDescription(toolName);
         confirmPayload["parameters"] = arguments;
-        return buildToolCallResponse(confirmPayload);
+        return buildToolCallResponse(confirmPayload, protocolVersion);
     }
 
     // Strip the confirmed key before passing to tool handler
@@ -684,6 +763,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         pending.toolName = toolName;
         pending.arguments = arguments;
         pending.accessLevel = accessLevel;
+        pending.protocolVersion = protocolVersion;
         m_pendingConfirmation = pending;
 
         QString description = confirmationDescription(toolName);
@@ -699,12 +779,13 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         QPointer<QTcpSocket> socketPtr(socket);
         QVariant reqId = requestId;
         QString sessId = session->id();
+        QString protoVer = protocolVersion;
 
         QString error;
         bool dispatched = m_toolRegistry->callAsyncTool(
             toolName, arguments, accessLevel, error,
-            [this, socketPtr, reqId, sessId](QJsonObject toolResult) {
-                sendAsyncToolResponse(socketPtr, reqId, sessId, toolResult);
+            [this, socketPtr, reqId, sessId, protoVer](QJsonObject toolResult) {
+                sendAsyncToolResponse(socketPtr, reqId, sessId, protoVer, toolResult);
             });
 
         if (!dispatched) {
@@ -734,25 +815,32 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         return result;
     }
 
-    return buildToolCallResponse(toolResult);
+    return buildToolCallResponse(toolResult, protocolVersion);
 }
 
 QJsonObject McpServer::handleResourcesList(const QJsonObject& params, McpSession* session)
 {
     Q_UNUSED(params)
-    Q_UNUSED(session)
+
+    const QString protocolVersion = session ? session->protocolVersion()
+                                            : QStringLiteral("2024-11-05");
 
     QJsonObject result;
-    result["resources"] = m_resourceRegistry->listResources();
+    result["resources"] = m_resourceRegistry->listResources(protocolVersion);
     return result;
 }
 
 QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession* session,
                                             QTcpSocket* socket, const QVariant& requestId)
 {
-    Q_UNUSED(session)
-
     QString uri = params["uri"].toString();
+
+    // `structuredContent` is a 2025-06-18 field; older clients see only the
+    // legacy `text` payload. Capture the negotiated version up-front so async
+    // dispatches honour it after the session pointer may have changed.
+    const QString protocolVersion = session ? session->protocolVersion()
+                                            : QStringLiteral("2024-11-05");
+    const bool emitStructured = protocolVersion >= QStringLiteral("2025-06-18");
 
     // Async resources: dispatch to background, send response later
     if (m_resourceRegistry->isAsyncResource(uri)) {
@@ -762,9 +850,9 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
 
         QString error;
         bool dispatched = m_resourceRegistry->readAsyncResource(uri, error,
-            [this, socketPtr, reqId, sessId, uri](QJsonObject resourceData) {
+            [this, socketPtr, reqId, sessId, uri, emitStructured](QJsonObject resourceData) {
                 if (!socketPtr || socketPtr->state() != QAbstractSocket::ConnectedState) {
-                    qDebug() << "McpServer: async resource response dropped (socket disconnected)";
+                    qWarning() << "McpServer: async resource response dropped (socket disconnected)";
                     return;
                 }
 
@@ -774,7 +862,8 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
                 content["uri"] = uri;
                 content["mimeType"] = "application/json";
                 content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
-                content["structuredContent"] = resourceData;
+                if (emitStructured)
+                    content["structuredContent"] = resourceData;
                 contents.append(content);
                 result["contents"] = contents;
                 sendJsonRpcResponse(socketPtr, result, reqId, sessId);
@@ -812,7 +901,8 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject& params, McpSession
     content["uri"] = uri;
     content["mimeType"] = "application/json";
     content["text"] = QString::fromUtf8(QJsonDocument(resourceData).toJson(QJsonDocument::Compact));
-    content["structuredContent"] = resourceData;
+    if (emitStructured)
+        content["structuredContent"] = resourceData;
     contents.append(content);
     result["contents"] = contents;
     return result;
@@ -867,20 +957,40 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     }
 
     // Clean up orphaned sessions before creating a new one.
-    // When mcp-remote's SSE connection drops and it re-initializes (without
-    // sending a session header), the old session stays around with no SSE
-    // socket. Over hours this fills the session quota. Remove sessions whose
-    // SSE transport was established and then lost — the client has moved on.
-    // We check hadSseSocket() to avoid killing freshly-created sessions that
-    // haven't connected their SSE stream yet (window between POST initialize
-    // and GET /mcp).
+    // Two transports leak slots and need different signals:
+    //
+    //   1. SSE clients (mcp-remote, etc.) — their SSE stream drops and they
+    //      re-initialize without sending a session header. The old session
+    //      stays around with no SSE socket. Detect via hadSseSocket() so we
+    //      don't kill freshly-created sessions still in the window between
+    //      POST initialize and GET /mcp.
+    //
+    //   2. Pure-HTTP clients (Claude Code's `type: "http"` transport) — they
+    //      never establish an SSE stream, so hadSseSocket() is always false
+    //      and the SSE rule above never fires. Each reconnect leaks a slot
+    //      until the 30-min idle timeout, wedging the pool at MaxSessions.
+    //      Use idle time as the signal: an HTTP MCP client that hasn't sent
+    //      a request in OrphanIdleSeconds is presumed gone.
+    QDateTime now = QDateTime::currentDateTimeUtc();
+    // 5 min: well above any reasonable client keep-alive cadence (Claude Code
+    // pings far more often, mcp-remote reconnects within seconds), and well
+    // above the longest expected synchronous tool runtime, so we don't reap a
+    // session whose async tool call is still in flight. Long enough to not
+    // misfire, short enough to keep the pool from wedging at MaxSessions.
+    constexpr int OrphanIdleSeconds = 300;
     QStringList orphaned;
     for (auto it = m_sessions.constBegin(); it != m_sessions.constEnd(); ++it) {
-        if (!it.value()->sseSocket() && it.value()->hadSseSocket())
+        const auto* s = it.value();
+        if (s->sseSocket())
+            continue;
+        if (s->hadSseSocket()) {
             orphaned.append(it.key());
+        } else if (s->lastActivity().secsTo(now) > OrphanIdleSeconds) {
+            orphaned.append(it.key());
+        }
     }
     for (const QString& id : orphaned) {
-        qDebug() << "McpServer: Removing orphaned session (no SSE socket)" << id;
+        qDebug() << "McpServer: Removing orphaned session" << id;
         if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == id)
             m_pendingConfirmation.reset();
         delete m_sessions.take(id);
@@ -960,7 +1070,7 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
         QJsonObject deniedPayload;
         deniedPayload["error"] = "User denied confirmation for " + pending.toolName;
 
-        QJsonObject result = buildToolCallResponse(deniedPayload);
+        QJsonObject result = buildToolCallResponse(deniedPayload, pending.protocolVersion);
         result["isError"] = true;
         sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
         return;
@@ -974,8 +1084,9 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
         QString error;
         bool dispatched = m_toolRegistry->callAsyncTool(
             pending.toolName, pending.arguments, pending.accessLevel, error,
-            [this, socketPtr, reqId = pending.requestId, sessId = pending.sessionId](QJsonObject toolResult) {
-                sendAsyncToolResponse(socketPtr, reqId, sessId, toolResult);
+            [this, socketPtr, reqId = pending.requestId, sessId = pending.sessionId,
+             protoVer = pending.protocolVersion](QJsonObject toolResult) {
+                sendAsyncToolResponse(socketPtr, reqId, sessId, protoVer, toolResult);
             });
         if (!dispatched) {
             QJsonObject errorObj;
@@ -1003,19 +1114,22 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
         return;
     }
 
-    sendJsonRpcResponse(pending.socket, buildToolCallResponse(toolResult),
+    sendJsonRpcResponse(pending.socket,
+                        buildToolCallResponse(toolResult, pending.protocolVersion),
                         pending.requestId, pending.sessionId);
 }
 
 void McpServer::sendAsyncToolResponse(QPointer<QTcpSocket> socket, const QVariant& requestId,
-                                       const QString& sessionId, const QJsonObject& toolResult)
+                                       const QString& sessionId, const QString& protocolVersion,
+                                       const QJsonObject& toolResult)
 {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
-        qDebug() << "McpServer: async tool response dropped (socket disconnected)";
+        qWarning() << "McpServer: async tool response dropped (socket disconnected)";
         return;
     }
 
-    sendJsonRpcResponse(socket, buildToolCallResponse(toolResult), requestId, sessionId);
+    sendJsonRpcResponse(socket, buildToolCallResponse(toolResult, protocolVersion),
+                        requestId, sessionId);
 }
 
 bool McpServer::needsInAppConfirmation(const QString& toolName) const

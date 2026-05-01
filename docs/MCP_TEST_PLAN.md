@@ -33,6 +33,7 @@ If ORIGINAL_MODIFIED is true, warn the user — tests will modify the profile an
 | Date | Tools | Passed | Skipped | Failed | Notes |
 |------|-------|--------|---------|--------|-------|
 | 2026-03-20 | 37 | 41 | 1 | 0 | Initial run, simulator mode |
+| 2026-04-30 | 33 | 56 | 1 | 0 | Simulator, MCP 2025-11-25 negotiated. Plan refreshed for PR #976 field renames, `profiles_save` readonly refusal, `profiles_create` empty-filename, removal of `preferences` category, and §4.10 active-delete behavior. |
 
 ---
 
@@ -100,9 +101,11 @@ Verify: editorType values include at least "pressure", "flow", "dflow", "aflow",
 ### 3.2 profiles_get_active
 ```
 Call: profiles_get_active
-Expect: filename non-empty, editorType non-empty, modified is boolean, targetWeightG > 0
+Expect: filename non-empty, editorType non-empty, modified is boolean,
+        targetWeightG > 0, targetTemperatureC > 0, readOnly is boolean
 Save: note the filename and editorType as ORIGINAL_PROFILE and ORIGINAL_EDITOR
 ```
+Note: target temperature field is `targetTemperatureC` (suffix), not `targetTemperature`.
 
 ### 3.3 profiles_get_detail
 ```
@@ -168,7 +171,7 @@ Save: note tempStart as ORIGINAL_TEMP
 ```
 Call: profiles_edit_params (tempStart: ORIGINAL_TEMP+2, tempPreinfuse: ORIGINAL_TEMP+2, tempHold: ORIGINAL_TEMP+2, tempDecline: ORIGINAL_TEMP+2, confirmed: true)
 Expect: success=true, editorType="pressure", modified=true
-Verify: profiles_get_active → targetTemperature = ORIGINAL_TEMP+2, modified=true
+Verify: profiles_get_active → targetTemperatureC = ORIGINAL_TEMP+2, modified=true
 ```
 
 ### 4.2 Restore temperature
@@ -181,8 +184,9 @@ Expect: success=true
 ```
 Call: settings_set (espressoTemperature: ORIGINAL_TEMP+2, confirmed: true)
 Expect: success=true, updated includes "espressoTemperature"
-Verify: profiles_get_active → targetTemperature = ORIGINAL_TEMP+2
+Verify: profiles_get_active → targetTemperatureC = ORIGINAL_TEMP+2
 ```
+Note: writing `espressoTemperature` mutates the active profile (creates a user override on a built-in). This matches the QML behavior — the brew temperature lives on the profile.
 
 ### 4.4 Restore temperature
 ```
@@ -210,40 +214,47 @@ Verify: profiles_get_params → steps still has FRAME_COUNT elements, espresso_t
 ```
 Call: settings_set (espressoTemperature: ADV_TEMP, confirmed: true)
 Expect: updated includes "espressoTemperature"
-Verify: profiles_get_active → editorType="advanced", targetTemperature = ADV_TEMP
+Verify: profiles_get_active → editorType="advanced", targetTemperatureC = ADV_TEMP
 ```
 
-### 4.8 profiles_save — save in place
+### 4.8 profiles_save — refusal on read-only built-in
 ```
 Call: profiles_set_active (filename: "default", confirmed: true)
 Call: profiles_edit_params (tempStart: 91, tempPreinfuse: 91, tempHold: 91, tempDecline: 91, confirmed: true)
-Verify: profiles_get_active → modified=true
-Call: profiles_save (confirmed: true)
-Expect: success=true, filename="default"
-Verify: profiles_get_active → modified=false
-Note: this creates a user override of the built-in "default" — cleaned up in 4.11
+Verify: profiles_get_active → modified=true, readOnly=true
+Call: profiles_save (confirmed: true)   # no filename/title → in-place
+Expect: error containing "read-only" — built-in profiles cannot be saved in place;
+        Save As is required to create a user copy.
+Note: §4.3 (espressoTemperature setter) is the path that *does* persist edits on a
+      built-in by creating a user override automatically. profiles_save in-place is
+      reserved for already-user-owned profiles.
 ```
 
 ### 4.9 profiles_save — Save As
 ```
 Call: profiles_save (filename: "_mcp_test_tmp", title: "MCP Test Temp", confirmed: true)
 Expect: success=true, filename="_mcp_test_tmp"
-Note: this creates a temporary profile — cleaned up immediately in 4.10
+Verify: profiles_get_active → filename="_mcp_test_tmp", modified=false, readOnly=false
+Note: Save As makes the new copy active. Cleaned up in 4.10.
 ```
 
-### 4.10 profiles_delete — user profile
+### 4.10 profiles_delete — user profile (must switch active first)
 ```
+Call: profiles_set_active (filename: "default", confirmed: true)   # leave _mcp_test_tmp
 Call: profiles_delete (filename: "_mcp_test_tmp", confirmed: true)
 Expect: success=true, message contains "deleted"
 Verify: profiles_list → no profile with filename "_mcp_test_tmp"
+Note: deleting the currently-active profile is rejected with a misleading generic
+      "Failed to delete profile" message. Always switch active to a different profile
+      before delete.
 ```
 
 ### 4.11 profiles_delete — built-in revert
 ```
 Call: profiles_delete (filename: "default", confirmed: true)
-Expect: success=true (either "deleted" for user copy or "reverted" for built-in)
+Expect: success=true, "reverted":true (or "deleted":true if a user override existed)
 Verify: profiles_set_active (filename: "default", confirmed: true) → success (built-in still exists)
-Note: this cleans up the user override created in 4.8, restoring "default" to built-in state
+Note: succeeds even when no user override exists — reports "reverted" no-op.
 ```
 
 ### 4.12 profiles_set_active — built-in profile
@@ -257,10 +268,12 @@ Verify: profiles_get_active → title="Blooming Espresso"
 ```
 For each type in [dflow, aflow, pressure, flow, advanced]:
   Call: profiles_create (editorType: type, title: "_MCP Test " + type, confirmed: true)
-  Expect: success=true, editorType=type
+  Expect: success=true, editorType=type, filename="" (in-memory only — not yet saved)
   Verify: profiles_get_params → editorType matches type
-  Cleanup: profiles_delete (filename from create response, confirmed: true)
+  Cleanup: profiles_set_active (filename: "default", confirmed: true)  # discards unsaved
 ```
+Note: `profiles_create` only creates the profile in memory — call `profiles_save` with
+filename/title to persist. Switching active profile discards the unsaved draft.
 
 ### 4.14 Verify removed tool — dialing_apply_change
 ```
@@ -276,6 +289,8 @@ Call: settings_get
 Expect: espressoTemperatureC, targetWeightG, steamTemperatureC, waterTemperatureC, dyeBeanBrand all present
 Save: note dyeBeanBrand as ORIGINAL_BRAND, dyeGrinderSetting as ORIGINAL_GRIND
 ```
+Note: read fields are unit/scale-suffixed (`espressoTemperatureC`, `targetWeightG`),
+write fields drop the suffix (`espressoTemperature`, `targetWeight`).
 
 ### 5.2 settings_set — DYE metadata
 ```
@@ -294,9 +309,14 @@ Expect: success=true
 ### 6.1 shots_list
 ```
 Call: shots_list (limit: 3)
-Expect: count=3, each shot has id, profileName, duration, enjoyment
+Expect: count=3, each shot has id, profileName, durationSec, enjoyment0to100,
+        doseG, yieldG, targetWeightG, timestamp (ISO 8601)
 Save: note first shot id as SHOT_ID, second shot id as SHOT_ID_2
 ```
+Note: list summaries use unit/scale-suffixed field names (`durationSec`, `doseG`,
+`yieldG`, `enjoyment0to100`) per PR #976. **Detail responses below still use legacy
+names** (`enjoyment`, `doseWeightG`, `finalWeightG`, `espressoNotes`) — the rename
+hasn't been extended to `shots_get_detail` yet.
 
 ### 6.2 shots_list — filtered
 ```
@@ -308,12 +328,15 @@ Expect: count > 0, all returned shots have profileName containing "D-Flow"
 ```
 Call: shots_get_detail (shotId: SHOT_ID)
 Expect: id=SHOT_ID, pressure array non-empty, flow array non-empty, temperature array non-empty
+Caveat: response is large (50–80 KB for a typical shot) and may overflow the LLM
+        context window. Tracked in #979 — proposes opt-in `detail` parameter.
 ```
 
 ### 6.4 shots_compare
 ```
 Call: shots_compare (shotIds: [SHOT_ID, SHOT_ID_2])
 Expect: response contains data for both shot IDs
+Caveat: same payload-size issue as 6.3 (~130 KB for two shots). See #979.
 ```
 
 ### 6.5 shots_update — enjoyment and notes
@@ -321,19 +344,21 @@ Expect: response contains data for both shot IDs
 Call: shots_get_detail (shotId: SHOT_ID)
 Save: ORIGINAL_ENJOYMENT = enjoyment, ORIGINAL_NOTES = espressoNotes
 Call: shots_update (shotId: SHOT_ID, enjoyment: 85, notes: "MCP test run")
-Expect: success=true, message contains shot ID
+Expect: success=true, message contains shot ID, updated includes "enjoyment" and "espressoNotes"
 Cleanup: shots_update (shotId: SHOT_ID, enjoyment: ORIGINAL_ENJOYMENT, notes: ORIGINAL_NOTES)
 ```
 
 ### 6.6 shots_update — full metadata
 ```
 Call: shots_get_detail (shotId: SHOT_ID)
-Save: ORIGINAL_DOSE = doseWeight, ORIGINAL_BARISTA = barista
+Save: ORIGINAL_DOSE = doseWeightG, ORIGINAL_BARISTA = barista
 Call: shots_update (shotId: SHOT_ID, doseWeight: 18.5, barista: "MCP Test")
-Expect: success=true, updated includes "dose_weight" and "barista"
-Verify: shots_get_detail (shotId: SHOT_ID) → doseWeight=18.5
+Expect: success=true, updated includes "doseWeight" and "barista"
+Verify: shots_get_detail (shotId: SHOT_ID) → doseWeightG=18.5
 Cleanup: shots_update (shotId: SHOT_ID, doseWeight: ORIGINAL_DOSE, barista: ORIGINAL_BARISTA)
 ```
+Note: `shots_update` writers use un-suffixed names (`doseWeight`, `drinkWeight`),
+detail readers return suffixed names (`doseWeightG`, `finalWeightG`).
 
 ### 6.7 shots_delete — invalid ID (safe test)
 ```
@@ -448,10 +473,51 @@ Step 4 — Verify clean state:
 
 ## 11. Settings Parity (Phase 16)
 
+Valid categories per the `settings_get` schema:
+`machine, calibration, connections, screensaver, accessibility, ai, espresso, steam,
+water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug,
+battery, heater, autofavorites`. There is **no** `preferences` category — what used
+to live there has been split. Most landed in `machine` (sleep, theme, brightness,
+auto-wake, refill kit, post-shot review, default rating, …) but not all: tick/TTS
+moved to `accessibility`, screensaver-only keys to `screensaver`, update-channel
+keys to `update`, language to `language`. Use the table below to find a key's home,
+or pass `keys:["…"]` to bypass categories entirely.
+
+### Where do the common settings live? (verified 2026-04-30)
+
+| Category | Notable keys |
+|---|---|
+| `machine` | `autoSleepMinutes`, `keepSteamHeaterOn`, `themeMode`, `darkThemeName`, `lightThemeName`, `screenBrightness`, `autoWakeEnabled`, `autoWakeStayAwakeEnabled`, `autoWakeStayAwakeMinutes`, `defaultShotRating`, `launcherMode`, `postShotReviewTimeout`, `refillKitOverride`, `steamAutoFlushSeconds`, `steamTwoTapStop`, `waterLevelDisplayUnit`, `waterRefillPoint` |
+| `calibration` | `autoFlowCalibration`, `flowCalibrationMultiplier`, `ignoreVolumeWithScale`, `useFlowScale` |
+| `connections` | `machineAddress`, `scaleAddress`, `scaleName`, `scaleType`, `showScaleDialogs`, `usbSerialEnabled` |
+| `screensaver` | `screensaverType`, `dimDelayMinutes`, `dimPercent`, `cacheEnabled`, `flipClockUse3D`, `imageDisplayDuration`, `pipesSpeed`, `pipesCameraSpeed`, `pipesShowClock`, `videosShowClock`, `attractorShowClock`, `showDateOnPersonal`, `shotMapShape`, `shotMapTexture`, `shotMapShowClock`, `shotMapShowProfiles`, `shotMapShowTerminator` |
+| `accessibility` | `accessibilityEnabled`, `ttsEnabled`, `tickEnabled`, `tickSoundIndex`, `tickVolume`, `extractionAnnouncementsEnabled`, `extractionAnnouncementMode`, `extractionAnnouncementInterval` |
+| `ai` | `aiProvider`, `discussShotApp`, `discussShotCustomUrl`, `mcpAccessLevel`, `mcpConfirmationLevel`, `mcpEnabled`, `ollamaEndpoint`, `ollamaModel`, `openrouterModel` |
+| `espresso` | `currentProfile`, `espressoTemperatureC`, `lastUsedRatio`, `targetWeightG` |
+| `steam` | `steamDisabled`, `steamFlowMlPerSec`, `steamTemperatureC`, `steamTimeoutSec` |
+| `water` | `hotWaterFlowRateMlPerSec`, `waterTemperatureC`, `waterVolumeMl`, `waterVolumeMode` |
+| `flush` | `flushFlowMlPerSec`, `flushSeconds` |
+| `dye` | `dyeBarista`, `dyeBeanBrand`, `dyeBeanType`, `dyeBeanWeight`, `dyeDrinkEy`, `dyeDrinkTds`, `dyeDrinkWeight`, `dyeEspressoEnjoyment`, `dyeGrinderBrand`, `dyeGrinderBurrs`, `dyeGrinderModel`, `dyeGrinderSetting`, `dyeRoastDate`, `dyeRoastLevel`, `dyeShotNotes` |
+| `mqtt` | `mqttEnabled`, `mqttBaseTopic`, `mqttBrokerHost`, `mqttBrokerPort`, `mqttClientId`, `mqttHomeAssistantDiscovery`, `mqttPublishInterval`, `mqttRetainMessages`, `mqttUsername` |
+| `themes` | `activeShader`, `activeThemeName`, `isDarkMode`, `themeNames` (mostly read-only metadata; write via `machine.themeMode`/`darkThemeName`/`lightThemeName`) |
+| `visualizer` | `visualizerAutoUpload`, `visualizerClearNotesOnStart`, `visualizerExtendedMetadata`, `visualizerMinDuration`, `visualizerShowAfterShot` |
+| `update` | `autoCheckUpdates`, `betaUpdatesEnabled` |
+| `data` | `dailyBackupHour`, `shotServerEnabled`, `shotServerPort`, `webSecurityEnabled` |
+| `history` | `shotHistorySortDirection`, `shotHistorySortField` |
+| `language` | `currentLanguage` |
+| `debug` | `hideGhcSimulator`, `simulationMode` |
+| `battery` | `batteryPercent` (read-only), `chargingMode`, `isCharging` (read-only) |
+| `heater` | `heaterIdleTempC`, `heaterTestFlowMlPerSec`, `heaterWarmupFlowMlPerSec`, `heaterWarmupTimeoutSec` |
+| `autofavorites` | `autoFavoritesGroupBy`, `autoFavoritesHideUnrated`, `autoFavoritesMaxItems`, `autoFavoritesOpenBrewSettings` |
+
+Sensitive fields (API keys, passwords, TOTP secrets) are excluded from both
+`settings_get` *and* `settings_set` schemas — they cannot be read or written via MCP.
+
 ### State Capture
 ```
-Call: settings_get (category: "preferences")
-Save: ORIGINAL_AUTO_SLEEP = autoSleepMinutes, ORIGINAL_KEEP_STEAM = keepSteamHeaterOn
+Call: settings_get (category: "machine")
+Save: ORIGINAL_AUTO_SLEEP = autoSleepMinutes, ORIGINAL_KEEP_STEAM = keepSteamHeaterOn,
+      ORIGINAL_THEME_MODE = themeMode
 
 Call: settings_get (category: "accessibility")
 Save: ORIGINAL_A11Y_ENABLED = accessibilityEnabled, ORIGINAL_TICK_VOLUME = tickVolume
@@ -466,11 +532,14 @@ Call: settings_get (category: "update")
 Save: ORIGINAL_AUTO_CHECK = autoCheckUpdates
 ```
 
-### 11.1 settings_get — category filter
+### 11.1 settings_get — category filter (machine)
 ```
-Call: settings_get (category: "preferences")
-Expect: autoSleepMinutes present, keepSteamHeaterOn present, themeMode present
-Expect absent: mqttEnabled, screensaverType, accessibilityEnabled (wrong category)
+Call: settings_get (category: "machine")
+Expect: autoSleepMinutes, keepSteamHeaterOn, themeMode, darkThemeName, lightThemeName,
+        screenBrightness all present
+Expect absent: mqttEnabled, screensaverType, accessibilityEnabled (different categories)
+Note: an unknown category (e.g. "preferences") returns {} silently — server should
+      probably reject it with an error, but currently does not.
 ```
 
 ### 11.2 settings_get — all categories
@@ -500,7 +569,7 @@ Expect: screensaverType, dimDelayMinutes, dimPercent, pipesSpeed, pipesCameraSpe
         pipesShowClock, flipClockUse3D, videosShowClock, cacheEnabled present
 ```
 
-### 11.6 settings_set — preferences
+### 11.6 settings_set — auto-sleep and steam heater
 ```
 Call: settings_set (autoSleepMinutes: 30, keepSteamHeaterOn: false, confirmed: true)
 Expect: success=true, updated includes "autoSleepMinutes" and "keepSteamHeaterOn"
@@ -569,5 +638,27 @@ Cleanup: settings_set (currentLanguage: ORIGINAL_LANG, confirmed: true)
 | Scale | 3 | |
 | Devices | 3 | |
 | Debug | 1 | |
-| Settings Parity | 12 | Category filter, all categories, write+verify+restore |
+| Settings Parity | 12 | `keys:[…]` filter (no `preferences` category), categories, write+verify+restore |
 | **Total** | **62** | |
+
+## Field-name reference (PR #976 / #975)
+
+Settings, profile, and shot responses use unit/scale-suffixed reader names but
+un-suffixed writer names. Quick lookup:
+
+| Concept | Read field (responses) | Write field (settings_set / shots_update) |
+|---|---|---|
+| Espresso temp | `espressoTemperatureC` | `espressoTemperature` |
+| Steam temp | `steamTemperatureC` | `steamTemperature` |
+| Water temp | `waterTemperatureC` | `waterTemperature` |
+| Profile target temp | `targetTemperatureC` | (via `tempStart`/`espresso_temperature` on `profiles_edit_params`) |
+| Target weight | `targetWeightG` | `targetWeight` |
+| Shot duration | `durationSec` (list) | n/a (computed) |
+| Shot enjoyment | `enjoyment0to100` (list) / `enjoyment` (detail — legacy) | `enjoyment` (`shots_update`) |
+| Shot dose | `doseG` (list) / `doseWeightG` (detail) | `doseWeight` (`shots_update`) |
+| Shot yield | `yieldG` (list) / `finalWeightG` (detail) | `drinkWeight` (`shots_update`) |
+| Shot notes | `notes` (list) / `espressoNotes` (detail) | `notes` (`shots_update`) |
+
+Inconsistency to be filed: `shots_get_detail` should adopt the suffixed names so it
+matches `shots_list`. Currently the projection used by list summaries is the only
+surface that's been migrated.

@@ -54,27 +54,36 @@ public:
         m_resources[uri] = res;
     }
 
-    QJsonArray listResources() const
+    // protocolVersion gates spec-versioned optional fields. Strict clients
+    // reject resources/list responses containing fields from a newer spec
+    // than was negotiated (matching the same hazard fixed for tools/list).
+    QJsonArray listResources(const QString& protocolVersion) const
     {
+        const bool emitTitle = protocolVersion >= QStringLiteral("2025-06-18");
+        const bool emitIcons = protocolVersion >= QStringLiteral("2025-11-25");
+
         QJsonArray result;
         for (auto it = m_resources.constBegin(); it != m_resources.constEnd(); ++it) {
             const auto& res = it.value();
             QJsonObject resJson;
             resJson["uri"] = res.uri;
             resJson["name"] = res.name;
-            // MCP 2025-06-18: separate human-readable `title` from `name`.
-            // Existing registrations already use a display-name-y string in
-            // `name` (e.g. "Machine State"), so reuse it here. New code
-            // should treat `name` as the programmatic identifier.
-            resJson["title"] = res.name;
+            if (emitTitle) {
+                // MCP 2025-06-18: separate human-readable `title` from `name`.
+                // Existing registrations already use a display-name-y string in
+                // `name` (e.g. "Machine State"), so reuse it here.
+                resJson["title"] = res.name;
+            }
             resJson["description"] = res.description;
             resJson["mimeType"] = res.mimeType;
 
-            // MCP 2025-11-25: icons array — derived from URI prefix.
-            QJsonArray icons = McpRegistryHelpers::iconsArrayFromQrc(
-                McpRegistryHelpers::iconQrcForResource(res.uri));
-            if (!icons.isEmpty())
-                resJson["icons"] = icons;
+            if (emitIcons) {
+                // MCP 2025-11-25: icons array — derived from URI prefix.
+                QJsonArray icons = McpRegistryHelpers::iconsArrayFromQrc(
+                    McpRegistryHelpers::iconQrcForResource(res.uri));
+                if (!icons.isEmpty())
+                    resJson["icons"] = icons;
+            }
 
             result.append(resJson);
         }

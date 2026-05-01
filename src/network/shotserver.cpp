@@ -1568,7 +1568,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
 </body></html>)HTML");
 
             bool mcpOn = m_settings && m_settings->mcp()->mcpEnabled();
-            qsizetype toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
+            qsizetype toolCount = m_mcpServer
+                ? m_mcpServer->toolRegistry()->listTools(2, QStringLiteral("2025-11-25")).size()
+                : 0;
 
             html = html.arg(mcpOn ? "enabled" : "disabled",
                            mcpOn ? "Enabled" : "Disabled",
