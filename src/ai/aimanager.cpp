@@ -519,10 +519,47 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             }
 
             QString result;
+
+            // Per openspec optimize-dialing-context-payload (task 10.3):
+            // hoist profile + setup constants to a single header at the
+            // top of the history section, then render each shot in
+            // `HistoryBlock` mode so the per-shot blocks carry shot-
+            // variable data only. Saves ~5,400 chars across a 4-shot
+            // history (Northbound 80's Espresso baseline) by killing
+            // N× repetition of profile intent + recipe + grinder/bean
+            // identity.
+            QString profileTitle, profileIntent, profileRecipe;
+            QString setupGrinderBrand, setupGrinderModel, setupGrinderBurrs;
+            QString setupBeanBrand, setupBeanType;
+            bool setupShared = !qualifiedShots.isEmpty();
+            for (qsizetype i = 0; i < qualifiedShots.size(); ++i) {
+                const ShotProjection& s = qualifiedShots[i].second;
+                if (i == 0) {
+                    setupGrinderBrand = s.grinderBrand;
+                    setupGrinderModel = s.grinderModel;
+                    setupGrinderBurrs = s.grinderBurrs;
+                    setupBeanBrand = s.beanBrand;
+                    setupBeanType = s.beanType;
+                } else if (s.grinderBrand != setupGrinderBrand
+                        || s.grinderModel != setupGrinderModel
+                        || s.grinderBurrs != setupGrinderBurrs
+                        || s.beanBrand != setupBeanBrand
+                        || s.beanType != setupBeanType) {
+                    setupShared = false;
+                }
+                if (profileTitle.isEmpty() && !s.profileName.isEmpty())
+                    profileTitle = s.profileName;
+                if (profileIntent.isEmpty() && !s.profileNotes.isEmpty())
+                    profileIntent = s.profileNotes;
+                if (profileRecipe.isEmpty() && !s.profileJson.isEmpty())
+                    profileRecipe = Profile::describeFramesFromJson(s.profileJson);
+            }
+
             QStringList shotSections;
             for (const auto& qs : qualifiedShots) {
                 ShotSummary summary = self->m_summarizer->summarizeFromHistory(qs.second);
-                QString summaryText = self->m_summarizer->buildUserPrompt(summary);
+                QString summaryText = self->m_summarizer->buildUserPrompt(
+                    summary, ShotSummarizer::RenderMode::HistoryBlock);
                 if (summaryText.isEmpty()) continue;
 
                 static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
@@ -534,8 +571,37 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                 result = "## Previous Shots with This Bean & Profile\n\n"
                          "All shots below use the same profile as the current shot. "
                          "Do not comment on frame-level recipe details unless they changed between shots. "
-                         "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n" +
-                         shotSections.join("\n\n");
+                         "Focus on what the user changed (grind, dose, temperature) and how it affected the outcome.\n\n";
+
+                if (!profileTitle.isEmpty()) {
+                    result += "### Profile: " + profileTitle + "\n";
+                    if (!profileIntent.isEmpty())
+                        result += profileIntent + "\n";
+                    if (!profileRecipe.isEmpty())
+                        result += profileRecipe;
+                    result += "\n";
+                }
+
+                if (setupShared && (!setupGrinderBrand.isEmpty() || !setupGrinderModel.isEmpty()
+                                    || !setupBeanBrand.isEmpty() || !setupBeanType.isEmpty())) {
+                    result += "### Setup: ";
+                    if (!setupGrinderBrand.isEmpty()) result += setupGrinderBrand;
+                    if (!setupGrinderModel.isEmpty()) {
+                        if (!setupGrinderBrand.isEmpty()) result += " ";
+                        result += setupGrinderModel;
+                    }
+                    if (!setupGrinderBurrs.isEmpty())
+                        result += " with " + setupGrinderBurrs;
+                    if (!setupBeanBrand.isEmpty() || !setupBeanType.isEmpty()) {
+                        result += " on " + setupBeanBrand;
+                        if (!setupBeanBrand.isEmpty() && !setupBeanType.isEmpty())
+                            result += " - ";
+                        result += setupBeanType;
+                    }
+                    result += "\n\n";
+                }
+
+                result += shotSections.join("\n\n");
             }
 
             // Append grinder context if available (observed settings range and step size)
