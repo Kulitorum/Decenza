@@ -34,6 +34,7 @@ If ORIGINAL_MODIFIED is true, warn the user — tests will modify the profile an
 |------|-------|--------|---------|--------|-------|
 | 2026-03-20 | 37 | 41 | 1 | 0 | Initial run, simulator mode |
 | 2026-04-30 | 33 | 56 | 1 | 0 | Simulator, MCP 2025-11-25 negotiated. Plan refreshed for PR #976 field renames, `profiles_save` readonly refusal, `profiles_create` empty-filename, removal of `preferences` category, and §4.10 active-delete behavior. |
+| 2026-05-01 | 33 | 56 | 1 | 0 | Plan refreshed for PR #984: `shots_get_detail`/`shots_compare` default to summary mode (#979); `enjoyment0to100`/`drinkTdsPct`/`drinkEyPct` everywhere on shot reads (#980); `profiles_delete` returns actionable error on active profile (#983). |
 
 ---
 
@@ -244,9 +245,10 @@ Call: profiles_set_active (filename: "default", confirmed: true)   # leave _mcp_
 Call: profiles_delete (filename: "_mcp_test_tmp", confirmed: true)
 Expect: success=true, message contains "deleted"
 Verify: profiles_list → no profile with filename "_mcp_test_tmp"
-Note: deleting the currently-active profile is rejected with a misleading generic
-      "Failed to delete profile" message. Always switch active to a different profile
-      before delete.
+Note: deleting the currently-active profile is rejected with an actionable error
+      ("Cannot delete the currently-active profile '<name>'. Call profiles_set_active
+      with a different profile first, then retry.") — always switch active to a
+      different profile before delete (#983, PR #984).
 ```
 
 ### 4.11 profiles_delete — built-in revert
@@ -314,9 +316,9 @@ Expect: count=3, each shot has id, profileName, durationSec, enjoyment0to100,
 Save: note first shot id as SHOT_ID, second shot id as SHOT_ID_2
 ```
 Note: list summaries use unit/scale-suffixed field names (`durationSec`, `doseG`,
-`yieldG`, `enjoyment0to100`) per PR #976. **Detail responses below still use legacy
-names** (`enjoyment`, `doseWeightG`, `finalWeightG`, `espressoNotes`) — the rename
-hasn't been extended to `shots_get_detail` yet.
+`yieldG`, `enjoyment0to100`) per PR #976. Detail/compare responses now also use
+suffixed names (`enjoyment0to100`, `drinkTdsPct`, `drinkEyPct`, `doseWeightG`,
+`finalWeightG`) per PR #984 (#980).
 
 ### 6.2 shots_list — filtered
 ```
@@ -324,29 +326,49 @@ Call: shots_list (profileName: "D-Flow", limit: 3)
 Expect: count > 0, all returned shots have profileName containing "D-Flow"
 ```
 
-### 6.3 shots_get_detail
+### 6.3 shots_get_detail — summary (default)
 ```
 Call: shots_get_detail (shotId: SHOT_ID)
-Expect: id=SHOT_ID, pressure array non-empty, flow array non-empty, temperature array non-empty
-Caveat: response is large (50–80 KB for a typical shot) and may overflow the LLM
-        context window. Tracked in #979 — proposes opt-in `detail` parameter.
+Expect: id=SHOT_ID, scalars + phaseSummaries + summaryLines + detectorResults present.
+        Time-series arrays (pressure, flow, temperature, etc.), debugLog, and
+        profileJson are OMITTED in summary mode. Payload ~3 KB.
 ```
 
-### 6.4 shots_compare
+### 6.3a shots_get_detail — full
+```
+Call: shots_get_detail (shotId: SHOT_ID, detail: "full")
+Expect: pressure array non-empty, flow array non-empty, temperature array non-empty,
+        debugLog and profileJson included. Payload ~85 KB.
+```
+Note: PR #984 (#979) added the `detail: "summary" | "full"` param. `summary` is the
+default — use `full` only when curve-aware analysis is needed.
+
+### 6.4 shots_compare — summary (default)
 ```
 Call: shots_compare (shotIds: [SHOT_ID, SHOT_ID_2])
-Expect: response contains data for both shot IDs
-Caveat: same payload-size issue as 6.3 (~130 KB for two shots). See #979.
+Expect: response contains data for both shot IDs, plus a `changes` block diffing
+        consecutive shots (durationSec, grinderSetting, doseG/yieldG, enjoyment0to100).
+        ~3 KB per shot — no time-series, no debugLog, no profileJson.
+```
+
+### 6.4a shots_compare — full
+```
+Call: shots_compare (shotIds: [SHOT_ID, SHOT_ID_2], detail: "full")
+Expect: per-shot full payloads including time-series. ~85 KB per shot — exceeds
+        typical LLM context with more than 1-2 shots.
 ```
 
 ### 6.5 shots_update — enjoyment and notes
 ```
 Call: shots_get_detail (shotId: SHOT_ID)
-Save: ORIGINAL_ENJOYMENT = enjoyment, ORIGINAL_NOTES = espressoNotes
+Save: ORIGINAL_ENJOYMENT = enjoyment0to100, ORIGINAL_NOTES = espressoNotes
 Call: shots_update (shotId: SHOT_ID, enjoyment: 85, notes: "MCP test run")
 Expect: success=true, message contains shot ID, updated includes "enjoyment" and "espressoNotes"
+Verify: shots_get_detail → enjoyment0to100=85, espressoNotes="MCP test run"
 Cleanup: shots_update (shotId: SHOT_ID, enjoyment: ORIGINAL_ENJOYMENT, notes: ORIGINAL_NOTES)
 ```
+Note: `shots_update` writers use un-suffixed names (`enjoyment`, `notes`); detail
+reads return suffixed names (`enjoyment0to100`, `espressoNotes`).
 
 ### 6.6 shots_update — full metadata
 ```
@@ -653,12 +675,21 @@ un-suffixed writer names. Quick lookup:
 | Water temp | `waterTemperatureC` | `waterTemperature` |
 | Profile target temp | `targetTemperatureC` | (via `tempStart`/`espresso_temperature` on `profiles_edit_params`) |
 | Target weight | `targetWeightG` | `targetWeight` |
-| Shot duration | `durationSec` (list) | n/a (computed) |
-| Shot enjoyment | `enjoyment0to100` (list) / `enjoyment` (detail — legacy) | `enjoyment` (`shots_update`) |
+| Shot duration | `durationSec` | n/a (computed) |
+| Shot enjoyment | `enjoyment0to100` | `enjoyment` (`shots_update`) |
+| Shot TDS | `drinkTdsPct` | `drinkTds` (`shots_update`) |
+| Shot EY | `drinkEyPct` | `drinkEy` (`shots_update`) |
 | Shot dose | `doseG` (list) / `doseWeightG` (detail) | `doseWeight` (`shots_update`) |
 | Shot yield | `yieldG` (list) / `finalWeightG` (detail) | `drinkWeight` (`shots_update`) |
 | Shot notes | `notes` (list) / `espressoNotes` (detail) | `notes` (`shots_update`) |
 
-Inconsistency to be filed: `shots_get_detail` should adopt the suffixed names so it
-matches `shots_list`. Currently the projection used by list summaries is the only
-surface that's been migrated.
+PR #984 (#980) extended the suffixed-read convention through `ShotProjection`, so
+`shots_get_detail` and `shots_compare` now match `shots_list` for `enjoyment0to100`,
+`drinkTdsPct`, and `drinkEyPct`. Remaining read/write asymmetries (dose, yield, notes)
+are tracked separately — read names use the projection's full member name (`doseWeightG`,
+`finalWeightG`, `espressoNotes`) while write names use the legacy short form for
+`shots_update`/`settings_set` schemas.
+
+Open follow-ups for the remaining inconsistencies:
+- `profiles_get_active` vs `profiles_get_params` naming (#992)
+- `keys: [...]` filter on `settings_get` rejects suffixed read names (#985)
