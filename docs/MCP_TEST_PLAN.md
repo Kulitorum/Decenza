@@ -333,7 +333,9 @@ Expect: count > 0, all returned shots have profileName containing "D-Flow"
 Call: shots_get_detail (shotId: SHOT_ID)
 Expect: id=SHOT_ID, scalars + phaseSummaries + summaryLines + detectorResults present.
         Time-series arrays (pressure, flow, temperature, etc.), debugLog, and
-        profileJson are OMITTED in summary mode. Payload ~3 KB.
+        profileJson are OMITTED in summary mode. Per-detector `gates` blocks
+        (implementation thresholds) are OMITTED in both summary and full mode.
+        Payload ~3 KB.
 ```
 
 ### 6.3a shots_get_detail — full

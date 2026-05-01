@@ -32,6 +32,30 @@ static void stripTimeSeriesFields(QJsonObject& obj)
         obj.remove(QString::fromLatin1(key));
 }
 
+// Strip per-detector implementation-detail blocks (currently `gates`) from
+// detectorResults so MCP responses only expose the user-facing scalars the
+// detectors commit to externally. Threshold values inside `gates` (e.g.
+// chokedFlowMaxMlPerSec) are scratch input/output for the detector and
+// invite the LLM to reason about them as if they were dialing parameters.
+static void stripDetectorInternals(QJsonObject& obj)
+{
+    if (!obj.contains("detectorResults"))
+        return;
+    QJsonObject detectorResults = obj.value("detectorResults").toObject();
+    static const char* detectorKeys[] = {
+        "grind", "channeling", "flowTrend", "tempStability", "preinfusion"
+    };
+    for (const char* key : detectorKeys) {
+        const QString k = QString::fromLatin1(key);
+        if (!detectorResults.contains(k))
+            continue;
+        QJsonObject d = detectorResults.value(k).toObject();
+        d.remove(QStringLiteral("gates"));
+        detectorResults[k] = d;
+    }
+    obj["detectorResults"] = detectorResults;
+}
+
 // Resolve the detail argument. Default "summary" — drops time-series, debugLog,
 // profileJson. "full" — return the complete projection. Unknown values fall
 // back to summary so the LLM gets a usable response rather than the 200K-char
@@ -273,6 +297,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         result = shot.toJsonObject();
                         if (!fullDetail)
                             stripTimeSeriesFields(result);
+                        stripDetectorInternals(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
@@ -350,6 +375,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             QJsonObject shotJson = shot.toJsonObject();
                             if (!fullDetail)
                                 stripTimeSeriesFields(shotJson);
+                            stripDetectorInternals(shotJson);
                             shots.append(shotJson);
                             projections.append(std::move(shot));
                         }
