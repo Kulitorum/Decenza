@@ -81,6 +81,11 @@ add_decenza_test(tst_aborted_shot_classifier
     tst_aborted_shot_classifier.cpp
 )
 
+# --- tst_mcptools_dialing_helpers: pure session-grouping algorithm (issue #1009) ---
+add_decenza_test(tst_mcptools_dialing_helpers
+    tst_mcptools_dialing_helpers.cpp
+)
+
 # --- tst_firmwarepackets: FWMapRequest + firmware chunk byte layout tests
 # (header-only target; no cpp dependency beyond the test itself) ---
 add_decenza_test(tst_firmwarepackets

@@ -1,5 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
+#include "mcptools_dialing_helpers.h"
 #include "../history/shothistorystorage.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
@@ -26,9 +27,34 @@
 struct DialingDbResult {
     ShotProjection shotData;
     QString profileKbId;
-    QJsonArray dialInHistory;
+    QJsonArray dialInSessions;
     QJsonObject grinderContext;
 };
+
+// Build the changeFromPrev diff between two adjacent shots in the same
+// session — same shape as `shots_compare` produces, computed inline so the
+// AI doesn't need a separate round-trip to see what moved.
+static QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& curr)
+{
+    QJsonObject diff;
+    auto diffStr = [&](const QString& a, const QString& b, const QString& key) {
+        if (!a.isEmpty() && !b.isEmpty() && a != b)
+            diff[key] = QString("%1 -> %2").arg(a, b);
+    };
+    auto diffNum = [&](double a, double b, const QString& key, const QString& unit) {
+        if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
+            diff[key] = QString("%1 -> %2 %3 (%4%5)")
+                .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
+                .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
+    };
+    diffStr(prev.grinderSetting, curr.grinderSetting, "grinderSetting");
+    diffStr(prev.beanBrand, curr.beanBrand, "beanBrand");
+    diffNum(prev.doseWeightG, curr.doseWeightG, "doseG", "g");
+    diffNum(prev.finalWeightG, curr.finalWeightG, "yieldG", "g");
+    diffNum(prev.durationSec, curr.durationSec, "durationSec", "s");
+    diffNum(prev.enjoyment0to100, curr.enjoyment0to100, "enjoyment0to100", "");
+    return diff;
+}
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
                           ProfileManager* profileManager,
@@ -37,9 +63,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // dialing_get_context
     registry->registerAsyncTool(
         "dialing_get_context",
-        "Get dial-in context: recent shot summary, dial-in history (last N shots with same profile), "
-        "profile knowledge for the current shot's profile, bean/grinder metadata, and grinder context "
-        "(observed settings range, step size, and burr-swappable flag). "
+        "Get dial-in context: recent shot summary, dial-in history grouped into sessions (runs of "
+        "shots on the same profile within ~60 minutes of each other, with within-session "
+        "changeFromPrev diffs), profile knowledge for the current shot's profile, bean/grinder "
+        "metadata, and grinder context (observed settings range, step size, and burr-swappable flag). "
         "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
         "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
         "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
@@ -100,11 +127,21 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     dbResult.shotData = ShotHistoryStorage::convertShotRecord(record);
                     dbResult.profileKbId = record.profileKbId;
 
-                    // --- Dial-in history (same profile family) ---
+                    // --- Dial-in history grouped into sessions (same profile family) ---
+                    // History returns DESC (newest first). Within a session
+                    // we want ASC order so changeFromPrev reads "older ->
+                    // newer" — matching how the user iterates. Sessions
+                    // themselves stay newest-first so the most relevant
+                    // recent iteration is at the top of the list.
                     if (!dbResult.profileKbId.isEmpty()) {
                         QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, dbResult.profileKbId, historyLimit, resolvedShotId);
-                        for (const auto& v : history) {
-                            const ShotProjection shot = ShotProjection::fromVariantMap(v.toMap());
+
+                        QList<ShotProjection> shots;
+                        shots.reserve(history.size());
+                        for (const auto& v : history)
+                            shots.append(ShotProjection::fromVariantMap(v.toMap()));
+
+                        auto shotToJson = [](const ShotProjection& shot) {
                             QJsonObject h;
                             h["id"] = shot.id;
                             h["timestamp"] = shot.timestampIso;
@@ -139,7 +176,43 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                                 if (twVal > 0)
                                     h["targetWeightG"] = twVal;
                             }
-                            dbResult.dialInHistory.append(h);
+                            return h;
+                        };
+
+                        // Group the DESC-ordered shots into sessions using
+                        // the pure helper (unit-tested separately).
+                        QList<qint64> timestamps;
+                        timestamps.reserve(shots.size());
+                        for (const auto& s : shots)
+                            timestamps.append(s.timestamp);
+                        const auto sessionIndices = McpDialingHelpers::groupSessions(timestamps);
+
+                        for (const auto& indices : sessionIndices) {
+                            // Reverse to ASC within the session so
+                            // changeFromPrev reads "older -> newer".
+                            QList<ShotProjection> ordered;
+                            ordered.reserve(indices.size());
+                            for (qsizetype i = indices.size() - 1; i >= 0; --i)
+                                ordered.append(shots[indices[i]]);
+
+                            QJsonArray sessionShots;
+                            for (qsizetype i = 0; i < ordered.size(); ++i) {
+                                QJsonObject h = shotToJson(ordered[i]);
+                                if (i > 0) {
+                                    QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i]);
+                                    h["changeFromPrev"] = diff.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(diff);
+                                } else {
+                                    h["changeFromPrev"] = QJsonValue(QJsonValue::Null);
+                                }
+                                sessionShots.append(h);
+                            }
+
+                            QJsonObject sessionObj;
+                            sessionObj["sessionStart"] = ordered.first().timestampIso;
+                            sessionObj["sessionEnd"] = ordered.last().timestampIso;
+                            sessionObj["shotCount"] = static_cast<int>(ordered.size());
+                            sessionObj["shots"] = sessionShots;
+                            dbResult.dialInSessions.append(sessionObj);
                         }
                     }
 
@@ -183,8 +256,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     result["currentDateTime"] = now.toOffsetFromUtc(now.offsetFromUtc()).toString(Qt::ISODate);
                     result["shotId"] = resolvedShotId;
 
-                    if (!dbResult.dialInHistory.isEmpty())
-                        result["dialInHistory"] = dbResult.dialInHistory;
+                    if (!dbResult.dialInSessions.isEmpty())
+                        result["dialInSessions"] = dbResult.dialInSessions;
                     if (!dbResult.grinderContext.isEmpty())
                         result["grinderContext"] = dbResult.grinderContext;
 
