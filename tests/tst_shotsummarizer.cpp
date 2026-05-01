@@ -368,6 +368,35 @@ private slots:
                  "per-phase Temperature instability prose must be suppressed when the profile is intentionally stepping");
     }
 
+    // Defensive: when a legacy fast-path shotData carries no `tempStability`
+    // envelope (pre-#1017 history rows that flowed through the earlier
+    // convertShotRecord pass), the .toMap().value(...).toBool() chain in
+    // summarizeFromHistory must default to false rather than crashing or
+    // guessing. Without this, per-phase suppression on legacy rows would
+    // silently de-couple from the live path on the affected population.
+    void summarizeFromHistory_fastPathMissingTempStabilityEnvelopeDefaultsFalse()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+        QVariantMap line;
+        line["text"] = QStringLiteral("dummy");
+        line["type"] = QStringLiteral("good");
+        QVariantList lines;
+        lines.append(line);
+        shot["summaryLines"] = lines;
+
+        // Detector envelope present but no tempStability key — the legacy
+        // shape before #1017's standardization. pourTruncated stays false.
+        QVariantMap detectors;
+        detectors["pourTruncated"] = false;
+        shot["detectorResults"] = detectors;
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QVERIFY2(!summary.tempIntentionalStepping,
+                 "missing tempStability envelope must default to !intentionalStepping (legacy rows)");
+    }
+
     // Cascade integrity through the fast path: when shotData carries
     // detectorResults.tempStability.intentionalStepping == true, the per-phase
     // prose must be suppressed even though the per-phase
