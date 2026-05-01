@@ -94,6 +94,12 @@ struct ShotSummary {
     // (which analyzeShot's aggregate output doesn't surface).
     bool pourTruncatedDetected = false;
 
+    // True when the profile goal steps temperature across the shot (e.g.
+    // 82→72°C). markPerPhaseTempInstability only checks for stepping within
+    // a single phase, so cross-phase stepping (flat goal per phase, different
+    // goal each phase) needs this global flag to suppress per-phase prose.
+    bool tempIntentionalStepping = false;
+
     // DYE metadata (from user input)
     QString beanBrand;
     QString beanType;

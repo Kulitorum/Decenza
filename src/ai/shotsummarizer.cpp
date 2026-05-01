@@ -190,6 +190,7 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
         frameCount);
     summary.summaryLines = analysis.lines;
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
+    summary.tempIntentionalStepping = analysis.detectors.tempIntentionalStepping;
     if (!summary.pourTruncatedDetected
         && ShotAnalysis::reachedExtractionPhase(markers, summary.totalDuration))
         markPerPhaseTempInstability(summary, temperature, temperatureGoal);
@@ -475,6 +476,12 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     if (!shotData.summaryLines.isEmpty()) {
         summary.summaryLines = shotData.summaryLines;
         summary.pourTruncatedDetected = shotData.detectorResults.value("pourTruncated").toBool();
+        // .toMap() on a missing tempStability key returns an empty map and
+        // .toBool() then defaults to false — a row without the envelope
+        // reads as !intentionalStepping (correct fallback).
+        summary.tempIntentionalStepping = shotData.detectorResults
+            .value("tempStability").toMap()
+            .value("intentionalStepping").toBool();
         if (!summary.pourTruncatedDetected
             && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
             markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
@@ -693,7 +700,11 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         }
         // Suppress per-phase temp instability when the puck never built \u2014
         // temp drift on a failed pour is a downstream symptom, not signal.
-        if (phase.temperatureUnstable && !summary.pourTruncatedDetected)
+        // Also suppress on intentionally-stepping profiles: per-phase
+        // deviation against a stepped goal is by design, not instability.
+        if (phase.temperatureUnstable
+            && !summary.pourTruncatedDetected
+            && !summary.tempIntentionalStepping)
             out << "- **Temperature instability**: Average temperature deviated from target by >2\u00B0C during this phase\n";
         out << "\n";
     }
