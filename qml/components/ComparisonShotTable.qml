@@ -19,16 +19,16 @@ ColumnLayout {
         switch (key) {
             case "profile": {
                 var name = info.profileName || "\u2014"
-                var t = info.temperatureOverride
+                var t = info.temperatureOverrideC
                 return (t !== undefined && t !== null && t > 0) ? name + " (" + Math.round(t) + "\u00B0C)" : name
             }
             case "duration":  return (info.duration || 0).toFixed(1) + "s"
             case "dose":      return (info.doseWeight || 0).toFixed(1) + "g"
             case "output": {
                 var actual = (info.finalWeight || 0).toFixed(1) + "g"
-                var y = info.yieldOverride
-                return (y !== undefined && y !== null && y > 0 && Math.abs(y - info.finalWeight) > 0.5)
-                       ? actual + " (" + Math.round(y) + "g)" : actual
+                var t = info.targetWeightG
+                return (t !== undefined && t !== null && t > 0 && Math.abs(t - info.finalWeight) > 0.5)
+                       ? actual + " (" + Math.round(t) + "g)" : actual
             }
             case "ratio":     return info.ratio || "\u2014"
             case "rating":    return (info.enjoyment || 0) + "%"

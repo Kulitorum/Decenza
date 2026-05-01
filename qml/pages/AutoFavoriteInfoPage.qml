@@ -19,7 +19,7 @@ Page {
     property string grinderModel: ""
     property string grinderSetting: ""
     property real doseBucket: 0
-    property real yieldOverride: 0
+    property real targetWeight: 0
     property int avgEnjoyment: 0
     property int shotCount: 0
 
@@ -41,7 +41,7 @@ Page {
 
         MainController.shotHistory.requestAutoFavoriteGroupDetails(
             groupBy, beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting,
-            doseBucket, yieldOverride)
+            doseBucket, targetWeight)
     }
 
     // Handle async shot data and group details

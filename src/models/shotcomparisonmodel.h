@@ -124,7 +124,7 @@ private:
         QString notes;
         QString barista;
         double temperatureOverride = 0;
-        double yieldOverride = 0;
+        double targetWeight = 0;
 
         QVector<QPointF> pressure;
         QVector<QPointF> flow;

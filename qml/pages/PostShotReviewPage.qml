@@ -366,7 +366,7 @@ Page {
                             textFormat: Text.RichText
                             text: {
                                 var name = editShotData.profileName || ""
-                                var t = editShotData.temperatureOverride
+                                var t = editShotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
                                     result = name + " (" + Math.round(t) + "\u00B0C)"

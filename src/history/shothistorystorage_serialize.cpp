@@ -58,8 +58,8 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["visualizerId"] = record.visualizerId;
     result["visualizerUrl"] = record.visualizerUrl;
     result["debugLog"] = record.debugLog;
-    result["temperatureOverride"] = record.temperatureOverride;
-    result["yieldOverride"] = record.yieldOverride;
+    result["temperatureOverrideC"] = record.temperatureOverride;
+    result["targetWeightG"] = record.targetWeight;
     result["profileJson"] = record.profileJson;
     result["profileKbId"] = record.profileKbId;
 
@@ -125,7 +125,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
                 record.phases, record.summary.beverageType, record.summary.duration,
                 record.pressureGoal, record.flowGoal,
                 inputs.analysisFlags, inputs.firstFrameSeconds,
-                record.yieldOverride, record.summary.finalWeight,
+                record.targetWeight, record.summary.finalWeight,
                 inputs.frameCount);
             analysisPtr = &analysisOwned;
         }
@@ -178,9 +178,36 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             grind["chokedPuck"] = d.grindChokedPuck;
             grind["yieldOvershoot"] = d.grindYieldOvershoot;
             grind["verifiedClean"] = d.grindVerifiedClean;
+            // yieldRatio is populated whenever Arm 2's gate ran with a known
+            // target+final pair. Lifted to the top of the grind object (in
+            // addition to gates.yieldRatio) so consumers can read the value
+            // both checks compare against without descending into gates.
+            if (d.grindGateYieldRatio > 0.0) {
+                grind["yieldRatio"] = d.grindGateYieldRatio;
+            }
         }
         if (!d.grindCoverage.isEmpty()) {
             grind["coverage"] = d.grindCoverage;
+        }
+        // Gate diagnostics from the choked-puck arm. Always emitted when the
+        // arm ran (`gateRan == true`) — even on gate-fail paths — so MCP
+        // consumers can answer "why didn't this badge fire?" without parsing
+        // the cascade source. Thresholds are emitted alongside the inputs
+        // so consumers don't need to re-derive them from CHOKED_* constants.
+        if (d.grindGateRan) {
+            QVariantMap gates;
+            gates["passed"] = d.grindGatePassed;
+            gates["flowSamples"] = static_cast<qlonglong>(d.grindGateFlowSamples);
+            gates["pressurizedDurationSec"] = d.grindGatePressurizedDurationSec;
+            gates["meanPressurizedFlowMlPerSec"] = d.grindGateMeanPressurizedFlowMlPerSec;
+            gates["yieldRatio"] = d.grindGateYieldRatio;
+            gates["minSamples"] = 5;
+            gates["minPressurizedSec"] = ShotAnalysis::CHOKED_DURATION_MIN_SEC;
+            gates["minPressureBar"] = ShotAnalysis::CHOKED_PRESSURE_MIN_BAR;
+            gates["chokedFlowMaxMlPerSec"] = ShotAnalysis::CHOKED_FLOW_MAX_MLPS;
+            gates["chokedYieldRatioMax"] = ShotAnalysis::CHOKED_YIELD_RATIO_MAX;
+            gates["yieldOvershootRatioMin"] = ShotAnalysis::YIELD_OVERSHOOT_RATIO_MIN;
+            grind["gates"] = gates;
         }
         detectorResults["grind"] = grind;
 

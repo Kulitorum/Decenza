@@ -115,18 +115,18 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             h["notes"] = shot["espressoNotes"].toString();
                             h["beanBrand"] = shot["beanBrand"].toString();
                             h["beanType"] = shot["beanType"].toString();
-                            double tempOverride = shot["temperatureOverride"].toDouble();
+                            double tempOverride = shot["temperatureOverrideC"].toDouble();
                             if (tempOverride > 0)
                                 h["temperatureOverrideC"] = tempOverride;
 
-                            // For shots saved by MainController, yieldOverride is always
+                            // For shots saved by MainController, targetWeightG is always
                             // populated (user override → profile target_weight → finalWeight).
                             // The profile-JSON fallback below is defensive for shots imported
                             // from external formats (de1app, visualizer.coffee) where the
-                            // shot importer leaves yieldOverride at 0.
-                            double yieldOverride = shot["yieldOverride"].toDouble();
-                            if (yieldOverride > 0) {
-                                h["targetWeightG"] = yieldOverride;
+                            // shot importer leaves targetWeight at 0.
+                            double targetWeight = shot["targetWeightG"].toDouble();
+                            if (targetWeight > 0) {
+                                h["targetWeightG"] = targetWeight;
                             } else {
                                 QString profileJson = shot["profileJson"].toString();
                                 if (!profileJson.isEmpty()) {

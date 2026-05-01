@@ -241,6 +241,34 @@ public:
         bool chokedPuck = false;     // true when the pressure-mode choke check fired — either mean pressurized flow below CHOKED_FLOW_MAX_MLPS (severe) or yield/target below CHOKED_YIELD_RATIO_MAX (moderate)
         bool yieldOvershoot = false; // true when yield/target > YIELD_OVERSHOOT_RATIO_MIN — gusher; mutually exclusive with chokedPuck only on the yield-ratio sub-arm (one < 0.85, the other > 1.20). chokedPuck's flow sub-arm could in principle co-fire, but a gusher cannot satisfy its 15s × 4 bar gate in practice.
         bool verifiedClean = false;  // true when the choked-puck loop saw enough pressurized samples to speak (≥ 5 samples, ≥ 15s ≥ 4 bar) AND neither chokedPuck nor yieldOvershoot fired AND |delta| ≤ FLOW_DEVIATION_THRESHOLD. Distinguishes "verified clean" from "no data" so the summary can emit a positive [good] line on profiles where today the detector silently passes.
+
+        // Gate inputs / outputs from the choked-puck arm (Arm 2). Populated
+        // whenever Arm 2 walks the pressure-mode samples — even when the
+        // gates fail on too-short pressurization or too few samples. Lets
+        // consumers answer "why didn't this badge fire?" without re-reading
+        // the C++. Gate semantics (post-#966 split-arm gates):
+        //   - flowSamples  : count of pressurized samples (pressure ≥ CHOKED_PRESSURE_MIN_BAR)
+        //   - pressurizedDurationSec : integrated dt across those samples (gap-bounded)
+        //   - meanPressurizedFlowMlPerSec : mean flow across those samples; 0 if flowSamples == 0
+        //   - yieldRatio   : finalWeightG / targetWeightG; 0 when either is 0 (Arm 2 yield arm
+        //                    is disabled in that case)
+        //   - gatePassed   : flowSamples ≥ 5 AND pressurizedDurationSec ≥ CHOKED_DURATION_MIN_SEC.
+        //                    Specifically the flow arm's gate — the yield arm has a looser
+        //                    entry condition (just flowSamples ≥ 5, readable from flowSamples).
+        //                    When gatePassed == false, the flow-mean choke check can't fire and
+        //                    verifiedClean stays false; the yield arm can still fire chokedPuck
+        //                    if flowSamples ≥ 5 AND yield ratio < 0.85.
+        //                    NOTE: yieldOvershoot is set by an independent pre-gate arm and is
+        //                    NOT covered by either gate; a shot can have gatePassed == false
+        //                    AND yieldOvershoot == true.
+        // gateRan == false means Arm 2 was bypassed entirely (empty pressure curve, or skipped
+        // beverage type). All gate fields stay at their defaults in that case.
+        bool gateRan = false;
+        bool gatePassed = false;
+        qsizetype gateFlowSamples = 0;
+        double gatePressurizedDurationSec = 0.0;
+        double gateMeanPressurizedFlowMlPerSec = 0.0;
+        double gateYieldRatio = 0.0;
     };
 
     // Grind direction check — the canonical implementation shared by the
@@ -270,7 +298,7 @@ public:
     // both (both default to 0). finalWeightG can come from either a real
     // BLE scale or Decenza's FlowScale virtual scale (dose-compensated flow
     // integration), so the arms work headless. targetWeightG is the shot's
-    // effective SAW target (see ShotRecord::yieldOverride); imported shots
+    // effective SAW target (see ShotRecord::targetWeight); imported shots
     // without target metadata pass 0 here and both arms correctly stay
     // silent. The yield-overshoot arm has no pressurized-window gate — a
     // gusher by definition can't sustain pressure — so it can fire even
@@ -426,6 +454,18 @@ public:
         //                      on the verified-clean path when Arm 1's
         //                      flow-mode window produced no data.
         QString grindDirection;
+
+        // Choked-puck gate diagnostics — mirrors GrindCheck::gate* fields.
+        // Lets MCP consumers and regression tests answer "why didn't the
+        // grind badge fire?" without parsing the cascade source. See the
+        // GrindCheck::gate* docstring for field semantics.
+        bool grindGateRan = false;
+        bool grindGatePassed = false;
+        qsizetype grindGateFlowSamples = 0;
+        double grindGatePressurizedDurationSec = 0.0;
+        double grindGateMeanPressurizedFlowMlPerSec = 0.0;
+        double grindGateYieldRatio = 0.0;
+
         // Coverage signal for the grind detector. Populated for espresso
         // shots where the pourTruncated cascade is NOT active. Possible
         // values:

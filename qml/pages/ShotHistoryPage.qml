@@ -229,7 +229,7 @@ Page {
                     filter[field] = initialFilter[field]
             }
             // Numeric filters from the Auto-Favorites "Show" button in weight mode.
-            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "yieldOverride"]
+            var numericFields = ["minDose", "maxDose", "minYield", "maxYield", "targetWeight"]
             for (var m = 0; m < numericFields.length; m++) {
                 var nf = numericFields[m]
                 if (initialFilter[nf] !== undefined && initialFilter[nf] !== null)
@@ -503,8 +503,8 @@ Page {
                             var mid = (initialFilter.minDose + initialFilter.maxDose) / 2
                             parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
                         }
-                        if (initialFilter.yieldOverride !== undefined && initialFilter.yieldOverride >= 0) {
-                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(initialFilter.yieldOverride.toFixed(1)))
+                        if (initialFilter.targetWeight !== undefined && initialFilter.targetWeight >= 0) {
+                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(initialFilter.targetWeight.toFixed(1)))
                         }
                         return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00b7 ")
                     }
@@ -670,7 +670,7 @@ Page {
                                 textFormat: Text.RichText
                                 text: {
                                     var name = model.profileName || ""
-                                    var tempOvr = model.temperatureOverride || 0
+                                    var tempOvr = model.temperatureOverrideC || 0
                                     var result
                                     if (tempOvr > 0) {
                                         result = name + " (" + Math.round(tempOvr) + "\u00B0C)"
@@ -715,9 +715,9 @@ Page {
                                     var dose = (model.doseWeight || 0).toFixed(1)
                                     var actual = (model.finalWeight || 0).toFixed(1)
                                     var yieldText = actual + "g"
-                                    var yieldOvr = model.yieldOverride || 0
-                                    if (yieldOvr > 0 && Math.abs(yieldOvr - model.finalWeight) > 0.5) {
-                                        yieldText = actual + "g (" + Math.round(yieldOvr) + "g)"
+                                    var target = model.targetWeightG || 0
+                                    if (target > 0 && Math.abs(target - model.finalWeight) > 0.5) {
+                                        yieldText = actual + "g (" + Math.round(target) + "g)"
                                     }
                                     return dose + "g \u2192 " + yieldText
                                 }

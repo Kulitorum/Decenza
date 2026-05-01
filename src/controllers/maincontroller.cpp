@@ -499,11 +499,11 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             hasOverrides = true;
         }
 
-        if (shotRecord.yieldOverride > 0) {
-            m_settings->brew()->setBrewYieldOverride(shotRecord.yieldOverride);
+        if (shotRecord.targetWeight > 0) {
+            m_settings->brew()->setBrewYieldOverride(shotRecord.targetWeight);
             hasOverrides = true;
         } else if (shotRecord.summary.finalWeight > 0 && m_profileManager->currentProfile().targetWeight() <= 0) {
-            // Old shots from volume/timer-based profiles were saved with yieldOverride=0.
+            // Old shots from volume/timer-based profiles were saved with targetWeight=0.
             // Use the actual yield so the user gets a meaningful weight target.
             m_settings->brew()->setBrewYieldOverride(shotRecord.summary.finalWeight);
             hasOverrides = true;
@@ -514,7 +514,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
                  << "grinder:" << shotRecord.grinderModel << shotRecord.grinderSetting
                  << "beanPresetIndex:" << beanPresetIndex
                  << "brewOverrides - temp:" << (shotRecord.temperatureOverride > 0 ? QString::number(shotRecord.temperatureOverride) : "none")
-                 << "yield:" << (shotRecord.yieldOverride > 0 ? QString::number(shotRecord.yieldOverride)
+                 << "target:" << (shotRecord.targetWeight > 0 ? QString::number(shotRecord.targetWeight)
                     : (shotRecord.summary.finalWeight > 0 && m_profileManager->currentProfile().targetWeight() <= 0
                        ? QString::number(shotRecord.summary.finalWeight) + " (from actual)"
                        : "none"));
@@ -1690,7 +1690,7 @@ void MainController::onShotEnded() {
     // Capture brew overrides before clearing temperature (used later when saving shot)
     // These ALWAYS have values - either user override or profile default
     double shotTemperatureOverride = 0.0;
-    double shotYieldOverride = 0.0;
+    double shotTargetWeight = 0.0;
 
     if (m_settings) {
         // Temperature: user override OR profile's espresso temperature
@@ -1702,9 +1702,9 @@ void MainController::onShotEnded() {
 
         // Yield: user override OR profile's target weight (0 for volume-based profiles)
         if (m_settings->brew()->hasBrewYieldOverride()) {
-            shotYieldOverride = m_settings->brew()->brewYieldOverride();
+            shotTargetWeight = m_settings->brew()->brewYieldOverride();
         } else if (m_profileManager->currentProfile().targetWeight() > 0) {
-            shotYieldOverride = m_profileManager->currentProfile().targetWeight();
+            shotTargetWeight = m_profileManager->currentProfile().targetWeight();
         }
     }
 
@@ -1802,8 +1802,8 @@ void MainController::onShotEnded() {
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
-    if (shotYieldOverride <= 0 && finalWeight > 0) {
-        shotYieldOverride = finalWeight;
+    if (shotTargetWeight <= 0 && finalWeight > 0) {
+        shotTargetWeight = finalWeight;
     }
 
     // Capture once so both the async callback and synchronous code use the same value
@@ -1898,7 +1898,7 @@ void MainController::onShotEnded() {
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 duration, finalWeight, doseWeight,
                 metadata, debugLog,
-                shotTemperatureOverride, shotYieldOverride);
+                shotTemperatureOverride, shotTargetWeight);
         }
     } else {
         qWarning() << "[metadata] Could not save shot - history not ready!";
@@ -2119,7 +2119,7 @@ void MainController::generateFakeShotData() {
 
             // Use current profile's temperature and target weight as overrides
             double temperatureOverride = m_profileManager->currentProfile().espressoTemperature();
-            double yieldOverride = m_profileManager->currentProfile().targetWeight();
+            double targetWeight = m_profileManager->currentProfile().targetWeight();
 
             double pendingFinalWeight = m_pendingShotFinalWeight;
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, pendingFinalWeight](qint64 shotId) {
@@ -2148,7 +2148,7 @@ void MainController::generateFakeShotData() {
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 totalDuration, m_pendingShotFinalWeight, m_pendingShotDoseWeight,
                 metadata, "[Simulated shot]",
-                temperatureOverride, yieldOverride);
+                temperatureOverride, targetWeight);
         }
     }
 }

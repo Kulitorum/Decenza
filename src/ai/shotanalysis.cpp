@@ -541,6 +541,20 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         prevValid = true;
     }
 
+    // Record the gate inputs unconditionally so consumers can answer
+    // "why didn't this badge fire?" even on gate-fail paths. `gatePassed`
+    // tracks the flow-arm gate (the original 15s ≥ 4 bar gate) — that's
+    // the specific gate shot 745 was silenced by before #966 split the arms.
+    // The yield arm has a looser gate (flowSamples ≥ 5), diagnosable from
+    // the raw `flowSamples` field.
+    result.gateRan = true;
+    result.gateFlowSamples = flowSamples;
+    result.gatePressurizedDurationSec = pressurizedDuration;
+    result.gateMeanPressurizedFlowMlPerSec = flowSamples > 0 ? flowSum / flowSamples : 0.0;
+    result.gateYieldRatio = (targetWeightG > 0.0 && finalWeightG > 0.0)
+        ? finalWeightG / targetWeightG : 0.0;
+    result.gatePassed = flowSamples >= 5 && pressurizedDuration >= CHOKED_DURATION_MIN_SEC;
+
     // Two arms with split gates:
     //  - Flow arm needs sustained pressurized flow (≥ 15s ≥ 4 bar) to
     //    compute a meaningful mean-flow average.
@@ -552,12 +566,11 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     // even though the yield arm could have spoken. See openspec change
     // tighten-grind-yield-shortfall-arm and #963.
     if (flowSamples >= 5) {
-        const bool flowArmGatesPassed = (pressurizedDuration >= CHOKED_DURATION_MIN_SEC);
+        const bool flowArmGatesPassed = result.gatePassed;
 
         bool flowChoked = false;
         if (flowArmGatesPassed) {
-            const double meanFlow = flowSum / flowSamples;
-            flowChoked = meanFlow < CHOKED_FLOW_MAX_MLPS;
+            flowChoked = result.gateMeanPressurizedFlowMlPerSec < CHOKED_FLOW_MAX_MLPS;
         }
 
         // Yield-ratio arm: same diagnosis (grind too fine), milder severity.
@@ -923,6 +936,12 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     d.grindVerifiedClean = grind.verifiedClean;
     d.grindFlowDeltaMlPerSec = grind.delta;
     d.grindSampleCount = grind.sampleCount;
+    d.grindGateRan = grind.gateRan;
+    d.grindGatePassed = grind.gatePassed;
+    d.grindGateFlowSamples = grind.gateFlowSamples;
+    d.grindGatePressurizedDurationSec = grind.gatePressurizedDurationSec;
+    d.grindGateMeanPressurizedFlowMlPerSec = grind.gateMeanPressurizedFlowMlPerSec;
+    d.grindGateYieldRatio = grind.gateYieldRatio;
     // Coverage signal: distinguishes "verified clean" from "no usable data
     // on this profile shape" so the dialog can stop claiming "Puck held
     // well." on shots where the detector simply couldn't see anything.

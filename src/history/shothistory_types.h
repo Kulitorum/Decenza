@@ -79,15 +79,19 @@ struct ShotRecord {
 
     // Brew overrides. Populated at save time by MainController:
     //   - temperatureOverride: user override OR profile espresso_temperature
-    //   - yieldOverride: user brew-by-ratio override OR profile target_weight,
+    //   - targetWeight: user brew-by-ratio override OR profile target_weight,
     //     falling back to finalWeight for volume/timer profiles where neither
     //     is set (so the favorites system always has something to restore).
     // For shots imported from external formats (de1app, visualizer.coffee)
     // these fields may stay at 0 — importers don't populate them. Analysis
-    // code that relies on yieldOverride as the SAW target (e.g. the grind
+    // code that relies on targetWeight as the SAW target (e.g. the grind
     // detector's yield-ratio arm) treats 0 as "unknown" and disables itself.
+    //
+    // Persisted in the `shots.yield_override` DB column — the column name
+    // predates the rename. JSON projection emits this as `targetWeightG`
+    // (units-suffixed per MCP convention).
     double temperatureOverride = 0.0;
-    double yieldOverride = 0.0;
+    double targetWeight = 0.0;
 
     // Profile snapshot
     QString profileJson;
@@ -159,7 +163,7 @@ struct ShotFilter {
     double maxDose = -1;
     double minYield = -1;         // filters final_weight (actual pour)
     double maxYield = -1;
-    double yieldOverride = -1;    // filters yield_override (saved target) — exact match
+    double targetWeight = -1;    // filters yield_override (saved target) — exact match
     double minDuration = -1;
     double maxDuration = -1;
     double minTds = -1;
@@ -190,7 +194,7 @@ struct ShotSaveData {
     double finalWeight = 0;
     double doseWeight = 0;
     double temperatureOverride = 0;
-    double yieldOverride = 0;
+    double targetWeight = 0;
 
     // Metadata
     QString beanBrand;
