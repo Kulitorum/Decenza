@@ -47,6 +47,7 @@ void registerDeviceTools(McpToolRegistry*, BLEManager*, DE1Device*) {}
 void registerDebugTools(McpToolRegistry*, MemoryMonitor*) {}
 void registerMcpResources(McpResourceRegistry*, DE1Device*, MachineState*, ProfileManager*, ShotHistoryStorage*, MemoryMonitor*, Settings*) {}
 void registerAgentTools(McpToolRegistry*) {}
+void registerAITools(McpToolRegistry*, MainController*) {}
 
 class tst_McpServerProtocol : public QObject {
     Q_OBJECT

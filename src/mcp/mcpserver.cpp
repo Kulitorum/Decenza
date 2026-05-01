@@ -54,6 +54,7 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
 class MemoryMonitor;
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor);
 void registerAgentTools(McpToolRegistry* registry);
+void registerAITools(McpToolRegistry* registry, MainController* mainController);
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor,
@@ -160,6 +161,7 @@ void McpServer::registerAllTools()
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);
     registerAgentTools(m_toolRegistry);
+    registerAITools(m_toolRegistry, m_mainController);
     qDebug() << "McpServer: Registered"
              << m_toolRegistry->listTools(2, QStringLiteral("2025-11-25")).size() << "tools";
 }
