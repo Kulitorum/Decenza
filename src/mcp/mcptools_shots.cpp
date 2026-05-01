@@ -56,6 +56,47 @@ static void stripDetectorInternals(QJsonObject& obj)
     obj["detectorResults"] = detectorResults;
 }
 
+// Wrap inline scalar detector outputs (pourTruncated/pourStart/pourEnd/
+// peakPressureBar, skipFirstFrame, verdictCategory) into envelope objects
+// so detectorResults has one consistent shape the AI can iterate over.
+// Without this, "did detector X run / what's its verdict" is sometimes
+// detectorResults.X.checked|direction|unstable and sometimes a flat
+// top-level scalar — inconsistency the LLM has to special-case per field.
+// QML reads ShotProjection directly (not this JSON), so callers there are
+// unaffected.
+static void reshapeDetectorEnvelopes(QJsonObject& obj)
+{
+    if (!obj.contains("detectorResults"))
+        return;
+    QJsonObject d = obj.value("detectorResults").toObject();
+
+    QJsonObject pour;
+    pour["truncated"] = d.value("pourTruncated").toBool();
+    pour["startSec"] = d.value("pourStartSec").toDouble();
+    pour["endSec"] = d.value("pourEndSec").toDouble();
+    // peakPressureBar is only emitted when pourTruncated; surface null
+    // otherwise so the envelope shape stays uniform across shots.
+    pour["peakPressureBar"] = d.contains("peakPressureBar")
+        ? d.value("peakPressureBar")
+        : QJsonValue(QJsonValue::Null);
+    d["pour"] = pour;
+    d.remove(QStringLiteral("pourTruncated"));
+    d.remove(QStringLiteral("pourStartSec"));
+    d.remove(QStringLiteral("pourEndSec"));
+    d.remove(QStringLiteral("peakPressureBar"));
+
+    QJsonObject skip;
+    skip["detected"] = d.value("skipFirstFrame").toBool();
+    d["skipFirstFrame"] = skip;
+
+    QJsonObject verdict;
+    verdict["category"] = d.value("verdictCategory").toString();
+    d["verdict"] = verdict;
+    d.remove(QStringLiteral("verdictCategory"));
+
+    obj["detectorResults"] = d;
+}
+
 // Resolve the detail argument. Default "summary" — drops time-series, debugLog,
 // profileJson. "full" — return the complete projection. Unknown values fall
 // back to summary so the LLM gets a usable response rather than the 200K-char
@@ -297,9 +338,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
     registry->registerAsyncTool(
         "shots_get_detail",
         "Get a shot record. Default detail='summary' returns scalars, phase summaries, "
-        "summary lines, detector results, and ratings (~3K chars). Pass detail='full' to "
-        "include time-series curves (pressure, flow, temperature, weight), debug log, "
-        "and embedded profile JSON (~85K chars — only useful for curve-aware analysis).",
+        "summary lines, detector results (every detector wrapped in its own envelope object: "
+        "grind / channeling / flowTrend / tempStability / preinfusion / pour / skipFirstFrame / "
+        "verdict), and ratings (~3K chars). Pass detail='full' to include time-series curves "
+        "(pressure, flow, temperature, weight), debug log, and embedded profile JSON (~85K chars "
+        "— only useful for curve-aware analysis).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -338,6 +381,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         if (!fullDetail)
                             stripTimeSeriesFields(result);
                         stripDetectorInternals(result);
+                        reshapeDetectorEnvelopes(result);
                         nullifyUnratedFields(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
@@ -419,6 +463,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             if (!fullDetail)
                                 stripTimeSeriesFields(shotJson);
                             stripDetectorInternals(shotJson);
+                            reshapeDetectorEnvelopes(shotJson);
                             nullifyUnratedFields(shotJson);
                             shots.append(shotJson);
                             projections.append(std::move(shot));
