@@ -193,6 +193,16 @@ public:
     QJsonObject buildUserPromptObject(const ShotSummary& summary,
                                       RenderMode mode = RenderMode::Standalone) const;
 
+    // Return ONLY the prose body (`## Shot Summary` + `## Phase Data` +
+    // `## Detector Observations`) — no JSON envelope. Used by
+    // `dialing_get_context` to populate `result.shotAnalysis` without
+    // double-shipping `currentBean` / `profile` / `tastingFeedback`
+    // (which already live at the top level of the response). Also the
+    // single source for the prose content the in-app advisor's user-
+    // prompt envelope carries under its `shotAnalysis` key — so the two
+    // surfaces produce byte-identical prose by construction.
+    QString buildShotAnalysisProse(const ShotSummary& summary) const;
+
     // Format recent shot history as AI context (lightweight, no curve data)
     static QString buildHistoryContext(const QVariantList& recentShots);
 
