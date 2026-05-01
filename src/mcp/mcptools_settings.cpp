@@ -66,7 +66,26 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // (#986). Typos and outdated category names ("preferences" was
             // removed in phase 16) are the worst kind of failure mode for
             // an LLM agent — indistinguishable from "the value is empty."
-            QSet<QString> knownCategories;
+            //
+            // Pre-seed with the full static category list. The include()
+            // helper also inserts as it iterates, but several categories
+            // ("screensaver", "accessibility", "battery", "language") only
+            // get an include() call from inside null-guarded service blocks
+            // — if the matching service is null at registration time, those
+            // categories would otherwise be falsely reported as unknown.
+            QSet<QString> knownCategories = {
+                QStringLiteral("machine"), QStringLiteral("calibration"),
+                QStringLiteral("connections"), QStringLiteral("screensaver"),
+                QStringLiteral("accessibility"), QStringLiteral("ai"),
+                QStringLiteral("espresso"), QStringLiteral("steam"),
+                QStringLiteral("water"), QStringLiteral("flush"),
+                QStringLiteral("dye"), QStringLiteral("mqtt"),
+                QStringLiteral("themes"), QStringLiteral("visualizer"),
+                QStringLiteral("update"), QStringLiteral("data"),
+                QStringLiteral("history"), QStringLiteral("language"),
+                QStringLiteral("debug"), QStringLiteral("battery"),
+                QStringLiteral("heater"), QStringLiteral("autofavorites")
+            };
             QSet<QString> matchedKeys;
 
             // If keys are specified, return those regardless of category.
