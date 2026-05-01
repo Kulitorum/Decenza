@@ -628,9 +628,9 @@ QString ShotServer::generateRestorePage() const
             overflow: hidden;
         }
         .progress-fill {
-            height: 100%%;
+            height: 100%;
             background: var(--accent);
-            width: 0%%;
+            width: 0%;
             transition: width 0.3s;
         }
         .status-message {

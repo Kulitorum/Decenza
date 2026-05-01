@@ -17,7 +17,7 @@ inline constexpr const char* WEB_CSS_MENU = R"CSS(
         .menu-btn:hover { color: var(--accent); }
         .menu-dropdown {
             position: absolute;
-            top: 100%%;
+            top: 100%;
             right: 0;
             margin-top: 0.5rem;
             background: var(--surface);
