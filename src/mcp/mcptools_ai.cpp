@@ -5,9 +5,7 @@
 #include "../ai/shotsummarizer.h"
 #include "../ai/aiprovider.h"
 #include "../controllers/maincontroller.h"
-#include "../controllers/profilemanager.h"
 #include "../core/dbutils.h"
-#include "../core/settings.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
 #include "../profile/profile.h"
@@ -111,10 +109,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             // thread, then hop back to the main thread for AIManager
             // access (AIManager owns providers + ShotSummarizer and is
             // not thread-safe).
-            QPointer<MainController> mcPtr(mainController);
             QThread* thread = QThread::create(
                 [dbPath, shotId, dryRun, userPromptOverride, systemPromptOverride,
-                 aiPtr, mcPtr, respond]() {
+                 aiPtr, respond]() {
                 ShotProjection shot;
                 qint64 resolvedShotId = shotId;
                 QJsonArray dialInSessions;
@@ -156,7 +153,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 });
 
                 QMetaObject::invokeMethod(qApp,
-                    [aiPtr, mcPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
+                    [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
                      resolvedShotId, dialInSessions, bestRecentShot, grinderContext,
                      respond]() {
                     if (!aiPtr) {
@@ -208,20 +205,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});
                             return;
                         }
-                        if (!dialInSessions.isEmpty())
-                            userPromptObj["dialInSessions"] = dialInSessions;
-                        if (!bestRecentShot.isEmpty())
-                            userPromptObj["bestRecentShot"] = bestRecentShot;
-                        if (!grinderContext.isEmpty())
-                            userPromptObj["grinderContext"] = grinderContext;
-
-                        Settings* settings = mcPtr ? mcPtr->settings() : nullptr;
-                        ProfileManager* pm = mcPtr ? mcPtr->profileManager() : nullptr;
-                        const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
-                            settings, pm, shot);
-                        if (!sawPrediction.isEmpty())
-                            userPromptObj["sawPrediction"] = sawPrediction;
-
+                        ai->enrichUserPromptObject(userPromptObj, shot,
+                            dialInSessions, bestRecentShot, grinderContext);
                         userPrompt = QString::fromUtf8(
                             QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                     }

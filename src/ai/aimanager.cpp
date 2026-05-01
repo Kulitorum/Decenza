@@ -306,19 +306,11 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                 // Merge the DB-derived blocks plus the main-thread SAW
                 // block into the user prompt envelope. Empty blocks are
                 // suppressed (no key, no null placeholder) to match
-                // dialing_get_context's omission contract exactly.
-                if (!dialInSessions.isEmpty())
-                    userPromptObj["dialInSessions"] = dialInSessions;
-                if (!bestRecentShot.isEmpty())
-                    userPromptObj["bestRecentShot"] = bestRecentShot;
-                if (!grinderContext.isEmpty())
-                    userPromptObj["grinderContext"] = grinderContext;
-                if (resolvedShot.isValid()) {
-                    const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
-                        self->m_settings, self->m_profileManager, resolvedShot);
-                    if (!sawPrediction.isEmpty())
-                        userPromptObj["sawPrediction"] = sawPrediction;
-                }
+                // dialing_get_context's omission contract exactly. Single
+                // source for the merge step — `ai_advisor_invoke` calls
+                // the same primitive so the two surfaces cannot drift.
+                self->enrichUserPromptObject(userPromptObj, resolvedShot,
+                    dialInSessions, bestRecentShot, grinderContext);
 
                 QString finalUserPrompt = QString::fromUtf8(
                     QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
@@ -421,6 +413,26 @@ QJsonObject AIManager::buildUserPromptObjectForShot(const ShotProjection& shotDa
 {
     ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
     return m_summarizer->buildUserPromptObject(summary);
+}
+
+void AIManager::enrichUserPromptObject(QJsonObject& payload,
+                                       const ShotProjection& shotData,
+                                       const QJsonArray& dialInSessions,
+                                       const QJsonObject& bestRecentShot,
+                                       const QJsonObject& grinderContext) const
+{
+    if (!dialInSessions.isEmpty())
+        payload["dialInSessions"] = dialInSessions;
+    if (!bestRecentShot.isEmpty())
+        payload["bestRecentShot"] = bestRecentShot;
+    if (!grinderContext.isEmpty())
+        payload["grinderContext"] = grinderContext;
+    if (shotData.isValid()) {
+        const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
+            m_settings, m_profileManager, shotData);
+        if (!sawPrediction.isEmpty())
+            payload["sawPrediction"] = sawPrediction;
+    }
 }
 
 void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)

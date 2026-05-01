@@ -434,6 +434,115 @@ private slots:
     }
 
     // ---------------------------------------------------------------------
+    // enrichUserPromptObject — single-source merge step shared by the in-app
+    // advisor and ai_advisor_invoke. Pins that the four blocks land at the
+    // right keys, that empty blocks are suppressed (no nulls), and that the
+    // merged envelope is byte-stable across calls.
+    // ---------------------------------------------------------------------
+    void enrichUserPromptObject_mergesAllFourBlocks()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        // Synthetic blocks — the merge step is what's under test, not the
+        // bg-thread DB builders. SAW is omitted by the helper (no flow data
+        // on this minimal shot), which is the correct behavior.
+        const QJsonArray dialInSessions{
+            QJsonObject{{"sessionStart", "2026-04-29T09:29:19-06:00"},
+                        {"shotCount", 1}}};
+        const QJsonObject bestRecentShot{{"id", 42}, {"enjoyment0to100", 85}};
+        const QJsonObject grinderContext{{"model", "Zero"}, {"smallestStep", 0.25}};
+
+        mgr.enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext);
+
+        QVERIFY(payload.contains(QStringLiteral("dialInSessions")));
+        QVERIFY(payload.contains(QStringLiteral("bestRecentShot")));
+        QVERIFY(payload.contains(QStringLiteral("grinderContext")));
+        // SAW correctly suppressed — no flow data on a synthetic ShotProjection.
+        QVERIFY2(!payload.contains(QStringLiteral("sawPrediction")),
+                 "SAW must be suppressed when ShotProjection has no usable flow data");
+
+        // Original four-key envelope still intact under the new keys.
+        QVERIFY(payload.contains(QStringLiteral("currentBean")));
+        QVERIFY(payload.contains(QStringLiteral("profile")));
+        QVERIFY(payload.contains(QStringLiteral("tastingFeedback")));
+        QVERIFY(payload.contains(QStringLiteral("shotAnalysis")));
+    }
+
+    void enrichUserPromptObject_suppressesEmptyBlocks()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        // All blocks empty — none of the four enrichment keys should appear,
+        // and crucially no `null` placeholders. dialing_get_context's omission
+        // contract requires absent key, not `null`.
+        mgr.enrichUserPromptObject(payload, shot,
+            QJsonArray{}, QJsonObject{}, QJsonObject{});
+
+        QVERIFY2(!payload.contains(QStringLiteral("dialInSessions")),
+                 "empty dialInSessions must not be added as a key");
+        QVERIFY2(!payload.contains(QStringLiteral("bestRecentShot")),
+                 "empty bestRecentShot must not be added as a key");
+        QVERIFY2(!payload.contains(QStringLiteral("grinderContext")),
+                 "empty grinderContext must not be added as a key");
+        QVERIFY2(!payload.contains(QStringLiteral("sawPrediction")),
+                 "empty sawPrediction must not be added as a key");
+
+        // Serialized output also free of the keys (no `null`-shaped JSON).
+        const QString json = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        QVERIFY(!json.contains(QStringLiteral("dialInSessions")));
+        QVERIFY(!json.contains(QStringLiteral("bestRecentShot")));
+        QVERIFY(!json.contains(QStringLiteral("grinderContext")));
+        QVERIFY(!json.contains(QStringLiteral("sawPrediction")));
+    }
+
+    void enrichUserPromptObject_byteStableAcrossCalls()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(42, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        const QJsonArray dialInSessions{QJsonObject{{"shotCount", 2}}};
+        const QJsonObject bestRecentShot{{"id", 7}};
+        const QJsonObject grinderContext{{"model", "Zero"}};
+
+        QJsonObject a = mgr.buildUserPromptObjectForShot(shot);
+        mgr.enrichUserPromptObject(a, shot, dialInSessions, bestRecentShot, grinderContext);
+
+        QJsonObject b = mgr.buildUserPromptObjectForShot(shot);
+        mgr.enrichUserPromptObject(b, shot, dialInSessions, bestRecentShot, grinderContext);
+
+        const QString jsonA = QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Indented));
+        const QString jsonB = QString::fromUtf8(QJsonDocument(b).toJson(QJsonDocument::Indented));
+        QCOMPARE(jsonA, jsonB);
+    }
+
+    // ---------------------------------------------------------------------
     // McpDialingBlocks gating — preconditions that short-circuit before
     // touching the DB / Settings / ProfileManager. These cases ship the
     // omission contract (empty QJsonObject so callers suppress the key)

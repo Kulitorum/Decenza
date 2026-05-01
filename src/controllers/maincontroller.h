@@ -76,7 +76,6 @@ public:
 
     // ProfileManager accessor
     ProfileManager* profileManager() const { return m_profileManager; }
-    Settings* settings() const { return m_settings; }
 
     // Non-profile accessors
     double filteredGoalPressure() const { return m_filteredGoalPressure; }

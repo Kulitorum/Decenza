@@ -128,6 +128,22 @@ public:
     // serializing. Returns an empty object when summarization fails.
     QJsonObject buildUserPromptObjectForShot(const ShotProjection& shotData);
 
+    // Merge the four dialing-context blocks into a user-prompt envelope.
+    // Both the in-app advisor and `ai_advisor_invoke` call this on the
+    // main-thread continuation of their bg-thread DB closures, after they
+    // produce `dialInSessions` / `bestRecentShot` / `grinderContext` from
+    // their own DB connections. The SAW block is built here (it touches
+    // `Settings::calibration()` and `ProfileManager`, both main-thread
+    // only). Empty blocks are suppressed — no key, no null placeholder.
+    //
+    // Single source of truth for the merge step, so the in-app and MCP
+    // surfaces cannot drift on which blocks land where.
+    void enrichUserPromptObject(QJsonObject& payload,
+                                const ShotProjection& shotData,
+                                const QJsonArray& dialInSessions,
+                                const QJsonObject& bestRecentShot,
+                                const QJsonObject& grinderContext) const;
+
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);
     // ProfileManager hookup for the SAW prediction block (needs

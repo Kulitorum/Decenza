@@ -97,9 +97,7 @@ The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, 
 
 ### How the In-App Advisor Enriches the User Prompt
 
-`AIManager::analyzeShotWithMetadata` builds the user prompt as a `QJsonObject` via `ShotSummarizer::buildUserPromptObject(summary)`, then a background thread loads the resolved `ShotProjection` and calls the three DB-backed block builders (`buildDialInSessionsBlock`, `buildBestRecentShotBlock`, `buildGrinderContextBlock`). On the main-thread continuation, `buildSawPredictionBlock(m_settings, m_profileManager, resolvedShot)` produces the SAW block (it touches `Settings::calibration()` and `ProfileManager::baseProfileName()`, both main-thread only). The four blocks are merged into the envelope and serialized; the existing prose history block (`ShotSummarizer::buildHistoryContext`) is appended below the JSON.
-
-The MCP `ai_advisor_invoke` tool follows the same pattern in `mcptools_ai.cpp`, calling `AIManager::buildUserPromptObjectForShot(shot)` for the envelope and the same `McpDialingBlocks::*` helpers for enrichment. Byte-equivalence between the two surfaces is by construction.
+`AIManager::analyzeShotWithMetadata` builds the user prompt as a `QJsonObject` via `ShotSummarizer::buildUserPromptObject(summary)`, then a background thread loads the resolved `ShotProjection` and calls the three DB-backed block builders (`buildDialInSessionsBlock`, `buildBestRecentShotBlock`, `buildGrinderContextBlock`). On the main-thread continuation, both surfaces call `AIManager::enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext)`. That single primitive owns the merge step + builds the SAW block from `m_settings` and `m_profileManager` (both main-thread only) — so the in-app advisor and MCP `ai_advisor_invoke` cannot drift on which blocks land or how. Empty blocks are suppressed (no key, no `null` placeholder). After serialization, the prose history block (`ShotSummarizer::buildHistoryContext`) is appended below the JSON envelope.
 
 ---
 
