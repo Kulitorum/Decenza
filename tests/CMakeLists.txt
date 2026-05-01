@@ -202,21 +202,28 @@ add_decenza_test(tst_shotsummarizer
 target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Charts)
 target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
 
-# --- shot_corpus_regression: run shot_eval --validate against the curated
-# corpus under tests/data/shots/. Ensures future ShotAnalysis changes don't
-# silently flip any of the golden verdicts (e.g., re-introduce a lever-ramp
-# false positive, or stop catching shot-868-style puck failures).
+# --- tst_shotcorpus: Qt Test wrapper around shot_eval --validate.
+# Runs the curated corpus under tests/data/shots/ as part of the regular
+# Qt Test suite so Qt Creator's Tests panel picks it up alongside the
+# other tst_* binaries. Without this wrapper, a bare add_test(NAME ...
+# COMMAND ...) entry only surfaces in CTest, not in Qt Creator's Tests
+# UI (which auto-discovers Q_OBJECT-derived test binaries). Mac
+# developers running "Run all tests" in Qt Creator would otherwise miss
+# this corpus check.
 #
 # The shot_eval target lives in the root CMakeLists.txt developer-tools
-# block, which runs AFTER add_subdirectory(tests) — so TARGET shot_eval is
-# not defined here yet. Use the same desktop-only gate that declares it.
+# block, which runs AFTER add_subdirectory(tests) — so TARGET shot_eval
+# is not defined here yet. Use the same desktop-only gate that declares
+# it, and pull the path through generator expressions at link time.
 if(NOT ANDROID AND NOT IOS)
-    # Use $<TARGET_FILE:...> so CTest gets the absolute path explicitly,
-    # regardless of the working directory or generator.
-    add_test(NAME shot_corpus_regression
-        COMMAND $<TARGET_FILE:shot_eval> --validate
-            ${CMAKE_CURRENT_SOURCE_DIR}/data/shots/manifest.json
+    add_executable(tst_shotcorpus tst_shotcorpus.cpp)
+    target_link_libraries(tst_shotcorpus PRIVATE Qt6::Test Qt6::Core)
+    target_compile_definitions(tst_shotcorpus PRIVATE
+        TST_SHOTCORPUS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        TST_SHOTCORPUS_SHOT_EVAL="$<TARGET_FILE:shot_eval>"
     )
+    add_dependencies(tst_shotcorpus shot_eval)
+    add_test(NAME tst_shotcorpus COMMAND tst_shotcorpus)
 endif()
 
 # --- tst_shotsettings: ShotSettings BLE wire format ---
