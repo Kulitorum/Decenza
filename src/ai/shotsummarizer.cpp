@@ -476,11 +476,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     if (!shotData.summaryLines.isEmpty()) {
         summary.summaryLines = shotData.summaryLines;
         summary.pourTruncatedDetected = shotData.detectorResults.value("pourTruncated").toBool();
-        // detectorResults["tempStability"] is the standardized envelope shape
-        // (see shothistorystorage_serialize.cpp): { checked, intentionalStepping,
-        // avgDeviationC, unstable }. .toMap() on a missing key returns an empty
-        // map, .value("intentionalStepping").toBool() then defaults to false —
-        // the same null-safe pattern as the pourTruncated read above.
+        // .toMap() on a missing tempStability key returns an empty map and
+        // .toBool() then defaults to false — a row without the envelope
+        // reads as !intentionalStepping (correct fallback).
         summary.tempIntentionalStepping = shotData.detectorResults
             .value("tempStability").toMap()
             .value("intentionalStepping").toBool();
@@ -704,13 +702,8 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         }
         // Suppress per-phase temp instability when the puck never built \u2014
         // temp drift on a failed pour is a downstream symptom, not signal.
-        // Also suppress when the profile is intentionally stepping the
-        // temperature goal across the shot: per-phase deviation is by design
-        // and the global detector (and detectorResults envelope) already
-        // treats the shot as stable for the same reason. Without this gate
-        // the structured envelope and the prose disagree on stepping
-        // profiles, contradicting the system prompt's own "DO NOT flag low
-        // temperature on a stepping profile" guidance.
+        // Also suppress on intentionally-stepping profiles: per-phase
+        // deviation against a stepped goal is by design, not instability.
         if (phase.temperatureUnstable
             && !summary.pourTruncatedDetected
             && !summary.tempIntentionalStepping)
