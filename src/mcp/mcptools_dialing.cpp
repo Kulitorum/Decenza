@@ -225,40 +225,24 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;
 
-                    // --- Bean/grinder metadata (current DYE settings) ---
-                    // DYE wins per-field; for grinder + dose, fall back to
-                    // the resolved shot's value when DYE is blank so the AI
-                    // doesn't lose its highest-leverage signal (burr
-                    // geometry, grinder brand, current setting) when the
-                    // user hasn't filled out DYE recently. Bean fields
-                    // (brand/type/roastLevel) and roastDate are *not*
-                    // inferred — beans rotate per hopper and roastDate
-                    // lives only inside `beanFreshness` to keep the
-                    // freshness surface in one place. Merge logic lives in
-                    // McpDialingHelpers::buildCurrentBean (pure,
-                    // unit-tested).
-                    if (settings) {
-                        McpDialingHelpers::CurrentBeanInputs in;
-                        in.dyeBeanBrand = settings->dye()->dyeBeanBrand();
-                        in.dyeBeanType = settings->dye()->dyeBeanType();
-                        in.dyeRoastLevel = settings->dye()->dyeRoastLevel();
-                        in.dyeGrinderBrand = settings->dye()->dyeGrinderBrand();
-                        in.dyeGrinderModel = settings->dye()->dyeGrinderModel();
-                        in.dyeGrinderBurrs = settings->dye()->dyeGrinderBurrs();
-                        in.dyeGrinderSetting = settings->dye()->dyeGrinderSetting();
-                        in.dyeDoseWeightG = settings->dye()->dyeBeanWeight();
-                        in.fallbackGrinderBrand = sd.grinderBrand;
-                        in.fallbackGrinderModel = sd.grinderModel;
-                        in.fallbackGrinderBurrs = sd.grinderBurrs;
-                        in.fallbackGrinderSetting = sd.grinderSetting;
-                        in.fallbackDoseWeightG = sd.doseWeightG;
-                        in.fallbackShotId = resolvedShotId;
-                        QJsonObject bean = McpDialingHelpers::buildCurrentBean(in);
-                        const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(
-                            settings->dye()->dyeRoastDate());
-                        if (!freshness.isEmpty())
-                            bean["beanFreshness"] = freshness;
-                        result["currentBean"] = bean;
+                    // --- Bean/grinder metadata (resolved shot's setup) ---
+                    // currentBean describes the setup that produced the
+                    // resolved shot, not live DYE. Both this surface and
+                    // the in-app advisor's user prompt build through the
+                    // same helper so a single system-prompt reading lands
+                    // on byte-equivalent JSON.
+                    {
+                        McpDialingBlocks::CurrentBeanBlockInputs in;
+                        in.beanBrand = sd.beanBrand;
+                        in.beanType = sd.beanType;
+                        in.roastLevel = sd.roastLevel;
+                        in.roastDate = sd.roastDate;
+                        in.grinderBrand = sd.grinderBrand;
+                        in.grinderModel = sd.grinderModel;
+                        in.grinderBurrs = sd.grinderBurrs;
+                        in.grinderSetting = sd.grinderSetting;
+                        in.doseWeightG = sd.doseWeightG;
+                        result["currentBean"] = McpDialingBlocks::buildCurrentBeanBlock(in);
                     }
 
                     // --- Profile (single canonical block) ---

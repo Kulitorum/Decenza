@@ -6,6 +6,7 @@
 #include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
 #include "../core/grinderaliases.h"
 #include "../mcp/mcptools_dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
+#include "../mcp/mcptools_dialing_blocks.h"   // shared buildCurrentBeanBlock — single source of truth for currentBean
 
 #include <cmath>
 #include <algorithm>
@@ -545,31 +546,20 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
 
 static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
 {
-    QJsonObject bean;
-    bean["brand"] = summary.beanBrand;
-    bean["type"] = summary.beanType;
-    bean["roastLevel"] = summary.roastLevel;
-    bean["grinderBrand"] = summary.grinderBrand;
-    bean["grinderModel"] = summary.grinderModel;
-    bean["grinderBurrs"] = summary.grinderBurrs;
-    bean["grinderSetting"] = summary.grinderSetting;
-    bean["doseWeightG"] = summary.doseWeight;
-
-    const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(summary.roastDate);
-    if (!freshness.isEmpty())
-        bean["beanFreshness"] = freshness;
-
-    if (!summary.inferredFields.isEmpty() && summary.inferredFromShotId > 0) {
-        QJsonArray inferred;
-        for (const QString& f : summary.inferredFields) inferred.append(f);
-        bean["inferredFields"] = inferred;
-        bean["inferredFromShotId"] = summary.inferredFromShotId;
-        bean["inferredNote"] = QStringLiteral(
-            "Listed fields are inferred from the resolved shot (id "
-            "above), not entered by the user. Confirm before recommending "
-            "a change.");
-    }
-    return bean;
+    // Delegates to the shared helper so this surface and
+    // `dialing_get_context.currentBean` produce byte-equivalent JSON for
+    // the same resolved shot.
+    McpDialingBlocks::CurrentBeanBlockInputs in;
+    in.beanBrand = summary.beanBrand;
+    in.beanType = summary.beanType;
+    in.roastLevel = summary.roastLevel;
+    in.roastDate = summary.roastDate;
+    in.grinderBrand = summary.grinderBrand;
+    in.grinderModel = summary.grinderModel;
+    in.grinderBurrs = summary.grinderBurrs;
+    in.grinderSetting = summary.grinderSetting;
+    in.doseWeightG = summary.doseWeight;
+    return McpDialingBlocks::buildCurrentBeanBlock(in);
 }
 
 static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
@@ -1000,12 +990,19 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "extraction, peaks, phase data, detector observations) — it never\n"
         "carries `Profile:`, `Profile intent:`, or `## Profile Recipe`.\n\n"
         "**`currentBean`** + **`dialInSessions[].context`**: shot-INVARIANT\n"
-        "identity. `currentBean.brand` / `.type` / `.roastLevel` carry bean\n"
-        "identity; `currentBean.grinderBrand` / `.grinderModel` / `.grinderBurrs`\n"
-        "carry grinder identity for the live setup. The `shotAnalysis` prose\n"
-        "carries neither — it never carries a `Coffee:` / `Beans:` line nor a\n"
-        "`Grinder:` line with brand/model/burrs. Only the per-shot variable\n"
-        "`Grind setting:` appears in prose.\n\n"
+        "identity for the resolved shot. `currentBean.brand` / `.type` /\n"
+        "`.roastLevel` carry bean identity; `currentBean.grinderBrand` /\n"
+        "`.grinderModel` / `.grinderBurrs` carry grinder identity. Every field\n"
+        "in `currentBean` describes THE SETUP THAT PRODUCED THE RESOLVED SHOT —\n"
+        "not whatever the user has loaded on the machine right now. An empty\n"
+        "string for any of these fields means the shot did NOT record that field\n"
+        "(common on legacy shots saved before the field was tracked); it does\n"
+        "NOT mean the user has no grinder / bean / etc. Ask the user before\n"
+        "recommending a change to any field that came back blank. The\n"
+        "`shotAnalysis` prose carries neither bean nor grinder identity — it\n"
+        "never carries a `Coffee:` / `Beans:` line nor a `Grinder:` line with\n"
+        "brand/model/burrs. Only the per-shot variable `Grind setting:`\n"
+        "appears in prose.\n\n"
         "**`tastingFeedback`**: carries booleans `hasEnjoymentScore`, `hasNotes`,\n"
         "`hasRefractometer`. When ALL three are false, ASK the user how the shot\n"
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
@@ -1018,10 +1015,6 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "calendar days from `roastDate` are not freshness without storage context.\n"
         "ASK the user about storage before applying any bean-aging guidance from\n"
         "the dial-in reference tables.\n\n"
-        "**`currentBean.inferredFields`**: when present, lists field names that\n"
-        "were inferred from the most recent shot (because the user's DYE settings\n"
-        "were blank), not entered by the user. Confirm with the user before\n"
-        "recommending a change to any inferred field.\n\n"
         "**`dialInSessions[].context`**: hoists shot-identity fields shared across\n"
         "an iteration session (`grinderBrand`, `grinderModel`, `grinderBurrs`,\n"
         "`beanBrand`, `beanType`). When a per-shot entry under `shots[]` omits\n"

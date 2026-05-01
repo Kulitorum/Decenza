@@ -1083,9 +1083,17 @@ private slots:
                  "system prompt must reference the freshnessKnown gate");
         QVERIFY2(prompt.contains(QStringLiteral("freeze")),
                  "system prompt must mention freezing as the storage variable that breaks calendar age");
-        // inferredFields gating
-        QVERIFY2(prompt.contains(QStringLiteral("inferredFields")),
-                 "system prompt must teach inferredFields gating");
+        // currentBean is sourced solely from the resolved shot, so no
+        // fields are "inferred" — the system prompt SHALL NOT carry an
+        // inferredFields clause.
+        QVERIFY2(!prompt.contains(QStringLiteral("inferredFields")),
+                 "system prompt must NOT teach a removed inferredFields field");
+        // Empty-string semantics: an empty currentBean field means the
+        // shot did not record it, not that the user has no grinder/bean.
+        // The prompt MUST teach this so the LLM doesn't read a blank as a
+        // negation. Match on a stable phrase from the prompt body.
+        QVERIFY2(prompt.contains(QStringLiteral("did NOT record")),
+                 "system prompt must teach empty-string semantics for currentBean fields");
     }
 
     // Openspec optimize-dialing-context-payload, tasks 8 + 9: the prose

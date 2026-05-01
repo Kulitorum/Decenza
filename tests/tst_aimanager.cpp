@@ -29,6 +29,7 @@
 
 #include "ai/aimanager.h"
 #include "core/settings.h"
+#include "core/settings_dye.h"
 #include "history/shotprojection.h"
 #include "history/shothistory_types.h"
 #include "mcp/mcptools_dialing_blocks.h"
@@ -431,6 +432,99 @@ private slots:
         const QString b = QString::fromUtf8(
             QJsonDocument(mgr.buildUserPromptObjectForShot(shot)).toJson(QJsonDocument::Indented));
         QCOMPARE(a, b);
+    }
+
+    // ---------------------------------------------------------------------
+    // Both surfaces produce byte-equivalent `currentBean` JSON for the
+    // same resolved shot. The MCP path
+    // (`dialing_get_context.currentBean`) and the in-app advisor's
+    // user-prompt path
+    // (`AIManager::buildUserPromptObjectForShot(...)["currentBean"]`)
+    // build through the shared
+    // `McpDialingBlocks::buildCurrentBeanBlock`, sourced solely from the
+    // resolved shot. Pinned end-to-end so future drift between the two
+    // builders fails the test rather than confusing the LLM with two
+    // disagreeing views of the same shot.
+    // ---------------------------------------------------------------------
+    void currentBean_equivalenceAcrossSurfaces()
+    {
+        QNetworkAccessManager nam;
+        // Live DYE state is deliberately divergent from the shot's saved
+        // metadata to model the case where the user changed DYE between
+        // pulling the shot and asking the AI about it. currentBean must
+        // NOT pick up the live DYE values on either surface — the shot is
+        // the source of truth.
+        Settings settings;
+        settings.dye()->setDyeBeanBrand(QStringLiteral("Live DYE Brand"));
+        settings.dye()->setDyeBeanType(QStringLiteral("Live DYE Type"));
+        settings.dye()->setDyeRoastLevel(QStringLiteral("Light"));
+        settings.dye()->setDyeGrinderBrand(QStringLiteral("Live DYE Grinder"));
+        settings.dye()->setDyeGrinderModel(QStringLiteral("Live DYE Model"));
+        settings.dye()->setDyeGrinderBurrs(QStringLiteral("Live DYE Burrs"));
+        settings.dye()->setDyeGrinderSetting(QStringLiteral("99"));
+        settings.dye()->setDyeBeanWeight(99.0);
+        settings.dye()->setDyeRoastDate(QStringLiteral("2025-01-01"));
+
+        AIManager mgr(&nam, &settings);
+
+        // Shot has its own bean / grinder / dose / roastDate that
+        // currentBean must echo on every surface.
+        ShotProjection shot = makeShot(884, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.5"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour 2026 #2"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+        shot.doseWeightG = 20.0;
+        shot.roastLevel = QStringLiteral("Dark");
+        shot.roastDate = QStringLiteral("2026-03-30");
+
+        // In-app advisor surface: through ShotSummarizer::buildUserPromptObject
+        // off summarizeFromHistory(shot).
+        const QJsonObject inAppEnvelope = mgr.buildUserPromptObjectForShot(shot);
+        QVERIFY(inAppEnvelope.contains(QStringLiteral("currentBean")));
+        const QJsonObject inAppCurrentBean = inAppEnvelope.value(QStringLiteral("currentBean")).toObject();
+
+        // MCP surface: the same shared helper that mcptools_dialing.cpp
+        // calls on the resolved shot (mirrors the
+        // `mcptools_dialing.cpp:200`-block exactly — same field-by-field
+        // mapping from `sd` (the resolved shot) into
+        // `CurrentBeanBlockInputs`).
+        McpDialingBlocks::CurrentBeanBlockInputs in;
+        in.beanBrand = shot.beanBrand;
+        in.beanType = shot.beanType;
+        in.roastLevel = shot.roastLevel;
+        in.roastDate = shot.roastDate;
+        in.grinderBrand = shot.grinderBrand;
+        in.grinderModel = shot.grinderModel;
+        in.grinderBurrs = shot.grinderBurrs;
+        in.grinderSetting = shot.grinderSetting;
+        in.doseWeightG = shot.doseWeightG;
+        const QJsonObject mcpCurrentBean = McpDialingBlocks::buildCurrentBeanBlock(in);
+
+        // The contract: byte-equivalent JSON for the same shot.
+        QCOMPARE(inAppCurrentBean, mcpCurrentBean);
+
+        // Spot-check the shot values won the source-of-truth contest
+        // against the live DYE values, on both surfaces.
+        QCOMPARE(inAppCurrentBean.value(QStringLiteral("type")).toString(),
+                 QStringLiteral("Spring Tour 2026 #2"));
+        QCOMPARE(inAppCurrentBean.value(QStringLiteral("roastLevel")).toString(),
+                 QStringLiteral("Dark"));
+        QCOMPARE(inAppCurrentBean.value(QStringLiteral("doseWeightG")).toDouble(), 20.0);
+
+        // Inferred-field machinery is gone on both surfaces.
+        QVERIFY(!inAppCurrentBean.contains(QStringLiteral("inferredFields")));
+        QVERIFY(!inAppCurrentBean.contains(QStringLiteral("inferredFromShotId")));
+        QVERIFY(!inAppCurrentBean.contains(QStringLiteral("inferredNote")));
+        QVERIFY(!mcpCurrentBean.contains(QStringLiteral("inferredFields")));
+        QVERIFY(!mcpCurrentBean.contains(QStringLiteral("inferredFromShotId")));
+
+        // beanFreshness reads from the shot's roastDate, not live DYE's.
+        QVERIFY(inAppCurrentBean.contains(QStringLiteral("beanFreshness")));
+        const QJsonObject freshness =
+            inAppCurrentBean.value(QStringLiteral("beanFreshness")).toObject();
+        QCOMPARE(freshness.value(QStringLiteral("roastDate")).toString(),
+                 QStringLiteral("2026-03-30"));
     }
 
     // ---------------------------------------------------------------------
