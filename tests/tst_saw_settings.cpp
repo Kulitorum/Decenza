@@ -4,6 +4,7 @@
 #include <QJsonObject>
 
 #include "core/settings.h"
+#include "core/settings_calibration.h"
 
 // Tests for per-(profile, scale) SAW learning in Settings.
 // Each test wipes SAW data in init/cleanup so QSettings state from a prior run
@@ -23,17 +24,17 @@ private:
     // Drive a full 5-shot batch with consistent (drip, flow, overshoot).
     void commitBatch(const QString& profile, double drip, double flow, double overshoot = 0.0) {
         for (int i = 0; i < 5; ++i)
-            m_settings.addSawLearningPoint(drip, flow, kScale, overshoot, profile);
+            m_settings.calibration()->addSawLearningPoint(drip, flow, kScale, overshoot, profile);
     }
 
 private slots:
 
     void init() {
-        m_settings.resetSawLearning();
+        m_settings.calibration()->resetSawLearning();
     }
 
     void cleanup() {
-        m_settings.resetSawLearning();
+        m_settings.calibration()->resetSawLearning();
     }
 
     // ===== Per-pair isolation =====
@@ -47,8 +48,8 @@ private slots:
         commitBatch(kProfileB, 3.0, 1.5);   // lag 2.0s
         commitBatch(kProfileB, 3.0, 1.5);
 
-        const double lagA = m_settings.sawLearnedLagFor(kProfileA, kScale);
-        const double lagB = m_settings.sawLearnedLagFor(kProfileB, kScale);
+        const double lagA = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale);
+        const double lagB = m_settings.calibration()->sawLearnedLagFor(kProfileB, kScale);
         QVERIFY2(lagA < 0.5, qPrintable(QString("A lag %1 not isolated").arg(lagA)));
         QVERIFY2(lagB > 1.8, qPrintable(QString("B lag %1 not isolated").arg(lagB)));
     }
@@ -58,15 +59,15 @@ private slots:
     void batchAccumulatesUntilFiveThenCommits() {
         // Before 5 shots: pending batch grows, no committed history.
         for (int i = 0; i < 4; ++i) {
-            m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
-            QCOMPARE(m_settings.sawPendingBatch(kProfileA, kScale).size(), i + 1);
-            QCOMPARE(m_settings.perProfileSawHistory(kProfileA, kScale).size(), 0);
+            m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
+            QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), i + 1);
+            QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 0);
         }
 
         // 5th shot triggers commit: pending cleared, history gains one median.
-        m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
-        QCOMPARE(m_settings.sawPendingBatch(kProfileA, kScale).size(), 0);
-        QCOMPARE(m_settings.perProfileSawHistory(kProfileA, kScale).size(), 1);
+        m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
     }
 
     // ===== Batch rejection on high IQR =====
@@ -77,15 +78,15 @@ private slots:
         // All lags remain ≤ 4s so they pass the entry-level lag-too-high guard.
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(R"(\[SAW\] batch rejected — outlier lag=\S+ deviates \S+ > \S+ from median)"));
-        m_settings.addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
-        m_settings.addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
-        m_settings.addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
-        m_settings.addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
-        m_settings.addSawLearningPoint(3.75, 1.5, kScale, 0.0, kProfileA);  // lag 2.50 → reject
+        m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
+        m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
+        m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
+        m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
+        m_settings.calibration()->addSawLearningPoint(3.75, 1.5, kScale, 0.0, kProfileA);  // lag 2.50 → reject
 
         // Batch dropped → pending cleared, no commit, no history.
-        QCOMPARE(m_settings.sawPendingBatch(kProfileA, kScale).size(), 0);
-        QCOMPARE(m_settings.perProfileSawHistory(kProfileA, kScale).size(), 0);
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 0);
     }
 
     // ===== Global bootstrap recompute =====
@@ -93,10 +94,10 @@ private slots:
     void globalBootstrapUpdatedAfterMultiplePairsGraduate() {
         // Bootstrap requires ≥ 2 graduated pairs on the same scale to update.
         commitBatch(kProfileA, 0.6, 1.5);  // batches → 1 median
-        QCOMPARE(m_settings.globalSawBootstrapLag(kScale), 0.0); // only 1 pair
+        QCOMPARE(m_settings.calibration()->globalSawBootstrapLag(kScale), 0.0); // only 1 pair
 
         commitBatch(kProfileB, 0.9, 1.5);  // 2nd pair graduates → bootstrap updates
-        const double bootstrap = m_settings.globalSawBootstrapLag(kScale);
+        const double bootstrap = m_settings.calibration()->globalSawBootstrapLag(kScale);
         QVERIFY2(bootstrap > 0.0, "bootstrap not set after 2 graduated pairs");
         // Median of A's 0.4s and B's 0.6s → 0.5s.
         QVERIFY2(qAbs(bootstrap - 0.5) < 0.05,
@@ -107,18 +108,18 @@ private slots:
 
     void coldStartFallsBackToScaleDefaultThenBootstrapThenPerProfile() {
         // 1. No data anywhere → "scaleDefault" source.
-        QCOMPARE(m_settings.sawModelSource(kProfileA, kScale), QString("scaleDefault"));
+        QCOMPARE(m_settings.calibration()->sawModelSource(kProfileA, kScale), QString("scaleDefault"));
 
         // 2. Two other pairs graduate → bootstrap exists → C uses "globalBootstrap".
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileB, 0.9, 1.5);
-        QCOMPARE(m_settings.sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
+        QCOMPARE(m_settings.calibration()->sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
 
         // 3. C graduates (needs ≥ kSawMinMediansForGraduation committed medians,
         //    currently 2) → uses its own data.
         commitBatch(kProfileC, 1.2, 1.5);
         commitBatch(kProfileC, 1.2, 1.5);
-        QCOMPARE(m_settings.sawModelSource(kProfileC, kScale), QString("perProfile"));
+        QCOMPARE(m_settings.calibration()->sawModelSource(kProfileC, kScale), QString("perProfile"));
     }
 
     // ===== One median is not enough to graduate =====
@@ -129,11 +130,11 @@ private slots:
         // This guards the lower-bound boundary of the graduation gate.
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileB, 0.9, 1.5);
-        QVERIFY(m_settings.globalSawBootstrapLag(kScale) > 0.0);
+        QVERIFY(m_settings.calibration()->globalSawBootstrapLag(kScale) > 0.0);
 
         commitBatch(kProfileC, 1.2, 1.5);  // 1 median — below graduation threshold
-        QCOMPARE(m_settings.perProfileSawHistory(kProfileC, kScale).size(), 1);
-        QCOMPARE(m_settings.sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileC, kScale).size(), 1);
+        QCOMPARE(m_settings.calibration()->sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
     }
 
     // ===== Reset for profile only =====
@@ -141,25 +142,25 @@ private slots:
     void resetForProfileLeavesOtherPairsIntact() {
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileB, 0.9, 1.5);
-        QVERIFY(m_settings.perProfileSawHistory(kProfileA, kScale).size() > 0);
-        QVERIFY(m_settings.perProfileSawHistory(kProfileB, kScale).size() > 0);
+        QVERIFY(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size() > 0);
+        QVERIFY(m_settings.calibration()->perProfileSawHistory(kProfileB, kScale).size() > 0);
 
-        m_settings.resetSawLearningForProfile(kProfileA, kScale);
+        m_settings.calibration()->resetSawLearningForProfile(kProfileA, kScale);
 
-        QCOMPARE(m_settings.perProfileSawHistory(kProfileA, kScale).size(), 0);
-        QVERIFY(m_settings.perProfileSawHistory(kProfileB, kScale).size() > 0);
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 0);
+        QVERIFY(m_settings.calibration()->perProfileSawHistory(kProfileB, kScale).size() > 0);
     }
 
     // ===== Reset for profile clears pending batch =====
 
     void resetForProfileClearsPendingBatch() {
-        m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
-        m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
-        QCOMPARE(m_settings.sawPendingBatch(kProfileA, kScale).size(), 2);
+        m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
+        m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 2);
 
-        m_settings.resetSawLearningForProfile(kProfileA, kScale);
+        m_settings.calibration()->resetSawLearningForProfile(kProfileA, kScale);
 
-        QCOMPARE(m_settings.sawPendingBatch(kProfileA, kScale).size(), 0);
+        QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 0);
     }
 
     // ===== getExpectedDripFor returns per-pair after graduation =====
@@ -169,7 +170,7 @@ private slots:
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileA, 0.6, 1.5);
 
-        const double drip = m_settings.getExpectedDripFor(kProfileA, kScale, 1.5);
+        const double drip = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 1.5);
         QVERIFY2(qAbs(drip - 0.6) < 0.15,
                  qPrintable(QString("expected ~0.6, got %1").arg(drip)));
     }
@@ -179,10 +180,10 @@ private slots:
     void legacyAddSawLearningPointStillAppendsToGlobalPool() {
         // Calling without a profile uses the legacy single-shot append. Verify
         // the global pool grows by 1 and isSawConverged respects scale type.
-        m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0);
-        m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0);
-        m_settings.addSawLearningPoint(1.0, 2.0, kScale, 0.0);
-        QCOMPARE(m_settings.sawLearningEntries(kScale, 10).size(), 3);
+        m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0);
+        m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0);
+        m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0);
+        QCOMPARE(m_settings.calibration()->sawLearningEntries(kScale, 10).size(), 3);
     }
 
     // ===== Bootstrap survives a single profile reset =====
@@ -190,14 +191,14 @@ private slots:
     void bootstrapPersistsWhenOneProfileResets() {
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileB, 0.9, 1.5);
-        const double before = m_settings.globalSawBootstrapLag(kScale);
+        const double before = m_settings.calibration()->globalSawBootstrapLag(kScale);
         QVERIFY(before > 0.0);
 
-        m_settings.resetSawLearningForProfile(kProfileA, kScale);
+        m_settings.calibration()->resetSawLearningForProfile(kProfileA, kScale);
 
         // Bootstrap is recomputed only on commits, so it stays at the previous
         // value (still useful as a fallback for new profiles) — verify.
-        QCOMPARE(m_settings.globalSawBootstrapLag(kScale), before);
+        QCOMPARE(m_settings.calibration()->globalSawBootstrapLag(kScale), before);
     }
 
     // ===== σ flow-similarity behavior =====
@@ -214,7 +215,7 @@ private slots:
         // Capture the cold-start scale-default fallback at the query flow. With no
         // committed data and no bootstrap, getExpectedDripFor returns
         // flow × (sensorLag + 0.1).
-        const double fallback = m_settings.getExpectedDripFor(kProfileA, kScale, 2.5);
+        const double fallback = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 2.5);
 
         // Train two batches at flow=1.5 so the per-pair history graduates with a
         // training drip far from the fallback.
@@ -225,7 +226,7 @@ private slots:
         // totalWeight drops below the 0.01 floor → branch falls through to the
         // scale-default fallback. At σ=1.5 (regression) flowWeight≈0.80 and the
         // prediction would lock to 2.0 g.
-        const double pred = m_settings.getExpectedDripFor(kProfileA, kScale, 2.5);
+        const double pred = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 2.5);
 
         QVERIFY2(qAbs(pred - fallback) < qAbs(pred - 2.0),
                  qPrintable(QString("pred=%1 not closer to fallback=%2 than to training=2.0")
@@ -240,7 +241,7 @@ private slots:
         commitBatch(kProfileA, 2.0, 1.5);
         commitBatch(kProfileA, 2.0, 1.5);
 
-        const double pred = m_settings.getExpectedDripFor(kProfileA, kScale, 1.5);
+        const double pred = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 1.5);
         QVERIFY2(qAbs(pred - 2.0) < 0.05,
                  qPrintable(QString("expected ~2.0, got %1").arg(pred)));
     }
@@ -254,8 +255,8 @@ private slots:
         commitBatch(kProfileA, 0.6, 1.0);   // low-flow training: drip=0.6, flow=1.0
         commitBatch(kProfileA, 1.8, 3.0);   // high-flow training: drip=1.8, flow=3.0
 
-        const double low  = m_settings.getExpectedDripFor(kProfileA, kScale, 1.0);
-        const double high = m_settings.getExpectedDripFor(kProfileA, kScale, 3.0);
+        const double low  = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 1.0);
+        const double high = m_settings.calibration()->getExpectedDripFor(kProfileA, kScale, 3.0);
 
         QVERIFY2(qAbs(high - low) > 0.5,
                  qPrintable(QString("predictions did not separate by flow: low=%1 high=%2")
@@ -267,11 +268,11 @@ private slots:
     void fullResetClearsBootstrap() {
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileB, 0.9, 1.5);
-        QVERIFY(m_settings.globalSawBootstrapLag(kScale) > 0.0);
+        QVERIFY(m_settings.calibration()->globalSawBootstrapLag(kScale) > 0.0);
 
-        m_settings.resetSawLearning();
+        m_settings.calibration()->resetSawLearning();
 
-        QCOMPARE(m_settings.globalSawBootstrapLag(kScale), 0.0);
+        QCOMPARE(m_settings.calibration()->globalSawBootstrapLag(kScale), 0.0);
     }
 };
 

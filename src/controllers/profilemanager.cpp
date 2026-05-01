@@ -3,6 +3,7 @@
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
+#include "../core/settings_calibration.h"
 #include "../core/profilestorage.h"
 #include "../ble/de1device.h"
 #include "../ble/protocol/de1characteristics.h"
@@ -2277,7 +2278,7 @@ int ProfileManager::frameCount() const {
 void ProfileManager::applyFlowCalibration() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    double multiplier = m_settings->effectiveFlowCalibration(m_baseProfileName);
+    double multiplier = m_settings->calibration()->effectiveFlowCalibration(m_baseProfileName);
     m_device->setFlowCalibrationMultiplier(multiplier);
 }
 

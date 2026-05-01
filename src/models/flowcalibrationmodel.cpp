@@ -1,6 +1,6 @@
 #include "flowcalibrationmodel.h"
 #include "../history/shothistorystorage.h"
-#include "../core/settings.h"
+#include "../core/settings_calibration.h"
 #include "../ble/de1device.h"
 
 #include <QDateTime>
@@ -25,7 +25,7 @@ void FlowCalibrationModel::setStorage(ShotHistoryStorage* storage) {
     m_storage = storage;
 }
 
-void FlowCalibrationModel::setSettings(Settings* settings) {
+void FlowCalibrationModel::setSettings(SettingsCalibration* settings) {
     m_settings = settings;
 }
 

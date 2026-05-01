@@ -7,7 +7,7 @@
 #include <memory>
 
 class ShotHistoryStorage;
-class Settings;
+class SettingsCalibration;
 class DE1Device;
 struct ShotRecord;
 
@@ -33,7 +33,7 @@ public:
     ~FlowCalibrationModel() override;
 
     void setStorage(ShotHistoryStorage* storage);
-    void setSettings(Settings* settings);
+    void setSettings(SettingsCalibration* settings);
     void setDevice(DE1Device* device);
 
     double multiplier() const { return m_multiplier; }
@@ -73,7 +73,7 @@ private:
     QVariantList pointsToVariant(const QVector<QPointF>& points) const;
 
     ShotHistoryStorage* m_storage = nullptr;
-    Settings* m_settings = nullptr;
+    SettingsCalibration* m_settings = nullptr;
     DE1Device* m_device = nullptr;
 
     QVector<qint64> m_shotIds;

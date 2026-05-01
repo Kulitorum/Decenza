@@ -194,18 +194,18 @@ Page {
                             color: Theme.textSecondaryColor
                         }
                         Text {
-                            property int _calVersion: Settings.perProfileFlowCalVersion
+                            property int _calVersion: Settings.calibration.perProfileFlowCalVersion
                             property double effectiveCal: {
                                 void(_calVersion);
-                                void(Settings.autoFlowCalibration);
-                                void(Settings.flowCalibrationMultiplier);
-                                return profileFilename ? Settings.effectiveFlowCalibration(profileFilename) : Settings.flowCalibrationMultiplier;
+                                void(Settings.calibration.autoFlowCalibration);
+                                void(Settings.calibration.flowCalibrationMultiplier);
+                                return profileFilename ? Settings.calibration.effectiveFlowCalibration(profileFilename) : Settings.calibration.flowCalibrationMultiplier;
                             }
                             property bool isAuto: {
                                 void(_calVersion);
-                                void(Settings.autoFlowCalibration);
-                                void(Settings.flowCalibrationMultiplier);
-                                return profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false;
+                                void(Settings.calibration.autoFlowCalibration);
+                                void(Settings.calibration.flowCalibrationMultiplier);
+                                return profileFilename ? Settings.calibration.hasProfileFlowCalibration(profileFilename) : false;
                             }
                             // Multipliers above this were historically out-of-range; on newer firmware
                             // they can be legitimate but are worth flagging so the user can sanity-check

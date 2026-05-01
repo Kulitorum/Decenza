@@ -116,7 +116,7 @@ private:
     QVector<double> m_learningDrips;
     QVector<double> m_learningFlows;
     bool m_sawConverged = false;
-    double m_sensorLagSeconds = 0.38;  // From Settings::sensorLag() — used for first-shot default
+    double m_sensorLagSeconds = 0.38;  // From SettingsCalibration::sensorLag() — used for first-shot default
 
     // Per-frame exit tracking (avoid duplicate skip commands)
     QSet<int> m_frameWeightSkipSent;

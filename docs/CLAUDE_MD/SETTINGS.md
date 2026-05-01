@@ -1,12 +1,12 @@
 # Settings Architecture
 
-`Settings` is a **composition façade** that owns 11 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals. The split exists so that touching one domain's header recompiles only its narrow set of consumers (~9 files for `settings_mqtt.h`) instead of every consumer of the monolithic `settings.h` (~39 files pre-split, 41 pre-refactor).
+`Settings` is a **composition façade** that owns 12 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals. The split exists so that touching one domain's header recompiles only its narrow set of consumers (~9 files for `settings_mqtt.h`) instead of every consumer of the monolithic `settings.h` (~39 files pre-split, 41 pre-refactor).
 
 The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
 
 ## Domain classes (today)
 
-`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`. Tier 2 (Brew/Dye/Network/App) is complete; what remains on `Settings` itself is machine/scale/refractometer/USB-serial + flow-calibration + SAW-learning, which a possible Tier 3 could split into `SettingsHardware` (machine/scale) and a new `SettingsCalibration` (flow + SAW).
+`SettingsMqtt`, `SettingsAutoWake`, `SettingsHardware`, `SettingsAI`, `SettingsTheme`, `SettingsVisualizer`, `SettingsMcp`, `SettingsBrew`, `SettingsDye`, `SettingsNetwork`, `SettingsApp`, `SettingsCalibration`. What remains on `Settings` itself is machine/scale/refractometer/USB-serial — a candidate for a future `SettingsHardware` extension or a Tier 4 `SettingsMachine` split.
 
 ## Where new settings go
 
@@ -106,6 +106,26 @@ connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, this, [this
 ```
 
 Don't try to inline the cross-call inside the sub-object's setter — `SettingsVisualizer::setDefaultShotRating` doesn't see `setDyeEspressoEnjoyment`, and adding the dependency would couple two domains that have no business knowing about each other.
+
+### When `connect()` isn't enough: signal-out, then forward
+
+Some cross-domain effects originate from a method on the sub-object itself rather than a property change. `SettingsCalibration::resetSawLearning()` is the canonical example: it's invoked directly from QML and MCP tools and must, as a side effect, reset hot-water-SAW state on `SettingsBrew`. The sub-object can't call into `SettingsBrew` directly — same isolation rule as above. Instead:
+
+1. The sub-object emits a dedicated **request signal** (`sawLearningResetRequested`) inside the method.
+2. `Settings::Settings()` connects that signal to a lambda that performs the cross-domain action: `connect(m_calibration, &SettingsCalibration::sawLearningResetRequested, this, [this]{ m_brew->setHotWaterSawOffset(2.0); m_brew->setHotWaterSawSampleCount(0); });`
+3. The signal name encodes intent ("X happened, please react"), not implementation ("call brew::setHotWaterSawOffset"). This keeps the request-emitter decoupled from the responder.
+
+The pattern generalises to any "method-call → cross-domain effect": signal-out, then forward via `connect()` in the parent constructor.
+
+### Holding a non-owning back-pointer to `Settings`
+
+The default rule is sub-objects do not see each other and do not see `Settings`. `SettingsCalibration` is the documented exception: it holds a non-owning `Settings* m_owner` (set in its constructor) so `sawLearnedLag()` and `getExpectedDrip()` can read `m_owner->scaleType()` without changing their public API (both are zero-arg methods called from QML; threading `scaleType` through every call would force a QML-side migration). The discipline that keeps this safe:
+
+- The back-pointer is dereferenced **only for `m_owner->scaleType()`**. No other `Settings` surface is allowed via the back-pointer — that would re-couple the domain to the parent and defeat the split.
+- `settings_calibration.h` only forward-declares `Settings`. The full include lives in `settings_calibration.cpp`.
+- The pointer is `nullptr`-guarded at every read (e.g. for tests that construct the sub-object standalone) with a sensible fallback.
+
+Use this pattern only when the alternative (changing a public API) would force a migration that's larger than the cost of the coupling. For most domains, plain `connect()`-based wiring is the right answer.
 
 ## Null-guard discipline
 

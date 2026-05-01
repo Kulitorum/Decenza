@@ -7,6 +7,7 @@
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
 #include "../core/settings_network.h"
+#include "../core/settings_calibration.h"
 #include "../core/settings_mqtt.h"
 #include "../core/settings_hardware.h"
 #include "../core/settings_visualizer.h"
@@ -101,11 +102,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Apply flow calibration multiplier when setting changes
     if (m_settings && m_device) {
-        connect(m_settings, &Settings::flowCalibrationMultiplierChanged,
+        connect(m_settings->calibration(), &SettingsCalibration::flowCalibrationMultiplierChanged,
                 this, &MainController::applyFlowCalibration);
-        connect(m_settings, &Settings::autoFlowCalibrationChanged,
+        connect(m_settings->calibration(), &SettingsCalibration::autoFlowCalibrationChanged,
                 this, &MainController::applyFlowCalibration);
-        connect(m_settings, &Settings::perProfileFlowCalibrationChanged,
+        connect(m_settings->calibration(), &SettingsCalibration::perProfileFlowCalibrationChanged,
                 this, &MainController::applyFlowCalibration);
     }
     // Apply heater tweaks when any calibration setting changes (debounced to avoid BLE flood)
@@ -855,7 +856,7 @@ void MainController::computeAutoFlowCalibration() {
                    << "shotDataModel:" << (m_shotDataModel != nullptr) << ")";
         return;
     }
-    if (!m_settings->autoFlowCalibration()) {
+    if (!m_settings->calibration()->autoFlowCalibration()) {
         qDebug() << "Auto flow cal: disabled in settings";
         return;
     }
@@ -1085,7 +1086,7 @@ void MainController::computeAutoFlowCalibration() {
              << "meanMachineFlow=" << meanMachineFlow
              << "meanWeightFlow=" << meanWeightFlow
              << "ratio=" << windowRatio
-             << "currentFactor=" << m_settings->effectiveFlowCalibration(m_profileManager->baseProfileName());
+             << "currentFactor=" << m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
 
     // Guard against division by zero. Should be impossible since every sample
     // in the window passed the kMinWeightFlow (0.5 g/s) check.
@@ -1191,7 +1192,7 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
-    double currentEffective = m_settings->effectiveFlowCalibration(m_profileManager->baseProfileName());
+    double currentEffective = m_settings->calibration()->effectiveFlowCalibration(m_profileManager->baseProfileName());
     double ideal;
     if (isFlowProfile) {
         // Flow profile: use the profile's target flow (independent of calibration).
@@ -1239,8 +1240,8 @@ void MainController::computeAutoFlowCalibration() {
     constexpr double kBatchEmaAlpha = 0.5;  // Higher alpha is safe because median of N shots is more reliable
 
     QString profileName = m_profileManager->baseProfileName();
-    m_settings->appendFlowCalPendingIdeal(profileName, ideal);
-    QVector<double> pending = m_settings->flowCalPendingIdeals(profileName);
+    m_settings->calibration()->appendFlowCalPendingIdeal(profileName, ideal);
+    QVector<double> pending = m_settings->calibration()->flowCalPendingIdeals(profileName);
 
     qDebug() << "Auto flow cal: accumulated ideal" << ideal
              << "for" << profileName << "(" << pending.size() << "/" << kBatchSize << ")"
@@ -1259,12 +1260,12 @@ void MainController::computeAutoFlowCalibration() {
         : pending[n / 2];
 
     // Clear the batch now that we've consumed it
-    m_settings->clearFlowCalPendingIdeals(profileName);
+    m_settings->calibration()->clearFlowCalPendingIdeals(profileName);
 
     double alpha = kBatchEmaAlpha;
 
     // On first calibration for this profile, use median directly (no history to blend with)
-    double computed = m_settings->hasProfileFlowCalibration(profileName)
+    double computed = m_settings->calibration()->hasProfileFlowCalibration(profileName)
         ? alpha * median + (1.0 - alpha) * currentEffective
         : median;
 
@@ -1283,7 +1284,7 @@ void MainController::computeAutoFlowCalibration() {
     }
 
     double oldValue = currentEffective;
-    if (!m_settings->setProfileFlowCalibration(profileName, computed)) {
+    if (!m_settings->calibration()->setProfileFlowCalibration(profileName, computed)) {
         qWarning() << "Auto flow cal: computed value" << computed
                    << "was rejected by settings for" << profileName;
         return;
@@ -1303,7 +1304,7 @@ void MainController::computeAutoFlowCalibration() {
 }
 
 void MainController::updateGlobalFromPerProfileMedian() {
-    QJsonObject map = m_settings->allProfileFlowCalibrations();
+    QJsonObject map = m_settings->calibration()->allProfileFlowCalibrations();
 
     // Collect multipliers from espresso profiles only
     QVector<double> values;
@@ -1344,10 +1345,10 @@ void MainController::updateGlobalFromPerProfileMedian() {
         : values[n/2];
 
     // Only update if meaningfully different (>2% change)
-    double current = m_settings->flowCalibrationMultiplier();
+    double current = m_settings->calibration()->flowCalibrationMultiplier();
     if (current > 0.01 && qAbs(median - current) / current < 0.02) return;
 
-    m_settings->setFlowCalibrationMultiplier(median);
+    m_settings->calibration()->setFlowCalibrationMultiplier(median);
     qDebug() << "Auto flow cal: updated global to espresso median" << median
              << "from" << values.size() << "espresso profiles"
              << "(" << map.size() << "total in map)";
