@@ -151,6 +151,12 @@ public:
     // Get the knowledge base content for a profile by title/type. Returns empty string if no match.
     static QString findProfileSection(const QString& profileTitle, const QString& profileType = QString());
 
+    // Direct KB lookup by ID — bypasses fuzzy title matching. Returns empty string
+    // if the ID isn't in the knowledge base. Used by MCP to ship just the current
+    // profile's KB entry without the surrounding system prompt + reference tables
+    // + cross-profile catalog (#987).
+    static QString profileKnowledgeForKbId(const QString& profileKbId);
+
     // Get structured analysis flags for a KB entry by its ID.
     // Returns empty list if kbId is not found. Flags are parsed from "AnalysisFlags:" lines
     // in profile_knowledge.md and control which checks analyzeShot() suppresses.

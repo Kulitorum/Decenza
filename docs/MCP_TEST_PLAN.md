@@ -400,8 +400,19 @@ Expect: error — tool not found (replaced by shots_update in phase 15)
 ### 7.1 dialing_get_context
 ```
 Call: dialing_get_context (history_limit: 2)
-Expect: shotId > 0, shot object present, currentBean present, currentProfile present
-Expect: profileKnowledge non-empty (if profile has knowledge base)
+Expect: shotId > 0, shot object present, currentBean present, currentProfile present.
+        profileKnowledge non-empty (if the profile has a KB entry) — small (~1 KB):
+        only the current profile's curated section. No system prompt / reference
+        tables / cross-profile catalog (per #987).
+```
+
+### 7.1a dialing_get_context — full knowledge
+```
+Call: dialing_get_context (history_limit: 2, includeFullKnowledge: true)
+Expect: profileKnowledge ~18 KB — includes the dial-in system prompt, espresso
+        reference tables, profile catalog, and the current profile's section.
+        Use this on the first turn of a dial-in conversation; subsequent turns can
+        rely on the default (small) form.
 ```
 
 ### 7.2 settings_set — DYE metadata (replaces dialing_apply_change)

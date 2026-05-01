@@ -1137,6 +1137,15 @@ QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QS
     return QString();
 }
 
+QString ShotSummarizer::profileKnowledgeForKbId(const QString& profileKbId)
+{
+    if (profileKbId.isEmpty()) return QString();
+    loadProfileKnowledge();
+    if (s_profileKnowledge.contains(profileKbId))
+        return s_profileKnowledge.value(profileKbId).content;
+    return QString();
+}
+
 QStringList ShotSummarizer::getAnalysisFlags(const QString& kbId)
 {
     if (kbId.isEmpty()) return {};
