@@ -1426,7 +1426,7 @@ a{color:#6c8cff}
 <p>The MCP server runs inside Decenza on <strong>any platform</strong> (Android tablet, iOS, Windows, macOS, Linux). Claude Desktop on your computer connects to it over your local WiFi network.</p>
 
 <h2>Platform Compatibility</h2>
-<table style="width:100%%;border-collapse:collapse;margin:12px 0">
+<table style="width:100%;border-collapse:collapse;margin:12px 0">
 <tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Decenza runs on</strong></td><td style="padding:8px">Any platform &mdash; tablet, phone, or desktop</td></tr>
 <tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Claude Desktop connects from</strong></td><td style="padding:8px">macOS or Windows (same WiFi network)</td></tr>
 )HTML"

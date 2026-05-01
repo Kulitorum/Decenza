@@ -319,7 +319,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .shot-metric .metric-label { font-size: 0.625rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
         .shot-arrow { color: var(--text-secondary); font-size: 1rem; }
         .shot-footer { display: flex; justify-content: space-between; align-items: center; }
-        .shot-beans { font-size: 0.8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%%; }
+        .shot-beans { font-size: 0.8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
         .shot-rating { color: var(--accent); font-size: 0.875rem; }
         .shot-temp { color: var(--text-secondary); font-weight: normal; }
         .shot-grind { color: var(--text-secondary); font-weight: normal; }
@@ -424,7 +424,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .menu-btn:hover { color: var(--accent); }
         .menu-dropdown {
             position: absolute;
-            top: 100%%;
+            top: 100%;
             right: 0;
             margin-top: 0.5rem;
             background: var(--surface);
@@ -458,7 +458,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .sort-dir-btn { min-width: 2.2rem; padding-left: 0.5rem; padding-right: 0.5rem; text-align: center; }
         .sort-dropdown {
             position: absolute;
-            top: 100%%;
+            top: 100%;
             right: 0;
             margin-top: 0.25rem;
             background: var(--surface);
@@ -564,7 +564,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         }
         .saved-search-delete:hover { color: #c0392b; }
         .help-table {
-            width: 100%%;
+            width: 100%;
             border-collapse: collapse;
             font-size: 0.8rem;
         }
@@ -659,7 +659,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                 <tr><td><span class="help-keyword" onclick="insertSearchKeyword('yield:')">yield:</span></td><td>Yield weight (g)</td><td><span class="help-syntax">yield:30-40</span></td></tr>
                 <tr><td><span class="help-keyword" onclick="insertSearchKeyword('time:')">time:</span></td><td>Duration (seconds)</td><td><span class="help-syntax">time:25-35</span></td></tr>
                 <tr><td><span class="help-keyword" onclick="insertSearchKeyword('tds:')">tds:</span></td><td>TDS</td><td><span class="help-syntax">tds:1.3-1.5</span></td></tr>
-                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('ey:')">ey:</span></td><td>Extraction yield (%%)</td><td><span class="help-syntax">ey:18-22</span></td></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('ey:')">ey:</span></td><td>Extraction yield (%)</td><td><span class="help-syntax">ey:18-22</span></td></tr>
             </table>
             <p style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-secondary);">Syntax: <span class="help-syntax">N</span> (exact), <span class="help-syntax">N-M</span> (range), <span class="help-syntax">N+</span> (minimum)<br>Combine keywords with text: <span class="help-syntax">ethiopia dose:18 rating:70+</span></p>
         </div>
