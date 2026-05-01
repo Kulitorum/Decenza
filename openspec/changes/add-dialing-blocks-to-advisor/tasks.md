@@ -11,9 +11,9 @@
 
 ## 2. Lock parity between MCP and in-app surfaces with golden tests
 
-- [ ] 2.1 (Deferred) Golden DB-backed test for `buildDialInSessionsBlock`. Requires standing up a real schema; gating-only coverage shipped in `tst_aimanager` for now (see 2.4 / 6.4). Tracked as a follow-up.
-- [ ] 2.2 (Deferred) Same — `buildBestRecentShotBlock` over-90-days golden test. Gating coverage shipped (`bestRecentShotBlock_returnsEmpty_whenProfileKbIdEmpty`).
-- [ ] 2.3 (Deferred) Same — `buildGrinderContextBlock` cross-bean fallback golden test. Gating coverage shipped (`grinderContextBlock_returnsEmpty_whenGrinderModelEmpty`).
+- [x] 2.1 DB-backed test for `buildDialInSessionsBlock`: `tst_mcptools_dialing_blocks::dialInSessionsBlock_groupsAndHoistsAcrossSessions` — 4 shots across 2 sessions, asserts session grouping, hoist of identity fields, and `changeFromPrev` chain (issue #1044).
+- [x] 2.2 DB-backed test for `buildBestRecentShotBlock`: `tst_mcptools_dialing_blocks::bestRecentShotBlock_emitsFullBlock_whenRatedShotInWindow` and `bestRecentShotBlock_emptyWhenAllRatedShotsAreStale` — covers populated and stale-only cohorts (issue #1044).
+- [x] 2.3 DB-backed test for `buildGrinderContextBlock`: `tst_mcptools_dialing_blocks::grinderContextBlock_emitsAllBeansSettings_whenBeanScopedSparse` and `grinderContextBlock_omitsAllBeansSettings_whenBeanScopedRich` — covers cross-bean fallback and step-size math (issue #1044).
 - [x] 2.4 `tst_AIManager::sawPredictionBlock_omittedWhenFlowAtCutoffIsZero` — empty-flow ShotProjection → empty `QJsonObject`. Covers the most failure-prone gate (the SAW estimator's window) without needing DB infrastructure.
 
 ## 3. Expose `buildUserPromptObject` so DB-scoped callers can append blocks
@@ -39,9 +39,9 @@
 
 ## 6. Lock byte-equivalence between in-app and MCP user prompts
 
-- [ ] 6.1 (Deferred) `tst_aimanager::userPromptParity_inAppAdvisorVsMcpAdvisorInvoke` — drive both surfaces from the same input and assert `==`. Requires real DB stand-up; deferred. Byte-equivalence is by construction (both call the same `McpDialingBlocks` helpers + same `buildUserPromptObject`).
-- [ ] 6.2 (Deferred) `tst_aimanager::userPromptCarriesDialingBlocks_whenDbScopeAvailable` — needs DB.
-- [ ] 6.3 (Deferred) `tst_aimanager::userPromptOmitsDialingBlocks_whenPreconditionsFail` — needs DB. Gating-level omission coverage shipped in section 2.
+- [x] 6.1 `tst_mcptools_dialing_blocks::endToEndParity_inAppEnrichmentMatchesDialingGetContext` — drives both surfaces from the same DB state and asserts byte-equality of the four enrichment blocks (issue #1044).
+- [x] 6.2 `tst_mcptools_dialing_blocks::dialInSessionsBlock_groupsAndHoistsAcrossSessions` and `bestRecentShotBlock_emitsFullBlock_whenRatedShotInWindow` exercise the populated paths under real DB scope.
+- [x] 6.3 `tst_mcptools_dialing_blocks::dialInSessionsBlock_emptyWhenNoRows` and `bestRecentShotBlock_emptyWhenAllRatedShotsAreStale` cover preconditions-fail omission with a populated DB (matching the gating-level coverage in section 2).
 - [x] 6.4 `tst_aimanager::buildUserPromptObjectForShot_omitsCurrentDateTime` — assert no `currentDateTime` key in the un-enriched envelope (the four enrichment keys are layered on by callers and never carry a `currentDateTime` themselves either).
 
 ## 7. Verify cache stability across multi-turn

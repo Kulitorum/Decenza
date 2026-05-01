@@ -402,6 +402,26 @@ add_decenza_test(tst_dbmigration
 target_link_libraries(tst_dbmigration PRIVATE Qt6::Charts Qt6::Quick)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_mcptools_dialing_blocks: DB-backed coverage for the four shared
+# block builders that drive both `dialing_get_context` (MCP) and the
+# in-app advisor's user-prompt enrichment (issue #1044). Stands up a
+# real ShotHistoryStorage schema, inserts curated fixtures, and asserts
+# byte-equivalence between the two surfaces.
+add_decenza_test(tst_mcptools_dialing_blocks
+    tst_mcptools_dialing_blocks.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_dialing_blocks.cpp
+    ${HISTORY_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcptools_dialing_blocks PRIVATE Qt6::Charts Qt6::Quick)
+target_include_directories(tst_mcptools_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_shotrecord_cache: ShotRecord::cachedAnalysis dedup + fallback ---
 add_decenza_test(tst_shotrecord_cache
     tst_shotrecord_cache.cpp
