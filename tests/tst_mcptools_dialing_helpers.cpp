@@ -38,6 +38,13 @@ private slots:
     void buildCurrentBean_beanFieldsNeverInferred();
     void buildCurrentBean_bothBlank_omitsInferredMeta();
     void buildCurrentBean_dyeWins_overShotValues();
+
+    // buildShotChangeDiff (issue #1020 — also drives changeFromPrev)
+    void buildShotChangeDiff_identicalShots_emptyDiff();
+    void buildShotChangeDiff_directionIsFromTo();
+    void buildShotChangeDiff_zeroFieldsSkipped();
+    void buildShotChangeDiff_emptyStringsSkipped();
+    void buildShotChangeDiff_changeFromBestExample();
 };
 
 void TstMcpToolsDialingHelpers::emptyInput_returnsNoSessions()
@@ -484,6 +491,112 @@ void TstMcpToolsDialingHelpers::buildCurrentBean_dyeWins_overShotValues()
     const QJsonObject bean = buildCurrentBean(in);
     QCOMPARE(bean["grinderBrand"].toString(), QStringLiteral("Niche"));
     QVERIFY(!bean.contains("inferredFields"));
+}
+
+// ---- buildShotChangeDiff (issue #1020) ----
+//
+// Drives both changeFromPrev (within a session) and changeFromBest
+// (current vs best-rated past shot). Direction is `from -> to`; pin that
+// here so the AI's "what moved" envelope reads consistently.
+
+void TstMcpToolsDialingHelpers::buildShotChangeDiff_identicalShots_emptyDiff()
+{
+    ShotDiffInputs s;
+    s.grinderSetting = QStringLiteral("4.5");
+    s.beanBrand = QStringLiteral("Northbound");
+    s.doseWeightG = 18.0;
+    s.finalWeightG = 36.0;
+    s.durationSec = 30.0;
+    s.enjoyment0to100 = 70;
+
+    const QJsonObject diff = buildShotChangeDiff(s, s);
+    QVERIFY2(diff.isEmpty(),
+             "two shots with identical fields must produce no diff");
+}
+
+void TstMcpToolsDialingHelpers::buildShotChangeDiff_directionIsFromTo()
+{
+    // changeFromBest example from #1020 issue: best=18g/9-grind, current=20g/4.5-grind
+    ShotDiffInputs best;
+    best.grinderSetting = QStringLiteral("9");
+    best.doseWeightG = 18.0;
+    best.finalWeightG = 40.2;
+
+    ShotDiffInputs current;
+    current.grinderSetting = QStringLiteral("4.5");
+    current.doseWeightG = 20.0;
+    current.finalWeightG = 35.9;
+
+    const QJsonObject diff = buildShotChangeDiff(best, current);
+
+    QCOMPARE(diff["grinderSetting"].toString(), QStringLiteral("9 -> 4.5"));
+    // Numeric format: "<from> -> <to> <unit> (<sign><delta>)"
+    QCOMPARE(diff["doseG"].toString(), QStringLiteral("18.0 -> 20.0 g (+2.0)"));
+    QCOMPARE(diff["yieldG"].toString(), QStringLiteral("40.2 -> 35.9 g (-4.3)"));
+}
+
+void TstMcpToolsDialingHelpers::buildShotChangeDiff_zeroFieldsSkipped()
+{
+    // When either side has 0 for a numeric field, skip the diff — there's
+    // no meaningful comparison to be made (e.g. legacy shots without TDS).
+    ShotDiffInputs from;
+    from.doseWeightG = 18.0;
+    from.finalWeightG = 0;  // missing
+    from.durationSec = 30.0;
+
+    ShotDiffInputs to;
+    to.doseWeightG = 20.0;
+    to.finalWeightG = 36.0;
+    to.durationSec = 31.0;
+
+    const QJsonObject diff = buildShotChangeDiff(from, to);
+    QVERIFY2(!diff.contains("yieldG"),
+             "a zero on either side must skip the numeric diff");
+    QVERIFY(diff.contains("doseG"));
+    QVERIFY(diff.contains("durationSec"));
+}
+
+void TstMcpToolsDialingHelpers::buildShotChangeDiff_emptyStringsSkipped()
+{
+    // Same rule for strings: blank on either side = no diff.
+    ShotDiffInputs from;
+    from.grinderSetting = QStringLiteral("4.5");
+    from.beanBrand.clear();
+
+    ShotDiffInputs to;
+    to.grinderSetting = QStringLiteral("4.5");
+    to.beanBrand = QStringLiteral("Prodigal");
+
+    const QJsonObject diff = buildShotChangeDiff(from, to);
+    QVERIFY2(!diff.contains("beanBrand"),
+             "a blank string on either side must skip the diff");
+    QVERIFY2(!diff.contains("grinderSetting"),
+             "identical strings must not produce a diff entry");
+}
+
+void TstMcpToolsDialingHelpers::buildShotChangeDiff_changeFromBestExample()
+{
+    // Mirrors the issue #1020 example: best is shot 802 on Prodigal Buenos
+    // Aires at grind 9 / 18g / 40.2g, current is shot 884 on Northbound at
+    // grind 4.5 / 20g / 35.9g.
+    ShotDiffInputs best;
+    best.grinderSetting = QStringLiteral("9");
+    best.beanBrand = QStringLiteral("Prodigal");
+    best.doseWeightG = 18.0;
+    best.finalWeightG = 40.2;
+
+    ShotDiffInputs current;
+    current.grinderSetting = QStringLiteral("4.5");
+    current.beanBrand = QStringLiteral("Northbound Coffee Roasters");
+    current.doseWeightG = 20.0;
+    current.finalWeightG = 35.9;
+
+    const QJsonObject diff = buildShotChangeDiff(best, current);
+    QVERIFY(diff.contains("grinderSetting"));
+    QCOMPARE(diff["beanBrand"].toString(),
+             QStringLiteral("Prodigal -> Northbound Coffee Roasters"));
+    QCOMPARE(diff["doseG"].toString(), QStringLiteral("18.0 -> 20.0 g (+2.0)"));
+    QCOMPARE(diff["yieldG"].toString(), QStringLiteral("40.2 -> 35.9 g (-4.3)"));
 }
 
 QTEST_APPLESS_MAIN(TstMcpToolsDialingHelpers)

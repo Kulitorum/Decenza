@@ -246,4 +246,51 @@ inline QJsonObject buildCurrentBean(const CurrentBeanInputs& in)
     return bean;
 }
 
+// Inputs for the per-shot diff that drives both `changeFromPrev` (within a
+// dial-in session) and `changeFromBest` (current vs best-recent). Carries
+// just the fields that change between adjacent shots in a dial-in flow —
+// grind setting, bean brand, dose, yield, duration, enjoyment. Anything
+// stable across an iteration session (grinder model, burrs, profile) is
+// out of scope for the diff.
+struct ShotDiffInputs {
+    QString grinderSetting;
+    QString beanBrand;
+    double doseWeightG = 0;
+    double finalWeightG = 0;
+    double durationSec = 0;
+    int enjoyment0to100 = 0;
+};
+
+// Build a "what moved between two shots" JSON diff. Direction is
+// `from -> to`: each non-empty field comparison emits "<from> -> <to>" for
+// strings, "<from> -> <to> <unit> (<+/-><delta>)" for numerics. Empty or
+// zero fields on either side are skipped — there's nothing to diff. Same
+// shape `shots_compare` produces; reused here so the AI sees a consistent
+// "what moved" envelope across changeFromPrev and changeFromBest.
+//
+// Pure function; safe to test without DB or settings.
+inline QJsonObject buildShotChangeDiff(const ShotDiffInputs& from,
+                                        const ShotDiffInputs& to)
+{
+    QJsonObject diff;
+    auto diffStr = [&](const QString& a, const QString& b, const QString& key) {
+        if (!a.isEmpty() && !b.isEmpty() && a != b)
+            diff[key] = QString("%1 -> %2").arg(a, b);
+    };
+    auto diffNum = [&](double a, double b, const QString& key, const QString& unit) {
+        if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
+            diff[key] = QString("%1 -> %2 %3 (%4%5)")
+                .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
+                .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
+    };
+    diffStr(from.grinderSetting, to.grinderSetting, QStringLiteral("grinderSetting"));
+    diffStr(from.beanBrand, to.beanBrand, QStringLiteral("beanBrand"));
+    diffNum(from.doseWeightG, to.doseWeightG, QStringLiteral("doseG"), QStringLiteral("g"));
+    diffNum(from.finalWeightG, to.finalWeightG, QStringLiteral("yieldG"), QStringLiteral("g"));
+    diffNum(from.durationSec, to.durationSec, QStringLiteral("durationSec"), QStringLiteral("s"));
+    diffNum(from.enjoyment0to100, to.enjoyment0to100,
+            QStringLiteral("enjoyment0to100"), QStringLiteral(""));
+    return diff;
+}
+
 } // namespace McpDialingHelpers
