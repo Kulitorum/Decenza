@@ -328,18 +328,13 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
 
 QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& messages)
 {
-    // Multi-turn conversations: the first user message carries the per-shot
-    // JSON payload built by ShotSummarizer::buildUserPrompt — stable across
-    // follow-up turns within the 5-minute Anthropic ephemeral cache TTL.
-    // Wrap its content in a structured block with cache_control so the
-    // second turn (and beyond) reads from cache instead of re-billing the
-    // ~2KB shot context. Net: a 4-turn dial-in session pays full input
-    // cost only for the new follow-up text per turn.
+    // The first user message carries the per-shot context, which is stable
+    // across follow-up turns within the cache TTL. Wrap its content in a
+    // structured block with cache_control so subsequent turns read from
+    // cache instead of re-billing the per-shot payload.
     //
-    // No-op when messages[0] is already structured (caller pre-wrapped) or
-    // when there's no first user message to wrap. The 25% cache-write
-    // surcharge on turn 1 amortizes once turn 2 reads; for the single-shot
-    // path (analyze, not analyzeConversation) we don't apply this.
+    // No-op when messages[0] isn't a plain-string user message (caller
+    // pre-wrapped, or first message isn't from user) — preserves input.
     if (messages.isEmpty()) return messages;
     QJsonObject first = messages[0].toObject();
     if (first.value("role").toString() != "user") return messages;

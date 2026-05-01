@@ -1142,15 +1142,16 @@ private slots:
         const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
         const QString prompt = summarizer.buildUserPrompt(summary);
 
-        // Post openspec migrate-advisor-user-prompt-to-json: the user prompt
-        // is now a JSON envelope. Bean/grinder identity lives in
-        // `currentBean.*`; profile identity lives in `currentProfile.*`. The
-        // "must not appear in prose" guarantees still hold against the
-        // prose body, which now lives under the `shotAnalysis` key.
+        // The user prompt is a JSON envelope. Bean/grinder identity lives
+        // in `currentBean.*`; profile identity lives in `profile.*` —
+        // matching dialing_get_context's response shape so a single system
+        // prompt reads correctly off either surface. The "must not appear
+        // in prose" guarantees still hold against the prose body, which
+        // now lives under the `shotAnalysis` key.
         const QJsonObject payload = QJsonDocument::fromJson(prompt.toUtf8()).object();
         const QString prose = payload.value(QStringLiteral("shotAnalysis")).toString();
         const QJsonObject currentBean = payload.value(QStringLiteral("currentBean")).toObject();
-        const QJsonObject currentProfile = payload.value(QStringLiteral("currentProfile")).toObject();
+        const QJsonObject profileBlock = payload.value(QStringLiteral("profile")).toObject();
 
         // Shot-variable data still emits in the prose body.
         QVERIFY2(prose.contains(QStringLiteral("**Dose**")),
@@ -1162,11 +1163,13 @@ private slots:
         QVERIFY2(prose.contains(QStringLiteral("**Grind setting**: 4.0")),
                  "shot-variable grinder *setting* still emits on a brand/model-free line");
 
-        // Profile identity is now structured under currentProfile and must
-        // NOT appear inside the prose body.
-        QCOMPARE(currentProfile.value(QStringLiteral("title")).toString(),
+        // Profile identity is structured under `profile` (not `currentProfile`
+        // — matches dialing_get_context's key naming).
+        QVERIFY2(!payload.contains(QStringLiteral("currentProfile")),
+                 "key must be `profile`, not `currentProfile` (system prompt teaches `result.profile.*`)");
+        QCOMPARE(profileBlock.value(QStringLiteral("title")).toString(),
                  QStringLiteral("80's Espresso"));
-        QCOMPARE(currentProfile.value(QStringLiteral("intent")).toString(),
+        QCOMPARE(profileBlock.value(QStringLiteral("intent")).toString(),
                  QStringLiteral("0.5–1.2 ml/s target through extraction"));
         QVERIFY2(!prose.contains(QStringLiteral("**Profile**:")) &&
                  !prose.contains(QStringLiteral("Profile:")),
@@ -1452,12 +1455,14 @@ private slots:
                  "shotAnalysis must preserve **Duration** marker");
     }
 
-    // openspec migrate-advisor-user-prompt-to-json: tastingFeedback flags.
-    // When all three are missing (no score, no notes, no refractometer),
-    // a `recommendation` field tells the AI to ask the user before
-    // suggesting changes. This is what makes the system prompt's
-    // `tastingFeedback.hasEnjoymentScore` reference load-bearing.
-    void buildUserPrompt_tastingFeedbackFlagsAndRecommendation()
+    // tastingFeedback ships only the structural booleans —
+    // hasEnjoymentScore / hasNotes / hasRefractometer. The "ask the user
+    // before suggesting changes" framing is taught once by the system
+    // prompt's "How to Read Structured Fields" section, not repeated as a
+    // per-call `recommendation` string. Mirrors dialing_get_context's
+    // tastingFeedback shape so a single system prompt reads correctly off
+    // either surface.
+    void buildUserPrompt_tastingFeedbackBooleansOnly()
     {
         QVariantMap shot = makeHealthyShotMap();
         ShotSummarizer summarizer;
@@ -1472,8 +1477,9 @@ private slots:
         QCOMPARE(tf.value(QStringLiteral("hasEnjoymentScore")).toBool(), false);
         QCOMPARE(tf.value(QStringLiteral("hasNotes")).toBool(), false);
         QCOMPARE(tf.value(QStringLiteral("hasRefractometer")).toBool(), false);
-        QVERIFY2(tf.contains(QStringLiteral("recommendation")),
-                 "missing tasting feedback must surface a recommendation field");
+        QVERIFY2(!tf.contains(QStringLiteral("recommendation")),
+                 "per-call recommendation framing was moved to the system prompt — "
+                 "block must NOT include a recommendation field (matches dialing_get_context)");
     }
 
     // openspec migrate-advisor-user-prompt-to-json: HistoryBlock mode

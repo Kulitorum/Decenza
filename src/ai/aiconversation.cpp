@@ -611,16 +611,15 @@ void AIConversation::trimHistory()
 
 QString AIConversation::summarizeShotMessage(const QString& content)
 {
-    // Detect shot messages by content markers (works against either the new
-    // JSON envelope, which contains the literal "Shot Summary" inside its
-    // shotAnalysis field, or the legacy prose body).
-    if (!content.contains("Shot Summary") && !content.contains("Here's my latest shot"))
-        return QString();
-
     // Run regex extraction against the prose body. extractShotProse pulls
     // `shotAnalysis` from a JSON envelope when present; legacy prose-only
-    // messages pass through unchanged.
+    // messages pass through unchanged. Detection markers match against the
+    // extracted prose, not the raw content — otherwise the guard depends on
+    // JSON serialization preserving the literal substring inside the
+    // shotAnalysis value, which is fragile if formatting ever changes.
     const QString prose = extractShotProse(content);
+    if (!prose.contains("Shot Summary") && !prose.contains("Here's my latest shot"))
+        return QString();
 
     // Extract shot label from "## Shot (date)" prefix
     QString shotLabel;

@@ -5,6 +5,7 @@
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
 #include "../core/grinderaliases.h"
+#include "../mcp/mcptools_dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
 
 #include <cmath>
 #include <algorithm>
@@ -542,24 +543,6 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     return summary;
 }
 
-// Bean-freshness instruction text — kept in lockstep with the dialing
-// helper so a single instruction shape reaches the LLM via either path.
-// See mcptools_dialing_helpers.h::kBeanFreshnessInstruction.
-static constexpr const char* kBeanFreshnessInstruction =
-    "Calendar age from roastDate is NOT freshness — many users freeze and "
-    "thaw weekly. ASK the user about storage before applying any "
-    "bean-aging guidance.";
-
-static QJsonObject buildBeanFreshnessBlock(const QString& roastDate)
-{
-    if (roastDate.isEmpty()) return QJsonObject();
-    QJsonObject block;
-    block["roastDate"] = roastDate;
-    block["freshnessKnown"] = false;
-    block["instruction"] = QString::fromUtf8(kBeanFreshnessInstruction);
-    return block;
-}
-
 static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
 {
     QJsonObject bean;
@@ -572,7 +555,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
     bean["grinderSetting"] = summary.grinderSetting;
     bean["doseWeightG"] = summary.doseWeight;
 
-    const QJsonObject freshness = buildBeanFreshnessBlock(summary.roastDate);
+    const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(summary.roastDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
 
@@ -603,20 +586,15 @@ static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
 
 static QJsonObject buildTastingFeedbackBlock(const ShotSummary& summary)
 {
+    // Only structural booleans — the per-call recommendation framing is
+    // taught once in the system prompt's "How to read structured fields"
+    // section, not repeated per call. Mirrors dialing_get_context's
+    // tastingFeedback shape so a single system prompt reads correctly off
+    // either surface.
     QJsonObject tf;
-    const bool hasScore = summary.enjoymentScore > 0;
-    const bool hasNotes = !summary.tastingNotes.isEmpty();
-    const bool hasRefractometer = summary.drinkTds > 0 || summary.drinkEy > 0;
-    tf["hasEnjoymentScore"] = hasScore;
-    tf["hasNotes"] = hasNotes;
-    tf["hasRefractometer"] = hasRefractometer;
-    if (!hasScore || !hasNotes || !hasRefractometer) {
-        tf["recommendation"] = QStringLiteral(
-            "Ask the user how the shot tasted (1-100 score, brief flavor "
-            "notes, TDS reading if available) before suggesting changes. "
-            "Curve-only analysis without taste feedback misses the variable "
-            "that matters most.");
-    }
+    tf["hasEnjoymentScore"] = summary.enjoymentScore > 0;
+    tf["hasNotes"] = !summary.tastingNotes.isEmpty();
+    tf["hasRefractometer"] = summary.drinkTds > 0 || summary.drinkEy > 0;
     return tf;
 }
 
@@ -630,14 +608,16 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary, RenderMode m
     }
 
     // Standalone mode: JSON envelope so the system prompt's references to
-    // `currentBean.*`, `currentProfile.*`, `tastingFeedback.*`, etc., land
-    // on actual fields. The existing prose body lives verbatim under
+    // `currentBean.*`, `profile.*`, `tastingFeedback.*`, etc., land on
+    // actual fields. The existing prose body lives verbatim under
     // `shotAnalysis` — preserves the deterministic detector lines,
     // phase data, etc. in the form the LLM (and the regex consumers in
     // AIConversation::processShotForConversation) already understand.
+    // Key names mirror dialing_get_context's response shape so a single
+    // system prompt reads correctly off either surface.
     QJsonObject payload;
     payload["currentBean"] = buildCurrentBeanBlock(summary);
-    payload["currentProfile"] = buildCurrentProfileBlock(summary);
+    payload["profile"] = buildCurrentProfileBlock(summary);
     payload["tastingFeedback"] = buildTastingFeedbackBlock(summary);
     payload["shotAnalysis"] = renderShotAnalysisProse(summary, mode);
     return QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Indented));

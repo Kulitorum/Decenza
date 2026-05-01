@@ -112,13 +112,10 @@ struct ShotSummary {
     double recommendedDoseG = 0;
 
     // Fields whose value was inferred from a fallback shot rather than
-    // entered by the user. Empty for the in-app advisor today (no fallback
-    // logic at this call site); populated by future code paths that route
-    // through dialing_get_context's buildCurrentBean helper.
+    // entered by the user. Empty when no inference happened. The advisor's
+    // user prompt only emits inferredFields/inferredFromShotId when this
+    // list is non-empty AND the id is > 0.
     QStringList inferredFields;
-
-    // Shot id the inferred fields were sourced from (0 when no inference
-    // happened — index-aligned with inferredFields being empty).
     qint64 inferredFromShotId = 0;
 
     // DYE metadata (from user input)
@@ -171,20 +168,18 @@ public:
     // Generate user prompt from summary.
     //
     // - `Standalone` mode (default): returns a JSON-encoded envelope
-    //   carrying currentBean / currentProfile / tastingFeedback / shotAnalysis.
-    //   The `shotAnalysis` field embeds the same prose body HistoryBlock mode
-    //   produces, so regex consumers (AIConversation::processShotForConversation)
-    //   that previously matched on prose still find their substrings after
-    //   parsing the JSON envelope first.
+    //   carrying currentBean / profile / tastingFeedback / shotAnalysis.
+    //   Key names mirror dialing_get_context's response shape so a single
+    //   system prompt reads correctly off either surface. The `shotAnalysis`
+    //   field embeds the same prose body HistoryBlock mode produces, so
+    //   regex consumers in AIConversation that previously matched on prose
+    //   still find their substrings after parsing the JSON envelope first.
     // - `HistoryBlock` mode: returns prose only, no JSON envelope. The caller
     //   wraps each block in a `### Shot (date)` header so JSON-per-shot would
     //   be unreadable when concatenated.
     //
-    // Per openspec migrate-advisor-user-prompt-to-json: the JSON shape mirrors
-    // dialing_get_context's response so the system prompt's references to
-    // structured fields land on actual data. Output is byte-stable for
-    // identical input — no wall-clock or per-call values appear in the
-    // payload.
+    // Output is byte-stable for identical input — no wall-clock or per-call
+    // values appear in the payload, so prompt caching keeps hitting.
     QString buildUserPrompt(const ShotSummary& summary,
                             RenderMode mode = RenderMode::Standalone) const;
 
