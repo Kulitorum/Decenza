@@ -35,7 +35,7 @@ struct PendingConfirmation {
     QString toolName;
     QJsonObject arguments;
     int accessLevel;
-    QString protocolVersion;  // captured at request time so the held response gates spec-versioned fields correctly
+    QString protocolVersion = QStringLiteral("2024-11-05");  // captured at request time; default to legacy gating so a missed assignment never silently emits 2025-spec fields
 };
 
 class McpServer : public QObject {
@@ -81,6 +81,9 @@ public:
     // Registries (accessible for tool/resource registration in later phases)
     McpToolRegistry* toolRegistry() const { return m_toolRegistry; }
     McpResourceRegistry* resourceRegistry() const { return m_resourceRegistry; }
+
+    // Protocol versions this server can negotiate. First entry is preferred.
+    static const QStringList& supportedProtocolVersions();
 
 signals:
     void activeSessionCountChanged();

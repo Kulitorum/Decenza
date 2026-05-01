@@ -568,6 +568,75 @@ private slots:
         QVERIFY(hasText);
     }
 
+    // Symmetric presence at 2025-06-18: structuredContent and resource_link
+    // were introduced in this revision. If the threshold ever drifts up to
+    // 2025-11-25 (e.g. someone "matches the icons gate"), 2025-06-18 clients
+    // would silently lose both. This test pins them at exactly 2025-06-18.
+    void toolsCallAt2025_06_18EmitsStructuredContentAndResourceLinks()
+    {
+        McpServer server;
+        server.toolRegistry()->registerTool(
+            "stub_listy_tool",
+            "Returns _resourceLinks side-channel",
+            QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+            [](const QJsonObject&) -> QJsonObject {
+                QJsonObject link{{"uri", "decenza://shots/42"}, {"title", "#42"}};
+                return QJsonObject{{"items", QJsonArray{42}},
+                                   {"_resourceLinks", QJsonArray{link}}};
+            },
+            "read");
+
+        const QString sid = openSession(server, "2025-06-18");
+        QJsonObject params;
+        params["name"] = "stub_listy_tool";
+        params["arguments"] = QJsonObject{};
+        auto resp = sendHttp(server, "POST", rpcBody("tools/call", params, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        QVERIFY2(result.contains("structuredContent"),
+                 "tools/call at 2025-06-18 must emit structuredContent");
+        const QJsonArray content = result["content"].toArray();
+        bool hasResourceLink = false;
+        for (const QJsonValue& v : content)
+            if (v.toObject()["type"].toString() == "resource_link") { hasResourceLink = true; break; }
+        QVERIFY2(hasResourceLink,
+                 "tools/call at 2025-06-18 must emit resource_link blocks");
+    }
+
+    // Mirror toolsListIncludesTitleAndIcons for resources/list. Without a
+    // 2025-11-25 presence test on the resource side, a regression that re-
+    // introduced `"sizes":"any"` (bare string) on resource icons would be
+    // invisible to CI even though it would zero-out resources for strict
+    // clients exactly the way the tools-side bug did.
+    void resourcesListAt2025_11_25EmitsTitleAndIcons()
+    {
+        McpServer server;
+        server.resourceRegistry()->registerResource(
+            "decenza://shots/recent", "Recent Shots", "Test resource",
+            "application/json", []() -> QJsonObject { return QJsonObject{}; });
+
+        const QString sid = openSession(server, "2025-11-25");
+        auto resp = sendHttp(server, "POST", rpcBody("resources/list", {}, 2), sid);
+        QCOMPARE(resp.statusCode, 200);
+
+        const QJsonArray resources = resp.jsonBody["result"].toObject()["resources"].toArray();
+        QCOMPARE(resources.size(), 1);
+        const QJsonObject r = resources[0].toObject();
+
+        QVERIFY2(r.contains("title"),
+                 "resources/list at 2025-06-18+ must include title");
+        const QJsonArray icons = r["icons"].toArray();
+        QVERIFY2(!icons.isEmpty(),
+                 "resources/list at 2025-11-25 must include at least one icon");
+        const QJsonObject icon = icons[0].toObject();
+        // Same icon.sizes shape pin as the tools-side test.
+        const QJsonValue sizes = icon["sizes"];
+        QVERIFY2(sizes.isArray(), "resource icon.sizes must be an array (string[])");
+        QVERIFY(!sizes.toArray().isEmpty());
+        QVERIFY(sizes.toArray()[0].isString());
+    }
+
     void resourcesReadAt2024_11_05OmitsStructuredContent()
     {
         McpServer server;
