@@ -587,7 +587,7 @@ Page {
                 border.color: isSelected(model.id) ? Theme.primaryColor : "transparent"
                 border.width: isSelected(model.id) ? 2 : 0
 
-                property int shotEnjoyment: model.enjoyment || 0
+                property int shotEnjoyment: model.enjoyment0to100 || 0
 
                 // Accessibility: row is a button whose primary action opens shot detail.
                 // Note: visual tap toggles selection (line 696); TalkBack double-tap opens detail

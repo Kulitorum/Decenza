@@ -423,6 +423,13 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 return result;
             }
 
+            if (filename == profileManager->baseProfileName()) {
+                result["error"] = "Cannot delete the currently-active profile '" + filename +
+                    "'. Call profiles_set_active with a different profile first, then retry.";
+                result["filename"] = filename;
+                return result;
+            }
+
             bool deleted = profileManager->deleteProfile(filename);
             if (deleted) {
                 result["success"] = true;

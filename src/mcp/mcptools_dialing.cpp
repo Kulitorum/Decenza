@@ -107,7 +107,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             h["doseG"] = shot.doseWeightG;
                             h["yieldG"] = shot.finalWeightG;
                             h["durationSec"] = shot.durationSec;
-                            h["enjoyment0to100"] = shot.enjoyment;
+                            h["enjoyment0to100"] = shot.enjoyment0to100;
                             h["grinderSetting"] = shot.grinderSetting;
                             h["grinderModel"] = shot.grinderModel;
                             h["grinderBrand"] = shot.grinderBrand;
@@ -188,7 +188,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     shotSummary["doseG"] = sd.doseWeightG;
                     shotSummary["yieldG"] = sd.finalWeightG;
                     shotSummary["durationSec"] = sd.durationSec;
-                    shotSummary["enjoyment0to100"] = sd.enjoyment;
+                    shotSummary["enjoyment0to100"] = sd.enjoyment0to100;
                     shotSummary["notes"] = sd.espressoNotes;
                     shotSummary["beanBrand"] = sd.beanBrand;
                     shotSummary["beanType"] = sd.beanType;

@@ -49,7 +49,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         // safety on every field name read below.
         const ShotProjection shot = ShotProjection::fromVariantMap(v.toMap());
 
-        int rating = qRound(static_cast<double>(shot.enjoyment));
+        int rating = qRound(static_cast<double>(shot.enjoyment0to100));
 
         double ratio = 0;
         if (shot.doseWeightG > 0) {
@@ -116,8 +116,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             }
         }
 
-        const double drinkTds = shot.drinkTds;
-        const double drinkEy = shot.drinkEy;
+        const double drinkTds = shot.drinkTdsPct;
+        const double drinkEy = shot.drinkEyPct;
 
         rows += QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
@@ -1032,7 +1032,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         ratio = shot.finalWeightG / shot.doseWeightG;
     }
 
-    int rating = qRound(static_cast<double>(shot.enjoyment) / 20.0);
+    int rating = qRound(static_cast<double>(shot.enjoyment0to100) / 20.0);
     QString stars;
     for (int i = 0; i < 5; i++) {
         stars += (i < rating) ? "&#9733;" : "&#9734;";
@@ -2118,13 +2118,13 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     .arg(jsEscape(shot.espressoNotes))                                               // %31 espressoNotes
     .arg(shot.doseWeightG, 0, 'f', 1)                                                // %32 doseWeightG
     .arg(shot.finalWeightG, 0, 'f', 1)                                               // %33 finalWeightG
-    .arg(shot.enjoyment)                                                             // %34 enjoyment
+    .arg(shot.enjoyment0to100)                                                       // %34 enjoyment
     .arg(jsEscape(shot.barista))                                                     // %35 barista
     .arg(jsEscape(shot.beverageType.isEmpty()
                   ? QStringLiteral("espresso")
                   : shot.beverageType))                                              // %36 beverageType
-    .arg(shot.drinkTds, 0, 'f', 2)                                                   // %37 drinkTds
-    .arg(shot.drinkEy, 0, 'f', 1)                                                    // %38 drinkEy
+    .arg(shot.drinkTdsPct, 0, 'f', 2)                                                // %37 drinkTds
+    .arg(shot.drinkEyPct, 0, 'f', 1)                                                 // %38 drinkEy
     .arg(resistanceData)                                                             // %39 resistance
     .arg(jsEscape(shot.grinderBrand))                                                // %40 grinderBrand
     .arg(jsEscape(shot.grinderBurrs));                                               // %41 grinderBurrs

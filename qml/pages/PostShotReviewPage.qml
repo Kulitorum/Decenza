@@ -135,9 +135,9 @@ Page {
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
                 if (editDrinkTds === 0)
-                    editDrinkTds = editShotData.drinkTds ?? 0
-                editDrinkEy = editShotData.drinkEy ?? 0
-                editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
+                    editDrinkTds = editShotData.drinkTdsPct ?? 0
+                editDrinkEy = editShotData.drinkEyPct ?? 0
+                editEnjoyment = editShotData.enjoyment0to100 ?? 0  // Use ?? to avoid treating 0 as falsy
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
@@ -240,9 +240,9 @@ Page {
         editBarista !== (editShotData.barista || "") ||
         editDoseWeight !== ((editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Settings.dye.dyeBeanWeight) ||
         editDrinkWeight !== (editShotData.finalWeightG ?? 0) ||
-        editDrinkTds !== (editShotData.drinkTds ?? 0) ||
-        editDrinkEy !== (editShotData.drinkEy ?? 0) ||
-        editEnjoyment !== (editShotData.enjoyment ?? 0) ||
+        editDrinkTds !== (editShotData.drinkTdsPct ?? 0) ||
+        editDrinkEy !== (editShotData.drinkEyPct ?? 0) ||
+        editEnjoyment !== (editShotData.enjoyment0to100 ?? 0) ||
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso")
     )
@@ -1339,9 +1339,9 @@ Page {
                             "barista": editBarista,
                             "doseWeightG": editDoseWeight,
                             "finalWeightG": editDrinkWeight,
-                            "drinkTds": editDrinkTds,
-                            "drinkEy": editDrinkEy,
-                            "enjoyment": editEnjoyment,
+                            "drinkTdsPct": editDrinkTds,
+                            "drinkEyPct": editDrinkEy,
+                            "enjoyment0to100": editEnjoyment,
                             "espressoNotes": editNotes,
                             "profileName": editShotData.profileName || ""
                         }
@@ -1362,9 +1362,9 @@ Page {
                             "barista": editBarista,
                             "doseWeightG": editDoseWeight,
                             "finalWeightG": editDrinkWeight,
-                            "drinkTds": editDrinkTds,
-                            "drinkEy": editDrinkEy,
-                            "enjoyment": editEnjoyment,
+                            "drinkTdsPct": editDrinkTds,
+                            "drinkEyPct": editDrinkEy,
+                            "enjoyment0to100": editEnjoyment,
                             "espressoNotes": editNotes
                         })
                         MainController.visualizer.uploadShotFromHistory(uploadData)

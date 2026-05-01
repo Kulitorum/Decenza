@@ -52,7 +52,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.doseWeightG = record.summary.doseWeight;
     p.beanBrand = record.summary.beanBrand;
     p.beanType = record.summary.beanType;
-    p.enjoyment = record.summary.enjoyment;
+    p.enjoyment0to100 = record.summary.enjoyment;
     p.hasVisualizerUpload = record.summary.hasVisualizerUpload;
     p.beverageType = record.summary.beverageType;
     p.roastDate = record.roastDate;
@@ -61,8 +61,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.grinderModel = record.grinderModel;
     p.grinderBurrs = record.grinderBurrs;
     p.grinderSetting = record.grinderSetting;
-    p.drinkTds = record.drinkTds;
-    p.drinkEy = record.drinkEy;
+    p.drinkTdsPct = record.drinkTds;
+    p.drinkEyPct = record.drinkEy;
     p.espressoNotes = record.espressoNotes;
     p.beanNotes = record.beanNotes;
     p.barista = record.barista;

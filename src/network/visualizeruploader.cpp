@@ -195,9 +195,9 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         if (!combined.isEmpty()) shotObj["grinder_model"] = combined;
     }
     setStr("grinder_setting", &ShotProjection::grinderSetting);
-    setDouble("drink_tds", &ShotProjection::drinkTds);
-    setDouble("drink_ey", &ShotProjection::drinkEy);
-    setInt("espresso_enjoyment", &ShotProjection::enjoyment);
+    setDouble("drink_tds", &ShotProjection::drinkTdsPct);
+    setDouble("drink_ey", &ShotProjection::drinkEyPct);
+    setInt("espresso_enjoyment", &ShotProjection::enjoyment0to100);
     setStr("espresso_notes", &ShotProjection::espressoNotes);
     setStr("barista", &ShotProjection::barista);
     setStr("profile_title", &ShotProjection::profileName);
@@ -1136,10 +1136,10 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
 
     // Shot info
     QJsonObject shot;
-    if (shotData.enjoyment > 0) shot["enjoyment"] = shotData.enjoyment;
+    if (shotData.enjoyment0to100 > 0) shot["enjoyment"] = shotData.enjoyment0to100;
     if (!shotData.espressoNotes.isEmpty()) shot["notes"] = shotData.espressoNotes;
-    if (shotData.drinkTds > 0) shot["tds"] = shotData.drinkTds;
-    if (shotData.drinkEy > 0) shot["ey"] = shotData.drinkEy;
+    if (shotData.drinkTdsPct > 0) shot["tds"] = shotData.drinkTdsPct;
+    if (shotData.drinkEyPct > 0) shot["ey"] = shotData.drinkEyPct;
     meta["shot"] = shot;
 
     // Grinder info (combine brand+model for visualizer compatibility)
@@ -1173,9 +1173,9 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (!shotData.grinderSetting.isEmpty()) settings["grinder_setting"] = shotData.grinderSetting;
     if (shotData.doseWeightG > 0) settings["grinder_dose_weight"] = shotData.doseWeightG;
     if (finalWeight > 0) settings["drink_weight"] = finalWeight;
-    if (shotData.drinkTds > 0) settings["drink_tds"] = shotData.drinkTds;
-    if (shotData.drinkEy > 0) settings["drink_ey"] = shotData.drinkEy;
-    if (shotData.enjoyment > 0) settings["espresso_enjoyment"] = shotData.enjoyment;
+    if (shotData.drinkTdsPct > 0) settings["drink_tds"] = shotData.drinkTdsPct;
+    if (shotData.drinkEyPct > 0) settings["drink_ey"] = shotData.drinkEyPct;
+    if (shotData.enjoyment0to100 > 0) settings["espresso_enjoyment"] = shotData.enjoyment0to100;
     if (!shotData.espressoNotes.isEmpty()) settings["espresso_notes"] = shotData.espressoNotes;
 
     if (!shotData.barista.isEmpty()) settings["barista"] = shotData.barista;
