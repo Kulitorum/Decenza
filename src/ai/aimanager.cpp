@@ -608,21 +608,35 @@ void AIManager::emitRecentShotContext(
 
         if (setupShared && (!setupGrinderBrand.isEmpty() || !setupGrinderModel.isEmpty()
                             || !setupBeanBrand.isEmpty() || !setupBeanType.isEmpty())) {
-            result += "### Setup: ";
-            if (!setupGrinderBrand.isEmpty()) result += setupGrinderBrand;
+            // Build each segment as a complete fragment, then join with " "
+            // — that way no segment owns a leading space, and absent fields
+            // don't produce double-space artifacts (e.g. burrs without a
+            // grinder brand+model used to render "### Setup:  with 63mm").
+            QStringList parts;
+            QString grinderName;
+            if (!setupGrinderBrand.isEmpty()) grinderName = setupGrinderBrand;
             if (!setupGrinderModel.isEmpty()) {
-                if (!setupGrinderBrand.isEmpty()) result += " ";
-                result += setupGrinderModel;
+                if (!grinderName.isEmpty()) grinderName += " ";
+                grinderName += setupGrinderModel;
             }
-            if (!setupGrinderBurrs.isEmpty())
-                result += " with " + setupGrinderBurrs;
-            if (!setupBeanBrand.isEmpty() || !setupBeanType.isEmpty()) {
-                result += " on " + setupBeanBrand;
-                if (!setupBeanBrand.isEmpty() && !setupBeanType.isEmpty())
-                    result += " - ";
-                result += setupBeanType;
+            if (!setupGrinderBurrs.isEmpty()) {
+                grinderName += grinderName.isEmpty()
+                    ? setupGrinderBurrs
+                    : " with " + setupGrinderBurrs;
             }
-            result += "\n\n";
+            if (!grinderName.isEmpty()) parts << grinderName;
+
+            QString beanName;
+            if (!setupBeanBrand.isEmpty() && !setupBeanType.isEmpty())
+                beanName = setupBeanBrand + " - " + setupBeanType;
+            else if (!setupBeanBrand.isEmpty())
+                beanName = setupBeanBrand;
+            else if (!setupBeanType.isEmpty())
+                beanName = setupBeanType;
+            if (!beanName.isEmpty())
+                parts << (parts.isEmpty() ? beanName : "on " + beanName);
+
+            result += "### Setup: " + parts.join(" ") + "\n\n";
         }
 
         result += shotSections.join("\n\n");
