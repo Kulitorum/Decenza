@@ -526,13 +526,26 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
 
             fields.profileTitle = profile.value(QStringLiteral("title")).toString();
 
-            // Detector flags still come from substring search on the
-            // prose body — `ShotSummary` does not yet carry channeling
-            // as a scalar boolean. Issue #1037 will absorb these into a
-            // structured detectorObservations[] array.
-            const QString prose = obj.value(QStringLiteral("shotAnalysis")).toString();
-            fields.channelingDetected = prose.contains(QStringLiteral("Channeling detected"));
-            fields.temperatureUnstable = prose.contains(QStringLiteral("Temperature unstable"));
+            // Detector flags: prefer the structured `shot.detectorObservations[]`
+            // array (issue #1037). Fall back to substring search on the
+            // prose `shotAnalysis` body when the array is absent (older
+            // envelopes from before #1037).
+            const QJsonArray observations = shot.value(
+                QStringLiteral("detectorObservations")).toArray();
+            if (!observations.isEmpty()) {
+                for (const QJsonValue& v : observations) {
+                    const QString text = v.toObject().value(
+                        QStringLiteral("text")).toString();
+                    if (text.contains(QStringLiteral("Channeling detected")))
+                        fields.channelingDetected = true;
+                    if (text.contains(QStringLiteral("Temperature unstable")))
+                        fields.temperatureUnstable = true;
+                }
+            } else {
+                const QString prose = obj.value(QStringLiteral("shotAnalysis")).toString();
+                fields.channelingDetected = prose.contains(QStringLiteral("Channeling detected"));
+                fields.temperatureUnstable = prose.contains(QStringLiteral("Temperature unstable"));
+            }
 
             fields.fromStructuredEnvelope = true;
             return fields;

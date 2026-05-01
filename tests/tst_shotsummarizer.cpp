@@ -1553,6 +1553,87 @@ private slots:
         shot["profileName"] = QStringLiteral("80's Espresso");
         return shot;
     }
+
+    // ---------------------------------------------------------------------
+    // Structured per-phase JSON (issue #1037). The user-prompt envelope's
+    // `shot` block now carries `phases[]`, `detectorObservations[]`,
+    // and `overallPeaks` so consumers can iterate over phase data and
+    // detector signals without pattern-matching prose.
+    // ---------------------------------------------------------------------
+    void buildUserPrompt_shotBlock_carriesStructuredPhasesAndDetectors()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject payload = QJsonDocument::fromJson(prompt.toUtf8()).object();
+        QVERIFY(payload.contains(QStringLiteral("shot")));
+
+        const QJsonObject shotBlock = payload.value(QStringLiteral("shot")).toObject();
+        QVERIFY2(shotBlock.contains(QStringLiteral("overallPeaks")),
+                 "shot.overallPeaks must ship for any shot with a non-trivial pressure or flow curve");
+        const QJsonObject overall = shotBlock.value(QStringLiteral("overallPeaks")).toObject();
+        QVERIFY(overall.contains(QStringLiteral("pressureBar")));
+        const QJsonObject pPeak = overall.value(QStringLiteral("pressureBar")).toObject();
+        QVERIFY(pPeak.contains(QStringLiteral("value")));
+        QVERIFY(pPeak.contains(QStringLiteral("atSec")));
+
+        QVERIFY2(shotBlock.contains(QStringLiteral("phases")),
+                 "shot.phases must ship when the shot has phase markers");
+        const QJsonArray phases = shotBlock.value(QStringLiteral("phases")).toArray();
+        QVERIFY2(!phases.isEmpty(),
+                 "phases array must be non-empty for a healthy shot");
+        const QJsonObject firstPhase = phases[0].toObject();
+        QVERIFY(firstPhase.contains(QStringLiteral("name")));
+        QVERIFY(firstPhase.contains(QStringLiteral("durationSec")));
+        QVERIFY(firstPhase.contains(QStringLiteral("controlMode")));
+        // Human-readable enum, not a numeric code.
+        const QString controlMode = firstPhase.value(QStringLiteral("controlMode")).toString();
+        QVERIFY2(controlMode == QStringLiteral("flow") || controlMode == QStringLiteral("pressure"),
+                 qPrintable(QString("controlMode must be 'flow' or 'pressure', got: %1").arg(controlMode)));
+    }
+
+    // detectorObservations[] omits the `verdict` line so the LLM still
+    // reasons independently from raw detector signals (see the long
+    // rationale in renderShotAnalysisProse). The deterministic verdict
+    // would anchor the LLM on a pre-cooked answer.
+    void buildUserPrompt_shotBlock_detectorObservationsOmitsVerdict()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+        // Inject a synthetic summary line set so the verdict-suppression
+        // contract is exercised regardless of the analyzer's classification.
+        QVariantList lines;
+        lines.append(QVariantMap{
+            {"type", QStringLiteral("warning")},
+            {"text", QStringLiteral("Channeling detected during pour")}});
+        lines.append(QVariantMap{
+            {"type", QStringLiteral("verdict")},
+            {"text", QStringLiteral("Coarsen significantly.")}});
+        shot["summaryLines"] = lines;
+
+        ShotSummarizer summarizer;
+        ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+        // Force the synthetic summary so the test does not depend on the
+        // detector pipeline's classification of the healthy fixture.
+        summary.summaryLines = lines;
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject payload = QJsonDocument::fromJson(prompt.toUtf8()).object();
+        const QJsonArray detectors = payload.value(QStringLiteral("shot")).toObject()
+            .value(QStringLiteral("detectorObservations")).toArray();
+        bool sawWarning = false;
+        bool sawVerdict = false;
+        for (const QJsonValue& v : detectors) {
+            const QString type = v.toObject().value(QStringLiteral("type")).toString();
+            if (type == QStringLiteral("warning")) sawWarning = true;
+            if (type == QStringLiteral("verdict")) sawVerdict = true;
+        }
+        QVERIFY2(sawWarning, "detectorObservations must carry warning lines");
+        QVERIFY2(!sawVerdict, "detectorObservations must NOT carry the verdict line");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)

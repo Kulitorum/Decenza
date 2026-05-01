@@ -884,6 +884,31 @@ private slots:
         QVERIFY(fields.temperatureUnstable);
     }
 
+    // After issue #1037, the structured `shot.detectorObservations[]`
+    // array is the canonical surface for detector flags. extractShotFields
+    // prefers it over substring-searching the prose body — even when the
+    // shotAnalysis prose says the opposite.
+    void aiConversation_extractShotFields_detectorFlagsPreferStructuredArray()
+    {
+        const QString content = QStringLiteral(
+            "{"
+            "  \"shot\": {"
+            "    \"doseG\": 18.0,"
+            "    \"detectorObservations\": ["
+            "      {\"type\": \"warning\", \"text\": \"Channeling detected during pour\"}"
+            "    ]"
+            "  },"
+            "  \"shotAnalysis\": \"## Shot Summary\\nNo issues observed.\""
+            "}");
+
+        const auto fields = AIConversation::extractShotFields(content);
+        QVERIFY(fields.fromStructuredEnvelope);
+        QVERIFY2(fields.channelingDetected,
+                 "detectorObservations[] takes precedence over the prose body");
+        QVERIFY2(!fields.temperatureUnstable,
+                 "no temp-unstable observation present, so the flag must stay false");
+    }
+
     void aiConversation_extractShotFields_legacyProseFallsBackToRegex()
     {
         const QString content = QStringLiteral(
