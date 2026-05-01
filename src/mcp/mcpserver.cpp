@@ -632,6 +632,14 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     if (session)
         session->setProtocolVersion(negotiatedVersion);
 
+    const QJsonObject clientInfo = params["clientInfo"].toObject();
+    qInfo().nospace()
+        << "McpServer: initialize — client=" << clientInfo["name"].toString()
+        << " v" << clientInfo["version"].toString()
+        << " requested=" << clientVersion
+        << " negotiated=" << negotiatedVersion
+        << " session=" << (session ? session->id() : QStringLiteral("(none)"));
+
     QJsonObject result;
     result["protocolVersion"] = negotiatedVersion;
     result["capabilities"] = serverCapabilities;
