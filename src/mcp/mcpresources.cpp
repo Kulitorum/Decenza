@@ -208,8 +208,10 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                             shot["doseG"] = query.value("dose_weight").toDouble();
                             shot["yieldG"] = query.value("final_weight").toDouble();
                             shot["durationSec"] = query.value("duration_seconds").toDouble();
-                            shot["tdsPercent"] = query.value("drink_tds").toDouble();
-                            shot["extractionYieldPercent"] = query.value("drink_ey").toDouble();
+                            const double tds = query.value("drink_tds").toDouble();
+                            const double ey = query.value("drink_ey").toDouble();
+                            shot["tdsPercent"] = tds > 0.0 ? QJsonValue(tds) : QJsonValue(QJsonValue::Null);
+                            shot["extractionYieldPercent"] = ey > 0.0 ? QJsonValue(ey) : QJsonValue(QJsonValue::Null);
                             shots.append(shot);
                         }
                     }
