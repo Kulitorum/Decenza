@@ -288,36 +288,60 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         const QString beanBrand = dbResult.shotData.beanBrand;
                         GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
                             db, grinderModel, beverageType, beanBrand);
-                        if (!ctx.settingsObserved.isEmpty()) {
+
+                        // Cross-bean fallback for sparse OR empty
+                        // bean-scoped results. The pre-PR shape always
+                        // populated grinderContext from the unscoped
+                        // query; tightening to bean-scoped now would
+                        // strand users whose resolved shot has a bean
+                        // brand never used elsewhere (imported shots,
+                        // novel-bean first shot before save) — the bean-
+                        // scoped query returns 0 rows and they'd lose
+                        // grinderContext entirely. Compute the fallback
+                        // up front whenever we filtered by bean, so it's
+                        // available for both the sparse (size < 2) and
+                        // empty (size == 0) paths below.
+                        bool haveCrossBean = false;
+                        GrinderContext crossBean;
+                        if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
+                            crossBean = ShotHistoryStorage::queryGrinderContext(
+                                db, grinderModel, beverageType);
+                            haveCrossBean = !crossBean.settingsObserved.isEmpty();
+                        }
+
+                        if (!ctx.settingsObserved.isEmpty() || haveCrossBean) {
                             QJsonObject grinderCtx;
-                            grinderCtx["model"] = ctx.model;
-                            grinderCtx["beverageType"] = ctx.beverageType;
+                            // When bean-scoped is empty but cross-bean
+                            // has data, fall back to the cross-bean ctx
+                            // for the primary settingsObserved + range
+                            // fields so the AI gets the user's overall
+                            // range (the closest available signal). The
+                            // bean-scoped values stay empty / absent.
+                            const GrinderContext& primary =
+                                ctx.settingsObserved.isEmpty() ? crossBean : ctx;
+                            grinderCtx["model"] = primary.model;
+                            grinderCtx["beverageType"] = primary.beverageType;
                             QJsonArray settingsArr;
-                            for (const auto& s : ctx.settingsObserved)
+                            for (const auto& s : primary.settingsObserved)
                                 settingsArr.append(s);
                             grinderCtx["settingsObserved"] = settingsArr;
-                            grinderCtx["isNumeric"] = ctx.allNumeric;
-                            if (ctx.allNumeric && ctx.maxSetting > ctx.minSetting) {
-                                grinderCtx["minSetting"] = ctx.minSetting;
-                                grinderCtx["maxSetting"] = ctx.maxSetting;
-                                grinderCtx["smallestStep"] = ctx.smallestStep;
+                            grinderCtx["isNumeric"] = primary.allNumeric;
+                            if (primary.allNumeric && primary.maxSetting > primary.minSetting) {
+                                grinderCtx["minSetting"] = primary.minSetting;
+                                grinderCtx["maxSetting"] = primary.maxSetting;
+                                grinderCtx["smallestStep"] = primary.smallestStep;
                             }
-
-                            // Sparse bean-scoped history → also surface
-                            // the cross-bean range. Only do the second
-                            // query when both (a) the bean filter was
-                            // active and (b) the bean-scoped result is
-                            // sparse — otherwise the second query is
-                            // redundant.
-                            if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
-                                GrinderContext crossBean = ShotHistoryStorage::queryGrinderContext(
-                                    db, grinderModel, beverageType);
-                                if (!crossBean.settingsObserved.isEmpty()) {
-                                    QJsonArray allArr;
-                                    for (const auto& s : crossBean.settingsObserved)
-                                        allArr.append(s);
-                                    grinderCtx["allBeansSettings"] = allArr;
-                                }
+                            // When bean-scoped had at least one row, also
+                            // surface allBeansSettings so the AI sees
+                            // the cross-bean range — explicitly tagged.
+                            // Skip when bean-scoped was empty (the
+                            // cross-bean values are already in
+                            // settingsObserved as the fallback primary).
+                            if (haveCrossBean && !ctx.settingsObserved.isEmpty()) {
+                                QJsonArray allArr;
+                                for (const auto& s : crossBean.settingsObserved)
+                                    allArr.append(s);
+                                grinderCtx["allBeansSettings"] = allArr;
                             }
                             dbResult.grinderContext = grinderCtx;
                         }

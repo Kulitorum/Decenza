@@ -2,6 +2,15 @@
 
 The shape contract for the `dialing_get_context` MCP tool's response and the `shotAnalysis` prose body it carries — focused on cost-per-call and information-quality tradeoffs that affect AI dial-in advice quality across a multi-shot iteration loop.
 
+## Implementation phasing
+
+Per `design.md`, this capability ships in two PRs:
+
+- **PR 1 (cost wins, tasks 1–7)** — covers session-context hoisting, drop `result["shot"]`, `beanFreshness` block, detector-legend + framing-string migration to system prompt, strip-roastDate-from-sessions, per-bean grinderContext.
+- **PR 2 (canonical-source separation, tasks 8–10)** — covers `result.profile`, strip Profile/Coffee/Grinder/roast-date lines from `shotAnalysis` prose, `RenderMode::HistoryBlock` rewire of `AIManager::buildRecentShotContext` and `ShotSummarizer::buildHistoryContext`.
+
+Requirements below tagged **[PR 2 scope]** are deliberately deferred until tasks 8–10 land. PR 1's prose still carries `Profile:` / `Coffee:` / `Grinder:` / `roasted YYYY-MM-DD` lines — the canonical-source contracts in those tagged requirements take effect after PR 2.
+
 ## ADDED Requirements
 
 ### Requirement: dialInSessions SHALL hoist common shot identity to a session-level context
@@ -180,7 +189,7 @@ When the resolved shot's `beanBrand` is empty (no bean recorded), the response S
 - **THEN** `grinderContext.settingsObserved` SHALL contain the unscoped (cross-bean) settings list
 - **AND** `grinderContext.allBeansSettings` SHALL NOT be present
 
-### Requirement: Profile metadata SHALL appear in exactly one structured block
+### Requirement: Profile metadata SHALL appear in exactly one structured block [PR 2 scope]
 
 The response SHALL carry a top-level `result.profile` block with `filename`, `title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` (the last omitted when the profile has no recommended dose). This block is the single canonical source for profile metadata — both invariant (`filename`, `title`, `intent`, `recipe`) and runtime targets (`targetWeightG`, `targetTemperatureC`, `recommendedDoseG`).
 
@@ -206,7 +215,7 @@ When `AIManager::buildRecentShotContext` and `ShotSummarizer::buildHistoryContex
 - **AND** `## Profile Recipe` SHALL appear at most once in the prose
 - **AND** the per-shot blocks under `### Shot (date)` SHALL NOT carry those fields individually
 
-### Requirement: shotAnalysis prose SHALL carry only shot-variable fields in its summary block
+### Requirement: shotAnalysis prose SHALL carry only shot-variable fields in its summary block [PR 2 scope]
 
 The `## Shot Summary` block at the top of the `shotAnalysis` prose body SHALL contain only shot-variable fields: `Dose`, `Yield` (with delta-from-target when present), `Ratio`, `Duration`, `Extraction` (TDS / EY), `Overall shot peaks` (pressure / flow with timing). Per-shot variable grinder data (`grinderSetting`) MAY appear in this block when present.
 
@@ -233,7 +242,9 @@ The response SHALL contain at most one field whose key matches the regex `(?i)ro
 
 This requirement is verifiable by structural inspection — independent of which parts of the payload are populated for any given call. When `currentBean.beanFreshness` is omitted (no roast date entered), the requirement is satisfied trivially.
 
-The `shotAnalysis` prose body is also subject to this requirement at the *content* level: the prose SHALL NOT contain any phrase of the form `"N days since roast"`, `"N days post-roast"`, `"N-day-old"`, or any standalone integer immediately adjacent to a roast date string. Per the canonical-source separation requirement above, the prose SHALL NOT contain the literal `"roasted YYYY-MM-DD"` string either — the date lives exclusively in `currentBean.beanFreshness.roastDate`. The system prompt teaches the AI that bean-age reasoning starts from `currentBean.beanFreshness`, never from the prose.
+The `shotAnalysis` prose body is also subject to this requirement at the *content* level: the prose SHALL NOT contain any phrase of the form `"N days since roast"`, `"N days post-roast"`, `"N-day-old"`, or any standalone integer immediately adjacent to a roast date string. **[PR 1, in effect now]**
+
+**[PR 2 scope]** Per the canonical-source separation requirement above, the prose SHALL NOT contain the literal `"roasted YYYY-MM-DD"` string either — the date lives exclusively in `currentBean.beanFreshness.roastDate`. PR 1 still carries `, roasted YYYY-MM-DD (ask user about storage before reasoning about age)` in the prose Coffee line; this strict-strip rule activates with PR 2's prose Coffee/Grinder removal. The system prompt teaches the AI that bean-age reasoning starts from `currentBean.beanFreshness`, never from the prose.
 
 #### Scenario: Single canonical roast key in JSON
 

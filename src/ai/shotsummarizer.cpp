@@ -880,7 +880,18 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "**`currentBean.inferredFields`**: when present, lists field names that\n"
         "were inferred from the most recent shot (because the user's DYE settings\n"
         "were blank), not entered by the user. Confirm with the user before\n"
-        "recommending a change to any inferred field.\n");
+        "recommending a change to any inferred field.\n\n"
+        "**`dialInSessions[].context`**: hoists shot-identity fields shared across\n"
+        "an iteration session (`grinderBrand`, `grinderModel`, `grinderBurrs`,\n"
+        "`beanBrand`, `beanType`). When a per-shot entry under `shots[]` omits\n"
+        "one of these fields, that shot uses the session's `context` value.\n"
+        "When a per-shot entry carries the field directly, it overrides the\n"
+        "context for that shot only. CAVEAT: a hoisted context value reflects\n"
+        "the first non-empty value across the session — for legacy shots whose\n"
+        "field was never recorded, the AI sees the modern value as if it\n"
+        "applied. When advising on a specific older shot's grinder/bean, treat\n"
+        "the session context as a best-effort inference, not a guaranteed\n"
+        "match for that shot's actual recorded data.\n");
 
     // Detector-observations legend. Per openspec optimize-dialing-context-payload
     // (task 3), this lives in the system prompt (taught once per
