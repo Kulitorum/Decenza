@@ -43,7 +43,16 @@ If ORIGINAL_MODIFIED is true, warn the user — tests will modify the profile an
 ### 1.1 machine_get_state
 ```
 Call: machine_get_state
-Expect: phase exists, connected=true, waterLevelMl > 0, firmwareVersion non-empty, activeProfile non-empty
+Expect: phase exists, connected=true, waterLevelMl > 0, firmwareVersion non-empty, activeProfile non-empty.
+        No `stateString` field (deprecated — use `phase`).
+        No `platform` block (moved to app_get_info).
+```
+
+### 1.1a app_get_info
+```
+Call: app_get_info
+Expect: appVersion, qtVersion, os, osType, osVersion, kernelType, architecture,
+        deviceModel, screen* fields all present. Used once per session for diagnostics.
 ```
 
 ### 1.2 machine_get_telemetry
