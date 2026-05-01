@@ -21,27 +21,24 @@
 #include <QThread>
 #include <QTimer>
 
-// Hard cap on a single advisor call. Provider-side timeout is 60s
-// (AIProvider::ANALYSIS_TIMEOUT_MS). This adds a small buffer so the MCP
-// caller gets a clean "timeout" reply rather than a dangling promise if
-// the provider's own timeout fires.
-static constexpr int kAdvisorMcpTimeoutMs = 75 * 1000;
+// Hard cap on a single advisor call, sized to outlast the slowest
+// provider's own timeout so the MCP caller always gets a clean reply
+// from us rather than a dangling promise. Cloud providers cap at 60s
+// (AIProvider::ANALYSIS_TIMEOUT_MS); OllamaProvider caps at 120s
+// (LOCAL_ANALYSIS_TIMEOUT_MS). 135s adds a small buffer above the
+// Ollama path.
+static constexpr int kAdvisorMcpTimeoutMs = 135 * 1000;
 
 void registerAITools(McpToolRegistry* registry, MainController* mainController)
 {
-    // ai_advisor_invoke
-    //
-    // Tier: write — makes a paid outbound call to the configured AI
-    // provider. Side effects: emits `recommendationReceived` (which the
-    // in-app advisor's QML overlay listens to) and updates AIManager's
-    // `lastRecommendation`. Don't fire while the user is actively using
-    // the in-app advisor; the call is rejected if `isAnalyzing` is true.
-    //
-    // Always returns `systemPromptUsed` and `userPromptUsed` so the
-    // caller can verify exactly what the provider received — that
-    // visibility is the whole point for prompt A/B testing. Set
-    // `dryRun: true` to assemble the prompts without sending them
-    // anywhere (no network call, no side effects).
+    // ai_advisor_invoke — registered at "control" tier (matches the
+    // McpToolRegistry::categoryMinLevel taxonomy: read/control/settings;
+    // anything else is rejected as deny-all). Makes a paid outbound
+    // call to the configured AI provider and emits AIManager signals
+    // the in-app advisor's QML overlay listens to (lastRecommendation,
+    // recommendationReceived). The call is rejected when isAnalyzing
+    // is already true, both up-front and after the background DB load
+    // hops back to the main thread (race window).
     registry->registerAsyncTool(
         "ai_advisor_invoke",
         "Invoke the configured AI advisor with the dial-in context for a shot. "
@@ -51,7 +48,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
         "systemPromptUsed + userPromptUsed in the response so the caller can see exactly "
         "what was sent — useful for prompt A/B testing and end-to-end advisor validation. "
         "Pass dryRun: true to skip the network call and just return the assembled "
-        "prompts (no side effects, no token cost). "
+        "prompts (no network call, no token cost — but does still spawn a worker thread "
+        "and read the shot row from SQLite). "
         "Side effects (when not dry-run): the response also reaches the in-app "
         "conversation overlay (updates lastRecommendation, fires recommendationReceived). "
         "Returns an error if the advisor is already busy with another request. "
@@ -201,12 +199,17 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     // and invoke. `done` guards against double-fire (the
                     // provider's own timeout could fire alongside our
                     // wrapper's timeout in a race, though rare). The
-                    // QTimer is parented to AIManager so it's cleaned up
-                    // on shutdown.
+                    // The QTimer is parented to AIManager so it dies
+                    // alongside it on app shutdown — but during normal
+                    // operation finalize() owns its lifetime explicitly
+                    // (deleteLater) so per-call timers don't accumulate
+                    // as permanent AIManager children.
                     struct CallState {
                         bool done = false;
                         QMetaObject::Connection successConn;
                         QMetaObject::Connection errorConn;
+                        QMetaObject::Connection timeoutConn;
+                        QMetaObject::Connection destroyedConn;
                         QTimer* timeout = nullptr;
                         qint64 startMs = 0;
                     };
@@ -228,8 +231,16 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         if (aiPtrInner) {
                             QObject::disconnect(state->successConn);
                             QObject::disconnect(state->errorConn);
+                            QObject::disconnect(state->timeoutConn);
+                            QObject::disconnect(state->destroyedConn);
                         }
-                        if (state->timeout) state->timeout->stop();
+                        // The QTimer is parented to AIManager; deleteLater()
+                        // also runs when the parent is destroyed, so this is
+                        // safe in both lifecycles.
+                        if (state->timeout) {
+                            state->timeout->stop();
+                            state->timeout->deleteLater();
+                        }
                         const qint64 latencyMs = QDateTime::currentMSecsSinceEpoch() - state->startMs;
 
                         QJsonObject result = body;
@@ -252,9 +263,23 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         ai, [finalize](const QString& error) {
                             finalize(QJsonObject{{"error", error}});
                         });
-                    QObject::connect(state->timeout, &QTimer::timeout,
+                    state->timeoutConn = QObject::connect(state->timeout, &QTimer::timeout,
                         ai, [finalize]() {
-                            finalize(QJsonObject{{"error", "Advisor call timed out after 75s"}});
+                            finalize(QJsonObject{{"error",
+                                QString("Advisor call timed out after %1s")
+                                    .arg(kAdvisorMcpTimeoutMs / 1000)}});
+                        });
+                    // If AIManager dies before any of the above signals fire
+                    // (app shutdown with a live call in flight), Qt would
+                    // auto-disconnect those receiver-bound lambdas without
+                    // ever invoking finalize — leaking `state` and stranding
+                    // `respond()`. The destroyed-signal hook makes that a
+                    // clean error rather than a hang+leak. Receiver is
+                    // QCoreApplication::instance() — it outlives AIManager,
+                    // so this connection still fires.
+                    state->destroyedConn = QObject::connect(ai, &QObject::destroyed,
+                        QCoreApplication::instance(), [finalize]() {
+                            finalize(QJsonObject{{"error", "AI manager destroyed before advisor reply"}});
                         });
 
                     state->timeout->start();
@@ -265,5 +290,5 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
         },
-        "write");
+        "control");
 }
