@@ -434,24 +434,34 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["profileKnowledge"] = profileKnowledge;
 
                     // --- Bean/grinder metadata (current DYE settings) ---
-                    // The `beanFreshness` block replaces the previous
-                    // `roastDate` + `daysSinceRoast` + `daysSinceRoastNote`
-                    // shape. The precomputed day count is intentionally
-                    // absent — calendar age without storage context (frozen
-                    // vs counter, days-since-thawed) is misleading data
-                    // dressed as precise data, and the AI was skimming past
-                    // the advisory note. The new `instruction` reads
-                    // imperative: ASK about storage before quoting age.
+                    // DYE wins per-field; for grinder + dose, fall back to
+                    // the resolved shot's value when DYE is blank so the AI
+                    // doesn't lose its highest-leverage signal (burr
+                    // geometry, grinder brand, current setting) when the
+                    // user hasn't filled out DYE recently. Bean fields
+                    // (brand/type/roastLevel) and roastDate are *not*
+                    // inferred — beans rotate per hopper and roastDate
+                    // lives only inside `beanFreshness` to keep the
+                    // freshness surface in one place. Merge logic lives in
+                    // McpDialingHelpers::buildCurrentBean (pure,
+                    // unit-tested).
                     if (settings) {
-                        QJsonObject bean;
-                        bean["brand"] = settings->dye()->dyeBeanBrand();
-                        bean["type"] = settings->dye()->dyeBeanType();
-                        bean["roastLevel"] = settings->dye()->dyeRoastLevel();
-                        bean["grinderBrand"] = settings->dye()->dyeGrinderBrand();
-                        bean["grinderModel"] = settings->dye()->dyeGrinderModel();
-                        bean["grinderBurrs"] = settings->dye()->dyeGrinderBurrs();
-                        bean["grinderSetting"] = settings->dye()->dyeGrinderSetting();
-                        bean["doseWeightG"] = settings->dye()->dyeBeanWeight();
+                        McpDialingHelpers::CurrentBeanInputs in;
+                        in.dyeBeanBrand = settings->dye()->dyeBeanBrand();
+                        in.dyeBeanType = settings->dye()->dyeBeanType();
+                        in.dyeRoastLevel = settings->dye()->dyeRoastLevel();
+                        in.dyeGrinderBrand = settings->dye()->dyeGrinderBrand();
+                        in.dyeGrinderModel = settings->dye()->dyeGrinderModel();
+                        in.dyeGrinderBurrs = settings->dye()->dyeGrinderBurrs();
+                        in.dyeGrinderSetting = settings->dye()->dyeGrinderSetting();
+                        in.dyeDoseWeightG = settings->dye()->dyeBeanWeight();
+                        in.fallbackGrinderBrand = sd.grinderBrand;
+                        in.fallbackGrinderModel = sd.grinderModel;
+                        in.fallbackGrinderBurrs = sd.grinderBurrs;
+                        in.fallbackGrinderSetting = sd.grinderSetting;
+                        in.fallbackDoseWeightG = sd.doseWeightG;
+                        in.fallbackShotId = resolvedShotId;
+                        QJsonObject bean = McpDialingHelpers::buildCurrentBean(in);
                         const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(
                             settings->dye()->dyeRoastDate());
                         if (!freshness.isEmpty())
