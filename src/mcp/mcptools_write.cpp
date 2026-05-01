@@ -13,6 +13,7 @@
 #include "../core/settings_ai.h"
 #include "../core/settings_theme.h"
 #include "../core/settings_visualizer.h"
+#include "../core/settings_calibration.h"
 #include "../core/settings_mcp.h"
 #include "../core/accessibilitymanager.h"
 #include "../core/translationmanager.h"
@@ -644,12 +645,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             if (args.contains("flowCalibrationMultiplier")) {
                 double v = args["flowCalibrationMultiplier"].toDouble();
-                addSetter([settings, v]() { settings->setFlowCalibrationMultiplier(v); });
+                addSetter([settings, v]() { settings->calibration()->setFlowCalibrationMultiplier(v); });
                 updated << "flowCalibrationMultiplier";
             }
             if (args.contains("autoFlowCalibration")) {
                 bool v = args["autoFlowCalibration"].toBool();
-                addSetter([settings, v]() { settings->setAutoFlowCalibration(v); });
+                addSetter([settings, v]() { settings->calibration()->setAutoFlowCalibration(v); });
                 updated << "autoFlowCalibration";
             }
             if (args.contains("ignoreVolumeWithScale")) {

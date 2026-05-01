@@ -4,12 +4,10 @@
 #include <QSettings>
 #include <QString>
 #include <QVariantList>
-#include <QJsonArray>
-#include <QJsonObject>
 #include <QTimer>
 // Domain sub-objects are forward-declared. The QML-facing Q_PROPERTYs return
 // QObject* (a known type that QML can introspect) so this header doesn't need
-// to include the eleven sub-object headers — preserving the recompile-blast
+// to include the twelve sub-object headers — preserving the recompile-blast
 // reduction this whole refactor is for.
 //
 // C++ callers use the typed accessor (e.g. `settings->mqtt()`) and include
@@ -25,6 +23,7 @@ class SettingsBrew;
 class SettingsDye;
 class SettingsNetwork;
 class SettingsApp;
+class SettingsCalibration;
 
 class Settings : public QObject {
     Q_OBJECT
@@ -49,6 +48,7 @@ class Settings : public QObject {
     Q_PROPERTY(QObject* dye READ dyeQObject CONSTANT)
     Q_PROPERTY(QObject* network READ networkQObject CONSTANT)
     Q_PROPERTY(QObject* app READ appQObject CONSTANT)
+    Q_PROPERTY(QObject* calibration READ calibrationQObject CONSTANT)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
@@ -75,14 +75,6 @@ class Settings : public QObject {
     // (polling every 2 s). Only needed when connecting the DE1 via USB-C cable.
     Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged)
 
-    // Flow calibration
-    Q_PROPERTY(double flowCalibrationMultiplier READ flowCalibrationMultiplier WRITE setFlowCalibrationMultiplier NOTIFY flowCalibrationMultiplierChanged)
-    Q_PROPERTY(bool autoFlowCalibration READ autoFlowCalibration WRITE setAutoFlowCalibration NOTIFY autoFlowCalibrationChanged)
-    Q_PROPERTY(int perProfileFlowCalVersion READ perProfileFlowCalVersion NOTIFY perProfileFlowCalibrationChanged)
-
-    // SAW (Stop-at-Weight) learning
-    Q_PROPERTY(double sawLearnedLag READ sawLearnedLag NOTIFY sawLearnedLagChanged)
-
 public:
     explicit Settings(QObject* parent = nullptr);
 
@@ -99,6 +91,7 @@ public:
     SettingsDye* dye() const { return m_dye; }
     SettingsNetwork* network() const { return m_network; }
     SettingsApp* app() const { return m_app; }
+    SettingsCalibration* calibration() const { return m_calibration; }
 
     // QML-facing accessors — implemented out-of-line in settings.cpp where the
     // SettingsXxx -> QObject* upcast is visible. QML uses these via Q_PROPERTY.
@@ -113,6 +106,7 @@ public:
     QObject* dyeQObject() const;
     QObject* networkQObject() const;
     QObject* appQObject() const;
+    QObject* calibrationQObject() const;
 
     // Machine settings
     QString machineAddress() const;
@@ -159,63 +153,6 @@ public:
     // Force sync to disk
     void sync() { m_settings.sync(); }
 
-    // Flow calibration
-    double flowCalibrationMultiplier() const;
-    void setFlowCalibrationMultiplier(double multiplier);
-    bool autoFlowCalibration() const;
-    void setAutoFlowCalibration(bool enabled);
-    double profileFlowCalibration(const QString& profileFilename) const;
-    bool setProfileFlowCalibration(const QString& profileFilename, double multiplier);
-    Q_INVOKABLE void clearProfileFlowCalibration(const QString& profileFilename);
-    Q_INVOKABLE double effectiveFlowCalibration(const QString& profileFilename) const;
-    Q_INVOKABLE bool hasProfileFlowCalibration(const QString& profileFilename) const;
-    QJsonObject allProfileFlowCalibrations() const;
-    int perProfileFlowCalVersion() const { return m_perProfileFlowCalVersion; }
-
-    // Auto flow calibration batch accumulator: stores pending ideal values per profile
-    // until a full batch (5 shots) is collected, then the median is used to update C.
-    QVector<double> flowCalPendingIdeals(const QString& profileFilename) const;
-    void appendFlowCalPendingIdeal(const QString& profileFilename, double ideal);
-    void clearFlowCalPendingIdeals(const QString& profileFilename);
-
-    // SAW (Stop-at-Weight) learning
-    double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
-    double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
-    // Per-(profile, scale) variant of sawLearnedLag — falls back to global bootstrap /
-    // per-scale data when the pair has not yet graduated (fewer than
-    // kSawMinMediansForGraduation committed batch-medians; see settings.cpp).
-    // Pass empty profile for the legacy global-pool path. Returns the mean of drip/flow
-    // over the last 5 committed batch-medians (same numeric units as sawLearnedLag).
-    Q_INVOKABLE double sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const;
-    double getExpectedDripFor(const QString& profileFilename, const QString& scaleType, double currentFlowRate) const;
-    QList<QPair<double, double>> sawLearningEntriesFor(const QString& profileFilename, const QString& scaleType, int maxEntries) const;
-
-    // Reports which model the read path uses for (profile, scale). Strings:
-    // "perProfile" | "globalBootstrap" | "globalPool" | "scaleDefault". Used for logging.
-    Q_INVOKABLE QString sawModelSource(const QString& profileFilename, const QString& scaleType) const;
-
-    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot,
-                             const QString& profileFilename = QString());
-    Q_INVOKABLE void resetSawLearning();
-    Q_INVOKABLE void resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType);
-
-    // Per-pair committed history (storage helpers; mostly for tests + bootstrap recompute).
-    // Each entry is a batch median {drip, flow, overshoot, ts}.
-    QJsonArray perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const;
-    QJsonObject allPerProfileSawHistory() const;
-
-    // Per-pair pending batch accumulator (5 entries before committing the batch median).
-    QJsonArray sawPendingBatch(const QString& profileFilename, const QString& scaleType) const;
-
-    // Global bootstrap lag for new (profile, scale) pairs without graduated history.
-    // Returns 0.0 if no bootstrap exists (caller should fall through to global pool).
-    double globalSawBootstrapLag(const QString& scaleType) const;
-    void setGlobalSawBootstrapLag(const QString& scaleType, double lag);
-
-    // Per-scale BLE sensor lag (seconds). Used as first-shot SAW default before learning kicks in.
-    // Values empirically derived from de1app device_scale.tcl.
-    static double sensorLag(const QString& scaleType);
-
     Q_INVOKABLE void factoryReset();
 
     // Generic settings access (for extensibility)
@@ -229,12 +166,6 @@ public:
     // performs the coercion in C++ so QML callers don't have to.
     Q_INVOKABLE bool boolValue(const QString& key, bool defaultValue = false) const;
 
-    // SAW convergence detection helper
-    bool isSawConverged(const QString& scaleType) const;
-    // Returns SAW learning entries filtered by scale type (most recent first).
-    // Used by WeightProcessor to snapshot learning data at shot start.
-    QList<QPair<double, double>> sawLearningEntries(const QString& scaleType, int maxEntries) const;
-
 signals:
     void machineAddressChanged();
     void scaleAddressChanged();
@@ -246,43 +177,12 @@ signals:
     void showScaleDialogsChanged();
     void savedRefractometerChanged();
     void usbSerialEnabledChanged();
-    void flowCalibrationMultiplierChanged();
-    void autoFlowCalibrationChanged();
-    void perProfileFlowCalibrationChanged();
-    void sawLearnedLagChanged();
     void valueChanged(const QString& key);
 
 private:
-    void ensureSawCacheLoaded() const;
     void writeKnownScales(const QVariantList& scales);
 
     mutable QSettings m_settings;
-
-    // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)
-    mutable QJsonArray m_sawHistoryCache;
-    mutable bool m_sawHistoryCacheDirty = true;
-    mutable int m_sawConvergedCache = -1;  // -1 = unknown, 0 = no, 1 = yes
-    mutable QString m_sawConvergedScaleType;  // Scale type for cached convergence result
-    int m_perProfileFlowCalVersion = 0;  // Bumped on per-profile calibration changes to trigger QML rebind
-    mutable QJsonObject m_perProfileFlowCalCache;  // Cached per-profile flow calibration map
-    mutable bool m_perProfileFlowCalCacheValid = false;
-    void savePerProfileFlowCalMap(const QJsonObject& map);
-
-    // Per-(profile, scale) SAW history cache. INVARIANT: all writes route through
-    // savePerProfileSawHistoryMap() / savePerProfileSawBatchMap() to keep the cache
-    // and QSettings in sync (mirrors the perProfileFlowCal cache pattern).
-    mutable QJsonObject m_perProfileSawHistoryCache;
-    mutable bool m_perProfileSawHistoryCacheValid = false;
-    mutable QJsonObject m_perProfileSawBatchCache;
-    mutable bool m_perProfileSawBatchCacheValid = false;
-    QJsonObject loadPerProfileSawHistoryMap() const;
-    void savePerProfileSawHistoryMap(const QJsonObject& map);
-    QJsonObject loadPerProfileSawBatchMap() const;
-    void savePerProfileSawBatchMap(const QJsonObject& map);
-    static QString sawPairKey(const QString& profileFilename, const QString& scaleType);
-    void addSawPerPairEntry(double drip, double flowRate, const QString& scaleType,
-                            double overshoot, const QString& profileFilename);
-    void recomputeGlobalSawBootstrap(const QString& scaleType);
 
     // Domain sub-objects (composition façade)
     SettingsMqtt* m_mqtt = nullptr;
@@ -296,4 +196,5 @@ private:
     SettingsDye* m_dye = nullptr;
     SettingsNetwork* m_network = nullptr;
     SettingsApp* m_app = nullptr;
+    SettingsCalibration* m_calibration = nullptr;
 };

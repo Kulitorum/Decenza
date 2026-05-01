@@ -48,6 +48,7 @@
 #include "core/settings_dye.h"
 #include "core/settings_network.h"
 #include "core/settings_app.h"
+#include "core/settings_calibration.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -528,7 +529,7 @@ int main(int argc, char *argv[])
                      [&settings, &mainController](double drip, double flowAtStop, double overshoot) {
                          const QString scaleType = settings.scaleType();
                          const QString profileFilename = mainController.profileManager()->baseProfileName();
-                         const double predictedDrip = settings.getExpectedDripFor(profileFilename, scaleType, flowAtStop);
+                         const double predictedDrip = settings.calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtStop);
                          qDebug() << "[SAW] accuracy: predictedDrip=" << predictedDrip
                                   << "actualDrip=" << drip
                                   << "delta=" << (drip - predictedDrip)
@@ -536,7 +537,7 @@ int main(int argc, char *argv[])
                                   << "flow=" << flowAtStop
                                   << "scale=" << scaleType
                                   << "profile=" << profileFilename;
-                         settings.addSawLearningPoint(drip, flowAtStop, scaleType, overshoot, profileFilename);
+                         settings.calibration()->addSawLearningPoint(drip, flowAtStop, scaleType, overshoot, profileFilename);
                      });
 
     // Forward sawSettling state to MainController for QML binding
@@ -648,11 +649,11 @@ int main(int argc, char *argv[])
                          double targetWeight = machineState.targetWeight();
                          QString scaleType = settings.scaleType();
                          QString profileFilename = mainController.profileManager()->baseProfileName();
-                         bool converged = settings.isSawConverged(scaleType);
+                         bool converged = settings.calibration()->isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;
-                         const auto entries = settings.sawLearningEntriesFor(profileFilename, scaleType, maxEntries);
-                         const QString modelSource = settings.sawModelSource(profileFilename, scaleType);
-                         const double currentLag = settings.sawLearnedLagFor(profileFilename, scaleType);
+                         const auto entries = settings.calibration()->sawLearningEntriesFor(profileFilename, scaleType, maxEntries);
+                         const QString modelSource = settings.calibration()->sawModelSource(profileFilename, scaleType);
+                         const double currentLag = settings.calibration()->sawLearnedLagFor(profileFilename, scaleType);
                          qDebug() << "[SAW] model: source=" << modelSource
                                   << "lag=" << currentLag
                                   << "profile=" << profileFilename
@@ -680,7 +681,7 @@ int main(int argc, char *argv[])
 
                          // Tare already happened synchronously in onEspressoCycleStarted
                          bool tareComplete = timingController.isTareComplete();
-                         double sensorLagSeconds = Settings::sensorLag(scaleType);
+                         double sensorLagSeconds = SettingsCalibration::sensorLag(scaleType);
 
                          QMetaObject::invokeMethod(&weightProcessor,
                              [&weightProcessor, targetWeight, preinfuseFrameCount, frameExitWeights, drips, flows, converged, tareComplete, sensorLagSeconds]() {
@@ -1626,7 +1627,7 @@ int main(int argc, char *argv[])
 
     FlowCalibrationModel flowCalibrationModel;
     flowCalibrationModel.setStorage(mainController.shotHistory());
-    flowCalibrationModel.setSettings(&settings);
+    flowCalibrationModel.setSettings(settings.calibration());
     flowCalibrationModel.setDevice(&de1Device);
     context->setContextProperty("FlowCalibrationModel", &flowCalibrationModel);
 
@@ -1687,6 +1688,8 @@ int main(int argc, char *argv[])
         "SettingsNetwork is created in C++");
     qmlRegisterUncreatableType<SettingsApp>("Decenza", 1, 0, "SettingsAppType",
         "SettingsApp is created in C++");
+    qmlRegisterUncreatableType<SettingsCalibration>("Decenza", 1, 0, "SettingsCalibrationType",
+        "SettingsCalibration is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");

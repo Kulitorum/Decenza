@@ -12,6 +12,7 @@
 #include "../core/settings_theme.h"
 #include "../core/settings_visualizer.h"
 #include "../core/settings_mcp.h"
+#include "../core/settings_calibration.h"
 #include "../core/accessibilitymanager.h"
 #include "../core/translationmanager.h"
 #include "../core/batterymanager.h"
@@ -94,8 +95,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
 
             // === Calibration ===
             if (include("useFlowScale", "calibration")) result["useFlowScale"] = settings->useFlowScale();
-            if (include("flowCalibrationMultiplier", "calibration")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
-            if (include("autoFlowCalibration", "calibration")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
+            if (include("flowCalibrationMultiplier", "calibration")) result["flowCalibrationMultiplier"] = settings->calibration()->flowCalibrationMultiplier();
+            if (include("autoFlowCalibration", "calibration")) result["autoFlowCalibration"] = settings->calibration()->autoFlowCalibration();
             if (include("ignoreVolumeWithScale", "calibration")) result["ignoreVolumeWithScale"] = settings->brew()->ignoreVolumeWithScale();
             if (include("steamTwoTapStop", "machine")) result["steamTwoTapStop"] = settings->hardware()->steamTwoTapStop();
 

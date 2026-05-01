@@ -224,6 +224,7 @@ set(SOURCES
     src/core/settings_dye.cpp
     src/core/settings_network.cpp
     src/core/settings_app.cpp
+    src/core/settings_calibration.cpp
     src/core/widgetlibrary.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
@@ -389,6 +390,7 @@ set(HEADERS
     src/core/settings_dye.h
     src/core/settings_network.h
     src/core/settings_app.h
+    src/core/settings_calibration.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
@@ -1051,6 +1053,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_dye.cpp
         src/core/settings_network.cpp
         src/core/settings_app.cpp
+        src/core/settings_calibration.cpp
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
     target_include_directories(saw_parity PRIVATE ${CMAKE_SOURCE_DIR}/src)

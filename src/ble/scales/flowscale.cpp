@@ -1,5 +1,6 @@
 #include "flowscale.h"
 #include "../../core/settings.h"
+#include <QDateTime>
 #include <QDebug>
 
 FlowScale::FlowScale(QObject* parent)

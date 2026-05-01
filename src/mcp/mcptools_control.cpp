@@ -6,6 +6,7 @@
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
 #include "../core/settings_theme.h"
+#include "../core/settings_calibration.h"
 #include "../core/databasebackupmanager.h"
 #include "../network/mqttclient.h"
 
@@ -272,7 +273,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Settings not available";
                 return result;
             }
-            settings->resetSawLearning();
+            settings->calibration()->resetSawLearning();
             result["success"] = true;
             result["message"] = "SAW learning data reset";
             return result;
@@ -306,7 +307,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             }
             QString scale = args["scaleType"].toString();
             if (scale.isEmpty()) scale = settings->scaleType();
-            settings->resetSawLearningForProfile(filename, scale);
+            settings->calibration()->resetSawLearningForProfile(filename, scale);
             result["success"] = true;
             result["profileFilename"] = filename;
             result["scaleType"] = scale;
@@ -337,7 +338,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "No profile filename specified and no active profile";
                 return result;
             }
-            settings->clearProfileFlowCalibration(filename);
+            settings->calibration()->clearProfileFlowCalibration(filename);
             result["success"] = true;
             result["message"] = "Flow calibration cleared for " + filename;
             return result;

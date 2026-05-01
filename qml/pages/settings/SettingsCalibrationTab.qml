@@ -63,31 +63,31 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: Settings.autoFlowCalibration
+                                checked: Settings.calibration.autoFlowCalibration
                                 accessibleName: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration")
-                                onToggled: Settings.autoFlowCalibration = checked
+                                onToggled: Settings.calibration.autoFlowCalibration = checked
                             }
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
-                            property int _calVersion: Settings.perProfileFlowCalVersion
+                            property int _calVersion: Settings.calibration.perProfileFlowCalVersion
                             property double effectiveCal: {
                                 void(_calVersion);
-                                void(Settings.autoFlowCalibration);
-                                void(Settings.flowCalibrationMultiplier);
-                                return Settings.effectiveFlowCalibration(ProfileManager.baseProfileName);
+                                void(Settings.calibration.autoFlowCalibration);
+                                void(Settings.calibration.flowCalibrationMultiplier);
+                                return Settings.calibration.effectiveFlowCalibration(ProfileManager.baseProfileName);
                             }
                             property bool isPerProfile: {
                                 void(_calVersion);
-                                void(Settings.autoFlowCalibration);
-                                void(Settings.flowCalibrationMultiplier);
-                                return Settings.hasProfileFlowCalibration(ProfileManager.baseProfileName);
+                                void(Settings.calibration.autoFlowCalibration);
+                                void(Settings.calibration.flowCalibrationMultiplier);
+                                return Settings.calibration.hasProfileFlowCalibration(ProfileManager.baseProfileName);
                             }
 
                             Text {
                                 property string calSuffix: {
-                                    if (!Settings.autoFlowCalibration) return "";
+                                    if (!Settings.calibration.autoFlowCalibration) return "";
                                     if (parent.isPerProfile)
                                         return " " + TranslationManager.translate("settings.preferences.calAuto", "(auto)");
                                     return " " + TranslationManager.translate("settings.preferences.calGlobal", "(global)");
@@ -103,14 +103,14 @@ Item {
                                 visible: parent.isPerProfile
                                 accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
                                 text: TranslationManager.translate("settings.preferences.reset", "Reset")
-                                onClicked: Settings.clearProfileFlowCalibration(ProfileManager.baseProfileName)
+                                onClicked: Settings.calibration.clearProfileFlowCalibration(ProfileManager.baseProfileName)
                             }
 
                             AccessibleButton {
                                 accessibleName: TranslationManager.translate("settings.preferences.openFlowCalibration", "Open Flow Calibration")
                                 text: TranslationManager.translate("settings.preferences.calibrate", "Calibrate")
                                 primary: true
-                                enabled: !Settings.autoFlowCalibration
+                                enabled: !Settings.calibration.autoFlowCalibration
                                 onClicked: pageStack.push(Qt.resolvedUrl("../FlowCalibrationPage.qml"))
                             }
                         }
@@ -148,14 +148,14 @@ Item {
                             Text {
                                 // sawLearnedLagFor() picks per-(profile, scale) data when the
                                 // pair has graduated, otherwise falls back to global bootstrap
-                                // / global pool / scale default. void(Settings.sawLearnedLag)
+                                // / global pool / scale default. void(Settings.calibration.sawLearnedLag)
                                 // makes the binding depend on sawLearnedLagChanged so that
                                 // commits/rejects/resets trigger a re-evaluation.
                                 property string _profile: ProfileManager.baseProfileName
                                 property string _scale: Settings.scaleType
-                                property double _lagDep: Settings.sawLearnedLag
+                                property double _lagDep: Settings.calibration.sawLearnedLag
                                 text: { void(_lagDep);
-                                    return Settings.sawLearnedLagFor(_profile, _scale).toFixed(2)
+                                    return Settings.calibration.sawLearnedLagFor(_profile, _scale).toFixed(2)
                                       + TranslationManager.translate("common.unit.seconds", "s"); }
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(14)
@@ -166,9 +166,9 @@ Item {
                         RowLayout {
                             id: sawSourceRow
                             Layout.fillWidth: true
-                            property double _modelDep: Settings.sawLearnedLag  // dep tracker for rebind
+                            property double _modelDep: Settings.calibration.sawLearnedLag  // dep tracker for rebind
                             property string _modelSource: { void(_modelDep);
-                                return Settings.sawModelSource(ProfileManager.baseProfileName, Settings.scaleType); }
+                                return Settings.calibration.sawModelSource(ProfileManager.baseProfileName, Settings.scaleType); }
                             property string _sourceSuffix: {
                                 if (_modelSource === "perProfile")
                                     return " " + TranslationManager.translate("settings.preferences.sawPerProfile", "(per-profile)");
@@ -204,7 +204,7 @@ Item {
                                     anchors.margins: -Theme.scaled(4)
                                     accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingProfile", "Reset weight stop timing for current profile")
                                     accessibleItem: resetThisProfileText
-                                    onAccessibleClicked: Settings.resetSawLearningForProfile(ProfileManager.baseProfileName, Settings.scaleType)
+                                    onAccessibleClicked: Settings.calibration.resetSawLearningForProfile(ProfileManager.baseProfileName, Settings.scaleType)
                                 }
                             }
 
@@ -219,7 +219,7 @@ Item {
                                     anchors.margins: -Theme.scaled(4)
                                     accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingAll", "Reset all weight stop timing")
                                     accessibleItem: resetAllText
-                                    onAccessibleClicked: Settings.resetSawLearning()
+                                    onAccessibleClicked: Settings.calibration.resetSawLearning()
                                 }
                             }
                         }

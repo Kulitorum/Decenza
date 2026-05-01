@@ -10,6 +10,7 @@
 #include "settings_ai.h"
 #include "settings_theme.h"
 #include "settings_visualizer.h"
+#include "settings_calibration.h"
 #include <QJsonArray>
 #include <QDebug>
 
@@ -360,10 +361,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         machineTuning["heaterWarmupTimeout"] = hw->heaterWarmupTimeout();
         machineTuning["hotWaterFlowRate"] = hw->hotWaterFlowRate();
     }
-    machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
-    machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
+    machineTuning["flowCalibrationMultiplier"] = settings->calibration()->flowCalibrationMultiplier();
+    machineTuning["autoFlowCalibration"] = settings->calibration()->autoFlowCalibration();
     machineTuning["ignoreVolumeWithScale"] = settings->brew()->ignoreVolumeWithScale();
-    QJsonObject perProfileMap = settings->allProfileFlowCalibrations();
+    QJsonObject perProfileMap = settings->calibration()->allProfileFlowCalibrations();
     if (!perProfileMap.isEmpty()) {
         machineTuning["perProfileFlowCalibration"] = perProfileMap;
     }
@@ -795,10 +796,10 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // Flow calibration is machine-specific — skip during cross-device migration
         // but restore from same-machine backups (caller passes excludeKeys to control this)
         if (mt.contains("flowCalibrationMultiplier") && !excludeKeys.contains("flowCalibration")) {
-            settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
+            settings->calibration()->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
         }
         if (mt.contains("autoFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
-            settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
+            settings->calibration()->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
         }
         if (mt.contains("ignoreVolumeWithScale")) {
             settings->brew()->setIgnoreVolumeWithScale(mt["ignoreVolumeWithScale"].toBool());
@@ -815,7 +816,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 }
                 double val = it.value().toDouble();
                 if (val >= 0.5 && val <= 2.7) {
-                    settings->setProfileFlowCalibration(it.key(), val);
+                    settings->calibration()->setProfileFlowCalibration(it.key(), val);
                     imported++;
                 } else {
                     qWarning() << "Settings import: flow calibration out of bounds for"

@@ -33,6 +33,7 @@
 //   saw_parity --corpus baseline_full.json --sim sim.tsv
 
 #include "core/settings.h"
+#include "core/settings_calibration.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -94,12 +95,12 @@ QHash<int, SimRow> readSimulatorOutput(const QString& path, QString* errOut) {
 }
 
 void wipeAllSawState(Settings& s) {
-    s.resetSawLearning();
-    const QJsonObject pairs = s.allPerProfileSawHistory();
+    s.calibration()->resetSawLearning();
+    const QJsonObject pairs = s.calibration()->allPerProfileSawHistory();
     for (auto it = pairs.constBegin(); it != pairs.constEnd(); ++it) {
         const QStringList parts = it.key().split(QStringLiteral("::"));
         if (parts.size() == 2) {
-            s.resetSawLearningForProfile(parts[0], parts[1]);
+            s.calibration()->resetSawLearningForProfile(parts[0], parts[1]);
         }
     }
 }
@@ -207,7 +208,7 @@ int main(int argc, char* argv[])
         const double drip = o.value(QStringLiteral("drip")).toDouble();
         const double overshoot = o.value(QStringLiteral("overshoot")).toDouble();
 
-        const double prodPred = settings.getExpectedDripFor(profile, scale, flow);
+        const double prodPred = settings.calibration()->getExpectedDripFor(profile, scale, flow);
         const double prodErr = prodPred - drip;
         const double prodAbs = std::abs(prodErr);
 
@@ -241,7 +242,7 @@ int main(int argc, char* argv[])
             << "\t" << prodErr << "\t" << simSource << "\n";
 
         // Grow the production-side pool for the next shot.
-        settings.addSawLearningPoint(drip, flow, scale, overshoot, profile);
+        settings.calibration()->addSawLearningPoint(drip, flow, scale, overshoot, profile);
     }
 
     out << "\n=== Production MAE per flow bucket (the actual answer) ===\n";
