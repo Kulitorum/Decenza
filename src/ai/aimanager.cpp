@@ -5,6 +5,8 @@
 #include "../core/settings.h"
 #include "../core/settings_ai.h"
 #include "../core/grinderaliases.h"
+#include "../controllers/profilemanager.h"
+#include "../mcp/mcptools_dialing_blocks.h"
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
@@ -248,24 +250,78 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
     // profileKbId is the direct knowledge base key; profileType is the fallback for custom titles
     QString systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
         summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
-    QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
-    // Fetch recent shot history on a background thread, then send to AI on callback
-    if (m_shotHistory && !summary.profileKbId.isEmpty()) {
+    // The user prompt is built as a JSON envelope. The four DB-scoped
+    // blocks (dialInSessions / bestRecentShot / grinderContext /
+    // sawPrediction) are merged in below before serialization, so the
+    // shotAnalysis system prompt's references to those structured fields
+    // land on real keys. See openspec add-dialing-blocks-to-advisor.
+    QJsonObject userPromptObj = m_summarizer->buildUserPromptObject(summary);
+
+    // Fetch recent shot history + four dialing blocks on a background
+    // thread, then send to AI on callback. SAW prediction is built on
+    // the main thread (it touches Settings::calibration() and
+    // ProfileManager).
+    if (m_shotHistory) {
         const QString dbPath = m_shotHistory->databasePath();
         const QString kbId = summary.profileKbId;
         const qint64 excludeId = m_shotHistory->lastSavedShotId();
         QPointer<AIManager> self(this);
 
-        QThread* thread = QThread::create([self, dbPath, kbId, excludeId, systemPrompt, userPrompt]() {
+        QThread* thread = QThread::create([self, dbPath, kbId, excludeId, systemPrompt, userPromptObj]() mutable {
             QVariantList recentShots;
+            QJsonArray dialInSessions;
+            QJsonObject bestRecentShot;
+            QJsonObject grinderContext;
+            ShotProjection resolvedShot;
+
             withTempDb(dbPath, "ai_recent", [&](QSqlDatabase& db) {
-                recentShots = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, kbId, 5, excludeId);
+                if (!kbId.isEmpty())
+                    recentShots = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, kbId, 5, excludeId);
+
+                if (excludeId > 0) {
+                    ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, excludeId);
+                    resolvedShot = ShotHistoryStorage::convertShotRecord(rec);
+                }
+
+                dialInSessions = McpDialingBlocks::buildDialInSessionsBlock(
+                    db, kbId, excludeId, 5);
+                if (resolvedShot.isValid()) {
+                    bestRecentShot = McpDialingBlocks::buildBestRecentShotBlock(
+                        db, kbId, excludeId, resolvedShot);
+                    grinderContext = McpDialingBlocks::buildGrinderContextBlock(
+                        db, resolvedShot.grinderModel,
+                        resolvedShot.beverageType, resolvedShot.beanBrand);
+                }
             });
 
-            QMetaObject::invokeMethod(qApp, [self, systemPrompt, userPrompt, recentShots = std::move(recentShots)]() {
+            QMetaObject::invokeMethod(qApp,
+                [self, systemPrompt, userPromptObj, recentShots = std::move(recentShots),
+                 dialInSessions = std::move(dialInSessions),
+                 bestRecentShot = std::move(bestRecentShot),
+                 grinderContext = std::move(grinderContext),
+                 resolvedShot]() mutable {
                 if (!self) return;
-                QString finalUserPrompt = userPrompt;
+
+                // Merge the DB-derived blocks plus the main-thread SAW
+                // block into the user prompt envelope. Empty blocks are
+                // suppressed (no key, no null placeholder) to match
+                // dialing_get_context's omission contract exactly.
+                if (!dialInSessions.isEmpty())
+                    userPromptObj["dialInSessions"] = dialInSessions;
+                if (!bestRecentShot.isEmpty())
+                    userPromptObj["bestRecentShot"] = bestRecentShot;
+                if (!grinderContext.isEmpty())
+                    userPromptObj["grinderContext"] = grinderContext;
+                if (resolvedShot.isValid()) {
+                    const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
+                        self->m_settings, self->m_profileManager, resolvedShot);
+                    if (!sawPrediction.isEmpty())
+                        userPromptObj["sawPrediction"] = sawPrediction;
+                }
+
+                QString finalUserPrompt = QString::fromUtf8(
+                    QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                 QString historyContext = ShotSummarizer::buildHistoryContext(recentShots);
                 if (!historyContext.isEmpty()) {
                     finalUserPrompt += "\n\n" + historyContext;
@@ -276,7 +332,9 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     } else {
-        // No history to fetch — send directly
+        // No shot history wired — fall back to the un-enriched envelope.
+        QString userPrompt = QString::fromUtf8(
+            QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
         m_conversation->ask(systemPrompt, userPrompt);
     }
 }
@@ -357,6 +415,12 @@ QString AIManager::generateHistoryShotSummary(const ShotProjection& shotData)
 {
     ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
     return m_summarizer->buildUserPrompt(summary);
+}
+
+QJsonObject AIManager::buildUserPromptObjectForShot(const ShotProjection& shotData)
+{
+    ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
+    return m_summarizer->buildUserPromptObject(summary);
 }
 
 void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)

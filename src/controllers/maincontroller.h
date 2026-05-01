@@ -76,6 +76,7 @@ public:
 
     // ProfileManager accessor
     ProfileManager* profileManager() const { return m_profileManager; }
+    Settings* settings() const { return m_settings; }
 
     // Non-profile accessors
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
@@ -88,6 +89,8 @@ public:
         m_aiManager = aiManager;
         if (m_aiManager && m_shotHistory)
             m_aiManager->setShotHistoryStorage(m_shotHistory);
+        if (m_aiManager && m_profileManager)
+            m_aiManager->setProfileManager(m_profileManager);
         if (m_aiManager && m_dataMigration)
             m_dataMigration->setAIManager(m_aiManager);
     }

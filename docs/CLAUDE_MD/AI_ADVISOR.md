@@ -90,10 +90,16 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | Aspect | In-App AI | MCP |
 |--------|-----------|-----|
 | **Multi-turn** | Yes (conversation history, shot-to-shot deltas) | No (single tool call, LLM manages context) |
-| **Grinder context format** | Markdown text in user prompt | JSON in tool response |
-| **Bean age** | Computed in `buildUserPrompt()` from shot's `roastDate` | Computed in tool response from `Settings::dyeRoastDate()` |
-| **Current DYE settings** | Not included (shot data has what was saved) | Included as `currentBean` JSON block |
-| **Current profile info** | Not included | Included as `currentProfile` JSON block |
+| **`currentDateTime`** | Not in user prompt (cache stability) | Included at top level of `dialing_get_context` response |
+| **Wrapper fields** | `shotId` lives only on `ai_advisor_invoke` (not in the user prompt itself) | `shotId` shipped at top level |
+
+The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) ship in **both** the in-app advisor's user prompt and `dialing_get_context`'s response, produced by shared helpers in `src/mcp/mcptools_dialing_blocks.h` so the two surfaces cannot drift. See openspec change `add-dialing-blocks-to-advisor`.
+
+### How the In-App Advisor Enriches the User Prompt
+
+`AIManager::analyzeShotWithMetadata` builds the user prompt as a `QJsonObject` via `ShotSummarizer::buildUserPromptObject(summary)`, then a background thread loads the resolved `ShotProjection` and calls the three DB-backed block builders (`buildDialInSessionsBlock`, `buildBestRecentShotBlock`, `buildGrinderContextBlock`). On the main-thread continuation, `buildSawPredictionBlock(m_settings, m_profileManager, resolvedShot)` produces the SAW block (it touches `Settings::calibration()` and `ProfileManager::baseProfileName()`, both main-thread only). The four blocks are merged into the envelope and serialized; the existing prose history block (`ShotSummarizer::buildHistoryContext`) is appended below the JSON.
+
+The MCP `ai_advisor_invoke` tool follows the same pattern in `mcptools_ai.cpp`, calling `AIManager::buildUserPromptObjectForShot(shot)` for the envelope and the same `McpDialingBlocks::*` helpers for enrichment. Byte-equivalence between the two surfaces is by construction.
 
 ---
 

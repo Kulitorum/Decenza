@@ -1,13 +1,13 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "mcptools_dialing_helpers.h"
+#include "mcptools_dialing_blocks.h"
 #include "../history/shothistorystorage.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
 #include "../ai/aimanager.h"
 #include "../ai/shotsummarizer.h"
 #include "../core/settings.h"
-#include "../core/settings_calibration.h"
 #include "../core/settings_dye.h"
 #include "../profile/profile.h"
 
@@ -32,30 +32,6 @@ struct DialingDbResult {
     QJsonObject grinderContext;
     QJsonObject bestRecentShot;  // Empty when no rated shot exists on this profile
 };
-
-// Adapter: copy the diff-relevant fields from a ShotProjection into the
-// pure-logic struct the helper consumes. Keeps the helper Qt-typed without
-// pulling shotprojection.h into the header.
-static McpDialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
-{
-    McpDialingHelpers::ShotDiffInputs d;
-    d.grinderSetting = s.grinderSetting;
-    d.beanBrand = s.beanBrand;
-    d.doseWeightG = s.doseWeightG;
-    d.finalWeightG = s.finalWeightG;
-    d.durationSec = s.durationSec;
-    d.enjoyment0to100 = s.enjoyment0to100;
-    return d;
-}
-
-// Build the changeFromPrev diff between two adjacent shots in the same
-// session — same shape as `shots_compare` produces, computed inline so the
-// AI doesn't need a separate round-trip to see what moved. Same helper
-// drives changeFromBest (current vs best-rated past shot, #1020).
-static QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& curr)
-{
-    return McpDialingHelpers::buildShotChangeDiff(toDiffInputs(prev), toDiffInputs(curr));
-}
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
                           ProfileManager* profileManager,
@@ -121,7 +97,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 if (resolvedShotId <= 0) {
                     withTempDb(dbPath, "mcp_dialing_latest", [&](QSqlDatabase& db) {
                         QSqlQuery q(db);
-                        if (q.exec("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && q.next())
+                        if (q.exec ("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && q.next())
                             resolvedShotId = q.value(0).toLongLong();
                     });
                 }
@@ -138,300 +114,19 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     dbResult.shotData = ShotHistoryStorage::convertShotRecord(record);
                     dbResult.profileKbId = record.profileKbId;
 
-                    // --- Dial-in history grouped into sessions (same profile family) ---
-                    // History returns DESC (newest first). Within a session
-                    // we want ASC order so changeFromPrev reads "older ->
-                    // newer" — matching how the user iterates. Sessions
-                    // themselves stay newest-first so the most relevant
-                    // recent iteration is at the top of the list.
-                    if (!dbResult.profileKbId.isEmpty()) {
-                        QVariantList history = ShotHistoryStorage::loadRecentShotsByKbIdStatic(db, dbResult.profileKbId, historyLimit, resolvedShotId);
-
-                        QList<ShotProjection> shots;
-                        shots.reserve(history.size());
-                        for (const auto& v : history)
-                            shots.append(ShotProjection::fromVariantMap(v.toMap()));
-
-                        // Per-shot serializer. Identity fields
-                        // (`grinderBrand`, `grinderModel`, `grinderBurrs`,
-                        // `beanBrand`, `beanType`) are hoisted to the
-                        // session-level `context` object; per-shot entries
-                        // emit them only as overrides when the shot's
-                        // value differs from the session context. The
-                        // hoisted-field set is computed once per session
-                        // (see hoistSessionContext call below) and the
-                        // override values are passed into this lambda
-                        // alongside the ShotProjection.
-                        auto shotToJson = [](const ShotProjection& shot,
-                                             const McpDialingHelpers::ShotIdentity& override) {
-                            QJsonObject h;
-                            h["id"] = shot.id;
-                            h["timestamp"] = shot.timestampIso;
-                            h["profileName"] = shot.profileName;
-                            h["doseG"] = shot.doseWeightG;
-                            h["yieldG"] = shot.finalWeightG;
-                            h["durationSec"] = shot.durationSec;
-                            h["enjoyment0to100"] = shot.enjoyment0to100 > 0
-                                ? QJsonValue(shot.enjoyment0to100)
-                                : QJsonValue(QJsonValue::Null);
-                            h["grinderSetting"] = shot.grinderSetting;
-                            // Identity overrides — emit only when this
-                            // shot's value differs from session context.
-                            if (!override.grinderBrand.isEmpty())
-                                h["grinderBrand"] = override.grinderBrand;
-                            if (!override.grinderModel.isEmpty())
-                                h["grinderModel"] = override.grinderModel;
-                            if (!override.grinderBurrs.isEmpty())
-                                h["grinderBurrs"] = override.grinderBurrs;
-                            if (!override.beanBrand.isEmpty())
-                                h["beanBrand"] = override.beanBrand;
-                            if (!override.beanType.isEmpty())
-                                h["beanType"] = override.beanType;
-                            h["notes"] = shot.espressoNotes;
-                            if (shot.temperatureOverrideC > 0)
-                                h["temperatureOverrideC"] = shot.temperatureOverrideC;
-
-                            // For shots saved by MainController, targetWeightG is always
-                            // populated (user override → profile target_weight → finalWeight).
-                            // The profile-JSON fallback below is defensive for shots imported
-                            // from external formats (de1app, visualizer.coffee) where the
-                            // shot importer leaves targetWeight at 0.
-                            if (shot.targetWeightG > 0) {
-                                h["targetWeightG"] = shot.targetWeightG;
-                            } else if (!shot.profileJson.isEmpty()) {
-                                QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
-                                QJsonValue tw = profileObj["target_weight"];
-                                double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
-                                if (twVal > 0)
-                                    h["targetWeightG"] = twVal;
-                            }
-                            return h;
-                        };
-
-                        // Group the DESC-ordered shots into sessions using
-                        // the pure helper (unit-tested separately).
-                        QList<qint64> timestamps;
-                        timestamps.reserve(shots.size());
-                        for (const auto& s : shots)
-                            timestamps.append(s.timestamp);
-                        const auto sessionIndices = McpDialingHelpers::groupSessions(timestamps);
-
-                        for (const auto& indices : sessionIndices) {
-                            // Reverse to ASC within the session so
-                            // changeFromPrev reads "older -> newer".
-                            QList<ShotProjection> ordered;
-                            ordered.reserve(indices.size());
-                            for (qsizetype i = indices.size() - 1; i >= 0; --i)
-                                ordered.append(shots[indices[i]]);
-
-                            // Hoist common shot-identity fields to a
-                            // session-level `context`. Per-shot entries
-                            // carry overrides only when they differ from
-                            // context. See openspec change
-                            // optimize-dialing-context-payload, task 1.
-                            QList<McpDialingHelpers::ShotIdentity> identities;
-                            identities.reserve(ordered.size());
-                            for (const ShotProjection& s : ordered) {
-                                McpDialingHelpers::ShotIdentity id;
-                                id.grinderBrand = s.grinderBrand;
-                                id.grinderModel = s.grinderModel;
-                                id.grinderBurrs = s.grinderBurrs;
-                                id.beanBrand = s.beanBrand;
-                                id.beanType = s.beanType;
-                                identities.append(id);
-                            }
-                            const McpDialingHelpers::HoistedSession hoisted =
-                                McpDialingHelpers::hoistSessionContext(identities);
-
-                            QJsonArray sessionShots;
-                            for (qsizetype i = 0; i < ordered.size(); ++i) {
-                                QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i]);
-                                if (i > 0) {
-                                    QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i]);
-                                    h["changeFromPrev"] = diff.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(diff);
-                                } else {
-                                    h["changeFromPrev"] = QJsonValue(QJsonValue::Null);
-                                }
-                                sessionShots.append(h);
-                            }
-
-                            QJsonObject contextObj;
-                            if (!hoisted.context.grinderBrand.isEmpty())
-                                contextObj["grinderBrand"] = hoisted.context.grinderBrand;
-                            if (!hoisted.context.grinderModel.isEmpty())
-                                contextObj["grinderModel"] = hoisted.context.grinderModel;
-                            if (!hoisted.context.grinderBurrs.isEmpty())
-                                contextObj["grinderBurrs"] = hoisted.context.grinderBurrs;
-                            if (!hoisted.context.beanBrand.isEmpty())
-                                contextObj["beanBrand"] = hoisted.context.beanBrand;
-                            if (!hoisted.context.beanType.isEmpty())
-                                contextObj["beanType"] = hoisted.context.beanType;
-
-                            QJsonObject sessionObj;
-                            sessionObj["sessionStart"] = ordered.first().timestampIso;
-                            sessionObj["sessionEnd"] = ordered.last().timestampIso;
-                            sessionObj["shotCount"] = static_cast<int>(ordered.size());
-                            if (!contextObj.isEmpty())
-                                sessionObj["context"] = contextObj;
-                            sessionObj["shots"] = sessionShots;
-                            dbResult.dialInSessions.append(sessionObj);
-                        }
-                    }
-
-                    // --- Best recent shot on this profile (#1020) ---
-                    // Anchor the AI on "what does success look like on this
-                    // profile?" so it can give aspirational ("walk back
-                    // toward the best") advice instead of purely reactive
-                    // ("change something off the last shot") advice. Pulls
-                    // the highest-rated shot on the same profile_kb_id;
-                    // excludes resolvedShotId so the current shot doesn't
-                    // get reflected back at the AI as its own anchor
-                    // (which would produce an empty changeFromBest and
-                    // waste a context block). Omits the block when no
-                    // rated shot exists — common early in a user's session
-                    // or right after a profile change.
-                    //
-                    // Bounded to the last kBestRecentShotWindowDays so the
-                    // anchor reflects the user's *current* setup era — same
-                    // grinder family, same beans family, same recent
-                    // preferences. An all-time-best from years ago runs on
-                    // different beans, possibly worn burrs, and the
-                    // parameters don't transfer; surfacing it forces the
-                    // AI to either caveat every recommendation or quote
-                    // stale settings and have the user correct it. Better
-                    // to omit the block when nothing recent qualifies.
-                    constexpr qint64 kBestRecentShotWindowDays = 90;
-                    if (!dbResult.profileKbId.isEmpty()) {
-                        const qint64 windowFloorSec =
-                            QDateTime::currentSecsSinceEpoch()
-                            - kBestRecentShotWindowDays * 24 * 3600;
-                        QSqlQuery bestQ(db);
-                        bestQ.prepare(
-                            "SELECT id FROM shots "
-                            "WHERE profile_kb_id = ? AND enjoyment > 0 "
-                            "AND id != ? AND timestamp >= ? "
-                            "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
-                        bestQ.addBindValue(dbResult.profileKbId);
-                        bestQ.addBindValue(resolvedShotId);
-                        bestQ.addBindValue(windowFloorSec);
-                        if (bestQ.exec() && bestQ.next()) {
-                            const qint64 bestId = bestQ.value(0).toLongLong();
-                            ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId);
-                            const ShotProjection best = ShotHistoryStorage::convertShotRecord(bestRecord);
-                            if (best.isValid()) {
-                                QJsonObject b;
-                                b["id"] = best.id;
-                                b["timestamp"] = best.timestampIso;
-                                b["enjoyment0to100"] = best.enjoyment0to100;
-                                b["doseG"] = best.doseWeightG;
-                                b["yieldG"] = best.finalWeightG;
-                                b["durationSec"] = best.durationSec;
-                                b["grinderSetting"] = best.grinderSetting;
-                                b["grinderModel"] = best.grinderModel;
-                                b["beanBrand"] = best.beanBrand;
-                                b["beanType"] = best.beanType;
-                                b["notes"] = best.espressoNotes;
-                                if (best.doseWeightG > 0)
-                                    b["ratio"] = QString("1:%1").arg(
-                                        best.finalWeightG / best.doseWeightG, 0, 'f', 2);
-                                // daysSinceShot is computed against the
-                                // current wall clock — gives the AI a
-                                // freshness signal ("your last good shot
-                                // was 32 days ago" reads differently from
-                                // "yesterday").
-                                if (best.timestamp > 0) {
-                                    const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
-                                    b["daysSinceShot"] = (nowSec - best.timestamp) / (24 * 3600);
-                                }
-                                // changeFromBest: best -> current. Reuses
-                                // the same diff helper that powers
-                                // changeFromPrev so the AI sees a
-                                // consistent shape for "what moved between
-                                // these two shots."
-                                const QJsonObject diff = changeFromPrev(best, dbResult.shotData);
-                                if (!diff.isEmpty())
-                                    b["changeFromBest"] = diff;
-                                dbResult.bestRecentShot = b;
-                            }
-                        }
-                    }
-
-                    // --- Grinder context (shared helper) ---
-                    // Per openspec optimize-dialing-context-payload (task 7):
-                    // `settingsObserved` is bean-scoped — filtered to shots
-                    // on the resolved shot's `beanBrand`. Cross-bean
-                    // settings used to surface "you've used grind 9 before"
-                    // recommendations when 9 was on a different bean
-                    // entirely. When the bean-scoped query returns < 2
-                    // distinct settings (the user just switched beans),
-                    // also emit `allBeansSettings` (cross-bean) so the AI
-                    // sees the user's overall range — explicitly tagged
-                    // so it's not misread as bean-specific.
-                    QString grinderModel = dbResult.shotData.grinderModel;
-                    QString beverageType = dbResult.shotData.beverageType.isEmpty()
-                        ? QStringLiteral("espresso") : dbResult.shotData.beverageType;
-                    if (!grinderModel.isEmpty()) {
-                        const QString beanBrand = dbResult.shotData.beanBrand;
-                        GrinderContext ctx = ShotHistoryStorage::queryGrinderContext(
-                            db, grinderModel, beverageType, beanBrand);
-
-                        // Cross-bean fallback for sparse OR empty
-                        // bean-scoped results. The pre-PR shape always
-                        // populated grinderContext from the unscoped
-                        // query; tightening to bean-scoped now would
-                        // strand users whose resolved shot has a bean
-                        // brand never used elsewhere (imported shots,
-                        // novel-bean first shot before save) — the bean-
-                        // scoped query returns 0 rows and they'd lose
-                        // grinderContext entirely. Compute the fallback
-                        // up front whenever we filtered by bean, so it's
-                        // available for both the sparse (size < 2) and
-                        // empty (size == 0) paths below.
-                        bool haveCrossBean = false;
-                        GrinderContext crossBean;
-                        if (!beanBrand.isEmpty() && ctx.settingsObserved.size() < 2) {
-                            crossBean = ShotHistoryStorage::queryGrinderContext(
-                                db, grinderModel, beverageType);
-                            haveCrossBean = !crossBean.settingsObserved.isEmpty();
-                        }
-
-                        if (!ctx.settingsObserved.isEmpty() || haveCrossBean) {
-                            QJsonObject grinderCtx;
-                            // When bean-scoped is empty but cross-bean
-                            // has data, fall back to the cross-bean ctx
-                            // for the primary settingsObserved + range
-                            // fields so the AI gets the user's overall
-                            // range (the closest available signal). The
-                            // bean-scoped values stay empty / absent.
-                            const GrinderContext& primary =
-                                ctx.settingsObserved.isEmpty() ? crossBean : ctx;
-                            grinderCtx["model"] = primary.model;
-                            grinderCtx["beverageType"] = primary.beverageType;
-                            QJsonArray settingsArr;
-                            for (const auto& s : primary.settingsObserved)
-                                settingsArr.append(s);
-                            grinderCtx["settingsObserved"] = settingsArr;
-                            grinderCtx["isNumeric"] = primary.allNumeric;
-                            if (primary.allNumeric && primary.maxSetting > primary.minSetting) {
-                                grinderCtx["minSetting"] = primary.minSetting;
-                                grinderCtx["maxSetting"] = primary.maxSetting;
-                                grinderCtx["smallestStep"] = primary.smallestStep;
-                            }
-                            // When bean-scoped had at least one row, also
-                            // surface allBeansSettings so the AI sees
-                            // the cross-bean range — explicitly tagged.
-                            // Skip when bean-scoped was empty (the
-                            // cross-bean values are already in
-                            // settingsObserved as the fallback primary).
-                            if (haveCrossBean && !ctx.settingsObserved.isEmpty()) {
-                                QJsonArray allArr;
-                                for (const auto& s : crossBean.settingsObserved)
-                                    allArr.append(s);
-                                grinderCtx["allBeansSettings"] = allArr;
-                            }
-                            dbResult.grinderContext = grinderCtx;
-                        }
-                    }
+                    // The four DB-backed dialing-context blocks are produced
+                    // by shared helpers in mcptools_dialing_blocks. Both
+                    // dialing_get_context and the in-app advisor's
+                    // user-prompt enrichment path call the same builders so
+                    // the two surfaces cannot drift. See openspec
+                    // add-dialing-blocks-to-advisor.
+                    dbResult.dialInSessions = McpDialingBlocks::buildDialInSessionsBlock(
+                        db, dbResult.profileKbId, resolvedShotId, historyLimit);
+                    dbResult.bestRecentShot = McpDialingBlocks::buildBestRecentShotBlock(
+                        db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
+                    dbResult.grinderContext = McpDialingBlocks::buildGrinderContextBlock(
+                        db, dbResult.shotData.grinderModel,
+                        dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
                 });
 
                 // --- Deliver results to main thread for final assembly ---
@@ -589,79 +284,15 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     }
 
                     // --- SAW (Stop-at-Weight) prediction (#1021) ---
-                    // Surface the per-(profile, scale) predicted post-cut
-                    // drip so the AI can answer "should I bump my target
-                    // up?" without starting a five-shot grind iteration
-                    // that addresses the wrong variable. Predicted drip
-                    // comes from the same SAW learner the in-app stop
-                    // logic uses — sourceTier reports which model is
-                    // active (perProfile / globalBootstrap / globalPool /
-                    // scaleDefault), so the AI can weight its confidence.
-                    // Read-only signal — AI proposes, user/shots_update/
-                    // settings_set writes.
-                    //
-                    // Gates (review feedback on #1021):
-                    //   - espresso only: filter / pour-over flow regimes
-                    //     run 4–8 ml/s and the SAW recommendation text is
-                    //     espresso-shaped ("set target X g lower"). The
-                    //     learner is keyed off the espresso pour anyway.
-                    //   - real flow data only: skip the block when the
-                    //     resolved shot lacks usable flow samples
-                    //     (estimateFlowAtCutoff returns 0). A hard-coded
-                    //     "1.5 ml/s default" produced sensible-looking
-                    //     numbers for shots that had no business carrying
-                    //     a SAW prediction at all.
-                    //   - scale + profile configured: SAW pair key needs
-                    //     both. Empty either side -> omit.
-                    // Reuse the bevType local computed above — it defaults
-                    // empty beverageType to "espresso" the same way the
-                    // grinderContext block does, so older/imported shots
-                    // without an explicit beverageType behave consistently
-                    // with the rest of the response.
-                    if (settings && profileManager
-                        && bevType.compare(QStringLiteral("espresso"),
-                                           Qt::CaseInsensitive) == 0) {
-                        const QString scaleType = settings->scaleType();
-                        const QString profileFilename = profileManager->baseProfileName();
-                        const double flowAtCutoff = McpDialingHelpers::estimateFlowAtCutoff(
-                            dbResult.shotData.flow, dbResult.shotData.durationSec);
-                        if (!scaleType.isEmpty() && !profileFilename.isEmpty() && flowAtCutoff > 0) {
-
-                            const double predictedDripG =
-                                settings->calibration()->getExpectedDripFor(
-                                    profileFilename, scaleType, flowAtCutoff);
-                            const QString sourceTier =
-                                settings->calibration()->sawModelSource(profileFilename, scaleType);
-                            const double learnedLagSec =
-                                settings->calibration()->sawLearnedLagFor(profileFilename, scaleType);
-                            const int sampleCount =
-                                settings->calibration()->perProfileSawHistory(profileFilename, scaleType).size();
-
-                            QJsonObject sawPrediction;
-                            sawPrediction["profileFilename"] = profileFilename;
-                            sawPrediction["scaleType"] = scaleType;
-                            sawPrediction["flowAtCutoffMlPerSec"] =
-                                QString::number(flowAtCutoff, 'f', 2).toDouble();
-                            sawPrediction["predictedDripG"] =
-                                QString::number(predictedDripG, 'f', 2).toDouble();
-                            sawPrediction["learnedLagSec"] =
-                                QString::number(learnedLagSec, 'f', 2).toDouble();
-                            sawPrediction["sampleCount"] = sampleCount;
-                            sawPrediction["sourceTier"] = sourceTier;
-                            // Only emit a recommendation when the drip is
-                            // meaningfully above scale noise — for sub-
-                            // 0.2 g overshoots the AI shouldn't be
-                            // suggesting target tweaks.
-                            if (predictedDripG >= 0.2) {
-                                sawPrediction["recommendation"] = QString(
-                                    "Set the stop-at-weight target ~%1 g lower than your aim "
-                                    "to land near goal — that's the typical post-cutoff drip "
-                                    "on this (profile, scale) pair.")
-                                        .arg(predictedDripG, 0, 'f', 1);
-                            }
-                            result["sawPrediction"] = sawPrediction;
-                        }
-                    }
+                    // Built on the main thread because the SAW learner
+                    // lives on Settings::calibration() and reads
+                    // ProfileManager::baseProfileName(). Body lives in the
+                    // shared helper so the in-app advisor and MCP advisor
+                    // ship the same shape.
+                    const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
+                        settings, profileManager, dbResult.shotData);
+                    if (!sawPrediction.isEmpty())
+                        result["sawPrediction"] = sawPrediction;
 
                     // Note: dial-in reference tables and profile knowledge base are now
                     // embedded in the profileKnowledge system prompt (shared with in-app AI),

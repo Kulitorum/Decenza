@@ -20,6 +20,7 @@ class ShotDataModel;
 class Profile;
 class Settings;
 class ShotHistoryStorage;
+class ProfileManager;
 struct ShotMetadata;
 
 class AIManager : public QObject {
@@ -121,8 +122,19 @@ public:
     // Generate shot summary from historical shot data (for ShotDetailPage)
     Q_INVOKABLE QString generateHistoryShotSummary(const ShotProjection& shotData);
 
+    // Same envelope `generateHistoryShotSummary` serializes, but returned as
+    // a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s bg-thread
+    // closure) can append the four dialing-context blocks before
+    // serializing. Returns an empty object when summarization fails.
+    QJsonObject buildUserPromptObjectForShot(const ShotProjection& shotData);
+
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);
+    // ProfileManager hookup for the SAW prediction block (needs
+    // baseProfileName + profile target metadata at user-prompt enrichment
+    // time). Wired from MainController::setAiManager. Optional — falls
+    // back to omitting the SAW block when null.
+    void setProfileManager(ProfileManager* profileManager) { m_profileManager = profileManager; }
     Q_INVOKABLE void requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId);
 
     // Provider testing
@@ -181,6 +193,7 @@ private:
     QNetworkAccessManager* m_networkManager = nullptr;
     std::unique_ptr<ShotSummarizer> m_summarizer;
     ShotHistoryStorage* m_shotHistory = nullptr;
+    ProfileManager* m_profileManager = nullptr;
 
     // Providers
     std::unique_ptr<AIProvider> m_openaiProvider;
