@@ -613,9 +613,14 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     //     a SAW prediction at all.
                     //   - scale + profile configured: SAW pair key needs
                     //     both. Empty either side -> omit.
-                    if (settings && profileManager &&
-                        dbResult.shotData.beverageType.compare(
-                            QStringLiteral("espresso"), Qt::CaseInsensitive) == 0) {
+                    // Reuse the bevType local computed above — it defaults
+                    // empty beverageType to "espresso" the same way the
+                    // grinderContext block does, so older/imported shots
+                    // without an explicit beverageType behave consistently
+                    // with the rest of the response.
+                    if (settings && profileManager
+                        && bevType.compare(QStringLiteral("espresso"),
+                                           Qt::CaseInsensitive) == 0) {
                         const QString scaleType = settings->scaleType();
                         const QString profileFilename = profileManager->baseProfileName();
                         const double flowAtCutoff = McpDialingHelpers::estimateFlowAtCutoff(
