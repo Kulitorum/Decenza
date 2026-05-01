@@ -1,5 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
+#include "mcptools_shots_helpers.h"
 #include "../history/shothistorystorage.h"
 #include "../core/dbutils.h"
 
@@ -55,6 +56,8 @@ static void stripDetectorInternals(QJsonObject& obj)
     }
     obj["detectorResults"] = detectorResults;
 }
+
+using McpShotsHelpers::reshapeDetectorEnvelopes;
 
 // Resolve the detail argument. Default "summary" — drops time-series, debugLog,
 // profileJson. "full" — return the complete projection. Unknown values fall
@@ -297,9 +300,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
     registry->registerAsyncTool(
         "shots_get_detail",
         "Get a shot record. Default detail='summary' returns scalars, phase summaries, "
-        "summary lines, detector results, and ratings (~3K chars). Pass detail='full' to "
-        "include time-series curves (pressure, flow, temperature, weight), debug log, "
-        "and embedded profile JSON (~85K chars — only useful for curve-aware analysis).",
+        "summary lines, detector results (every detector wrapped in its own envelope object: "
+        "grind / channeling / flowTrend / tempStability / preinfusion / pour / skipFirstFrame / "
+        "verdict), and ratings (~3K chars). Pass detail='full' to include time-series curves "
+        "(pressure, flow, temperature, weight), debug log, and embedded profile JSON (~85K chars "
+        "— only useful for curve-aware analysis).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -338,6 +343,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         if (!fullDetail)
                             stripTimeSeriesFields(result);
                         stripDetectorInternals(result);
+                        reshapeDetectorEnvelopes(result);
                         nullifyUnratedFields(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
@@ -419,6 +425,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             if (!fullDetail)
                                 stripTimeSeriesFields(shotJson);
                             stripDetectorInternals(shotJson);
+                            reshapeDetectorEnvelopes(shotJson);
                             nullifyUnratedFields(shotJson);
                             shots.append(shotJson);
                             projections.append(std::move(shot));
