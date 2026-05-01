@@ -322,6 +322,7 @@ set(SOURCES
     src/mcp/mcptools_devices.cpp
     src/mcp/mcptools_write.cpp
     src/mcp/mcptools_agent.cpp
+    src/mcp/mcptools_ai.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
