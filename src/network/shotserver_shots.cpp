@@ -131,7 +131,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         const double drinkTds = shot.drinkTdsPct;
         const double drinkEy = shot.drinkEyPct;
 
-        rows += QString(R"HTML(
+        QString row = QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
                  data-profile="%2" data-brand="%3" data-coffee="%4" data-rating="%5"
                  data-ratio="%6" data-duration="%7" data-date="%17" data-dose="%9" data-yield="%10"
@@ -167,7 +167,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                     </div>
                     <div class="shot-footer">
                         <span class="shot-beans">%14</span>
-                        %18
+                        __RATING_CHIP__
                     </div>
                 </a>
             </div>
@@ -188,8 +188,18 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .arg(beanDisplay)                   // %14 (beans with grind)
         .arg(drinkTds, 0, 'f', 2)           // %15
         .arg(drinkEy, 0, 'f', 2)            // %16
-        .arg(shot.timestamp)                // %17 (epoch for sorting)
-        .arg(ratingChip);                   // %18 (rating chip HTML — empty when unrated)
+        .arg(shot.timestamp);               // %17 (epoch for sorting)
+
+        // Inject ratingChip via replace() AFTER the .arg() chain so the
+        // literal `%</span>` (and any future user-derived content) cannot
+        // shadow numbered placeholders. Doubling `%` to `%%` is the file's
+        // older convention but doesn't actually work — Qt's QString::arg()
+        // never reduces `%%` back to `%` (see qtbase qstring.cpp
+        // findArgEscapes/replaceArgEscapes), so doubling either leaks `%%`
+        // to the rendered output or still shadows ("%5" → "%%5" still
+        // parses as a %5 placeholder via continue + re-scan).
+        row.replace(QStringLiteral("__RATING_CHIP__"), ratingChip);
+        rows += row;
     }
 
     // Build HTML in chunks to avoid MSVC string literal size limit
@@ -1139,10 +1149,16 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     QString phaseData = phasesToJson(shot.phases);
 
     // Build quality-badge chips and the Shot Summary modal contents from the
-    // analyzeShot() outputs that already arrived on the projection. Mirrors the
-    // in-app QualityBadges + ShotAnalysisDialog. Inserted as the last two args
-    // (%42, %43) in the .arg() chain below, so any stray `%` in summary text
-    // can't shadow a later placeholder.
+    // analyzeShot() outputs that already arrived on the projection. Mirrors
+    // the in-app QualityBadges + ShotAnalysisDialog. Both blobs contain
+    // detector-generated text that may include literal `%` (e.g. "75% of
+    // goal"), so they are NOT passed through .arg() — they are injected via
+    // replace() AFTER the .arg() chain below into __BADGES_HTML__ /
+    // __SUMMARY_LINES_HTML__ markers in the template. That sidesteps the
+    // QString::arg() placeholder-shadowing trap entirely; doubling `%` to
+    // `%%` doesn't actually escape (Qt's arg never reduces `%%` back to
+    // `%`, and "%5"→"%%5" still parses as a %5 placeholder via the
+    // continue+rescan in qstring.cpp).
     auto badgeChip = [](const QString& kind, const QString& text) -> QString {
         return QString("<span class=\"badge %1\"><span class=\"dot\"></span>%2</span>")
             .arg(kind, text);
@@ -1623,7 +1639,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                 <div class="value rating">%7</div>
                 <div class="label">Rating</div>
             </div>
-            %42
+            __BADGES_HTML__
         </div>
 
         <div class="chart-container">
@@ -1720,7 +1736,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     <div class="summary-modal" id="summaryModal" onclick="if(event.target===this)closeSummaryDialog()">
         <div class="summary-modal-content">
             <h2>Shot Summary</h2>
-            %43
+            __SUMMARY_LINES_HTML__
             <button class="summary-modal-close" onclick="closeSummaryDialog()">OK</button>
         </div>
     </div>
@@ -2247,7 +2263,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
 </body>
 </html>
 )HTML";
-    return html
+    QString rendered = html
     .arg(tempOverride > 0
          ? shot.profileName.toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
          : shot.profileName.toHtmlEscaped())
@@ -2294,9 +2310,15 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
     .arg(shot.drinkEyPct, 0, 'f', 1)                                                 // %38 drinkEy
     .arg(resistanceData)                                                             // %39 resistance
     .arg(jsEscape(shot.grinderBrand))                                                // %40 grinderBrand
-    .arg(jsEscape(shot.grinderBurrs))                                                // %41 grinderBurrs
-    .arg(badgesHtml)                                                                 // %42 quality badges + summary button
-    .arg(summaryLinesHtml);                                                          // %43 shot summary modal lines
+    .arg(jsEscape(shot.grinderBurrs));                                               // %41 grinderBurrs
+
+    // badgesHtml / summaryLinesHtml carry detector-generated text and CSS that
+    // can contain literal `%`. Inject AFTER the .arg() chain via replace() so
+    // they can never feed Qt's placeholder scanner. See the build-site comment
+    // above for why doubling `%` doesn't actually escape.
+    rendered.replace(QStringLiteral("__BADGES_HTML__"), badgesHtml);
+    rendered.replace(QStringLiteral("__SUMMARY_LINES_HTML__"), summaryLinesHtml);
+    return rendered;
 }
 
 QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
