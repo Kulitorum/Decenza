@@ -190,6 +190,7 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
         frameCount);
     summary.summaryLines = analysis.lines;
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
+    summary.tempIntentionalStepping = analysis.detectors.tempIntentionalStepping;
     if (!summary.pourTruncatedDetected
         && ShotAnalysis::reachedExtractionPhase(markers, summary.totalDuration))
         markPerPhaseTempInstability(summary, temperature, temperatureGoal);
@@ -475,6 +476,14 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     if (!shotData.summaryLines.isEmpty()) {
         summary.summaryLines = shotData.summaryLines;
         summary.pourTruncatedDetected = shotData.detectorResults.value("pourTruncated").toBool();
+        // detectorResults["tempStability"] is the standardized envelope shape
+        // (see shothistorystorage_serialize.cpp): { checked, intentionalStepping,
+        // avgDeviationC, unstable }. .toMap() on a missing key returns an empty
+        // map, .value("intentionalStepping").toBool() then defaults to false —
+        // the same null-safe pattern as the pourTruncated read above.
+        summary.tempIntentionalStepping = shotData.detectorResults
+            .value("tempStability").toMap()
+            .value("intentionalStepping").toBool();
         if (!summary.pourTruncatedDetected
             && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
             markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
@@ -695,7 +704,16 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         }
         // Suppress per-phase temp instability when the puck never built \u2014
         // temp drift on a failed pour is a downstream symptom, not signal.
-        if (phase.temperatureUnstable && !summary.pourTruncatedDetected)
+        // Also suppress when the profile is intentionally stepping the
+        // temperature goal across the shot: per-phase deviation is by design
+        // and the global detector (and detectorResults envelope) already
+        // treats the shot as stable for the same reason. Without this gate
+        // the structured envelope and the prose disagree on stepping
+        // profiles, contradicting the system prompt's own "DO NOT flag low
+        // temperature on a stepping profile" guidance.
+        if (phase.temperatureUnstable
+            && !summary.pourTruncatedDetected
+            && !summary.tempIntentionalStepping)
             out << "- **Temperature instability**: Average temperature deviated from target by >2\u00B0C during this phase\n";
         out << "\n";
     }

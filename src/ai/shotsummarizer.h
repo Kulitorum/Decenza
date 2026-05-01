@@ -94,6 +94,19 @@ struct ShotSummary {
     // (which analyzeShot's aggregate output doesn't surface).
     bool pourTruncatedDetected = false;
 
+    // Intentional temperature stepping flag — when the profile steps the
+    // temperature goal across the shot (e.g. 82→72°C decline), per-phase
+    // average deviation is by design, not instability. The global detector
+    // already suppresses the aggregate "Temperature unstable" line on this
+    // basis (`ShotAnalysis::AnalysisResult::detectors.tempIntentionalStepping`);
+    // mirror that suppression for the per-phase prose so the AI advisor sees
+    // a consistent story between the structured detectorResults envelope and
+    // the prose shotAnalysis. The per-phase variant of
+    // `hasIntentionalTempStepping` only sees stepping within a single phase,
+    // so a profile that steps *across* phases (flat goal per phase, different
+    // goal each phase) needs the global flag to suppress the per-phase prose.
+    bool tempIntentionalStepping = false;
+
     // DYE metadata (from user input)
     QString beanBrand;
     QString beanType;

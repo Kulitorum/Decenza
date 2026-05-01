@@ -299,6 +299,111 @@ private slots:
                  "preheat-ramp drift must not surface in the prompt for aborted-preinfusion shots");
     }
 
+    // Issue #1018: when the profile goal steps temperature *across* phases
+    // (e.g. 80's Espresso 82→72°C — flat-per-phase, different goal each
+    // phase), the per-phase variant of hasIntentionalTempStepping returns
+    // false (no stepping within a single phase) but the global detector
+    // returns true and treats the shot as stable. Without the global
+    // suppression, the prose blocks emit "Temperature instability" on
+    // every phase whose avg deviation > 2°C, contradicting the
+    // detectorResults envelope (`tempStability.intentionalStepping: true,
+    // unstable: false`) and the system prompt's own "DO NOT flag low temp
+    // on a stepping profile" guidance.
+    void intentionalCrossPhaseSteppingSuppressesPerPhaseTempProse()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+
+        QVariantList pressure;
+        appendFlat(pressure, 0.0, 8.0, 2.0);
+        appendFlat(pressure, 8.0, 30.0, 9.0);
+
+        QVariantList flow;
+        appendFlat(flow, 0.0, 30.0, 1.8);
+
+        // Per-phase the goal is flat (82 in preinfusion, 72 in pour). The
+        // bounded hasIntentionalTempStepping returns false for both phases
+        // (no per-phase range). Globally the goal spans 82→72 = 10°C, well
+        // above TEMP_STEPPING_RANGE — the global detector flags the shot as
+        // intentionally stepping.
+        QVariantList temperature, temperatureGoal;
+        appendFlat(temperature, 0.0, 8.0, 79.0);   // 3°C below goal in preinfusion
+        appendFlat(temperature, 8.0 + 0.1, 30.0, 69.0);  // 3°C below goal in pour
+        appendFlat(temperatureGoal, 0.0, 8.0, 82.0);
+        appendFlat(temperatureGoal, 8.0 + 0.1, 30.0, 72.0);
+
+        QVariantList derivative;
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+
+        QVariantList weight;
+        appendFlat(weight, 0.0, 30.0, 36.0);
+
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QVERIFY2(summary.tempIntentionalStepping,
+                 "82->72 cross-phase goal must set tempIntentionalStepping (matches detectorResults envelope)");
+        QVERIFY2(!summary.pourTruncatedDetected,
+                 "test setup: 9-bar peak should not trip pourTruncated");
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        QVERIFY2(!prompt.contains(QStringLiteral("Temperature instability")),
+                 "per-phase Temperature instability prose must be suppressed when the profile is intentionally stepping");
+    }
+
+    // Cascade integrity through the fast path: when shotData carries
+    // detectorResults.tempStability.intentionalStepping == true, the per-phase
+    // prose must be suppressed even though the per-phase
+    // hasIntentionalTempStepping check might still return false (cross-phase
+    // stepping). Mirror of the slow-path check above through the
+    // pre-computed-summaryLines path.
+    void summarizeFromHistory_fastPathPropagatesIntentionalStepping()
+    {
+        QVariantMap shot = buildHealthyShotMap();
+        // Force tempIntentionalStepping=true via the detector envelope; the
+        // detail of summaryLines doesn't matter — any non-empty list takes
+        // the fast path.
+        QVariantMap line;
+        line["text"] = QStringLiteral("dummy");
+        line["type"] = QStringLiteral("good");
+        QVariantList lines;
+        lines.append(line);
+        shot["summaryLines"] = lines;
+
+        QVariantMap tempStability;
+        tempStability["checked"] = true;
+        tempStability["intentionalStepping"] = true;
+        tempStability["avgDeviationC"] = 3.0;
+        tempStability["unstable"] = false;
+        QVariantMap detectors;
+        detectors["pourTruncated"] = false;
+        detectors["tempStability"] = tempStability;
+        shot["detectorResults"] = detectors;
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QVERIFY2(summary.tempIntentionalStepping,
+                 "fast path must derive tempIntentionalStepping from detectorResults.tempStability");
+    }
+
     // Sanity: a healthy shot (peak pressure ~9 bar) flows through the same
     // path but pourTruncatedDetected stays false and the cascade does not
     // suppress observations. This guards against an over-aggressive gate.
