@@ -923,7 +923,6 @@ void ShotSummarizer::loadProfileKnowledge()
         qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
         return;
     }
-    s_knowledgeLoaded = true;
 
     QString content = QTextStream(&file).readAll();
     file.close();
@@ -995,6 +994,13 @@ void ShotSummarizer::loadProfileKnowledge()
              << "profile knowledge entries";
 
     buildProfileCatalog();
+
+    // Mark loaded only after parse + catalog build complete. The
+    // double-checked-locking pattern at the top of this function depends
+    // on the flag indicating "data ready to read", not "we got far enough
+    // to open the file". Setting it earlier let a second thread that won
+    // the outer race read an empty s_profileKnowledge.
+    s_knowledgeLoaded = true;
 }
 
 void ShotSummarizer::buildProfileCatalog()
@@ -1134,6 +1140,15 @@ QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QS
     if (!key.isEmpty()) {
         return s_profileKnowledge.value(key).content;
     }
+    return QString();
+}
+
+QString ShotSummarizer::profileKnowledgeForKbId(const QString& profileKbId)
+{
+    if (profileKbId.isEmpty()) return QString();
+    loadProfileKnowledge();
+    if (s_profileKnowledge.contains(profileKbId))
+        return s_profileKnowledge.value(profileKbId).content;
     return QString();
 }
 

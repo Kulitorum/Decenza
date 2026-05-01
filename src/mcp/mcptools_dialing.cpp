@@ -37,19 +37,23 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // dialing_get_context
     registry->registerAsyncTool(
         "dialing_get_context",
-        "Get full dial-in context: recent shot summary, dial-in history (last N shots with same profile), "
-        "profile knowledge (includes system prompt, dial-in reference tables, profile catalog with cross-profile recommendation guidance, and profile-specific KB), "
-        "bean/grinder metadata, and grinder context (observed settings range, step size, and burr-swappable flag). "
-        "This is the primary read tool for dial-in conversations — a single call gives "
-        "everything needed to analyze a shot and suggest changes. Grinder settings are shown as the user "
-        "entered them — may be numbers, letters, click counts, or grinder-specific notation like Eureka "
-        "multi-turn (1+4 = 1 rotation + position 4). The grinderContext block shows the range and step "
-        "size observed in the user's own shot history.",
+        "Get dial-in context: recent shot summary, dial-in history (last N shots with same profile), "
+        "profile knowledge for the current shot's profile, bean/grinder metadata, and grinder context "
+        "(observed settings range, step size, and burr-swappable flag). "
+        "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
+        "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
+        "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
+        "prompt, reference tables, and the cross-profile catalog (~18 KB total — useful at session start "
+        "but redundant on later turns). "
+        "Grinder settings are shown as the user entered them — may be numbers, letters, click counts, or "
+        "grinder-specific notation like Eureka multi-turn (1+4 = 1 rotation + position 4). The "
+        "grinderContext block shows the range and step size observed in the user's own shot history.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Specific shot ID to analyze. If omitted, uses most recent shot."}}},
-                {"history_limit", QJsonObject{{"type", "integer"}, {"description", "Number of prior shots with same profile to include (default 5, max 20)"}}}
+                {"history_limit", QJsonObject{{"type", "integer"}, {"description", "Number of prior shots with same profile to include (default 5, max 20)"}}},
+                {"includeFullKnowledge", QJsonObject{{"type", "boolean"}, {"description", "Include the full dial-in system prompt, reference tables, and profile catalog in profileKnowledge. Default false — return only the current profile's KB entry. Useful at session start; redundant per call."}}}
             }}
         },
         [mainController, profileManager, shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
@@ -59,6 +63,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             }
 
             int historyLimit = qBound(1, args["history_limit"].toInt(5), 20);
+            const bool includeFullKnowledge = args.value("includeFullKnowledge").toBool();
 
             // Resolve shot ID on the main thread (lastSavedShotId is a simple getter)
             qint64 shotId = args["shot_id"].toInteger(0);
@@ -68,7 +73,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             const QString dbPath = shotHistory->databasePath();
 
             QThread* thread = QThread::create(
-                [dbPath, shotId, historyLimit, mainController, profileManager, settings, respond]() {
+                [dbPath, shotId, historyLimit, includeFullKnowledge, mainController, profileManager, settings, respond]() {
                 // --- All SQL runs on this background thread ---
                 DialingDbResult dbResult;
 
@@ -166,7 +171,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 // --- Deliver results to main thread for final assembly ---
                 // Main-thread work: settings access, AI analysis, profile info
                 QMetaObject::invokeMethod(qApp,
-                    [respond, dbResult, resolvedShotId, mainController, profileManager, settings]() {
+                    [respond, dbResult, resolvedShotId, includeFullKnowledge, mainController, profileManager, settings]() {
 
                     if (!dbResult.shotData.isValid()) {
                         respond(QJsonObject{{"error", "Shot not found: " + QString::number(resolvedShotId)}});
@@ -213,10 +218,33 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     }
 
                     // --- Profile knowledge ---
+                    // Default: ship only the current profile's KB section
+                    // (~1 KB). The full system prompt + reference tables +
+                    // profile catalog (~18 KB total) is opt-in via
+                    // includeFullKnowledge — useful at session start, but
+                    // redundant on later turns of a multi-call dial-in
+                    // conversation. See #987.
                     QString profileTitle = sd.profileName;
                     QString bevType = sd.beverageType.isEmpty() ? QStringLiteral("espresso") : sd.beverageType;
-                    QString profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
-                        bevType, profileTitle, QString(), dbResult.profileKbId);
+                    // Extract the editor type from the embedded profile JSON
+                    // so the fuzzy-match fallback can find a section for
+                    // custom-titled D-Flow / A-Flow profiles whose stored
+                    // profileKbId is stale or absent. Without this, the
+                    // fallback only matches on title alone.
+                    QString profileType;
+                    if (!sd.profileJson.isEmpty()) {
+                        const QJsonObject pj = QJsonDocument::fromJson(sd.profileJson.toUtf8()).object();
+                        profileType = pj.value("type").toString();
+                    }
+                    QString profileKnowledge;
+                    if (includeFullKnowledge) {
+                        profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
+                            bevType, profileTitle, profileType, dbResult.profileKbId);
+                    } else {
+                        profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(dbResult.profileKbId);
+                        if (profileKnowledge.isEmpty())
+                            profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
+                    }
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;
 
