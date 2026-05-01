@@ -99,6 +99,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 {"profileName", QJsonObject{{"type", "string"}, {"description", "Filter by profile name (substring match)"}}},
                 {"beanBrand", QJsonObject{{"type", "string"}, {"description", "Filter by bean brand"}}},
                 {"minEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Minimum enjoyment rating (1-100, 0 or omit means no filter)"}}},
+                {"hasRating", QJsonObject{{"type", "boolean"}, {"description", "Only shots with an enjoyment score (>0). Composable with other filters; equivalent to minEnjoyment: 1."}}},
+                {"hasNotes", QJsonObject{{"type", "boolean"}, {"description", "Only shots with non-empty espresso notes."}}},
+                {"hasTds", QJsonObject{{"type", "boolean"}, {"description", "Only shots with a refractometer reading (drinkTdsPct > 0)."}}},
                 {"after", QJsonObject{{"type", "string"}, {"description", "Only shots after this ISO timestamp (e.g. 2026-03-15T00:00:00)"}}},
                 {"before", QJsonObject{{"type", "string"}, {"description", "Only shots before this ISO timestamp (e.g. 2026-03-21T23:59:59)"}}}
             }}
@@ -118,6 +121,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             QString profileFilter = args["profileName"].toString();
             QString beanFilter = args["beanBrand"].toString();
             int minEnjoyment = args["minEnjoyment"].toInt(-1);
+            const bool hasRating = args.value("hasRating").toBool();
+            const bool hasNotes = args.value("hasNotes").toBool();
+            const bool hasTds = args.value("hasTds").toBool();
             qint64 afterEpoch = 0, beforeEpoch = 0;
             if (args.contains("after")) {
                 QDateTime dt = QDateTime::fromString(args["after"].toString(), Qt::ISODate);
@@ -132,7 +138,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
             QThread* thread = QThread::create(
                 [dbPath, limit, offset, profileFilter, beanFilter,
-                 minEnjoyment, afterEpoch, beforeEpoch, currentDateTime, respond]() {
+                 minEnjoyment, hasRating, hasNotes, hasTds,
+                 afterEpoch, beforeEpoch, currentDateTime, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
                 qint64 totalCount = 0;
@@ -155,6 +162,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     if (minEnjoyment > 0) {
                         sql += " AND enjoyment >= :minEnjoyment";
                         countSql += " AND enjoyment >= :minEnjoyment";
+                    }
+                    if (hasRating) {
+                        sql += " AND enjoyment > 0";
+                        countSql += " AND enjoyment > 0";
+                    }
+                    if (hasNotes) {
+                        sql += " AND TRIM(COALESCE(espresso_notes, '')) <> ''";
+                        countSql += " AND TRIM(COALESCE(espresso_notes, '')) <> ''";
+                    }
+                    if (hasTds) {
+                        sql += " AND drink_tds > 0";
+                        countSql += " AND drink_tds > 0";
                     }
                     if (afterEpoch > 0) {
                         sql += " AND timestamp >= :after";
