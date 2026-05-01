@@ -20,6 +20,7 @@
 
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSet>
 
 void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                                AccessibilityManager* accessibility,
@@ -59,6 +60,15 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             QString category = args["category"].toString();
             bool hasKeys = !keys.isEmpty();
 
+            // Track which keys and categories the iteration considers, so
+            // that requested keys/categories that don't match anything can
+            // be reported as errors rather than returning {} silently
+            // (#986). Typos and outdated category names ("preferences" was
+            // removed in phase 16) are the worst kind of failure mode for
+            // an LLM agent — indistinguishable from "the value is empty."
+            QSet<QString> knownCategories;
+            QSet<QString> matchedKeys;
+
             // If keys are specified, return those regardless of category.
             // If category is specified, return all settings in that category.
             // If neither, return all settings.
@@ -70,11 +80,14 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // again must round-trip — see #985.
             auto include = [&](const QString& key, const QString& cat,
                                const QString& alias = QString()) -> bool {
+                knownCategories.insert(cat);
                 if (hasKeys) {
                     for (const auto& k : keys) {
                         const QString s = k.toString();
-                        if (s == key || (!alias.isEmpty() && s == alias))
+                        if (s == key || (!alias.isEmpty() && s == alias)) {
+                            matchedKeys.insert(s);
                             return true;
+                        }
                     }
                     return false;
                 }
@@ -278,6 +291,34 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("autoFavoritesMaxItems", "autofavorites")) result["autoFavoritesMaxItems"] = settings->network()->autoFavoritesMaxItems();
             if (include("autoFavoritesOpenBrewSettings", "autofavorites")) result["autoFavoritesOpenBrewSettings"] = settings->network()->autoFavoritesOpenBrewSettings();
             if (include("autoFavoritesHideUnrated", "autofavorites")) result["autoFavoritesHideUnrated"] = settings->network()->autoFavoritesHideUnrated();
+
+            // Reject unknown category. Empty category is "no filter" — fine.
+            if (!category.isEmpty() && !knownCategories.contains(category)) {
+                QStringList sorted = knownCategories.values();
+                sorted.sort();
+                QJsonArray validCategories;
+                for (const QString& c : std::as_const(sorted)) validCategories.append(c);
+                return QJsonObject{
+                    {"error", QString("Unknown category '%1'").arg(category)},
+                    {"validCategories", validCategories}
+                };
+            }
+
+            // Report keys that were requested but matched no known field.
+            // (Empty `keys` array means "all settings" — nothing to validate.)
+            if (hasKeys) {
+                QJsonArray unknown;
+                for (const auto& k : keys) {
+                    const QString s = k.toString();
+                    if (!matchedKeys.contains(s)) unknown.append(s);
+                }
+                if (!unknown.isEmpty()) {
+                    return QJsonObject{
+                        {"error", "Unknown settings key(s)"},
+                        {"unknownKeys", unknown}
+                    };
+                }
+            }
 
             return result;
         },
