@@ -10,9 +10,9 @@
 //   With    --sync: also overwrite stale JSONs and create missing ones
 //
 // The first argument should be de1app's `de1plus/profiles/` directory. Plugin profile
-// directories under `de1plus/plugins/*/profiles/` are scanned automatically when the
-// parent of the first argument is named "de1plus"; if a plugin ships a profile with the
-// same identity as a base profile, the plugin copy wins (canonical source).
+// directories under `<first-arg>/../plugins/*/profiles/` are scanned automatically if a
+// `plugins/` sibling exists; when a plugin profile shares the same output filename as a
+// base profile, the plugin copy wins (canonical source).
 
 #include <QCoreApplication>
 #include <QDir>
@@ -133,8 +133,7 @@ static QString buildDiff(const Profile& tcl, const Profile& builtin)
     return report;
 }
 
-// Walk `<de1plus>/plugins/*/profiles/*.tcl` if `baseDir` looks like `<de1plus>/profiles`.
-// Returns absolute file paths to every plugin TCL profile; empty list otherwise.
+// Walk `<baseDir>/../plugins/*/profiles/*.tcl`. Empty list if no `plugins/` sibling.
 static QStringList findPluginTclFiles(const QDir& baseDir)
 {
     QStringList result;
