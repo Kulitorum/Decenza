@@ -36,7 +36,7 @@ If ORIGINAL_MODIFIED is true, warn the user — tests will modify the profile an
 | 2026-04-30 | 33 | 56 | 1 | 0 | Simulator, MCP 2025-11-25 negotiated. Plan refreshed for PR #976 field renames, `profiles_save` readonly refusal, `profiles_create` empty-filename, removal of `preferences` category, and §4.10 active-delete behavior. |
 | 2026-05-01 | 33 | 56 | 1 | 0 | Plan refreshed for PR #984: `shots_get_detail`/`shots_compare` default to summary mode (#979); `enjoyment0to100`/`drinkTdsPct`/`drinkEyPct` everywhere on shot reads (#980); `profiles_delete` returns actionable error on active profile (#983). |
 | 2026-05-01 | 34 | — | — | 0 | Spot-check after merging PRs #996–#1005 (issues #985–#994). Validated: `app_get_info` returns platform block, `machine_get_state` no longer ships `stateString`/`platform`. `shots_list` returns `hasMore`/`nextOffset` (last-page → false/null). `shots_get_detail`/`shots_compare` strip `gates` from detector results, emit `null` for unrated `enjoyment0to100`/`drinkTdsPct`/`drinkEyPct`, and `shots_compare` hoists `profileNotes`/`profileKbId` to a top-level `sharedProfile` block when shots share a profile. `profiles_list` filters (`editorType`, `excludeCategories`, `nameContains`, `readOnly`) and the derived `category` field work; trim + case-insensitive match catches `D-Flow`/`A-Flow`. `profiles_get_params` emits both un-suffixed and `*Bar`/`*C`/`*MlPerSec`/`*Sec`/`*G`/`*Ml` aliases (incl. `preinfusionStopPressureBar`). `settings_get` keys filter accepts suffixed read names (`espressoTemperatureC` round-trips); unknown keys/categories return structured error with `validCategories`/`unknownKeys`. `dialing_get_context` default returns ~1 KB profile section only; `includeFullKnowledge: true` returns the full ~18 KB system prompt + reference tables + catalog. |
-| 2026-05-01 | 34 | 67 | 1 | 1 | Full plan run, simulator. All sections passed: §1 state/info/telemetry, §2 sleep/wake/stop/skip (start_* skipped per simulator note), §3.3-3.8 profile read for all editor types (with new aliases), §4 profile editing incl. frame preservation, save-as, built-in revert, active-profile delete protection, profiles_create. §5 settings get/set incl. unknown rejection. §6 shots list/detail/compare/update/delete (round-trip restored). §7 dialing default + full knowledge. §8 scale, §9 devices, §10 debug pagination, §11 settings parity for all 22 categories. **One failure**: §4.10 `profiles_delete` of `_mcp_test_tmp` returned `Failed to delete profile` after switching active to `default` first — the user profile appears to vanish from the list when active is switched, even though `profiles_save` reported success and `profiles_get_active` confirmed it. Behavior may be a save-persistence quirk in the simulator path; worth a follow-up issue. Cleanup left no residue (default active, modified=false, DYE/system settings all back to ORIGINAL values). |
+| 2026-05-01 | 34 | 67 | 1 | 1 | Full plan run, simulator. All sections passed: §1 state/info/telemetry, §2 sleep/wake/stop/skip (start_* skipped per simulator note), §3.3-3.8 profile read for all editor types (with new aliases), §4 profile editing incl. frame preservation, save-as, built-in revert, active-profile delete protection, profiles_create. §5 settings get/set incl. unknown rejection. §6 shots list/detail/compare/update/delete (round-trip restored). §7 dialing default + full knowledge. §8 scale, §9 devices, §10 debug pagination, §11 settings parity for all 22 categories. **One failure**: §4.10 `profiles_delete` of `mcp_test_tmp` returned `Failed to delete profile` after switching active to `default` first — the user profile appears to vanish from the list when active is switched, even though `profiles_save` reported success and `profiles_get_active` confirmed it. Behavior may be a save-persistence quirk in the simulator path; worth a follow-up issue. Cleanup left no residue (default active, modified=false, DYE/system settings all back to ORIGINAL values). |
 
 ---
 
@@ -265,18 +265,27 @@ Note: §4.3 (espressoTemperature setter) is the path that *does* persist edits o
 
 ### 4.9 profiles_save — Save As
 ```
-Call: profiles_save (filename: "_mcp_test_tmp", title: "MCP Test Temp", confirmed: true)
-Expect: success=true, filename="_mcp_test_tmp"
-Verify: profiles_get_active → filename="_mcp_test_tmp", modified=false, readOnly=false
+Call: profiles_save (filename: "mcp_test_tmp", title: "MCP Test Temp", confirmed: true)
+Expect: success=true, filename="mcp_test_tmp"
+Verify: profiles_get_active → filename="mcp_test_tmp", modified=false, readOnly=false
 Note: Save As makes the new copy active. Cleaned up in 4.10.
+```
+
+### 4.9a profiles_save — leading-underscore filename rejected
+```
+Call: profiles_save (filename: "_internal_thing", title: "Internal Thing", confirmed: true)
+Expect: error containing "cannot start with underscore"
+Note: leading-underscore filenames are reserved for internal files (e.g. _current.json).
+      ProfileStorage::listProfiles filters them out, so a save would silently disappear
+      from profiles_list. Caught upfront with a clear error per #1006.
 ```
 
 ### 4.10 profiles_delete — user profile (must switch active first)
 ```
-Call: profiles_set_active (filename: "default", confirmed: true)   # leave _mcp_test_tmp
-Call: profiles_delete (filename: "_mcp_test_tmp", confirmed: true)
+Call: profiles_set_active (filename: "default", confirmed: true)   # leave mcp_test_tmp
+Call: profiles_delete (filename: "mcp_test_tmp", confirmed: true)
 Expect: success=true, message contains "deleted"
-Verify: profiles_list → no profile with filename "_mcp_test_tmp"
+Verify: profiles_list → no profile with filename "mcp_test_tmp"
 Note: deleting the currently-active profile is rejected with an actionable error
       ("Cannot delete the currently-active profile '<name>'. Call profiles_set_active
       with a different profile first, then retry.") — always switch active to a
@@ -563,7 +572,7 @@ Step 4 — Verify clean state:
 ```
 
 ### What this test plan does NOT leave behind
-- No temporary profiles on disk (`_mcp_test_tmp` deleted in 4.10, `default` override reverted in 4.11)
+- No temporary profiles on disk (`mcp_test_tmp` deleted in 4.10, `default` override reverted in 4.11)
 - No modified DYE metadata (restored in cleanup step 2)
 - No modified grinder setting (restored in 7.3 cleanup and cleanup step 2)
 - No permanently altered shot feedback (restored in 6.5 cleanup)
