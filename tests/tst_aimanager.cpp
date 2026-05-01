@@ -234,6 +234,96 @@ private slots:
         QCOMPARE(payload.count(QStringLiteral("### Setup:")), 0);
     }
 
+    // The Setup header builder must produce clean prose for partial-DYE
+    // shapes — no double spaces, no trailing/leading separators, no "on"
+    // before an empty bean name. Regression guard for the multi-segment
+    // join introduced post-#1030.
+    void emitRecentShotContext_setupHeader_partialFieldShapes_data()
+    {
+        QTest::addColumn<QString>("grinderBrand");
+        QTest::addColumn<QString>("grinderModel");
+        QTest::addColumn<QString>("grinderBurrs");
+        QTest::addColumn<QString>("beanBrand");
+        QTest::addColumn<QString>("beanType");
+        QTest::addColumn<QString>("expectedSetupLine");
+
+        // Full identity (sanity baseline).
+        QTest::newRow("full")
+            << "Niche" << "Zero" << "63mm Kony" << "Northbound" << "Spring Tour"
+            << "### Setup: Niche Zero with 63mm Kony on Northbound - Spring Tour";
+        // Burrs recorded without grinder brand+model (rare but possible if
+        // user clears brand/model after entering burrs). Pre-fix this
+        // rendered with a double-space artifact: `### Setup:  with 63mm`.
+        QTest::newRow("burrsNoGrinderName")
+            << "" << "" << "63mm Kony" << "Northbound" << "Spring Tour"
+            << "### Setup: 63mm Kony on Northbound - Spring Tour";
+        // Cultivar entered without roaster brand (full grinder identity).
+        QTest::newRow("beanTypeNoBrand")
+            << "Niche" << "Zero" << "63mm Kony" << "" << "Spring Tour"
+            << "### Setup: Niche Zero with 63mm Kony on Spring Tour";
+        // Roaster entered without specific cultivar (full grinder identity).
+        QTest::newRow("beanBrandNoType")
+            << "Niche" << "Zero" << "63mm Kony" << "Northbound" << ""
+            << "### Setup: Niche Zero with 63mm Kony on Northbound";
+        // Grinder brand only — no model, no burrs.
+        QTest::newRow("grinderBrandOnly")
+            << "Niche" << "" << "" << "Northbound" << "Spring Tour"
+            << "### Setup: Niche on Northbound - Spring Tour";
+        // Grinder model only — no brand, no burrs.
+        QTest::newRow("grinderModelOnly")
+            << "" << "Zero" << "" << "Northbound" << "Spring Tour"
+            << "### Setup: Zero on Northbound - Spring Tour";
+        // Grinder identity only — no bean fields at all.
+        QTest::newRow("grinderOnly")
+            << "Niche" << "Zero" << "63mm Kony" << "" << ""
+            << "### Setup: Niche Zero with 63mm Kony";
+        // Bean only — no grinder fields at all.
+        QTest::newRow("beanOnly")
+            << "" << "" << "" << "Northbound" << "Spring Tour"
+            << "### Setup: Northbound - Spring Tour";
+    }
+    void emitRecentShotContext_setupHeader_partialFieldShapes()
+    {
+        QFETCH(QString, grinderBrand);
+        QFETCH(QString, grinderModel);
+        QFETCH(QString, grinderBurrs);
+        QFETCH(QString, beanBrand);
+        QFETCH(QString, beanType);
+        QFETCH(QString, expectedSetupLine);
+
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 11;
+
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        qualifiedShots.append({
+            base,
+            makeShot(1, base, grinderBrand, grinderModel, grinderBurrs,
+                     QStringLiteral("4.0"), beanBrand, beanType,
+                     QStringLiteral("Profile"), QString(), QString())
+        });
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, grinderBrand, 11);
+
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(payload.contains(expectedSetupLine),
+                 qPrintable(QString("expected '%1' in payload, got: %2")
+                                .arg(expectedSetupLine)
+                                .arg(payload.left(500))));
+        // Defensive: no double-space artifacts anywhere in the Setup line.
+        const qsizetype setupStart = payload.indexOf(QStringLiteral("### Setup:"));
+        QVERIFY(setupStart >= 0);
+        const qsizetype setupEnd = payload.indexOf(QChar('\n'), setupStart);
+        const QString setupLine = payload.mid(setupStart, setupEnd - setupStart);
+        QVERIFY2(!setupLine.contains(QStringLiteral("  ")),
+                 qPrintable("Setup line has double space: " + setupLine));
+    }
+
     // Stale serial — a request that's been superseded by a newer one — emits
     // an empty string so QML clears its contextLoading flag.
     void emitRecentShotContext_staleSerialEmitsEmpty()
