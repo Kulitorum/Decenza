@@ -543,6 +543,28 @@ qml/components/
 └── PresetButton.qml        # Preset selector
 ```
 
+## Profile Modes & Stop Limits
+
+- **FrameBased mode**: Upload to machine, executes autonomously
+- **DirectControl mode**: App sends setpoints frame-by-frame
+- Formats: JSON (unified with de1app v2), TCL (de1app import)
+- Tare happens when frame 0 starts (after machine preheat)
+- **Stop limits**: `target_weight` (SAW) and `target_volume` (SAV) are checked independently — whichever triggers first stops the shot. A value of 0 means disabled. Volume bucketing uses **DE1 substate** splitting (matching de1app): flow during Preinfusion substate → preinfusion volume, flow during Pouring substate → pour volume. Other substates (heating, stabilising) are excluded. SAV uses a raw `pourVolume >= target` comparison with no lag compensation (matching de1app). SAW ignores the first 5 seconds of extraction and only fires after the current frame reaches `number_of_preinfuse_frames` (matching de1app). For **basic profiles** (`settings_2a`/`settings_2b`) with a BLE scale *configured* (not just connected), SAV is skipped (matching de1app's `skip_sav_check` / `expecting_present`). The DE1 firmware also has a `TargetEspressoVol` safety limit (200 ml, matching de1app's `espresso_typical_volume`) sent via `setShotSettings`.
+
+## JSON Format (unified with de1app)
+
+Decenza and de1app share the same JSON profile format. The writer (`toJson()`) outputs de1app v2 format with JSON numbers (not strings): nested `exit`/`limiter` objects, `version`, `legacy_profile_type`, `notes`, `number_of_preinfuse_frames`. The reader (`fromJson()`) accepts both de1app nested and legacy Decenza flat fields (for old profiles in shot history), with `jsonToDouble()` handling de1app's string-encoded numbers.
+
+- **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
+- **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
+- **Decenza extensions**: `recipe`, `mode`, `has_recommended_dose`, `temperature_presets`, simple profile params — de1app ignores these. (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
+- **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
+
+## Profile Comparison / Sync Tools
+
+- **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
+- **Profile import test**: Run `ctest -R tst_tclimport` (requires `-DBUILD_TESTS=ON`). The `compareWithBuiltin` test loads all TCL files from `tests/data/de1app_profiles/` through the C++ parser and verifies they match their built-in JSON counterparts field-by-field.
+
 ## References
 
 - [D-Flow GitHub Repository](https://github.com/Damian-AU/D_Flow_Espresso_Profile)
