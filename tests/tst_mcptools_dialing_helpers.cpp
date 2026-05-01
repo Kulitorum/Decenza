@@ -30,14 +30,12 @@ private slots:
     void hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty();
     void hoistSessionContext_allShotsEmptyForField_contextOmitsField();
 
-    // buildCurrentBean (issue #1019)
-    void buildCurrentBean_dyePopulated_noInference();
-    void buildCurrentBean_grinderBlank_inferredFromShot();
-    void buildCurrentBean_doseBlank_inferredFromShot();
-    void buildCurrentBean_partialFallback_listsOnlyInferredFields();
-    void buildCurrentBean_beanFieldsNeverInferred();
-    void buildCurrentBean_bothBlank_omitsInferredMeta();
-    void buildCurrentBean_dyeWins_overShotValues();
+    // buildCurrentBean: removed in unify-current-bean-shape (issue #1043).
+    // The MCP-only DYE-with-fallback helper was retired in favor of the
+    // shared `McpDialingBlocks::buildCurrentBeanBlock(ShotProjection)` —
+    // both the MCP path and the in-app advisor user prompt build through
+    // it, sourced solely from the resolved shot. Equivalence is exercised
+    // in `tst_aimanager`'s currentBean equivalence test.
 
     // buildShotChangeDiff (issue #1020 — also drives changeFromPrev)
     void buildShotChangeDiff_identicalShots_emptyDiff();
@@ -345,160 +343,6 @@ void TstMcpToolsDialingHelpers::hoistSessionContext_allShotsEmptyForField_contex
     for (const auto& override : out.perShotOverrides) {
         QVERIFY(override.grinderBurrs.isEmpty());
     }
-}
-
-// ---- buildCurrentBean (issue #1019) ----
-//
-// The DYE block represents what's currently in the grinder/hopper. When
-// grinder/dose fields are blank but the resolved shot has them populated,
-// fall back to the shot's values and tag them as inferred so the AI knows
-// to confirm before recommending a change. Bean fields (brand/type/
-// roastLevel) are *never* inferred — those rotate per hopper. roastDate
-// is intentionally absent from the helper output; it lives in
-// `currentBean.beanFreshness` (composed by the caller) so the freshness
-// surface stays in one place.
-
-namespace {
-CurrentBeanInputs sampleInputs()
-{
-    CurrentBeanInputs in;
-    in.dyeBeanBrand = QStringLiteral("Northbound");
-    in.dyeBeanType = QStringLiteral("Single Origin");
-    in.dyeRoastLevel = QStringLiteral("Light");
-    in.dyeGrinderBrand = QStringLiteral("Niche");
-    in.dyeGrinderModel = QStringLiteral("Zero");
-    in.dyeGrinderBurrs = QStringLiteral("63mm Mazzer Kony conical");
-    in.dyeGrinderSetting = QStringLiteral("4.5");
-    in.dyeDoseWeightG = 18.0;
-    in.fallbackGrinderBrand = QStringLiteral("Eureka");
-    in.fallbackGrinderModel = QStringLiteral("Mignon");
-    in.fallbackGrinderBurrs = QStringLiteral("55mm flat");
-    in.fallbackGrinderSetting = QStringLiteral("12");
-    in.fallbackDoseWeightG = 20.0;
-    in.fallbackShotId = 884;
-    return in;
-}
-} // namespace
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_dyePopulated_noInference()
-{
-    const QJsonObject bean = buildCurrentBean(sampleInputs());
-
-    QCOMPARE(bean["grinderBrand"].toString(), QStringLiteral("Niche"));
-    QCOMPARE(bean["grinderModel"].toString(), QStringLiteral("Zero"));
-    QCOMPARE(bean["grinderSetting"].toString(), QStringLiteral("4.5"));
-    QCOMPARE(bean["doseWeightG"].toDouble(), 18.0);
-    QVERIFY2(!bean.contains("inferredFromShotId"),
-             "DYE fully populated must not surface inferredFromShotId");
-    QVERIFY2(!bean.contains("inferredFields"),
-             "DYE fully populated must not surface inferredFields");
-}
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_grinderBlank_inferredFromShot()
-{
-    CurrentBeanInputs in = sampleInputs();
-    in.dyeGrinderBrand.clear();
-    in.dyeGrinderModel.clear();
-    in.dyeGrinderBurrs.clear();
-    in.dyeGrinderSetting.clear();
-
-    const QJsonObject bean = buildCurrentBean(in);
-
-    QCOMPARE(bean["grinderBrand"].toString(), QStringLiteral("Eureka"));
-    QCOMPARE(bean["grinderModel"].toString(), QStringLiteral("Mignon"));
-    QCOMPARE(bean["grinderBurrs"].toString(), QStringLiteral("55mm flat"));
-    QCOMPARE(bean["grinderSetting"].toString(), QStringLiteral("12"));
-    QCOMPARE(bean["inferredFromShotId"].toInteger(), qint64(884));
-
-    const QJsonArray inferred = bean["inferredFields"].toArray();
-    QCOMPARE(inferred.size(), 4);
-    QVERIFY(inferred.contains(QStringLiteral("grinderBrand")));
-    QVERIFY(inferred.contains(QStringLiteral("grinderModel")));
-    QVERIFY(inferred.contains(QStringLiteral("grinderBurrs")));
-    QVERIFY(inferred.contains(QStringLiteral("grinderSetting")));
-    QVERIFY2(bean.contains("inferredNote"),
-             "inferred fields must come with an explanatory note");
-}
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_doseBlank_inferredFromShot()
-{
-    CurrentBeanInputs in = sampleInputs();
-    in.dyeDoseWeightG = 0;
-
-    const QJsonObject bean = buildCurrentBean(in);
-
-    QCOMPARE(bean["doseWeightG"].toDouble(), 20.0);
-    const QJsonArray inferred = bean["inferredFields"].toArray();
-    QCOMPARE(inferred.size(), 1);
-    QVERIFY(inferred.contains(QStringLiteral("doseWeightG")));
-}
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_partialFallback_listsOnlyInferredFields()
-{
-    CurrentBeanInputs in = sampleInputs();
-    in.dyeGrinderSetting.clear();   // only this one is blank
-
-    const QJsonObject bean = buildCurrentBean(in);
-
-    const QJsonArray inferred = bean["inferredFields"].toArray();
-    QCOMPARE(inferred.size(), 1);
-    QCOMPARE(inferred[0].toString(), QStringLiteral("grinderSetting"));
-    // Other grinder fields stayed on DYE values
-    QCOMPARE(bean["grinderBrand"].toString(), QStringLiteral("Niche"));
-}
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_beanFieldsNeverInferred()
-{
-    // Bean brand/type/roastLevel rotate per hopper — falling back to a
-    // stale shot would mislead the AI. Even when DYE is fully empty,
-    // these stay blank rather than inheriting the shot's bean. roastDate
-    // is owned by `buildBeanFreshness` (composed by the caller) and is
-    // intentionally absent from the helper's output.
-    CurrentBeanInputs in = sampleInputs();
-    in.dyeBeanBrand.clear();
-    in.dyeBeanType.clear();
-    in.dyeRoastLevel.clear();
-
-    const QJsonObject bean = buildCurrentBean(in);
-
-    QVERIFY2(bean["brand"].toString().isEmpty(),
-             "bean brand must never be inferred from shot");
-    QVERIFY2(bean["type"].toString().isEmpty(),
-             "bean type must never be inferred from shot");
-    QVERIFY2(bean["roastLevel"].toString().isEmpty(),
-             "roast level must never be inferred from shot");
-    QVERIFY2(!bean.contains("roastDate"),
-             "roastDate must not appear at currentBean top level — owned by beanFreshness");
-    // No grinder/dose blanks → no inferredFields surfaced.
-    QVERIFY(!bean.contains("inferredFields"));
-}
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_bothBlank_omitsInferredMeta()
-{
-    // Both DYE and shot grinder are blank — no inference possible.
-    CurrentBeanInputs in;
-    in.fallbackShotId = 884;
-    const QJsonObject bean = buildCurrentBean(in);
-
-    QVERIFY2(!bean.contains("inferredFromShotId"),
-             "no fallback data → no inferred meta");
-    QVERIFY2(!bean.contains("inferredFields"),
-             "no fallback data → no inferred meta");
-}
-
-void TstMcpToolsDialingHelpers::buildCurrentBean_dyeWins_overShotValues()
-{
-    // Sanity: when DYE is populated and the shot has different values, DYE
-    // wins. This pins the precedence direction — production code never
-    // overrides user-entered DYE with shot data.
-    CurrentBeanInputs in = sampleInputs();
-    // DYE says Niche, shot says Eureka — Niche must surface.
-    QCOMPARE(in.dyeGrinderBrand, QStringLiteral("Niche"));
-    QCOMPARE(in.fallbackGrinderBrand, QStringLiteral("Eureka"));
-
-    const QJsonObject bean = buildCurrentBean(in);
-    QCOMPARE(bean["grinderBrand"].toString(), QStringLiteral("Niche"));
-    QVERIFY(!bean.contains("inferredFields"));
 }
 
 // ---- buildShotChangeDiff (issue #1020) ----

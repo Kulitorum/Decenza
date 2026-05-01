@@ -111,13 +111,6 @@ struct ShotSummary {
     // currentProfile.recommendedDoseG field shipped by dialing_get_context).
     double recommendedDoseG = 0;
 
-    // Fields whose value was inferred from a fallback shot rather than
-    // entered by the user. Empty when no inference happened. The advisor's
-    // user prompt only emits inferredFields/inferredFromShotId when this
-    // list is non-empty AND the id is > 0.
-    QStringList inferredFields;
-    qint64 inferredFromShotId = 0;
-
     // DYE metadata (from user input)
     QString beanBrand;
     QString beanType;

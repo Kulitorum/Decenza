@@ -1083,9 +1083,12 @@ private slots:
                  "system prompt must reference the freshnessKnown gate");
         QVERIFY2(prompt.contains(QStringLiteral("freeze")),
                  "system prompt must mention freezing as the storage variable that breaks calendar age");
-        // inferredFields gating
-        QVERIFY2(prompt.contains(QStringLiteral("inferredFields")),
-                 "system prompt must teach inferredFields gating");
+        // inferredFields gating: removed in unify-current-bean-shape
+        // (issue #1043). currentBean is now sourced solely from the
+        // resolved shot, so no fields are "inferred" — the system prompt
+        // SHALL NOT carry that clause.
+        QVERIFY2(!prompt.contains(QStringLiteral("inferredFields")),
+                 "system prompt must NOT teach a removed inferredFields field");
     }
 
     // Openspec optimize-dialing-context-payload, tasks 8 + 9: the prose

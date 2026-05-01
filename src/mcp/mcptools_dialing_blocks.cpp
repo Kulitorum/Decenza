@@ -339,4 +339,8 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
     return sawPrediction;
 }
 
+// buildCurrentBeanBlock is defined inline in the header so test binaries
+// that link only `shotsummarizer.cpp` don't drag in this TU's DB-dependent
+// block builders (loadShotRecordStatic et al.).
+
 } // namespace McpDialingBlocks
