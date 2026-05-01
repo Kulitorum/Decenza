@@ -286,9 +286,9 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["uuid"] = query.value(1).toString();
         row["timestamp"] = query.value(2).toLongLong();
         row["profileName"] = query.value(3).toString();
-        row["duration"] = query.value(4).toDouble();
-        row["finalWeight"] = query.value(5).toDouble();
-        row["doseWeight"] = query.value(6).toDouble();
+        row["durationSec"] = query.value(4).toDouble();
+        row["finalWeightG"] = query.value(5).toDouble();
+        row["doseWeightG"] = query.value(6).toDouble();
         row["beanBrand"] = query.value(7).toString();
         row["beanType"] = query.value(8).toString();
         row["enjoyment"] = query.value(9).toDouble();

@@ -211,7 +211,7 @@ Page {
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
                     model.beanBrand, model.beanType, model.profileName,
                     model.grinderBrand, model.grinderModel, model.grinderSetting,
-                    model.doseWeight, model.targetWeightG, model.finalWeight,
+                    model.doseWeightG, model.targetWeightG, model.finalWeightG,
                     model.shotCount, model.avgEnjoyment)
 
                 // Whole card announces full details based on groupBy setting
@@ -295,8 +295,8 @@ Page {
                             spacing: Theme.spacingLarge
 
                             Text {
-                                text: (model.doseWeight || 0).toFixed(1) + "g \u2192 " +
-                                      autoFavoritesPage.recipeYield(model.targetWeightG, model.finalWeight).toFixed(1) + "g"
+                                text: (model.doseWeightG || 0).toFixed(1) + "g \u2192 " +
+                                      autoFavoritesPage.recipeYield(model.targetWeightG, model.finalWeightG).toFixed(1) + "g"
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
@@ -348,7 +348,7 @@ Page {
                             accessibleItem: infoButton
                             onAccessibleClicked: {
                                 // In weight mode, model.doseBucket is the group's rounded dose
-                                // (used to scope stats) while model.doseWeight is the latest
+                                // (used to scope stats) while model.doseWeightG is the latest
                                 // shot's raw dose (shown on the card). Pass the bucket so the
                                 // Info page's averages cover the same shots the card aggregates.
                                 pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
@@ -465,7 +465,7 @@ Page {
                                 autoFavoritesPage._waitingForShotLoad = true
                                 // Pass the latest shot's raw dose so the loaded recipe matches
                                 // what the card displays (and what the user last dialled in).
-                                MainController.loadShotWithMetadata(model.shotId, model.doseWeight || 0)
+                                MainController.loadShotWithMetadata(model.shotId, model.doseWeightG || 0)
                             }
                         }
                     }

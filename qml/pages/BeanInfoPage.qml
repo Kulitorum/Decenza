@@ -50,8 +50,8 @@ Page {
                 editGrinderBurrs = editShotData.grinderBurrs || ""
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editBarista = editShotData.barista || ""
-                editDoseWeight = editShotData.doseWeight ?? 0
-                editDrinkWeight = editShotData.finalWeight ?? 0
+                editDoseWeight = editShotData.doseWeightG ?? 0
+                editDrinkWeight = editShotData.finalWeightG ?? 0
                 editDrinkTds = editShotData.drinkTds ?? 0
                 editDrinkEy = editShotData.drinkEy ?? 0
                 editEnjoyment = editShotData.enjoyment ?? 0
@@ -390,7 +390,7 @@ Page {
                     flowGoalData: editShotData.flowGoal || []
                     temperatureGoalData: editShotData.temperatureGoal || []
                     phaseMarkers: editShotData.phases || []
-                    maxTime: editShotData.duration || 60
+                    maxTime: editShotData.durationSec || 60
                 }
 
                 // Tap-to-announce overlay (reads out curve values at tapped position)

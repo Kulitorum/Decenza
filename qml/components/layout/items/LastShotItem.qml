@@ -87,7 +87,7 @@ Item {
                 flowGoalData: root.shotData.flowGoal || []
                 temperatureGoalData: root.shotData.temperatureGoal || []
                 phaseMarkers: root.shotData.phases || []
-                maxTime: root.shotData.duration || 60
+                maxTime: root.shotData.durationSec || 60
                 showLabels: root.shotShowLabels
                 showPhaseLabels: false
             }
@@ -143,7 +143,7 @@ Item {
                     flowGoalData: root.shotData.flowGoal || []
                     temperatureGoalData: root.shotData.temperatureGoal || []
                     phaseMarkers: root.shotData.phases || []
-                    maxTime: root.shotData.duration || 60
+                    maxTime: root.shotData.durationSec || 60
                     showLabels: root.shotShowLabels
                     showPhaseLabels: root.shotShowPhaseLabels
                 }
@@ -182,12 +182,12 @@ Item {
                     Layout.fillWidth: true
                 }
                 Text {
-                    text: (root.shotData.finalWeight || 0).toFixed(1) + "g"
+                    text: (root.shotData.finalWeightG || 0).toFixed(1) + "g"
                     color: Theme.weightColor
                     font: Theme.captionFont
                 }
                 Text {
-                    text: Math.round(root.shotData.duration || 0) + "s"
+                    text: Math.round(root.shotData.durationSec || 0) + "s"
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
                 }
@@ -230,7 +230,7 @@ Item {
     Accessible.role: Accessible.Button
     Accessible.name: root.hasData
         ? TranslationManager.translate("lastShot.accessibleLastShot", "Last shot") + ": " + (root.shotData.profileName || "")
-          + ", " + (root.shotData.finalWeight || 0).toFixed(1) + " " + TranslationManager.translate("lastShot.accessibleGrams", "grams")
+          + ", " + (root.shotData.finalWeightG || 0).toFixed(1) + " " + TranslationManager.translate("lastShot.accessibleGrams", "grams")
         : TranslationManager.translate("lastShot.noShotsYet", "No shots yet")
     Accessible.focusable: true
     Accessible.onPressAction: root.goToShotDetail()

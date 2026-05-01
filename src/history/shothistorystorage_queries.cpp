@@ -427,9 +427,9 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["uuid"] = query.value(1).toString();
                             shot["timestamp"] = query.value(2).toLongLong();
                             shot["profileName"] = query.value(3).toString();
-                            shot["duration"] = query.value(4).toDouble();
-                            shot["finalWeight"] = query.value(5).toDouble();
-                            shot["doseWeight"] = query.value(6).toDouble();
+                            shot["durationSec"] = query.value(4).toDouble();
+                            shot["finalWeightG"] = query.value(5).toDouble();
+                            shot["doseWeightG"] = query.value(6).toDouble();
                             shot["beanBrand"] = query.value(7).toString();
                             shot["beanType"] = query.value(8).toString();
                             shot["enjoyment"] = query.value(9).toInt();
@@ -549,9 +549,9 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             qint64 ts = query.value("timestamp").toLongLong();
             shot["timestamp"] = ts;
             shot["profileName"] = query.value("profile_name").toString();
-            shot["doseWeight"] = query.value("dose_weight").toDouble();
-            shot["finalWeight"] = query.value("final_weight").toDouble();
-            shot["duration"] = query.value("duration_seconds").toDouble();
+            shot["doseWeightG"] = query.value("dose_weight").toDouble();
+            shot["finalWeightG"] = query.value("final_weight").toDouble();
+            shot["durationSec"] = query.value("duration_seconds").toDouble();
             shot["enjoyment"] = query.value("enjoyment").toInt();
             shot["grinderSetting"] = query.value("grinder_setting").toString();
             shot["grinderModel"] = query.value("grinder_model").toString();
@@ -820,8 +820,8 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["grinderModel"] = query.value("grinder_model").toString();
                     entry["grinderBurrs"] = query.value("grinder_burrs").toString();
                     entry["grinderSetting"] = query.value("grinder_setting").toString();
-                    entry["doseWeight"] = query.value("dose_weight").toDouble();
-                    entry["finalWeight"] = query.value("final_weight").toDouble();
+                    entry["doseWeightG"] = query.value("dose_weight").toDouble();
+                    entry["finalWeightG"] = query.value("final_weight").toDouble();
                     entry["targetWeightG"] = query.value("yield_override").toDouble();
                     entry["doseBucket"] = query.value("dose_bucket").toDouble();
                     entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();

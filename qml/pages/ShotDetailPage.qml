@@ -111,8 +111,8 @@ Page {
     }
 
     function formatRatio() {
-        if (shotData.doseWeight > 0) {
-            return "1:" + (shotData.finalWeight / shotData.doseWeight).toFixed(1)
+        if (shotData.doseWeightG > 0) {
+            return "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
         }
         return "-"
     }
@@ -121,10 +121,10 @@ Page {
         var parts = []
         if (shotData.profileName)
             parts.push(shotData.profileName)
-        parts.push((shotData.duration || 0).toFixed(0) + "s")
-        parts.push((shotData.doseWeight || 0).toFixed(1) + "g in")
-        parts.push((shotData.finalWeight || 0).toFixed(1) + "g out")
-        if (shotData.doseWeight > 0)
+        parts.push((shotData.durationSec || 0).toFixed(0) + "s")
+        parts.push((shotData.doseWeightG || 0).toFixed(1) + "g in")
+        parts.push((shotData.finalWeightG || 0).toFixed(1) + "g out")
+        if (shotData.doseWeightG > 0)
             parts.push("ratio " + formatRatio())
         return TranslationManager.translate("shotdetail.accessible.graph", "Shot graph") + ": " + parts.join(", ")
     }
@@ -420,7 +420,7 @@ Page {
                     flowGoalData: shotData.flowGoal || []
                     temperatureGoalData: shotData.temperatureGoal || []
                     phaseMarkers: shotData.phases || []
-                    maxTime: shotData.duration || 60
+                    maxTime: shotData.durationSec || 60
                     Accessible.ignored: true
                 }
 
@@ -561,7 +561,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("shotdetail.duration", "Duration") + ": " +
-                        (shotData.duration || 0).toFixed(1) + "s"
+                        (shotData.durationSec || 0).toFixed(1) + "s"
                     Tr {
                         key: "shotdetail.duration"
                         fallback: "Duration"
@@ -570,7 +570,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (shotData.duration || 0).toFixed(1) + "s"
+                        text: (shotData.durationSec || 0).toFixed(1) + "s"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -582,7 +582,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("shotdetail.dose", "Dose") + ": " +
-                        (shotData.doseWeight || 0).toFixed(1) + "g"
+                        (shotData.doseWeightG || 0).toFixed(1) + "g"
                     Tr {
                         key: "shotdetail.dose"
                         fallback: "Dose"
@@ -591,7 +591,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (shotData.doseWeight || 0).toFixed(1) + "g"
+                        text: (shotData.doseWeightG || 0).toFixed(1) + "g"
                         font: Theme.subtitleFont
                         color: Theme.dyeDoseColor
                         Accessible.ignored: true
@@ -604,9 +604,9 @@ Page {
                     Accessible.role: Accessible.StaticText
                     Accessible.name: {
                         var label = TranslationManager.translate("shotdetail.output", "Output") + ": " +
-                            (shotData.finalWeight || 0).toFixed(1) + "g"
+                            (shotData.finalWeightG || 0).toFixed(1) + "g"
                         var t = shotData.targetWeightG
-                        if (t !== undefined && t !== null && t > 0 && Math.abs(t - shotData.finalWeight) > 0.5)
+                        if (t !== undefined && t !== null && t > 0 && Math.abs(t - shotData.finalWeightG) > 0.5)
                             label += " (" + Math.round(t) + "g target)"
                         return label
                     }
@@ -621,7 +621,7 @@ Page {
                         spacing: Theme.scaled(4)
                         Accessible.ignored: true
                         Text {
-                            text: (shotData.finalWeight || 0).toFixed(1) + "g"
+                            text: (shotData.finalWeightG || 0).toFixed(1) + "g"
                             font: Theme.subtitleFont
                             color: Theme.dyeOutputColor
                         }
@@ -629,7 +629,7 @@ Page {
                             visible: {
                                 var t = shotData.targetWeightG
                                 return t !== undefined && t !== null && t > 0
-                                    && Math.abs(t - shotData.finalWeight) > 0.5
+                                    && Math.abs(t - shotData.finalWeightG) > 0.5
                             }
                             text: {
                                 var t = shotData.targetWeightG
@@ -1281,7 +1281,7 @@ Page {
         // Upload / Re-Upload to Visualizer button
         Rectangle {
             id: uploadButton
-            visible: shotData.duration > 0 && !MainController.visualizer.uploading
+            visible: shotData.durationSec > 0 && !MainController.visualizer.uploading
             Layout.preferredWidth: uploadButtonContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1349,7 +1349,7 @@ Page {
         // AI Advice button
         Rectangle {
             id: aiButton
-            visible: MainController.aiManager && MainController.aiManager.isConfigured && shotData.duration > 0
+            visible: MainController.aiManager && MainController.aiManager.isConfigured && shotData.durationSec > 0
             Layout.preferredWidth: aiButtonContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -1399,7 +1399,7 @@ Page {
             readonly property bool isClaudeDesktopReady:
                 Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
                 || Settings.network.claudeRcSessionUrl.length > 0
-            visible: shotData.duration > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
+            visible: shotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
             opacity: enabled ? 1.0 : 0.5
             Layout.preferredWidth: discussContent.width + 32
@@ -1454,7 +1454,7 @@ Page {
         // Email Prompt button - fallback for users without API keys
         Rectangle {
             id: emailButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured && shotData.duration > 0
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured && shotData.durationSec > 0
             Layout.preferredWidth: emailButtonContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)

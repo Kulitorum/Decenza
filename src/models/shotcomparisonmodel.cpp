@@ -430,9 +430,9 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["grinderModel"] = shot.grinderModel;
     result["grinderBurrs"] = shot.grinderBurrs;
     result["grinderSetting"] = shot.grinderSetting;
-    result["duration"] = shot.duration;
-    result["doseWeight"] = shot.doseWeight;
-    result["finalWeight"] = shot.finalWeight;
+    result["durationSec"] = shot.duration;
+    result["doseWeightG"] = shot.doseWeight;
+    result["finalWeightG"] = shot.finalWeight;
     result["drinkTds"] = shot.drinkTds;
     result["drinkEy"] = shot.drinkEy;
     result["enjoyment"] = shot.enjoyment;

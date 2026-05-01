@@ -35,9 +35,9 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     auto isodt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
     result["timestampIso"] = isodt.toOffsetFromUtc(isodt.offsetFromUtc()).toString(Qt::ISODate);
     result["profileName"] = record.summary.profileName;
-    result["duration"] = record.summary.duration;
-    result["finalWeight"] = record.summary.finalWeight;
-    result["doseWeight"] = record.summary.doseWeight;
+    result["durationSec"] = record.summary.duration;
+    result["finalWeightG"] = record.summary.finalWeight;
+    result["doseWeightG"] = record.summary.doseWeight;
     result["beanBrand"] = record.summary.beanBrand;
     result["beanType"] = record.summary.beanType;
     result["enjoyment"] = record.summary.enjoyment;

@@ -49,17 +49,17 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         int rating = qRound(shot["enjoyment"].toDouble());  // 0-100
 
         double ratio = 0;
-        if (shot["doseWeight"].toDouble() > 0) {
-            ratio = shot["finalWeight"].toDouble() / shot["doseWeight"].toDouble();
+        if (shot["doseWeightG"].toDouble() > 0) {
+            ratio = shot["finalWeightG"].toDouble() / shot["doseWeightG"].toDouble();
         }
 
         QString profileName = shot["profileName"].toString();
         QString beanBrand = shot["beanBrand"].toString();
         QString beanType = shot["beanType"].toString();
         QString dateTime = shot["dateTime"].toString();
-        double doseWeight = shot["doseWeight"].toDouble();
-        double finalWeight = shot["finalWeight"].toDouble();
-        double duration = shot["duration"].toDouble();
+        double doseWeight = shot["doseWeightG"].toDouble();
+        double finalWeight = shot["finalWeightG"].toDouble();
+        double duration = shot["durationSec"].toDouble();
         QString grinderSetting = shot["grinderSetting"].toString();
         double tempOverride = shot["temperatureOverrideC"].toDouble();  // Always has value
         double targetWeight = shot["targetWeightG"].toDouble();  // Always has value
@@ -1025,8 +1025,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     }
 
     double ratio = 0;
-    if (shot["doseWeight"].toDouble() > 0) {
-        ratio = shot["finalWeight"].toDouble() / shot["doseWeight"].toDouble();
+    if (shot["doseWeightG"].toDouble() > 0) {
+        ratio = shot["finalWeightG"].toDouble() / shot["doseWeightG"].toDouble();
     }
 
     int rating = qRound(shot["enjoyment"].toDouble() / 20.0);
@@ -1050,7 +1050,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     // Temperature and target weight (always have values)
     double tempOverride = shot["temperatureOverrideC"].toDouble();
     double targetWeight = shot["targetWeightG"].toDouble();
-    double finalWeight = shot["finalWeight"].toDouble();
+    double finalWeight = shot["finalWeightG"].toDouble();
 
     // Build yield display with optional target
     QString yieldDisplay = QString("%1g").arg(finalWeight, 0, 'f', 1);
@@ -1560,8 +1560,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
             grinderBurrs: "%41",
             grinderSetting: "%30",
             espressoNotes: "%31",
-            doseWeight: %32,
-            finalWeight: %33,
+            doseWeightG: %32,
+            finalWeightG: %33,
             enjoyment: %34,
             barista: "%35",
             beverageType: "%36",
@@ -1629,8 +1629,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
             // Build edit form for metrics bar using DOM
             // Note: shotData values are server-escaped and trusted (from our own database)
             var metricsHtml =
-                '<div class="metric-card"><input type="number" class="edit-input" id="editDose" step="0.1" value="' + shotData.doseWeight + '" oninput="autoCalcEY()"><div class="label">Dose (g)</div></div>' +
-                '<div class="metric-card"><input type="number" class="edit-input" id="editYield" step="0.1" value="' + shotData.finalWeight + '" oninput="autoCalcEY()"><div class="label">Yield (g)</div></div>' +
+                '<div class="metric-card"><input type="number" class="edit-input" id="editDose" step="0.1" value="' + shotData.doseWeightG + '" oninput="autoCalcEY()"><div class="label">Dose (g)</div></div>' +
+                '<div class="metric-card"><input type="number" class="edit-input" id="editYield" step="0.1" value="' + shotData.finalWeightG + '" oninput="autoCalcEY()"><div class="label">Yield (g)</div></div>' +
                 '<div class="metric-card"><div class="star-input" id="starRating" data-value="' + stars + '">' + starHtml + '</div><div class="label">Rating</div></div>';
             metricsBar.innerHTML = metricsHtml;
 
@@ -2082,10 +2082,10 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
          ? shot["profileName"].toString().toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
          : shot["profileName"].toString().toHtmlEscaped())
     .arg(shot["dateTime"].toString())
-    .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)
+    .arg(shot["doseWeightG"].toDouble(), 0, 'f', 1)
     .arg(yieldDisplay)
     .arg(ratio, 0, 'f', 1)
-    .arg(shot["duration"].toDouble(), 0, 'f', 1)
+    .arg(shot["durationSec"].toDouble(), 0, 'f', 1)
     .arg(stars)
     .arg(shot["beanBrand"].toString().isEmpty() ? "-" : shot["beanBrand"].toString().toHtmlEscaped())
     .arg(shot["beanType"].toString().isEmpty() ? "-" : shot["beanType"].toString().toHtmlEscaped())
@@ -2113,8 +2113,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     .arg(jsEscape(shot["grinderModel"].toString()))                                  // %29 grinderModel
     .arg(jsEscape(shot["grinderSetting"].toString()))                                // %30 grinderSetting
     .arg(jsEscape(shot["espressoNotes"].toString()))                                 // %31 espressoNotes
-    .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)                                  // %32 doseWeight
-    .arg(shot["finalWeight"].toDouble(), 0, 'f', 1)                                 // %33 finalWeight
+    .arg(shot["doseWeightG"].toDouble(), 0, 'f', 1)                                 // %32 doseWeightG
+    .arg(shot["finalWeightG"].toDouble(), 0, 'f', 1)                                // %33 finalWeightG
     .arg(qRound(shot["enjoyment"].toDouble()))                                       // %34 enjoyment
     .arg(jsEscape(shot["barista"].toString()))                                       // %35 barista
     .arg(jsEscape(shot["beverageType"].toString().isEmpty()
@@ -2199,9 +2199,9 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
         info["color"] = color;
         info["name"] = name;
         info["date"] = date;
-        info["duration"] = shot.summary.duration;
-        info["dose"] = shot.summary.doseWeight;
-        info["finalWeight"] = shot.summary.finalWeight;
+        info["durationSec"] = shot.summary.duration;
+        info["doseWeightG"] = shot.summary.doseWeight;
+        info["finalWeightG"] = shot.summary.finalWeight;
         info["targetWeightG"] = shot.targetWeight;
         info["temperatureOverrideC"] = shot.temperatureOverride;
         info["enjoyment"] = shot.summary.enjoyment;
@@ -2873,14 +2873,14 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
                     var n = s.name || "\u2014";
                     return s.temperatureOverrideC > 0 ? n + " (" + Math.round(s.temperatureOverrideC) + "\u00B0C)" : n;
                 }
-                case "duration": return (s.duration || 0).toFixed(1) + "s";
-                case "dose": return (s.dose || 0).toFixed(1) + "g";
+                case "duration": return (s.durationSec || 0).toFixed(1) + "s";
+                case "dose": return (s.doseWeightG || 0).toFixed(1) + "g";
                 case "output": {
-                    var a = (s.finalWeight || 0).toFixed(1) + "g";
+                    var a = (s.finalWeightG || 0).toFixed(1) + "g";
                     var t = s.targetWeightG;
-                    return (t > 0 && Math.abs(t - s.finalWeight) > 0.5) ? a + " (" + Math.round(t) + "g)" : a;
+                    return (t > 0 && Math.abs(t - s.finalWeightG) > 0.5) ? a + " (" + Math.round(t) + "g)" : a;
                 }
-                case "ratio": return s.dose > 0 ? "1:" + (s.finalWeight / s.dose).toFixed(1) : "\u2014";
+                case "ratio": return s.doseWeightG > 0 ? "1:" + (s.finalWeightG / s.doseWeightG).toFixed(1) : "\u2014";
                 case "rating": return s.enjoyment > 0 ? s.enjoyment + "\u0025" : "\u2014";
                 case "bean": {
                     var b = ((s.beanBrand || "") + (s.beanType ? " " + s.beanType : "")).trim();

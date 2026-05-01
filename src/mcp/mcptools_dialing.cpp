@@ -104,9 +104,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             h["id"] = shot["id"].toLongLong();
                             h["timestamp"] = shot["dateTime"].toString();
                             h["profileName"] = shot["profileName"].toString();
-                            h["doseG"] = shot["doseWeight"].toDouble();
-                            h["yieldG"] = shot["finalWeight"].toDouble();
-                            h["durationSec"] = shot["duration"].toDouble();
+                            h["doseG"] = shot["doseWeightG"].toDouble();
+                            h["yieldG"] = shot["finalWeightG"].toDouble();
+                            h["durationSec"] = shot["durationSec"].toDouble();
                             h["enjoyment0to100"] = shot["enjoyment"].toInt();
                             h["grinderSetting"] = shot["grinderSetting"].toString();
                             h["grinderModel"] = shot["grinderModel"].toString();
