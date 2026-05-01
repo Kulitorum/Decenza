@@ -251,18 +251,18 @@ private slots:
         QTest::newRow("full")
             << "Niche" << "Zero" << "63mm Kony" << "Northbound" << "Spring Tour"
             << "### Setup: Niche Zero with 63mm Kony on Northbound - Spring Tour";
-        // Burrs without grinder brand+model (rare but possible if user clears
-        // brand/model after entering burrs). Pre-fix this rendered with a
-        // double-space artifact: `### Setup:  with 63mm`.
-        QTest::newRow("burrsOnly")
+        // Burrs recorded without grinder brand+model (rare but possible if
+        // user clears brand/model after entering burrs). Pre-fix this
+        // rendered with a double-space artifact: `### Setup:  with 63mm`.
+        QTest::newRow("burrsNoGrinderName")
             << "" << "" << "63mm Kony" << "Northbound" << "Spring Tour"
             << "### Setup: 63mm Kony on Northbound - Spring Tour";
-        // Bean type only (cultivar without roaster name).
-        QTest::newRow("beanTypeOnly")
+        // Cultivar entered without roaster brand (full grinder identity).
+        QTest::newRow("beanTypeNoBrand")
             << "Niche" << "Zero" << "63mm Kony" << "" << "Spring Tour"
             << "### Setup: Niche Zero with 63mm Kony on Spring Tour";
-        // Bean brand only (no specific cultivar).
-        QTest::newRow("beanBrandOnly")
+        // Roaster entered without specific cultivar (full grinder identity).
+        QTest::newRow("beanBrandNoType")
             << "Niche" << "Zero" << "63mm Kony" << "Northbound" << ""
             << "### Setup: Niche Zero with 63mm Kony on Northbound";
         // Grinder brand only — no model, no burrs.
@@ -316,9 +316,9 @@ private slots:
                                 .arg(expectedSetupLine)
                                 .arg(payload.left(500))));
         // Defensive: no double-space artifacts anywhere in the Setup line.
-        const int setupStart = payload.indexOf(QStringLiteral("### Setup:"));
+        const qsizetype setupStart = payload.indexOf(QStringLiteral("### Setup:"));
         QVERIFY(setupStart >= 0);
-        const int setupEnd = payload.indexOf(QChar('\n'), setupStart);
+        const qsizetype setupEnd = payload.indexOf(QChar('\n'), setupStart);
         const QString setupLine = payload.mid(setupStart, setupEnd - setupStart);
         QVERIFY2(!setupLine.contains(QStringLiteral("  ")),
                  qPrintable("Setup line has double space: " + setupLine));
