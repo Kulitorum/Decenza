@@ -33,10 +33,12 @@ private:
         obj["minimum_pressure"] = 0.0;
         obj["number_of_preinfuse_frames"] = 1;
 
-        // One simple frame with nested exit
+        // One simple frame with nested exit. Frame temp matches top-level so the
+        // round-trip test asserts genuine preservation; mismatch behavior is
+        // covered by espressoTempNotSyncedFromFirstFrame.
         QJsonObject frame;
         frame["name"] = "preinfusion";
-        frame["temperature"] = 88.0;
+        frame["temperature"] = 93.0;
         frame["sensor"] = "coffee";
         frame["pump"] = "flow";
         frame["transition"] = "fast";
@@ -105,7 +107,7 @@ private slots:
         QCOMPARE(p2.profileType(), QString("settings_2c"));
         QCOMPARE(p2.targetWeight(), 36.0);
         QCOMPARE(p2.targetVolume(), 0.0);
-        QCOMPARE(p2.espressoTemperature(), 88.0);  // Synced from first frame for advanced profiles
+        QCOMPARE(p2.espressoTemperature(), 93.0);
         QCOMPARE(p2.steps().size(), 1);
         QCOMPARE(p2.preinfuseFrameCount(), 1);  // Explicit value from makeAdvancedProfileJson()
     }
@@ -158,7 +160,7 @@ private slots:
 
         QJsonObject frame;
         frame["name"] = "test";
-        frame["temperature"] = QString("88.0");
+        frame["temperature"] = QString("93.5");
         frame["pressure"] = QString("9.0");
         frame["flow"] = QString("2.0");
         frame["seconds"] = QString("30.0");
@@ -169,9 +171,9 @@ private slots:
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.targetWeight(), 36.0);
         QCOMPARE(p.targetVolume(), 100.0);
-        QCOMPARE(p.espressoTemperature(), 88.0);  // Synced from first frame
+        QCOMPARE(p.espressoTemperature(), 93.5);
         QCOMPARE(p.preinfuseFrameCount(), 2);
-        QCOMPARE(p.steps()[0].temperature, 88.0);
+        QCOMPARE(p.steps()[0].temperature, 93.5);
         QCOMPARE(p.steps()[0].pressure, 9.0);
     }
 
@@ -655,13 +657,22 @@ private slots:
 
     // ===== Espresso temperature sync =====
 
-    void espressoTempSyncFromFirstFrame() {
-        // For advanced profiles, espresso_temperature syncs from first frame
+    void espressoTempNotSyncedFromFirstFrame() {
+        // Regression guard for #968 / PR #961: fromJson must NOT rewrite the
+        // top-level espresso_temperature from steps[0].temperature when both
+        // are present. The mismatch is intentional on D-Flow/A-Flow profiles
+        // (cooler group preheat target paired with a hotter preinfusion ramp).
         QJsonObject obj = makeAdvancedProfileJson();
         obj["espresso_temperature"] = 90.0;
-        // First frame has temp 88.0
+        QJsonArray steps = obj["steps"].toArray();
+        QJsonObject frame = steps[0].toObject();
+        frame["temperature"] = 88.0;
+        steps.replace(0, frame);
+        obj["steps"] = steps;
+
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        QCOMPARE(p.espressoTemperature(), 88.0);  // Synced from first frame
+        QCOMPARE(p.espressoTemperature(), 90.0);  // top-level preserved
+        QCOMPARE(p.steps()[0].temperature, 88.0); // frame preserved
     }
 
     void espressoTempNoSyncForSimple() {
