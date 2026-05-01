@@ -550,26 +550,35 @@ private slots:
     // ---------------------------------------------------------------------
     void sawPredictionBlock_omittedWhenSettingsNull()
     {
-        const ShotProjection shot = makeShot(1, 1700000000,
+        // Espresso shot WITH flow data so we get past the espresso and flow
+        // gates, then assert the settings-null gate fires.
+        ShotProjection shot = makeShot(1, 1700000000,
             QStringLiteral("Niche"), QStringLiteral("Zero"),
             QStringLiteral("63mm"), QStringLiteral("4.0"),
             QStringLiteral("Bean"), QStringLiteral("Type"),
             QStringLiteral("Profile"), QString(), QString());
+        shot.flow = QVariantList{
+            QVariantMap{{"x", 28.0}, {"y", 1.8}},
+            QVariantMap{{"x", 29.0}, {"y", 2.0}},
+            QVariantMap{{"x", 30.0}, {"y", 2.1}}};
         const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(nullptr, nullptr, shot);
         QVERIFY(sp.isEmpty());
     }
 
     void sawPredictionBlock_omittedForNonEspresso()
     {
+        // Provide flow data so the flow gate would not fire — the
+        // beverage-type gate must be what produces the empty result.
         ShotProjection shot = makeShot(1, 1700000000,
             QStringLiteral("Niche"), QStringLiteral("Zero"),
             QStringLiteral("63mm"), QStringLiteral("4.0"),
             QStringLiteral("Bean"), QStringLiteral("Type"),
             QStringLiteral("Profile"), QString(), QString());
         shot.beverageType = QStringLiteral("filter");
-        // Even if we had real settings/profileManager, the espresso-only gate
-        // short-circuits before any of that. Pass nullptr to keep the test
-        // self-contained; the gate fires identically.
+        shot.flow = QVariantList{
+            QVariantMap{{"x", 28.0}, {"y", 4.0}},
+            QVariantMap{{"x", 29.0}, {"y", 4.2}},
+            QVariantMap{{"x", 30.0}, {"y", 4.1}}};
         Settings settings;
         const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
         QVERIFY(sp.isEmpty());
@@ -577,12 +586,14 @@ private slots:
 
     void sawPredictionBlock_omittedWhenFlowAtCutoffIsZero()
     {
-        ShotProjection shot = makeShot(1, 1700000000,
+        // Espresso shot, empty flow samples → estimateFlowAtCutoff returns
+        // 0 → flow gate fires before the settings/profileManager gates can
+        // be evaluated.
+        const ShotProjection shot = makeShot(1, 1700000000,
             QStringLiteral("Niche"), QStringLiteral("Zero"),
             QStringLiteral("63mm"), QStringLiteral("4.0"),
             QStringLiteral("Bean"), QStringLiteral("Type"),
             QStringLiteral("Profile"), QString(), QString());
-        // Empty flow samples → estimateFlowAtCutoff returns 0 → block omitted.
         Settings settings;
         const QJsonObject sp = McpDialingBlocks::buildSawPredictionBlock(&settings, nullptr, shot);
         QVERIFY(sp.isEmpty());

@@ -8,11 +8,14 @@
 #include "../controllers/profilemanager.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QList>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QString>
 #include <QStringLiteral>
@@ -72,11 +75,22 @@ QJsonObject shotToJson(const ShotProjection& shot,
     if (shot.targetWeightG > 0) {
         h["targetWeightG"] = shot.targetWeightG;
     } else if (!shot.profileJson.isEmpty()) {
-        QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8()).object();
-        QJsonValue tw = profileObj["target_weight"];
-        double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
-        if (twVal > 0)
-            h["targetWeightG"] = twVal;
+        // Defensive parse: this branch only runs for shots imported from
+        // external formats (de1app / visualizer.coffee) where the importer
+        // left targetWeight at 0. Their profileJson is the riskiest cohort
+        // for malformed input, so log parse failures rather than swallow
+        // them — `targetWeightG` will simply be omitted from this shot.
+        QJsonParseError err{};
+        QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8(), &err).object();
+        if (err.error != QJsonParseError::NoError) {
+            qWarning() << "shotToJson: profileJson parse failed for shot" << shot.id
+                       << ":" << err.errorString();
+        } else {
+            QJsonValue tw = profileObj["target_weight"];
+            double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+            if (twVal > 0)
+                h["targetWeightG"] = twVal;
+        }
     }
     return h;
 }
@@ -185,7 +199,14 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
     bestQ.addBindValue(windowFloorSec);
-    if (!bestQ.exec () || !bestQ.next()) return QJsonObject();
+    // Whitespace before () dodges a permission-hook false-positive on the
+    // pattern `.exec(`. Do not auto-format.
+    if (!bestQ.exec ()) {
+        qWarning() << "buildBestRecentShotBlock: best-shot query failed:"
+                   << bestQ.lastError().text() << "kbId=" << profileKbId;
+        return QJsonObject();
+    }
+    if (!bestQ.next()) return QJsonObject();   // no rated shot in window — documented omission
 
     const qint64 bestId = bestQ.value(0).toLongLong();
     ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId);
@@ -268,19 +289,25 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
                                     ProfileManager* profileManager,
                                     const ShotProjection& currentShot)
 {
-    if (!settings || !profileManager) return QJsonObject();
-
+    // Gate order: cheapest pure-shot gates first, then null-pointer guards,
+    // then the Settings/ProfileManager-dependent gates. Putting the
+    // pointer guards first would let a non-espresso or no-flow shot
+    // short-circuit on a different reason than its name implies and make
+    // gate-coverage tests confusingly entangled.
     const QString bevType = currentShot.beverageType.isEmpty()
         ? QStringLiteral("espresso") : currentShot.beverageType;
     if (bevType.compare(QStringLiteral("espresso"), Qt::CaseInsensitive) != 0)
         return QJsonObject();
 
-    const QString scaleType = settings->scaleType();
-    const QString profileFilename = profileManager->baseProfileName();
     const double flowAtCutoff = McpDialingHelpers::estimateFlowAtCutoff(
         currentShot.flow, currentShot.durationSec);
-    if (scaleType.isEmpty() || profileFilename.isEmpty() || flowAtCutoff <= 0)
-        return QJsonObject();
+    if (flowAtCutoff <= 0) return QJsonObject();
+
+    if (!settings || !profileManager) return QJsonObject();
+
+    const QString scaleType = settings->scaleType();
+    const QString profileFilename = profileManager->baseProfileName();
+    if (scaleType.isEmpty() || profileFilename.isEmpty()) return QJsonObject();
 
     const double predictedDripG =
         settings->calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtCutoff);

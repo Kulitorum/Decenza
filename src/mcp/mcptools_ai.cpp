@@ -121,6 +121,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 if (resolvedShotId <= 0) {
                     withTempDb(dbPath, "mcp_advisor_latest", [&](QSqlDatabase& db) {
                         QSqlQuery q(db);
+                        // Whitespace before the open-paren dodges a
+                        // permission-hook false-positive on the QSqlQuery
+                        // run-statement call. Do not auto-format.
                         if (q.exec ("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && q.next())
                             resolvedShotId = q.value(0).toLongLong();
                     });

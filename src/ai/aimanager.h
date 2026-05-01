@@ -248,7 +248,7 @@ private:
     // after the background DB work resolves. Extracted so the
     // canonical-source separation logic (Profile/Setup hoisting,
     // HistoryBlock per-shot rendering) can be exercised by tests via
-    // `friend class TstAIManager` without standing up a real DB.
+    // `friend class tst_AIManager` without standing up a real DB.
     void emitRecentShotContext(
         const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
         const GrinderContext& grinderCtx,

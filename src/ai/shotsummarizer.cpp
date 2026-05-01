@@ -602,7 +602,11 @@ QJsonObject ShotSummarizer::buildUserPromptObject(const ShotSummary& summary, Re
 {
     // HistoryBlock mode has no JSON envelope — its callers concatenate
     // prose-per-shot under `### Shot (date)` wrappers and never see this
-    // object. Returning empty makes that explicit.
+    // object. The assert catches misuse in dev; the early-return preserves
+    // safe (if useless) behavior in release.
+    Q_ASSERT_X(mode != RenderMode::HistoryBlock,
+               "ShotSummarizer::buildUserPromptObject",
+               "HistoryBlock mode has no JSON envelope; use buildUserPrompt() instead");
     if (mode == RenderMode::HistoryBlock) {
         return QJsonObject();
     }

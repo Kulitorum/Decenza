@@ -65,11 +65,16 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
                                      const QString& beanBrand);
 
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
-// empty `QJsonObject` when:
+// empty `QJsonObject` when any of the following hold:
 //   - the shot is not espresso, OR
+//   - the shot lacks usable flow samples in the last 2 seconds, OR
+//   - either `settings` or `profileManager` is null, OR
 //   - no scale is configured (`Settings::scaleType()` empty), OR
-//   - no profile is configured (`ProfileManager::baseProfileName()` empty), OR
-//   - the shot lacks usable flow samples in the last 2 seconds.
+//   - no profile is configured (`ProfileManager::baseProfileName()` empty).
+//
+// Gates fire in that order — pure-shot gates first, pointer guards next,
+// then the Settings/ProfileManager-dependent gates. That ordering is
+// deliberate so coverage tests can exercise each gate in isolation.
 //
 // Main-thread only — touches `settings->calibration()` and
 // `profileManager` which are not thread-safe.
