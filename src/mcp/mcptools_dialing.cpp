@@ -1,7 +1,7 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
-#include "mcptools_dialing_helpers.h"
-#include "mcptools_dialing_blocks.h"
+#include "../ai/dialing_helpers.h"
+#include "../ai/dialing_blocks.h"
 #include "../history/shothistorystorage.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
@@ -118,16 +118,16 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     dbResult.profileKbId = record.profileKbId;
 
                     // The four DB-backed dialing-context blocks are produced
-                    // by shared helpers in mcptools_dialing_blocks. Both
+                    // by shared helpers in dialing_blocks. Both
                     // dialing_get_context and the in-app advisor's
                     // user-prompt enrichment path call the same builders so
                     // the two surfaces cannot drift. See openspec
                     // add-dialing-blocks-to-advisor.
-                    dbResult.dialInSessions = McpDialingBlocks::buildDialInSessionsBlock(
+                    dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
                         db, dbResult.profileKbId, resolvedShotId, historyLimit);
-                    dbResult.bestRecentShot = McpDialingBlocks::buildBestRecentShotBlock(
+                    dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                         db, dbResult.profileKbId, resolvedShotId, dbResult.shotData);
-                    dbResult.grinderContext = McpDialingBlocks::buildGrinderContextBlock(
+                    dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, dbResult.shotData.grinderModel,
                         dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
                 });
@@ -232,7 +232,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // same helper so a single system-prompt reading lands
                     // on byte-equivalent JSON.
                     {
-                        McpDialingBlocks::CurrentBeanBlockInputs in;
+                        DialingBlocks::CurrentBeanBlockInputs in;
                         in.beanBrand = sd.beanBrand;
                         in.beanType = sd.beanType;
                         in.roastLevel = sd.roastLevel;
@@ -242,7 +242,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         in.grinderBurrs = sd.grinderBurrs;
                         in.grinderSetting = sd.grinderSetting;
                         in.doseWeightG = sd.doseWeightG;
-                        result["currentBean"] = McpDialingBlocks::buildCurrentBeanBlock(in);
+                        result["currentBean"] = DialingBlocks::buildCurrentBeanBlock(in);
                     }
 
                     // --- Profile (single canonical block) ---
@@ -282,7 +282,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // ProfileManager::baseProfileName(). Body lives in the
                     // shared helper so the in-app advisor and MCP advisor
                     // ship the same shape.
-                    const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
+                    const QJsonObject sawPrediction = DialingBlocks::buildSawPredictionBlock(
                         settings, profileManager, dbResult.shotData);
                     if (!sawPrediction.isEmpty())
                         result["sawPrediction"] = sawPrediction;

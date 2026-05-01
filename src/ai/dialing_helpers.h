@@ -8,10 +8,12 @@
 #include <QVariantMap>
 #include <QtGlobal>
 
-// Helpers extracted from mcptools_dialing.cpp so the pure-logic pieces can be
-// unit-tested without spinning up the full MCP / DB / thread stack.
+// Pure-logic helpers shared by both the MCP `dialing_get_context` tool and
+// the in-app advisor enrichment path. Lives under src/ai/ (the consumer
+// that owns the dialing-context concept) rather than src/mcp/, so the AI
+// subsystem does not reverse-include from MCP. Issue #1040.
 
-namespace McpDialingHelpers {
+namespace DialingHelpers {
 
 // A run of consecutive shots on the same profile counts as one dial-in
 // "session" when the gap between adjacent shots is small enough that the
@@ -240,4 +242,4 @@ inline double estimateFlowAtCutoff(const QVariantList& flowSamples,
     return count > 0 ? sum / count : 0.0;
 }
 
-} // namespace McpDialingHelpers
+} // namespace DialingHelpers

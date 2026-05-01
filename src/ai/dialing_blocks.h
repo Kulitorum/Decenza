@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mcptools_dialing_helpers.h"  // buildBeanFreshness — composed inside buildCurrentBeanBlock
+#include "dialing_helpers.h"  // buildBeanFreshness — composed inside buildCurrentBeanBlock
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -31,7 +31,7 @@ class ShotProjection;
 // (or empty `QJsonArray`) when its preconditions don't hold, so callers
 // can suppress the corresponding key entirely (no `null` placeholders).
 
-namespace McpDialingBlocks {
+namespace DialingBlocks {
 
 // Window for the "best recent shot on this profile" anchor. Bounded
 // so the anchor reflects the user's *current* setup era — same grinder
@@ -73,7 +73,7 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
 // `currentBean` build through this helper so the two surfaces produce
 // byte-equivalent JSON for the same shot. Composes
 // `currentBean.beanFreshness` from the shot's `roastDate` via
-// `McpDialingHelpers::buildBeanFreshness`. Pure: no Qt object
+// `DialingHelpers::buildBeanFreshness`. Pure: no Qt object
 // dependencies beyond the projection and JSON value types.
 //
 // Inputs that capture every field this block reads from the shot. Kept
@@ -94,7 +94,7 @@ struct CurrentBeanBlockInputs {
 };
 
 // Defined inline so test binaries that link only `shotsummarizer.cpp`
-// (and not the rest of `mcptools_dialing_blocks.cpp`'s DB-dependent
+// (and not the rest of `dialing_blocks.cpp`'s DB-dependent
 // builders) can pick up this single helper without pulling in
 // `loadShotRecordStatic` / `loadRecentShotsByKbIdStatic` symbols.
 inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
@@ -109,7 +109,7 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     bean["grinderSetting"] = in.grinderSetting;
     bean["doseWeightG"] = in.doseWeightG;
 
-    const QJsonObject freshness = McpDialingHelpers::buildBeanFreshness(in.roastDate);
+    const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
 
@@ -134,4 +134,4 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
                                     ProfileManager* profileManager,
                                     const ShotProjection& currentShot);
 
-} // namespace McpDialingBlocks
+} // namespace DialingBlocks

@@ -6,7 +6,7 @@
 #include "../core/settings_ai.h"
 #include "../core/grinderaliases.h"
 #include "../controllers/profilemanager.h"
-#include "../mcp/mcptools_dialing_blocks.h"
+#include "dialing_blocks.h"
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
@@ -284,12 +284,12 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                     resolvedShot = ShotHistoryStorage::convertShotRecord(rec);
                 }
 
-                dialInSessions = McpDialingBlocks::buildDialInSessionsBlock(
+                dialInSessions = DialingBlocks::buildDialInSessionsBlock(
                     db, kbId, excludeId, 5);
                 if (resolvedShot.isValid()) {
-                    bestRecentShot = McpDialingBlocks::buildBestRecentShotBlock(
+                    bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
                         db, kbId, excludeId, resolvedShot);
-                    grinderContext = McpDialingBlocks::buildGrinderContextBlock(
+                    grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, resolvedShot.grinderModel,
                         resolvedShot.beverageType, resolvedShot.beanBrand);
                 }
@@ -434,7 +434,7 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
     if (!grinderContext.isEmpty())
         payload["grinderContext"] = grinderContext;
     if (shotData.isValid()) {
-        const QJsonObject sawPrediction = McpDialingBlocks::buildSawPredictionBlock(
+        const QJsonObject sawPrediction = DialingBlocks::buildSawPredictionBlock(
             m_settings, m_profileManager, shotData);
         if (!sawPrediction.isEmpty())
             payload["sawPrediction"] = sawPrediction;

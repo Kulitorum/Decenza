@@ -316,7 +316,7 @@ set(SOURCES
     src/mcp/mcptools_profiles.cpp
     src/mcp/mcptools_settings.cpp
     src/mcp/mcptools_dialing.cpp
-    src/mcp/mcptools_dialing_blocks.cpp
+    src/ai/dialing_blocks.cpp
     src/mcp/mcptools_control.cpp
     src/mcp/mcpresources.cpp
     src/mcp/mcptools_scale.cpp

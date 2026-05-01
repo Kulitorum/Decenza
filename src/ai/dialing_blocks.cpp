@@ -1,5 +1,5 @@
-#include "mcptools_dialing_blocks.h"
-#include "mcptools_dialing_helpers.h"
+#include "dialing_blocks.h"
+#include "dialing_helpers.h"
 
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
@@ -23,9 +23,9 @@
 
 namespace {
 
-McpDialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
+DialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
 {
-    McpDialingHelpers::ShotDiffInputs d;
+    DialingHelpers::ShotDiffInputs d;
     d.grinderSetting = s.grinderSetting;
     d.beanBrand = s.beanBrand;
     d.doseWeightG = s.doseWeightG;
@@ -37,7 +37,7 @@ McpDialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
 
 QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& curr)
 {
-    return McpDialingHelpers::buildShotChangeDiff(toDiffInputs(prev), toDiffInputs(curr));
+    return DialingHelpers::buildShotChangeDiff(toDiffInputs(prev), toDiffInputs(curr));
 }
 
 // Per-shot serializer for dialInSessions. Identity overrides come from
@@ -45,7 +45,7 @@ QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& cur
 // the five identity fields only when they differ from the session
 // context (otherwise the field is hoisted and absent here).
 QJsonObject shotToJson(const ShotProjection& shot,
-                       const McpDialingHelpers::ShotIdentity& override)
+                       const DialingHelpers::ShotIdentity& override)
 {
     QJsonObject h;
     h["id"] = shot.id;
@@ -97,7 +97,7 @@ QJsonObject shotToJson(const ShotProjection& shot,
 
 } // namespace
 
-namespace McpDialingBlocks {
+namespace DialingBlocks {
 
 QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
                                     const QString& profileKbId,
@@ -119,7 +119,7 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
     timestamps.reserve(shots.size());
     for (const auto& s : shots)
         timestamps.append(s.timestamp);
-    const auto sessionIndices = McpDialingHelpers::groupSessions(timestamps);
+    const auto sessionIndices = DialingHelpers::groupSessions(timestamps);
 
     for (const auto& indices : sessionIndices) {
         // Reverse indices to ASC within the session so changeFromPrev
@@ -129,10 +129,10 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
         for (qsizetype i = indices.size() - 1; i >= 0; --i)
             ordered.append(shots[indices[i]]);
 
-        QList<McpDialingHelpers::ShotIdentity> identities;
+        QList<DialingHelpers::ShotIdentity> identities;
         identities.reserve(ordered.size());
         for (const ShotProjection& s : ordered) {
-            McpDialingHelpers::ShotIdentity id;
+            DialingHelpers::ShotIdentity id;
             id.grinderBrand = s.grinderBrand;
             id.grinderModel = s.grinderModel;
             id.grinderBurrs = s.grinderBurrs;
@@ -140,8 +140,8 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             id.beanType = s.beanType;
             identities.append(id);
         }
-        const McpDialingHelpers::HoistedSession hoisted =
-            McpDialingHelpers::hoistSessionContext(identities);
+        const DialingHelpers::HoistedSession hoisted =
+            DialingHelpers::hoistSessionContext(identities);
 
         QJsonArray sessionShots;
         for (qsizetype i = 0; i < ordered.size(); ++i) {
@@ -299,7 +299,7 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
     if (bevType.compare(QStringLiteral("espresso"), Qt::CaseInsensitive) != 0)
         return QJsonObject();
 
-    const double flowAtCutoff = McpDialingHelpers::estimateFlowAtCutoff(
+    const double flowAtCutoff = DialingHelpers::estimateFlowAtCutoff(
         currentShot.flow, currentShot.durationSec);
     if (flowAtCutoff <= 0) return QJsonObject();
 
@@ -343,4 +343,4 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
 // that link only `shotsummarizer.cpp` don't drag in this TU's DB-dependent
 // block builders (loadShotRecordStatic et al.).
 
-} // namespace McpDialingBlocks
+} // namespace DialingBlocks
