@@ -458,7 +458,7 @@ static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
             }
 
             // Check targetWeight-based mistake filter (needs full record)
-            double targetWeight = fullShot.value("targetWeight", 0.0).toDouble();
+            double targetWeight = fullShot.value("targetWeightG", 0.0).toDouble();
             if (targetWeight > 0.0 && c.finalWeight < targetWeight / 3.0) {
                 qDebug() << "  Shot id=" << c.id << "-> SKIPPED (mistake, weight < 1/3 target)";
                 continue;
