@@ -18,8 +18,15 @@ class AIManager;
  *   // Later, for follow-up:
  *   conversation->followUp("What grind size would help?");
  */
+#ifdef DECENZA_TESTING
+class tst_AIManager;
+#endif
+
 class AIConversation : public QObject {
     Q_OBJECT
+#ifdef DECENZA_TESTING
+    friend class tst_AIManager;
+#endif
 
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
     Q_PROPERTY(bool hasHistory READ hasHistory NOTIFY historyChanged)
@@ -142,25 +149,53 @@ private:
     void trimHistory();
     static QString summarizeShotMessage(const QString& content);
     static QString summarizeAdvice(const QString& response);
-    static QString extractMetric(const QString& content, const QRegularExpression& re);
 
-    // When the per-shot user-message body is the JSON envelope produced by
-    // ShotSummarizer::buildUserPrompt (Standalone), the prose lines our
-    // regexes match on (Dose, Yield, Score, Notes, ## Shot (date) header)
-    // live inside the `shotAnalysis` JSON field. Extract that field if the
-    // input parses as a JSON object with a `shotAnalysis` key; otherwise
-    // return the input unchanged so legacy prose-only stored messages
-    // still match. Pure function.
+    // Legacy fallback: extracts the `shotAnalysis` prose from the JSON
+    // envelope when present, otherwise returns the message unchanged.
+    // Used only by `extractShotFields` for the legacy-prose detector
+    // substring checks. New code should prefer `extractShotFields`.
     static QString extractShotProse(const QString& content);
+
+    // Structured per-shot data extracted from a user message — issue
+    // #1039. Numeric fields are kept as `QString` because the consumers
+    // render them into prose diffs ("Dose 18.0g→20.0g") and need to
+    // preserve the original precision. Empty string means "field
+    // absent" — the diff/summary code skips fields that are absent on
+    // either side, mirroring the legacy regex semantics.
+    struct ShotFields {
+        QString shotLabel;          // from "## Shot (label)" outer header
+        QString doseG;
+        QString yieldG;
+        QString durationSec;
+        QString grinder;            // pre-formatted "<brand> <model> (<burrs>) at <setting>"
+        QString profileTitle;
+        QString score;
+        QString notes;
+        bool channelingDetected = false;
+        bool temperatureUnstable = false;
+        bool fromStructuredEnvelope = false;  // false ⇒ legacy regex path fired
+    };
+
+    // Read structured per-shot fields out of a user message. Prefers
+    // the JSON envelope's `shot` / `currentBean` / `profile` blocks;
+    // falls back to legacy regex on the prose body when JSON parsing
+    // fails. Pure function.
+    static ShotFields extractShotFields(const QString& content);
 
     struct PreviousShotInfo { QString content; QString shotLabel; };
     PreviousShotInfo findPreviousShot(const QString& excludeLabel = QString()) const;
 
     static constexpr int MAX_VERBATIM_PAIRS = 2;
 
-    // Shared regex constants for shot message parsing
+    // Outer-wrapper regex for the "## Shot (date)" header that
+    // `addShotContext` prepends OUTSIDE the JSON envelope.
+    static const QRegularExpression s_shotLabelRe;
+
+    // Legacy fallback regexes. Used only by `extractShotFields` when
+    // the JSON envelope cannot be parsed (stored conversations from
+    // before issue #1034 / #1039). Do not add new callers.
     static const QRegularExpression s_doseRe, s_yieldRe, s_durationRe,
-        s_grinderRe, s_profileRe, s_shotLabelRe, s_scoreRe, s_notesRe;
+        s_grinderRe, s_profileRe, s_scoreRe, s_notesRe;
 
     AIManager* m_aiManager;
     QString m_systemPrompt;

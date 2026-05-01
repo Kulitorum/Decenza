@@ -4,17 +4,32 @@
 
 #include <QDebug>
 #include <QSettings>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QJsonParseError>
+#include <QJsonValue>
 #include <QRegularExpression>
 
-// Static regex constants shared between processShotForConversation() and summarizeShotMessage()
+// Outer wrapper regex for the "## Shot (date)" header that
+// `addShotContext` prepends OUTSIDE the JSON envelope. The header is
+// not part of the envelope itself, so it stays a regex match. All
+// per-shot data fields (dose / yield / duration / grinder / score /
+// notes / profile) come from structured JSON fields now — see
+// extractShotFields() below. Issue #1039.
+const QRegularExpression AIConversation::s_shotLabelRe("## Shot \\(([^)]+)\\)");
+
+// Legacy fallback regexes for stored conversations whose user messages
+// were saved before issue #1034 introduced the JSON envelope and #1039
+// added the structured `shot` block. These run only when JSON parsing
+// fails AND the message looks like prose. New code should NOT add new
+// callers — read `shot.*` / `currentBean.*` / `profile.*` / `tastingFeedback.*`
+// from the parsed envelope instead.
 const QRegularExpression AIConversation::s_doseRe("\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
 const QRegularExpression AIConversation::s_yieldRe("\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
 const QRegularExpression AIConversation::s_durationRe("\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
 const QRegularExpression AIConversation::s_grinderRe("\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
 const QRegularExpression AIConversation::s_profileRe("\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
-const QRegularExpression AIConversation::s_shotLabelRe("## Shot \\(([^)]+)\\)");
 const QRegularExpression AIConversation::s_scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
 const QRegularExpression AIConversation::s_notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
 
@@ -333,34 +348,28 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
 
     if (!prevContent.isEmpty()) {
         // === Change detection ===
-        // Run regex extraction against the prose body. When the message is
-        // the new JSON envelope, extractShotProse pulls `shotAnalysis` so
-        // the existing regex constants still match. Legacy prose-only
-        // messages pass through unchanged.
-        const QString processedProse = extractShotProse(processed);
-        const QString prevProse = extractShotProse(prevContent);
+        // Read shot-VARIABLE fields directly from the JSON envelope
+        // (issue #1039). Falls back to legacy prose regex automatically
+        // when either message predates the JSON envelope.
+        const ShotFields curr = extractShotFields(processed);
+        const ShotFields prev = extractShotFields(prevContent);
 
         QStringList changes;
 
-        QString newDose = extractMetric(processedProse, s_doseRe);
-        QString prevDose = extractMetric(prevProse, s_doseRe);
-        if (!newDose.isEmpty() && !prevDose.isEmpty() && newDose != prevDose)
-            changes << "Dose " + prevDose + "g\u2192" + newDose + "g";
-
-        QString newYield = extractMetric(processedProse, s_yieldRe);
-        QString prevYield = extractMetric(prevProse, s_yieldRe);
-        if (!newYield.isEmpty() && !prevYield.isEmpty() && newYield != prevYield)
-            changes << "Yield " + prevYield + "g\u2192" + newYield + "g";
-
-        QString newGrinder = extractMetric(processedProse, s_grinderRe);
-        QString prevGrinder = extractMetric(prevProse, s_grinderRe);
-        if (!newGrinder.isEmpty() && !prevGrinder.isEmpty() && newGrinder != prevGrinder)
-            changes << "Grinder " + prevGrinder + " \u2192 " + newGrinder;
-
-        QString newDuration = extractMetric(processedProse, s_durationRe);
-        QString prevDuration = extractMetric(prevProse, s_durationRe);
-        if (!newDuration.isEmpty() && !prevDuration.isEmpty() && newDuration != prevDuration)
-            changes << "Duration " + prevDuration + "s\u2192" + newDuration + "s";
+        auto diffField = [&](const QString& a, const QString& b,
+                             const QString& label, const QString& unit) {
+            if (!a.isEmpty() && !b.isEmpty() && a != b)
+                changes << QString("%1 %2%3\u2192%4%5")
+                    .arg(label, a, unit, b, unit);
+        };
+        diffField(prev.doseG, curr.doseG, QStringLiteral("Dose"), QStringLiteral("g"));
+        diffField(prev.yieldG, curr.yieldG, QStringLiteral("Yield"), QStringLiteral("g"));
+        diffField(prev.durationSec, curr.durationSec, QStringLiteral("Duration"), QStringLiteral("s"));
+        // Grinder diff string keeps a different separator (" \u2192 " with
+        // spaces) for legibility \u2014 the grinder string can be long
+        // ("Niche Zero (63mm conical) at 4.0").
+        if (!prev.grinder.isEmpty() && !curr.grinder.isEmpty() && prev.grinder != curr.grinder)
+            changes << "Grinder " + prev.grinder + " \u2192 " + curr.grinder;
 
         // Prepend changes section
         QString changesSection;
@@ -393,12 +402,6 @@ QString AIConversation::multiShotSystemPrompt(const QString& beverageType, const
     return base;
 }
 
-QString AIConversation::extractMetric(const QString& content, const QRegularExpression& re)
-{
-    QRegularExpressionMatch match = re.match(content);
-    return match.hasMatch() ? match.captured(1).trimmed() : QString();
-}
-
 QString AIConversation::extractShotProse(const QString& content)
 {
     // Cheap pre-check: if the trimmed content doesn't look like a JSON object,
@@ -414,6 +417,140 @@ QString AIConversation::extractShotProse(const QString& content)
     const QJsonObject obj = doc.object();
     if (!obj.contains(QStringLiteral("shotAnalysis"))) return content;
     return obj.value(QStringLiteral("shotAnalysis")).toString();
+}
+
+AIConversation::ShotFields AIConversation::extractShotFields(const QString& content)
+{
+    // Try the structured path first: the user message is the JSON
+    // envelope `ShotSummarizer::buildUserPromptObject` produces. Each
+    // numeric / string field is read from its canonical structured
+    // location — `shot.*` for shot-VARIABLE values (dose / yield /
+    // duration / score / notes), `currentBean.*` for grinder identity,
+    // `profile.title` for profile name. The shot header label remains a
+    // regex match against the OUTER message wrapper (it's not part of
+    // the envelope — `addShotContext` prepends it).
+    //
+    // The user message is shaped by `addShotContext` as:
+    //   "## Shot (label)\n\nHere's my latest shot:\n\n<json>\n\nPlease analyze..."
+    // so the JSON object lives *between* the header and the trailing
+    // user prompt. Find the first `{` and parse from there.
+    ShotFields fields;
+
+    QRegularExpressionMatch labelMatch = s_shotLabelRe.match(content);
+    if (labelMatch.hasMatch()) fields.shotLabel = labelMatch.captured(1);
+
+    // Locate the JSON envelope inside the message body. The message is
+    // shaped as "## Shot (..)\n\nHere's my latest shot:\n\n<json>\n\n
+    // Please analyze..." so we need to find the matching `}` for the
+    // first `{` — Qt's JSON parser rejects trailing prose. Walk the
+    // string with a depth counter, skipping over string literals.
+    auto findJsonObject = [](const QString& s) -> QString {
+        const qsizetype start = s.indexOf(QLatin1Char('{'));
+        if (start < 0) return QString();
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+        for (qsizetype i = start; i < s.size(); ++i) {
+            const QChar c = s[i];
+            if (inString) {
+                if (escaped) { escaped = false; continue; }
+                if (c == QLatin1Char('\\')) { escaped = true; continue; }
+                if (c == QLatin1Char('"')) inString = false;
+                continue;
+            }
+            if (c == QLatin1Char('"')) { inString = true; continue; }
+            if (c == QLatin1Char('{')) ++depth;
+            else if (c == QLatin1Char('}')) {
+                --depth;
+                if (depth == 0) return s.mid(start, i - start + 1);
+            }
+        }
+        return QString();
+    };
+    const QString jsonText = findJsonObject(content);
+    if (!jsonText.isEmpty()) {
+        QJsonParseError err{};
+        const QJsonDocument doc = QJsonDocument::fromJson(
+            jsonText.toUtf8(), &err);
+        if (err.error == QJsonParseError::NoError && doc.isObject()) {
+            const QJsonObject obj = doc.object();
+            const QJsonObject shot = obj.value(QStringLiteral("shot")).toObject();
+            const QJsonObject currentBean = obj.value(QStringLiteral("currentBean")).toObject();
+            const QJsonObject profile = obj.value(QStringLiteral("profile")).toObject();
+
+            // Numeric fields render with the same precision the original
+            // regex captured ("18.0" / "36.0" / "30.0") so the legacy
+            // diff strings ("Dose 18.0g→20.0g") read identically. JSON
+            // fromJson() preserves doubles, so we format here.
+            auto fmtNum = [](double v, int prec) {
+                return QString::number(v, 'f', prec);
+            };
+            if (shot.contains(QStringLiteral("doseG")))
+                fields.doseG = fmtNum(shot.value(QStringLiteral("doseG")).toDouble(), 1);
+            else if (currentBean.contains(QStringLiteral("doseWeightG")))
+                fields.doseG = fmtNum(currentBean.value(QStringLiteral("doseWeightG")).toDouble(), 1);
+
+            if (shot.contains(QStringLiteral("yieldG")))
+                fields.yieldG = fmtNum(shot.value(QStringLiteral("yieldG")).toDouble(), 1);
+            if (shot.contains(QStringLiteral("durationSec")))
+                fields.durationSec = fmtNum(shot.value(QStringLiteral("durationSec")).toDouble(), 0);
+            if (shot.contains(QStringLiteral("enjoymentScore")))
+                fields.score = QString::number(shot.value(QStringLiteral("enjoymentScore")).toInt());
+            if (shot.contains(QStringLiteral("notes")))
+                fields.notes = shot.value(QStringLiteral("notes")).toString();
+
+            // Grinder string mirrors the prose's "**Grinder**: <brand>
+            // <model> (<burrs>) at <setting>" form so historical
+            // change-detection diffs read the same. When the bean block
+            // does not carry a brand+model+burrs+setting set, fall back
+            // to whatever subset it has.
+            QStringList grinderParts;
+            const QString gb = currentBean.value(QStringLiteral("grinderBrand")).toString();
+            const QString gm = currentBean.value(QStringLiteral("grinderModel")).toString();
+            const QString gbur = currentBean.value(QStringLiteral("grinderBurrs")).toString();
+            const QString gs = shot.contains(QStringLiteral("grinderSetting"))
+                ? shot.value(QStringLiteral("grinderSetting")).toString()
+                : currentBean.value(QStringLiteral("grinderSetting")).toString();
+            if (!gb.isEmpty()) grinderParts << gb;
+            if (!gm.isEmpty()) grinderParts << gm;
+            if (!gbur.isEmpty()) grinderParts << QString("(%1)").arg(gbur);
+            if (!gs.isEmpty()) grinderParts << QString("at %1").arg(gs);
+            fields.grinder = grinderParts.join(QLatin1Char(' '));
+
+            fields.profileTitle = profile.value(QStringLiteral("title")).toString();
+
+            // Detector flags still come from substring search on the
+            // prose body — `ShotSummary` does not yet carry channeling
+            // as a scalar boolean. Issue #1037 will absorb these into a
+            // structured detectorObservations[] array.
+            const QString prose = obj.value(QStringLiteral("shotAnalysis")).toString();
+            fields.channelingDetected = prose.contains(QStringLiteral("Channeling detected"));
+            fields.temperatureUnstable = prose.contains(QStringLiteral("Temperature unstable"));
+
+            fields.fromStructuredEnvelope = true;
+            return fields;
+        }
+    }
+
+    // Legacy fallback: stored conversations whose user messages were
+    // saved before #1034 / #1039 — the body is plain prose. Run the
+    // legacy regexes against the (already extracted) prose.
+    const QString prose = extractShotProse(content);
+    auto extract = [&prose](const QRegularExpression& re) {
+        QRegularExpressionMatch m = re.match(prose);
+        return m.hasMatch() ? m.captured(1).trimmed() : QString();
+    };
+    fields.doseG = extract(s_doseRe);
+    fields.yieldG = extract(s_yieldRe);
+    fields.durationSec = extract(s_durationRe);
+    fields.grinder = extract(s_grinderRe);
+    fields.profileTitle = extract(s_profileRe);
+    fields.score = extract(s_scoreRe);
+    fields.notes = extract(s_notesRe);
+    fields.channelingDetected = prose.contains(QStringLiteral("Channeling detected"));
+    fields.temperatureUnstable = prose.contains(QStringLiteral("Temperature unstable"));
+    fields.fromStructuredEnvelope = false;
+    return fields;
 }
 
 AIConversation::PreviousShotInfo AIConversation::findPreviousShot(const QString& excludeLabel) const
@@ -611,68 +748,38 @@ void AIConversation::trimHistory()
 
 QString AIConversation::summarizeShotMessage(const QString& content)
 {
-    // Run regex extraction against the prose body. extractShotProse pulls
-    // `shotAnalysis` from a JSON envelope when present; legacy prose-only
-    // messages pass through unchanged. Detection markers match against the
-    // extracted prose, not the raw content — otherwise the guard depends on
-    // JSON serialization preserving the literal substring inside the
-    // shotAnalysis value, which is fragile if formatting ever changes.
-    const QString prose = extractShotProse(content);
-    if (!prose.contains("Shot Summary") && !prose.contains("Here's my latest shot"))
+    // Quick "is this a shot message?" guard. Both the JSON envelope and
+    // the legacy prose carry one of these substrings: the envelope's
+    // `shotAnalysis` field includes "## Shot Summary"; `addShotContext`
+    // prepends "Here's my latest shot:" to every per-shot user message.
+    if (!content.contains("Shot Summary") && !content.contains("Here's my latest shot"))
         return QString();
 
-    // Extract shot label from "## Shot (date)" prefix
-    QString shotLabel;
-    QRegularExpressionMatch numMatch = s_shotLabelRe.match(prose);
-    if (numMatch.hasMatch()) {
-        shotLabel = numMatch.captured(1);
-    }
+    // Read all per-shot fields from the JSON envelope (#1039). The
+    // legacy regex path fires automatically inside extractShotFields
+    // when the message has no parseable JSON.
+    const ShotFields fields = extractShotFields(content);
 
-    // Extract key metrics using shared regex constants
-    QString dose, yield, duration, score, notes;
-
-    QRegularExpressionMatch m = s_doseRe.match(prose);
-    if (m.hasMatch()) dose = m.captured(1);
-    m = s_yieldRe.match(prose);
-    if (m.hasMatch()) yield = m.captured(1);
-    m = s_durationRe.match(prose);
-    if (m.hasMatch()) duration = m.captured(1);
-    m = s_scoreRe.match(prose);
-    if (m.hasMatch()) score = m.captured(1);
-    m = s_notesRe.match(prose);
-    if (m.hasMatch()) notes = m.captured(1);
-
-    // Extract profile name
-    QRegularExpressionMatch pm = s_profileRe.match(prose);
-    QString profile = pm.hasMatch() ? pm.captured(1).trimmed() : QString();
-
-    // Extract grinder info
-    QRegularExpressionMatch gm = s_grinderRe.match(prose);
-    QString grinder = gm.hasMatch() ? gm.captured(1).trimmed() : QString();
-
-    // Detect anomaly flags
-    bool channeling = prose.contains("Channeling detected");
-    bool tempUnstable = prose.contains("Temperature unstable");
-
-    // Build compact summary
     QString summary = "- Shot";
-    if (!shotLabel.isEmpty()) summary += " (" + shotLabel + ")";
+    if (!fields.shotLabel.isEmpty()) summary += " (" + fields.shotLabel + ")";
     summary += ":";
-    if (!profile.isEmpty()) summary += " \"" + profile + "\"";
-    if (!dose.isEmpty() && !yield.isEmpty()) summary += " " + dose + "g\u2192" + yield + "g";
-    if (!duration.isEmpty()) summary += ", " + duration + "s";
-    if (!grinder.isEmpty()) {
-        QString truncGrinder = grinder.length() > 30 ? grinder.left(27) + "..." : grinder;
+    if (!fields.profileTitle.isEmpty()) summary += " \"" + fields.profileTitle + "\"";
+    if (!fields.doseG.isEmpty() && !fields.yieldG.isEmpty())
+        summary += " " + fields.doseG + "g\u2192" + fields.yieldG + "g";
+    if (!fields.durationSec.isEmpty()) summary += ", " + fields.durationSec + "s";
+    if (!fields.grinder.isEmpty()) {
+        QString truncGrinder = fields.grinder.length() > 30
+            ? fields.grinder.left(27) + "..." : fields.grinder;
         summary += ", " + truncGrinder;
     }
-    if (!score.isEmpty()) summary += ", " + score + "/100";
-    if (!notes.isEmpty()) {
-        // Truncate long notes
-        QString truncated = notes.length() > 40 ? notes.left(37) + "..." : notes;
+    if (!fields.score.isEmpty()) summary += ", " + fields.score + "/100";
+    if (!fields.notes.isEmpty()) {
+        QString truncated = fields.notes.length() > 40
+            ? fields.notes.left(37) + "..." : fields.notes;
         summary += ", \"" + truncated + "\"";
     }
-    if (channeling) summary += " [channeling]";
-    if (tempUnstable) summary += " [temp unstable]";
+    if (fields.channelingDetected) summary += " [channeling]";
+    if (fields.temperatureUnstable) summary += " [temp unstable]";
 
     return summary;
 }
