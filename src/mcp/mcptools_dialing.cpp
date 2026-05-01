@@ -222,14 +222,24 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // conversation. See #987.
                     QString profileTitle = sd.profileName;
                     QString bevType = sd.beverageType.isEmpty() ? QStringLiteral("espresso") : sd.beverageType;
+                    // Extract the editor type from the embedded profile JSON
+                    // so the fuzzy-match fallback can find a section for
+                    // custom-titled D-Flow / A-Flow profiles whose stored
+                    // profileKbId is stale or absent. Without this, the
+                    // fallback only matches on title alone.
+                    QString profileType;
+                    if (!sd.profileJson.isEmpty()) {
+                        const QJsonObject pj = QJsonDocument::fromJson(sd.profileJson.toUtf8()).object();
+                        profileType = pj.value("type").toString();
+                    }
                     QString profileKnowledge;
                     if (includeFullKnowledge) {
                         profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
-                            bevType, profileTitle, QString(), dbResult.profileKbId);
+                            bevType, profileTitle, profileType, dbResult.profileKbId);
                     } else {
                         profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(dbResult.profileKbId);
                         if (profileKnowledge.isEmpty())
-                            profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, QString());
+                            profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
                     }
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;
