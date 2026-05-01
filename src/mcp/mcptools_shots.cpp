@@ -91,7 +91,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                  minEnjoyment, afterEpoch, beforeEpoch, currentDateTime, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
-                int totalCount = 0;
+                qint64 totalCount = 0;
 
                 if (!withTempDb(dbPath, "mcp_shots_list", [&](QSqlDatabase& db) {
                     QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
@@ -183,7 +183,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     if (beforeEpoch > 0)
                         countQuery.bindValue(":before", beforeEpoch);
                     if (countQuery.exec() && countQuery.next())
-                        totalCount = countQuery.value(0).toInt();
+                        totalCount = countQuery.value(0).toLongLong();
                 })) {
                     result["error"] = "Failed to open shot database";
                 }
@@ -194,6 +194,12 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["count"] = shots.size();
                     result["total"] = totalCount;
                     result["offset"] = offset;
+                    const qint64 returned = shots.size();
+                    const bool hasMore = (static_cast<qint64>(offset) + returned) < totalCount;
+                    result["hasMore"] = hasMore;
+                    result["nextOffset"] = hasMore
+                        ? QJsonValue(static_cast<qint64>(offset) + returned)
+                        : QJsonValue(QJsonValue::Null);
 
                     // Per MCP 2025-06-18: emit a resource_link block per shot
                     // pointing at decenza://shots/{id} so subscribing clients
