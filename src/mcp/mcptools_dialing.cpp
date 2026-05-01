@@ -29,31 +29,31 @@ struct DialingDbResult {
     QString profileKbId;
     QJsonArray dialInSessions;
     QJsonObject grinderContext;
+    QJsonObject bestRecentShot;  // Empty when no rated shot exists on this profile
 };
+
+// Adapter: copy the diff-relevant fields from a ShotProjection into the
+// pure-logic struct the helper consumes. Keeps the helper Qt-typed without
+// pulling shotprojection.h into the header.
+static McpDialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
+{
+    McpDialingHelpers::ShotDiffInputs d;
+    d.grinderSetting = s.grinderSetting;
+    d.beanBrand = s.beanBrand;
+    d.doseWeightG = s.doseWeightG;
+    d.finalWeightG = s.finalWeightG;
+    d.durationSec = s.durationSec;
+    d.enjoyment0to100 = s.enjoyment0to100;
+    return d;
+}
 
 // Build the changeFromPrev diff between two adjacent shots in the same
 // session — same shape as `shots_compare` produces, computed inline so the
-// AI doesn't need a separate round-trip to see what moved.
+// AI doesn't need a separate round-trip to see what moved. Same helper
+// drives changeFromBest (current vs best-rated past shot, #1020).
 static QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& curr)
 {
-    QJsonObject diff;
-    auto diffStr = [&](const QString& a, const QString& b, const QString& key) {
-        if (!a.isEmpty() && !b.isEmpty() && a != b)
-            diff[key] = QString("%1 -> %2").arg(a, b);
-    };
-    auto diffNum = [&](double a, double b, const QString& key, const QString& unit) {
-        if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
-            diff[key] = QString("%1 -> %2 %3 (%4%5)")
-                .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
-                .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
-    };
-    diffStr(prev.grinderSetting, curr.grinderSetting, "grinderSetting");
-    diffStr(prev.beanBrand, curr.beanBrand, "beanBrand");
-    diffNum(prev.doseWeightG, curr.doseWeightG, "doseG", "g");
-    diffNum(prev.finalWeightG, curr.finalWeightG, "yieldG", "g");
-    diffNum(prev.durationSec, curr.durationSec, "durationSec", "s");
-    diffNum(prev.enjoyment0to100, curr.enjoyment0to100, "enjoyment0to100", "");
-    return diff;
+    return McpDialingHelpers::buildShotChangeDiff(toDiffInputs(prev), toDiffInputs(curr));
 }
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
@@ -67,9 +67,11 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         "shots on the same profile within ~60 minutes of each other, with within-session "
         "changeFromPrev diffs), profile knowledge for the current shot's profile, bean/grinder "
         "metadata, grinder context (observed settings range, step size, and burr-swappable flag), "
-        "and a tastingFeedback block flagging whether the shot has enjoyment / notes / refractometer "
+        "a tastingFeedback block flagging whether the shot has enjoyment / notes / refractometer "
         "data — when any is missing the block carries a recommendation to ask the user before "
-        "suggesting changes. "
+        "suggesting changes — and a bestRecentShot anchor (highest-rated past shot on the same "
+        "profile, with a changeFromBest diff against the current shot) so advice can reference "
+        "what success has looked like, not just what changed since last pull. "
         "Primary read tool for dial-in conversations — a single call gives everything needed to analyze "
         "a shot and suggest changes. Default profileKnowledge contains only the current profile's "
         "curated KB entry (~1 KB); pass includeFullKnowledge: true to also receive the dial-in system "
@@ -270,6 +272,68 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         }
                     }
 
+                    // --- Best recent shot on this profile (#1020) ---
+                    // Anchor the AI on "what does success look like on this
+                    // profile?" so it can give aspirational ("walk back
+                    // toward the best") advice instead of purely reactive
+                    // ("change something off the last shot") advice. Pulls
+                    // the highest-rated shot on the same profile_kb_id;
+                    // excludes resolvedShotId so the current shot doesn't
+                    // get reflected back at the AI as its own anchor
+                    // (which would produce an empty changeFromBest and
+                    // waste a context block). Omits the block when no
+                    // rated shot exists — common early in a user's session
+                    // or right after a profile change.
+                    if (!dbResult.profileKbId.isEmpty()) {
+                        QSqlQuery bestQ(db);
+                        bestQ.prepare(
+                            "SELECT id FROM shots "
+                            "WHERE profile_kb_id = ? AND enjoyment > 0 AND id != ? "
+                            "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
+                        bestQ.addBindValue(dbResult.profileKbId);
+                        bestQ.addBindValue(resolvedShotId);
+                        if (bestQ.exec() && bestQ.next()) {
+                            const qint64 bestId = bestQ.value(0).toLongLong();
+                            ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId);
+                            const ShotProjection best = ShotHistoryStorage::convertShotRecord(bestRecord);
+                            if (best.isValid()) {
+                                QJsonObject b;
+                                b["id"] = best.id;
+                                b["timestamp"] = best.timestampIso;
+                                b["enjoyment0to100"] = best.enjoyment0to100;
+                                b["doseG"] = best.doseWeightG;
+                                b["yieldG"] = best.finalWeightG;
+                                b["durationSec"] = best.durationSec;
+                                b["grinderSetting"] = best.grinderSetting;
+                                b["grinderModel"] = best.grinderModel;
+                                b["beanBrand"] = best.beanBrand;
+                                b["beanType"] = best.beanType;
+                                b["notes"] = best.espressoNotes;
+                                if (best.doseWeightG > 0)
+                                    b["ratio"] = QString("1:%1").arg(
+                                        best.finalWeightG / best.doseWeightG, 0, 'f', 2);
+                                // daysSinceShot is computed against the
+                                // current wall clock — gives the AI a
+                                // freshness signal ("your last good shot
+                                // was 32 days ago" reads differently from
+                                // "yesterday").
+                                if (best.timestamp > 0) {
+                                    const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+                                    b["daysSinceShot"] = (nowSec - best.timestamp) / (24 * 3600);
+                                }
+                                // changeFromBest: best -> current. Reuses
+                                // the same diff helper that powers
+                                // changeFromPrev so the AI sees a
+                                // consistent shape for "what moved between
+                                // these two shots."
+                                const QJsonObject diff = changeFromPrev(best, dbResult.shotData);
+                                if (!diff.isEmpty())
+                                    b["changeFromBest"] = diff;
+                                dbResult.bestRecentShot = b;
+                            }
+                        }
+                    }
+
                     // --- Grinder context (shared helper) ---
                     // Per openspec optimize-dialing-context-payload (task 7):
                     // `settingsObserved` is bean-scoped — filtered to shots
@@ -365,6 +429,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     if (!dbResult.dialInSessions.isEmpty())
                         result["dialInSessions"] = dbResult.dialInSessions;
+                    if (!dbResult.bestRecentShot.isEmpty())
+                        result["bestRecentShot"] = dbResult.bestRecentShot;
                     if (!dbResult.grinderContext.isEmpty())
                         result["grinderContext"] = dbResult.grinderContext;
 
