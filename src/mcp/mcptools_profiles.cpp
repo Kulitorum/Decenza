@@ -456,6 +456,17 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     result["error"] = "title is required for Save As";
                     return result;
                 }
+                // Leading-underscore names are reserved for internal files
+                // (e.g. _current.json). ProfileStorage::listProfiles filters
+                // them out, so a profile saved with such a name would be
+                // invisible to profiles_list/refreshProfiles even though
+                // the write succeeded — the worst kind of silent failure.
+                if (filename.startsWith(QLatin1Char('_'))) {
+                    result["error"] = "filename cannot start with underscore "
+                        "(reserved for internal files). Use a name like '"
+                        + filename.mid(1) + "' instead.";
+                    return result;
+                }
                 if (profileManager->isBuiltInFilename(filename)) {
                     result["error"] = "Cannot save with filename '" + filename +
                         "' because it conflicts with a built-in profile. Choose a different name.";
