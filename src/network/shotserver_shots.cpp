@@ -62,7 +62,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         double duration = shot["duration"].toDouble();
         QString grinderSetting = shot["grinderSetting"].toString();
         double tempOverride = shot["temperatureOverride"].toDouble();  // Always has value
-        double yieldOverride = shot["yieldOverride"].toDouble();  // Always has value
+        double targetWeight = shot["targetWeightG"].toDouble();  // Always has value
 
         // Escape for JavaScript string (single quotes) and HTML attribute
         auto escapeForJs = [](const QString& s) -> QString {
@@ -92,10 +92,10 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 
         // Build yield display: "Actual (Target) out" or just "Actual out"
         QString yieldDisplay;
-        if (yieldOverride > 0 && qAbs(yieldOverride - finalWeight) > 0.5) {
+        if (targetWeight > 0 && qAbs(targetWeight - finalWeight) > 0.5) {
             yieldDisplay = QString("<span class=\"metric-value\">%1g</span><span class=\"metric-target\">(%2g)</span>")
                 .arg(finalWeight, 0, 'f', 1)
-                .arg(yieldOverride, 0, 'f', 0);
+                .arg(targetWeight, 0, 'f', 0);
         } else {
             yieldDisplay = QString("<span class=\"metric-value\">%1g</span>")
                 .arg(finalWeight, 0, 'f', 1);
@@ -1047,15 +1047,15 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
         return r;
     };
 
-    // Temperature and yield overrides (always have values)
+    // Temperature and target weight (always have values)
     double tempOverride = shot["temperatureOverride"].toDouble();
-    double yieldOverride = shot["yieldOverride"].toDouble();
+    double targetWeight = shot["targetWeightG"].toDouble();
     double finalWeight = shot["finalWeight"].toDouble();
 
     // Build yield display with optional target
     QString yieldDisplay = QString("%1g").arg(finalWeight, 0, 'f', 1);
-    if (yieldOverride > 0 && qAbs(yieldOverride - finalWeight) > 0.5) {
-        yieldDisplay += QString(" <span class=\"target\">(%1g)</span>").arg(yieldOverride, 0, 'f', 0);
+    if (targetWeight > 0 && qAbs(targetWeight - finalWeight) > 0.5) {
+        yieldDisplay += QString(" <span class=\"target\">(%1g)</span>").arg(targetWeight, 0, 'f', 0);
     }
 
     // Convert time-series data to JSON arrays for Chart.js
@@ -2202,7 +2202,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
         info["duration"] = shot.summary.duration;
         info["dose"] = shot.summary.doseWeight;
         info["finalWeight"] = shot.summary.finalWeight;
-        info["yieldOverride"] = shot.yieldOverride;
+        info["targetWeightG"] = shot.targetWeight;
         info["temperatureOverride"] = shot.temperatureOverride;
         info["enjoyment"] = shot.summary.enjoyment;
         info["beanBrand"] = shot.summary.beanBrand;
@@ -2877,8 +2877,8 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
                 case "dose": return (s.dose || 0).toFixed(1) + "g";
                 case "output": {
                     var a = (s.finalWeight || 0).toFixed(1) + "g";
-                    var y = s.yieldOverride;
-                    return (y > 0 && Math.abs(y - s.finalWeight) > 0.5) ? a + " (" + Math.round(y) + "g)" : a;
+                    var t = s.targetWeightG;
+                    return (t > 0 && Math.abs(t - s.finalWeight) > 0.5) ? a + " (" + Math.round(t) + "g)" : a;
                 }
                 case "ratio": return s.dose > 0 ? "1:" + (s.finalWeight / s.dose).toFixed(1) : "\u2014";
                 case "rating": return s.enjoyment > 0 ? s.enjoyment + "\u0025" : "\u2014";

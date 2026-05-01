@@ -71,7 +71,7 @@ ShotRecord buildHealthyRecord()
     record.summary.finalWeight = 36.0;
     record.summary.doseWeight = 18.0;
     record.summary.beverageType = QStringLiteral("espresso");
-    record.yieldOverride = 36.0;
+    record.targetWeight = 36.0;
 
     record.pressure = rampSeries(0.0, 8.0, 1.0, 9.0);
     record.pressure.append(flatSeries(8.1, 30.0, 9.0));
@@ -166,7 +166,7 @@ private slots:
             recordCached.summary.duration,
             recordCached.pressureGoal, recordCached.flowGoal,
             /*analysisFlags=*/{}, /*firstFrameSec=*/-1.0,
-            recordCached.yieldOverride, recordCached.summary.finalWeight,
+            recordCached.targetWeight, recordCached.summary.finalWeight,
             /*expectedFrameCount=*/-1);
         const QVariantMap cachedResult = ShotHistoryStorage::convertShotRecord(recordCached);
 
@@ -188,6 +188,58 @@ private slots:
                  fbDet.value("verdictCategory").toString());
         QCOMPARE(caDet.value("pourTruncated").toBool(),
                  fbDet.value("pourTruncated").toBool());
+    }
+
+    // Issue #964 Fix A: convertShotRecord exposes the shot's effective target
+    // weight as `targetWeightG` (units-suffixed per CLAUDE.md MCP convention),
+    // not the legacy `yieldOverride` name that originally meant a per-shot
+    // user override.
+    void convertShotRecord_emitsTargetWeightG()
+    {
+        ShotRecord record = buildHealthyRecord();
+        record.targetWeight = 36.5;
+
+        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record);
+
+        QVERIFY2(result.contains("targetWeightG"),
+                 "shot detail must expose targetWeightG");
+        QCOMPARE(result.value("targetWeightG").toDouble(), 36.5);
+    }
+
+    // Issue #964 Fix B: `detectorResults.grind.gates` must surface the choked-
+    // puck arm's inputs (pressurizedDurationSec, meanPressurizedFlowMlPerSec,
+    // yieldRatio, flowSamples) plus the thresholds it compared against, so MCP
+    // consumers can answer "why didn't this badge fire?" without reading C++.
+    void detectorResults_grindGates_exposeArm2Inputs()
+    {
+        ShotRecord record = buildHealthyRecord();
+        record.targetWeight = 36.0;
+
+        const QVariantMap result = ShotHistoryStorage::convertShotRecord(record);
+        const QVariantMap detectors = result.value("detectorResults").toMap();
+        const QVariantMap grind = detectors.value("grind").toMap();
+
+        QVERIFY2(grind.contains("gates"),
+                 "grind block must include gates substruct when Arm 2 ran");
+
+        const QVariantMap gates = grind.value("gates").toMap();
+        QVERIFY2(gates.contains("passed"), "gates must expose passed flag");
+        QVERIFY2(gates.contains("flowSamples"), "gates must expose flowSamples");
+        QVERIFY2(gates.contains("pressurizedDurationSec"),
+                 "gates must expose pressurizedDurationSec");
+        QVERIFY2(gates.contains("meanPressurizedFlowMlPerSec"),
+                 "gates must expose meanPressurizedFlowMlPerSec");
+        QVERIFY2(gates.contains("yieldRatio"), "gates must expose yieldRatio");
+        QVERIFY2(gates.contains("minSamples"), "gates must expose minSamples threshold");
+        QVERIFY2(gates.contains("minPressurizedSec"),
+                 "gates must expose minPressurizedSec threshold");
+
+        // Healthy shot: 36g/36g target → ratio 1.0
+        QCOMPARE(gates.value("yieldRatio").toDouble(), 1.0);
+        // Thresholds must match the constants used in the cascade.
+        QCOMPARE(gates.value("minSamples").toInt(), 5);
+        QCOMPARE(gates.value("minPressurizedSec").toDouble(),
+                 ShotAnalysis::CHOKED_DURATION_MIN_SEC);
     }
 };
 

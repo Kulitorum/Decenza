@@ -65,21 +65,21 @@ Page {
     }
 
     // Target yield for the card chip. The SQL returns the latest shot's saved
-    // yield_override (weight mode uses the group's exact bucket value, which is
-    // the same number by grouping). Legacy shots with no saved override read 0
-    // here and fall back to finalWeight.
+    // target weight (from the yield_override DB column). Weight mode uses the
+    // group's exact bucket value, which is the same number by grouping. Legacy
+    // shots with no saved target read 0 here and fall back to finalWeight.
     //
     // Note: this is an approximation of the value applyLoadedShotMetadata will
     // apply when Load is pressed. The loader falls back to finalWeight only
     // when the current profile's targetWeight is 0, while this helper falls
-    // back unconditionally when yieldOverride == 0. The mismatch is typically
+    // back unconditionally when targetWeight == 0. The mismatch is typically
     // sub-gram and only affects stale legacy rows.
-    function recipeYield(yieldOverride, finalWeight) {
-        return yieldOverride > 0 ? yieldOverride : (finalWeight || 0)
+    function recipeYield(targetWeight, finalWeight) {
+        return targetWeight > 0 ? targetWeight : (finalWeight || 0)
     }
 
     // Build accessible text based on current groupBy setting
-    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, yieldOverride, finalWeight, shotCount, avgEnjoyment) {
+    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, targetWeight, finalWeight, shotCount, avgEnjoyment) {
         var includes = getGroupByIncludes()
         var parts = []
 
@@ -100,7 +100,7 @@ Page {
         }
 
         // Always include recipe summary
-        parts.push((doseWeight || 0).toFixed(1) + "g to " + recipeYield(yieldOverride, finalWeight).toFixed(1) + "g")
+        parts.push((doseWeight || 0).toFixed(1) + "g to " + recipeYield(targetWeight, finalWeight).toFixed(1) + "g")
         parts.push(shotCount + " " + TranslationManager.translate("autofavorites.shots", "shots"))
         if (avgEnjoyment > 0)
             parts.push(avgEnjoyment + "% enjoyment")
@@ -211,7 +211,7 @@ Page {
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
                     model.beanBrand, model.beanType, model.profileName,
                     model.grinderBrand, model.grinderModel, model.grinderSetting,
-                    model.doseWeight, model.yieldOverride, model.finalWeight,
+                    model.doseWeight, model.targetWeightG, model.finalWeight,
                     model.shotCount, model.avgEnjoyment)
 
                 // Whole card announces full details based on groupBy setting
@@ -296,7 +296,7 @@ Page {
 
                             Text {
                                 text: (model.doseWeight || 0).toFixed(1) + "g \u2192 " +
-                                      autoFavoritesPage.recipeYield(model.yieldOverride, model.finalWeight).toFixed(1) + "g"
+                                      autoFavoritesPage.recipeYield(model.targetWeightG, model.finalWeight).toFixed(1) + "g"
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
@@ -361,7 +361,7 @@ Page {
                                     grinderModel: model.grinderModel || "",
                                     grinderSetting: model.grinderSetting || "",
                                     doseBucket: model.doseBucket || 0,
-                                    yieldOverride: model.yieldOverride || 0,
+                                    targetWeight: model.targetWeightG || 0,
                                     avgEnjoyment: model.avgEnjoyment || 0,
                                     shotCount: model.shotCount || 0
                                 })
@@ -418,13 +418,14 @@ Page {
                                         filter.minDose = bucket - 0.25
                                         filter.maxDose = bucket + 0.25
                                     }
-                                    // Match on yield_override (the saved target) rather than
-                                    // final_weight, since the card groups by exact target yield.
-                                    // minYield/maxYield would filter actual pour weight, which
-                                    // almost never equals the target to float precision.
-                                    var y = model.yieldOverride || 0
-                                    if (y > 0)
-                                        filter.yieldOverride = y
+                                    // Match on the saved target weight (yield_override DB
+                                    // column) rather than final_weight, since the card groups
+                                    // by exact target yield. minYield/maxYield would filter
+                                    // actual pour weight, which almost never equals the target
+                                    // to float precision.
+                                    var t = model.targetWeightG || 0
+                                    if (t > 0)
+                                        filter.targetWeight = t
                                 }
 
                                 var props = {}

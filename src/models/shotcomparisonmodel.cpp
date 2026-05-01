@@ -220,7 +220,7 @@ void ShotComparisonModel::scheduleLoad()
                 shot.notes = record.espressoNotes;
                 shot.barista = record.barista;
                 shot.temperatureOverride = record.temperatureOverride;
-                shot.yieldOverride = record.yieldOverride;
+                shot.targetWeight = record.targetWeight;
                 shot.pressure = record.pressure;
                 shot.flow = record.flow;
                 shot.temperature = record.temperature;
@@ -440,7 +440,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["notes"] = shot.notes;
     result["barista"] = shot.barista;
     result["temperatureOverride"] = shot.temperatureOverride;
-    result["yieldOverride"] = shot.yieldOverride;
+    result["targetWeightG"] = shot.targetWeight;
 
     // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);

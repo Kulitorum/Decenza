@@ -124,10 +124,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             shot["notes"] = query.value("espresso_notes").toString();
                             shot["beanBrand"] = query.value("bean_brand").toString();
                             shot["beanType"] = query.value("bean_type").toString();
-                            // Use yield_override (brew-by-ratio target) if set, else profile's target_weight
-                            double yieldOverride = query.value("yield_override").toDouble();
-                            if (yieldOverride > 0) {
-                                shot["targetWeightG"] = yieldOverride;
+                            // Use the saved target weight (from yield_override column) if set,
+                            // else fall back to the profile snapshot's target_weight.
+                            double targetWeight = query.value("yield_override").toDouble();
+                            if (targetWeight > 0) {
+                                shot["targetWeightG"] = targetWeight;
                             } else {
                                 QString profileJson = query.value("profile_json").toString();
                                 if (!profileJson.isEmpty()) {

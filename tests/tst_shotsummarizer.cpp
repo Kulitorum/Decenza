@@ -377,7 +377,7 @@ private slots:
         shot["duration"] = 30.0;
         shot["doseWeight"] = 18.0;
         shot["finalWeight"] = 36.0;
-        shot["yieldOverride"] = 36.0;
+        shot["targetWeightG"] = 36.0;
 
         QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
         appendFlat(pressure, 0.0, 8.0, 1.0);

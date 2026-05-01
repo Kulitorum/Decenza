@@ -295,7 +295,22 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
     "direction": "tooFine" | "tooCoarse" | "onTarget" | "chokedPuck" | "yieldOvershoot",
     "deltaMlPerSec": -0.6, "sampleCount": 142,
     "chokedPuck": false, "yieldOvershoot": false, "verifiedClean": false,
-    "coverage": "verified" | "notAnalyzable" | "skipped"  // present unless pourTruncated cascade is active
+    "yieldRatio": 0.64,                                  // finalWeightG / targetWeightG; absent when either is 0
+    "coverage": "verified" | "notAnalyzable" | "skipped",  // present unless pourTruncated cascade is active
+    "gates": {                                           // present whenever Arm 2 (choked-puck arm) walked the pour;
+                                                         //   absent if pressure curve was empty or beverage type skipped
+      "passed": false,
+      "flowSamples": 12,
+      "pressurizedDurationSec": 8.76,
+      "meanPressurizedFlowMlPerSec": 2.43,
+      "yieldRatio": 0.64,
+      "minSamples": 5,
+      "minPressurizedSec": 15.0,
+      "minPressureBar": 4.0,
+      "chokedFlowMaxMlPerSec": 0.5,
+      "chokedYieldRatioMax": 0.85,
+      "yieldOvershootRatioMin": 1.20
+    }
   },
   "pourTruncated": false,
   "peakPressureBar": 9.1,        // present only when pourTruncated == true
@@ -324,6 +339,8 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
 - `"notAnalyzable"` — espresso shot, non-degenerate window, but neither arm produced data (most often a simple two-marker Preinfusion + Pour profile where Arm 1's flow-mode window lies entirely before pourStart and Arm 2's pressurized-duration gate isn't met).
 - `"skipped"` — non-espresso beverage or `grind_check_skip` analysis flag.
 - Field absent — the pourTruncated cascade is suppressing the grind block entirely, OR the pour window is degenerate (`pourEnd <= pourStart`).
+
+`grind.gates` exposes the inputs and thresholds the choked-puck arm (Arm 2) compared against, so consumers can answer "why didn't this badge fire?" without reading C++. Always emitted when Arm 2 ran — even on gate-fail paths. The arm fires when `passed && (meanPressurizedFlowMlPerSec < chokedFlowMaxMlPerSec || yieldRatio < chokedYieldRatioMax)`. `passed` requires `flowSamples >= minSamples && pressurizedDurationSec >= minPressurizedSec`; the per-sample pressure floor is `minPressureBar`. The yield-overshoot arm runs in parallel without a pressurized-window gate and fires on `yieldRatio > yieldOvershootRatioMin`.
 
 When a detector's `checked` (or `hasData`) flag is `false`, the detector was suppressed — most often by the `pourTruncated` cascade, but also by beverage-type skips (filter / pourover) or per-profile analysis flags (e.g. `flow_trend_ok`). Treat that as "no signal for this detector," not "clean signal."
 

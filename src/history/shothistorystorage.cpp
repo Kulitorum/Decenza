@@ -849,7 +849,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                                      const ShotMetadata& metadata,
                                      const QString& debugLog,
                                      double temperatureOverride,
-                                     double yieldOverride)
+                                     double targetWeight)
 {
     if (!m_ready || m_backupInProgress || !shotData) {
         qWarning() << "ShotHistoryStorage: Cannot save shot - not ready, backup in progress, or no data";
@@ -868,7 +868,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.finalWeight = finalWeight;
     data.doseWeight = doseWeight;
     data.temperatureOverride = temperatureOverride;
-    data.yieldOverride = yieldOverride;
+    data.targetWeight = targetWeight;
     data.beanBrand = metadata.beanBrand;
     data.beanType = metadata.beanType;
     data.roastDate = metadata.roastDate;
@@ -936,7 +936,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             tmpRecord.phases, data.beverageType, duration,
             shotData->pressureGoalData(), shotData->flowGoalData(),
             inputs.analysisFlags, inputs.firstFrameSeconds,
-            data.yieldOverride, data.finalWeight,
+            data.targetWeight, data.finalWeight,
             inputs.frameCount);
         decenza::applyBadgesToTarget(data, analysis.detectors);
     }
@@ -1068,7 +1068,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":profile_notes", data.profileNotes);
             query.bindValue(":debug_log", data.debugLog);
             query.bindValue(":temperature_override", data.temperatureOverride);
-            query.bindValue(":yield_override", data.yieldOverride);
+            query.bindValue(":yield_override", data.targetWeight);
             query.bindValue(":profile_kb_id", data.profileKbId.isEmpty() ? QVariant() : data.profileKbId);
             query.bindValue(":channeling_detected", data.channelingDetected ? 1 : 0);
             query.bindValue(":temperature_unstable", data.temperatureUnstable ? 1 : 0);
@@ -1433,7 +1433,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.visualizerUrl = query.value(24).toString();
     record.debugLog = query.value(25).toString();
     record.temperatureOverride = query.value(26).toDouble();
-    record.yieldOverride = query.value(27).toDouble();
+    record.targetWeight = query.value(27).toDouble();
     record.summary.beverageType = query.value(28).toString();
     record.profileKbId = query.value(29).toString();
     record.channelingDetected = query.value(30).toInt() != 0;
@@ -1531,7 +1531,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.phases, record.summary.beverageType, record.summary.duration,
             record.pressureGoal, record.flowGoal,
             inputs.analysisFlags, inputs.firstFrameSeconds,
-            record.yieldOverride, record.summary.finalWeight,
+            record.targetWeight, record.summary.finalWeight,
             inputs.frameCount);
         decenza::applyBadgesToTarget(record, analysis.detectors);
         // Cache the AnalysisResult on the ShotRecord so convertShotRecord
@@ -2459,7 +2459,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
 
     // Bind overrides (always have values - user override or profile default)
     query.bindValue(":temperature_override", record.temperatureOverride);
-    query.bindValue(":yield_override", record.yieldOverride);
+    query.bindValue(":yield_override", record.targetWeight);
     query.bindValue(":profile_kb_id", record.profileKbId.isEmpty() ? QVariant() : record.profileKbId);
     query.bindValue(":channeling_detected", record.channelingDetected ? 1 : 0);
     query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);

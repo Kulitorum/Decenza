@@ -163,7 +163,7 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.maxDose = filterMap.value("maxDose", -1).toDouble();
     filter.minYield = filterMap.value("minYield", -1).toDouble();
     filter.maxYield = filterMap.value("maxYield", -1).toDouble();
-    filter.yieldOverride = filterMap.value("yieldOverride", -1).toDouble();
+    filter.targetWeight = filterMap.value("targetWeight", -1).toDouble();
     filter.minDuration = filterMap.value("minDuration", -1).toDouble();
     filter.maxDuration = filterMap.value("maxDuration", -1).toDouble();
     filter.minTds = filterMap.value("minTds", -1).toDouble();
@@ -232,7 +232,7 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     if (filter.maxDose >= 0) { conditions << "dose_weight <= ?"; bindValues << filter.maxDose; }
     if (filter.minYield >= 0) { conditions << "final_weight >= ?"; bindValues << filter.minYield; }
     if (filter.maxYield >= 0) { conditions << "final_weight <= ?"; bindValues << filter.maxYield; }
-    if (filter.yieldOverride >= 0) { conditions << "COALESCE(yield_override, 0) = ?"; bindValues << filter.yieldOverride; }
+    if (filter.targetWeight >= 0) { conditions << "COALESCE(yield_override, 0) = ?"; bindValues << filter.targetWeight; }
     if (filter.minDuration >= 0) { conditions << "duration_seconds >= ?"; bindValues << filter.minDuration; }
     if (filter.maxDuration >= 0) { conditions << "duration_seconds <= ?"; bindValues << filter.maxDuration; }
     if (filter.minTds >= 0) { conditions << "drink_tds >= ?"; bindValues << filter.minTds; }
@@ -436,7 +436,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["hasVisualizerUpload"] = !query.value(10).isNull();
                             shot["grinderSetting"] = query.value(11).toString();
                             shot["temperatureOverride"] = query.value(12).toDouble();
-                            shot["yieldOverride"] = query.value(13).toDouble();
+                            shot["targetWeightG"] = query.value(13).toDouble();
                             shot["beverageType"] = query.value(14).toString();
                             shot["drinkTds"] = query.value(15).toDouble();
                             shot["drinkEy"] = query.value(16).toDouble();
@@ -565,7 +565,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["drinkTds"] = query.value("drink_tds").toDouble();
             shot["drinkEy"] = query.value("drink_ey").toDouble();
             shot["temperatureOverride"] = query.value("temperature_override").toDouble();
-            shot["yieldOverride"] = query.value("yield_override").toDouble();
+            shot["targetWeightG"] = query.value("yield_override").toDouble();
             shot["profileJson"] = query.value("profile_json").toString();
             shot["beverageType"] = query.value("beverage_type").toString();
 
@@ -822,7 +822,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     entry["grinderSetting"] = query.value("grinder_setting").toString();
                     entry["doseWeight"] = query.value("dose_weight").toDouble();
                     entry["finalWeight"] = query.value("final_weight").toDouble();
-                    entry["yieldOverride"] = query.value("yield_override").toDouble();
+                    entry["targetWeightG"] = query.value("yield_override").toDouble();
                     entry["doseBucket"] = query.value("dose_bucket").toDouble();
                     entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();
                     entry["shotCount"] = query.value("shot_count").toInt();
@@ -862,7 +862,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                           const QString& grinderModel,
                                                           const QString& grinderSetting,
                                                           double doseBucket,
-                                                          double yieldOverride)
+                                                          double targetWeight)
 {
     if (!m_ready) {
         emit autoFavoriteGroupDetailsReady(QVariantMap());
@@ -901,7 +901,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
             conditions << "ROUND(COALESCE(dose_weight, 0) * 2) / 2.0 = ?";
             bindValues << doseBucket;
             conditions << "COALESCE(yield_override, 0) = ?";
-            bindValues << yieldOverride;
+            bindValues << targetWeight;
         }
     } else {
         // bean_profile (default)

@@ -506,10 +506,10 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
 
     const QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
 
-    // Per-shot yieldOverride drives both arms of the grind-vs-yield check
+    // Per-shot targetWeight drives both arms of the grind-vs-yield check
     // (the choked-puck yield arm and the gusher arm added in PR #910) —
     // matches the input convertShotRecord passes to analyzeShot.
-    const double targetWeightG = shotData.value("yieldOverride").toDouble();
+    const double targetWeightG = shotData.value("targetWeightG").toDouble();
 
     runShotAnalysisAndPopulate(summary,
         summary.pressureCurve, summary.flowCurve, summary.weightCurve,

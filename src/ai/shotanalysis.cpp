@@ -541,8 +541,18 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         prevValid = true;
     }
 
-    if (flowSamples >= 5 && pressurizedDuration >= CHOKED_DURATION_MIN_SEC) {
-        const double meanFlow = flowSum / flowSamples;
+    // Record the gate inputs unconditionally so consumers can answer
+    // "why didn't this badge fire?" even on gate-fail paths.
+    result.gateRan = true;
+    result.gateFlowSamples = flowSamples;
+    result.gatePressurizedDurationSec = pressurizedDuration;
+    result.gateMeanPressurizedFlowMlPerSec = flowSamples > 0 ? flowSum / flowSamples : 0.0;
+    result.gateYieldRatio = (targetWeightG > 0.0 && finalWeightG > 0.0)
+        ? finalWeightG / targetWeightG : 0.0;
+    result.gatePassed = flowSamples >= 5 && pressurizedDuration >= CHOKED_DURATION_MIN_SEC;
+
+    if (result.gatePassed) {
+        const double meanFlow = result.gateMeanPressurizedFlowMlPerSec;
         const bool flowChoked = meanFlow < CHOKED_FLOW_MAX_MLPS;
         // Yield-ratio arm: same diagnosis (grind too fine), milder severity.
         // Catches shots like 883 — 70 % of target with mean pressurized flow
@@ -907,6 +917,12 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     d.grindVerifiedClean = grind.verifiedClean;
     d.grindFlowDeltaMlPerSec = grind.delta;
     d.grindSampleCount = grind.sampleCount;
+    d.grindGateRan = grind.gateRan;
+    d.grindGatePassed = grind.gatePassed;
+    d.grindGateFlowSamples = grind.gateFlowSamples;
+    d.grindGatePressurizedDurationSec = grind.gatePressurizedDurationSec;
+    d.grindGateMeanPressurizedFlowMlPerSec = grind.gateMeanPressurizedFlowMlPerSec;
+    d.grindGateYieldRatio = grind.gateYieldRatio;
     // Coverage signal: distinguishes "verified clean" from "no usable data
     // on this profile shape" so the dialog can stop claiming "Puck held
     // well." on shots where the detector simply couldn't see anything.

@@ -605,9 +605,9 @@ Page {
                     Accessible.name: {
                         var label = TranslationManager.translate("shotdetail.output", "Output") + ": " +
                             (shotData.finalWeight || 0).toFixed(1) + "g"
-                        var y = shotData.yieldOverride
-                        if (y !== undefined && y !== null && y > 0 && Math.abs(y - shotData.finalWeight) > 0.5)
-                            label += " (" + Math.round(y) + "g target)"
+                        var t = shotData.targetWeightG
+                        if (t !== undefined && t !== null && t > 0 && Math.abs(t - shotData.finalWeight) > 0.5)
+                            label += " (" + Math.round(t) + "g target)"
                         return label
                     }
                     Tr {
@@ -627,13 +627,13 @@ Page {
                         }
                         Text {
                             visible: {
-                                var y = shotData.yieldOverride
-                                return y !== undefined && y !== null && y > 0
-                                    && Math.abs(y - shotData.finalWeight) > 0.5
+                                var t = shotData.targetWeightG
+                                return t !== undefined && t !== null && t > 0
+                                    && Math.abs(t - shotData.finalWeight) > 0.5
                             }
                             text: {
-                                var y = shotData.yieldOverride
-                                return (y !== undefined && y !== null && y > 0) ? "(" + Math.round(y) + "g)" : ""
+                                var t = shotData.targetWeightG
+                                return (t !== undefined && t !== null && t > 0) ? "(" + Math.round(t) + "g)" : ""
                             }
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor

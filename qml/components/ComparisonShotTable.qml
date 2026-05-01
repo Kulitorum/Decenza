@@ -26,9 +26,9 @@ ColumnLayout {
             case "dose":      return (info.doseWeight || 0).toFixed(1) + "g"
             case "output": {
                 var actual = (info.finalWeight || 0).toFixed(1) + "g"
-                var y = info.yieldOverride
-                return (y !== undefined && y !== null && y > 0 && Math.abs(y - info.finalWeight) > 0.5)
-                       ? actual + " (" + Math.round(y) + "g)" : actual
+                var t = info.targetWeightG
+                return (t !== undefined && t !== null && t > 0 && Math.abs(t - info.finalWeight) > 0.5)
+                       ? actual + " (" + Math.round(t) + "g)" : actual
             }
             case "ratio":     return info.ratio || "\u2014"
             case "rating":    return (info.enjoyment || 0) + "%"

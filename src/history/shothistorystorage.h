@@ -45,7 +45,7 @@ public:
                     const ShotMetadata& metadata,
                     const QString& debugLog,
                     double temperatureOverride,
-                    double yieldOverride);
+                    double targetWeight);
 
     // Async: runs update on background thread, emits visualizerInfoUpdated()
     Q_INVOKABLE void requestUpdateVisualizerInfo(qint64 shotId,
@@ -134,7 +134,7 @@ public:
     Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
 
     // Async: runs query on background thread, emits autoFavoriteGroupDetailsReady().
-    // doseBucket/yieldOverride are only consulted when groupBy == "bean_profile_grinder_weight".
+    // doseBucket/targetWeight are only consulted when groupBy == "bean_profile_grinder_weight".
     Q_INVOKABLE void requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                       const QString& beanBrand,
                                                       const QString& beanType,
@@ -143,7 +143,7 @@ public:
                                                       const QString& grinderModel,
                                                       const QString& grinderSetting,
                                                       double doseBucket = 0.0,
-                                                      double yieldOverride = 0.0);
+                                                      double targetWeight = 0.0);
 
     // Async: runs backup on background thread, emits backupFinished()
     Q_INVOKABLE void requestCreateBackup(const QString& destPath);
