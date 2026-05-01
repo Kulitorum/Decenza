@@ -57,6 +57,16 @@ void SettingsCalibration::invalidateCache() {
     m_perProfileFlowCalCacheValid = false;
     m_perProfileSawHistoryCacheValid = false;
     m_perProfileSawBatchCacheValid = false;
+
+    // Called after Settings::factoryReset() wipes the underlying QSettings
+    // store — every cached value is now stale and the next read will return
+    // the type's default. Fire all NOTIFY signals so any open QML binding
+    // (e.g. SettingsCalibrationTab live during a reset) re-reads the new
+    // baseline instead of showing the pre-reset value until the next change.
+    emit flowCalibrationMultiplierChanged();
+    emit autoFlowCalibrationChanged();
+    emit perProfileFlowCalibrationChanged();
+    emit sawLearnedLagChanged();
 }
 
 // Flow calibration
