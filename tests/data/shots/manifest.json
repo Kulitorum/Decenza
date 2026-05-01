@@ -13,10 +13,10 @@
     },
     {
       "file": "80s_choked_moderate.json",
-      "description": "Shot 883 — 80's Espresso on grind 3.5, mean pressurized flow 0.59 ml/s (just above the 0.5 flow threshold) but yield 25.3g of 36g target (70%). The flow-only arm of the choked-puck check stays silent; the yield-ratio arm must catch this as the moderate counterpart to shot 890. Hand-added target_weight (visualizer.coffee format doesn't carry it).",
+      "description": "Shot 883 — 80's Espresso on grind 3.5, mean pressurized flow 0.59 ml/s (just above the 0.5 flow threshold) and yield 25.3g of 36g target (0.703 ratio). PR #966 tightened the yield-shortfall arm from 0.85 → 0.70, intentionally excluding 71-76% borderline cases as likely FP. Shot 883 sits just above the new 0.70 threshold and is now correctly classified as a clean (if borderline) shot rather than choked. This fixture guards the FP exclusion: if the threshold ever loosens, this would re-fire and we'd want to know. Hand-added target_weight (visualizer.coffee format doesn't carry it).",
       "expect": {
         "channeling": "None",
-        "grindIssue": true,
+        "grindIssue": false,
         "pourTruncated": false
       }
     },
