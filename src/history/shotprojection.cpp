@@ -16,7 +16,7 @@ QVariantMap ShotProjection::toVariantMap() const
     m["doseWeightG"] = doseWeightG;
     m["beanBrand"] = beanBrand;
     m["beanType"] = beanType;
-    m["enjoyment"] = enjoyment;
+    m["enjoyment0to100"] = enjoyment0to100;
     m["hasVisualizerUpload"] = hasVisualizerUpload;
     m["beverageType"] = beverageType;
     m["roastDate"] = roastDate;
@@ -25,8 +25,8 @@ QVariantMap ShotProjection::toVariantMap() const
     m["grinderModel"] = grinderModel;
     m["grinderBurrs"] = grinderBurrs;
     m["grinderSetting"] = grinderSetting;
-    m["drinkTds"] = drinkTds;
-    m["drinkEy"] = drinkEy;
+    m["drinkTdsPct"] = drinkTdsPct;
+    m["drinkEyPct"] = drinkEyPct;
     m["espressoNotes"] = espressoNotes;
     m["beanNotes"] = beanNotes;
     m["barista"] = barista;
@@ -65,7 +65,6 @@ QVariantMap ShotProjection::toVariantMap() const
     if (phaseSummaries.isValid())
         m["phaseSummaries"] = phaseSummaries;
     m["phases"] = phases;
-    m["dateTime"] = dateTime;
     return m;
 }
 
@@ -81,14 +80,13 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.uuid = m.value("uuid").toString();
     p.timestamp = m.value("timestamp").toLongLong();
     p.timestampIso = m.value("timestampIso").toString();
-    p.dateTime = m.value("dateTime").toString();
     p.profileName = m.value("profileName").toString();
     p.durationSec = m.value("durationSec").toDouble();
     p.finalWeightG = m.value("finalWeightG").toDouble();
     p.doseWeightG = m.value("doseWeightG").toDouble();
     p.beanBrand = m.value("beanBrand").toString();
     p.beanType = m.value("beanType").toString();
-    p.enjoyment = m.value("enjoyment").toInt();
+    p.enjoyment0to100 = m.value("enjoyment0to100").toInt();
     p.hasVisualizerUpload = m.value("hasVisualizerUpload").toBool();
     p.beverageType = m.value("beverageType").toString();
     p.roastDate = m.value("roastDate").toString();
@@ -97,8 +95,8 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.grinderModel = m.value("grinderModel").toString();
     p.grinderBurrs = m.value("grinderBurrs").toString();
     p.grinderSetting = m.value("grinderSetting").toString();
-    p.drinkTds = m.value("drinkTds").toDouble();
-    p.drinkEy = m.value("drinkEy").toDouble();
+    p.drinkTdsPct = m.value("drinkTdsPct").toDouble();
+    p.drinkEyPct = m.value("drinkEyPct").toDouble();
     p.espressoNotes = m.value("espressoNotes").toString();
     p.beanNotes = m.value("beanNotes").toString();
     p.barista = m.value("barista").toString();

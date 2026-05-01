@@ -38,7 +38,7 @@ class ShotProjection {
     Q_PROPERTY(double doseWeightG MEMBER doseWeightG)
     Q_PROPERTY(QString beanBrand MEMBER beanBrand)
     Q_PROPERTY(QString beanType MEMBER beanType)
-    Q_PROPERTY(int enjoyment MEMBER enjoyment)
+    Q_PROPERTY(int enjoyment0to100 MEMBER enjoyment0to100)
     Q_PROPERTY(bool hasVisualizerUpload MEMBER hasVisualizerUpload)
     Q_PROPERTY(QString beverageType MEMBER beverageType)
     Q_PROPERTY(QString roastDate MEMBER roastDate)
@@ -47,8 +47,8 @@ class ShotProjection {
     Q_PROPERTY(QString grinderModel MEMBER grinderModel)
     Q_PROPERTY(QString grinderBurrs MEMBER grinderBurrs)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
-    Q_PROPERTY(double drinkTds MEMBER drinkTds)
-    Q_PROPERTY(double drinkEy MEMBER drinkEy)
+    Q_PROPERTY(double drinkTdsPct MEMBER drinkTdsPct)
+    Q_PROPERTY(double drinkEyPct MEMBER drinkEyPct)
     Q_PROPERTY(QString espressoNotes MEMBER espressoNotes)
     Q_PROPERTY(QString beanNotes MEMBER beanNotes)
     Q_PROPERTY(QString barista MEMBER barista)
@@ -104,7 +104,7 @@ public:
     double doseWeightG = 0.0;
     QString beanBrand;
     QString beanType;
-    int enjoyment = 0;
+    int enjoyment0to100 = 0;
     bool hasVisualizerUpload = false;
     QString beverageType;
     QString roastDate;
@@ -113,8 +113,8 @@ public:
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
-    double drinkTds = 0.0;
-    double drinkEy = 0.0;
+    double drinkTdsPct = 0.0;
+    double drinkEyPct = 0.0;
     QString espressoNotes;
     QString beanNotes;
     QString barista;

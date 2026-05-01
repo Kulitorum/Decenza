@@ -401,9 +401,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.grinderModel = shotData.grinderModel;
     summary.grinderBurrs = shotData.grinderBurrs;
     summary.grinderSetting = shotData.grinderSetting;
-    summary.drinkTds = shotData.drinkTds;
-    summary.drinkEy = shotData.drinkEy;
-    summary.enjoymentScore = shotData.enjoyment;
+    summary.drinkTds = shotData.drinkTdsPct;
+    summary.drinkEy = shotData.drinkEyPct;
+    summary.enjoymentScore = shotData.enjoyment0to100;
     summary.tastingNotes = shotData.espressoNotes;
 
     // Convert curve data
@@ -821,17 +821,17 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         }
 
         // Extraction measurements
-        if (shot.drinkTds > 0 || shot.drinkEy > 0) {
+        if (shot.drinkTdsPct > 0 || shot.drinkEyPct > 0) {
             out << "- Extraction: ";
-            if (shot.drinkTds > 0) out << "TDS " << QString::number(shot.drinkTds, 'f', 2) << "%";
-            if (shot.drinkTds > 0 && shot.drinkEy > 0) out << ", ";
-            if (shot.drinkEy > 0) out << "EY " << QString::number(shot.drinkEy, 'f', 1) << "%";
+            if (shot.drinkTdsPct > 0) out << "TDS " << QString::number(shot.drinkTdsPct, 'f', 2) << "%";
+            if (shot.drinkTdsPct > 0 && shot.drinkEyPct > 0) out << ", ";
+            if (shot.drinkEyPct > 0) out << "EY " << QString::number(shot.drinkEyPct, 'f', 1) << "%";
             out << "\n";
         }
 
         // Score and tasting notes
-        if (shot.enjoyment > 0) {
-            out << "- Score: " << shot.enjoyment << "/100\n";
+        if (shot.enjoyment0to100 > 0) {
+            out << "- Score: " << shot.enjoyment0to100 << "/100\n";
         }
         if (!shot.espressoNotes.isEmpty()) {
             out << "- Notes: \"" << shot.espressoNotes << "\"\n";

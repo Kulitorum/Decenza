@@ -52,9 +52,9 @@ Page {
                 editBarista = editShotData.barista || ""
                 editDoseWeight = editShotData.doseWeightG ?? 0
                 editDrinkWeight = editShotData.finalWeightG ?? 0
-                editDrinkTds = editShotData.drinkTds ?? 0
-                editDrinkEy = editShotData.drinkEy ?? 0
-                editEnjoyment = editShotData.enjoyment ?? 0
+                editDrinkTds = editShotData.drinkTdsPct ?? 0
+                editDrinkEy = editShotData.drinkEyPct ?? 0
+                editEnjoyment = editShotData.enjoyment0to100 ?? 0
                 editNotes = editShotData.espressoNotes || ""
             }
         }

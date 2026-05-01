@@ -14,6 +14,33 @@
 #include <QMetaObject>
 #include <QCoreApplication>
 
+// Drop heavy fields (time-series, debugLog, profileJson) from a shot projection
+// JSON object so it fits within typical LLM context windows. The full payload
+// for a single shot is ~85K chars (mostly time-series); the summary is ~3K and
+// covers every dialing/comparison use case (scalars, phaseSummaries,
+// summaryLines, detectorResults, ratings).
+static void stripTimeSeriesFields(QJsonObject& obj)
+{
+    static const char* heavyFields[] = {
+        "pressure", "flow", "temperature", "temperatureMix",
+        "resistance", "conductance", "darcyResistance", "conductanceDerivative",
+        "waterDispensed", "pressureGoal", "flowGoal", "temperatureGoal",
+        "weight", "weightFlowRate",
+        "debugLog", "profileJson"
+    };
+    for (const char* key : heavyFields)
+        obj.remove(QString::fromLatin1(key));
+}
+
+// Resolve the detail argument. Default "summary" — drops time-series, debugLog,
+// profileJson. "full" — return the complete projection. Unknown values fall
+// back to summary so the LLM gets a usable response rather than the 200K-char
+// firehose.
+static bool wantsFullDetail(const QJsonObject& args)
+{
+    return args.value("detail").toString() == QStringLiteral("full");
+}
+
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
 {
     // shots_list
@@ -199,11 +226,19 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
     // shots_get_detail
     registry->registerAsyncTool(
         "shots_get_detail",
-        "Get full shot record including time-series data (pressure, flow, temperature, weight curves)",
+        "Get a shot record. Default detail='summary' returns scalars, phase summaries, "
+        "summary lines, detector results, and ratings (~3K chars). Pass detail='full' to "
+        "include time-series curves (pressure, flow, temperature, weight), debug log, "
+        "and embedded profile JSON (~85K chars — only useful for curve-aware analysis).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
-                {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}}
+                {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}},
+                {"detail", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"summary", "full"}},
+                    {"description", "summary (default): omit time-series, debugLog, profileJson. full: include everything."}
+                }}
             }},
             {"required", QJsonArray{"shotId"}}
         },
@@ -219,9 +254,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 return;
             }
 
+            const bool fullDetail = wantsFullDetail(args);
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, respond]() {
+            QThread* thread = QThread::create([dbPath, shotId, fullDetail, respond]() {
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_detail", [&](QSqlDatabase& db) {
@@ -229,6 +265,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
                     if (shot.isValid()) {
                         result = shot.toJsonObject();
+                        if (!fullDetail)
+                            stripTimeSeriesFields(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
@@ -257,7 +295,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
     // shots_compare
     registry->registerAsyncTool(
         "shots_compare",
-        "Side-by-side comparison of 2 or more shots. Returns summary data for each shot.",
+        "Side-by-side comparison of 2 or more shots. Default detail='summary' returns "
+        "scalars + phase summaries per shot plus a changes diff between consecutive shots "
+        "(~3K chars/shot). Pass detail='full' to include time-series curves and debug logs "
+        "(~85K chars/shot — exceeds typical LLM context with more than 1-2 shots).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -265,6 +306,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     {"type", "array"},
                     {"items", QJsonObject{{"type", "integer"}}},
                     {"description", "Array of shot IDs to compare (2-10)"}
+                }},
+                {"detail", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"summary", "full"}},
+                    {"description", "summary (default): omit time-series, debugLog, profileJson per shot. full: include everything."}
                 }}
             }},
             {"required", QJsonArray{"shotIds"}}
@@ -281,9 +327,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 return;
             }
 
+            const bool fullDetail = wantsFullDetail(args);
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, idArray, respond]() {
+            QThread* thread = QThread::create([dbPath, idArray, fullDetail, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
                 QList<ShotProjection> projections;
@@ -294,7 +341,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
                         ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
                         if (shot.isValid()) {
-                            shots.append(shot.toJsonObject());
+                            QJsonObject shotJson = shot.toJsonObject();
+                            if (!fullDetail)
+                                stripTimeSeriesFields(shotJson);
+                            shots.append(shotJson);
                             projections.append(std::move(shot));
                         }
                     }
@@ -341,7 +391,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         diffNum(prev.doseWeightG, curr.doseWeightG, "doseG", "g");
                         diffNum(prev.finalWeightG, curr.finalWeightG, "yieldG", "g");
                         diffNum(prev.durationSec, curr.durationSec, "durationSec", "s");
-                        diffNum(prev.enjoyment, curr.enjoyment, "enjoyment0to100", "");
+                        diffNum(prev.enjoyment0to100, curr.enjoyment0to100, "enjoyment0to100", "");
 
                         if (diff.size() > 2)
                             changes.append(diff);

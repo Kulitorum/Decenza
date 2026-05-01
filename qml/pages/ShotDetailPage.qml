@@ -667,7 +667,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("shotdetail.rating", "Rating") + ": " +
-                        ((shotData.enjoyment || 0) > 0 ? shotData.enjoyment + "%" : "-")
+                        ((shotData.enjoyment0to100 || 0) > 0 ? shotData.enjoyment0to100 + "%" : "-")
                     Tr {
                         key: "shotdetail.rating"
                         fallback: "Rating"
@@ -676,7 +676,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (shotData.enjoyment || 0) > 0 ? shotData.enjoyment + "%" : "-"
+                        text: (shotData.enjoyment0to100 || 0) > 0 ? shotData.enjoyment0to100 + "%" : "-"
                         font: Theme.subtitleFont
                         color: Theme.warningColor
                         Accessible.ignored: true
@@ -833,7 +833,7 @@ Page {
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: shotDetailPage.advancedMode && (shotData.drinkTds > 0 || shotData.drinkEy > 0)
+                visible: shotDetailPage.advancedMode && (shotData.drinkTdsPct > 0 || shotData.drinkEyPct > 0)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.analysis", "Analysis")
 
@@ -859,13 +859,13 @@ Page {
                         ColumnLayout {
                             spacing: Theme.scaled(2)
                             Tr { key: "shotdetail.tds"; fallback: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                            Text { text: (shotData.drinkTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
+                            Text { text: (shotData.drinkTdsPct || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
                         }
 
                         ColumnLayout {
                             spacing: Theme.scaled(2)
                             Tr { key: "shotdetail.ey"; fallback: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                            Text { text: (shotData.drinkEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
+                            Text { text: (shotData.drinkEyPct || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
                         }
                     }
                 }
