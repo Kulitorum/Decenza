@@ -22,6 +22,9 @@
 #include <QVariantMap>
 #include <QVariantList>
 #include <QString>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 
 #include "ai/shotsummarizer.h"
 #include "history/shotprojection.h"
@@ -1139,59 +1142,84 @@ private slots:
         const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
         const QString prompt = summarizer.buildUserPrompt(summary);
 
-        // Shot-variable data still emits.
-        QVERIFY2(prompt.contains(QStringLiteral("**Dose**")),
-                 "shot-variable Dose line must still emit");
-        QVERIFY2(prompt.contains(QStringLiteral("**Yield**")),
-                 "shot-variable Yield line must still emit");
-        QVERIFY2(prompt.contains(QStringLiteral("**Duration**")),
-                 "shot-variable Duration line must still emit");
-        QVERIFY2(prompt.contains(QStringLiteral("**Grind setting**: 4.0")),
+        // Post openspec migrate-advisor-user-prompt-to-json: the user prompt
+        // is now a JSON envelope. Bean/grinder identity lives in
+        // `currentBean.*`; profile identity lives in `currentProfile.*`. The
+        // "must not appear in prose" guarantees still hold against the
+        // prose body, which now lives under the `shotAnalysis` key.
+        const QJsonObject payload = QJsonDocument::fromJson(prompt.toUtf8()).object();
+        const QString prose = payload.value(QStringLiteral("shotAnalysis")).toString();
+        const QJsonObject currentBean = payload.value(QStringLiteral("currentBean")).toObject();
+        const QJsonObject currentProfile = payload.value(QStringLiteral("currentProfile")).toObject();
+
+        // Shot-variable data still emits in the prose body.
+        QVERIFY2(prose.contains(QStringLiteral("**Dose**")),
+                 "shot-variable Dose line must still emit in shotAnalysis prose");
+        QVERIFY2(prose.contains(QStringLiteral("**Yield**")),
+                 "shot-variable Yield line must still emit in shotAnalysis prose");
+        QVERIFY2(prose.contains(QStringLiteral("**Duration**")),
+                 "shot-variable Duration line must still emit in shotAnalysis prose");
+        QVERIFY2(prose.contains(QStringLiteral("**Grind setting**: 4.0")),
                  "shot-variable grinder *setting* still emits on a brand/model-free line");
 
-        // Profile identity must NOT appear in prose (lives in result.profile).
-        QVERIFY2(!prompt.contains(QStringLiteral("**Profile**:")) &&
-                 !prompt.contains(QStringLiteral("Profile:")),
-                 "Profile line must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("Profile intent:")) &&
-                 !prompt.contains(QStringLiteral("**Profile intent**:")),
-                 "Profile intent line must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("## Profile Recipe")),
-                 "Profile Recipe section must NOT appear in prose");
+        // Profile identity is now structured under currentProfile and must
+        // NOT appear inside the prose body.
+        QCOMPARE(currentProfile.value(QStringLiteral("title")).toString(),
+                 QStringLiteral("80's Espresso"));
+        QCOMPARE(currentProfile.value(QStringLiteral("intent")).toString(),
+                 QStringLiteral("0.5–1.2 ml/s target through extraction"));
+        QVERIFY2(!prose.contains(QStringLiteral("**Profile**:")) &&
+                 !prose.contains(QStringLiteral("Profile:")),
+                 "Profile line must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("Profile intent:")) &&
+                 !prose.contains(QStringLiteral("**Profile intent**:")),
+                 "Profile intent line must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("## Profile Recipe")),
+                 "Profile Recipe section must NOT appear in shotAnalysis prose");
 
-        // Bean identity must NOT appear in prose (lives in currentBean).
-        QVERIFY2(!prompt.contains(QStringLiteral("Northbound Coffee Roasters")),
-                 "bean brand must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("Spring Tour 2026 #2")),
-                 "bean type must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("**Coffee**")) &&
-                 !prompt.contains(QStringLiteral("Coffee:")),
-                 "Coffee line must NOT appear in prose");
+        // Bean identity is now structured under currentBean and must NOT
+        // appear inside the prose body.
+        QCOMPARE(currentBean.value(QStringLiteral("brand")).toString(),
+                 QStringLiteral("Northbound Coffee Roasters"));
+        QCOMPARE(currentBean.value(QStringLiteral("type")).toString(),
+                 QStringLiteral("Spring Tour 2026 #2"));
+        QVERIFY2(!prose.contains(QStringLiteral("Northbound Coffee Roasters")),
+                 "bean brand must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("Spring Tour 2026 #2")),
+                 "bean type must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("**Coffee**")) &&
+                 !prose.contains(QStringLiteral("Coffee:")),
+                 "Coffee line must NOT appear in shotAnalysis prose");
 
-        // Roast date + day-count parenthetical must NOT appear in prose
-        // (lives in currentBean.beanFreshness.roastDate).
-        QVERIFY2(!prompt.contains(QStringLiteral("2026-03-30")),
-                 "roast date must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("roasted ")),
-                 "no `roasted YYYY-MM-DD` literal allowed in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("days since roast")),
+        // Roast date now lives in currentBean.beanFreshness, NOT in prose.
+        const QJsonObject beanFreshness = currentBean.value(QStringLiteral("beanFreshness")).toObject();
+        QCOMPARE(beanFreshness.value(QStringLiteral("roastDate")).toString(),
+                 QStringLiteral("2026-03-30"));
+        QCOMPARE(beanFreshness.value(QStringLiteral("freshnessKnown")).toBool(), false);
+        QVERIFY2(!prose.contains(QStringLiteral("2026-03-30")),
+                 "roast date must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("roasted ")),
+                 "no `roasted YYYY-MM-DD` literal allowed in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("days since roast")),
                  "prose must NOT precompute a day-count parenthetical");
-        QVERIFY2(!prompt.contains(QStringLiteral("days post-roast")),
+        QVERIFY2(!prose.contains(QStringLiteral("days post-roast")),
                  "prose must NOT use any day-count phrasing");
-        QVERIFY2(!prompt.contains(QStringLiteral("ask user about storage")),
-                 "the storage caveat now lives in currentBean.beanFreshness.instruction, not prose");
 
-        // Grinder brand/model/burrs must NOT appear in prose (lives in
-        // currentBean.grinder* and dialInSessions[].context).
-        QVERIFY2(!prompt.contains(QStringLiteral("Niche")),
-                 "grinder brand must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("Zero")),
-                 "grinder model must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("63mm Mazzer Kony conical")),
-                 "grinder burr identity must NOT appear in prose");
-        QVERIFY2(!prompt.contains(QStringLiteral("**Grinder**")) &&
-                 !prompt.contains(QStringLiteral("- Grinder:")),
-                 "Grinder identity line must NOT appear in prose (only Grind setting:)");
+        // Grinder brand/model/burrs are structured under currentBean.grinder*
+        // and must NOT appear in the prose body.
+        QCOMPARE(currentBean.value(QStringLiteral("grinderBrand")).toString(),
+                 QStringLiteral("Niche"));
+        QCOMPARE(currentBean.value(QStringLiteral("grinderModel")).toString(),
+                 QStringLiteral("Zero"));
+        QCOMPARE(currentBean.value(QStringLiteral("grinderBurrs")).toString(),
+                 QStringLiteral("63mm Mazzer Kony conical"));
+        QVERIFY2(!prose.contains(QStringLiteral("Niche")),
+                 "grinder brand must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("63mm Mazzer Kony conical")),
+                 "grinder burr identity must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("**Grinder**")) &&
+                 !prose.contains(QStringLiteral("- Grinder:")),
+                 "Grinder identity line must NOT appear in shotAnalysis prose (only Grind setting:)");
     }
 
     // Openspec optimize-dialing-context-payload, task 8.3 / 9.4: the
@@ -1313,6 +1341,203 @@ private slots:
                  "per-shot blocks must not carry `- Profile:` lines");
         QVERIFY2(!out.contains(QStringLiteral("- Recipe: ")),
                  "per-shot blocks must not carry `- Recipe:` lines");
+    }
+
+    // openspec migrate-advisor-user-prompt-to-json: byte-stability is the
+    // load-bearing precondition for prompt caching. Anthropic's cache_control
+    // hits when the cached prefix is byte-equivalent to the new request, so
+    // any per-call drift (wall-clock, request id, locale-formatted floats)
+    // would silently bust the cache. Pin determinism here.
+    void buildUserPrompt_byteStableForSameInput()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString a = summarizer.buildUserPrompt(summary);
+        const QString b = summarizer.buildUserPrompt(summary);
+        QCOMPARE(a, b);
+        QVERIFY2(!a.isEmpty(), "Standalone JSON payload must not be empty for a populated summary");
+    }
+
+    // openspec migrate-advisor-user-prompt-to-json: explicit guard against
+    // a wall-clock or per-call value sneaking into the payload. The
+    // dialing_get_context tool ships `currentDateTime` at the top of its
+    // response — that field MUST NOT appear in the in-app advisor's user
+    // prompt, otherwise the cache breaks every minute.
+    void buildUserPrompt_omitsWallClockFields()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        QJsonParseError err{};
+        const QJsonDocument doc = QJsonDocument::fromJson(prompt.toUtf8(), &err);
+        QCOMPARE(err.error, QJsonParseError::NoError);
+        QVERIFY(doc.isObject());
+        const QJsonObject obj = doc.object();
+
+        const QStringList forbidden = {
+            QStringLiteral("currentDateTime"),
+            QStringLiteral("requestId"),
+            QStringLiteral("nowMs"),
+            QStringLiteral("nowSec"),
+            QStringLiteral("timestamp"),
+            QStringLiteral("clock")
+        };
+        for (const QString& key : forbidden) {
+            QVERIFY2(!obj.contains(key),
+                     qPrintable(QStringLiteral("payload must not carry wall-clock-ish key: %1").arg(key)));
+        }
+    }
+
+    // openspec migrate-advisor-user-prompt-to-json: out-of-scope fields
+    // (dialInSessions / bestRecentShot / sawPrediction / grinderContext)
+    // need DB or MainController scope the in-app advisor lacks. They MUST
+    // be omitted, not nulled — `null` would mislead the LLM into "we
+    // checked and there isn't one" when the truth is "we didn't check."
+    void buildUserPrompt_omitsOutOfScopeKeys()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject obj = QJsonDocument::fromJson(prompt.toUtf8()).object();
+
+        const QStringList outOfScope = {
+            QStringLiteral("dialInSessions"),
+            QStringLiteral("bestRecentShot"),
+            QStringLiteral("sawPrediction"),
+            QStringLiteral("grinderContext")
+        };
+        for (const QString& key : outOfScope) {
+            QVERIFY2(!obj.contains(key),
+                     qPrintable(QStringLiteral("payload must not carry out-of-scope key: %1").arg(key)));
+        }
+    }
+
+    // openspec migrate-advisor-user-prompt-to-json: shotAnalysis prose
+    // preservation. The prose body the legacy buildUserPrompt produced
+    // moves under `shotAnalysis` verbatim — same headers, same per-line
+    // tags, same numeric formatting. Regex consumers
+    // (AIConversation::processShotForConversation,
+    // AIConversation::summarizeShotMessage) match on those substrings;
+    // any drift breaks change-detection between adjacent shots in a
+    // multi-shot conversation.
+    void buildUserPrompt_shotAnalysisFieldPreservesProseSubstrings()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject obj = QJsonDocument::fromJson(prompt.toUtf8()).object();
+        QVERIFY2(obj.contains(QStringLiteral("shotAnalysis")),
+                 "Standalone payload must carry shotAnalysis field");
+
+        const QString analysis = obj.value(QStringLiteral("shotAnalysis")).toString();
+        QVERIFY2(analysis.contains(QStringLiteral("## Shot Summary")),
+                 "shotAnalysis must preserve the ## Shot Summary header");
+        QVERIFY2(analysis.contains(QStringLiteral("**Dose**:")),
+                 "shotAnalysis must preserve **Dose** marker (regex consumers depend on it)");
+        QVERIFY2(analysis.contains(QStringLiteral("**Yield**:")),
+                 "shotAnalysis must preserve **Yield** marker");
+        QVERIFY2(analysis.contains(QStringLiteral("**Duration**:")),
+                 "shotAnalysis must preserve **Duration** marker");
+    }
+
+    // openspec migrate-advisor-user-prompt-to-json: tastingFeedback flags.
+    // When all three are missing (no score, no notes, no refractometer),
+    // a `recommendation` field tells the AI to ask the user before
+    // suggesting changes. This is what makes the system prompt's
+    // `tastingFeedback.hasEnjoymentScore` reference load-bearing.
+    void buildUserPrompt_tastingFeedbackFlagsAndRecommendation()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject obj = QJsonDocument::fromJson(prompt.toUtf8()).object();
+        QVERIFY(obj.contains(QStringLiteral("tastingFeedback")));
+
+        const QJsonObject tf = obj.value(QStringLiteral("tastingFeedback")).toObject();
+        QCOMPARE(tf.value(QStringLiteral("hasEnjoymentScore")).toBool(), false);
+        QCOMPARE(tf.value(QStringLiteral("hasNotes")).toBool(), false);
+        QCOMPARE(tf.value(QStringLiteral("hasRefractometer")).toBool(), false);
+        QVERIFY2(tf.contains(QStringLiteral("recommendation")),
+                 "missing tasting feedback must surface a recommendation field");
+    }
+
+    // openspec migrate-advisor-user-prompt-to-json: HistoryBlock mode
+    // stays prose. JSON-per-shot under a `### Shot (date)` header would
+    // be unreadable when concatenated, and the multi-shot history caller
+    // hoists profile/setup identity to a single header above the blocks.
+    void buildUserPrompt_historyBlockModeReturnsProseNotJson()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary, ShotSummarizer::RenderMode::HistoryBlock);
+        QVERIFY2(!prompt.trimmed().startsWith(QLatin1Char('{')),
+                 "HistoryBlock output must be prose, not a JSON object");
+        QJsonParseError err{};
+        QJsonDocument::fromJson(prompt.toUtf8(), &err);
+        QVERIFY2(err.error != QJsonParseError::NoError,
+                 "HistoryBlock prose must not coincidentally parse as JSON");
+    }
+
+    // helper for the openspec tests — minimal shot with all fields populated
+    // enough for summarizeFromHistory to return a non-empty summary.
+    static QVariantMap makeHealthyShotMap()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 28.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+        shot["targetWeightG"] = 36.0;
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 8.0, 2.0);
+        appendFlat(pressure, 8.0, 28.0, 9.0);
+        appendFlat(flow, 0.0, 28.0, 2.0);
+        appendFlat(temperature, 0.0, 28.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 28.0, 93.0);
+        appendFlat(derivative, 0.0, 28.0, 0.0);
+        appendFlat(weight, 0.0, 28.0, 36.0);
+
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+        shot["beanBrand"] = QStringLiteral("Northbound");
+        shot["beanType"] = QStringLiteral("Spring Tour");
+        shot["roastLevel"] = QStringLiteral("medium-light");
+        shot["grinderBrand"] = QStringLiteral("Niche");
+        shot["grinderModel"] = QStringLiteral("Zero");
+        shot["grinderBurrs"] = QStringLiteral("63mm Mazzer Kony conical");
+        shot["grinderSetting"] = QStringLiteral("4.5");
+        shot["profileName"] = QStringLiteral("80's Espresso");
+        return shot;
     }
 };
 

@@ -333,25 +333,32 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
 
     if (!prevContent.isEmpty()) {
         // === Change detection ===
+        // Run regex extraction against the prose body. When the message is
+        // the new JSON envelope, extractShotProse pulls `shotAnalysis` so
+        // the existing regex constants still match. Legacy prose-only
+        // messages pass through unchanged.
+        const QString processedProse = extractShotProse(processed);
+        const QString prevProse = extractShotProse(prevContent);
+
         QStringList changes;
 
-        QString newDose = extractMetric(processed, s_doseRe);
-        QString prevDose = extractMetric(prevContent, s_doseRe);
+        QString newDose = extractMetric(processedProse, s_doseRe);
+        QString prevDose = extractMetric(prevProse, s_doseRe);
         if (!newDose.isEmpty() && !prevDose.isEmpty() && newDose != prevDose)
             changes << "Dose " + prevDose + "g\u2192" + newDose + "g";
 
-        QString newYield = extractMetric(processed, s_yieldRe);
-        QString prevYield = extractMetric(prevContent, s_yieldRe);
+        QString newYield = extractMetric(processedProse, s_yieldRe);
+        QString prevYield = extractMetric(prevProse, s_yieldRe);
         if (!newYield.isEmpty() && !prevYield.isEmpty() && newYield != prevYield)
             changes << "Yield " + prevYield + "g\u2192" + newYield + "g";
 
-        QString newGrinder = extractMetric(processed, s_grinderRe);
-        QString prevGrinder = extractMetric(prevContent, s_grinderRe);
+        QString newGrinder = extractMetric(processedProse, s_grinderRe);
+        QString prevGrinder = extractMetric(prevProse, s_grinderRe);
         if (!newGrinder.isEmpty() && !prevGrinder.isEmpty() && newGrinder != prevGrinder)
             changes << "Grinder " + prevGrinder + " \u2192 " + newGrinder;
 
-        QString newDuration = extractMetric(processed, s_durationRe);
-        QString prevDuration = extractMetric(prevContent, s_durationRe);
+        QString newDuration = extractMetric(processedProse, s_durationRe);
+        QString prevDuration = extractMetric(prevProse, s_durationRe);
         if (!newDuration.isEmpty() && !prevDuration.isEmpty() && newDuration != prevDuration)
             changes << "Duration " + prevDuration + "s\u2192" + newDuration + "s";
 
@@ -390,6 +397,23 @@ QString AIConversation::extractMetric(const QString& content, const QRegularExpr
 {
     QRegularExpressionMatch match = re.match(content);
     return match.hasMatch() ? match.captured(1).trimmed() : QString();
+}
+
+QString AIConversation::extractShotProse(const QString& content)
+{
+    // Cheap pre-check: if the trimmed content doesn't look like a JSON object,
+    // skip the parse. Avoids QJsonDocument::fromJson on every legacy prose
+    // message where it would fail and we'd ignore the result anyway.
+    const QString trimmed = content.trimmed();
+    if (!trimmed.startsWith(QLatin1Char('{'))) return content;
+
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(content.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return content;
+
+    const QJsonObject obj = doc.object();
+    if (!obj.contains(QStringLiteral("shotAnalysis"))) return content;
+    return obj.value(QStringLiteral("shotAnalysis")).toString();
 }
 
 AIConversation::PreviousShotInfo AIConversation::findPreviousShot(const QString& excludeLabel) const
@@ -587,13 +611,20 @@ void AIConversation::trimHistory()
 
 QString AIConversation::summarizeShotMessage(const QString& content)
 {
-    // Detect shot messages by content markers
+    // Detect shot messages by content markers (works against either the new
+    // JSON envelope, which contains the literal "Shot Summary" inside its
+    // shotAnalysis field, or the legacy prose body).
     if (!content.contains("Shot Summary") && !content.contains("Here's my latest shot"))
         return QString();
 
+    // Run regex extraction against the prose body. extractShotProse pulls
+    // `shotAnalysis` from a JSON envelope when present; legacy prose-only
+    // messages pass through unchanged.
+    const QString prose = extractShotProse(content);
+
     // Extract shot label from "## Shot (date)" prefix
     QString shotLabel;
-    QRegularExpressionMatch numMatch = s_shotLabelRe.match(content);
+    QRegularExpressionMatch numMatch = s_shotLabelRe.match(prose);
     if (numMatch.hasMatch()) {
         shotLabel = numMatch.captured(1);
     }
@@ -601,28 +632,28 @@ QString AIConversation::summarizeShotMessage(const QString& content)
     // Extract key metrics using shared regex constants
     QString dose, yield, duration, score, notes;
 
-    QRegularExpressionMatch m = s_doseRe.match(content);
+    QRegularExpressionMatch m = s_doseRe.match(prose);
     if (m.hasMatch()) dose = m.captured(1);
-    m = s_yieldRe.match(content);
+    m = s_yieldRe.match(prose);
     if (m.hasMatch()) yield = m.captured(1);
-    m = s_durationRe.match(content);
+    m = s_durationRe.match(prose);
     if (m.hasMatch()) duration = m.captured(1);
-    m = s_scoreRe.match(content);
+    m = s_scoreRe.match(prose);
     if (m.hasMatch()) score = m.captured(1);
-    m = s_notesRe.match(content);
+    m = s_notesRe.match(prose);
     if (m.hasMatch()) notes = m.captured(1);
 
     // Extract profile name
-    QRegularExpressionMatch pm = s_profileRe.match(content);
+    QRegularExpressionMatch pm = s_profileRe.match(prose);
     QString profile = pm.hasMatch() ? pm.captured(1).trimmed() : QString();
 
     // Extract grinder info
-    QRegularExpressionMatch gm = s_grinderRe.match(content);
+    QRegularExpressionMatch gm = s_grinderRe.match(prose);
     QString grinder = gm.hasMatch() ? gm.captured(1).trimmed() : QString();
 
     // Detect anomaly flags
-    bool channeling = content.contains("Channeling detected");
-    bool tempUnstable = content.contains("Temperature unstable");
+    bool channeling = prose.contains("Channeling detected");
+    bool tempUnstable = prose.contains("Temperature unstable");
 
     // Build compact summary
     QString summary = "- Shot";

@@ -120,6 +120,13 @@ private:
     void sendRequest(const QJsonObject& requestBody);
     static QJsonArray buildCachedSystemPrompt(const QString& systemPrompt);
 
+    // Wrap the first user message's content in a structured block carrying
+    // cache_control: ephemeral when its content is currently a plain string.
+    // Multi-turn conversations on the same shot reuse the cached per-shot
+    // payload across follow-up turns within the 5-minute TTL, paying the
+    // ~25% cache-write surcharge once and amortizing it across reads.
+    static QJsonArray messagesWithCachedFirstUser(const QJsonArray& messages);
+
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
     static constexpr const char* MODEL = "claude-sonnet-4-6";

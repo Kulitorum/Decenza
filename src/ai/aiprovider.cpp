@@ -321,9 +321,47 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     requestBody["model"] = QString::fromLatin1(MODEL);
     requestBody["max_tokens"] = 1024;
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
-    requestBody["messages"] = messages;
+    requestBody["messages"] = messagesWithCachedFirstUser(messages);
 
     sendRequest(requestBody);
+}
+
+QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& messages)
+{
+    // Multi-turn conversations: the first user message carries the per-shot
+    // JSON payload built by ShotSummarizer::buildUserPrompt — stable across
+    // follow-up turns within the 5-minute Anthropic ephemeral cache TTL.
+    // Wrap its content in a structured block with cache_control so the
+    // second turn (and beyond) reads from cache instead of re-billing the
+    // ~2KB shot context. Net: a 4-turn dial-in session pays full input
+    // cost only for the new follow-up text per turn.
+    //
+    // No-op when messages[0] is already structured (caller pre-wrapped) or
+    // when there's no first user message to wrap. The 25% cache-write
+    // surcharge on turn 1 amortizes once turn 2 reads; for the single-shot
+    // path (analyze, not analyzeConversation) we don't apply this.
+    if (messages.isEmpty()) return messages;
+    QJsonObject first = messages[0].toObject();
+    if (first.value("role").toString() != "user") return messages;
+    if (!first.value("content").isString()) return messages;
+
+    QJsonObject cacheControl;
+    cacheControl["type"] = QString("ephemeral");
+
+    QJsonObject block;
+    block["type"] = QString("text");
+    block["text"] = first.value("content").toString();
+    block["cache_control"] = cacheControl;
+
+    QJsonArray contentArr;
+    contentArr.append(block);
+    first["content"] = contentArr;
+
+    QJsonArray out;
+    out.append(first);
+    for (qsizetype i = 1; i < messages.size(); ++i)
+        out.append(messages[i]);
+    return out;
 }
 
 QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPrompt)

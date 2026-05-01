@@ -99,6 +99,28 @@ struct ShotSummary {
     // goal each phase) needs this global flag to suppress per-phase prose.
     bool tempIntentionalStepping = false;
 
+    // Profile recipe rendered from profileJson (frame-by-frame intent).
+    // Pre-computed at summarize() time so the JSON user prompt can ship it
+    // under currentProfile.recipe without re-parsing the JSON on every read.
+    QString profileRecipe;
+
+    // Profile's target brewing temperature in Celsius (0 = not set).
+    double targetTemperatureC = 0;
+
+    // Profile's recommended dose in grams (0 = not set; matches the
+    // currentProfile.recommendedDoseG field shipped by dialing_get_context).
+    double recommendedDoseG = 0;
+
+    // Fields whose value was inferred from a fallback shot rather than
+    // entered by the user. Empty for the in-app advisor today (no fallback
+    // logic at this call site); populated by future code paths that route
+    // through dialing_get_context's buildCurrentBean helper.
+    QStringList inferredFields;
+
+    // Shot id the inferred fields were sourced from (0 when no inference
+    // happened — index-aligned with inferredFields being empty).
+    qint64 inferredFromShotId = 0;
+
     // DYE metadata (from user input)
     QString beanBrand;
     QString beanType;
@@ -146,9 +168,23 @@ public:
     // grinder + bean lines (its callers don't hoist a setup header).
     enum class RenderMode { Standalone, HistoryBlock };
 
-    // Generate text prompt from summary. Default `Standalone` preserves
-    // the single-shot rendering used by `dialing_get_context.shotAnalysis`
-    // and the in-app Shot Summary dialog.
+    // Generate user prompt from summary.
+    //
+    // - `Standalone` mode (default): returns a JSON-encoded envelope
+    //   carrying currentBean / currentProfile / tastingFeedback / shotAnalysis.
+    //   The `shotAnalysis` field embeds the same prose body HistoryBlock mode
+    //   produces, so regex consumers (AIConversation::processShotForConversation)
+    //   that previously matched on prose still find their substrings after
+    //   parsing the JSON envelope first.
+    // - `HistoryBlock` mode: returns prose only, no JSON envelope. The caller
+    //   wraps each block in a `### Shot (date)` header so JSON-per-shot would
+    //   be unreadable when concatenated.
+    //
+    // Per openspec migrate-advisor-user-prompt-to-json: the JSON shape mirrors
+    // dialing_get_context's response so the system prompt's references to
+    // structured fields land on actual data. Output is byte-stable for
+    // identical input — no wall-clock or per-call values appear in the
+    // payload.
     QString buildUserPrompt(const ShotSummary& summary,
                             RenderMode mode = RenderMode::Standalone) const;
 
@@ -187,6 +223,14 @@ public:
     static QStringList getAnalysisFlags(const QString& kbId);
 
 private:
+    // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting
+    // Feedback, ## Detector Observations) the legacy buildUserPrompt
+    // emitted. Standalone mode wraps this in a JSON envelope under the
+    // `shotAnalysis` key; HistoryBlock mode returns it directly so the
+    // multi-shot history caller can concatenate per-shot blocks under
+    // `### Shot (date)` wrappers.
+    QString renderShotAnalysisProse(const ShotSummary& summary, RenderMode mode) const;
+
     // Curve helpers — pure functions, kept static so they can be called from
     // file-scope helpers (e.g. makeWholeShotPhase) without a ShotSummarizer
     // instance.
