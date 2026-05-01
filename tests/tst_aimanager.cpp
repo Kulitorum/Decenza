@@ -847,7 +847,7 @@ private slots:
             "    \"yieldG\": 36.0,"
             "    \"durationSec\": 30.0,"
             "    \"grinderSetting\": \"4.0\","
-            "    \"enjoymentScore\": 85,"
+            "    \"enjoyment0to100\": 85,"
             "    \"notes\": \"balanced\""
             "  },"
             "  \"shotAnalysis\": \"## Shot Summary\\n- Dose: 18g, etc.\""
@@ -862,7 +862,11 @@ private slots:
         QCOMPARE(fields.score, QStringLiteral("85"));
         QCOMPARE(fields.notes, QStringLiteral("balanced"));
         QCOMPARE(fields.profileTitle, QStringLiteral("80's Espresso"));
-        QCOMPARE(fields.grinder, QStringLiteral("Niche Zero (63mm) at 4.0"));
+        // Format mirrors the legacy prose ("<brand> <model> with <burrs>
+        // @ <setting>") so cross-era conversations (one shot's grinder
+        // captured by regex from prose, the next from JSON) do not
+        // emit spurious "grinder changed" diffs.
+        QCOMPARE(fields.grinder, QStringLiteral("Niche Zero with 63mm @ 4.0"));
     }
 
     void aiConversation_extractShotFields_detectorFlagsEchoFromShotAnalysisProse()
@@ -908,15 +912,19 @@ private slots:
         QVERIFY(!fields.temperatureUnstable);
     }
 
-    // The structured path's grinder string preserves the legacy prose
-    // grinder format ("<brand> <model> (<burrs>) at <setting>") so the
-    // diff strings produced by processShotForConversation read the
-    // same before and after the migration.
+    // Cross-era equivalence: the structured path produces the same
+    // grinder string the legacy regex would have captured from the old
+    // prose body. Both inputs use the production-historic prose format
+    // ("**Grinder**: <brand> <model> with <burrs> @ <setting>") so a
+    // conversation that spans both eras (older shot regex-extracted,
+    // newer shot structured) does not emit spurious grinder-change
+    // diffs. Critically, the legacy input is the format the regex
+    // *actually* sees in stored conversations from before #1041.
     void aiConversation_extractShotFields_grinderStringMatchesLegacyProseFormat()
     {
         const QString legacyProse = QStringLiteral(
             "## Shot Summary\n"
-            "- **Grinder**: Niche Zero (63mm conical) at 4.5\n");
+            "- **Grinder**: Niche Zero with 63mm conical @ 4.5\n");
         const QString structuredEnvelope = QStringLiteral(
             "{"
             "  \"currentBean\": {"
@@ -933,6 +941,8 @@ private slots:
         QVERIFY(!legacyFields.fromStructuredEnvelope);
         QVERIFY(structuredFields.fromStructuredEnvelope);
         QCOMPARE(structuredFields.grinder, legacyFields.grinder);
+        QCOMPARE(structuredFields.grinder,
+                 QStringLiteral("Niche Zero with 63mm conical @ 4.5"));
     }
 
     void aiConversation_extractShotFields_normalizesNumericPrecision()

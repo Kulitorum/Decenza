@@ -494,28 +494,35 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
                 fields.yieldG = fmtNum(shot.value(QStringLiteral("yieldG")).toDouble(), 1);
             if (shot.contains(QStringLiteral("durationSec")))
                 fields.durationSec = fmtNum(shot.value(QStringLiteral("durationSec")).toDouble(), 0);
-            if (shot.contains(QStringLiteral("enjoymentScore")))
-                fields.score = QString::number(shot.value(QStringLiteral("enjoymentScore")).toInt());
+            if (shot.contains(QStringLiteral("enjoyment0to100")))
+                fields.score = QString::number(shot.value(QStringLiteral("enjoyment0to100")).toInt());
             if (shot.contains(QStringLiteral("notes")))
                 fields.notes = shot.value(QStringLiteral("notes")).toString();
 
-            // Grinder string mirrors the prose's "**Grinder**: <brand>
-            // <model> (<burrs>) at <setting>" form so historical
-            // change-detection diffs read the same. When the bean block
-            // does not carry a brand+model+burrs+setting set, fall back
-            // to whatever subset it has.
-            QStringList grinderParts;
+            // Grinder string reproduces the legacy prose format
+            // exactly: "<brand> <model> with <burrs> @ <setting>"
+            // (see ShotSummarizer::renderShotAnalysisProse pre-#1041 —
+            // the same format the s_grinderRe regex still captures from
+            // stored conversations). Producing the same string on the
+            // structured path keeps cross-format diffs (prev=legacy
+            // regex, curr=structured) free of spurious "grinder
+            // changed" diffs in conversations that span both eras.
             const QString gb = currentBean.value(QStringLiteral("grinderBrand")).toString();
             const QString gm = currentBean.value(QStringLiteral("grinderModel")).toString();
             const QString gbur = currentBean.value(QStringLiteral("grinderBurrs")).toString();
             const QString gs = shot.contains(QStringLiteral("grinderSetting"))
                 ? shot.value(QStringLiteral("grinderSetting")).toString()
                 : currentBean.value(QStringLiteral("grinderSetting")).toString();
-            if (!gb.isEmpty()) grinderParts << gb;
-            if (!gm.isEmpty()) grinderParts << gm;
-            if (!gbur.isEmpty()) grinderParts << QString("(%1)").arg(gbur);
-            if (!gs.isEmpty()) grinderParts << QString("at %1").arg(gs);
-            fields.grinder = grinderParts.join(QLatin1Char(' '));
+            QString grinder;
+            if (!gb.isEmpty() && !gm.isEmpty())
+                grinder = gb + QLatin1Char(' ') + gm;
+            else if (!gb.isEmpty())
+                grinder = gb;
+            else
+                grinder = gm;
+            if (!gbur.isEmpty()) grinder += QStringLiteral(" with ") + gbur;
+            if (!gs.isEmpty()) grinder += QStringLiteral(" @ ") + gs;
+            fields.grinder = grinder;
 
             fields.profileTitle = profile.value(QStringLiteral("title")).toString();
 

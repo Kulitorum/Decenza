@@ -608,7 +608,9 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     if (summary.totalDuration > 0) shot["durationSec"] = summary.totalDuration;
     if (summary.ratio > 0) shot["ratio"] = summary.ratio;
     if (!summary.grinderSetting.isEmpty()) shot["grinderSetting"] = summary.grinderSetting;
-    if (summary.enjoymentScore > 0) shot["enjoymentScore"] = summary.enjoymentScore;
+    // CLAUDE.md MCP convention: scale lives in the field name for
+    // bounded values. Mirrors `dialing_get_context.bestRecentShot.enjoyment0to100`.
+    if (summary.enjoymentScore > 0) shot["enjoyment0to100"] = summary.enjoymentScore;
     if (!summary.tastingNotes.isEmpty()) shot["notes"] = summary.tastingNotes;
     // Detector flag echoes (channeling / temp unstable) are NOT lifted
     // into this block — `ShotSummary` does not carry them as scalar
