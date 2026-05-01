@@ -355,6 +355,14 @@ private slots:
         const QJsonObject icon = icons[0].toObject();
         QCOMPARE(icon["mimeType"].toString(), QString("image/svg+xml"));
         QVERIFY(icon["src"].toString().startsWith("data:image/svg+xml;base64,"));
+        // MCP icon schema (HTML-style): `sizes` must be string[], not a bare
+        // string. Strict clients (e.g. Claude Code's zod validator) drop every
+        // tool entry that ships `"sizes":"any"`, surfacing zero tools despite
+        // a successful initialize handshake.
+        const QJsonValue sizes = icon["sizes"];
+        QVERIFY2(sizes.isArray(), "icon.sizes must be an array (string[])");
+        QVERIFY(!sizes.toArray().isEmpty());
+        QVERIFY(sizes.toArray()[0].isString());
 
         // 2025-11-25: JSON Schema 2020-12 dialect declared.
         QCOMPARE(t["inputSchema"].toObject()["$schema"].toString(),

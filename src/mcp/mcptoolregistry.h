@@ -86,7 +86,7 @@ namespace McpRegistryHelpers {
         QJsonObject icon;
         icon["src"] = uri;
         icon["mimeType"] = "image/svg+xml";
-        icon["sizes"] = "any";  // SVG scales freely
+        icon["sizes"] = QJsonArray{ QStringLiteral("any") };  // SVG scales freely; MCP schema requires string[]
         return QJsonArray{ icon };
     }
 
