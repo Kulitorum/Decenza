@@ -18,6 +18,8 @@
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <memory>
+
+#include "../history/shotprojection.h"
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
@@ -145,7 +147,7 @@ private:
 
     QString getLocalIpAddress() const;
     QString generateShotListPage(const QVariantList& shots) const;
-    QString generateShotDetailPage(qint64 shotId, const QVariantMap& shot) const;
+    QString generateShotDetailPage(qint64 shotId, const ShotProjection& shot) const;
     QString generateComparisonPage(const QList<ShotRecord>& shots) const;
     QString generateDebugPage() const;
     QString generateUploadPage() const;

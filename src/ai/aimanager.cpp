@@ -353,7 +353,7 @@ QString AIManager::generateShotSummary(ShotDataModel* shotData,
     return m_summarizer->buildUserPrompt(summary);
 }
 
-QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
+QString AIManager::generateHistoryShotSummary(const ShotProjection& shotData)
 {
     ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
     return m_summarizer->buildUserPrompt(summary);
@@ -368,12 +368,12 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
 // Returns (timestamp, fullShot) pairs. Extracted from requestRecentShotContext
 // to reduce lambda nesting. NOT safe to call from the main thread (would conflict
 // with the primary DB connection).
-static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
+static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
     const QString& dbPath,
     const QString& beanBrand, const QString& beanType,
     const QString& profileName, int excludeShotId)
 {
-    QList<QPair<qint64, QVariantMap>> qualifiedShots;
+    QList<QPair<qint64, ShotProjection>> qualifiedShots;
 
     withTempDb(dbPath, "ai_context", [&](QSqlDatabase& db) {
         // 1. Look up the current shot's timestamp
@@ -444,7 +444,7 @@ static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
                 continue;
             }
 
-            QVariantMap fullShot;
+            ShotProjection fullShot;
             try {
                 ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, c.id);
                 fullShot = ShotHistoryStorage::convertShotRecord(record);
@@ -452,14 +452,13 @@ static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
                 qWarning() << "  Shot id=" << c.id << "-> SKIPPED (exception:" << e.what() << ")";
                 continue;
             }
-            if (fullShot.isEmpty()) {
+            if (!fullShot.isValid()) {
                 qWarning() << "  Shot id=" << c.id << "-> SKIPPED (convertShotRecord returned empty)";
                 continue;
             }
 
             // Check targetWeight-based mistake filter (needs full record)
-            double targetWeight = fullShot.value("targetWeightG", 0.0).toDouble();
-            if (targetWeight > 0.0 && c.finalWeight < targetWeight / 3.0) {
+            if (fullShot.targetWeightG > 0.0 && c.finalWeight < fullShot.targetWeightG / 3.0) {
                 qDebug() << "  Shot id=" << c.id << "-> SKIPPED (mistake, weight < 1/3 target)";
                 continue;
             }
@@ -990,16 +989,11 @@ bool AIManager::isSupportedBeverageType(const QString& beverageType) const
     return bev.isEmpty() || bev == "espresso" || bev == "filter" || bev == "pourover";
 }
 
-bool AIManager::isMistakeShot(const QVariantMap& shotData) const
+bool AIManager::isMistakeShot(const ShotProjection& shotData) const
 {
-    double duration = shotData.value("durationSec", 0.0).toDouble();
-    double finalWeight = shotData.value("finalWeightG", 0.0).toDouble();
-    double targetWeight = shotData.value("targetWeightG", 0.0).toDouble();
-
-    if (duration < 10.0) return true;
-    if (finalWeight < 5.0) return true;
-    if (targetWeight > 0.0 && finalWeight < targetWeight / 3.0) return true;
-
+    if (shotData.durationSec < 10.0) return true;
+    if (shotData.finalWeightG < 5.0) return true;
+    if (shotData.targetWeightG > 0.0 && shotData.finalWeightG < shotData.targetWeightG / 3.0) return true;
     return false;
 }
 

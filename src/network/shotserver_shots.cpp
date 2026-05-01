@@ -44,25 +44,28 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 {
     QString rows;
     for (const QVariant& v : std::as_const(shots)) {
-        QVariantMap shot = v.toMap();
+        // queryShotList() emits maps with ShotProjection-aligned keys; routing
+        // them through fromVariantMap() gives the rest of the loop compile-time
+        // safety on every field name read below.
+        const ShotProjection shot = ShotProjection::fromVariantMap(v.toMap());
 
-        int rating = qRound(shot["enjoyment"].toDouble());  // 0-100
+        int rating = qRound(static_cast<double>(shot.enjoyment));
 
         double ratio = 0;
-        if (shot["doseWeightG"].toDouble() > 0) {
-            ratio = shot["finalWeightG"].toDouble() / shot["doseWeightG"].toDouble();
+        if (shot.doseWeightG > 0) {
+            ratio = shot.finalWeightG / shot.doseWeightG;
         }
 
-        QString profileName = shot["profileName"].toString();
-        QString beanBrand = shot["beanBrand"].toString();
-        QString beanType = shot["beanType"].toString();
-        QString dateTime = shot["dateTime"].toString();
-        double doseWeight = shot["doseWeightG"].toDouble();
-        double finalWeight = shot["finalWeightG"].toDouble();
-        double duration = shot["durationSec"].toDouble();
-        QString grinderSetting = shot["grinderSetting"].toString();
-        double tempOverride = shot["temperatureOverrideC"].toDouble();  // Always has value
-        double targetWeight = shot["targetWeightG"].toDouble();  // Always has value
+        const QString& profileName = shot.profileName;
+        const QString& beanBrand = shot.beanBrand;
+        const QString& beanType = shot.beanType;
+        const QString& dateTime = shot.dateTime;
+        const double doseWeight = shot.doseWeightG;
+        const double finalWeight = shot.finalWeightG;
+        const double duration = shot.durationSec;
+        const QString& grinderSetting = shot.grinderSetting;
+        const double tempOverride = shot.temperatureOverrideC;  // Always has value
+        const double targetWeight = shot.targetWeightG;  // Always has value
 
         // Escape for JavaScript string (single quotes) and HTML attribute
         auto escapeForJs = [](const QString& s) -> QString {
@@ -113,8 +116,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
             }
         }
 
-        double drinkTds = shot["drinkTds"].toDouble();
-        double drinkEy = shot["drinkEy"].toDouble();
+        const double drinkTds = shot.drinkTds;
+        const double drinkEy = shot.drinkEy;
 
         rows += QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
@@ -157,7 +160,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                 </a>
             </div>
         )HTML")
-        .arg(shot["id"].toLongLong())       // %1
+        .arg(shot.id)                       // %1
         .arg(profileHtml)                   // %2 (data attr, undecorated)
         .arg(brandHtml)                     // %3
         .arg(coffeeHtml)                    // %4
@@ -173,7 +176,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .arg(beanDisplay)                   // %14 (beans with grind)
         .arg(drinkTds, 0, 'f', 2)           // %15
         .arg(drinkEy, 0, 'f', 2)            // %16
-        .arg(shot["timestamp"].toLongLong()); // %17 (epoch for sorting)
+        .arg(shot.timestamp); // %17 (epoch for sorting)
     }
 
     // Build HTML in chunks to avoid MSVC string literal size limit
@@ -1016,20 +1019,20 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
     return html;
 }
 
-QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& shot) const
+QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& shot) const
 {
-    if (shot.isEmpty()) {
+    if (!shot.isValid()) {
         return QStringLiteral("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Not Found</title></head>"
                   "<body style=\"background:#0d1117;color:#fff;font-family:sans-serif;padding:2rem;\">"
                   "<h1>Shot not found</h1><a href=\"/\" style=\"color:#c9a227;\">Back to list</a></body></html>");
     }
 
     double ratio = 0;
-    if (shot["doseWeightG"].toDouble() > 0) {
-        ratio = shot["finalWeightG"].toDouble() / shot["doseWeightG"].toDouble();
+    if (shot.doseWeightG > 0) {
+        ratio = shot.finalWeightG / shot.doseWeightG;
     }
 
-    int rating = qRound(shot["enjoyment"].toDouble() / 20.0);
+    int rating = qRound(static_cast<double>(shot.enjoyment) / 20.0);
     QString stars;
     for (int i = 0; i < 5; i++) {
         stars += (i < rating) ? "&#9733;" : "&#9734;";
@@ -1048,9 +1051,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     };
 
     // Temperature and target weight (always have values)
-    double tempOverride = shot["temperatureOverrideC"].toDouble();
-    double targetWeight = shot["targetWeightG"].toDouble();
-    double finalWeight = shot["finalWeightG"].toDouble();
+    const double tempOverride = shot.temperatureOverrideC;
+    const double targetWeight = shot.targetWeightG;
+    const double finalWeight = shot.finalWeightG;
 
     // Build yield display with optional target
     QString yieldDisplay = QString("%1g").arg(finalWeight, 0, 'f', 1);
@@ -1086,14 +1089,14 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
         return "[" + items.join(",") + "]";
     };
 
-    QString pressureData = pointsToJson(shot["pressure"].toList());
-    QString flowData = pointsToJson(shot["flow"].toList());
-    QString tempData = pointsToJson(shot["temperature"].toList());
-    QString weightData = pointsToJson(shot["weight"].toList());
-    QString weightFlowRateData = pointsToJson(shot["weightFlowRate"].toList());
-    QString resistanceData = pointsToJson(shot["resistance"].toList());
-    QString pressureGoalData = goalPointsToJson(shot["pressureGoal"].toList());
-    QString flowGoalData = goalPointsToJson(shot["flowGoal"].toList());
+    QString pressureData = pointsToJson(shot.pressure);
+    QString flowData = pointsToJson(shot.flow);
+    QString tempData = pointsToJson(shot.temperature);
+    QString weightData = pointsToJson(shot.weight);
+    QString weightFlowRateData = pointsToJson(shot.weightFlowRate);
+    QString resistanceData = pointsToJson(shot.resistance);
+    QString pressureGoalData = goalPointsToJson(shot.pressureGoal);
+    QString flowGoalData = goalPointsToJson(shot.flowGoal);
 
     // Convert phase markers to JSON for Chart.js
     auto phasesToJson = [](const QVariantList& phases) -> QString {
@@ -1120,7 +1123,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
         }
         return "[" + items.join(",") + "]";
     };
-    QString phaseData = phasesToJson(shot["phases"].toList());
+    QString phaseData = phasesToJson(shot.phases);
 
     QString html = QString(R"HTML(
 <!DOCTYPE html>
@@ -2079,52 +2082,52 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
 )HTML";
     return html
     .arg(tempOverride > 0
-         ? shot["profileName"].toString().toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
-         : shot["profileName"].toString().toHtmlEscaped())
-    .arg(shot["dateTime"].toString())
-    .arg(shot["doseWeightG"].toDouble(), 0, 'f', 1)
+         ? shot.profileName.toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
+         : shot.profileName.toHtmlEscaped())
+    .arg(shot.dateTime)
+    .arg(shot.doseWeightG, 0, 'f', 1)
     .arg(yieldDisplay)
     .arg(ratio, 0, 'f', 1)
-    .arg(shot["durationSec"].toDouble(), 0, 'f', 1)
+    .arg(shot.durationSec, 0, 'f', 1)
     .arg(stars)
-    .arg(shot["beanBrand"].toString().isEmpty() ? "-" : shot["beanBrand"].toString().toHtmlEscaped())
-    .arg(shot["beanType"].toString().isEmpty() ? "-" : shot["beanType"].toString().toHtmlEscaped())
-    .arg(shot["roastDate"].toString().isEmpty() ? "-" : shot["roastDate"].toString().toHtmlEscaped())
-    .arg(shot["roastLevel"].toString().isEmpty() ? "-" : shot["roastLevel"].toString().toHtmlEscaped())
-    .arg(shot["grinderBrand"].toString().isEmpty() && shot["grinderModel"].toString().isEmpty()
-         ? "-" : (shot["grinderBrand"].toString() + " " + shot["grinderModel"].toString()).trimmed().toHtmlEscaped())
-    .arg(shot["grinderSetting"].toString().isEmpty() ? "-" : shot["grinderSetting"].toString().toHtmlEscaped())
-    .arg(shot["espressoNotes"].toString().isEmpty() ? "No notes" : shot["espressoNotes"].toString().toHtmlEscaped())
+    .arg(shot.beanBrand.isEmpty() ? "-" : shot.beanBrand.toHtmlEscaped())
+    .arg(shot.beanType.isEmpty() ? "-" : shot.beanType.toHtmlEscaped())
+    .arg(shot.roastDate.isEmpty() ? "-" : shot.roastDate.toHtmlEscaped())
+    .arg(shot.roastLevel.isEmpty() ? "-" : shot.roastLevel.toHtmlEscaped())
+    .arg(shot.grinderBrand.isEmpty() && shot.grinderModel.isEmpty()
+         ? "-" : (shot.grinderBrand + " " + shot.grinderModel).trimmed().toHtmlEscaped())
+    .arg(shot.grinderSetting.isEmpty() ? "-" : shot.grinderSetting.toHtmlEscaped())
+    .arg(shot.espressoNotes.isEmpty() ? "No notes" : shot.espressoNotes.toHtmlEscaped())
     .arg(pressureData)
     .arg(flowData)
     .arg(weightData)
     .arg(tempData)
     .arg(pressureGoalData)
     .arg(flowGoalData)
-    .arg(shot["debugLog"].toString().isEmpty() ? "No debug log available" : shot["debugLog"].toString().toHtmlEscaped())
+    .arg(shot.debugLog.isEmpty() ? "No debug log available" : shot.debugLog.toHtmlEscaped())
     .arg(phaseData)
     .arg(weightFlowRateData)
     // shotData JS object fields (%24-%38)
     .arg(shotId)                                                                     // %24 id
-    .arg(jsEscape(shot["beanBrand"].toString()))                                     // %25 beanBrand
-    .arg(jsEscape(shot["beanType"].toString()))                                      // %26 beanType
-    .arg(jsEscape(shot["roastDate"].toString()))                                     // %27 roastDate
-    .arg(jsEscape(shot["roastLevel"].toString()))                                    // %28 roastLevel
-    .arg(jsEscape(shot["grinderModel"].toString()))                                  // %29 grinderModel
-    .arg(jsEscape(shot["grinderSetting"].toString()))                                // %30 grinderSetting
-    .arg(jsEscape(shot["espressoNotes"].toString()))                                 // %31 espressoNotes
-    .arg(shot["doseWeightG"].toDouble(), 0, 'f', 1)                                 // %32 doseWeightG
-    .arg(shot["finalWeightG"].toDouble(), 0, 'f', 1)                                // %33 finalWeightG
-    .arg(qRound(shot["enjoyment"].toDouble()))                                       // %34 enjoyment
-    .arg(jsEscape(shot["barista"].toString()))                                       // %35 barista
-    .arg(jsEscape(shot["beverageType"].toString().isEmpty()
+    .arg(jsEscape(shot.beanBrand))                                                   // %25 beanBrand
+    .arg(jsEscape(shot.beanType))                                                    // %26 beanType
+    .arg(jsEscape(shot.roastDate))                                                   // %27 roastDate
+    .arg(jsEscape(shot.roastLevel))                                                  // %28 roastLevel
+    .arg(jsEscape(shot.grinderModel))                                                // %29 grinderModel
+    .arg(jsEscape(shot.grinderSetting))                                              // %30 grinderSetting
+    .arg(jsEscape(shot.espressoNotes))                                               // %31 espressoNotes
+    .arg(shot.doseWeightG, 0, 'f', 1)                                                // %32 doseWeightG
+    .arg(shot.finalWeightG, 0, 'f', 1)                                               // %33 finalWeightG
+    .arg(shot.enjoyment)                                                             // %34 enjoyment
+    .arg(jsEscape(shot.barista))                                                     // %35 barista
+    .arg(jsEscape(shot.beverageType.isEmpty()
                   ? QStringLiteral("espresso")
-                  : shot["beverageType"].toString()))                                // %36 beverageType
-    .arg(shot["drinkTds"].toDouble(), 0, 'f', 2)                                    // %37 drinkTds
-    .arg(shot["drinkEy"].toDouble(), 0, 'f', 1)                                     // %38 drinkEy
+                  : shot.beverageType))                                              // %36 beverageType
+    .arg(shot.drinkTds, 0, 'f', 2)                                                   // %37 drinkTds
+    .arg(shot.drinkEy, 0, 'f', 1)                                                    // %38 drinkEy
     .arg(resistanceData)                                                             // %39 resistance
-    .arg(jsEscape(shot["grinderBrand"].toString()))                                  // %40 grinderBrand
-    .arg(jsEscape(shot["grinderBurrs"].toString()));                                 // %41 grinderBurrs
+    .arg(jsEscape(shot.grinderBrand))                                                // %40 grinderBrand
+    .arg(jsEscape(shot.grinderBurrs));                                               // %41 grinderBurrs
 }
 
 QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const

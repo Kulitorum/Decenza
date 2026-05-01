@@ -97,6 +97,7 @@
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
 #include "history/shothistoryexporter.h"
+#include "history/shotprojection.h"
 #include "mcp/mcpserver.h"
 #include "network/librarysharing.h"
 #include "network/relayclient.h"
@@ -1690,6 +1691,18 @@ int main(int argc, char *argv[])
         "SettingsApp is created in C++");
     qmlRegisterUncreatableType<SettingsCalibration>("Decenza", 1, 0, "SettingsCalibrationType",
         "SettingsCalibration is created in C++");
+
+    // ShotProjection is a Q_GADGET value type used as the parameter of
+    // ShotHistoryStorage::shotReady. qmlRegisterUncreatableMetaObject registers
+    // its meta-object so QML signal handlers can read its Q_PROPERTYs by name
+    // (`shotData.finalWeightG`). qRegisterMetaType makes the type usable on
+    // Qt::QueuedConnection signal/slot connections (the connection threads
+    // serialize the QVariant<ShotProjection> across thread boundaries).
+    qRegisterMetaType<ShotProjection>("ShotProjection");
+    ShotProjection::registerMetaTypeConverters();
+    qmlRegisterUncreatableMetaObject(ShotProjection::staticMetaObject,
+        "Decenza", 1, 0, "ShotProjection",
+        "ShotProjection is a value type returned by ShotHistoryStorage signals");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");

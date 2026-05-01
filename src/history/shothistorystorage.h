@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shothistory_types.h"
+#include "shotprojection.h"
 
 #include <QObject>
 #include <QSqlDatabase>
@@ -87,8 +88,11 @@ public:
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     static GrinderContext queryGrinderContext(QSqlDatabase& db, const QString& grinderModel, const QString& beverageType);
 
-    // Convert ShotRecord to QVariantMap (shared by requestShot, ShotServer, AIManager)
-    static QVariantMap convertShotRecord(const ShotRecord& record);
+    // Convert ShotRecord to a typed ShotProjection (shared by requestShot,
+    // ShotServer, AIManager, MCP). Returns a default-constructed ShotProjection
+    // (id == 0, isValid() == false) when the record is empty. Replaces the
+    // QVariantMap projection that lived here pre-#975 — see shotprojection.h.
+    static ShotProjection convertShotRecord(const ShotRecord& record);
 
     // Thread-safe shot save: opens a temporary connection, does all INSERTs + WAL checkpoint.
     // Safe to call from any thread (does not use m_db). Returns shotId or -1 on failure.
@@ -206,7 +210,7 @@ signals:
     void errorOccurred(const QString& message);
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
-    void shotReady(qint64 shotId, const QVariantMap& shot);
+    void shotReady(qint64 shotId, const ShotProjection& shot);
     void recentShotsByKbIdReady(const QString& kbId, const QVariantList& shots);
     void importDatabaseFinished(bool success);
     void shotMetadataUpdated(qint64 shotId, bool success);

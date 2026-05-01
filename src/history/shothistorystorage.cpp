@@ -1197,7 +1197,7 @@ void ShotHistoryStorage::requestMostRecentShotId()
 void ShotHistoryStorage::requestShot(qint64 shotId)
 {
     if (!m_ready) {
-        emit shotReady(shotId, QVariantMap());
+        emit shotReady(shotId, ShotProjection());
         return;
     }
 

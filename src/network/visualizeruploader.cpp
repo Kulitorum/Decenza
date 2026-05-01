@@ -119,32 +119,30 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
     sendUpload(jsonData);
 }
 
-void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
+void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 {
-    if (shotData.isEmpty()) {
+    if (!shotData.isValid()) {
         emit uploadFailed("No shot data available");
         return;
     }
 
     // Extract beverage type from profile JSON
     QString beverageType;
-    QString profileJson = shotData["profileJson"].toString();
-    if (!profileJson.isEmpty()) {
-        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+    if (!shotData.profileJson.isEmpty()) {
+        QJsonDocument profileDoc = QJsonDocument::fromJson(shotData.profileJson.toUtf8());
         if (!profileDoc.isNull()) {
             beverageType = profileDoc.object()["beverage_type"].toString();
         }
     }
 
-    double duration = shotData["durationSec"].toDouble();
-    if (!validateUpload(beverageType, duration))
+    if (!validateUpload(beverageType, shotData.durationSec))
         return;
 
     QByteArray jsonData = buildHistoryShotJson(shotData);
     sendUpload(jsonData);
 }
 
-void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const QVariantMap& shotData)
+void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed("No visualizer ID for update");
@@ -168,42 +166,41 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     emit lastUploadStatusChanged();
 
     // Build JSON body: {"shot": {"bean_brand": "...", ...}}
+    // Field-pointer accessors give compile-time safety on the projection side;
+    // the API field strings are visualizer.coffee's external schema (snake_case)
+    // and intentionally distinct from the projection's field names.
     QJsonObject shotObj;
-    auto setField = [&](const QString& apiField, const QString& mapKey) {
-        if (!shotData.contains(mapKey)) return;
-        QVariant val = shotData[mapKey];
-        if (val.typeId() == QMetaType::Double) {
-            double d = val.toDouble();
-            if (d > 0) shotObj[apiField] = d;
-        } else if (val.typeId() == QMetaType::Int) {
-            int i = val.toInt();
-            if (i > 0) shotObj[apiField] = i;
-        } else {
-            QString s = val.toString();
-            if (!s.isEmpty()) shotObj[apiField] = s;
-        }
+    auto setStr = [&](const QString& apiField, QString ShotProjection::*field) {
+        const QString& s = shotData.*field;
+        if (!s.isEmpty()) shotObj[apiField] = s;
+    };
+    auto setDouble = [&](const QString& apiField, double ShotProjection::*field) {
+        const double v = shotData.*field;
+        if (v > 0) shotObj[apiField] = v;
+    };
+    auto setInt = [&](const QString& apiField, int ShotProjection::*field) {
+        const int v = shotData.*field;
+        if (v > 0) shotObj[apiField] = v;
     };
 
-    setField("bean_brand", "beanBrand");
-    setField("bean_type", "beanType");
-    setField("roast_level", "roastLevel");
-    setField("roast_date", "roastDate");
-    setField("bean_weight", "doseWeightG");
-    setField("drink_weight", "finalWeightG");
+    setStr("bean_brand", &ShotProjection::beanBrand);
+    setStr("bean_type", &ShotProjection::beanType);
+    setStr("roast_level", &ShotProjection::roastLevel);
+    setStr("roast_date", &ShotProjection::roastDate);
+    setDouble("bean_weight", &ShotProjection::doseWeightG);
+    setDouble("drink_weight", &ShotProjection::finalWeightG);
     // Combine brand + model for visualizer (no separate brand field in API)
     {
-        QString brand = shotData.value("grinderBrand").toString().trimmed();
-        QString model = shotData.value("grinderModel").toString().trimmed();
-        QString combined = (brand + " " + model).trimmed();
+        QString combined = (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed();
         if (!combined.isEmpty()) shotObj["grinder_model"] = combined;
     }
-    setField("grinder_setting", "grinderSetting");
-    setField("drink_tds", "drinkTds");
-    setField("drink_ey", "drinkEy");
-    setField("espresso_enjoyment", "enjoyment");
-    setField("espresso_notes", "espressoNotes");
-    setField("barista", "barista");
-    setField("profile_title", "profileName");
+    setStr("grinder_setting", &ShotProjection::grinderSetting);
+    setDouble("drink_tds", &ShotProjection::drinkTds);
+    setDouble("drink_ey", &ShotProjection::drinkEy);
+    setInt("espresso_enjoyment", &ShotProjection::enjoyment);
+    setStr("espresso_notes", &ShotProjection::espressoNotes);
+    setStr("barista", &ShotProjection::barista);
+    setStr("profile_title", &ShotProjection::profileName);
 
     QJsonObject root;
     root["shot"] = shotObj;
@@ -965,16 +962,15 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
 }
 
 // static
-QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
+QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotData)
 {
     QJsonObject root;
     root["version"] = 2;
 
     // Use original timestamp from the shot
-    qint64 timestamp = shotData["timestamp"].toLongLong();
-    root["clock"] = timestamp;
-    root["timestamp"] = timestamp;
-    root["date"] = QDateTime::fromSecsSinceEpoch(timestamp).toString(Qt::ISODate);
+    root["clock"] = shotData.timestamp;
+    root["timestamp"] = shotData.timestamp;
+    root["date"] = QDateTime::fromSecsSinceEpoch(shotData.timestamp).toString(Qt::ISODate);
 
     // Helper to convert QVariantList of {x,y} points to QVector<QPointF>
     auto toPointVector = [](const QVariantList& points) -> QVector<QPointF> {
@@ -1006,14 +1002,14 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     };
 
     // Convert to point vectors for interpolation
-    QVector<QPointF> pressureData = toPointVector(shotData["pressure"].toList());
-    QVector<QPointF> flowData = toPointVector(shotData["flow"].toList());
-    QVector<QPointF> tempData = toPointVector(shotData["temperature"].toList());
-    QVector<QPointF> pressureGoalData = toPointVector(shotData["pressureGoal"].toList());
-    QVector<QPointF> flowGoalData = toPointVector(shotData["flowGoal"].toList());
-    QVector<QPointF> tempGoalData = toPointVector(shotData["temperatureGoal"].toList());
-    QVector<QPointF> weightData = toPointVector(shotData["weight"].toList());
-    QVector<QPointF> weightFlowRateData = toPointVector(shotData["weightFlowRate"].toList());
+    QVector<QPointF> pressureData = toPointVector(shotData.pressure);
+    QVector<QPointF> flowData = toPointVector(shotData.flow);
+    QVector<QPointF> tempData = toPointVector(shotData.temperature);
+    QVector<QPointF> pressureGoalData = toPointVector(shotData.pressureGoal);
+    QVector<QPointF> flowGoalData = toPointVector(shotData.flowGoal);
+    QVector<QPointF> tempGoalData = toPointVector(shotData.temperatureGoal);
+    QVector<QPointF> weightData = toPointVector(shotData.weight);
+    QVector<QPointF> weightFlowRateData = toPointVector(shotData.weightFlowRate);
 
     // Elapsed time array (from pressure data - the master timeline)
     root["elapsed"] = extractTimes(pressureData);
@@ -1046,7 +1042,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
         totals["weight"] = interpolateGoalData(weightData, pressureData);
     }
     // Water dispensed: scale by 0.1 to match de1app's espresso_water_dispensed convention
-    QVector<QPointF> waterDispensedData = toPointVector(shotData["waterDispensed"].toList());
+    QVector<QPointF> waterDispensedData = toPointVector(shotData.waterDispensed);
     if (!waterDispensedData.isEmpty()) {
         QJsonArray waterDispensedRaw = interpolateGoalData(waterDispensedData, pressureData);
         QJsonArray waterDispensedScaled;
@@ -1058,9 +1054,9 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
 
     // Resistance object: P/flow² (Darcy, matches de1app's espresso_resistance) and
     // P/flow_weight² (scale flow, de1app calls this espresso_resistance_weight → by_weight)
-    QVector<QPointF> histWeightFlowData = toPointVector(shotData["weightFlowRate"].toList());
+    QVector<QPointF> histWeightFlowData = toPointVector(shotData.weightFlowRate);
     {
-        QVector<QPointF> histResData = toPointVector(shotData["darcyResistance"].toList());
+        QVector<QPointF> histResData = toPointVector(shotData.darcyResistance);
         QJsonObject resistance;
         if (!histResData.isEmpty())
             resistance["resistance"] = interpolateGoalData(histResData, pressureData);
@@ -1083,7 +1079,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     // Scale object: raw weight series at native sample times. Only emit if there is scale data.
     if (!weightData.isEmpty() || !histWeightFlowData.isEmpty()) {
         QJsonObject scale;
-        scale["espresso_start"] = shotData["timestamp"].toDouble();
+        scale["espresso_start"] = static_cast<double>(shotData.timestamp);
         if (!weightData.isEmpty()) {
             QJsonArray weights, arrivals;
             for (const auto& pt : weightData) {
@@ -1103,7 +1099,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     }
 
     // State change array from history phase markers
-    QVariantList phases = shotData["phases"].toList();
+    const QVariantList& phases = shotData.phases;
     if (!phases.isEmpty() && !pressureData.isEmpty()) {
         // Collect times of real frame transitions only (skip Start/End markers)
         QVector<double> markerTimes;
@@ -1132,47 +1128,36 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
 
     // Bean info
     QJsonObject bean;
-    QString beanBrand = shotData["beanBrand"].toString();
-    QString beanType = shotData["beanType"].toString();
-    QString roastDate = shotData["roastDate"].toString();
-    QString roastLevel = shotData["roastLevel"].toString();
-    if (!beanBrand.isEmpty()) bean["brand"] = beanBrand;
-    if (!beanType.isEmpty()) bean["type"] = beanType;
-    if (!roastDate.isEmpty()) bean["roast_date"] = roastDate;
-    if (!roastLevel.isEmpty()) bean["roast_level"] = roastLevel;
+    if (!shotData.beanBrand.isEmpty()) bean["brand"] = shotData.beanBrand;
+    if (!shotData.beanType.isEmpty()) bean["type"] = shotData.beanType;
+    if (!shotData.roastDate.isEmpty()) bean["roast_date"] = shotData.roastDate;
+    if (!shotData.roastLevel.isEmpty()) bean["roast_level"] = shotData.roastLevel;
     meta["bean"] = bean;
 
     // Shot info
     QJsonObject shot;
-    int enjoyment = shotData["enjoyment"].toInt();
-    QString notes = shotData["espressoNotes"].toString();
-    double tds = shotData["drinkTds"].toDouble();
-    double ey = shotData["drinkEy"].toDouble();
-    if (enjoyment > 0) shot["enjoyment"] = enjoyment;
-    if (!notes.isEmpty()) shot["notes"] = notes;
-    if (tds > 0) shot["tds"] = tds;
-    if (ey > 0) shot["ey"] = ey;
+    if (shotData.enjoyment > 0) shot["enjoyment"] = shotData.enjoyment;
+    if (!shotData.espressoNotes.isEmpty()) shot["notes"] = shotData.espressoNotes;
+    if (shotData.drinkTds > 0) shot["tds"] = shotData.drinkTds;
+    if (shotData.drinkEy > 0) shot["ey"] = shotData.drinkEy;
     meta["shot"] = shot;
 
     // Grinder info (combine brand+model for visualizer compatibility)
     QJsonObject grinder;
-    QString grinderBrand = shotData["grinderBrand"].toString();
-    QString grinderModel = shotData["grinderModel"].toString();
-    QString grinderSetting = shotData["grinderSetting"].toString();
-    QString grinderDisplay2 = grinderBrand.isEmpty() ? grinderModel
-        : (grinderModel.isEmpty() ? grinderBrand : grinderBrand + " " + grinderModel);
+    QString grinderDisplay2 = shotData.grinderBrand.isEmpty() ? shotData.grinderModel
+        : (shotData.grinderModel.isEmpty() ? shotData.grinderBrand
+                                           : shotData.grinderBrand + " " + shotData.grinderModel);
     if (!grinderDisplay2.isEmpty()) grinder["model"] = grinderDisplay2;
-    if (!grinderSetting.isEmpty()) grinder["setting"] = grinderSetting;
+    if (!shotData.grinderSetting.isEmpty()) grinder["setting"] = shotData.grinderSetting;
     meta["grinder"] = grinder;
 
     // Weights: use stored final weight from history; fall back to flow-integrated volume if missing
-    double doseWeight = shotData["doseWeightG"].toDouble();
-    double finalWeight = shotData["finalWeightG"].toDouble();
+    double finalWeight = shotData.finalWeightG;
     if (finalWeight <= 0 && !waterDispensedData.isEmpty())
         finalWeight = waterDispensedData.last().y();  // actual ml (normalized at import)
-    if (doseWeight > 0) meta["in"] = doseWeight;
+    if (shotData.doseWeightG > 0) meta["in"] = shotData.doseWeightG;
     if (finalWeight > 0) meta["out"] = finalWeight;
-    meta["time"] = shotData["durationSec"].toDouble();
+    meta["time"] = shotData.durationSec;
 
     root["meta"] = meta;
 
@@ -1180,27 +1165,25 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     QJsonObject app = buildAppInfoJson();
 
     QJsonObject settings;
-    if (!beanBrand.isEmpty()) settings["bean_brand"] = beanBrand;
-    if (!beanType.isEmpty()) settings["bean_type"] = beanType;
-    if (!roastDate.isEmpty()) settings["roast_date"] = roastDate;
-    if (!roastLevel.isEmpty()) settings["roast_level"] = roastLevel;
+    if (!shotData.beanBrand.isEmpty()) settings["bean_brand"] = shotData.beanBrand;
+    if (!shotData.beanType.isEmpty()) settings["bean_type"] = shotData.beanType;
+    if (!shotData.roastDate.isEmpty()) settings["roast_date"] = shotData.roastDate;
+    if (!shotData.roastLevel.isEmpty()) settings["roast_level"] = shotData.roastLevel;
     if (!grinderDisplay2.isEmpty()) settings["grinder_model"] = grinderDisplay2;
-    if (!grinderSetting.isEmpty()) settings["grinder_setting"] = grinderSetting;
-    if (doseWeight > 0) settings["grinder_dose_weight"] = doseWeight;
+    if (!shotData.grinderSetting.isEmpty()) settings["grinder_setting"] = shotData.grinderSetting;
+    if (shotData.doseWeightG > 0) settings["grinder_dose_weight"] = shotData.doseWeightG;
     if (finalWeight > 0) settings["drink_weight"] = finalWeight;
-    if (tds > 0) settings["drink_tds"] = tds;
-    if (ey > 0) settings["drink_ey"] = ey;
-    if (enjoyment > 0) settings["espresso_enjoyment"] = enjoyment;
-    if (!notes.isEmpty()) settings["espresso_notes"] = notes;
+    if (shotData.drinkTds > 0) settings["drink_tds"] = shotData.drinkTds;
+    if (shotData.drinkEy > 0) settings["drink_ey"] = shotData.drinkEy;
+    if (shotData.enjoyment > 0) settings["espresso_enjoyment"] = shotData.enjoyment;
+    if (!shotData.espressoNotes.isEmpty()) settings["espresso_notes"] = shotData.espressoNotes;
 
-    QString barista = shotData["barista"].toString();
-    if (!barista.isEmpty()) settings["barista"] = barista;
+    if (!shotData.barista.isEmpty()) settings["barista"] = shotData.barista;
 
     // Parse profile JSON and merge profile fields for Visualizer TCL extraction
-    QString profileJson = shotData["profileJson"].toString();
     QJsonObject profileJsonObj;
-    if (!profileJson.isEmpty()) {
-        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+    if (!shotData.profileJson.isEmpty()) {
+        QJsonDocument profileDoc = QJsonDocument::fromJson(shotData.profileJson.toUtf8());
         if (!profileDoc.isNull()) {
             profileJsonObj = profileDoc.object();
             Profile profile = Profile::fromJson(profileDoc);
@@ -1213,22 +1196,20 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     }
 
     // Also set profile_title from shot data (may differ from profile's own title)
-    QString profileName = shotData["profileName"].toString();
-    if (!profileName.isEmpty())
-        settings["profile_title"] = profileName;
+    if (!shotData.profileName.isEmpty())
+        settings["profile_title"] = shotData.profileName;
 
     QJsonObject data;
     data["settings"] = settings;
-    QString debugLog = shotData["debugLog"].toString();
-    if (!debugLog.isEmpty())
-        data["debug_log"] = debugLog;
+    if (!shotData.debugLog.isEmpty())
+        data["debug_log"] = shotData.debugLog;
     app["data"] = data;
 
     root["app"] = app;
 
     // Barista at root level (Visualizer may extract from here)
-    if (!barista.isEmpty())
-        root["barista"] = barista;
+    if (!shotData.barista.isEmpty())
+        root["barista"] = shotData.barista;
 
     // Profile JSON object for Visualizer's ?format=json download
     if (!profileJsonObj.isEmpty())

@@ -569,9 +569,12 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["profileJson"] = query.value("profile_json").toString();
             shot["beverageType"] = query.value("beverage_type").toString();
 
-            // ISO 8601 with timezone for API/AI consumption (CLAUDE.md convention)
+            // ISO 8601 with timezone for API/AI consumption (CLAUDE.md convention).
+            // Written into ShotProjection::timestampIso so it does not collide with
+            // dateTime, which convertShotRecord populates with a locale-formatted
+            // display string for QML.
             QDateTime dt = QDateTime::fromSecsSinceEpoch(ts);
-            shot["dateTime"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+            shot["timestampIso"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
 
             results.append(shot);
         }

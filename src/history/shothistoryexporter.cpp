@@ -127,7 +127,7 @@ bool writeShotJson(const QString& dbPath,
         return false;
     }
 
-    QVariantMap shotData = ShotHistoryStorage::convertShotRecord(record);
+    ShotProjection shotData = ShotHistoryStorage::convertShotRecord(record);
     QByteArray payload = VisualizerUploader::buildHistoryShotJson(shotData);
 
     const QString fullPath = exportedFilePath(historyDir, record.summary.timestamp, shotId);

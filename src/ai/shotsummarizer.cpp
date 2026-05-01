@@ -341,20 +341,20 @@ static QVector<QPointF> variantListToPoints(const QVariantList& list)
     return points;
 }
 
-ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) const
+ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData) const
 {
     ShotSummary summary;
 
     // Profile info
-    summary.profileTitle = shotData.value("profileName", "Unknown").toString();
-    summary.beverageType = shotData.value("beverageType", "espresso").toString();
-    summary.profileNotes = shotData.value("profileNotes").toString();
-    summary.profileKbId = shotData.value("profileKbId").toString();
+    summary.profileTitle = shotData.profileName.isEmpty() ? QStringLiteral("Unknown") : shotData.profileName;
+    summary.beverageType = shotData.beverageType.isEmpty() ? QStringLiteral("espresso") : shotData.beverageType;
+    summary.profileNotes = shotData.profileNotes;
+    summary.profileKbId = shotData.profileKbId;
 
     // Parse stored profile JSON once and use it for: (1) editorType-derived
     // profile-style description, (2) frame description, (3) firstFrameSeconds
     // for skip-first-frame detection. Was three separate parses; now one.
-    const QString profileJson = shotData.value("profileJson").toString();
+    const QString profileJson = shotData.profileJson;
     QJsonDocument profileDoc;
     if (!profileJson.isEmpty()) {
         profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
@@ -387,33 +387,33 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     }
 
     // Overall metrics
-    summary.doseWeight = shotData.value("doseWeightG", 0.0).toDouble();
-    summary.finalWeight = shotData.value("finalWeightG", 0.0).toDouble();
-    summary.totalDuration = shotData.value("durationSec", 0.0).toDouble();
+    summary.doseWeight = shotData.doseWeightG;
+    summary.finalWeight = shotData.finalWeightG;
+    summary.totalDuration = shotData.durationSec;
     summary.ratio = summary.doseWeight > 0 ? summary.finalWeight / summary.doseWeight : 0;
 
     // DYE metadata
-    summary.beanBrand = shotData.value("beanBrand").toString();
-    summary.beanType = shotData.value("beanType").toString();
-    summary.roastDate = shotData.value("roastDate").toString();
-    summary.roastLevel = shotData.value("roastLevel").toString();
-    summary.grinderBrand = shotData.value("grinderBrand").toString();
-    summary.grinderModel = shotData.value("grinderModel").toString();
-    summary.grinderBurrs = shotData.value("grinderBurrs").toString();
-    summary.grinderSetting = shotData.value("grinderSetting").toString();
-    summary.drinkTds = shotData.value("drinkTds", 0.0).toDouble();
-    summary.drinkEy = shotData.value("drinkEy", 0.0).toDouble();
-    summary.enjoymentScore = shotData.value("enjoyment", 0).toInt();
-    summary.tastingNotes = shotData.value("espressoNotes").toString();
+    summary.beanBrand = shotData.beanBrand;
+    summary.beanType = shotData.beanType;
+    summary.roastDate = shotData.roastDate;
+    summary.roastLevel = shotData.roastLevel;
+    summary.grinderBrand = shotData.grinderBrand;
+    summary.grinderModel = shotData.grinderModel;
+    summary.grinderBurrs = shotData.grinderBurrs;
+    summary.grinderSetting = shotData.grinderSetting;
+    summary.drinkTds = shotData.drinkTds;
+    summary.drinkEy = shotData.drinkEy;
+    summary.enjoymentScore = shotData.enjoyment;
+    summary.tastingNotes = shotData.espressoNotes;
 
     // Convert curve data
-    summary.pressureCurve = variantListToPoints(shotData.value("pressure").toList());
-    summary.flowCurve = variantListToPoints(shotData.value("flow").toList());
-    summary.tempCurve = variantListToPoints(shotData.value("temperature").toList());
-    summary.weightCurve = variantListToPoints(shotData.value("weight").toList());
-    summary.pressureGoalCurve = variantListToPoints(shotData.value("pressureGoal").toList());
-    summary.flowGoalCurve = variantListToPoints(shotData.value("flowGoal").toList());
-    summary.tempGoalCurve = variantListToPoints(shotData.value("temperatureGoal").toList());
+    summary.pressureCurve = variantListToPoints(shotData.pressure);
+    summary.flowCurve = variantListToPoints(shotData.flow);
+    summary.tempCurve = variantListToPoints(shotData.temperature);
+    summary.weightCurve = variantListToPoints(shotData.weight);
+    summary.pressureGoalCurve = variantListToPoints(shotData.pressureGoal);
+    summary.flowGoalCurve = variantListToPoints(shotData.flowGoal);
+    summary.tempGoalCurve = variantListToPoints(shotData.temperatureGoal);
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
@@ -423,7 +423,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // contribute their HistoryPhaseMarker (frame transitions matter to
     // skip-first-frame detection even when their span is degenerate).
     QList<HistoryPhaseMarker> historyMarkers;
-    const QVariantList phases = shotData.value("phases").toList();
+    const QVariantList phases = shotData.phases;
     historyMarkers.reserve(phases.size());
 
     if (!phases.isEmpty()) {
@@ -472,23 +472,21 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     // If detectorResults is absent, .toBool() defaults to false, so a callsite
     // that stuffs only summaryLines could mis-suppress per-phase temp markers
     // on a truncated-pour shot. Today no such callsite exists.
-    const QVariantList preComputedLines = shotData.value("summaryLines").toList();
-    if (!preComputedLines.isEmpty()) {
-        summary.summaryLines = preComputedLines;
-        const QVariantMap preDetectors = shotData.value("detectorResults").toMap();
-        summary.pourTruncatedDetected = preDetectors.value("pourTruncated").toBool();
+    if (!shotData.summaryLines.isEmpty()) {
+        summary.summaryLines = shotData.summaryLines;
+        summary.pourTruncatedDetected = shotData.detectorResults.value("pourTruncated").toBool();
         if (!summary.pourTruncatedDetected
             && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
             markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
         return summary;
     }
 
-    // Slow path: legacy shotData (e.g. imported shots, direct test callers,
-    // any QVariantMap that didn't flow through convertShotRecord) lacks the
-    // pre-computed fields. Delegate detector orchestration to
-    // runShotAnalysisAndPopulate, the same helper summarize() uses on the
-    // live path — see summarize() for rationale. historyMarkers was already
-    // populated alongside the PhaseSummary list above (single pass).
+    // Slow path: shotData not produced by convertShotRecord (imported shots,
+    // direct test callers) has empty summaryLines and needs the full analysis
+    // pipeline. Delegate detector orchestration to runShotAnalysisAndPopulate,
+    // the same helper summarize() uses on the live path — see summarize() for
+    // rationale. historyMarkers was already populated alongside the
+    // PhaseSummary list above (single pass).
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
 
     // First-frame seconds reuses the profileDoc parsed at the top of this
@@ -504,12 +502,12 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         frameCount = static_cast<int>(p.steps().size());
     }
 
-    const QVector<QPointF> derivCurve = variantListToPoints(shotData.value("conductanceDerivative").toList());
+    const QVector<QPointF> derivCurve = variantListToPoints(shotData.conductanceDerivative);
 
     // Per-shot targetWeight drives both arms of the grind-vs-yield check
     // (the choked-puck yield arm and the gusher arm added in PR #910) —
     // matches the input convertShotRecord passes to analyzeShot.
-    const double targetWeightG = shotData.value("targetWeightG").toDouble();
+    const double targetWeightG = shotData.targetWeightG;
 
     runShotAnalysisAndPopulate(summary,
         summary.pressureCurve, summary.flowCurve, summary.weightCurve,
@@ -776,85 +774,72 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
     out << "## Recent Shot History (same profile family, newest first)\n\n";
     out << "Use this to identify dial-in trends — what changed between shots and how it affected the result.\n\n";
 
+    // Convert each map entry to ShotProjection so the rest of this block reads
+    // fields with compile-time-checked names. The input is a QVariantList from
+    // ShotHistoryStorage::loadRecentShotsByKbIdStatic — that producer emits a
+    // map with the same keys as ShotProjection's Q_PROPERTYs, so the round-trip
+    // through fromVariantMap() is lossless for the fields read here.
     for (qsizetype i = 0; i < recentShots.size(); ++i) {
-        QVariantMap shot = recentShots[i].toMap();
-
-        QString dateTime = shot.value("dateTime").toString();
-        double dose = shot.value("doseWeightG", 0.0).toDouble();
-        double yield = shot.value("finalWeightG", 0.0).toDouble();
-        double duration = shot.value("durationSec", 0.0).toDouble();
+        const ShotProjection shot = ShotProjection::fromVariantMap(recentShots[i].toMap());
 
         // Skip entries with no meaningful data (corrupt or incomplete records)
-        if (dose <= 0 && yield <= 0 && duration <= 0) continue;
+        if (shot.doseWeightG <= 0 && shot.finalWeightG <= 0 && shot.durationSec <= 0) continue;
 
-        double ratio = dose > 0 ? yield / dose : 0;
-        int score = shot.value("enjoyment", 0).toInt();
+        const double ratio = shot.doseWeightG > 0 ? shot.finalWeightG / shot.doseWeightG : 0;
 
-        out << "### Shot " << (i + 1) << " (" << dateTime << ")\n";
-        out << "- Profile: " << shot.value("profileName").toString() << "\n";
-        out << "- Dose: " << QString::number(dose, 'f', 1) << "g → Yield: "
-            << QString::number(yield, 'f', 1) << "g (1:" << QString::number(ratio, 'f', 1) << ")\n";
-        out << "- Duration: " << QString::number(duration, 'f', 0) << "s\n";
+        out << "### Shot " << (i + 1) << " (" << shot.timestampIso << ")\n";
+        out << "- Profile: " << shot.profileName << "\n";
+        out << "- Dose: " << QString::number(shot.doseWeightG, 'f', 1) << "g → Yield: "
+            << QString::number(shot.finalWeightG, 'f', 1) << "g (1:" << QString::number(ratio, 'f', 1) << ")\n";
+        out << "- Duration: " << QString::number(shot.durationSec, 'f', 0) << "s\n";
 
         // Grinder info
-        QString grinderBrand = shot.value("grinderBrand").toString();
-        QString grinderModel = shot.value("grinderModel").toString();
-        QString grinderBurrs = shot.value("grinderBurrs").toString();
-        QString grinderSetting = shot.value("grinderSetting").toString();
-        if (!grinderBrand.isEmpty() || !grinderModel.isEmpty() || !grinderSetting.isEmpty()) {
+        if (!shot.grinderBrand.isEmpty() || !shot.grinderModel.isEmpty() || !shot.grinderSetting.isEmpty()) {
             out << "- Grinder: ";
-            if (!grinderBrand.isEmpty()) out << grinderBrand;
-            if (!grinderModel.isEmpty()) {
-                if (!grinderBrand.isEmpty()) out << " ";
-                out << grinderModel;
+            if (!shot.grinderBrand.isEmpty()) out << shot.grinderBrand;
+            if (!shot.grinderModel.isEmpty()) {
+                if (!shot.grinderBrand.isEmpty()) out << " ";
+                out << shot.grinderModel;
             }
-            if (!grinderBurrs.isEmpty()) out << " with " << grinderBurrs;
-            if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
+            if (!shot.grinderBurrs.isEmpty()) out << " with " << shot.grinderBurrs;
+            if (!shot.grinderSetting.isEmpty()) out << " @ " << shot.grinderSetting;
             out << "\n";
         }
 
         // Temperature override
-        double tempOverride = shot.value("temperatureOverrideC", 0.0).toDouble();
-        if (tempOverride > 0) {
-            out << "- Temperature override: " << QString::number(tempOverride, 'f', 1) << "°C\n";
+        if (shot.temperatureOverrideC > 0) {
+            out << "- Temperature override: " << QString::number(shot.temperatureOverrideC, 'f', 1) << "°C\n";
         }
 
         // Bean info
-        QString beanBrand = shot.value("beanBrand").toString();
-        QString beanType = shot.value("beanType").toString();
-        if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
-            out << "- Beans: " << beanBrand;
-            if (!beanBrand.isEmpty() && !beanType.isEmpty()) out << " - ";
-            out << beanType;
-            QString roastLevel = shot.value("roastLevel").toString();
-            if (!roastLevel.isEmpty()) out << " (" << roastLevel << ")";
+        if (!shot.beanBrand.isEmpty() || !shot.beanType.isEmpty()) {
+            out << "- Beans: " << shot.beanBrand;
+            if (!shot.beanBrand.isEmpty() && !shot.beanType.isEmpty()) out << " - ";
+            out << shot.beanType;
+            if (!shot.roastLevel.isEmpty()) out << " (" << shot.roastLevel << ")";
             out << "\n";
         }
 
         // Extraction measurements
-        double tds = shot.value("drinkTds", 0.0).toDouble();
-        double ey = shot.value("drinkEy", 0.0).toDouble();
-        if (tds > 0 || ey > 0) {
+        if (shot.drinkTds > 0 || shot.drinkEy > 0) {
             out << "- Extraction: ";
-            if (tds > 0) out << "TDS " << QString::number(tds, 'f', 2) << "%";
-            if (tds > 0 && ey > 0) out << ", ";
-            if (ey > 0) out << "EY " << QString::number(ey, 'f', 1) << "%";
+            if (shot.drinkTds > 0) out << "TDS " << QString::number(shot.drinkTds, 'f', 2) << "%";
+            if (shot.drinkTds > 0 && shot.drinkEy > 0) out << ", ";
+            if (shot.drinkEy > 0) out << "EY " << QString::number(shot.drinkEy, 'f', 1) << "%";
             out << "\n";
         }
 
         // Score and tasting notes
-        if (score > 0) {
-            out << "- Score: " << score << "/100\n";
+        if (shot.enjoyment > 0) {
+            out << "- Score: " << shot.enjoyment << "/100\n";
         }
-        QString notes = shot.value("espressoNotes").toString();
-        if (!notes.isEmpty()) {
-            out << "- Notes: \"" << notes << "\"\n";
+        if (!shot.espressoNotes.isEmpty()) {
+            out << "- Notes: \"" << shot.espressoNotes << "\"\n";
         }
 
         // Profile recipe (from stored JSON)
-        QString profileJson = shot.value("profileJson").toString();
-        if (!profileJson.isEmpty()) {
-            QString recipe = Profile::describeFramesFromJson(profileJson);
+        if (!shot.profileJson.isEmpty()) {
+            QString recipe = Profile::describeFramesFromJson(shot.profileJson);
             if (!recipe.isEmpty()) {
                 out << "- Recipe: " << recipe << "\n";
             }
