@@ -98,7 +98,7 @@ private slots:
             "type": "advanced",
             "version": 2,
             "steps": [
-                {"name":"preinfusion","temperature":92,"seconds":8,"flow":4.0,"transition":"fast","exit":{"type":"pressure_over","value":4.0}},
+                {"name":"preinfusion","temperature":92,"seconds":8,"flow":4.0,"transition":"fast","exit":{"type":"pressure","condition":"over","value":4.0}},
                 {"name":"pour","temperature":92,"seconds":22,"pressure":9.0,"transition":"smooth"}
             ]
         })");
