@@ -340,7 +340,11 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
 - `"skipped"` — non-espresso beverage or `grind_check_skip` analysis flag.
 - Field absent — the pourTruncated cascade is suppressing the grind block entirely, OR the pour window is degenerate (`pourEnd <= pourStart`).
 
-`grind.gates` exposes the inputs and thresholds the choked-puck arm (Arm 2) compared against, so consumers can answer "why didn't this badge fire?" without reading C++. Always emitted when Arm 2 ran — even on gate-fail paths. The arm fires when `passed && (meanPressurizedFlowMlPerSec < chokedFlowMaxMlPerSec || yieldRatio < chokedYieldRatioMax)`. `passed` requires `flowSamples >= minSamples && pressurizedDurationSec >= minPressurizedSec`; the per-sample pressure floor is `minPressureBar`. The yield-overshoot arm runs in parallel without a pressurized-window gate and fires on `yieldRatio > yieldOvershootRatioMin`.
+`grind.gates` exposes the inputs and thresholds the choked-puck arm (Arm 2) compared against, so consumers can answer "why didn't this badge fire?" without reading C++. Always emitted when Arm 2 ran — even on gate-fail paths. The arm has two split sub-arms (per #966):
+- **Flow sub-arm** fires when `passed && meanPressurizedFlowMlPerSec < chokedFlowMaxMlPerSec`. `passed` requires `flowSamples >= minSamples && pressurizedDurationSec >= minPressurizedSec` (the original 15s ≥ 4 bar gate).
+- **Yield sub-arm** fires when `flowSamples >= minSamples && yieldRatio < chokedYieldRatioMax`. Looser gate — only requires that the puck briefly saw meaningful pressure, not that the pressurized window was sustained.
+
+Either sub-arm sets `chokedPuck = true`. The per-sample pressure floor is `minPressureBar`. The yield-overshoot arm runs in parallel without any pressurized-window gate and fires on `yieldRatio > yieldOvershootRatioMin`.
 
 When a detector's `checked` (or `hasData`) flag is `false`, the detector was suppressed — most often by the `pourTruncated` cascade, but also by beverage-type skips (filter / pourover) or per-profile analysis flags (e.g. `flow_trend_ok`). Treat that as "no signal for this detector," not "clean signal."
 

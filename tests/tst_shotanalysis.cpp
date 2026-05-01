@@ -721,11 +721,13 @@ private slots:
         QVERIFY(std::abs(r.delta) < ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
     }
 
-    // Yield-ratio arm: shot 883 signature — 80's Espresso, mean pressurized
-    // flow ~0.6 ml/s (just over the 0.5 flow threshold), but yield 25.3 g
-    // of 36 g target is 70 %. The flow arm doesn't fire; the yield arm
-    // must catch this as the same diagnosis (grind too fine, just less
-    // severe than the catastrophic 1.1 g case).
+    // Yield-ratio arm: 80's Espresso-style signature — mean pressurized
+    // flow ~0.6 ml/s (just over the 0.5 flow threshold), with yield well
+    // below target. The flow arm doesn't fire; the yield arm catches this
+    // as the same diagnosis (grind too fine, just less severe than the
+    // catastrophic ~0.3 ml/s case). Yield ratio 24/36 = 0.67 sits below
+    // CHOKED_YIELD_RATIO_MAX (0.70 — tightened from a prior 0.85 by the
+    // 500-shot audit).
     void grindIssue_chokedPuckPressureMode_yieldShortfallFires()
     {
         QList<HistoryPhaseMarker> phases{
@@ -748,14 +750,14 @@ private slots:
             flow, flowGoal, phases, 6.0, 60.0, "", {}, pressure);
         QVERIFY(!rNoYield.chokedPuck);
 
-        // With yield 25.3 / target 36 = 70 %, yield-ratio arm fires.
+        // With yield 24 / target 36 = 67 %, yield-ratio arm fires.
         const auto rYield = ShotAnalysis::analyzeFlowVsGoal(
             flow, flowGoal, phases, 6.0, 60.0, "", {}, pressure,
-            /*targetWeightG=*/36.0, /*finalWeightG=*/25.3);
+            /*targetWeightG=*/36.0, /*finalWeightG=*/24.0);
         QVERIFY(rYield.chokedPuck);
         QCOMPARE(ShotAnalysis::detectGrindIssue(
                      flow, flowGoal, phases, 6.0, 60.0, "", {}, pressure,
-                     36.0, 25.3), true);
+                     36.0, 24.0), true);
     }
 
     // Yield-ratio arm must NOT fire on a clean ristretto where yield ~ target.
@@ -801,6 +803,101 @@ private slots:
             flow, flowGoal, phases, /*pourStart=*/6.0, /*pourEnd=*/60.0);
         QVERIFY(!r.hasData);
         QVERIFY(!r.chokedPuck);
+    }
+
+    // Yield arm decoupled from the 15s pressurized-duration gate. Shot 745
+    // signature: Adaptive v2, 35 s pour, brief pressurized window (~6 s
+    // ≥ 4 bar — under the 15 s flow-arm gate), yield 23 / 36 = 0.64.
+    // The shared gate previously hid this miss; now the yield arm fires
+    // standalone whenever flowSamples ≥ 5 (any meaningful pressurized
+    // samples) AND yield ratio < CHOKED_YIELD_RATIO_MAX.
+    void grindIssue_yieldArm_firesWithoutSustainedPressurized()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion", 0, /*isFlowMode=*/true),
+            phase(8.0,  "pour",        1, /*isFlowMode=*/false),
+        };
+        // Pressure ramps from 0.5 to 6.5 bar across the 8 s preinfusion
+        // (passes 4 bar partway up), then holds 9 bar from t=8.1-14.0,
+        // then drops to 2.5 bar for the rest of the shot. Total time
+        // above 4 bar ~6 s — under the 15 s flow-arm gate but well over
+        // the 5-sample minimum so the yield arm can fire.
+        QVector<QPointF> pressure;
+        pressure = concat(pressure, rampSeries(0.0, 8.0, 0.5, 6.5));
+        pressure = concat(pressure, flatSeries(8.1, 14.0, 9.0));
+        pressure = concat(pressure, flatSeries(14.1, 35.0, 2.5));
+        QVector<QPointF> flow;
+        flow = concat(flow, flatSeries(0.0, 8.0, 5.0));
+        flow = concat(flow, flatSeries(8.1, 35.0, 1.5));
+        QVector<QPointF> flowGoal = flatSeries(0.0, 35.0, 5.0);
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/8.0, /*pourEnd=*/35.0,
+            /*beverageType=*/"", /*analysisFlags=*/{},
+            pressure,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/23.0);
+        QVERIFY2(r.chokedPuck,
+                 "yield arm must fire on brief-pressurized + low-yield shot 745");
+        QVERIFY(r.hasData);
+        QVERIFY2(!r.verifiedClean,
+                 "verifiedClean must require sustained pressurized window");
+    }
+
+    // Borderline yield ratio between the new threshold (0.70) and the prior
+    // value (0.85) must stay silent. Locks in that the threshold tightening
+    // doesn't over-flag profiles that legitimately deliver 71-85% of target.
+    void grindIssue_yieldArm_doesNotFireOnBorderlineRatio()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion", 0, /*isFlowMode=*/true),
+            phase(8.0,  "pour",        1, /*isFlowMode=*/false),
+        };
+        QVector<QPointF> pressure;
+        pressure = concat(pressure, rampSeries(0.0, 8.0, 0.5, 6.5));
+        pressure = concat(pressure, flatSeries(8.1, 14.0, 9.0));
+        pressure = concat(pressure, flatSeries(14.1, 35.0, 2.5));
+        QVector<QPointF> flow;
+        flow = concat(flow, flatSeries(0.0, 8.0, 5.0));
+        flow = concat(flow, flatSeries(8.1, 35.0, 1.5));
+        QVector<QPointF> flowGoal = flatSeries(0.0, 35.0, 5.0);
+
+        // Yield 27 / 36 = 0.75 — above the 0.70 threshold, below the prior 0.85.
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/8.0, /*pourEnd=*/35.0,
+            /*beverageType=*/"", /*analysisFlags=*/{},
+            pressure,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/27.0);
+        QVERIFY2(!r.chokedPuck,
+                 "0.75 yield ratio must not fire under the 0.70 threshold");
+    }
+
+    // Flow arm still requires the 15s sustained pressurized gate — only the
+    // yield arm decoupled. A low-mean-flow shot with insufficient pressurized
+    // duration must NOT fire chokedPuck via the flow arm; the yield arm only
+    // fires when target/final-weight metadata is present.
+    void grindIssue_flowArm_stillRequiresFifteenSecondsPressurized()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0,  "preinfusion", 0, /*isFlowMode=*/true),
+            phase(8.0,  "pour",        1, /*isFlowMode=*/false),
+        };
+        // 10 s of sustained pressure (under the 15 s gate), with very low
+        // mean flow (0.3 mL/s, well under the 0.5 flow threshold).
+        QVector<QPointF> pressure;
+        pressure = concat(pressure, rampSeries(0.0, 8.0, 0.5, 6.5));
+        pressure = concat(pressure, flatSeries(8.1, 18.0, 9.0));
+        pressure = concat(pressure, flatSeries(18.1, 25.0, 2.0));
+        QVector<QPointF> flow;
+        flow = concat(flow, flatSeries(0.0, 8.0, 5.0));
+        flow = concat(flow, flatSeries(8.1, 25.0, 0.3));
+        QVector<QPointF> flowGoal = flatSeries(0.0, 25.0, 5.0);
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/8.0, /*pourEnd=*/25.0,
+            /*beverageType=*/"", /*analysisFlags=*/{},
+            pressure);
+        QVERIFY2(!r.chokedPuck,
+                 "flow arm must keep its 15s pressurized gate — must not fire on 10s sustained");
     }
 
     // generateSummary on a choked-puck shot must emit the dedicated warning

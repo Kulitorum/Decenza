@@ -171,16 +171,26 @@ public:
     // flag:
     //   - Flow arm: mean pressurized flow < CHOKED_FLOW_MAX_MLPS — catches
     //     severe chokes like 80's Espresso shot 890 (1.1 g yield, ~0.3 ml/s
-    //     mean during the pressure-mode tail).
+    //     mean during the pressure-mode tail). Requires flowSamples ≥ 5
+    //     AND pressurizedDuration ≥ CHOKED_DURATION_MIN_SEC because mean
+    //     flow is only meaningful when the puck sustained pressure.
     //   - Yield arm: yield/target < CHOKED_YIELD_RATIO_MAX — catches moderate
-    //     chokes like shot 883 (25 g of 36 g target, ~0.6 ml/s mean — narrowly
-    //     above the flow threshold but the puck still failed to deliver).
-    // Both arms share the `flowSamples ≥ 5 && pressurizedDuration ≥
-    // CHOKED_DURATION_MIN_SEC` gate so neither fires on aborted shots.
+    //     chokes like shot 745 (Adaptive v2, 23 g of 36 g target = 0.64
+    //     ratio, ~8.8 s pressurized window). Requires only flowSamples
+    //     ≥ 5 (any pressurized samples seen) — does NOT require sustained
+    //     pressurized duration because its diagnosis is yield-based and
+    //     does not read mean pressurized flow. Decoupled from the flow
+    //     arm's gate by the 500-shot audit (see #963 / openspec change
+    //     tighten-grind-yield-shortfall-arm).
     static constexpr double CHOKED_PRESSURE_MIN_BAR = 4.0;
     static constexpr double CHOKED_FLOW_MAX_MLPS = 0.5;
     static constexpr double CHOKED_DURATION_MIN_SEC = 15.0;
-    static constexpr double CHOKED_YIELD_RATIO_MAX = 0.85;
+    // Tightened from 0.85 by the 500-shot audit: 0.85 over-flagged
+    // Adaptive v2 fast-pour profiles delivering 71-76% of target by
+    // design. 0.70 is the empirical sweet spot — catches the genuinely
+    // choked shapes (yields under ~70%) without false-positives on
+    // profiles whose normal yield is intentionally below target.
+    static constexpr double CHOKED_YIELD_RATIO_MAX = 0.70;
 
     // Yield-overshoot ("gusher") arm — the inverse of the moderate choked-puck
     // yield arm. Fires when yield/target exceeds this ratio: the puck offered
@@ -234,20 +244,23 @@ public:
 
         // Gate inputs / outputs from the choked-puck arm (Arm 2). Populated
         // whenever Arm 2 walks the pressure-mode samples — even when the
-        // gate fails on too-short pressurization or too few samples. Lets
+        // gates fail on too-short pressurization or too few samples. Lets
         // consumers answer "why didn't this badge fire?" without re-reading
-        // the C++. Gate semantics:
+        // the C++. Gate semantics (post-#966 split-arm gates):
         //   - flowSamples  : count of pressurized samples (pressure ≥ CHOKED_PRESSURE_MIN_BAR)
         //   - pressurizedDurationSec : integrated dt across those samples (gap-bounded)
         //   - meanPressurizedFlowMlPerSec : mean flow across those samples; 0 if flowSamples == 0
         //   - yieldRatio   : finalWeightG / targetWeightG; 0 when either is 0 (Arm 2 yield arm
         //                    is disabled in that case)
         //   - gatePassed   : flowSamples ≥ 5 AND pressurizedDurationSec ≥ CHOKED_DURATION_MIN_SEC.
-        //                    When false, the choked-puck loop returns early without setting
-        //                    chokedPuck / verifiedClean — gate fields here diagnose why.
+        //                    Specifically the flow arm's gate — the yield arm has a looser
+        //                    entry condition (just flowSamples ≥ 5, readable from flowSamples).
+        //                    When gatePassed == false, the flow-mean choke check can't fire and
+        //                    verifiedClean stays false; the yield arm can still fire chokedPuck
+        //                    if flowSamples ≥ 5 AND yield ratio < 0.85.
         //                    NOTE: yieldOvershoot is set by an independent pre-gate arm and is
-        //                    NOT covered by this gate; a gate-fail gusher can have gatePassed
-        //                    == false AND yieldOvershoot == true.
+        //                    NOT covered by either gate; a shot can have gatePassed == false
+        //                    AND yieldOvershoot == true.
         // gateRan == false means Arm 2 was bypassed entirely (empty pressure curve, or skipped
         // beverage type). All gate fields stay at their defaults in that case.
         bool gateRan = false;

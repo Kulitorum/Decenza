@@ -542,7 +542,11 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     }
 
     // Record the gate inputs unconditionally so consumers can answer
-    // "why didn't this badge fire?" even on gate-fail paths.
+    // "why didn't this badge fire?" even on gate-fail paths. `gatePassed`
+    // tracks the flow-arm gate (the original 15s ≥ 4 bar gate) — that's
+    // the specific gate shot 745 was silenced by before #966 split the arms.
+    // The yield arm has a looser gate (flowSamples ≥ 5), diagnosable from
+    // the raw `flowSamples` field.
     result.gateRan = true;
     result.gateFlowSamples = flowSamples;
     result.gatePressurizedDurationSec = pressurizedDuration;
@@ -551,43 +555,58 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         ? finalWeightG / targetWeightG : 0.0;
     result.gatePassed = flowSamples >= 5 && pressurizedDuration >= CHOKED_DURATION_MIN_SEC;
 
-    if (result.gatePassed) {
-        const double meanFlow = result.gateMeanPressurizedFlowMlPerSec;
-        const bool flowChoked = meanFlow < CHOKED_FLOW_MAX_MLPS;
+    // Two arms with split gates:
+    //  - Flow arm needs sustained pressurized flow (≥ 15s ≥ 4 bar) to
+    //    compute a meaningful mean-flow average.
+    //  - Yield arm only needs ≥ 5 pressurized samples (puck saw
+    //    meaningful pressure briefly); its diagnosis is yield-based
+    //    and does not read mean pressurized flow.
+    // The shared gate previously hid shot 745-class misses (Adaptive v2,
+    // 35s pour, 64% yield, ~8.8 s pressurized) — silenced by the 15s gate
+    // even though the yield arm could have spoken. See openspec change
+    // tighten-grind-yield-shortfall-arm and #963.
+    if (flowSamples >= 5) {
+        const bool flowArmGatesPassed = result.gatePassed;
+
+        bool flowChoked = false;
+        if (flowArmGatesPassed) {
+            flowChoked = result.gateMeanPressurizedFlowMlPerSec < CHOKED_FLOW_MAX_MLPS;
+        }
+
         // Yield-ratio arm: same diagnosis (grind too fine), milder severity.
-        // Catches shots like 883 — 70 % of target with mean pressurized flow
-        // ~0.6 ml/s, just over the flow threshold but the puck still failed
-        // to deliver. finalWeightG works on either real or virtual scale
-        // (FlowScale integrates flow with dose-aware puck-absorption
+        // Catches shots like 745 (Adaptive v2, 64% of target with brief
+        // pressurized window). finalWeightG works on either real or virtual
+        // scale (FlowScale integrates flow with dose-aware puck-absorption
         // compensation), so this fires headless too.
         const bool yieldShortfall = targetWeightG > 0.0
             && finalWeightG > 0.0
             && (finalWeightG / targetWeightG) < CHOKED_YIELD_RATIO_MAX;
-        // Set hasData when the choked-puck loop sees enough pressurized
-        // samples to speak — even when no choke fires. This gives
-        // downstream consumers a positive "we saw enough to evaluate"
-        // signal instead of silently treating no-choke as no-data, which
-        // is what produced the long-running gap on simple two-marker
-        // (Preinfusion + Pour) profiles: A-Flow, La Pavoni, Malabar,
-        // Italian Style. See openspec/specs/shot-analysis-pipeline.
-        result.hasData = true;
+
+        // hasData when any arm could speak: the flow arm's gates passed
+        // (regardless of whether choke fired) OR the yield arm fired.
+        // Verified-clean still requires the strong flow-arm gates.
+        if (flowArmGatesPassed || yieldShortfall) {
+            result.hasData = true;
+        }
+
         if (flowChoked || yieldShortfall) {
             result.chokedPuck = true;
             result.sampleCount = flowSamples;
             // Leave delta carrying its flow-vs-goal meaning; consumers
             // short-circuit on chokedPuck before reading delta.
-        } else if (!result.yieldOvershoot
+        } else if (flowArmGatesPassed
+                   && !result.yieldOvershoot
                    && std::abs(result.delta) <= FLOW_DEVIATION_THRESHOLD) {
-            // Gates passed, no choke fired, no overshoot, and Arm 1 (if it
-            // ran) found delta within tolerance. The puck behaved.
+            // Flow-arm gates passed, no choke fired, no overshoot, and
+            // Arm 1 (if it ran) found delta within tolerance. The puck
+            // behaved through a sustained pressurized pour — strong verify.
             result.verifiedClean = true;
-            // Leave sampleCount as Arm 1 set it. Note Arm 1 assigns
-            // sampleCount before its own count >= 5 gate, so the value
-            // here is whatever Arm 1 saw — could be the qualifying-samples
-            // count (≥ 5) when Arm 1 produced data, a partial count
-            // (1-4) when Arm 1 ran but didn't pass its gate, or 0 when
-            // Arm 1's block was bypassed entirely (empty flowModeRanges
-            // or no flowGoal).
+            // Leave sampleCount as Arm 1 set it. Arm 1 assigns sampleCount
+            // before its own count >= 5 gate, so the value here is whatever
+            // Arm 1 saw — could be the qualifying-samples count (≥ 5) when
+            // Arm 1 produced data, a partial count (1-4) when Arm 1 ran
+            // but didn't pass its gate, or 0 when Arm 1's block was
+            // bypassed entirely (empty flowModeRanges or no flowGoal).
         }
     }
 
