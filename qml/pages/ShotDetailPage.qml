@@ -1442,7 +1442,10 @@ Page {
                 enabled: discussButton.isClaudeDesktopReady
                 onClicked: {
                     if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
-                        var summary = MainController.aiManager.generateHistoryShotSummary(shotData)
+                        // Prose, not the JSON envelope — the user is pasting this into
+                        // an external AI tool, where prose is more readable and avoids
+                        // double-shipping the structured fields.
+                        var summary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }
                     var url = Settings.network.discussShotUrl()
@@ -1503,7 +1506,10 @@ Page {
                 id: emailButtonArea
                 anchors.fill: parent
                 onClicked: {
-                    var prompt = MainController.aiManager.generateHistoryShotSummary(shotData)
+                    // Prose, not the JSON envelope — the email body lands in the
+                    // user's mail client; prose is readable and the prior JSON shape
+                    // double-shipped structured fields (#1042).
+                    var prompt = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
                     var subject = "Espresso AI Analysis - " + (shotData.profileName || "Shot")
                     Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(prompt))
                 }

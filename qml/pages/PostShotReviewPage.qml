@@ -1501,7 +1501,10 @@ Page {
                 onClicked: {
                     // Copy shot summary to clipboard if MCP is not connected
                     if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
-                        var summary = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                        // Prose, not the JSON envelope — the user is pasting this into
+                        // an external AI tool. See #1042 / ShotDetailPage clipboard
+                        // path for rationale.
+                        var summary = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
                         if (summary.length > 0) MainController.copyToClipboard(summary)
                     }
                     // Open configured AI app
@@ -1561,7 +1564,10 @@ Page {
                 id: emailPromptArea
                 anchors.fill: parent
                 onClicked: {
-                    var prompt = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                    // Prose, not the JSON envelope — the email body lands in the
+                    // user's mail client; the JSON shape double-shipped structured
+                    // fields (#1042).
+                    var prompt = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
                     // Open mailto: with prompt in body
                     Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
                                         "&body=" + encodeURIComponent(prompt))

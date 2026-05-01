@@ -113,8 +113,12 @@ Rectangle {
         if (isMistake) {
             overlay.pendingShotSummary = ""
         } else {
-            // Generate shot summary from history shot data, with recipe dedup and change detection
-            var raw = MainController.aiManager.generateHistoryShotSummary(shotData)
+            // Prose body for change-detection regex — `processShotForConversation`
+            // accepts either prose or the JSON envelope (its `extractShotProse`
+            // is a no-op for prose), so passing prose directly skips the parse +
+            // shotAnalysis-field extraction. Pre-#1042 this called
+            // `generateHistoryShotSummary` which returned the JSON envelope.
+            var raw = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
             overlay.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, shotLabel)
         }
 

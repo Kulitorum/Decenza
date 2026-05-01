@@ -171,9 +171,11 @@ public:
     //   carrying currentBean / profile / tastingFeedback / shotAnalysis.
     //   Key names mirror dialing_get_context's response shape so a single
     //   system prompt reads correctly off either surface. The `shotAnalysis`
-    //   field embeds the same prose body HistoryBlock mode produces, so
-    //   regex consumers in AIConversation that previously matched on prose
-    //   still find their substrings after parsing the JSON envelope first.
+    //   field embeds the prose body produced by `renderShotAnalysisProse`
+    //   in `Standalone` mode (which carries the `## Shot Summary` and
+    //   `## Detector Observations` headers `HistoryBlock` mode suppresses).
+    //   Regex consumers in AIConversation match on that prose after
+    //   parsing the JSON envelope first via `extractShotProse`.
     // - `HistoryBlock` mode: returns prose only, no JSON envelope. The caller
     //   wraps each block in a `### Shot (date)` header so JSON-per-shot would
     //   be unreadable when concatenated.
@@ -197,10 +199,17 @@ public:
     // `## Detector Observations`) — no JSON envelope. Used by
     // `dialing_get_context` to populate `result.shotAnalysis` without
     // double-shipping `currentBean` / `profile` / `tastingFeedback`
-    // (which already live at the top level of the response). Also the
-    // single source for the prose content the in-app advisor's user-
-    // prompt envelope carries under its `shotAnalysis` key — so the two
-    // surfaces produce byte-identical prose by construction.
+    // (which already live at the top level of the response).
+    //
+    // Implemented as `renderShotAnalysisProse(summary, RenderMode::Standalone)`.
+    // `buildUserPromptObject(summary, Standalone)` calls the same renderer
+    // with the same mode for its `shotAnalysis` key, so the two surfaces
+    // emit identical prose when both use `Standalone` (the only mode for
+    // which `buildUserPromptObject` returns a non-empty envelope today).
+    // Callers that pass `HistoryBlock` to `buildUserPromptObject` would
+    // get different prose (HistoryBlock suppresses the `## Shot Summary`
+    // and `## Detector Observations` headers) — that path doesn't share
+    // an envelope at all.
     QString buildShotAnalysisProse(const ShotSummary& summary) const;
 
     // Format recent shot history as AI context (lightweight, no curve data)
