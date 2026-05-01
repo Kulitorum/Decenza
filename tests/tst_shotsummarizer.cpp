@@ -1607,7 +1607,7 @@ private slots:
         QVariantList lines;
         lines.append(QVariantMap{
             {"type", QStringLiteral("warning")},
-            {"text", QStringLiteral("Channeling detected during pour")}});
+            {"text", QStringLiteral("Sustained channeling detected in dC/dt")}});
         lines.append(QVariantMap{
             {"type", QStringLiteral("verdict")},
             {"text", QStringLiteral("Coarsen significantly.")}});

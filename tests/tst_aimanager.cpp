@@ -871,11 +871,17 @@ private slots:
 
     void aiConversation_extractShotFields_detectorFlagsEchoFromShotAnalysisProse()
     {
+        // Use the actual production-emitted strings from
+        // ShotAnalysis::analyzeShot — "Sustained channeling detected"
+        // (lowercase "c" in "channeling") and "Temperature drifted X°C
+        // from goal on average". These are what the deterministic
+        // detector pipeline writes into summaryLines.text, and the
+        // substring matchers in extractShotFields are tuned to them.
         const QString content = QStringLiteral(
             "## Shot (2026-05-01)\n\nHere's my latest shot:\n\n"
             "{"
             "  \"shot\": {\"doseG\": 18.0, \"yieldG\": 36.0},"
-            "  \"shotAnalysis\": \"## Shot Summary\\nChanneling detected during pour.\\nTemperature unstable in phase 2.\""
+            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\\n- [caution] Temperature drifted 2.4\\u00B0C from goal on average\""
             "}\n\nWhat to do?");
 
         const auto fields = AIConversation::extractShotFields(content);
@@ -895,7 +901,7 @@ private slots:
             "  \"shot\": {"
             "    \"doseG\": 18.0,"
             "    \"detectorObservations\": ["
-            "      {\"type\": \"warning\", \"text\": \"Channeling detected during pour\"}"
+            "      {\"type\": \"warning\", \"text\": \"Sustained channeling detected in dC/dt\"}"
             "    ]"
             "  },"
             "  \"shotAnalysis\": \"## Shot Summary\\nNo issues observed.\""
@@ -920,7 +926,7 @@ private slots:
             "- **Profile**: 80's Espresso\n"
             "- **Score**: 85\n"
             "- **Notes**: \"balanced\"\n"
-            "Channeling detected during pour.\n");
+            "- [warning] Sustained channeling detected in dC/dt\n");
 
         const auto fields = AIConversation::extractShotFields(content);
         QVERIFY2(!fields.fromStructuredEnvelope,
