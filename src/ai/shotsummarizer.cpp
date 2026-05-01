@@ -588,6 +588,39 @@ static QJsonObject buildTastingFeedbackBlock(const ShotSummary& summary)
     return tf;
 }
 
+static QJsonObject buildShotBlock(const ShotSummary& summary)
+{
+    // Shot-VARIABLE fields the AIConversation change-detection layer
+    // diffs between adjacent shots in a multi-shot session. Issue #1039:
+    // before this block existed, AIConversation parsed dose / yield /
+    // duration / score / notes via brittle regex against the prose
+    // body. Now they live as structured fields the consumer can read
+    // directly. Identity fields (bean / grinder / profile) stay in
+    // `currentBean` / `profile` — this block only carries what the
+    // user iterates on.
+    //
+    // Empty / zero / false fields are omitted so the regex consumer's
+    // legacy "field absent on either side ⇒ skip the diff" semantics
+    // carry over to the structured path without special-casing.
+    QJsonObject shot;
+    if (summary.doseWeight > 0) shot["doseG"] = summary.doseWeight;
+    if (summary.finalWeight > 0) shot["yieldG"] = summary.finalWeight;
+    if (summary.totalDuration > 0) shot["durationSec"] = summary.totalDuration;
+    if (summary.ratio > 0) shot["ratio"] = summary.ratio;
+    if (!summary.grinderSetting.isEmpty()) shot["grinderSetting"] = summary.grinderSetting;
+    // CLAUDE.md MCP convention: scale lives in the field name for
+    // bounded values. Mirrors `dialing_get_context.bestRecentShot.enjoyment0to100`.
+    if (summary.enjoymentScore > 0) shot["enjoyment0to100"] = summary.enjoymentScore;
+    if (!summary.tastingNotes.isEmpty()) shot["notes"] = summary.tastingNotes;
+    // Detector flag echoes (channeling / temp unstable) are NOT lifted
+    // into this block — `ShotSummary` does not carry them as scalar
+    // booleans today (they live inside `summaryLines` as tagged
+    // observations). The downstream consumer still substring-searches
+    // the prose for those tags. Issue #1037 will absorb them when it
+    // restructures detector observations into a typed array.
+    return shot;
+}
+
 QJsonObject ShotSummarizer::buildUserPromptObject(const ShotSummary& summary, RenderMode mode) const
 {
     // HistoryBlock mode has no JSON envelope — its callers concatenate
@@ -613,6 +646,12 @@ QJsonObject ShotSummarizer::buildUserPromptObject(const ShotSummary& summary, Re
     payload["currentBean"] = buildCurrentBeanBlock(summary);
     payload["profile"] = buildCurrentProfileBlock(summary);
     payload["tastingFeedback"] = buildTastingFeedbackBlock(summary);
+    // Shot-VARIABLE structured fields (issue #1039). The downstream
+    // change-detection layer in `AIConversation` reads these directly
+    // instead of regex-extracting them out of the prose body. Empty
+    // when the shot has no quantitative data populated yet.
+    const QJsonObject shot = buildShotBlock(summary);
+    if (!shot.isEmpty()) payload["shot"] = shot;
     payload["shotAnalysis"] = renderShotAnalysisProse(summary, mode);
     return payload;
 }
