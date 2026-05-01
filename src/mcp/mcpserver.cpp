@@ -286,7 +286,23 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
             QJsonObject src = v.toObject();
             QJsonObject block;
             block["type"] = "resource_link";
-            block["uri"] = src.value("uri").toString();
+            const QString uri = src.value("uri").toString();
+            block["uri"] = uri;
+            // MCP 2025-06-18: `resource_link` carries the same shape as a
+            // `Resource`, where `name` is REQUIRED. Strict clients reject the
+            // whole content[] entry when it's missing. Prefer a side-channel
+            // `name` when the emitter supplied one; otherwise fall back to the
+            // uri's last path segment (e.g. decenza://shots/884 → "884",
+            // decenza://machine/state → "state") so we never ship an entry
+            // without `name`.
+            const QString providedName = src.value("name").toString();
+            if (!providedName.isEmpty()) {
+                block["name"] = providedName;
+            } else {
+                const qsizetype slash = uri.lastIndexOf('/');
+                const QString tail = slash >= 0 ? uri.mid(slash + 1) : uri;
+                block["name"] = tail.isEmpty() ? uri : tail;
+            }
             const QString lt = src.value("title").toString();
             if (!lt.isEmpty()) block["title"] = lt;
             const QString mt = src.value("mimeType").toString();

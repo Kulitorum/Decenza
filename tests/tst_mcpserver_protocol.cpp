@@ -449,6 +449,16 @@ private slots:
         QCOMPARE(firstLink["uri"].toString(), QString("decenza://shots/42"));
         QCOMPARE(firstLink["title"].toString(), QString("Shot #42"));
         QCOMPARE(firstLink["mimeType"].toString(), QString("application/json"));
+        // MCP 2025-06-18: `name` is REQUIRED on resource_link blocks. Strict
+        // clients drop the entire content[] entry when it's missing. When the
+        // emitter doesn't provide one, the wrapper derives it from the uri's
+        // last path segment ("42" for decenza://shots/42).
+        QVERIFY2(firstLink.contains("name"),
+                 "resource_link blocks must always include `name` (MCP 2025-06-18)");
+        QCOMPARE(firstLink["name"].toString(), QString("42"));
+        // The second link similarly derives its name from the path segment.
+        const QJsonObject secondLink = content[1].toObject();
+        QCOMPARE(secondLink["name"].toString(), QString("foo"));
 
         // structuredContent must NOT carry the side-channel field — it's
         // consumed by the wrapper and stripped from the structured payload.
