@@ -1,3 +1,68 @@
+## Command Line Build (for Claude sessions)
+
+> **Don't build automatically** — let the user build in Qt Creator (~50× faster than CLI). Only use these commands if the user explicitly asks for a CLI build.
+
+### Windows (MSVC)
+
+MSVC environment variables (INCLUDE, LIB) are set permanently. Use Visual Studio generator (Ninja not in PATH).
+
+**Configure Release:**
+```bash
+rm -rf build/Release && mkdir -p build/Release && cd build/Release && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64"
+```
+
+**Build Release (parallel):**
+```bash
+cd build/Release && unset CMAKE_BUILD_PARALLEL_LEVEL && MSYS_NO_PATHCONV=1 cmake --build . --config Release -- /m
+```
+
+**Configure Debug:**
+```bash
+rm -rf build/Debug && mkdir -p build/Debug && cd build/Debug && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug
+```
+
+**Build Debug (parallel):**
+```bash
+cd build/Debug && unset CMAKE_BUILD_PARALLEL_LEVEL && MSYS_NO_PATHCONV=1 cmake --build . --config Debug -- /m
+```
+
+Notes: `unset CMAKE_BUILD_PARALLEL_LEVEL` avoids conflicts with `/m`. `MSYS_NO_PATHCONV=1` prevents bash from converting `/m` to `M:/`. The `/m` flag enables MSBuild parallel compilation.
+
+**Output locations:**
+- Release: `build/Release/Release/Decenza.exe`
+- Debug: `build/Debug/Debug/Decenza.exe`
+
+### macOS / iOS (on Mac)
+
+Use Qt's `qt-cmake` wrapper which handles cross-compilation correctly.
+
+**Finding Qt paths.** Qt is installed at `~/Qt/`. Discover paths dynamically:
+```bash
+# Find qt-cmake for macOS
+find ~/Qt -name "qt-cmake" -path "*/macos/*"
+# Find Ninja (bundled with Qt)
+find ~/Qt/Tools -name "ninja"
+```
+
+**Configure iOS (generates Xcode project):**
+```bash
+rm -rf build/Qt_6_10_3_for_iOS && mkdir -p build/Qt_6_10_3_for_iOS && cd build/Qt_6_10_3_for_iOS && /Users/mic/Qt/6.10.3/ios/bin/qt-cmake ../.. -G Xcode
+```
+
+**Configure macOS (generates Xcode project):**
+```bash
+rm -rf build/Qt_6_10_3_for_macOS && mkdir -p build/Qt_6_10_3_for_macOS && cd build/Qt_6_10_3_for_macOS && /Users/mic/Qt/6.10.3/macos/bin/qt-cmake ../.. -G Xcode
+```
+
+**Open in Xcode:**
+```bash
+open build/Qt_6_10_3_for_iOS/Decenza.xcodeproj
+# or
+open build/Qt_6_10_3_for_macOS/Decenza.xcodeproj
+```
+
+Then in Xcode: Product → Archive for App Store submission.
+
 ## Windows Installer
 
 The Windows installer is built with Inno Setup (`installer/setup.iss`). It uses a local config file `installer/setupvars.iss` (gitignored) to define machine-specific paths.
