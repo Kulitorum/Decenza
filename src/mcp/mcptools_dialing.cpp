@@ -1,5 +1,6 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
+#include "mcptools_dialing_helpers.h"
 #include "../history/shothistorystorage.h"
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
@@ -29,13 +30,6 @@ struct DialingDbResult {
     QJsonArray dialInSessions;
     QJsonObject grinderContext;
 };
-
-// A run of consecutive shots on the same profile counts as one dial-in
-// "session" when the gap between adjacent shots is small enough that the
-// user is plausibly still iterating. 60 minutes covers the realistic case
-// (pull, taste, adjust grinder, re-dose, pull again) without merging
-// unrelated morning/afternoon attempts.
-static constexpr qint64 kDialInSessionGapSec = 60 * 60;
 
 // Build the changeFromPrev diff between two adjacent shots in the same
 // session — same shape as `shots_compare` produces, computed inline so the
@@ -185,27 +179,21 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             return h;
                         };
 
-                        // Walk the DESC list, breaking sessions when the
-                        // gap to the next-older shot exceeds the threshold.
-                        QList<QList<ShotProjection>> sessions;
-                        QList<ShotProjection> current;
-                        for (qsizetype i = 0; i < shots.size(); ++i) {
-                            current.append(shots[i]);
-                            const bool isLast = (i == shots.size() - 1);
-                            const bool gapTooLarge = !isLast &&
-                                qAbs(shots[i].timestamp - shots[i+1].timestamp) > kDialInSessionGapSec;
-                            if (isLast || gapTooLarge) {
-                                sessions.append(current);
-                                current.clear();
-                            }
-                        }
+                        // Group the DESC-ordered shots into sessions using
+                        // the pure helper (unit-tested separately).
+                        QList<qint64> timestamps;
+                        timestamps.reserve(shots.size());
+                        for (const auto& s : shots)
+                            timestamps.append(s.timestamp);
+                        const auto sessionIndices = McpDialingHelpers::groupSessions(timestamps);
 
-                        for (const auto& session : sessions) {
-                            // Reverse to ASC within the session.
+                        for (const auto& indices : sessionIndices) {
+                            // Reverse to ASC within the session so
+                            // changeFromPrev reads "older -> newer".
                             QList<ShotProjection> ordered;
-                            ordered.reserve(session.size());
-                            for (qsizetype i = session.size() - 1; i >= 0; --i)
-                                ordered.append(session[i]);
+                            ordered.reserve(indices.size());
+                            for (qsizetype i = indices.size() - 1; i >= 0; --i)
+                                ordered.append(shots[indices[i]]);
 
                             QJsonArray sessionShots;
                             for (qsizetype i = 0; i < ordered.size(); ++i) {

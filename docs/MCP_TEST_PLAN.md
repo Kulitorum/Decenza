@@ -35,6 +35,7 @@ If ORIGINAL_MODIFIED is true, warn the user — tests will modify the profile an
 | 2026-03-20 | 37 | 41 | 1 | 0 | Initial run, simulator mode |
 | 2026-04-30 | 33 | 56 | 1 | 0 | Simulator, MCP 2025-11-25 negotiated. Plan refreshed for PR #976 field renames, `profiles_save` readonly refusal, `profiles_create` empty-filename, removal of `preferences` category, and §4.10 active-delete behavior. |
 | 2026-05-01 | 33 | 56 | 1 | 0 | Plan refreshed for PR #984: `shots_get_detail`/`shots_compare` default to summary mode (#979); `enjoyment0to100`/`drinkTdsPct`/`drinkEyPct` everywhere on shot reads (#980); `profiles_delete` returns actionable error on active profile (#983). |
+| 2026-05-01 | 35 | — | — | 0 | Plan refreshed for PR #1014 (#1009): `dialing_get_context` now emits `dialInSessions` (sessions of shots within ~60 min on the same profile, with within-session `changeFromPrev` diffs) in place of the flat `dialInHistory` array. |
 | 2026-05-01 | 34 | — | — | 0 | Spot-check after merging PRs #996–#1005 (issues #985–#994). Validated: `app_get_info` returns platform block, `machine_get_state` no longer ships `stateString`/`platform`. `shots_list` returns `hasMore`/`nextOffset` (last-page → false/null). `shots_get_detail`/`shots_compare` strip `gates` from detector results, emit `null` for unrated `enjoyment0to100`/`drinkTdsPct`/`drinkEyPct`, and `shots_compare` hoists `profileNotes`/`profileKbId` to a top-level `sharedProfile` block when shots share a profile. `profiles_list` filters (`editorType`, `excludeCategories`, `nameContains`, `readOnly`) and the derived `category` field work; trim + case-insensitive match catches `D-Flow`/`A-Flow`. `profiles_get_params` emits both un-suffixed and `*Bar`/`*C`/`*MlPerSec`/`*Sec`/`*G`/`*Ml` aliases (incl. `preinfusionStopPressureBar`). `settings_get` keys filter accepts suffixed read names (`espressoTemperatureC` round-trips); unknown keys/categories return structured error with `validCategories`/`unknownKeys`. `dialing_get_context` default returns ~1 KB profile section only; `includeFullKnowledge: true` returns the full ~18 KB system prompt + reference tables + catalog. |
 | 2026-05-01 | 34 | 67 | 1 | 1 | Full plan run, simulator. All sections passed: §1 state/info/telemetry, §2 sleep/wake/stop/skip (start_* skipped per simulator note), §3.3-3.8 profile read for all editor types (with new aliases), §4 profile editing incl. frame preservation, save-as, built-in revert, active-profile delete protection, profiles_create. §5 settings get/set incl. unknown rejection. §6 shots list/detail/compare/update/delete (round-trip restored). §7 dialing default + full knowledge. §8 scale, §9 devices, §10 debug pagination, §11 settings parity for all 22 categories. **One failure**: §4.10 `profiles_delete` of `mcp_test_tmp` returned `Failed to delete profile` after switching active to `default` first — the user profile appears to vanish from the list when active is switched, even though `profiles_save` reported success and `profiles_get_active` confirmed it. Behavior may be a save-persistence quirk in the simulator path; worth a follow-up issue. Cleanup left no residue (default active, modified=false, DYE/system settings all back to ORIGINAL values). |
 | 2026-05-01 | 35 | 68 | 1 | 0 | Re-run §4.9–§4.10 + new §4.9a after merging PR #1007 (#1006). Root cause was the test plan's old `_mcp_test_tmp` filename — `ProfileStorage::listProfiles` filters underscore-prefixed files (reserved for internal files like `_current.json`), so the profile got persisted to disk but was invisible to `profiles_list` / `refreshProfiles`, which made `ProfileManager::deleteProfile` see `source=BuiltIn` and return false even when the file was successfully removed. PR #1007 rejects underscore-prefixed filenames upfront in `profiles_save`. Re-verified live after app restart: `profiles_save (filename: "_internal_thing", ...)` → clear error suggesting `internal_thing` instead; `profiles_save (filename: "mcp_test_tmp", ...)` → success → visible in `profiles_list (nameContains: "mcp")` (count=1) → `profiles_set_active default` → `profiles_delete (mcp_test_tmp)` → `Profile deleted: mcp_test_tmp` → list count=0. All 11 MCP issues from this session (#985–#994 + #1006) closed. |
@@ -475,11 +476,18 @@ Expect: error — tool not found (replaced by shots_update in phase 15)
 
 ### 7.1 dialing_get_context
 ```
-Call: dialing_get_context (history_limit: 2)
+Call: dialing_get_context (history_limit: 5)
 Expect: shotId > 0, shot object present, currentBean present, currentProfile present.
         profileKnowledge non-empty (if the profile has a KB entry) — small (~1 KB):
         only the current profile's curated section. No system prompt / reference
         tables / cross-profile catalog (per #987).
+        dialInSessions present when prior shots exist on the same profile —
+        an array of session objects { sessionStart, sessionEnd, shotCount, shots[] }.
+        Sessions are emitted newest-first; shots within a session are oldest-first.
+        Each shot after the first in a session carries `changeFromPrev` (a diff
+        in the same shape shots_compare emits: grinderSetting, doseG, yieldG,
+        durationSec, enjoyment0to100, beanBrand). Shots within ~60 minutes of
+        each other on the same profile are grouped into one session (per #1009).
 ```
 
 ### 7.1a dialing_get_context — full knowledge
