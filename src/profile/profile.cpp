@@ -557,9 +557,10 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     }
 
     // Default espresso_temperature from first frame only when the JSON omits it,
-    // so we never store NaN/0. Otherwise the top-level value is authoritative —
-    // it can legitimately differ from steps[0].temperature (e.g. a cooler group
-    // preheat target paired with a hotter preinfusion ramp).
+    // so we never store NaN/0. Otherwise the top-level value is authoritative at
+    // load time — it can legitimately differ from steps[0].temperature (e.g. a
+    // cooler group preheat target paired with a hotter preinfusion ramp).
+    // (regenerateFromRecipe resyncs it from frames after recipe regeneration.)
     if (!obj.contains("espresso_temperature") && !profile.m_steps.isEmpty()) {
         profile.m_espressoTemperature = profile.m_steps.first().temperature;
     }
@@ -1189,8 +1190,7 @@ void Profile::regenerateSimpleFrames() {
     // The caller (applyRecipeToScalarFields) already set it from tempStart.
     // Syncing from the first frame is wrong when preinfusionTime=0 and
     // tempStepsEnabled=true — the first frame would be the hold frame at
-    // temp2, not temp0. Simple profiles have authoritative scalar temperature
-    // (see fromJson guard at line ~548).
+    // temp2, not temp0.
 }
 
 void Profile::regenerateFromRecipe() {
