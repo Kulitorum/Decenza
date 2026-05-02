@@ -1092,7 +1092,10 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
             q.prepare("SELECT grinder_brand, grinder_model, grinder_burrs, beverage_type "
                       "FROM shots WHERE id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
-            if (q.exec() && q.next()) {
+            if (!q.exec()) {
+                qWarning() << "AIManager::requestRecentShotContext: grinder ctx query failed:"
+                           << q.lastError().text();
+            } else if (q.next()) {
                 grinderBrand = q.value(0).toString();
                 QString model = q.value(1).toString();
                 QString burrs = q.value(2).toString();
@@ -1287,7 +1290,8 @@ void AIManager::emitRecentShotContext(
                 .arg(coarse[QStringLiteral("ugs")].toDouble())
                 .arg(coarse[QStringLiteral("medianSetting")].toString())
                 .arg(coarse[QStringLiteral("sampleCount")].toInt());
-            cal += QStringLiteral("- **Conversion**: %1 grinder steps per UGS unit\n").arg(ck);
+            if (ck > 1e-9)
+                cal += QStringLiteral("- **Conversion**: %1 grinder steps per UGS unit\n").arg(ck);
 
             QStringList profLines;
             const QJsonArray profiles = grinderCalibration[QStringLiteral("profiles")].toArray();
