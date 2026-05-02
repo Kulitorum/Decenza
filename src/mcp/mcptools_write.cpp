@@ -49,6 +49,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             {"properties", QJsonObject{
                 {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}},
                 {"enjoyment", QJsonObject{{"type", "integer"}, {"description", "Enjoyment rating 0-100"}}},
+                {"enjoymentSource", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray{"user", "inferred", "none"}},
+                    {"description", "Rating provenance. One of \"user\" | \"inferred\" | \"none\". When a numeric "
+                     "`enjoyment` write is present and `enjoymentSource` is omitted, the source defaults to \"user\". "
+                     "Setting `enjoymentSource: \"none\"` explicitly clears the numeric rating to 0 in the same write — "
+                     "a downgrade from inferred/user to unrated leaves no contradictory state behind. \"inferred\" is "
+                     "used internally by the post-shot detector pipeline; MCP callers rarely set it directly. Issue #1055."}}},
                 {"notes", QJsonObject{{"type", "string"}, {"description", "Tasting notes"}}},
                 {"doseWeight", QJsonObject{{"type", "number"}, {"description", "Dose weight in grams"}}},
                 {"drinkWeight", QJsonObject{{"type", "number"}, {"description", "Yield/drink weight in grams"}}},
@@ -82,6 +89,27 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QVariantMap metadata;
             if (args.contains("enjoyment"))
                 metadata["enjoyment"] = qBound(0, args["enjoyment"].toInt(), 100);
+            if (args.contains("enjoymentSource")) {
+                const QString src = args["enjoymentSource"].toString();
+                if (src != QLatin1String("user")
+                    && src != QLatin1String("inferred")
+                    && src != QLatin1String("none")) {
+                    respond(QJsonObject{{"error",
+                        QString("enjoymentSource must be \"user\", \"inferred\", or \"none\"; got \"%1\"").arg(src)}});
+                    return;
+                }
+                metadata["enjoymentSource"] = src;
+                // Pair the source flip with a numeric clear when the
+                // caller is downgrading to unrated. Without this, the
+                // row would land with enjoyment_source = 'none' AND
+                // enjoyment > 0 — a contradictory state where
+                // hasRating: true and enjoymentSource: "none" both
+                // match the same shot. Caller-supplied `enjoyment`
+                // wins (still respect the explicit number).
+                if (src == QLatin1String("none") && !metadata.contains("enjoyment")) {
+                    metadata["enjoyment"] = 0;
+                }
+            }
             if (args.contains("notes"))
                 metadata["espressoNotes"] = args["notes"].toString();
             if (args.contains("doseWeight"))
