@@ -314,7 +314,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     };
 
                     state->successConn = QObject::connect(ai, &AIManager::recommendationReceived,
-                        ai, [finalize](const QString& response) {
+                        ai, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt](
+                                const QString& response) {
                             // Surface the trailing structured `nextShot`
                             // block (issue #1054) as a top-level field
                             // alongside the prose response, so MCP
@@ -326,6 +327,35 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             const auto structured = AIManager::parseStructuredNext(response);
                             if (structured.has_value()) {
                                 body.insert(QStringLiteral("structuredNext"), *structured);
+                            }
+
+                            // Persist the turn into the conversation key
+                            // so future ai_advisor_invoke / in-app advisor
+                            // calls on the same bean+profile see this
+                            // turn in their recentAdvice block. Without
+                            // this, the MCP path was effectively silent
+                            // — AIConversation was only written by the
+                            // in-app advisor flow.
+                            //
+                            // Skip when shot identity is incomplete (no
+                            // bean or no profile name): conversationKey
+                            // would still hash to something, but using
+                            // it as an attribution anchor is unsafe.
+                            if (!shot.beanBrand.isEmpty()
+                                && !shot.profileName.isEmpty()) {
+                                const QString convKey = AIManager::conversationKey(
+                                    shot.beanBrand, shot.beanType, shot.profileName);
+                                AIConversation::appendAssistantTurnForKey(
+                                    convKey, resolvedShotId,
+                                    userPrompt, response, structured);
+                                // Keep the live in-app conversation in
+                                // sync if it has the same key loaded —
+                                // otherwise its next saveToStorage will
+                                // overwrite the just-written turn.
+                                if (aiPtrInner && aiPtrInner->conversation()
+                                    && aiPtrInner->conversation()->storageKey() == convKey) {
+                                    aiPtrInner->conversation()->loadFromStorage();
+                                }
                             }
                             finalize(body);
                         });

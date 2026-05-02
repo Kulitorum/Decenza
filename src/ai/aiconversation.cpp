@@ -2,6 +2,7 @@
 #include "aimanager.h"
 #include "shotsummarizer.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QSettings>
 #include <QJsonArray>
@@ -315,6 +316,56 @@ AIConversation::loadRecentAssistantTurnsForKey(const QString& storageKey, qsizet
         });
     }
     return out;
+}
+
+void AIConversation::appendAssistantTurnForKey(
+    const QString& storageKey,
+    qint64 shotId,
+    const QString& userPrompt,
+    const QString& assistantResponse,
+    const std::optional<QJsonObject>& structuredNext)
+{
+    if (storageKey.isEmpty()) return;
+    QSettings settings;
+    const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
+
+    // Pull the existing messages array (if any) so we append rather than
+    // overwrite. New conversations produce an empty array.
+    QJsonArray messages;
+    const QByteArray raw = settings.value(prefix + "messages").toByteArray();
+    if (!raw.isEmpty()) {
+        QJsonParseError err{};
+        const QJsonDocument doc = QJsonDocument::fromJson(raw, &err);
+        if (err.error == QJsonParseError::NoError && doc.isArray()) {
+            messages = doc.array();
+        } else {
+            qWarning() << "AIConversation::appendAssistantTurnForKey: existing messages "
+                          "for key" << storageKey << "did not parse as JSON array — "
+                          "appending to empty;" << err.errorString();
+        }
+    }
+
+    QJsonObject userMsg;
+    userMsg["role"] = QStringLiteral("user");
+    userMsg["content"] = userPrompt;
+    if (shotId != 0) userMsg["shotId"] = static_cast<double>(shotId);
+    messages.append(userMsg);
+
+    QJsonObject assistantMsg;
+    assistantMsg["role"] = QStringLiteral("assistant");
+    assistantMsg["content"] = assistantResponse;
+    if (shotId != 0) assistantMsg["shotId"] = static_cast<double>(shotId);
+    if (structuredNext.has_value()) assistantMsg["structuredNext"] = *structuredNext;
+    messages.append(assistantMsg);
+
+    settings.setValue(prefix + "messages",
+        QJsonDocument(messages).toJson(QJsonDocument::Compact));
+    settings.setValue(prefix + "timestamp",
+        QDateTime::currentDateTime().toString(Qt::ISODate));
+    // Note: systemPrompt is not written here. The in-app advisor sets it
+    // via ask(); the MCP path uses analyze(systemPrompt, userPrompt) and
+    // doesn't carry an AIConversation. For recentAdvice purposes the
+    // system prompt isn't needed — only `messages` is read.
 }
 
 void AIConversation::sendRequest()

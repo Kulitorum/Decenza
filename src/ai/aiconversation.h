@@ -198,6 +198,32 @@ public:
     static QList<HistoricalAssistantTurn> loadRecentAssistantTurnsForKey(
         const QString& storageKey, qsizetype max);
 
+    /**
+     * Persist a user/assistant turn pair into the conversation at
+     * `storageKey` without going through a live AIConversation. Used by
+     * `ai_advisor_invoke` (MCP) so its turns participate in
+     * `recentAdvice` attribution on subsequent calls — the in-app
+     * advisor writes via `ask()` + `addAssistantMessage`; this helper
+     * gives the MCP path the same write-through without needing to
+     * mutate the user's currently-active in-app conversation object.
+     *
+     * Layout: same `ai/conversations/<key>/messages` shape as
+     * `saveToStorage`. The user turn carries `shotId`; the assistant
+     * turn carries `shotId` + optional `structuredNext`.
+     *
+     * Concurrency: when the live in-app `AIConversation` has the same
+     * `storageKey()` loaded, the caller is responsible for refreshing
+     * its in-memory state via `loadFromStorage()` after this returns —
+     * otherwise the in-app's next `saveToStorage` will overwrite the
+     * just-written turn.
+     */
+    static void appendAssistantTurnForKey(
+        const QString& storageKey,
+        qint64 shotId,
+        const QString& userPrompt,
+        const QString& assistantResponse,
+        const std::optional<QJsonObject>& structuredNext);
+
 signals:
     void responseReceived(const QString& response);
     void errorOccurred(const QString& error);
