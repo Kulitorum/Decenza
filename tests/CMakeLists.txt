@@ -55,6 +55,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_connections.cpp
 )
 
 set(CONTROLLER_SOURCES
@@ -446,6 +447,35 @@ add_decenza_test(tst_scaleprotocol
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
+)
+
+# --- tst_wifiscaletransport: WifiScaleTransport TCP framing, resync, write
+# passthrough, connect-timeout. Pins the BLE-shaped adapter contract that
+# DecentScale (the protocol consumer) relies on. ---
+add_decenza_test(tst_wifiscaletransport
+    tst_wifiscaletransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/wifiscaletransport.cpp
+)
+
+# --- tst_decenzaprovisioning: STATUS-byte parser for the BLE provisioning
+# service (fee4). The full BLE state machine is exercised by manual smoke
+# tests against real DecenzaScale hardware — this target only covers the
+# pure protocol parser. ---
+add_decenza_test(tst_decenzaprovisioning
+    tst_decenzaprovisioning.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/decenzaprovisioningclient.cpp
+)
+
+# --- tst_decentcalibration: calibration command wire bytes. Pins the
+# 0x03 0x10 [int16BE decigrams] 0x00 0x00 [xor] format coordinated with
+# the DecenzaScale firmware repo. A regression here would silently store
+# the wrong scale factor on the user's hardware. ---
+add_decenza_test(tst_decentcalibration
+    tst_decentcalibration.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
 )
 
 # --- tst_difluidr2: DiFluid R2 refractometer packet parsing and name matching ---

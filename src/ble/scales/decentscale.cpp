@@ -392,3 +392,25 @@ void DecentScale::setLed(int r, int g, int b) {
     cmd[3] = static_cast<char>(b);
     sendCommand(cmd);
 }
+
+void DecentScale::calibrateToKnownWeight(double grams) {
+    // Upper bound is int16-decigrams: 32767 dg ≈ 3276.7 g. Higher would
+    // silently overflow into a negative int16 on the wire and cause the
+    // firmware to compute a wrong (or rejected) scale factor. No real
+    // espresso reference weight comes near this limit.
+    constexpr double kMaxGrams = 3276.7;
+    if (grams <= 0.0 || grams > kMaxGrams) {
+        DECENT_WARN(QString("calibrateToKnownWeight: grams=%1 out of range [0.1, %2]")
+                        .arg(grams).arg(kMaxGrams));
+        return;
+    }
+    const qint16 dg = static_cast<qint16>(qRound(grams * 10.0));
+    QByteArray cmd(5, 0);
+    cmd[0] = 0x10;
+    cmd[1] = static_cast<char>((dg >> 8) & 0xFF);
+    cmd[2] = static_cast<char>(dg & 0xFF);
+    DECENT_LOG(QString("Calibration command: %1 g (dg=0x%2)")
+                   .arg(grams, 0, 'f', 1)
+                   .arg(dg, 4, 16, QChar('0')));
+    sendCommand(cmd);
+}

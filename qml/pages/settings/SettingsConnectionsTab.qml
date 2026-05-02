@@ -1200,6 +1200,42 @@ Item {
                             font: Theme.bodyFont
                         }
 
+                        // Transport-kind badge — visible only for physical
+                        // scales with a known transport. Lets the user see
+                        // at a glance whether the live weight stream is
+                        // arriving over BLE or Wi-Fi without trawling the
+                        // scale log.
+                        Rectangle {
+                            id: transportBadge
+                            visible: ScaleDevice && ScaleDevice.connected
+                                     && ScaleDevice.transportKind !== ""
+                            width: transportKindText.implicitWidth + Theme.scaled(12)
+                            height: Theme.scaled(20)
+                            radius: Theme.scaled(10)
+                            color: ScaleDevice && ScaleDevice.transportKind === "wifi"
+                                ? Qt.rgba(0.2, 0.6, 0.9, 0.25)
+                                : Qt.rgba(0.5, 0.5, 0.5, 0.25)
+
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: ScaleDevice && ScaleDevice.transportKind === "wifi"
+                                ? TranslationManager.translate("connections.wifiBadge", "Connected over Wi-Fi")
+                                : TranslationManager.translate("connections.bleBadge", "Connected over Bluetooth")
+
+                            Text {
+                                id: transportKindText
+                                anchors.centerIn: parent
+                                text: ScaleDevice && ScaleDevice.transportKind === "wifi"
+                                    ? TranslationManager.translate("connections.wifiShort", "Wi-Fi")
+                                    : TranslationManager.translate("connections.bleShort", "BLE")
+                                color: ScaleDevice && ScaleDevice.transportKind === "wifi"
+                                    ? "#2284cc"
+                                    : Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(10)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+                        }
+
                         Item { Layout.fillWidth: true }
 
                         AccessibleButton {
@@ -1298,6 +1334,89 @@ Item {
                             visible: parent.count === 0
                             color: Theme.textSecondaryColor
                         }
+                    }
+
+                    // Decenza Scale Wi-Fi provisioning + paired-IP management.
+                    // Visible whenever the Decenza side has the manager wired
+                    // up; the section gracefully shrinks to its header alone
+                    // when no pairings exist yet.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(6)
+                        spacing: Theme.scaled(6)
+                        visible: typeof DecenzaWifiManager !== "undefined"
+
+                        Text {
+                            text: TranslationManager.translate("decenzaWifi.sectionTitle",
+                                "Decenza Scale — Wi-Fi")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        // Paired-scale rows. Empty until the user provisions.
+                        Repeater {
+                            model: {
+                                var items = []
+                                var p = DecenzaWifiManager.pairings
+                                for (var mac in p) {
+                                    var entry = p[mac]
+                                    items.push({ mac: mac,
+                                                 ip: entry.ip || "",
+                                                 port: entry.port || 8765 })
+                                }
+                                return items
+                            }
+                            delegate: Rectangle {
+                                Layout.fillWidth: true
+                                height: Theme.scaled(40)
+                                color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.10)
+                                radius: Theme.scaled(4)
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.scaled(10)
+                                    anchors.rightMargin: Theme.scaled(8)
+                                    spacing: Theme.scaled(8)
+                                    Text {
+                                        text: modelData.mac
+                                        color: Theme.textSecondaryColor
+                                        font.pixelSize: Theme.scaled(11)
+                                        Layout.preferredWidth: Theme.scaled(150)
+                                    }
+                                    Text {
+                                        text: modelData.ip + ":" + modelData.port
+                                        color: Theme.textColor
+                                        font.pixelSize: Theme.scaled(13)
+                                        Layout.fillWidth: true
+                                    }
+                                    AccessibleButton {
+                                        text: TranslationManager.translate("decenzaWifi.forget", "Forget Wi-Fi")
+                                        accessibleName: TranslationManager.translate("decenzaWifi.forgetAccessible",
+                                            "Forget Wi-Fi pairing for this scale")
+                                        onClicked: DecenzaWifiManager.forgetWifi(modelData.mac)
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+
+                            AccessibleButton {
+                                text: TranslationManager.translate("decenzaWifi.setupButton",
+                                    "Set up Decenza Wi-Fi…")
+                                accessibleName: TranslationManager.translate("decenzaWifi.setupAccessible",
+                                    "Open the Decenza Scale Wi-Fi setup wizard")
+                                onClicked: decenzaWifiDialog.open()
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+                    }
+
+                    DecenzaWifiSetupDialog {
+                        id: decenzaWifiDialog
                     }
 
                     // Scale scan log
