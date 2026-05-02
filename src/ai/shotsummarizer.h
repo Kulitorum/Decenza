@@ -249,10 +249,10 @@ public:
     static QStringList getAnalysisFlags(const QString& kbId);
 
     // Cross-cutting reference content (sections marked Skip-Catalog: true) —
-    // injected unconditionally into the system prompt and per-profile MCP
-    // payloads, since they apply across profiles rather than to any one.
-    // Currently surfaces the "Cross-Profile Grind Ordering" section from
-    // profile_knowledge.md.
+    // injected into the espresso system prompt and per-profile MCP payloads
+    // (filter/pour-over beverage types excluded), since they apply across
+    // profiles rather than to any one. Currently surfaces the
+    // "Cross-Profile Grind Ordering" section from profile_knowledge.md.
     static QString crossProfileReferenceContent();
 
 private:
@@ -360,7 +360,7 @@ private:
         QStringList analysisFlags;
         // True when "Skip-Catalog: true" appears in the section. Marks the
         // section as cross-cutting reference material rather than a profile —
-        // excluded from buildProfileCatalog() and from per-profile injection.
+        // excluded from buildProfileCatalog().
         bool skipCatalog = false;
     };
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
@@ -377,4 +377,8 @@ private:
     static QString s_dialInReference;
     static bool s_dialInReferenceLoaded;
     static void loadDialInReference();
+
+    // Cross-profile reference content cache (Skip-Catalog sections)
+    static QString s_crossProfileReference;
+    static bool s_crossProfileReferenceLoaded;
 };

@@ -32,6 +32,10 @@ QString ShotSummarizer::s_profileCatalog;
 QString ShotSummarizer::s_dialInReference;
 bool ShotSummarizer::s_dialInReferenceLoaded = false;
 
+// Static cache for cross-profile reference content (Skip-Catalog sections)
+QString ShotSummarizer::s_crossProfileReference;
+bool ShotSummarizer::s_crossProfileReferenceLoaded = false;
+
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation
 static QString normalizeProfileKey(const QString& key)
 {
@@ -1389,10 +1393,9 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         }
 
         // Cross-cutting reference sections (Skip-Catalog: true) — currently
-        // contains "Cross-Profile Grind Ordering". Injected unconditionally so
-        // the model can reason about cross-profile and cross-roast grind
-        // direction without needing the user's current profile to match a
-        // specific section.
+        // contains "Cross-Profile Grind Ordering". Injected within the espresso
+        // path (filter and pour-over excluded) so the model can reason about
+        // cross-profile and cross-roast grind direction.
         const QString crossProfile = crossProfileReferenceContent();
         if (!crossProfile.isEmpty()) {
             base += QStringLiteral("\n\n") + crossProfile;
@@ -1565,21 +1568,22 @@ void ShotSummarizer::buildProfileCatalog()
 
 QString ShotSummarizer::crossProfileReferenceContent()
 {
+    if (s_crossProfileReferenceLoaded) return s_crossProfileReference;
+
     loadProfileKnowledge();
 
-    // Collect every section marked "Skip-Catalog: true" — these are cross-cutting
-    // reference blocks (e.g. Cross-Profile Grind Ordering) that belong in the
-    // system prompt unconditionally, not gated on a profile match.
     QSet<QString> seen;
     QStringList sections;
     for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
         const ProfileKnowledge& pk = it.value();
         if (!pk.skipCatalog) continue;
-        if (seen.contains(pk.name)) continue;  // each alias keys to the same content
+        if (seen.contains(pk.name)) continue;
         seen.insert(pk.name);
         sections << QStringLiteral("## ") + pk.name + QStringLiteral("\n\n") + pk.content;
     }
-    return sections.join(QStringLiteral("\n\n"));
+    s_crossProfileReference = sections.join(QStringLiteral("\n\n"));
+    s_crossProfileReferenceLoaded = true;
+    return s_crossProfileReference;
 }
 
 void ShotSummarizer::loadDialInReference()
