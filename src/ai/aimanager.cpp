@@ -1084,20 +1084,27 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
         auto qualifiedShots = loadQualifiedShots(dbPath, beanBrand, beanType, profileName, excludeShotId);
 
-        // Query grinder context on background thread using the shared helper (also used by MCP dialing_get_context)
         GrinderContext grinderCtx;
         QString grinderBrand;
+        QJsonObject grinderCalibration;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            q.prepare("SELECT grinder_brand, grinder_model, beverage_type "
+            q.prepare("SELECT grinder_brand, grinder_model, grinder_burrs, beverage_type "
                       "FROM shots WHERE id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
-            if (q.exec() && q.next()) {
+            if (!q.exec()) {
+                qWarning() << "AIManager::requestRecentShotContext: grinder ctx query failed:"
+                           << q.lastError().text();
+            } else if (q.next()) {
                 grinderBrand = q.value(0).toString();
                 QString model = q.value(1).toString();
-                QString bev = q.value(2).toString();
-                if (!model.isEmpty())
+                QString burrs = q.value(2).toString();
+                QString bev = q.value(3).toString();
+                if (!model.isEmpty()) {
                     grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, bev);
+                    grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
+                        db, model, burrs, bev, excludeShotId);
+                }
             }
         });
 
@@ -1107,9 +1114,10 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         // (`friend class tst_AIManager`) without standing up a real DB.
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots),
                                          grinderCtx = std::move(grinderCtx),
-                                         grinderBrand = std::move(grinderBrand)]() mutable {
+                                         grinderBrand = std::move(grinderBrand),
+                                         grinderCalibration = std::move(grinderCalibration)]() mutable {
             if (!self) return;
-            self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial);
+            self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial, grinderCalibration);
         }, Qt::QueuedConnection);
     });
 
@@ -1121,7 +1129,8 @@ void AIManager::emitRecentShotContext(
     const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
     const GrinderContext& grinderCtx,
     const QString& grinderBrand,
-    int serial)
+    int serial,
+    const QJsonObject& grinderCalibration)
 {
     if (serial != m_contextSerial) {
         // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
@@ -1257,6 +1266,53 @@ void AIManager::emitRecentShotContext(
             }
         }
         result += section;
+    }
+
+    // Append grinder calibration (RGS anchors + conversionKey). Goes into
+    // historicalContext → first user message → cached by the Anthropic
+    // provider exactly like the shot history and grinder context sections.
+    if (!grinderCalibration.isEmpty()) {
+        QJsonObject fine = grinderCalibration["fineAnchor"].toObject();
+        QJsonObject coarse = grinderCalibration["coarseAnchor"].toObject();
+        double ck = grinderCalibration["conversionKey"].toDouble();
+        QString model = grinderCalibration["grinderModel"].toString();
+
+        if (!fine.isEmpty() && !coarse.isEmpty()) {
+            QString cal = QStringLiteral("\n\n## Grinder Calibration\n\n");
+            cal += QStringLiteral("Calibrated on your %1 using anchor shots:\n\n").arg(model);
+            cal += QStringLiteral("- **Fine anchor**: %1 (UGS %2) — median setting **%3** (%4 shots)\n")
+                .arg(fine[QStringLiteral("profileName")].toString())
+                .arg(fine[QStringLiteral("ugs")].toDouble())
+                .arg(fine[QStringLiteral("medianSetting")].toString())
+                .arg(fine[QStringLiteral("sampleCount")].toInt());
+            cal += QStringLiteral("- **Coarse anchor**: %1 (UGS %2) — median setting **%3** (%4 shots)\n")
+                .arg(coarse[QStringLiteral("profileName")].toString())
+                .arg(coarse[QStringLiteral("ugs")].toDouble())
+                .arg(coarse[QStringLiteral("medianSetting")].toString())
+                .arg(coarse[QStringLiteral("sampleCount")].toInt());
+            if (ck > 1e-9)
+                cal += QStringLiteral("- **Conversion**: %1 grinder steps per UGS unit\n").arg(ck);
+
+            QStringList profLines;
+            const QJsonArray profiles = grinderCalibration[QStringLiteral("profiles")].toArray();
+            for (const QJsonValue& v : profiles) {
+                const QJsonObject p = v.toObject();
+                const QString src = p[QStringLiteral("source")].toString();
+                if (src == QStringLiteral("history") || src == QStringLiteral("derived")) {
+                    profLines << QStringLiteral("- **%1** (UGS %2): **%3** (%4)")
+                        .arg(p[QStringLiteral("profileName")].toString())
+                        .arg(p[QStringLiteral("ugs")].toDouble())
+                        .arg(p[QStringLiteral("rgs")].toString())
+                        .arg(src);
+                }
+            }
+            if (!profLines.isEmpty()) {
+                cal += QStringLiteral("\nProfile RGS — seed starting grind when switching profiles:\n\n");
+                cal += profLines.join('\n') + '\n';
+            }
+
+            result += cal;
+        }
     }
 
     emit recentShotContextReady(result);

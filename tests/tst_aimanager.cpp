@@ -878,6 +878,88 @@ private slots:
                  "stale request must emit empty string");
     }
 
+    void emitRecentShotContext_appendsGrinderCalibrationBlock()
+    {
+        // Pins the ## Grinder Calibration prose rendering in emitRecentShotContext:
+        // history and derived profile entries appear; extrapolated entries do not.
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 42;
+
+        auto makeAnchor = [](const QString& name, double ugs,
+                              const QString& setting, int count) {
+            QJsonObject a;
+            a[QStringLiteral("profileName")] = name;
+            a[QStringLiteral("ugs")] = ugs;
+            a[QStringLiteral("medianSetting")] = setting;
+            a[QStringLiteral("sampleCount")] = count;
+            return a;
+        };
+
+        QJsonObject calibration;
+        calibration[QStringLiteral("grinderModel")] = QStringLiteral("Niche Zero");
+        calibration[QStringLiteral("fineAnchor")]   = makeAnchor(QStringLiteral("D-Flow"), 0.0, QStringLiteral("7.75"), 8);
+        calibration[QStringLiteral("coarseAnchor")] = makeAnchor(QStringLiteral("Classic Italian"), 1.25, QStringLiteral("12.1"), 3);
+        calibration[QStringLiteral("conversionKey")] = 3.48;
+
+        QJsonArray profiles;
+        {
+            QJsonObject p;
+            p[QStringLiteral("profileName")] = QStringLiteral("D-Flow");
+            p[QStringLiteral("ugs")] = 0.0;
+            p[QStringLiteral("rgs")] = QStringLiteral("7.75");
+            p[QStringLiteral("source")] = QStringLiteral("history");
+            profiles.append(p);
+        }
+        {
+            QJsonObject p;
+            p[QStringLiteral("profileName")] = QStringLiteral("LRv3");
+            p[QStringLiteral("ugs")] = 0.5;
+            p[QStringLiteral("rgs")] = QStringLiteral("9.49");
+            p[QStringLiteral("source")] = QStringLiteral("derived");
+            profiles.append(p);
+        }
+        {
+            QJsonObject p;
+            p[QStringLiteral("profileName")] = QStringLiteral("Turbo 35");
+            p[QStringLiteral("ugs")] = 5.0;
+            p[QStringLiteral("rgs")] = QStringLiteral("25.0");
+            p[QStringLiteral("source")] = QStringLiteral("extrapolated"); // must not appear
+            profiles.append(p);
+        }
+        calibration[QStringLiteral("profiles")] = profiles;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        QVERIFY(spy.isValid());
+
+        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 42, calibration);
+
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(payload.contains(QStringLiteral("## Grinder Calibration")),
+                 "calibration section header missing");
+        QVERIFY2(payload.contains(QStringLiteral("Niche Zero")),
+                 "grinder model missing");
+        QVERIFY2(payload.contains(QStringLiteral("Fine anchor")),
+                 "fine anchor label missing");
+        QVERIFY2(payload.contains(QStringLiteral("D-Flow")),
+                 "fine anchor profile name missing");
+        QVERIFY2(payload.contains(QStringLiteral("Coarse anchor")),
+                 "coarse anchor label missing");
+        QVERIFY2(payload.contains(QStringLiteral("Classic Italian")),
+                 "coarse anchor profile name missing");
+        QVERIFY2(payload.contains(QStringLiteral("3.48")),
+                 "conversion key missing");
+        QVERIFY2(payload.contains(QStringLiteral("Profile RGS")),
+                 "profile table header missing");
+        QVERIFY2(payload.contains(QStringLiteral("LRv3")),
+                 "derived profile entry missing");
+        QVERIFY2(!payload.contains(QStringLiteral("Turbo 35")),
+                 "extrapolated profile must not appear in prose table");
+    }
+
     // =====================================================================
     // AIConversation::extractShotFields — issue #1039
     // Pins the structured-field migration: dose / yield / duration /
@@ -1550,6 +1632,15 @@ private slots:
         // byte-equivalent across surfaces (#1041 parity contract).
         QSettings s;
         s.clear();
+
+        // Create AIManager first so clearAllConversationsOnce() fires on empty
+        // settings and marks itself done — otherwise it would wipe the test
+        // data we store below (the marker lives in QSettings and is absent
+        // after s.clear(), causing the migration to re-fire on every CI run).
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
         const QString key = "test_recent_advice_parity";
         const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
 
@@ -1575,11 +1666,6 @@ private slots:
                 "\"reasoning\":\"r2\"}}]");
         s.setValue(prefix + "systemPrompt", "system");
         s.setValue(prefix + "messages", messages);
-
-        // In-app: live AIConversation -> recentAssistantTurns(3).
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
         AIConversation conv(&mgr);
         conv.setStorageKey(key);
         conv.loadFromStorage();
@@ -2131,14 +2217,17 @@ private slots:
         // must return 0 without error.
         QSettings s;
         s.clear();
+
+        // Construct AIManager first so clearAllConversationsOnce() fires on
+        // empty settings and marks itself done before we write test data.
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
         const QString key = "test_legacy_shotid";
         const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
         s.setValue(prefix + "messages", QByteArrayLiteral(
             "[{\"role\":\"user\",\"content\":\"u\"},{\"role\":\"assistant\",\"content\":\"a\"}]"));
-
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
         AIConversation conv(&mgr);
         conv.setStorageKey(key);
         conv.loadFromStorage();
