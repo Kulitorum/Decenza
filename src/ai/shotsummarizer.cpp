@@ -1456,7 +1456,17 @@ void ShotSummarizer::loadProfileKnowledge()
 
         ProfileKnowledge pk;
         pk.name = currentTitle;
-        pk.content = currentContent.trimmed();
+
+        // Strip parser-directive lines that are not useful to the AI
+        {
+            QStringList filtered;
+            for (const QString& l : currentContent.split('\n')) {
+                if (!l.startsWith(QStringLiteral("Skip-Catalog:")) &&
+                    !l.startsWith(QStringLiteral("Purpose:")))
+                    filtered << l;
+            }
+            pk.content = filtered.join('\n').trimmed();
+        }
 
         // Extract the main name and any aliases from "Also matches:" line
         QStringList keys;
