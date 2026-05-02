@@ -242,14 +242,18 @@ ChartView {
         return minDist < 1.0 ? closest.y : null
     }
 
-    // Return the phase label active at the given time, or empty string if none
+    // Return the phase label active at the given time, or empty string if none.
+    // Skips "Start"/"End" sentinels — they are structural markers, not user-facing phases.
     function getPhaseAtTime(time) {
         var label = ""
         for (var i = 0; i < phaseMarkers.length; i++) {
-            if (phaseMarkers[i].time <= time)
-                label = phaseMarkers[i].label
-            else
+            var m = phaseMarkers[i]
+            if (m.time <= time) {
+                if (m.label !== "Start" && m.label !== "End")
+                    label = m.label
+            } else {
                 break
+            }
         }
         return label
     }
