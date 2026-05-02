@@ -87,8 +87,8 @@ private:
 
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.openai.com/v1/chat/completions";
-    static constexpr const char* MODEL = "gpt-4.1";
-    static constexpr const char* MODEL_DISPLAY = "GPT-4.1";
+    static constexpr const char* MODEL = "gpt-5.4-mini";
+    static constexpr const char* MODEL_DISPLAY = "GPT-5.4 mini";
 };
 
 // Anthropic provider
