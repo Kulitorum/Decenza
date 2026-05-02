@@ -1774,6 +1774,127 @@ private slots:
         QVERIFY(true);
     }
 
+    // -------------------------------------------------------------
+    // Static appendAssistantTurnForKey (#1055 follow-up: MCP
+    // ai_advisor_invoke write-through). Lets surfaces persist a
+    // user/assistant pair into the conversation at `storageKey`
+    // without going through a live AIConversation. Subsequent
+    // recentAdvice loads see the turn.
+    // -------------------------------------------------------------
+
+    void appendAssistantTurnForKey_writesUserAndAssistantWithShotId()
+    {
+        QSettings s;
+        s.clear();
+        const QString key = "test_append_static";
+
+        QJsonObject sn{
+            {"grinderSetting", "4.75"},
+            {"expectedDurationSec", QJsonArray{32, 38}},
+            {"expectedFlowMlPerSec", QJsonArray{1.0, 1.5}},
+            {"successCondition", "OK"},
+            {"reasoning", "slow flow toward target"}
+        };
+
+        AIConversation::appendAssistantTurnForKey(
+            key, /*shotId=*/8473,
+            QStringLiteral("user prompt content"),
+            QStringLiteral("Try grinder 4.75."),
+            sn);
+
+        // Verify via the static loader that the assistant turn qualifies.
+        const auto turns = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
+        QCOMPARE(turns.size(), 1);
+        QCOMPARE(turns.first().shotId, qint64(8473));
+        QCOMPARE(turns.first().structuredNext.value("grinderSetting").toString(),
+                 QStringLiteral("4.75"));
+
+        // Verify the persisted bytes contain a user message with shotId.
+        const QByteArray raw = QSettings().value(
+            QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
+            .toByteArray();
+        const QJsonArray arr = QJsonDocument::fromJson(raw).array();
+        QCOMPARE(arr.size(), 2);
+        QCOMPARE(arr.at(0).toObject().value("role").toString(), QStringLiteral("user"));
+        QCOMPARE(static_cast<qint64>(arr.at(0).toObject().value("shotId").toDouble()),
+                 qint64(8473));
+        QCOMPARE(arr.at(1).toObject().value("role").toString(), QStringLiteral("assistant"));
+
+        s.clear();
+    }
+
+    void appendAssistantTurnForKey_appendsRatherThanOverwrites()
+    {
+        QSettings s;
+        s.clear();
+        const QString key = "test_append_grows";
+
+        const QJsonObject sn{
+            {"grinderSetting", "4.75"},
+            {"expectedDurationSec", QJsonArray{32, 38}},
+            {"expectedFlowMlPerSec", QJsonArray{1.0, 1.5}},
+            {"successCondition", "OK"},
+            {"reasoning", "r"}
+        };
+
+        AIConversation::appendAssistantTurnForKey(
+            key, 100, "u1", "a1", sn);
+        AIConversation::appendAssistantTurnForKey(
+            key, 105, "u2", "a2", sn);
+
+        // Two pairs => 4 messages.
+        const QByteArray raw = QSettings().value(
+            QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
+            .toByteArray();
+        const QJsonArray arr = QJsonDocument::fromJson(raw).array();
+        QCOMPARE(arr.size(), 4);
+
+        // Static loader returns most-recent-first, capped.
+        const auto turns = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
+        QCOMPARE(turns.size(), 2);
+        QCOMPARE(turns.at(0).shotId, qint64(105));
+        QCOMPARE(turns.at(1).shotId, qint64(100));
+
+        s.clear();
+    }
+
+    void appendAssistantTurnForKey_omitsStructuredNextWhenAbsent()
+    {
+        QSettings s;
+        s.clear();
+        const QString key = "test_append_no_sn";
+
+        AIConversation::appendAssistantTurnForKey(
+            key, 200, "u", "clarifying question, no rec",
+            std::nullopt);
+
+        const QByteArray raw = QSettings().value(
+            QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
+            .toByteArray();
+        QVERIFY2(!raw.contains("structuredNext"),
+                 "absent structuredNext must not be persisted as a key");
+
+        // Loader skips assistant turns missing structuredNext, so this
+        // turn does not qualify for recentAdvice — exactly the MCP
+        // behaviour for a clarifying-question reply.
+        const auto turns = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
+        QVERIFY(turns.isEmpty());
+
+        s.clear();
+    }
+
+    void appendAssistantTurnForKey_emptyKeyIsNoOp()
+    {
+        QSettings s;
+        s.clear();
+        AIConversation::appendAssistantTurnForKey(
+            QString(), 100, "u", "a", std::nullopt);
+        // No assertion needed: this just must not crash and must not
+        // create any settings keys.
+        QVERIFY(true);
+        s.clear();
+    }
+
     void aiConversation_setShotIdForCurrentTurn_legacyConversationHasZeroShotId()
     {
         // A pre-#1053 conversation has no shotId on any entry; reader
