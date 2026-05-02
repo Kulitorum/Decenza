@@ -54,6 +54,8 @@ struct ShotRecord {
     QString profileNotes;
     QString visualizerId;
     QString visualizerUrl;
+    // "none" | "user" | "inferred" — issue #1055 Layer 3.
+    QString enjoymentSource = QStringLiteral("none");
 
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
@@ -212,6 +214,13 @@ struct ShotSaveData {
     QString barista;
     QString profileNotes;
     QString debugLog;
+    // "none" | "user" | "inferred" — issue #1055 Layer 3. Set to
+    // "inferred" when the post-shot pipeline auto-rates a clean,
+    // on-target unrated shot. User-driven save paths leave this as
+    // "none" (default) — the inferred-good evaluator only runs on shots
+    // that the user didn't rate, and any subsequent user write through
+    // updateShotMetadataStatic flips it to "user".
+    QString enjoymentSource = QStringLiteral("none");
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;

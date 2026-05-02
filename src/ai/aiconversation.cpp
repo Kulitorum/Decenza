@@ -105,6 +105,28 @@ bool AIConversation::followUp(const QString& userMessage)
     }
 
     m_errorMessage.clear();
+
+    // Closed-loop rating capture (issue #1055 Layer 1). When the prior
+    // assistant turn asked the user about taste AND the reply carries
+    // a numeric score, persist that score back to ShotProjection so
+    // bestRecentShot starves less. Runs BEFORE addUserMessage because
+    // we need the *prior* assistant message — and BEFORE sendRequest
+    // because we don't want the rating to depend on the network round
+    // trip succeeding.
+    QString priorAssistant;
+    qint64 turnShotId = 0;
+    for (qsizetype i = m_messages.size() - 1; i >= 0; --i) {
+        const QJsonObject msg = m_messages.at(i).toObject();
+        if (msg.value("role").toString() == QStringLiteral("assistant")) {
+            priorAssistant = msg.value("content").toString();
+            turnShotId = static_cast<qint64>(msg.value("shotId").toDouble());
+            break;
+        }
+    }
+    if (!priorAssistant.isEmpty() && turnShotId > 0) {
+        m_aiManager->maybePersistRatingFromReply(userMessage, priorAssistant, turnShotId);
+    }
+
     addUserMessage(userMessage);
     sendRequest();
 

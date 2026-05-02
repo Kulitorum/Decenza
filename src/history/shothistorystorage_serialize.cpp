@@ -53,6 +53,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.beanBrand = record.summary.beanBrand;
     p.beanType = record.summary.beanType;
     p.enjoyment0to100 = record.summary.enjoyment;
+    p.enjoymentSource = record.enjoymentSource.isEmpty()
+        ? QStringLiteral("none") : record.enjoymentSource;
     p.hasVisualizerUpload = record.summary.hasVisualizerUpload;
     p.beverageType = record.summary.beverageType;
     p.roastDate = record.roastDate;

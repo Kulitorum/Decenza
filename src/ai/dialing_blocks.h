@@ -93,6 +93,11 @@ struct CurrentBeanBlockInputs {
     QString grinderBurrs;
     QString grinderSetting;
     double doseWeightG = 0;
+    // Issue #1055 Layer 3. When the resolved shot's source is "inferred",
+    // the LLM needs to know not to anchor on it as user-validated.
+    // "user" / "none" → field omitted (the existing tastingFeedback
+    // booleans cover those cases).
+    QString enjoymentSource = QStringLiteral("none");
 };
 
 // Defined inline so test binaries that link only `shotsummarizer.cpp`
@@ -114,6 +119,12 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
+
+    // Issue #1055 Layer 3: emit only when source is "inferred". User
+    // and absent are uninformative for the LLM (covered by
+    // tastingFeedback.hasEnjoymentScore booleans).
+    if (in.enjoymentSource == QStringLiteral("inferred"))
+        bean["enjoymentSource"] = QStringLiteral("inferred");
 
     return bean;
 }
