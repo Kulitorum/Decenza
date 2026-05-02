@@ -127,6 +127,10 @@ struct ShotSummary {
     double drinkTds = 0;
     double drinkEy = 0;
     int enjoymentScore = 0;
+    // "none" | "user" | "inferred" — issue #1055 Layer 3. Lets the
+    // user-prompt envelope teach the LLM to treat inferred ratings as
+    // hints rather than ground truth.
+    QString enjoymentSource = QStringLiteral("none");
     QString tastingNotes;
 };
 

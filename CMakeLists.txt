@@ -719,6 +719,7 @@ set(QML_FILES
     qml/components/ComparisonShotTable.qml
     qml/components/GraphLegend.qml
     qml/components/QualityBadges.qml
+    qml/components/QuickRatingRow.qml
     qml/components/PhaseSummaryPanel.qml
     qml/components/ShotAnalysisDialog.qml
     qml/components/CupFillView.qml

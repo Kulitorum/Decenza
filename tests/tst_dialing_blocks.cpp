@@ -844,6 +844,98 @@ private slots:
     // where AIManager + AIConversation are linked. This file's test binary
     // intentionally avoids the AI module to stay focused on the SQL block
     // builders.
+    // -----------------------------------------------------------------
+    // bestRecentShot.confidence (issue #1055 Layer 3)
+    // -----------------------------------------------------------------
+
+    static qint64 insertShotWithSource(QSqlDatabase& db,
+                                       const QString& uuid, qint64 ts,
+                                       const QString& kbId, int enjoyment,
+                                       const QString& source)
+    {
+        const qint64 id = insertShot(db, ShotRow{
+            .uuid = uuid, .timestamp = ts,
+            .profileName = QStringLiteral("P"), .profileKbId = kbId,
+            .duration = 30, .finalWeight = 36, .doseWeight = 18,
+            .grinderSetting = QStringLiteral("4.0"),
+            .enjoyment = enjoyment
+        });
+        if (id <= 0) return -1;
+        // Patch enjoyment_source on the just-inserted row. The insert
+        // helper doesn't know about the new column, and migration 14
+        // back-fills 'user' for enjoyment > 0 rows by default — so this
+        // test override is needed only to label rows as 'inferred'.
+        QSqlQuery up(db);
+        up.prepare("UPDATE shots SET enjoyment_source = ? WHERE id = ?");
+        up.addBindValue(source);
+        up.addBindValue(id);
+        up.exec ();
+        return id;
+    }
+
+    void bestRecentShot_prefersUserOverInferredEvenWhenInferredScoresHigher()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        withRawDb(dbPath, "best_user_pref", [&](QSqlDatabase& db) {
+            insertShotWithSource(db, "user70", now - 24*3600, "kb", 70, "user");
+            insertShotWithSource(db, "infer85", now - 12*3600, "kb", 85, "inferred");
+            const qint64 currentId = insertShotWithSource(db, "current", now - 3600, "kb", 0, "none");
+
+            ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, currentId);
+            const ShotProjection cur = ShotHistoryStorage::convertShotRecord(rec);
+
+            const QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
+                db, "kb", currentId, cur);
+            QVERIFY(!best.isEmpty());
+            QCOMPARE(best.value("enjoyment0to100").toInt(), 70);
+            QCOMPARE(best.value("confidence").toString(), QStringLiteral("user_rated"));
+        });
+    }
+
+    void bestRecentShot_inferredFallbackWhenNoUserRated()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        withRawDb(dbPath, "best_inferred_fallback", [&](QSqlDatabase& db) {
+            insertShotWithSource(db, "infer75", now - 24*3600, "kb", 75, "inferred");
+            insertShotWithSource(db, "infer80", now - 12*3600, "kb", 80, "inferred");
+            const qint64 currentId = insertShotWithSource(db, "current", now - 3600, "kb", 0, "none");
+
+            ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, currentId);
+            const ShotProjection cur = ShotHistoryStorage::convertShotRecord(rec);
+
+            const QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
+                db, "kb", currentId, cur);
+            QVERIFY(!best.isEmpty());
+            QCOMPARE(best.value("enjoyment0to100").toInt(), 80);
+            QCOMPARE(best.value("confidence").toString(), QStringLiteral("inferred"));
+        });
+    }
+
+    void bestRecentShot_emptyWhenNoCandidates()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        withRawDb(dbPath, "best_empty", [&](QSqlDatabase& db) {
+            // Only unrated rows in the window — block must be omitted.
+            insertShotWithSource(db, "u-cur", now - 3600, "kb", 0, "none");
+            const qint64 currentId = insertShotWithSource(db, "current", now - 60, "kb", 0, "none");
+            ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, currentId);
+            const ShotProjection cur = ShotHistoryStorage::convertShotRecord(rec);
+
+            const QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
+                db, "kb", currentId, cur);
+            QVERIFY2(best.isEmpty(), "no rated rows → block omitted");
+        });
+    }
+
     void recentAdvice_byteStabilityAcrossCalls()
     {
         const QString dbPath = freshDbPath();

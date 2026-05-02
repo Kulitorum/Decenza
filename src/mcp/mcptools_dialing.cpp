@@ -242,6 +242,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         in.grinderBurrs = sd.grinderBurrs;
                         in.grinderSetting = sd.grinderSetting;
                         in.doseWeightG = sd.doseWeightG;
+                        in.enjoymentSource = sd.enjoymentSource;
                         result["currentBean"] = DialingBlocks::buildCurrentBeanBlock(in);
                     }
 

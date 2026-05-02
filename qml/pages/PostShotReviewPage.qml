@@ -667,6 +667,34 @@ Page {
             }
 
             // Rating (moved to top, right after graph)
+            // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
+            // rating row, visible only when the shot is unrated AND the
+            // user hasn't dismissed for this shot. Persists immediately
+            // via the existing saveEditedShot path. The precision slider
+            // below remains the revision surface.
+            QuickRatingRow {
+                Layout.fillWidth: true
+                visible: postShotReviewPage.isEditMode &&
+                         editEnjoyment === 0 &&
+                         !Settings.value(
+                             "shotRatingDismissed/" + postShotReviewPage.editShotId,
+                             false)
+                currentScore: editEnjoyment
+                onRateClicked: function(score) {
+                    editEnjoyment = score
+                    postShotReviewPage.saveEditedShot()
+                }
+                onDismissedClicked: {
+                    Settings.setValue(
+                        "shotRatingDismissed/" + postShotReviewPage.editShotId, true)
+                    // Force the binding to re-evaluate. setValue updates
+                    // QSettings but our visible binding reads from
+                    // Settings.value which may be cached; nudge the
+                    // editShotId binding to re-read.
+                    editShotData = Object.assign({}, editShotData)
+                }
+            }
+
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)

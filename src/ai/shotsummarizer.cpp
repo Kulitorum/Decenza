@@ -424,6 +424,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.drinkTds = shotData.drinkTdsPct;
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
+    summary.enjoymentSource = shotData.enjoymentSource;
     summary.tastingNotes = shotData.espressoNotes;
 
     // Convert curve data
@@ -559,6 +560,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
     in.grinderBurrs = summary.grinderBurrs;
     in.grinderSetting = summary.grinderSetting;
     in.doseWeightG = summary.doseWeight;
+    in.enjoymentSource = summary.enjoymentSource;
     return DialingBlocks::buildCurrentBeanBlock(in);
 }
 
@@ -1184,6 +1186,19 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
         "before suggesting changes. Curve-only analysis without taste feedback\n"
         "misses the variable that matters most.\n\n"
+        "**`bestRecentShot.confidence`** (when present): `\"user_rated\"` means\n"
+        "the user explicitly scored that shot — anchor on it as a known good\n"
+        "outcome. `\"inferred\"` means the deterministic detectors flagged the\n"
+        "shot as clean and on-target so the app provisionally rated it 75; treat\n"
+        "it as a HINT, not ground truth. Confirm with the user (\"the metrics\n"
+        "from your shot on <date> looked clean — does that one taste good to\n"
+        "you?\") before strongly anchoring on an inferred candidate.\n\n"
+        "**`currentBean.enjoymentSource: \"inferred\"`** / **`dialInSessions[].shots[].enjoymentSource: \"inferred\"`**\n"
+        "(when present): same provenance signal at the per-shot level — the\n"
+        "shot's enjoyment was inferred by detector signals, not stated by the\n"
+        "user. Don't treat it as user-validated success. The field is omitted\n"
+        "for user-rated and unrated shots (the existing `tastingFeedback.hasEnjoymentScore`\n"
+        "boolean covers absence).\n\n"
         "**`currentBean.beanFreshness`**: when present, carries `roastDate`,\n"
         "`freshnessKnown` (currently always `false` until storage tracking is\n"
         "added), and an `instruction`. NEVER quote calendar age until\n"

@@ -39,6 +39,9 @@ class ShotProjection {
     Q_PROPERTY(QString beanBrand MEMBER beanBrand)
     Q_PROPERTY(QString beanType MEMBER beanType)
     Q_PROPERTY(int enjoyment0to100 MEMBER enjoyment0to100)
+    // "none" | "user" | "inferred" — issue #1055 Layer 3. Reflects the
+    // shots.enjoyment_source column added by migration 14.
+    Q_PROPERTY(QString enjoymentSource MEMBER enjoymentSource)
     Q_PROPERTY(bool hasVisualizerUpload MEMBER hasVisualizerUpload)
     Q_PROPERTY(QString beverageType MEMBER beverageType)
     Q_PROPERTY(QString roastDate MEMBER roastDate)
@@ -105,6 +108,7 @@ public:
     QString beanBrand;
     QString beanType;
     int enjoyment0to100 = 0;
+    QString enjoymentSource = QStringLiteral("none");
     bool hasVisualizerUpload = false;
     QString beverageType;
     QString roastDate;

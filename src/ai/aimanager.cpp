@@ -214,6 +214,108 @@ std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assista
     return doc.object();
 }
 
+// Heuristic for "the prior assistant message asked the user about
+// taste". The shot-analysis system prompt instructs the model to ask
+// for a 1-100 score when tastingFeedback.hasEnjoymentScore is false;
+// the prose typically carries phrases like "how did this taste",
+// "score", "1-100", or asks for "tasting notes". Conservative: false
+// negative is fine (we just don't auto-persist; user can rate via the
+// editor or QuickRatingRow). False positive risk: a reply that happens
+// to contain a number gets attached as a rating to the wrong shot —
+// guarded by the shotId binding so the writeback hits the same shot
+// the conversation is anchored to, not a random one.
+static bool priorAssistantAskedAboutTaste(const QString& priorAssistantMessage)
+{
+    if (priorAssistantMessage.isEmpty()) return false;
+    const QString lc = priorAssistantMessage.toLower();
+    // Any one of these phrases is a strong signal the model is asking
+    // the user for a numeric/text taste rating.
+    static const QStringList markers{
+        QStringLiteral("how did"),
+        QStringLiteral("how does it taste"),
+        QStringLiteral("tasting notes"),
+        QStringLiteral("1-100"),
+        QStringLiteral("1 to 100"),
+        QStringLiteral("score"),
+        QStringLiteral("rate this shot"),
+        QStringLiteral("rate the shot"),
+        QStringLiteral("how would you rate"),
+    };
+    for (const QString& m : markers) {
+        if (lc.contains(m)) return true;
+    }
+    return false;
+}
+
+void AIManager::maybePersistRatingFromReply(const QString& userReply,
+                                             const QString& priorAssistantMessage,
+                                             qint64 shotId)
+{
+    if (shotId <= 0) return;
+    if (!m_shotHistory) return;
+    if (!priorAssistantAskedAboutTaste(priorAssistantMessage)) return;
+
+    const auto parsed = parseUserRatingReply(userReply);
+    if (!parsed.has_value()) return;
+
+    QVariantMap metadata;
+    metadata.insert(QStringLiteral("enjoyment"), parsed->score);
+    if (!parsed->notes.isEmpty()) {
+        metadata.insert(QStringLiteral("espressoNotes"), parsed->notes);
+    }
+    qDebug() << "AIManager: conversational rating capture — writing"
+             << parsed->score << "to shot" << shotId
+             << "(notes" << (parsed->notes.isEmpty() ? "absent" : "present") << ")";
+    m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
+}
+
+std::optional<AIManager::UserRatingReply> AIManager::parseUserRatingReply(const QString& reply)
+{
+    // Find the first numeric token in [1, 100]. The token may be a bare
+    // integer ("82"), a decimal ("82.5" → rounds to 83), or have an
+    // optional suffix `/100`, `out of 100`, `%` (suffix consumed when
+    // present but not required). The remaining text — minus the token
+    // and any consumed suffix — is trimmed and returned as notes.
+    if (reply.trimmed().isEmpty()) return std::nullopt;
+
+    static const QRegularExpression rx(QStringLiteral(
+        "(\\d+(?:\\.\\d+)?)\\s*"
+        "(/\\s*100|out\\s*of\\s*100|%)?"),
+        QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator it = rx.globalMatch(reply);
+    while (it.hasNext()) {
+        QRegularExpressionMatch m = it.next();
+        bool ok = false;
+        const double raw = m.captured(1).toDouble(&ok);
+        if (!ok) continue;
+        const int rounded = static_cast<int>(std::round(raw));
+        if (rounded < 1 || rounded > 100) continue;
+
+        // Reject negative numbers: the regex captures the digits without
+        // the leading minus, but if the character immediately before the
+        // match is a minus sign the user clearly wrote a negative.
+        const qsizetype matchStartCheck = m.capturedStart(1);
+        if (matchStartCheck > 0) {
+            const QChar prev = reply.at(matchStartCheck - 1);
+            if (prev == QLatin1Char('-') || prev == QChar(0x2212)) continue;
+        }
+
+        UserRatingReply out;
+        out.score = rounded;
+        const qsizetype matchStart = m.capturedStart(0);
+        const qsizetype matchEnd = m.capturedEnd(0);
+        QString remaining = reply.left(matchStart) + reply.mid(matchEnd);
+        // Strip punctuation/whitespace from the edges so "82, balanced
+        // and sweet" → notes "balanced and sweet".
+        static const QRegularExpression edgeTrim(QStringLiteral(
+            "^[\\s,;:\\-—.!?]+|[\\s,;:\\-—.!?]+$"));
+        remaining.replace(edgeTrim, QString());
+        out.notes = remaining.trimmed();
+        return out;
+    }
+    return std::nullopt;
+}
+
 ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
                                        const QString& beanType,
                                        const QString& roastDate,

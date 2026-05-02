@@ -1597,6 +1597,92 @@ private slots:
         s.clear();
     }
 
+    // -------------------------------------------------------------
+    // Layer 1: parseUserRatingReply (issue #1055)
+    // -------------------------------------------------------------
+
+    void parseUserRatingReply_extractsBareNumber()
+    {
+        const auto parsed = AIManager::parseUserRatingReply(QStringLiteral("82"));
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->score, 82);
+        QVERIFY(parsed->notes.isEmpty());
+    }
+
+    void parseUserRatingReply_extractsNumberWithNotes()
+    {
+        const auto parsed = AIManager::parseUserRatingReply(QStringLiteral("82, balanced and sweet"));
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->score, 82);
+        QCOMPARE(parsed->notes, QStringLiteral("balanced and sweet"));
+    }
+
+    void parseUserRatingReply_acceptsOutOf100()
+    {
+        const auto parsed = AIManager::parseUserRatingReply(QStringLiteral("75 out of 100"));
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->score, 75);
+    }
+
+    void parseUserRatingReply_acceptsSlash100AndPercent()
+    {
+        const auto a = AIManager::parseUserRatingReply(QStringLiteral("70/100"));
+        QVERIFY(a.has_value()); QCOMPARE(a->score, 70);
+        const auto b = AIManager::parseUserRatingReply(QStringLiteral("65%"));
+        QVERIFY(b.has_value()); QCOMPARE(b->score, 65);
+    }
+
+    void parseUserRatingReply_decimalsRoundToNearest()
+    {
+        const auto parsed = AIManager::parseUserRatingReply(QStringLiteral("82.5"));
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->score, 83);
+    }
+
+    void parseUserRatingReply_rejectsNonNumeric()
+    {
+        QVERIFY(!AIManager::parseUserRatingReply(
+            QStringLiteral("really good, much better than last time")).has_value());
+        QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("loved it")).has_value());
+    }
+
+    void parseUserRatingReply_rejectsOutOfRange()
+    {
+        QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("0")).has_value());
+        QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("150")).has_value());
+        QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("-5")).has_value());
+    }
+
+    void parseUserRatingReply_takesFirstInRangeNumber()
+    {
+        // First in-range numeric token wins. Notes preserve the rest of
+        // the sentence verbatim — the parser removes only the matched
+        // number-and-suffix substring, not internal context.
+        const auto parsed = AIManager::parseUserRatingReply(
+            QStringLiteral("around 80, maybe 85 next time"));
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->score, 80);
+        QVERIFY2(parsed->notes.contains(QStringLiteral("around")) &&
+                 parsed->notes.contains(QStringLiteral("85")),
+                 qPrintable("notes preserves the surrounding context: " + parsed->notes));
+    }
+
+    void parseUserRatingReply_skipsOutOfRangeAndContinues()
+    {
+        // First numeric token (200) is out-of-range; parser keeps scanning
+        // and finds the in-range 75.
+        const auto parsed = AIManager::parseUserRatingReply(
+            QStringLiteral("compared to my 200g batch, this was a 75"));
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->score, 75);
+    }
+
+    void parseUserRatingReply_emptyInput()
+    {
+        QVERIFY(!AIManager::parseUserRatingReply(QString()).has_value());
+        QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("   \n  ")).has_value());
+    }
+
     void aiConversation_setShotIdForCurrentTurn_legacyConversationHasZeroShotId()
     {
         // A pre-#1053 conversation has no shotId on any entry; reader
