@@ -30,6 +30,7 @@
 #include "history/shothistorystorage.h"
 #include "history/shotprojection.h"
 #include "ai/dialing_blocks.h"
+#include "ai/shotsummarizer.h"  // initTestCase pins the missing-resource qWarning
 
 namespace {
 
@@ -157,6 +158,16 @@ private slots:
     void initTestCase()
     {
         QVERIFY(m_tempDir.isValid());
+
+        // The test binary doesn't link the :/ai/profile_knowledge.md
+        // resource, so the first call to ShotSummarizer's profile-knowledge
+        // loader emits a single qWarning. After commit fixing the
+        // s_knowledgeLoaded latch, the warning fires once per process. Pin
+        // it here so individual tests don't have to ignoreMessage it
+        // themselves — this is fixture noise, not a behavior to test.
+        QTest::ignoreMessage(QtWarningMsg,
+            "ShotSummarizer: Failed to load profile knowledge resource");
+        ShotSummarizer::computeProfileKbId(QStringLiteral("dummy"), QStringLiteral("advanced"));
     }
 
     // -------------------------------------------------------------------
@@ -606,6 +617,226 @@ private slots:
             // grinderContext does not depend on kbId, so it stays equal —
             // that's the correct invariant, not a test bug.
             QCOMPARE(toJson(grinderA), toJson(wrongGrinder));
+        });
+    }
+
+    // ---------------------------------------------------------------
+    // recentAdvice block (issue #1053). Builds attribution between a
+    // prior advisor turn (with structuredNext) and the user's actual
+    // follow-up shot.
+    // ---------------------------------------------------------------
+
+    static QJsonObject sampleStructuredNext()
+    {
+        return QJsonObject{
+            {"grinderSetting", "4.75"},
+            {"expectedDurationSec", QJsonArray{32, 38}},
+            {"expectedFlowMlPerSec", QJsonArray{1.0, 1.5}},
+            {"successCondition", "OK"},
+            {"reasoning", "Slow flow toward profile target"}
+        };
+    }
+
+    void recentAdvice_qualifyingTurnRendersWithAdherenceFollowed()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+
+        // Prior shot (the one the advisor was asked about) at T-2h with
+        // grinder 5.0; follow-up shot at T-1h on the same profile with
+        // grinder 4.75 (matching the recommendation), within the
+        // expectedDurationSec / expectedFlowMlPerSec ranges.
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        const qint64 priorTs = nowSec - 2 * 3600;
+        const qint64 nextTs = nowSec - 1 * 3600;
+
+        qint64 priorId = -1, nextId = -1;
+        withRawDb(dbPath, "rec_advice_followed", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "uuid-prior", .timestamp = priorTs,
+                .profileName = "80's Espresso", .profileKbId = "kb-80s",
+                .duration = 28.0, .finalWeight = 36.0, .doseWeight = 18.0,
+                .grinderSetting = "5.0",
+                .enjoyment = 0
+            });
+            QVERIFY(priorId > 0);
+            nextId = insertShot(db, ShotRow{
+                .uuid = "uuid-next", .timestamp = nextTs,
+                .profileName = "80's Espresso", .profileKbId = "kb-80s",
+                .duration = 35.0, .finalWeight = 42.0, .doseWeight = 18.0,
+                .grinderSetting = "4.75",
+                .enjoyment = 75, .espressoNotes = "balanced and sweet"
+            });
+            QVERIFY(nextId > 0);
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = QList<AIConversation::HistoricalAssistantTurn>{
+                AIConversation::HistoricalAssistantTurn{
+                    priorId, "Try grinder 4.75.", sampleStructuredNext()
+                }
+            };
+            in.currentProfileKbId = "kb-80s";
+            // currentShotId points at a hypothetical "now-being-analyzed"
+            // shot (later than nextId). Set higher than the follow-up so
+            // the follow-up qualifies.
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject entry = out.first().toObject();
+            QCOMPARE(entry.value("turnsAgo").toInt(), 1);
+            const QJsonObject ur = entry.value("userResponse").toObject();
+            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
+            QCOMPARE(ur.value("outcomeRating").toInt(), 75);
+            QCOMPARE(ur.value("outcomeNotes").toString(), QStringLiteral("balanced and sweet"));
+            const QJsonObject rng = ur.value("outcomeInPredictedRange").toObject();
+            QVERIFY(rng.value("duration").toBool());  // 35s in [32,38]
+            // avg flow = 42/35 = 1.2 ml/s, in [1.0, 1.5]
+            QVERIFY(rng.value("flow").toBool());
+        });
+    }
+
+    void recentAdvice_omitsRatingWhenUnrated()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_unrated", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "5.0"
+            });
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 35, .finalWeight = 42, .doseWeight = 18,
+                .grinderSetting = "4.75",
+                .enjoyment = 0  // unrated
+            });
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{
+                priorId, "advice", sampleStructuredNext()}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
+            QVERIFY2(!ur.contains("outcomeRating"),
+                     "outcomeRating must be omitted when the actual shot is unrated");
+            // outcomeInPredictedRange survives — curve-based attribution
+            // doesn't require a taste signal.
+            QVERIFY(ur.value("outcomeInPredictedRange").toObject().contains("duration"));
+        });
+    }
+
+    void recentAdvice_crossProfileFiltersOut()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_xprof", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-A", .timestamp = nowSec - 7200,
+                .profileName = "Profile A", .profileKbId = "kb-A",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "5.0"
+            });
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{
+                priorId, "advice", sampleStructuredNext()}};
+            in.currentProfileKbId = "kb-B";  // different profile
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QVERIFY2(out.isEmpty(),
+                     "cross-profile prior turn must be filtered out, leaving recentAdvice empty");
+        });
+    }
+
+    void recentAdvice_ignoredWhenUserDidNotFollow()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_ignored", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "5.0"
+            });
+            // User kept grinder at 5.0 — ignored the 4.75 recommendation.
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "5.0"
+            });
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{
+                priorId, "advice", sampleStructuredNext()}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
+            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("ignored"));
+        });
+    }
+
+    void recentAdvice_emptyTurnsOmitsBlock()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        withRawDb(dbPath, "rec_advice_empty", [&](QSqlDatabase& db) {
+            DialingBlocks::RecentAdviceInputs in;
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QVERIFY(out.isEmpty());
+        });
+    }
+
+    void recentAdvice_skipsTurnsWithoutFollowUpShot()
+    {
+        // A prior turn with a shotId on the right profile but no later
+        // shot recorded → entry is skipped (user hasn't pulled a
+        // follow-up yet, attribution is impossible).
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_no_followup", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "5.0"
+            });
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{
+                priorId, "advice", sampleStructuredNext()}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = priorId;  // analyzing this same shot, no later one
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QVERIFY2(out.isEmpty(),
+                     "prior turn without a follow-up shot must be skipped");
         });
     }
 };
