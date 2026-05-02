@@ -86,6 +86,16 @@ static void nullifyUnratedFields(QJsonObject& obj)
         if (v <= 0.0)
             obj[k] = QJsonValue(QJsonValue::Null);
     }
+    // Paired invariant: an unrated shot (enjoyment0to100 nulled) must
+    // also surface enjoymentSource = "none". Migration 14's data
+    // invariants make a contradictory ('inferred' / 'user' source on
+    // an enjoyment-zero row) shot impossible today, but this guard
+    // protects MCP consumers from any future drift between the two
+    // columns.
+    if (obj.contains(QStringLiteral("enjoymentSource"))
+        && obj.value(QStringLiteral("enjoyment0to100")).isNull()) {
+        obj[QStringLiteral("enjoymentSource")] = QStringLiteral("none");
+    }
 }
 
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
@@ -106,9 +116,13 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 {"hasNotes", QJsonObject{{"type", "boolean"}, {"description", "Only shots with non-empty espresso notes."}}},
                 {"hasTds", QJsonObject{{"type", "boolean"}, {"description", "Only shots with a refractometer reading (drinkTdsPct > 0)."}}},
                 {"enjoymentSource", QJsonObject{{"type", "string"},
-                    {"description", "Filter by rating provenance. \"user\" = scored manually by the user. "
+                    {"enum", QJsonArray{"user", "inferred", "none"}},
+                    {"description", "Filter by rating provenance. One of \"user\" | \"inferred\" | \"none\". "
+                     "\"user\" = scored manually by the user. "
                      "\"inferred\" = auto-rated 75 by the post-shot detector pipeline (clean verdict + onTarget grind + on-target yield + sane duration). "
-                     "\"none\" = unrated. Lets a caller distinguish user-validated successes from app-suggested ones (issue #1055)."}}},
+                     "\"none\" = unrated (matches enjoyment_source = 'none' as well as legacy NULL/empty rows). "
+                     "Composable with hasRating / minEnjoyment, but note that \"none\" + hasRating: true is contradictory by construction (a 'none'-source row has enjoyment = 0). "
+                     "Issue #1055."}}},
                 {"after", QJsonObject{{"type", "string"}, {"description", "Only shots after this ISO timestamp (e.g. 2026-03-15T00:00:00)"}}},
                 {"before", QJsonObject{{"type", "string"}, {"description", "Only shots before this ISO timestamp (e.g. 2026-03-21T23:59:59)"}}}
             }}
@@ -132,6 +146,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             const bool hasNotes = args.value("hasNotes").toBool();
             const bool hasTds = args.value("hasTds").toBool();
             const QString enjoymentSourceFilter = args.value("enjoymentSource").toString();
+            // Mirror shots_update's strict three-value enum check so MCP
+            // callers get a real error on a typo instead of a silent
+            // empty result set.
+            if (!enjoymentSourceFilter.isEmpty()
+                && enjoymentSourceFilter != QLatin1String("user")
+                && enjoymentSourceFilter != QLatin1String("inferred")
+                && enjoymentSourceFilter != QLatin1String("none")) {
+                respond(QJsonObject{{"error",
+                    QString("enjoymentSource filter must be \"user\", \"inferred\", or \"none\"; got \"%1\"")
+                        .arg(enjoymentSourceFilter)}});
+                return;
+            }
             qint64 afterEpoch = 0, beforeEpoch = 0;
             if (args.contains("after")) {
                 QDateTime dt = QDateTime::fromString(args["after"].toString(), Qt::ISODate);
@@ -184,7 +210,19 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         sql += " AND drink_tds > 0";
                         countSql += " AND drink_tds > 0";
                     }
-                    if (!enjoymentSourceFilter.isEmpty()) {
+                    if (enjoymentSourceFilter == QLatin1String("none")) {
+                        // "none" is the default for unrated rows. Migration 14
+                        // sets enjoyment_source NOT NULL DEFAULT 'none' and
+                        // backfills, but a defensive OR-NULL/empty match keeps
+                        // the filter robust against any legacy or hand-edited
+                        // row that might have slipped through.
+                        sql += " AND (enjoyment_source = 'none'"
+                               " OR enjoyment_source IS NULL"
+                               " OR enjoyment_source = '')";
+                        countSql += " AND (enjoyment_source = 'none'"
+                                    " OR enjoyment_source IS NULL"
+                                    " OR enjoyment_source = '')";
+                    } else if (!enjoymentSourceFilter.isEmpty()) {
                         sql += " AND enjoyment_source = :enjoymentSource";
                         countSql += " AND enjoyment_source = :enjoymentSource";
                     }
@@ -206,7 +244,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         query.bindValue(":beanFilter", "%" + beanFilter + "%");
                     if (minEnjoyment > 0)
                         query.bindValue(":minEnjoyment", minEnjoyment);
-                    if (!enjoymentSourceFilter.isEmpty())
+                    // "none" branch uses literal SQL (matches NULL/empty too)
+                    // and has no :enjoymentSource placeholder; only bind when
+                    // the filter is "user" or "inferred".
+                    if (enjoymentSourceFilter == QLatin1String("user")
+                        || enjoymentSourceFilter == QLatin1String("inferred"))
                         query.bindValue(":enjoymentSource", enjoymentSourceFilter);
                     if (afterEpoch > 0)
                         query.bindValue(":after", afterEpoch);
@@ -265,7 +307,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         countQuery.bindValue(":beanFilter", "%" + beanFilter + "%");
                     if (minEnjoyment > 0)
                         countQuery.bindValue(":minEnjoyment", minEnjoyment);
-                    if (!enjoymentSourceFilter.isEmpty())
+                    if (enjoymentSourceFilter == QLatin1String("user")
+                        || enjoymentSourceFilter == QLatin1String("inferred"))
                         countQuery.bindValue(":enjoymentSource", enjoymentSourceFilter);
                     if (afterEpoch > 0)
                         countQuery.bindValue(":after", afterEpoch);
