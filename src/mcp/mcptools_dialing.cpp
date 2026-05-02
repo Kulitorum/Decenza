@@ -221,6 +221,53 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(dbResult.profileKbId);
                         if (profileKnowledge.isEmpty())
                             profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
+
+                        // Espresso-only: cross-cutting reference content and
+                        // anti-hallucination framing (profile families +
+                        // other-profile parameter discipline). Mirrors what
+                        // shotAnalysisSystemPrompt() injects in full-knowledge
+                        // mode; omitted for filter/pour-over as the content is
+                        // espresso-centric.
+                        if (bevType.toLower() != "filter" && bevType.toLower() != "pourover") {
+                            const QString crossProfile = ShotSummarizer::crossProfileReferenceContent();
+                            if (!crossProfile.isEmpty()) {
+                                if (!profileKnowledge.isEmpty())
+                                    profileKnowledge += QStringLiteral("\n\n");
+                                profileKnowledge += crossProfile;
+                            }
+
+                            profileKnowledge += QStringLiteral(
+                                "\n\n## Profile families\n\n"
+                                "Each profile carries a `[family: <name>]` tag. Profiles in the same\n"
+                                "family implement the same underlying extraction mechanic. Recommending\n"
+                                "a within-family switch (e.g., D-Flow → LRv2 — both `lever-decline`) is\n"
+                                "USUALLY a parameter tweak in disguise: the user could achieve the same\n"
+                                "outcome by adjusting temperature, dose, or grind on their current\n"
+                                "profile. Within-family switches are only meaningful when the\n"
+                                "alternative encodes a constraint the user CANNOT replicate by tweaking\n"
+                                "the current profile (e.g., `80's Espresso` is `lever-decline` like\n"
+                                "D-Flow, but bakes in a low-temperature regime — 82°C declining to\n"
+                                "72°C — that's hard to replicate by editing D-Flow's frame temps).\n\n"
+                                "When you recommend a profile switch, name the family of the current\n"
+                                "and proposed profile and explain what the family change buys the user.\n"
+                                "If both are the same family, EITHER explain the specific constraint the\n"
+                                "alternative bakes in, OR drop the recommendation and suggest a parameter\n"
+                                "tweak on the current profile instead.\n\n"
+                                "## Other-profile parameter discipline\n\n"
+                                "You have full recipe data (frame setpoints, temperatures, pressures,\n"
+                                "durations) ONLY for the current shot's profile in `result.profile.recipe`.\n"
+                                "For every other profile, you have ONLY what is in your training data —\n"
+                                "which may be outdated or incorrect. DO NOT quote specific numeric\n"
+                                "setpoints (e.g., \"Londinium runs 89-90°C\", \"E61 peaks at 9 bar\")\n"
+                                "of profiles other than the current one — inventing them is hallucination.\n\n"
+                                "When recommending a different profile, describe the difference\n"
+                                "qualitatively — \"lower temperature regime\", \"higher peak pressure\",\n"
+                                "\"shorter total duration\", \"flow-controlled instead of pressure-\n"
+                                "controlled\" — and let the user pull a reference shot on that profile to\n"
+                                "see its actual numbers. If the user explicitly asks for setpoints of a\n"
+                                "non-current profile, say you don't have its recipe and offer to discuss\n"
+                                "tradeoffs in qualitative terms.\n");
+                        }
                     }
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;

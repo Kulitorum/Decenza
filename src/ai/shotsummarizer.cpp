@@ -32,6 +32,10 @@ QString ShotSummarizer::s_profileCatalog;
 QString ShotSummarizer::s_dialInReference;
 bool ShotSummarizer::s_dialInReferenceLoaded = false;
 
+// Static cache for cross-profile reference content (Skip-Catalog sections)
+QString ShotSummarizer::s_crossProfileReference;
+bool ShotSummarizer::s_crossProfileReferenceLoaded = false;
+
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation
 static QString normalizeProfileKey(const QString& key)
 {
@@ -1387,6 +1391,15 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
                 "non-current profile, say you don't have its recipe and offer to discuss\n"
                 "tradeoffs in qualitative terms.\n");
         }
+
+        // Cross-cutting reference sections (Skip-Catalog: true) — currently
+        // contains "Cross-Profile Grind Ordering". Injected within the espresso
+        // path (filter and pour-over excluded) so the model can reason about
+        // cross-profile and cross-roast grind direction.
+        const QString crossProfile = crossProfileReferenceContent();
+        if (!crossProfile.isEmpty()) {
+            base += QStringLiteral("\n\n") + crossProfile;
+        }
     }
 
     // Look up profile-specific knowledge by KB ID (computed from title/alias matching),
@@ -1443,7 +1456,17 @@ void ShotSummarizer::loadProfileKnowledge()
 
         ProfileKnowledge pk;
         pk.name = currentTitle;
-        pk.content = currentContent.trimmed();
+
+        // Strip parser-directive lines that are not useful to the AI
+        {
+            QStringList filtered;
+            for (const QString& l : currentContent.split('\n')) {
+                if (!l.startsWith(QStringLiteral("Skip-Catalog:")) &&
+                    !l.startsWith(QStringLiteral("Purpose:")))
+                    filtered << l;
+            }
+            pk.content = filtered.join('\n').trimmed();
+        }
 
         // Extract the main name and any aliases from "Also matches:" line
         QStringList keys;
@@ -1473,6 +1496,8 @@ void ShotSummarizer::loadProfileKnowledge()
                     const QString flag = f.trimmed();
                     if (!flag.isEmpty()) pk.analysisFlags << flag;
                 }
+            } else if (line.startsWith(QStringLiteral("Skip-Catalog:"))) {
+                pk.skipCatalog = (line.mid(13).trimmed().toLower() == QStringLiteral("true"));
             }
         }
 
@@ -1517,6 +1542,7 @@ void ShotSummarizer::buildProfileCatalog()
 
     for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
         const ProfileKnowledge& pk = it.value();
+        if (pk.skipCatalog) continue;  // cross-cutting reference, not a profile
         if (seen.contains(pk.name)) continue;
         seen.insert(pk.name);
 
@@ -1548,6 +1574,26 @@ void ShotSummarizer::buildProfileCatalog()
     s_profileCatalog = lines.join('\n');
 
     qDebug() << "ShotSummarizer: Built profile catalog with" << lines.size() << "entries";
+}
+
+QString ShotSummarizer::crossProfileReferenceContent()
+{
+    if (s_crossProfileReferenceLoaded) return s_crossProfileReference;
+
+    loadProfileKnowledge();
+
+    QSet<QString> seen;
+    QStringList sections;
+    for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
+        const ProfileKnowledge& pk = it.value();
+        if (!pk.skipCatalog) continue;
+        if (seen.contains(pk.name)) continue;
+        seen.insert(pk.name);
+        sections << QStringLiteral("## ") + pk.name + QStringLiteral("\n\n") + pk.content;
+    }
+    s_crossProfileReference = sections.join(QStringLiteral("\n\n"));
+    s_crossProfileReferenceLoaded = true;
+    return s_crossProfileReference;
 }
 
 void ShotSummarizer::loadDialInReference()
@@ -1744,6 +1790,18 @@ If no tasting feedback is provided, analyze curves and extraction metrics, but n
 )") + sharedGrinderGuidance() + QStringLiteral(R"(
 - **Flat burrs**: Higher channeling risk in espresso. Flow deviations may indicate alignment issues.
 - **Conical burrs**: More forgiving puck prep, flow tends to be more stable.
+
+## Grinder Adjustment Procedure
+
+Before recommending a grinder change with any magnitude (clicks, microns, "to setting X", "half a step"), follow this procedure:
+
+1. **Check available shot history.** Always start with the `dialInSessions` block in this prompt — recent dial-in shots for the current bean + grinder. **If you have shot-history tools** (MCP clients have `shots_list` filtered by `profileName` and roast level), call them for broader history beyond `dialInSessions`. The in-app advisor has no tools — only what is already in the prompt is available to it.
+2. **If a reference shot exists**: anchor the recommendation to it. Cite the specific historical setting and the shot it came from ("you pulled this profile at grinder setting 7 on shot 882 — start there").
+3. **If no reference shot exists** after exhausting available history sources: stay directional only. This is the correct response, not a degraded fallback. Use phrases like "a touch coarser", "noticeably finer", "significantly coarser". Never assign a number, click count, or grinder-step delta when you have no historical anchor.
+
+UGS distances in the Cross-Profile Grind Ordering section are **relative-scale comparisons between profiles**, not grinder-click translations. Do not convert a UGS distance into grinder steps, microns, or letter-coded positions under any circumstance — that conversion requires per-user two-anchor calibration that the user has not performed. UGS values are also not visible on the user's grinder dial.
+
+The "Common Espresso Patterns" section below tells you the **direction** of grinder changes ("Grind coarser", "Grind finer"). The **magnitude** must come from this procedure — never from a guess, never from UGS arithmetic. When in doubt, stay directional.
 
 ## Common Espresso Patterns
 

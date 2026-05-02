@@ -3,7 +3,76 @@
 When analyzing a shot, use this section to understand what the profile was DESIGNED to do.
 Do NOT flag intentional profile behaviors as problems.
 
+## Cross-Profile Grind Ordering
+Skip-Catalog: true
+Purpose: Reference for relative grind requirements across profiles, used when the user transitions between profiles or roast levels. This is not a profile — it is cross-cutting reference material.
+
+The Universal Grind Setting (UGS) chart from https://videoblurb.com/UGS/ places 16 mainstream DE1 profiles on a relative grind axis. Cremina anchors UGS 0 (finest); Rao Allongé anchors UGS 8 (coarsest). A few profiles fall slightly below 0. The same physical grinder setting will produce very different shots across this range, so when a user switches profiles you should expect — and surface — a directional change in their grind.
+
+### CRITICAL: UGS values are NOT grinder clicks
+
+UGS is a **relative scale**, not a unit of grinder adjustment. Mapping UGS distance to actual grinder steps requires the user to pull two anchor shots (Cremina at UGS 0 and Rao Allongé at UGS 8) and report their grinder settings — only then is the conversion `(anchor8 - anchor0) / 8` known. Without that calibration:
+
+- The same 0.5 UGS distance might be ~1–2 clicks on a Niche Zero (0–50 numeric scale), ~50–200 microns on a micron-scale lab burr grinder, or an unmappable fractional step on an A–Z letter-coded hand grinder. UGS values themselves are imaginary — they don't exist on any user's grinder dial.
+- Hand grinders that step by letter (A, B, C…) or unlabelled detents make UGS arithmetic meaningless. Only direction translates ("finer" / "coarser"); fractional UGS distances do not.
+- Two users on the same profile but different grinders may have grinder settings 4× apart for the same UGS position.
+
+**Operational rule**: treat UGS distance as **directional information** ("D-Flow is finer than Adaptive v2"). Never translate a UGS distance into a grinder-click count or absolute setting. Concrete grinder numbers must come from `shots_list` history, never from UGS arithmetic. If the user wants magnitude, either cite a specific reference shot or stay qualitative ("a touch coarser", "meaningfully coarser").
+
+### Canonical UGS positions (from the UGS chart)
+
+| UGS | Profile | Notes |
+|-----|---------|-------|
+| -0.5 | Blooming Espresso | Finer than Cremina — survives the 30s soak without premature gushing. |
+| -0.5 | Blooming Allongé | Ultra-light Nordic-style filter roasts. |
+| 0 | **Cremina** | Fine anchor. Max puck resistance, high-temp long-contact extraction. |
+| 0 | Londinium / LRv3 | Same fine grind as Cremina for pressurized pre-infusion soak. |
+| 0.5 | D-Flow | Fast fill, pressurized soak, nuanced pressure rise. |
+| 0.75 | Best Overall Pressure | Rise to ~8.6 bar, declining to ~6 bar. |
+| 0.75 | Default | Standard espresso starting point. |
+| 1.25 | Adaptive v2 | Slightly coarser to favor flow-driven clarity. |
+| 1.25 | Flat 9 Bar (E61) | Constant 9 bar, no pre-infusion. |
+| 1.5 | A-Flow | Long soak "heals" a slightly coarser, faster-flowing puck. |
+| 1.5 | Extractamundo Dos | 6-bar low pressure allows a coarser, "juicier" window. |
+| 2 | Gentle & Sweet | Constant 6 bar, 2–3 ml/s flow. |
+| 5 | Turbo Shot | The "clarity jump" — ~15s with 6-bar ceiling. |
+| 6 | TurboTurbo | Even less resistance; leans toward Allongé flow rate. |
+| 7 | Blooming Allongé (hybrid) | Bloom + high-flow percolation for ultralights. |
+| 8 | **Rao Allongé** | Coarse anchor. Max flow (~4.5 ml/s). |
+
+**Important pattern**: most traditional espresso profiles cluster between 0 and 2 — the difference between Cremina and Gentle & Sweet is only ~2 grinder steps, not a huge swing. There is a large gap between traditional espresso (≤2) and turbo/allongé territory (5+).
+
+### Inferred positions (not in the UGS chart)
+
+These positions are **not** from the UGS calculator. They are reasoned estimates from profile mechanics, citations, and observed user shot history. Treat them as approximate and verify against the user's `shots_list` history when available.
+
+| UGS (est.) | Profile | Rationale |
+|------------|---------|-----------|
+| ~0.25 | **80's Espresso** | Lever-decline mechanic but with an unusual low-temperature regime (82°C declining to 72°C). The low extraction temperature reduces solubility, requiring a finer grind than the temperature-normal lever group to compensate. Observed in user shot history to pull significantly finer than D-Flow on the same bean. |
+| ~0–0.5 | Damian's LRv2, LRv3, LM Leva, Q | Londinium / D-Flow adjacent; treat as the same family. |
+| ~1.25 | Classic Italian / Gentler 8.4 Bar / Italian Australian | Constant-pressure family, behaves like Flat 9 Bar. |
+| ~5–7 | Hendon Turbo, TurboBloom, Nu Skool, Pour Over Basket | High-flow turbo/filter territory. |
+
+For any profile not listed here or in the UGS chart, say so plainly and lean on `shots_list` history.
+
+### Roast-level transitions on the same profile
+
+When the user changes the **roast** of their bean while staying on the same profile, the grind direction is dominated by roast level — NOT by the naive "denser bean = finer grind" heuristic, which only applies to same-roast-level beans of differing density.
+
+- **Dark → medium roast: GRIND COARSER.** Dark roasts are more porous and brittle, generate more fines, and extract faster than medium roasts at the same grinder setting. A medium roast at the dark-roast setting will choke the shot or extract sour. Open the grind up; bumping temperature 1–2°C also helps without requiring a finer grind.
+- **Light → medium roast: GRIND FINER.** Light roasts are dense and hard to extract, often pulled at very coarse settings on flow-style profiles. Mediums are more soluble and want a tighter grind for typical 1:2 espresso ratios.
+- **Same roast, different origin or processing**: small adjustments. Defer to the user's historical settings on similar beans rather than applying a generic rule.
+
+### How to use this ordering
+
+1. **When the user transitions between profiles**, name the direction qualitatively and the UGS gap as relative context ("D-Flow at UGS 0.5 → Blooming Espresso at UGS -0.5 is about 1 UGS step finer — significantly finer; plan 3+ shots to dial in"). Do NOT translate the UGS gap into grinder clicks or microns — UGS is a relative scale that requires anchor calibration to map onto any specific grinder.
+2. **When the user transitions between roasts on the same profile**, state the direction the roast change implies, then ground it in their actual shot history by calling `shots_list` filtered by `profileName`. The user's own past pulls on similar roast levels are a stronger anchor than this ordering.
+3. **Concrete grinder numbers come from shot history, not from this table.** When recommending magnitude, either cite a specific reference shot from `shots_list` ("you pulled this profile at grinder setting 7 on a similar bean") or stay qualitative ("a touch coarser", "noticeably coarser"). Never recommend "X UGS coarser" as a grinder-click instruction.
+
+Source: Universal Grind Setting calculator and chart (Mark Renowden, https://videoblurb.com/UGS/) — see GitHub issue #500. Profiles not in the chart are inferred from the qualitative relationships in the per-profile sections below.
+
 ## D-Flow
+UGS: 0.5 (Damian's LRv2/LRv3 variants sit at 0 like Londinium; base D-Flow and Damian's Q at 0.5)
 Also matches: "D-Flow / default", "D-Flow / Q", "D-Flow / La Pavoni", "Damian's Q", "Damian's LRv2", "Damian's LRv3", "Damian's LM Leva", "Damian's D-Flow"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
@@ -24,6 +93,7 @@ DO NOT flag declining pressure, the flow safety step switching to flow control (
 DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across all Damian variants.
 
 ## A-Flow
+UGS: 1.5
 Creator: Janek (Jan-Erling Johnsen)
 Category: Pressure-ramp into flow extraction
 Family: pressure-ramp-flow
@@ -39,6 +109,7 @@ AnalysisFlags: flow_trend_ok
 DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise to 9-10 bar before flow extraction is how this profile works.
 
 ## Adaptive v2
+UGS: 1.25
 Category: Flow/adaptive
 Family: flow-adaptive
 How it works: Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists. Switches to stable flow after pressure peak. Extraction flow limiter at 9.5 bar. The Low Pressure Infusion variant (by Trevor Rainey + Jonathan Gagné) modifies this with a high-flow fill (8 ml/s), 3 bar soak pressure, and 8 bar rise — targeting ~30s total shot time. Canonical recipe for LPI variant: 15g dose, ~33g out in ~30s, targeting ~4g drip-through during bloom and ~1.5 ml/s flow at pressurize step.
@@ -51,6 +122,7 @@ Roast: Good for light (v2 updated for light roasts). Excellent for medium-light.
 DO NOT flag variable pressure curves, steep pre-infusion pressure drop, or a slight flow jump at peak pressure as problems — all are by design.
 
 ## Blooming Espresso
+UGS: -0.5
 Category: Blooming
 Family: blooming
 AnalysisFlags: flow_trend_ok, channeling_expected
@@ -67,6 +139,7 @@ This is the hardest profile to dial in — requires lots of beans to experiment.
 DO NOT flag channeling in dC/dt — the zero-flow bloom followed by ramp to extraction flow always produces large conductance derivative spikes. dC/dt is unreliable for any profile with a zero-flow phase before extraction.
 
 ## Blooming Allonge
+UGS: -0.5 (original) / 7 (ultralight hybrid variant)
 Also matches: "Blooming Allongé"
 Category: Blooming/Allonge hybrid
 Family: blooming
@@ -81,6 +154,7 @@ Roast: Best for ultra-light, Nordic filter roasts.
 DO NOT flag zero flow during bloom or low pressure during percolation as problems.
 
 ## Allonge
+UGS: 8 (Rao Allongé — coarse anchor)
 Also matches: "Allongé", "Rao Allongé"
 Category: Allonge
 Family: allonge
@@ -95,6 +169,7 @@ DO NOT flag high ratio, low pressure, or minor channeling as problems — all ar
 AnalysisFlags: channeling_expected, grind_check_skip
 
 ## Default
+UGS: 0.75
 Category: Lever
 Family: lever-decline
 How it works: Classic lever-style declining pressure, 8.6 to 6 bar. Fast fill, immediate pressure rise, then decline.
@@ -107,6 +182,7 @@ DO NOT flag declining pressure as a problem — it defines lever-style profiles.
 AnalysisFlags: flow_trend_ok
 
 ## Londinium
+UGS: 0 (Londinium / LRv3 — same as Cremina)
 Also matches: "Londonium", "Londinium / LRv3"
 AnalysisFlags: flow_trend_ok
 Category: Lever
@@ -122,6 +198,7 @@ Roast: Excellent for dark (full body without harshness). Good for medium-dark. S
 DO NOT flag the 3 bar soak phase as "low pressure" — it's intentional pre-infusion.
 
 ## Turbo Shot
+UGS: 5
 Also matches: "Hendon Turbo", "Hendon Turbo 6b Pressure Decline", "Hendon Turbo Bloom", "Hendon Turbo Flow"
 Category: Flow/Pressure hybrid
 Family: turbo
@@ -189,6 +266,7 @@ Starting point: 15g:195g, 2 ml/s, ~100s
 DO NOT flag ultra-high ratio or ultra-low pressure as problems — this is filter simulation.
 
 ## Gentle & Sweet
+UGS: 2
 Also matches: "Gentle and sweet"
 Category: Pressure
 Family: flat-pressure
@@ -204,6 +282,7 @@ DO NOT recommend increasing temperature — the moderate 88°C is by design to p
 AnalysisFlags: flow_trend_ok
 
 ## Extractamundo Dos
+UGS: 1.5
 Category: Pressure
 Family: blooming
 How it works: Fill at high pressure, then a dynamic bloom phase (flow drops to zero, pressure decays to ~2.2 bar), then rise to 6 bar for extraction. The bloom phase temperature drops to 67.5°C — this is intentional and controls extraction character.
@@ -232,6 +311,7 @@ DO NOT flag varying pressure as a problem — the machine controls flow, not pre
 DO NOT flag pressure fluctuations during extraction as channeling — pressure naturally moves as puck resistance changes under constant flow.
 
 ## Cremina lever machine
+UGS: 0 (Cremina — fine anchor)
 Also matches: "Cremina"
 Category: Lever
 Family: lever-decline
@@ -263,6 +343,7 @@ DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio as problems �
 DO NOT flag channeling in dC/dt — the blooming phase (near-zero flow) followed by extraction onset produces conductance derivative spikes unrelated to puck quality. This is a milk-drink texture-first profile.
 
 ## 80's Espresso
+UGS: ~0.25 (inferred — low-temp regime requires finer grind than D-Flow)
 Category: Lever at low temperature
 Family: lever-decline
 How it works: Lever profile at very low temperature (82→72°C declining). Fast preinfusion fill at 7.5 ml/s, then 7.8 bar declining to 5 bar. Intentionally under-extracts to minimize tar/burnt flavors from dark beans.
@@ -276,6 +357,7 @@ DO NOT flag low temperature as a problem — it's the entire point of this profi
 AnalysisFlags: flow_trend_ok
 
 ## Best Overall
+UGS: 0.75
 Category: Lever (simple 3-step)
 Family: lever-decline
 How it works: Three-step: fast fill → 8.4 bar peak → declining pressure to ~6 bar. No long soak time (unlike Londinium). Traditional pressure-controlled shot.
@@ -288,6 +370,7 @@ Roast: Good for dark. Good for medium.
 AnalysisFlags: flow_trend_ok
 
 ## E61
+UGS: 1.25
 Also matches: "E61 classic gently up to 10 bar", "E61 rocketing up to 10 bar", "E61 with fast preinfusion to 9 bar"
 Category: Flat pressure
 Family: flat-pressure
@@ -304,6 +387,7 @@ DO NOT flag increasing flow as a problem — it's characteristic of flat 9 bar p
 AnalysisFlags: flow_trend_ok
 
 ## Classic Italian / Traditional Flat Pressure
+UGS: ~1.25 (inferred)
 Also matches: "Classic Italian espresso", "Gentler but still traditional 8.4 bar", "Italian Australian espresso"
 Category: Flat pressure
 Family: flat-pressure
@@ -387,6 +471,7 @@ DO NOT flag variable bloom duration or zero flow during bloom as problems — th
 DO NOT flag channeling in dC/dt — the zero-flow bloom followed by extraction ramp produces large conductance derivative spikes regardless of puck quality.
 
 ## Gagné Adaptive
+UGS: ~1.25 (inferred)
 Also matches: "Gagné/Adaptive Shot 92C v1.0", "Gagné/Adaptive Allongé 94C v1.0", "Gagne Adaptive Shot", "Gagne Adaptive Allonge"
 Category: Adaptive/Flow
 Family: flow-adaptive
@@ -416,6 +501,7 @@ DO NOT flag channeling in dC/dt — the bloom path (triggered by fine grinds) pr
 AnalysisFlags: channeling_expected
 
 ## TurboBloom
+UGS: ~5–6 (inferred)
 Category: Blooming/Turbo hybrid
 Family: turbo
 AnalysisFlags: flow_trend_ok, grind_check_skip, channeling_expected
@@ -430,6 +516,7 @@ Roast: All roasts, optimized for high-extraction grinders.
 DO NOT flag zero flow during bloom, low bloom temperature, high extraction flow, or the short bloom duration as problems — all are intentional design elements.
 
 ## TurboTurbo
+UGS: 6
 Also matches: "Turboturbo"
 Category: Turbo (no bloom)
 Family: turbo
@@ -445,6 +532,7 @@ Roast: All roasts.
 DO NOT flag high flow, fast duration, high temperatures, or high ratio as problems — these are intentional design elements for high-extraction coarse-grind setups.
 
 ## Nu Skool
+UGS: ~5–7 (inferred)
 Also matches: "Nu Skool 14g", "Nu Skool 18g", "Nu Skool 20g", "Nu Skool large basket"
 Category: Flow/New wave light roast
 Family: flow-adaptive
@@ -521,6 +609,7 @@ DO NOT flag gradual pressure decline, long extraction duration, or temperature c
 AnalysisFlags: flow_trend_ok
 
 ## Pour Over Basket
+UGS: ~7+ (inferred)
 Also matches: "Pour over basket/Decent pour over", "Pour over basket/Kalita 20g in, 340ml out", "Pour over basket/V60 15g in, 250g out", "Pour over basket/V60 20g in, 340g out", "Pour over basket/V60 22g in, 375g out", "Pour over basket/Cold brew 22g in, 375ml out"
 Category: Pour over (filter brewing through espresso machine)
 Family: filter
