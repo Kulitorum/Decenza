@@ -20,6 +20,8 @@
 #include <QString>
 #include <QStringLiteral>
 #include <QVariantList>
+#include <QStringList>
+#include <cmath>
 
 namespace {
 
@@ -342,5 +344,234 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
 // buildCurrentBeanBlock is defined inline in the header so test binaries
 // that link only `shotsummarizer.cpp` don't drag in this TU's DB-dependent
 // block builders (loadShotRecordStatic et al.).
+
+// ---------------------------------------------------------------------
+// recentAdvice block (issue #1053) — closed-loop coaching attribution.
+// ---------------------------------------------------------------------
+
+namespace {
+
+// Adherence tolerance. Grinder matches as exact string OR numerically
+// within ±0.25 of a step (covers quarter-step grinder click rounding).
+// The "no movement" failure mode — recommendation 4.75, prior 5.0,
+// actual 5.0 — is caught by the prior-movement guard inside
+// grinderMatches, NOT by tightening this tolerance. Dose tolerance is
+// ±0.3g — tighter than measurement noise but wider than the user's
+// typical scale precision.
+constexpr double kGrinderStepTolerance = 0.25;
+constexpr double kDoseToleranceG = 0.3;
+
+// Match `actual` against `recommended` for adherence purposes. Also
+// guard against "the user kept the prior shot's setting" registering
+// as followed when the recommendation happens to be within tolerance
+// of the prior — a no-movement shot is NOT "followed" even when the
+// recommendation was close to where the user already was.
+bool grinderMatches(const QString& recommended, const QString& actual,
+                     const QString& prior)
+{
+    if (recommended.isEmpty()) return true;
+    if (recommended == actual && recommended != prior) return true;
+    bool okR = false, okA = false, okP = false;
+    const double r = recommended.toDouble(&okR);
+    const double a = actual.toDouble(&okA);
+    const double p = prior.toDouble(&okP);
+    if (!okR || !okA) return false;
+    if (std::abs(r - a) > kGrinderStepTolerance + 1e-9) return false;
+    // If the user didn't move from the prior setting, this is NOT
+    // adherence — they ignored the recommendation, even though the
+    // prior happens to be close to the recommended value.
+    if (okP && std::abs(a - p) <= kGrinderStepTolerance + 1e-9 && a != r)
+        return false;
+    return true;
+}
+
+QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
+                          const ShotProjection& prior)
+{
+    bool anyRecommendation = false;
+    int matched = 0;
+    int total = 0;
+
+    if (sn.contains(QStringLiteral("grinderSetting"))) {
+        anyRecommendation = true;
+        ++total;
+        if (grinderMatches(sn.value("grinderSetting").toString(),
+                           actual.grinderSetting, prior.grinderSetting))
+            ++matched;
+    }
+    if (sn.contains(QStringLiteral("doseG"))) {
+        anyRecommendation = true;
+        ++total;
+        const double recommended = sn.value("doseG").toDouble();
+        const bool inTolerance = std::abs(recommended - actual.doseWeightG) <= kDoseToleranceG + 1e-9;
+        // Same no-movement guard as grinderMatches.
+        const bool moved = std::abs(actual.doseWeightG - prior.doseWeightG) > kDoseToleranceG + 1e-9
+                           || std::abs(recommended - prior.doseWeightG) > kDoseToleranceG + 1e-9;
+        if (inTolerance && moved) ++matched;
+    }
+    if (sn.contains(QStringLiteral("profileTitle"))) {
+        anyRecommendation = true;
+        ++total;
+        const QString recommended = sn.value("profileTitle").toString();
+        // ShotProjection stores profile_name (the title); structuredNext
+        // recommends a profileTitle so both ends use the same identifier.
+        if (recommended == actual.profileName && recommended != prior.profileName)
+            ++matched;
+    }
+    if (!anyRecommendation) {
+        // The recommendation was ranges-only (no parameter changes
+        // requested). Treat that as "followed" by default — the user
+        // didn't violate anything since nothing was requested.
+        return QStringLiteral("followed");
+    }
+    if (matched == total) return QStringLiteral("followed");
+    if (matched == 0) return QStringLiteral("ignored");
+    return QStringLiteral("partial");
+}
+
+bool inRange(double value, const QJsonArray& range)
+{
+    if (range.size() != 2) return false;
+    const double low = range.at(0).toDouble();
+    const double high = range.at(1).toDouble();
+    return value >= low - 1e-9 && value <= high + 1e-9;
+}
+
+QJsonObject computeOutcomeInPredictedRange(const QJsonObject& sn,
+                                            const ShotProjection& actual)
+{
+    QJsonObject out;
+    out["duration"] = inRange(actual.durationSec,
+        sn.value("expectedDurationSec").toArray());
+
+    // Average flow during pour, in ml/s. ShotProjection doesn't carry a
+    // peak/main flow rate field — computing one would require parsing
+    // the samples blob, which is too expensive for an attribution path.
+    // The model's expectedFlowMlPerSec is realistically targeting average
+    // pour flow; use yield/duration as a defensible proxy.
+    const double avgFlow = actual.durationSec > 0
+        ? (actual.finalWeightG / actual.durationSec)
+        : 0.0;
+    out["flow"] = inRange(avgFlow,
+        sn.value("expectedFlowMlPerSec").toArray());
+
+    // Pressure: only emit when expectedPeakPressureBar was on the prior
+    // turn AND we have peak-pressure data for the actual shot. The latter
+    // is currently not on ShotProjection, so we omit `pressure` for now —
+    // the spec was tightened to OPTIONAL precisely so this expensive
+    // path can be filled in by a future change.
+    return out;
+}
+
+// Build a one-sentence summary derived from a structuredNext block, used
+// when the model omitted `reasoning` for some reason (older saved
+// conversations, off-spec providers).
+QString synthesizeRecommendationSummary(const QJsonObject& sn)
+{
+    QStringList parts;
+    if (sn.contains(QStringLiteral("grinderSetting")))
+        parts << QStringLiteral("grinder %1").arg(sn.value("grinderSetting").toString());
+    if (sn.contains(QStringLiteral("doseG")))
+        parts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
+    if (sn.contains(QStringLiteral("profileTitle")))
+        parts << QStringLiteral("profile %1").arg(sn.value("profileTitle").toString());
+    QString head = parts.isEmpty() ? QStringLiteral("Hold settings") : QStringLiteral("Try ") + parts.join(QStringLiteral(", "));
+    const QJsonArray dur = sn.value(QStringLiteral("expectedDurationSec")).toArray();
+    const QJsonArray flow = sn.value(QStringLiteral("expectedFlowMlPerSec")).toArray();
+    if (dur.size() == 2 && flow.size() == 2) {
+        head += QStringLiteral("; expect %1-%2s, %3-%4 ml/s")
+            .arg(dur.at(0).toDouble(), 0, 'f', 0)
+            .arg(dur.at(1).toDouble(), 0, 'f', 0)
+            .arg(flow.at(0).toDouble(), 0, 'f', 1)
+            .arg(flow.at(1).toDouble(), 0, 'f', 1);
+    }
+    return head;
+}
+
+} // namespace
+
+QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
+                                  const RecentAdviceInputs& in)
+{
+    QJsonArray out;
+    if (in.turns.isEmpty() || in.currentProfileKbId.isEmpty()) return out;
+
+    int turnsAgo = 0;  // 1-indexed; only incremented when a turn qualifies (spec).
+    for (const AIConversation::HistoricalAssistantTurn& turn : in.turns) {
+        if (turn.shotId == 0) continue;
+        if (turn.structuredNext.isEmpty()) continue;
+
+        // 1. Look up prior turn's shot's profile + timestamp.
+        QSqlQuery q(db);
+        q.prepare("SELECT profile_kb_id, timestamp FROM shots WHERE id = ?");
+        q.addBindValue(static_cast<qint64>(turn.shotId));
+        if (!q.exec ()) {
+            qWarning() << "buildRecentAdviceBlock: prior-shot lookup failed:"
+                       << q.lastError().text() << "id=" << turn.shotId;
+            continue;
+        }
+        if (!q.next()) continue;  // shot deleted from history; skip
+
+        const QString priorKbId = q.value(0).toString();
+        const qint64 priorTs = q.value(1).toLongLong();
+        if (priorKbId != in.currentProfileKbId) continue;  // cross-profile filter
+        if (priorTs <= 0) continue;
+
+        // 2. Find the next shot postdating the prior turn's shot on the
+        // same profile, excluding the current shot under analysis.
+        QSqlQuery nextQ(db);
+        nextQ.prepare(
+            "SELECT id FROM shots "
+            "WHERE profile_kb_id = ? AND timestamp > ? AND id != ? "
+            "ORDER BY timestamp ASC LIMIT 1");
+        nextQ.addBindValue(in.currentProfileKbId);
+        nextQ.addBindValue(priorTs);
+        nextQ.addBindValue(static_cast<qint64>(in.currentShotId));
+        if (!nextQ.exec ()) {
+            qWarning() << "buildRecentAdviceBlock: follow-up shot lookup failed:"
+                       << nextQ.lastError().text();
+            continue;
+        }
+        if (!nextQ.next()) continue;  // user hasn't pulled a follow-up yet
+
+        const qint64 nextId = nextQ.value(0).toLongLong();
+        ShotRecord nextRec = ShotHistoryStorage::loadShotRecordStatic(db, nextId);
+        const ShotProjection actual = ShotHistoryStorage::convertShotRecord(nextRec);
+        if (!actual.isValid()) continue;
+
+        // Load the prior turn's shot too — adherence uses it to detect
+        // "the user didn't move" cases where the recommendation happens
+        // to be within tolerance of where the user already was.
+        ShotRecord priorRec = ShotHistoryStorage::loadShotRecordStatic(db, turn.shotId);
+        const ShotProjection prior = ShotHistoryStorage::convertShotRecord(priorRec);
+
+        ++turnsAgo;  // turn qualifies — claim its slot.
+
+        QJsonObject userResponse;
+        userResponse["actualNextShotId"] = static_cast<double>(actual.id);
+        userResponse["grinderSetting"] = actual.grinderSetting;
+        userResponse["doseG"] = actual.doseWeightG;
+        userResponse["adherence"] = computeAdherence(turn.structuredNext, actual, prior);
+        if (actual.enjoyment0to100 > 0)
+            userResponse["outcomeRating0to100"] = actual.enjoyment0to100;
+        if (!actual.espressoNotes.isEmpty())
+            userResponse["outcomeNotes"] = actual.espressoNotes;
+        userResponse["outcomeInPredictedRange"] =
+            computeOutcomeInPredictedRange(turn.structuredNext, actual);
+
+        const QString reasoning = turn.structuredNext.value("reasoning").toString();
+        const QString recommendation = !reasoning.isEmpty()
+            ? reasoning
+            : synthesizeRecommendationSummary(turn.structuredNext);
+
+        QJsonObject entry;
+        entry["turnsAgo"] = turnsAgo;
+        entry["recommendation"] = recommendation;
+        entry["structuredNext"] = turn.structuredNext;
+        entry["userResponse"] = userResponse;
+        out.append(entry);
+    }
+    return out;
+}
 
 } // namespace DialingBlocks

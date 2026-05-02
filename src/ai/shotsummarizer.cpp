@@ -1201,7 +1201,29 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "field was never recorded, the AI sees the modern value as if it\n"
         "applied. When advising on a specific older shot's grinder/bean, treat\n"
         "the session context as a best-effort inference, not a guaranteed\n"
-        "match for that shot's actual recorded data.\n");
+        "match for that shot's actual recorded data.\n\n"
+        "**`recentAdvice`** (when present): an array of up to 3 of YOUR own\n"
+        "prior recommendations on this profile, paired with the user's actual\n"
+        "follow-up shot. Each entry carries `turnsAgo`, the prior\n"
+        "`structuredNext` (your prediction), and `userResponse` describing the\n"
+        "user's actual next shot.\n\n"
+        "Use `userResponse.adherence` to pick the right next move:\n"
+        "- `\"followed\"` AND outcome got worse (low `outcomeRating0to100`, OR most of\n"
+        "  `outcomeInPredictedRange.*` is `false`) ⇒ REVISE direction. Do not\n"
+        "  repeat the same recommendation — the experiment ran and failed.\n"
+        "- `\"followed\"` AND outcome was good ⇒ commit harder; the direction\n"
+        "  is right.\n"
+        "- `\"ignored\"` ⇒ the user did NOT run your previous experiment.\n"
+        "  STAY THE COURSE before pivoting to a new direction; you don't yet\n"
+        "  have a data point on the prior recommendation.\n"
+        "- `\"partial\"` ⇒ the user moved some but not all parameters. Note\n"
+        "  what's missing and ASK before revising.\n\n"
+        "When `outcomeRating0to100` is OMITTED, the user did not rate the follow-up\n"
+        "shot. Do not assume good or bad — fall back to\n"
+        "`outcomeInPredictedRange` for a curve-shape signal, and ask the user\n"
+        "about taste. `recentAdvice` is the LLM's own track record on this\n"
+        "profile — read it as feedback on your prior calls and self-correct\n"
+        "mid-session rather than restarting analysis from scratch.\n");
 
     // Structured nextShot output (issue #1054). The shot-analysis system
     // prompt teaches the model to emit a fenced ```json block at the very

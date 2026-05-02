@@ -170,6 +170,14 @@ void AIConversation::addUserMessage(const QString& message)
     QJsonObject msg;
     msg["role"] = "user";
     msg["content"] = message;
+    // Apply the latched shotId to the new user turn (issue #1053) but
+    // do NOT consume the latch — the assistant message that follows
+    // shares the pair's shotId. Production flow is
+    // setShotIdForCurrentTurn → ask() → addUserMessage here →
+    // addAssistantMessage (which clears the latch).
+    if (m_pendingShotId != 0) {
+        msg["shotId"] = static_cast<double>(m_pendingShotId);
+    }
     m_messages.append(msg);
 }
 
@@ -181,6 +189,10 @@ void AIConversation::addAssistantMessage(const QString& message,
     msg["content"] = message;
     if (structuredNext.has_value()) {
         msg["structuredNext"] = *structuredNext;
+    }
+    if (m_pendingShotId != 0) {
+        msg["shotId"] = static_cast<double>(m_pendingShotId);
+        m_pendingShotId = 0;  // consume the latch
     }
     m_messages.append(msg);
 }
@@ -205,6 +217,82 @@ std::optional<QJsonObject> AIConversation::structuredNextForLastAssistantTurn() 
         }
     }
     return std::nullopt;
+}
+
+void AIConversation::setShotIdForCurrentTurn(qint64 shotId)
+{
+    m_pendingShotId = shotId;
+    // Retroactively stamp the most recent user turn ONLY when it
+    // doesn't already carry a shotId — protects the prior pair's
+    // attribution when this is called between turns of an accumulating
+    // conversation. The latch above covers the future-pair case
+    // (the next addUserMessage / addAssistantMessage stamp from it).
+    if (shotId == 0) return;
+    for (qsizetype i = m_messages.size() - 1; i >= 0; --i) {
+        QJsonObject msg = m_messages.at(i).toObject();
+        if (msg.value("role").toString() == QStringLiteral("user")) {
+            if (msg.contains(QStringLiteral("shotId"))) return;  // already attributed; don't overwrite
+            msg["shotId"] = static_cast<double>(shotId);
+            m_messages.replace(i, msg);
+            return;
+        }
+    }
+}
+
+qint64 AIConversation::shotIdForTurn(qsizetype index) const
+{
+    if (index < 0 || index >= m_messages.size()) return 0;
+    const QJsonObject msg = m_messages.at(index).toObject();
+    if (!msg.contains(QStringLiteral("shotId"))) return 0;
+    return static_cast<qint64>(msg.value(QStringLiteral("shotId")).toDouble());
+}
+
+QList<AIConversation::HistoricalAssistantTurn>
+AIConversation::recentAssistantTurns(qsizetype max) const
+{
+    QList<HistoricalAssistantTurn> out;
+    if (max <= 0) return out;
+    for (qsizetype i = m_messages.size() - 1; i >= 0 && out.size() < max; --i) {
+        const QJsonObject msg = m_messages.at(i).toObject();
+        if (msg.value("role").toString() != QStringLiteral("assistant")) continue;
+        const qint64 sid = static_cast<qint64>(msg.value("shotId").toDouble());
+        if (sid == 0) continue;  // legacy or free-form turn
+        if (!msg.contains(QStringLiteral("structuredNext"))) continue;
+        const QJsonValue snVal = msg.value(QStringLiteral("structuredNext"));
+        if (!snVal.isObject()) continue;
+        out.append(HistoricalAssistantTurn{
+            sid, msg.value("content").toString(), snVal.toObject()
+        });
+    }
+    return out;
+}
+
+QList<AIConversation::HistoricalAssistantTurn>
+AIConversation::loadRecentAssistantTurnsForKey(const QString& storageKey, qsizetype max)
+{
+    QList<HistoricalAssistantTurn> out;
+    if (storageKey.isEmpty() || max <= 0) return out;
+    QSettings settings;
+    const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
+    const QByteArray raw = settings.value(prefix + "messages").toByteArray();
+    if (raw.isEmpty()) return out;
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(raw, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isArray()) return out;
+    const QJsonArray arr = doc.array();
+    for (qsizetype i = arr.size() - 1; i >= 0 && out.size() < max; --i) {
+        const QJsonObject msg = arr.at(i).toObject();
+        if (msg.value("role").toString() != QStringLiteral("assistant")) continue;
+        const qint64 sid = static_cast<qint64>(msg.value("shotId").toDouble());
+        if (sid == 0) continue;
+        if (!msg.contains(QStringLiteral("structuredNext"))) continue;
+        const QJsonValue snVal = msg.value(QStringLiteral("structuredNext"));
+        if (!snVal.isObject()) continue;
+        out.append(HistoricalAssistantTurn{
+            sid, msg.value("content").toString(), snVal.toObject()
+        });
+    }
+    return out;
 }
 
 void AIConversation::sendRequest()

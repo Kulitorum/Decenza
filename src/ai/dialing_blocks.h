@@ -1,9 +1,11 @@
 #pragma once
 
 #include "dialing_helpers.h"  // buildBeanFreshness — composed inside buildCurrentBeanBlock
+#include "aiconversation.h"   // HistoricalAssistantTurn — input to buildRecentAdviceBlock
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QList>
 #include <QString>
 #include <QtGlobal>
 
@@ -133,5 +135,27 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 QJsonObject buildSawPredictionBlock(Settings* settings,
                                     ProfileManager* profileManager,
                                     const ShotProjection& currentShot);
+
+// Inputs for the closed-loop coaching `recentAdvice` block (issue #1053).
+// The caller pulls qualifying assistant turns from the active conversation
+// (`AIConversation::recentAssistantTurns(max)` for the in-app advisor, or
+// `AIConversation::loadRecentAssistantTurnsForKey(...)` for the MCP path)
+// and passes them in along with the resolved current shot's profile_kb_id
+// and id. The builder runs SQL on the caller's thread.
+struct RecentAdviceInputs {
+    QList<AIConversation::HistoricalAssistantTurn> turns;  // most-recent-first; caller-capped
+    QString currentProfileKbId;
+    qint64 currentShotId = 0;  // excluded from follow-up lookup
+};
+
+// Build the recentAdvice array. For each input turn (in order) tries to
+// pair it with the user's actual follow-up shot on the same profile and
+// computes adherence + outcomeInPredictedRange + outcomeRating0to100 attribution.
+// Turns that don't qualify (cross-profile, no follow-up shot yet) are
+// skipped without consuming a turnsAgo slot. Returns an empty array when
+// no entries qualify; caller MUST suppress the `recentAdvice` key in
+// that case (no `recentAdvice: []` placeholders).
+QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
+                                  const RecentAdviceInputs& in);
 
 } // namespace DialingBlocks
