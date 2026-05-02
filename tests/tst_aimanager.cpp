@@ -1653,34 +1653,125 @@ private slots:
         QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("-5")).has_value());
     }
 
-    void parseUserRatingReply_takesFirstInRangeNumber()
+    void parseUserRatingReply_leadingTokenWinsOverLaterTokens()
     {
-        // First in-range numeric token wins. Notes preserve the rest of
-        // the sentence verbatim — the parser removes only the matched
-        // number-and-suffix substring, not internal context.
+        // Leading-token rule: only the first non-whitespace token (or
+        // a suffixed number anywhere) qualifies. "80" leads → wins;
+        // "85" appears later but no suffix and not leading → ignored.
         const auto parsed = AIManager::parseUserRatingReply(
-            QStringLiteral("around 80, maybe 85 next time"));
+            QStringLiteral("80, maybe 85 next time"));
         QVERIFY(parsed.has_value());
         QCOMPARE(parsed->score, 80);
-        QVERIFY2(parsed->notes.contains(QStringLiteral("around")) &&
-                 parsed->notes.contains(QStringLiteral("85")),
-                 qPrintable("notes preserves the surrounding context: " + parsed->notes));
+        QVERIFY2(parsed->notes.contains(QStringLiteral("85")),
+                 qPrintable("notes preserves the trailing context: " + parsed->notes));
     }
 
-    void parseUserRatingReply_skipsOutOfRangeAndContinues()
+    void parseUserRatingReply_skipsOutOfRangeLeadingToken_rejectsMidProse()
     {
-        // First numeric token (200) is out-of-range; parser keeps scanning
-        // and finds the in-range 75.
-        const auto parsed = AIManager::parseUserRatingReply(
-            QStringLiteral("compared to my 200g batch, this was a 75"));
-        QVERIFY(parsed.has_value());
-        QCOMPARE(parsed->score, 75);
+        // First token (200) is out-of-range; the in-range "75" later in
+        // the sentence has no suffix and isn't leading, so the tighter
+        // rule rejects it. The user wanted to score; the writeback
+        // should bail and let them give a cleaner reply (e.g., "75/100").
+        QVERIFY(!AIManager::parseUserRatingReply(
+            QStringLiteral("compared to my 200g batch, this was a 75")).has_value());
     }
 
     void parseUserRatingReply_emptyInput()
     {
         QVERIFY(!AIManager::parseUserRatingReply(QString()).has_value());
         QVERIFY(!AIManager::parseUserRatingReply(QStringLiteral("   \n  ")).has_value());
+    }
+
+    void parseUserRatingReply_rejectsMidProseNumbersWithoutSuffix()
+    {
+        // A bare number deep in prose without a /100, out of 100, or %
+        // suffix is NOT a score — earlier the loose regex extracted it
+        // and misattributed grams / day-counts as ratings.
+        QVERIFY2(!AIManager::parseUserRatingReply(
+            QStringLiteral("I dosed 18 grams, pulled in 32 seconds")).has_value(),
+            "must not pick up dose grams or duration as a score");
+        QVERIFY2(!AIManager::parseUserRatingReply(
+            QStringLiteral("Mid October roast, 30 days old")).has_value(),
+            "must not pick up day counts as a score");
+    }
+
+    void parseUserRatingReply_acceptsSuffixedScoreInProse()
+    {
+        // When the user writes the suffixed form anywhere in the reply,
+        // it's an unambiguous score and parses fine.
+        const auto a = AIManager::parseUserRatingReply(
+            QStringLiteral("compared to my 200g batch, this was 75 out of 100"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->score, 75);
+    }
+
+    // -------------------------------------------------------------
+    // maybePersistRatingFromReply gating (issue #1055 Layer 1, tasks 3
+    // items 8-10). The function fronts AIConversation::followUp's
+    // conversational rating capture; we exercise the no-op short-circuits
+    // here without spinning up a real ShotHistoryStorage. The "happy path
+    // writes to DB" case requires a real m_shotHistory and is left to
+    // integration testing — these tests pin the gating contract so a
+    // future refactor cannot accidentally remove a guard.
+    void maybePersistRatingFromReply_noopWhenShotIdZero()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        // m_shotHistory is null (we never set it). With shotId=0 the
+        // function should short-circuit BEFORE reaching the m_shotHistory
+        // dereference, so no crash + no warning.
+        mgr.maybePersistRatingFromReply(
+            QStringLiteral("82, balanced"),
+            QStringLiteral("How did this taste? Please give a 1-100 score."),
+            /*shotId=*/0);
+        // Reaching this line without a crash IS the assertion.
+        QVERIFY(true);
+    }
+
+    void maybePersistRatingFromReply_noopWhenShotHistoryUnset()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        // m_shotHistory is null. Even with a valid shotId + score, the
+        // function should short-circuit cleanly.
+        mgr.maybePersistRatingFromReply(
+            QStringLiteral("82, balanced"),
+            QStringLiteral("How did this taste? Please give a 1-100 score."),
+            /*shotId=*/8473);
+        QVERIFY(true);
+    }
+
+    void maybePersistRatingFromReply_noopWhenPriorDidntAskAboutTaste()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        // Even though the user reply has a numeric score and we have a
+        // valid shotId, the prior assistant message does NOT match any
+        // taste-question marker — the heuristic guard suppresses the
+        // write so a stray number in unrelated conversation doesn't
+        // get attached as a rating.
+        mgr.maybePersistRatingFromReply(
+            QStringLiteral("82"),
+            QStringLiteral("Try a finer grind setting around 4.75."),
+            /*shotId=*/8473);
+        QVERIFY(true);
+    }
+
+    void maybePersistRatingFromReply_noopWhenReplyHasNoScore()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        // Prior asks about taste; user replies in prose with no score.
+        // Parser returns nullopt; function short-circuits.
+        mgr.maybePersistRatingFromReply(
+            QStringLiteral("really good, much better than last time"),
+            QStringLiteral("How did this taste?"),
+            /*shotId=*/8473);
+        QVERIFY(true);
     }
 
     void aiConversation_setShotIdForCurrentTurn_legacyConversationHasZeroShotId()

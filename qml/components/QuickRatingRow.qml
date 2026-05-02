@@ -35,6 +35,12 @@ RowLayout {
     // Emitted when the user taps a rating icon. Caller writes the score
     // through to the shot via saveEditedShot.
     signal rateClicked(int score)
+    // Emitted when the user taps the collapsed "Rated N — tap to
+    // revise" pill. Caller is expected to zero `currentScore` so the
+    // three-icon picker re-appears for a new tap. The component
+    // does NOT mutate `currentScore` itself — the caller owns the
+    // persisted value.
+    signal reviseClicked()
     // Emitted when the user taps the dismiss control. Caller persists
     // the per-shot dismissed flag.
     signal dismissedClicked()
@@ -65,6 +71,11 @@ RowLayout {
                 color: Theme.textColor
                 font.pixelSize: Theme.bodyFontSize
                 Layout.fillWidth: false
+                // The three AccessibleButton children below carry the
+                // navigation focus; this prompt is decorative for
+                // sighted users and would otherwise create an extra
+                // swipe target on TalkBack/VoiceOver.
+                Accessible.ignored: true
             }
 
             // High / 80 (smiling face).
@@ -129,7 +140,9 @@ RowLayout {
     }
 
     // Collapsed "Rated N — tap to revise" pill — visible after a tap
-    // landed a non-zero score.
+    // landed a non-zero score. Tapping emits reviseClicked so the
+    // caller can zero its bound currentScore and re-show the three-icon
+    // picker; the pill itself does not mutate currentScore.
     AccessibleButton {
         id: collapsedPill
         Layout.fillWidth: true
@@ -141,11 +154,6 @@ RowLayout {
         text: TranslationManager.translate(
             "rating.quick.revise.label", "Rated %1 — tap to revise")
             .replace("%1", root.currentScore)
-        // Tapping the pill snaps back to the three-icon state without
-        // wiping the existing score (caller can still bind currentScore
-        // to the persisted value). Setting currentScore to 0 here is
-        // local-only — the bound side may push it back. Keep behavior
-        // simple: emit a signal so the caller chooses what to do.
-        onClicked: root.rateClicked(root.currentScore)
+        onClicked: root.reviseClicked()
     }
 }

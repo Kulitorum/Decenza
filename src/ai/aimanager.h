@@ -206,8 +206,14 @@ public:
     // Issue #1055 Layer 1: when the advisor's prior assistant message
     // asked about taste AND the user's reply contains a parseable score,
     // persist the rating + remaining-text notes back to the shot via
-    // ShotHistoryStorage. No-op when no shotId is paired with the turn,
-    // when the parser returns nullopt, or when m_shotHistory is unset.
+    // ShotHistoryStorage. No-op when ANY of:
+    //   - shotId is 0 (no shot is paired with the turn — typical for a
+    //     legacy conversation or a free-form follow-up),
+    //   - m_shotHistory is unset (no DB wired),
+    //   - priorAssistantMessage doesn't contain a taste-question marker
+    //     (the model wasn't asking; rating writeback would be spurious),
+    //   - parseUserRatingReply returns std::nullopt (the user replied
+    //     in prose without a numeric score).
     // Called by AIConversation::followUp before the request is dispatched.
     void maybePersistRatingFromReply(const QString& userReply,
                                      const QString& priorAssistantMessage,

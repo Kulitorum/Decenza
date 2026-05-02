@@ -215,31 +215,46 @@ std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assista
 }
 
 // Heuristic for "the prior assistant message asked the user about
-// taste". The shot-analysis system prompt instructs the model to ask
-// for a 1-100 score when tastingFeedback.hasEnjoymentScore is false;
-// the prose typically carries phrases like "how did this taste",
-// "score", "1-100", or asks for "tasting notes". Conservative: false
-// negative is fine (we just don't auto-persist; user can rate via the
-// editor or QuickRatingRow). False positive risk: a reply that happens
-// to contain a number gets attached as a rating to the wrong shot —
-// guarded by the shotId binding so the writeback hits the same shot
-// the conversation is anchored to, not a random one.
+// taste". Conservative: a false negative just means we don't auto-
+// persist — the user can still rate via the editor or QuickRatingRow.
+// False positives are the dangerous mode (a recommendation reply
+// mentioning a "score from 75" past tense triggers a writeback from
+// the user's next prose number). To minimize false positives:
+//   1. The marker list is tight — bare "score" / "how did" are too
+//      common in advisor recommendation prose. Require taste-specific
+//      phrasings.
+//   2. The message must end in a question — the assistant has to
+//      actually be asking, not just discussing scores in passing.
 static bool priorAssistantAskedAboutTaste(const QString& priorAssistantMessage)
 {
     if (priorAssistantMessage.isEmpty()) return false;
+    // Must end in a question mark (allow trailing whitespace and the
+    // structuredNext fenced block from #1054).
+    QString trimmed = priorAssistantMessage.trimmed();
+    if (trimmed.endsWith(QStringLiteral("```"))) {
+        // Strip the trailing fenced JSON block before testing for a
+        // question-mark suffix on the prose body.
+        const qsizetype openerStart = trimmed.lastIndexOf(QStringLiteral("```"),
+            trimmed.length() - 4);
+        if (openerStart > 0) trimmed = trimmed.left(openerStart).trimmed();
+    }
+    if (!trimmed.endsWith(QLatin1Char('?'))) return false;
+
     const QString lc = priorAssistantMessage.toLower();
-    // Any one of these phrases is a strong signal the model is asking
-    // the user for a numeric/text taste rating.
     static const QStringList markers{
-        QStringLiteral("how did"),
+        QStringLiteral("how did it taste"),
+        QStringLiteral("how did this taste"),
+        QStringLiteral("how did this shot taste"),
         QStringLiteral("how does it taste"),
-        QStringLiteral("tasting notes"),
-        QStringLiteral("1-100"),
-        QStringLiteral("1 to 100"),
-        QStringLiteral("score"),
+        QStringLiteral("how does this taste"),
+        QStringLiteral("how would you rate"),
         QStringLiteral("rate this shot"),
         QStringLiteral("rate the shot"),
-        QStringLiteral("how would you rate"),
+        QStringLiteral("score from 1"),
+        QStringLiteral("score 1-100"),
+        QStringLiteral("score 1 to 100"),
+        QStringLiteral("tasting notes"),
+        QStringLiteral("what did you think of the taste"),
     };
     for (const QString& m : markers) {
         if (lc.contains(m)) return true;
@@ -271,17 +286,29 @@ void AIManager::maybePersistRatingFromReply(const QString& userReply,
 
 std::optional<AIManager::UserRatingReply> AIManager::parseUserRatingReply(const QString& reply)
 {
-    // Find the first numeric token in [1, 100]. The token may be a bare
-    // integer ("82"), a decimal ("82.5" → rounds to 83), or have an
-    // optional suffix `/100`, `out of 100`, `%` (suffix consumed when
-    // present but not required). The remaining text — minus the token
-    // and any consumed suffix — is trimmed and returned as notes.
+    // A number 1-100 in the user's reply counts as a score ONLY when
+    // one of these strong signals is present:
+    //   (a) the number is followed by a `/100`, `out of 100`, or `%`
+    //       suffix (unambiguous score notation), OR
+    //   (b) the number is the first non-whitespace token in the reply
+    //       (the user's reply leads with a score, optionally followed
+    //       by notes — the conversational pattern "82, balanced and
+    //       sweet" or "82").
+    // Numbers that appear elsewhere in prose ("I dosed 18 grams",
+    // "30-day-old roast") MUST NOT be picked up as ratings. Out-of-range
+    // numbers, negatives, and non-numeric replies all return nullopt.
     if (reply.trimmed().isEmpty()) return std::nullopt;
 
     static const QRegularExpression rx(QStringLiteral(
         "(\\d+(?:\\.\\d+)?)\\s*"
         "(/\\s*100|out\\s*of\\s*100|%)?"),
         QRegularExpression::CaseInsensitiveOption);
+
+    // Where does the first non-whitespace character sit? The "leading
+    // token" gate compares each match's start against this anchor.
+    qsizetype firstNonWs = 0;
+    while (firstNonWs < reply.size() && reply.at(firstNonWs).isSpace()) ++firstNonWs;
+
     QRegularExpressionMatchIterator it = rx.globalMatch(reply);
     while (it.hasNext()) {
         QRegularExpressionMatch m = it.next();
@@ -291,22 +318,24 @@ std::optional<AIManager::UserRatingReply> AIManager::parseUserRatingReply(const 
         const int rounded = static_cast<int>(std::round(raw));
         if (rounded < 1 || rounded > 100) continue;
 
-        // Reject negative numbers: the regex captures the digits without
-        // the leading minus, but if the character immediately before the
-        // match is a minus sign the user clearly wrote a negative.
+        // Reject negatives: the regex captures digits without the minus,
+        // but if the preceding character is `-` or U+2212 the user wrote
+        // a negative.
         const qsizetype matchStartCheck = m.capturedStart(1);
         if (matchStartCheck > 0) {
             const QChar prev = reply.at(matchStartCheck - 1);
             if (prev == QLatin1Char('-') || prev == QChar(0x2212)) continue;
         }
 
+        const bool hasSuffix = !m.captured(2).isEmpty();
+        const bool isLeadingToken = m.capturedStart(0) == firstNonWs;
+        if (!hasSuffix && !isLeadingToken) continue;  // weak anchor — skip
+
         UserRatingReply out;
         out.score = rounded;
         const qsizetype matchStart = m.capturedStart(0);
         const qsizetype matchEnd = m.capturedEnd(0);
         QString remaining = reply.left(matchStart) + reply.mid(matchEnd);
-        // Strip punctuation/whitespace from the edges so "82, balanced
-        // and sweet" → notes "balanced and sweet".
         static const QRegularExpression edgeTrim(QStringLiteral(
             "^[\\s,;:\\-—.!?]+|[\\s,;:\\-—.!?]+$"));
         remaining.replace(edgeTrim, QString());

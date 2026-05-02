@@ -22,6 +22,7 @@
 #include <QDebug>
 #include <QThread>
 #include <algorithm>
+#include <cmath>
 #include "core/dbutils.h"
 
 #ifdef Q_OS_ANDROID
@@ -962,26 +963,46 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             inputs.frameCount);
         decenza::applyBadgesToTarget(data, analysis.detectors);
 
-        // Issue #1055 Layer 3: inferred-good auto-rating. When the user
-        // didn't manually rate this shot AND the deterministic detectors
-        // all fire clean, provisionally set enjoyment to 75 with source
-        // "inferred". The bestRecentShot block can then anchor on the
-        // shot until the user provides their own rating (which flips
-        // enjoymentSource back to "user" via updateShotMetadataStatic).
-        // The system prompt teaches the LLM to treat inferred ratings
-        // as a hint requiring user confirmation.
+        // Issue #1055 Layer 3: inferred-good auto-rating. All five
+        // gates from the spec must pass before the unrated shot earns
+        // a provisional enjoyment of 75 with source "inferred":
+        //   1. verdictCategory == "clean"
+        //   2. channelingSeverity == "none"
+        //   3. grindDirection == "onTarget"
+        //   4. yield within 0.5g of the saved targetWeight (when set)
+        //      — proxy for the spec's ratio-within-0.1 gate, since
+        //      targetWeight is what the user wired in profile setup
+        //   5. duration in [15s, 60s] — sanity bound around typical
+        //      espresso pulls; serves as the bounded fallback the spec
+        //      calls for when no profile median is available. The
+        //      profile-median version is deferred (would require a DB
+        //      query inside saveShot's hot path).
+        // The bestRecentShot block can then anchor on the shot until
+        // the user provides their own rating (which flips enjoymentSource
+        // back to "user" via updateShotMetadataStatic). The system
+        // prompt teaches the LLM to treat inferred ratings as a hint
+        // requiring user confirmation.
         if (data.espressoEnjoyment <= 0) {
             const auto& d = analysis.detectors;
-            const bool clean = d.verdictCategory == QStringLiteral("clean")
-                            && d.channelingSeverity == QStringLiteral("none")
-                            && d.grindDirection == QStringLiteral("onTarget");
-            if (clean) {
+            const bool detectorsClean =
+                d.verdictCategory == QStringLiteral("clean")
+                && d.channelingSeverity == QStringLiteral("none")
+                && d.grindDirection == QStringLiteral("onTarget");
+            // Yield gate: skip when no targetWeight is recorded (legacy
+            // shots, or profiles without a target). When recorded,
+            // require the actual yield within 0.5g.
+            const bool yieldOk = data.targetWeight <= 0
+                || std::abs(data.finalWeight - data.targetWeight) <= 0.5;
+            // Duration gate: bounded sanity check.
+            const bool durationOk = data.duration >= 15.0 && data.duration <= 60.0;
+
+            if (detectorsClean && yieldOk && durationOk) {
                 constexpr int kInferredScore = 75;
                 data.espressoEnjoyment = kInferredScore;
                 data.enjoymentSource = QStringLiteral("inferred");
                 qDebug() << "ShotHistoryStorage: inferred-good auto-rating —"
                          << "shot saved with enjoyment" << kInferredScore
-                         << "(clean+onTarget+no-channeling)";
+                         << "(clean+onTarget+no-channeling+yield+duration)";
             }
         } else if (data.enjoymentSource.isEmpty() ||
                    data.enjoymentSource == QStringLiteral("none")) {
