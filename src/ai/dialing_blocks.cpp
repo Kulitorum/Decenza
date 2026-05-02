@@ -351,13 +351,14 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
 
 namespace {
 
-// Adherence tolerance. Grinder is matched as exact string OR numerically
-// within ±0.1 of a step — that handles single-click rounding noise
-// without being so loose that a "no movement" shot reads as "followed"
-// when the recommendation was a quarter-step away. Dose tolerance is
+// Adherence tolerance. Grinder matches as exact string OR numerically
+// within ±0.25 of a step (covers quarter-step grinder click rounding).
+// The "no movement" failure mode — recommendation 4.75, prior 5.0,
+// actual 5.0 — is caught by the prior-movement guard inside
+// grinderMatches, NOT by tightening this tolerance. Dose tolerance is
 // ±0.3g — tighter than measurement noise but wider than the user's
 // typical scale precision.
-constexpr double kGrinderStepTolerance = 0.1;
+constexpr double kGrinderStepTolerance = 0.25;
 constexpr double kDoseToleranceG = 0.3;
 
 // Match `actual` against `recommended` for adherence purposes. Also
@@ -408,13 +409,12 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
                            || std::abs(recommended - prior.doseWeightG) > kDoseToleranceG + 1e-9;
         if (inTolerance && moved) ++matched;
     }
-    if (sn.contains(QStringLiteral("profileFilename"))) {
+    if (sn.contains(QStringLiteral("profileTitle"))) {
         anyRecommendation = true;
         ++total;
-        const QString recommended = sn.value("profileFilename").toString();
-        // ShotProjection stores profile_name; profileFilename in
-        // structuredNext is the same identifier the model picked from
-        // result.profile.filename when it suggested a switch.
+        const QString recommended = sn.value("profileTitle").toString();
+        // ShotProjection stores profile_name (the title); structuredNext
+        // recommends a profileTitle so both ends use the same identifier.
         if (recommended == actual.profileName && recommended != prior.profileName)
             ++matched;
     }
@@ -473,8 +473,8 @@ QString synthesizeRecommendationSummary(const QJsonObject& sn)
         parts << QStringLiteral("grinder %1").arg(sn.value("grinderSetting").toString());
     if (sn.contains(QStringLiteral("doseG")))
         parts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
-    if (sn.contains(QStringLiteral("profileFilename")))
-        parts << QStringLiteral("profile %1").arg(sn.value("profileFilename").toString());
+    if (sn.contains(QStringLiteral("profileTitle")))
+        parts << QStringLiteral("profile %1").arg(sn.value("profileTitle").toString());
     QString head = parts.isEmpty() ? QStringLiteral("Hold settings") : QStringLiteral("Try ") + parts.join(QStringLiteral(", "));
     const QJsonArray dur = sn.value(QStringLiteral("expectedDurationSec")).toArray();
     const QJsonArray flow = sn.value(QStringLiteral("expectedFlowMlPerSec")).toArray();
@@ -496,13 +496,8 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
     QJsonArray out;
     if (in.turns.isEmpty() || in.currentProfileKbId.isEmpty()) return out;
 
-    int turnsAgo = 0;
+    int turnsAgo = 0;  // 1-indexed; only incremented when a turn qualifies (spec).
     for (const AIConversation::HistoricalAssistantTurn& turn : in.turns) {
-        ++turnsAgo;  // 1-indexed; advances even for skipped turns? per spec, no — "Skipped non-qualifying turns SHALL NOT consume a turnsAgo slot."
-        // Per the spec, only qualifying turns get a slot. Roll back the
-        // increment until we know the turn qualifies.
-        --turnsAgo;
-
         if (turn.shotId == 0) continue;
         if (turn.structuredNext.isEmpty()) continue;
 
@@ -558,7 +553,7 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         userResponse["doseG"] = actual.doseWeightG;
         userResponse["adherence"] = computeAdherence(turn.structuredNext, actual, prior);
         if (actual.enjoyment0to100 > 0)
-            userResponse["outcomeRating"] = actual.enjoyment0to100;
+            userResponse["outcomeRating0to100"] = actual.enjoyment0to100;
         if (!actual.espressoNotes.isEmpty())
             userResponse["outcomeNotes"] = actual.espressoNotes;
         userResponse["outcomeInPredictedRange"] =

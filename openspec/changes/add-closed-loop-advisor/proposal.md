@@ -51,7 +51,7 @@ For each entry, the block SHALL carry:
     - `followed` — every recommended field (grinder/dose/profile) matches the actual within tolerance (grinder string equality OR within 0.25 step; dose ±0.3g; profile filename equality).
     - `partial` — at least one but not all recommended fields match.
     - `ignored` — none of the recommended fields match.
-  - `outcomeRating` (number, 0-100) — `enjoyment0to100` from the actual shot. OMITTED when the actual shot is unrated (`<= 0`); the LLM is taught to read the omission as "rating not captured."
+  - `outcomeRating0to100` (number, 0-100) — `enjoyment0to100` from the actual shot. OMITTED when the actual shot is unrated (`<= 0`); the LLM is taught to read the omission as "rating not captured."
   - `outcomeNotes` (string) — `espressoNotes` from the actual shot. OMITTED when empty.
   - `outcomeInPredictedRange` (object with `duration: bool` and `flow: bool`) — whether the actual shot's totals landed inside the prior turn's `expectedDurationSec` / `expectedFlowMlPerSec` ranges. `pressure: bool` SHALL be present when `expectedPeakPressureBar` was on the prior turn.
 
@@ -59,9 +59,9 @@ For each entry, the block SHALL carry:
 
 `shotAnalysisSystemPrompt` SHALL gain a new "How to use `recentAdvice`" subsection in its "How to read structured fields" area:
 
-- "When `recentAdvice[].userResponse.adherence == 'followed'` AND `outcomeRating` (or `outcomeInPredictedRange`) suggests the shot got worse, REVISE direction; do not repeat the same recommendation."
+- "When `recentAdvice[].userResponse.adherence == 'followed'` AND `outcomeRating0to100` (or `outcomeInPredictedRange`) suggests the shot got worse, REVISE direction; do not repeat the same recommendation."
 - "When `adherence == 'ignored'`, the user did not run your previous experiment — STAY THE COURSE before pivoting."
-- "When `outcomeRating` is omitted, do not assume good or bad — fall back to `outcomeInPredictedRange` for a curve-shape signal, or ask the user."
+- "When `outcomeRating0to100` is omitted, do not assume good or bad — fall back to `outcomeInPredictedRange` for a curve-shape signal, or ask the user."
 
 ### Cache stability
 
@@ -94,10 +94,11 @@ The block SHALL NOT introduce per-call wall-clock or per-request unique values. 
 - **Depends on:**
   - **#1054** (structured `nextShot` block) — without it, `recentAdvice` entries have nothing to carry under `structuredNext` and no `expectedDurationSec` / `expectedFlowMlPerSec` to score against.
 - **Soft dependency:**
-  - **#1055** (rating capture) — without ratings, `outcomeRating` is omitted on most entries. The block still ships `adherence` and `outcomeInPredictedRange`; only the headline taste signal is missing. Spec is written so `outcomeRating` is OPTIONAL and degrades gracefully.
+  - **#1055** (rating capture) — without ratings, `outcomeRating0to100` is omitted on most entries. The block still ships `adherence` and `outcomeInPredictedRange`; only the headline taste signal is missing. Spec is written so `outcomeRating0to100` is OPTIONAL and degrades gracefully.
 - **NOT in scope:**
   - Any UI surface for `recentAdvice` (e.g., showing previous recommendations in the conversation overlay). The block is for the LLM to read, not the user — same as `dialInSessions`.
   - Cross-profile advice attribution. If the user switches profile between turns, `recentAdvice` for the new profile is empty; the prior profile's advice is not carried over.
   - Editing or deleting prior turns. The block is read-only.
+  - **Multi-turn accumulation.** `AIConversation::ask()` clears `m_messages` on every advisor call, so the in-app advisor's persisted conversation always contains exactly one user/assistant pair (the most recent). In practice this caps `recentAdvice` at *one* entry per call — the immediately previous turn — even though the spec/builder support up to 3. The full "by turn 3 the advisor has narrowed the search" potential requires routing follow-up calls through `addShotContext` (which appends rather than clears). That refactor is **deferred to a follow-up change** (touches `analyzeShotWithMetadata`'s call site + system-prompt selection between `shotAnalysisSystemPrompt` and `multiShotSystemPrompt`). The single-prior-turn case still delivers the headline "did the user follow my last recommendation" attribution.
 - **Migration:** soft-schema extension. Older conversations (no `shotId` per turn) load with `shotId = 0` on every entry, which excludes them from `recentAdvice` (the block requires non-zero `shotId`). They become eligible only after their owners' next advisor call writes a `shotId`. No data backfill is required.
 - **Cache stability (`buildUserPromptObject` byte-stability requirement from #1034):** the new block is structural, derived from stored conversation + database state. For the same `(conversation key, current shot id)` pair, the block bytes SHALL be identical across calls.

@@ -706,6 +706,65 @@ private slots:
         QCOMPARE(jsonA, jsonB);
     }
 
+    void enrichUserPromptObject_mergesRecentAdviceWhenPopulated()
+    {
+        // Mirrors the four-block test pattern. A populated recentAdvice
+        // array must be merged into the envelope under the recentAdvice
+        // key.
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+
+        const QJsonArray recentAdvice{
+            QJsonObject{{"turnsAgo", 1},
+                        {"recommendation", "Try grinder 4.75"},
+                        {"structuredNext", QJsonObject{{"grinderSetting", "4.75"}}},
+                        {"userResponse", QJsonObject{{"adherence", "followed"},
+                                                      {"outcomeRating0to100", 75}}}}
+        };
+
+        mgr.enrichUserPromptObject(payload, shot,
+            QJsonArray{}, QJsonObject{}, QJsonObject{}, recentAdvice);
+
+        QVERIFY(payload.contains(QStringLiteral("recentAdvice")));
+        QCOMPARE(payload.value("recentAdvice").toArray().size(), 1);
+        const QJsonObject entry = payload.value("recentAdvice").toArray().first().toObject();
+        QCOMPARE(entry.value("turnsAgo").toInt(), 1);
+    }
+
+    void enrichUserPromptObject_suppressesRecentAdviceWhenEmpty()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+
+        const ShotProjection shot = makeShot(1, 1700000000,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
+
+        QJsonObject payload = mgr.buildUserPromptObjectForShot(shot);
+        // Explicit empty recentAdvice → key omitted (no `recentAdvice: []`
+        // placeholder), matching the dialing_get_context omission contract.
+        mgr.enrichUserPromptObject(payload, shot,
+            QJsonArray{}, QJsonObject{}, QJsonObject{}, QJsonArray{});
+
+        QVERIFY2(!payload.contains(QStringLiteral("recentAdvice")),
+                 "empty recentAdvice must not be added as a key");
+        const QString json = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        QVERIFY2(!json.contains(QStringLiteral("recentAdvice")),
+                 "serialized envelope must not carry an empty recentAdvice array");
+    }
+
     // ---------------------------------------------------------------------
     // DialingBlocks gating — preconditions that short-circuit before
     // touching the DB / Settings / ProfileManager. These cases ship the
@@ -1475,6 +1534,65 @@ private slots:
         QCOMPARE(turns.first().shotId, qint64(100));
         QCOMPARE(turns.first().structuredNext.value("grinderSetting").toString(),
                  QStringLiteral("4.75"));
+
+        s.clear();
+    }
+
+    void aiConversation_recentAdviceParity_inAppMatchesMcpStaticLoader()
+    {
+        // Spec scenario: "Parity between in-app advisor and ai_advisor_invoke".
+        // The in-app surface reads recent assistant turns via the live
+        // AIConversation; the MCP surface reads them via the static
+        // loadRecentAssistantTurnsForKey. Both must return byte-equivalent
+        // turn lists for the same persisted conversation. Without parity,
+        // the recentAdvice block built by buildRecentAdviceBlock cannot be
+        // byte-equivalent across surfaces (#1041 parity contract).
+        QSettings s;
+        s.clear();
+        const QString key = "test_recent_advice_parity";
+        const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
+
+        // Three assistant turns: one with shotId only, one with structuredNext
+        // only, one with both. Only the latter should appear in either path's
+        // returned list — test pins that filter consistency too.
+        const QByteArray messages = QByteArrayLiteral(
+            "[{\"role\":\"user\",\"content\":\"u0\",\"shotId\":100},"
+            "{\"role\":\"assistant\",\"content\":\"a0\",\"shotId\":100},"
+            "{\"role\":\"user\",\"content\":\"u1\"},"
+            "{\"role\":\"assistant\",\"content\":\"a1\","
+                "\"structuredNext\":{\"grinderSetting\":\"4.75\","
+                "\"expectedDurationSec\":[32,38],"
+                "\"expectedFlowMlPerSec\":[1.0,1.5],"
+                "\"successCondition\":\"OK\","
+                "\"reasoning\":\"r\"}},"
+            "{\"role\":\"user\",\"content\":\"u2\",\"shotId\":102},"
+            "{\"role\":\"assistant\",\"content\":\"a2\",\"shotId\":102,"
+                "\"structuredNext\":{\"grinderSetting\":\"4.5\","
+                "\"expectedDurationSec\":[30,36],"
+                "\"expectedFlowMlPerSec\":[1.1,1.6],"
+                "\"successCondition\":\"OK\","
+                "\"reasoning\":\"r2\"}}]");
+        s.setValue(prefix + "systemPrompt", "system");
+        s.setValue(prefix + "messages", messages);
+
+        // In-app: live AIConversation -> recentAssistantTurns(3).
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey(key);
+        conv.loadFromStorage();
+        const auto inApp = conv.recentAssistantTurns(3);
+
+        // MCP: static loader over the same QSettings layout.
+        const auto mcp = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
+
+        QCOMPARE(inApp.size(), mcp.size());
+        QCOMPARE(inApp.size(), qsizetype(1));  // only the qualifying turn
+        QCOMPARE(inApp.first().shotId, qint64(102));
+        QCOMPARE(inApp.first().shotId, mcp.first().shotId);
+        QCOMPARE(inApp.first().structuredNext, mcp.first().structuredNext);
+        QCOMPARE(inApp.first().content, mcp.first().content);
 
         s.clear();
     }

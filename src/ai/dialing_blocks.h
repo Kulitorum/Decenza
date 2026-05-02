@@ -150,7 +150,7 @@ struct RecentAdviceInputs {
 
 // Build the recentAdvice array. For each input turn (in order) tries to
 // pair it with the user's actual follow-up shot on the same profile and
-// computes adherence + outcomeInPredictedRange + outcomeRating attribution.
+// computes adherence + outcomeInPredictedRange + outcomeRating0to100 attribution.
 // Turns that don't qualify (cross-profile, no follow-up shot yet) are
 // skipped without consuming a turnsAgo slot. Returns an empty array when
 // no entries qualify; caller MUST suppress the `recentAdvice` key in
