@@ -1150,7 +1150,7 @@ void AIManager::emitRecentShotContext(
     // identity.
     QString profileTitle, profileIntent, profileRecipe;
     QString setupGrinderBrand, setupGrinderModel, setupGrinderBurrs;
-    QString setupBeanBrand, setupBeanType;
+    QString setupBeanBrand, setupBeanType, setupRoastLevel, setupRoastDate;
     // Empty fields read as "unrecorded, inherit" — not "different."
     // Older shots predating DYE recording have empty grinder/bean
     // strings; treating those as a mismatch would suppress the
@@ -1174,6 +1174,8 @@ void AIManager::emitRecentShotContext(
         seedOrCompare(setupGrinderBurrs, s.grinderBurrs);
         seedOrCompare(setupBeanBrand, s.beanBrand);
         seedOrCompare(setupBeanType, s.beanType);
+        seedOrCompare(setupRoastLevel, s.roastLevel);
+        seedOrCompare(setupRoastDate, s.roastDate);
         if (profileTitle.isEmpty() && !s.profileName.isEmpty())
             profileTitle = s.profileName;
         if (profileIntent.isEmpty() && !s.profileNotes.isEmpty())
@@ -1236,8 +1238,12 @@ void AIManager::emitRecentShotContext(
                 beanName = setupBeanBrand;
             else if (!setupBeanType.isEmpty())
                 beanName = setupBeanType;
-            if (!beanName.isEmpty())
-                parts << (parts.isEmpty() ? beanName : "on " + beanName);
+            if (!beanName.isEmpty()) {
+                QString beanFull = beanName;
+                if (!setupRoastLevel.isEmpty()) beanFull += " (" + setupRoastLevel + ")";
+                if (!setupRoastDate.isEmpty()) beanFull += ", roasted " + setupRoastDate;
+                parts << (parts.isEmpty() ? beanFull : "on " + beanFull);
+            }
 
             result += "### Setup: " + parts.join(" ") + "\n\n";
         }
