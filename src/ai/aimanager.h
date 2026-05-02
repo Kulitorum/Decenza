@@ -156,7 +156,8 @@ public:
                                 const QJsonArray& dialInSessions,
                                 const QJsonObject& bestRecentShot,
                                 const QJsonObject& grinderContext,
-                                const QJsonArray& recentAdvice = QJsonArray()) const;
+                                const QJsonArray& recentAdvice = QJsonArray(),
+                                const QJsonObject& grinderCalibration = QJsonObject()) const;
 
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);

@@ -477,8 +477,8 @@ private slots:
             QCOMPARE(ctx.value(QStringLiteral("settingsObserved")).toArray().size(), 3);
             QVERIFY2(!ctx.contains(QStringLiteral("allBeansSettings")),
                      "rich bean-scoped result must not trigger cross-bean fallback");
-            QCOMPARE(ctx.value(QStringLiteral("minSetting")).toDouble(), 4.0);
-            QCOMPARE(ctx.value(QStringLiteral("maxSetting")).toDouble(), 4.4);
+            QCOMPARE(ctx.value(QStringLiteral("observedMinSetting")).toDouble(), 4.0);
+            QCOMPARE(ctx.value(QStringLiteral("observedMaxSetting")).toDouble(), 4.4);
             // Smallest step is 0.2 (2.0e-1). Allow tiny FP slack.
             const double step = ctx.value(QStringLiteral("smallestStep")).toDouble();
             QVERIFY2(qAbs(step - 0.2) < 0.0001,

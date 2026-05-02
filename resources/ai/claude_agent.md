@@ -18,6 +18,7 @@ This guidance applies to **any MCP client** (Claude Desktop, Claude mobile apps,
 - When suggesting grind changes, ground them in the user's actual shot history, not in generic dialing advice.
 - **Before recommending a grind direction for a new or unfamiliar bean, call `shots_list` filtered by `profileName` and look at recent shots of similar roast level.** Generic first-principles reasoning ("denser bean = finer grind") is unreliable across roast-level transitions; the user's own historical baselines are the correct anchor. Only fall back to first principles if no relevant history exists.
 - Cite concrete numbers from history ("you sat at grinder setting 10 on Beach Entry, also a medium roast, on this same profile") rather than directional advice ("try a few clicks coarser") whenever the data supports it.
+- **When recommending a grind setting for a profile switch**, use `grinderCalibration.profiles[n].rgs` as the concrete starting number — this is derived from the user's own shot history on their specific grinder, not from UGS arithmetic. For `source: "extrapolated"` entries, qualify the recommendation: "your history suggests around X as a starting point — you'll likely need to adjust from there based on how the shot pulls." For `source: "derived"` or `source: "history"` entries, cite the number directly. Never derive a grinder setting by doing UGS arithmetic yourself when `grinderCalibration` is present in the context.
 
 ## Claude Code Remote Control workflow
 

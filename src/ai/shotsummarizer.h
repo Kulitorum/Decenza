@@ -7,6 +7,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QVariant>
+#include <limits>
 
 #include "../history/shotprojection.h"
 
@@ -255,6 +256,29 @@ public:
     // "Cross-Profile Grind Ordering" section from profile_knowledge.md.
     static QString crossProfileReferenceContent();
 
+    // UGS lookup and enumeration — used by DialingBlocks::buildGrinderCalibrationBlock.
+    //
+    // `ugsForKbId` returns the parsed UGS double for the given normalized KB key;
+    // returns NaN when the key is absent or the entry has no UGS line.
+    // `ugsInferredForKbId` returns true when the entry's UGS was marked with a
+    // leading `~` in profile_knowledge.md (inferred, not directly measured).
+    // `canonicalNameForKbId` returns pk.name for the given key; empty when absent.
+    //
+    // `KbUgsEntry` / `allKbUgsEntries` enumerate every KB profile with a non-NaN
+    // UGS, deduplicated by canonical name (pk.name), for building the cross-profile
+    // RGS array. Skip-Catalog sections have no UGS and are never returned.
+    static double ugsForKbId(const QString& kbId);
+    static bool ugsInferredForKbId(const QString& kbId);
+    static QString canonicalNameForKbId(const QString& kbId);
+
+    struct KbUgsEntry {
+        QString kbId;       // primary normalized key in s_profileKnowledge
+        QString name;       // canonical display name (pk.name)
+        double ugs;
+        bool ugsInferred;
+    };
+    static QList<KbUgsEntry> allKbUgsEntries();
+
 private:
     // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting
     // Feedback, ## Detector Observations) the legacy buildUserPrompt
@@ -362,6 +386,11 @@ private:
         // section as cross-cutting reference material rather than a profile —
         // excluded from buildProfileCatalog().
         bool skipCatalog = false;
+        // Universal Grind Setting from "UGS: <value>" lines. NaN when absent.
+        // ugsInferred is true when the value was prefixed with `~` in the KB
+        // (estimated, not directly measured from a two-anchor calibration).
+        double ugs = std::numeric_limits<double>::quiet_NaN();
+        bool ugsInferred = false;
     };
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
     static bool s_knowledgeLoaded;

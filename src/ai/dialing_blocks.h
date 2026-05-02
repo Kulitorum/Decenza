@@ -129,6 +129,26 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     return bean;
 }
 
+// Per-user grinder calibration block. Derives a conversion key (settings per
+// UGS unit) from the user's all-time shot history on the same grinder model +
+// burrs and uses it to compute a Relative Grind Setting (RGS) for every
+// profile in the knowledge base that carries a UGS value. All-time (no window)
+// because the conversion key is a physical property of the grinder+burrs pair.
+//
+// Returns an empty `QJsonObject` (caller suppresses the key) when:
+//   - `grinderModel` is empty, OR
+//   - `beverageType` is filter / pourover, OR
+//   - fewer than 2 qualifying profiles with canonical (non-inferred) UGS in
+//     the shot history.
+//
+// Background-thread / DB-owning: must be called from the same thread that
+// owns `db` (same tier as `buildGrinderContextBlock`).
+QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
+                                         const QString& grinderModel,
+                                         const QString& grinderBurrs,
+                                         const QString& beverageType,
+                                         qint64 resolvedShotId);
+
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
 // empty `QJsonObject` when any of the following hold:
 //   - the shot is not espresso, OR

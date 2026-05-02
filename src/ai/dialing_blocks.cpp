@@ -1,5 +1,6 @@
 #include "dialing_blocks.h"
 #include "dialing_helpers.h"
+#include "shotsummarizer.h"
 
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
@@ -14,6 +15,8 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QList>
+#include <QMap>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -21,7 +24,9 @@
 #include <QStringLiteral>
 #include <QVariantList>
 #include <QStringList>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -295,8 +300,8 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
     grinderCtx["settingsObserved"] = settingsArr;
     grinderCtx["isNumeric"] = primary.allNumeric;
     if (primary.allNumeric && primary.maxSetting > primary.minSetting) {
-        grinderCtx["minSetting"] = primary.minSetting;
-        grinderCtx["maxSetting"] = primary.maxSetting;
+        grinderCtx["observedMinSetting"] = primary.minSetting;
+        grinderCtx["observedMaxSetting"] = primary.maxSetting;
         grinderCtx["smallestStep"] = primary.smallestStep;
     }
     if (haveCrossBean && !ctx.settingsObserved.isEmpty()) {
@@ -593,6 +598,341 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         out.append(entry);
     }
     return out;
+}
+
+namespace {
+
+static double computeMedian(QList<double>& values)
+{
+    if (values.isEmpty()) return std::numeric_limits<double>::quiet_NaN();
+    std::sort(values.begin(), values.end());
+    const qsizetype n = values.size();
+    if (n % 2 == 1) return values[n / 2];
+    return (values[n / 2 - 1] + values[n / 2]) / 2.0;
+}
+
+static QString formatGrinderSetting(double v)
+{
+    QString s = QString::number(v, 'f', 1);
+    if (s.endsWith(QStringLiteral(".0")))
+        s.chop(2);
+    return s;
+}
+
+} // unnamed namespace (calibration helpers)
+
+QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
+                                         const QString& grinderModel,
+                                         const QString& grinderBurrs,
+                                         const QString& beverageType,
+                                         qint64 resolvedShotId)
+{
+    if (grinderModel.isEmpty()) return QJsonObject();
+    const QString bev = beverageType.trimmed().toLower();
+    if (bev == QStringLiteral("filter") || bev == QStringLiteral("pourover"))
+        return QJsonObject();
+
+    // Query all shots on the same grinder+burrs combination, espresso only.
+    // No time window — the conversion key (clicks per UGS unit) is a physical
+    // property of the grinder+burrs pair and doesn't go stale. An all-time
+    // query also lets the block activate for users who've only pulled two
+    // qualifying profiles even if one was many months ago.
+    //
+    // Only include shots with clean extraction:
+    //   - final_weight >= 5g (not aborted)
+    //   - no quality badge set (grind issue, channeling, pour truncated, temp unstable)
+    // Badge columns default to 0 on old shots (pre-migration), so the filter
+    // is safe on all DB versions.
+    QSqlQuery q(db);
+    q.prepare(
+        "SELECT profile_kb_id, profile_name, grinder_setting "
+        "FROM shots "
+        "WHERE grinder_model = ? "
+        "  AND COALESCE(grinder_burrs, '') = COALESCE(?, '') "
+        "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
+        "  AND COALESCE(final_weight, 0) >= 5 "
+        "  AND COALESCE(grind_issue_detected, 0) = 0 "
+        "  AND COALESCE(channeling_detected, 0) = 0 "
+        "  AND COALESCE(pour_truncated_detected, 0) = 0 "
+        "  AND COALESCE(temperature_unstable, 0) = 0 "
+        "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
+        "ORDER BY timestamp DESC");
+    q.addBindValue(grinderModel);
+    q.addBindValue(grinderBurrs);
+    if (!q.exec ()) {
+        qWarning() << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
+        return QJsonObject();
+    }
+
+    // Group numeric settings by canonical KB name.
+    // canonicalKey: pk.name if kbId found in KB, else profile_name.
+    struct ProfileGroup {
+        QString kbId;           // first non-empty kbId seen for this canonical name
+        QString canonicalName;
+        QList<double> settings;
+    };
+    QMap<QString, ProfileGroup> groups;  // key = canonicalName
+
+    int rowCount = 0;
+    int nonNumericCount = 0;
+    while (q.next()) {
+        ++rowCount;
+        const QString kbId = q.value(0).toString().trimmed();
+        const QString profileName = q.value(1).toString().trimmed();
+        const QString settingStr = q.value(2).toString().trimmed();
+
+        bool numericOk = false;
+        const double settingVal = settingStr.toDouble(&numericOk);
+        if (!numericOk) { ++nonNumericCount; continue; }
+
+        QString canonName = ShotSummarizer::canonicalNameForKbId(kbId);
+        if (canonName.isEmpty())
+            canonName = profileName.isEmpty() ? kbId : profileName;
+        if (canonName.isEmpty()) continue;
+
+        auto& g = groups[canonName];
+        g.canonicalName = canonName;
+        if (g.kbId.isEmpty() && !kbId.isEmpty())
+            g.kbId = kbId;
+        g.settings.append(settingVal);
+    }
+
+    qDebug() << "buildGrinderCalibrationBlock: query rows=" << rowCount
+             << "nonNumeric=" << nonNumericCount
+             << "groups=" << groups.size()
+             << "grinder=" << grinderModel << "burrs=" << grinderBurrs;
+
+    if (groups.isEmpty()) {
+        qDebug() << "buildGrinderCalibrationBlock: no groups → empty (no matching shots)";
+        return QJsonObject();
+    }
+
+    // Compute medians and collect anchor candidates.
+    // Canonical (non-inferred UGS, exact KB name) are preferred; inferred-UGS
+    // profiles are kept as a fallback pool used only when the canonical-only
+    // selection produces a degenerate pair (setting difference < 0.5).
+    struct AnchorCandidate {
+        QString canonicalName;
+        QString kbId;
+        double ugs;
+        double medianSetting;
+        qsizetype sampleCount;
+    };
+    QList<AnchorCandidate> canonicalCandidates;
+    QList<AnchorCandidate> inferredCandidates;
+    QMap<QString, double> medianByName;  // canonical name → median
+
+    for (auto& g : groups) {
+        const double med = computeMedian(g.settings);
+        if (std::isnan(med)) continue;
+        medianByName[g.canonicalName] = med;
+
+        // kbId may be empty for shots predating migration 9 — fall back to
+        // computing it from the canonical name via the KB matcher.
+        QString kbId = g.kbId;
+        if (kbId.isEmpty())
+            kbId = ShotSummarizer::computeProfileKbId(g.canonicalName);
+
+        if (kbId.isEmpty()) {
+            qDebug() << "buildGrinderCalibrationBlock: group" << g.canonicalName
+                     << "skipped — no kbId resolvable";
+            continue;
+        }
+        const double ugs = ShotSummarizer::ugsForKbId(kbId);
+        if (std::isnan(ugs)) {
+            qDebug() << "buildGrinderCalibrationBlock: group" << g.canonicalName
+                     << "kbId=" << kbId << "skipped — NaN UGS";
+            continue;
+        }
+
+        // Only the canonical KB name qualifies as an anchor. Variant profiles
+        // (e.g. "D-Flow / Q - Jeff") resolve to a kbId via normalization but
+        // their settings are tuned for specific beans — they don't represent the
+        // canonical UGS position and should not anchor the calibration.
+        const QString kbCanonicalName = ShotSummarizer::canonicalNameForKbId(kbId);
+        if (!kbCanonicalName.isEmpty() && g.canonicalName != kbCanonicalName) {
+            qDebug() << "buildGrinderCalibrationBlock: group" << g.canonicalName
+                     << "kbId=" << kbId << "skipped — variant of" << kbCanonicalName;
+            continue;
+        }
+
+        const bool inferred = ShotSummarizer::ugsInferredForKbId(kbId);
+        qDebug() << "buildGrinderCalibrationBlock: anchor candidate" << g.canonicalName
+                 << "kbId=" << kbId << "ugs=" << ugs
+                 << (inferred ? "(inferred)" : "(canonical)")
+                 << "median=" << med << "n=" << g.settings.size();
+
+        AnchorCandidate c;
+        c.canonicalName = g.canonicalName;
+        c.kbId = kbId;
+        c.ugs = ugs;
+        c.medianSetting = med;
+        c.sampleCount = g.settings.size();
+        if (inferred)
+            inferredCandidates.append(c);
+        else
+            canonicalCandidates.append(c);
+    }
+
+    qDebug() << "buildGrinderCalibrationBlock: canonical candidates=" << canonicalCandidates.size()
+             << "inferred candidates=" << inferredCandidates.size();
+
+    // Anchor selection: pick the widest-UGS-span pair consistent with the
+    // majority setting direction (rejects outliers where the user shot with a
+    // stale or wrong grinder setting). Returns nullptr/nullptr on failure.
+    // Minimum setting difference of 0.5 is required — a degenerate pair (both
+    // anchors at the same setting) gives conversionKey ≈ 0 and useless RGS.
+    auto selectAnchors = [](QList<AnchorCandidate>& pool)
+        -> std::pair<const AnchorCandidate*, const AnchorCandidate*>
+    {
+        if (pool.size() < 2) return {nullptr, nullptr};
+        std::sort(pool.begin(), pool.end(),
+                  [](const AnchorCandidate& a, const AnchorCandidate& b) { return a.ugs < b.ugs; });
+
+        int positiveCount = 0, negativeCount = 0;
+        for (int i = 0; i < pool.size(); ++i) {
+            for (int j = i + 1; j < pool.size(); ++j) {
+                const double diff = pool[j].medianSetting - pool[i].medianSetting;
+                if (diff > 1e-9)       ++positiveCount;
+                else if (diff < -1e-9) ++negativeCount;
+            }
+        }
+        const int majoritySign = (positiveCount > negativeCount) ? 1
+                               : (negativeCount > positiveCount) ? -1 : 0;
+
+        const AnchorCandidate* fine   = nullptr;
+        const AnchorCandidate* coarse = nullptr;
+        double bestSpan = -1.0;
+        for (int f = 0; f < pool.size(); ++f) {
+            for (int c = pool.size() - 1; c > f; --c) {
+                const double ugsDiff     = pool[c].ugs - pool[f].ugs;
+                const double settingDiff = pool[c].medianSetting - pool[f].medianSetting;
+                const bool consistent = (majoritySign == 0)
+                                     || (settingDiff * majoritySign > 0);
+                // Require at least 0.5 setting-unit difference — a degenerate
+                // pair (both anchors at the same setting) gives conversionKey ≈ 0.
+                if (consistent && ugsDiff > bestSpan
+                        && std::abs(settingDiff) >= 0.5) {
+                    bestSpan = ugsDiff;
+                    fine     = &pool[f];
+                    coarse   = &pool[c];
+                }
+            }
+        }
+        return {fine, coarse};
+    };
+
+    // First pass: canonical-only. If degenerate, retry with inferred added.
+    auto [fineAnchor, coarseAnchor] = selectAnchors(canonicalCandidates);
+    bool usedInferred = false;
+    if (!fineAnchor || !coarseAnchor) {
+        QList<AnchorCandidate> combined = canonicalCandidates + inferredCandidates;
+        auto [f2, c2] = selectAnchors(combined);
+        if (f2 && c2) {
+            // Re-select from combined — pointers into combined go out of scope,
+            // so find the matching entries in the persisted lists.
+            canonicalCandidates = combined;  // extend the canonical list for pointer stability
+            auto [f3, c3] = selectAnchors(canonicalCandidates);
+            fineAnchor   = f3;
+            coarseAnchor = c3;
+            usedInferred = true;
+        }
+    }
+
+    if (!fineAnchor || !coarseAnchor) {
+        qDebug() << "buildGrinderCalibrationBlock: no non-degenerate anchor pair → empty";
+        return QJsonObject();
+    }
+    qDebug() << "buildGrinderCalibrationBlock: anchors selected:"
+             << fineAnchor->canonicalName << "(UGS" << fineAnchor->ugs
+             << "setting" << fineAnchor->medianSetting << ") →"
+             << coarseAnchor->canonicalName << "(UGS" << coarseAnchor->ugs
+             << "setting" << coarseAnchor->medianSetting << ")"
+             << (usedInferred ? "[used inferred fallback]" : "[canonical]");
+
+    const double ugsSpan = coarseAnchor->ugs - fineAnchor->ugs;
+    if (ugsSpan < 1e-9) return QJsonObject();  // degenerate: both anchors at same UGS
+
+    const double conversionKey =
+        (coarseAnchor->medianSetting - fineAnchor->medianSetting) / ugsSpan;
+    const double conversionKeyRounded =
+        std::round(conversionKey * 100.0) / 100.0;
+
+    // Build the profiles array from all KB entries with a known UGS.
+    // Additionally, append any history profiles not in the KB UGS list.
+    QJsonArray profilesArr;
+    QSet<QString> coveredNames;
+
+    const QList<ShotSummarizer::KbUgsEntry> kbEntries = ShotSummarizer::allKbUgsEntries();
+
+    // Sort KB entries by UGS ascending for the output order.
+    QList<ShotSummarizer::KbUgsEntry> sortedEntries = kbEntries;
+    std::sort(sortedEntries.begin(), sortedEntries.end(),
+              [](const ShotSummarizer::KbUgsEntry& a, const ShotSummarizer::KbUgsEntry& b) {
+                  return a.ugs < b.ugs;
+              });
+
+    for (const ShotSummarizer::KbUgsEntry& e : sortedEntries) {
+        coveredNames.insert(e.name);
+
+        const bool hasHistory = medianByName.contains(e.name);
+        const bool withinRange = !e.ugsInferred
+            && e.ugs >= fineAnchor->ugs - 1e-9
+            && e.ugs <= coarseAnchor->ugs + 1e-9;
+
+        QString source;
+        QString rgs;
+        if (hasHistory) {
+            source = QStringLiteral("history");
+            rgs = formatGrinderSetting(medianByName[e.name]);
+        } else if (withinRange) {
+            source = QStringLiteral("derived");
+            const double computed = fineAnchor->medianSetting
+                + (e.ugs - fineAnchor->ugs) * conversionKeyRounded;
+            rgs = formatGrinderSetting(computed);
+        } else {
+            source = QStringLiteral("extrapolated");
+            const double computed = fineAnchor->medianSetting
+                + (e.ugs - fineAnchor->ugs) * conversionKeyRounded;
+            rgs = formatGrinderSetting(computed);
+        }
+
+        QJsonObject p;
+        p["profileName"] = e.name;
+        p["ugs"] = e.ugs;
+        p["rgs"] = rgs;
+        p["source"] = source;
+        profilesArr.append(p);
+    }
+
+    // Append history profiles that have no KB UGS entry (custom titles, etc.).
+    for (auto it = medianByName.constBegin(); it != medianByName.constEnd(); ++it) {
+        if (coveredNames.contains(it.key())) continue;
+        QJsonObject p;
+        p["profileName"] = it.key();
+        p["rgs"] = formatGrinderSetting(it.value());
+        p["source"] = QStringLiteral("history");
+        profilesArr.append(p);
+    }
+
+    // Assemble the block.
+    auto makeAnchorObj = [](const AnchorCandidate* a) -> QJsonObject {
+        QJsonObject o;
+        o["profileName"] = a->canonicalName;
+        o["ugs"] = a->ugs;
+        o["medianSetting"] = formatGrinderSetting(a->medianSetting);
+        o["sampleCount"] = static_cast<int>(a->sampleCount);
+        return o;
+    };
+
+    QJsonObject block;
+    block["grinderModel"] = grinderModel;
+    block["fineAnchor"] = makeAnchorObj(fineAnchor);
+    block["coarseAnchor"] = makeAnchorObj(coarseAnchor);
+    block["conversionKey"] = conversionKeyRounded;
+    block["calibratedUgsRange"] = QJsonArray{ fineAnchor->ugs, coarseAnchor->ugs };
+    block["profiles"] = profilesArr;
+    return block;
 }
 
 } // namespace DialingBlocks
