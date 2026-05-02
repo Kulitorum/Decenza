@@ -356,7 +356,8 @@ private:
         const QList<QPair<qint64, ShotProjection>>& qualifiedShots,
         const GrinderContext& grinderCtx,
         const QString& grinderBrand,
-        int serial);
+        int serial,
+        const QJsonObject& grinderCalibration = QJsonObject());
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

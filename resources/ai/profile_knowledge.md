@@ -48,7 +48,7 @@ These positions are **not** from the UGS calculator. They are reasoned estimates
 
 | UGS (est.) | Profile | Rationale |
 |------------|---------|-----------|
-| ~0.25 | **80's Espresso** | Lever-decline mechanic but with an unusual low-temperature regime (82°C declining to 72°C). The low extraction temperature reduces solubility, requiring a finer grind than the temperature-normal lever group to compensate. Observed in user shot history to pull significantly finer than D-Flow on the same bean. |
+| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than D-Flow / Q on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow. |
 | ~0–0.5 | Damian's LRv2, LRv3, LM Leva, Q | Londinium / D-Flow adjacent; treat as the same family. |
 | ~1.25 | Classic Italian / Gentler 8.4 Bar / Italian Australian | Constant-pressure family, behaves like Flat 9 Bar. |
 | ~5–7 | Hendon Turbo, TurboBloom, Nu Skool, Pour Over Basket | High-flow turbo/filter territory. |
@@ -343,13 +343,13 @@ DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio as problems �
 DO NOT flag channeling in dC/dt — the blooming phase (near-zero flow) followed by extraction onset produces conductance derivative spikes unrelated to puck quality. This is a milk-drink texture-first profile.
 
 ## 80's Espresso
-UGS: ~0.25 (inferred — low-temp regime requires finer grind than D-Flow)
+UGS: ~-0.5 (inferred — extreme low-temp regime requires much finer grind than any temperature-normal lever profile; empirically ~3–4 steps finer than D-Flow on the same grinder)
 Category: Lever at low temperature
 Family: lever-decline
 How it works: Lever profile at very low temperature (82→72°C declining). Fast preinfusion fill at 7.5 ml/s, then 7.8 bar declining to 5 bar. Intentionally under-extracts to minimize tar/burnt flavors from dark beans.
 Expected curves: Lever-style declining pressure (7.8→5 bar). Temperature starts at 82°C and declines toward 72°C. Flow should be SLOW (ideally 1-1.2 ml/s for best results). If flow peaks at 1.9+ ml/s, shot will be dusty/thin — slower is better.
 Duration: 35-45s is ideal (lever-style timing). 25s is too short.
-Grind: Medium (coarser than Londinium/Cremina, finer than E61)
+Grind: Very fine — finer than Cremina/LRv3 territory. Switching FROM 80's Espresso to LRv3 requires grind coarser by ~1.5–2 steps on a Niche Zero-scale grinder (UGS distance of 0.5, conversionKey ~3.5).
 Flavor: Bread fruit, raisins, baker's chocolate without burn. Minimizes tar flavors.
 Best with 12g waisted basket for maximum mouthfeel and minimal channeling. 1:1 ratio (Italian style) also works well.
 Roast: Dark only. Designed specifically to get fruitiness from dark beans by using low temperature.

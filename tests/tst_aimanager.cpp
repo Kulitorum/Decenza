@@ -1550,6 +1550,15 @@ private slots:
         // byte-equivalent across surfaces (#1041 parity contract).
         QSettings s;
         s.clear();
+
+        // Create AIManager first so clearAllConversationsOnce() fires on empty
+        // settings and marks itself done — otherwise it would wipe the test
+        // data we store below (the marker lives in QSettings and is absent
+        // after s.clear(), causing the migration to re-fire on every CI run).
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
         const QString key = "test_recent_advice_parity";
         const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
 
@@ -1575,11 +1584,6 @@ private slots:
                 "\"reasoning\":\"r2\"}}]");
         s.setValue(prefix + "systemPrompt", "system");
         s.setValue(prefix + "messages", messages);
-
-        // In-app: live AIConversation -> recentAssistantTurns(3).
-        QNetworkAccessManager nam;
-        Settings appSettings;
-        AIManager mgr(&nam, &appSettings);
         AIConversation conv(&mgr);
         conv.setStorageKey(key);
         conv.loadFromStorage();

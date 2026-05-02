@@ -542,6 +542,15 @@ Rectangle {
                             // Use ask() for new conversation, followUp() for existing
                             var sent = false
                             if (!conversation.hasHistory) {
+                                // ask() doesn't touch the index; switchConversation() must run first
+                                // so the web UI shows this conversation (e.g. after a clear).
+                                if (MainController.aiManager && overlay.savedBeanBrand !== undefined) {
+                                    MainController.aiManager.switchConversation(
+                                        overlay.savedBeanBrand || "",
+                                        overlay.savedBeanType || "",
+                                        overlay.savedProfileName || ""
+                                    )
+                                }
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
                                 var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)
                                 conversation.ask(systemPrompt, message)
