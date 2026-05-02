@@ -1634,6 +1634,43 @@ private slots:
         QVERIFY2(sawWarning, "detectorObservations must carry warning lines");
         QVERIFY2(!sawVerdict, "detectorObservations must NOT carry the verdict line");
     }
+
+    // -------------------------------------------------------------
+    // shot-metadata-capture: profile catalog surfaces [family: <name>]
+    // tags so the model can identify mechanically-equivalent profiles
+    // at a glance. Verifies (a) at least one [family: ...] tag is
+    // present, and (b) the family teaching + anti-hallucination rule
+    // ship in the same prompt build.
+    // -------------------------------------------------------------
+    void shotAnalysisSystemPrompt_catalogContainsFamilyTags()
+    {
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("Espresso"),
+            QStringLiteral("D-Flow / Q"),
+            QStringLiteral("flow"),
+            QStringLiteral("d-flow"));
+
+        QVERIFY2(prompt.contains(QStringLiteral("[family:")),
+                 "Profile catalog must surface family tags");
+        // The Londinium family is the canonical case the rule was added
+        // for (recommending D-Flow → LRv2 isn't a meaningful change since
+        // both are lever-decline). Confirm both render in the same family.
+        QVERIFY2(prompt.contains(QStringLiteral("[family: lever-decline]")),
+                 "Catalog must contain at least one [family: lever-decline] entry");
+        QVERIFY2(prompt.contains(QStringLiteral("D-Flow")),
+                 "Catalog must include D-Flow entry");
+        QVERIFY2(prompt.contains(QStringLiteral("Londinium")),
+                 "Catalog must include Londinium entry");
+
+        // Profile families teaching + anti-hallucination rule + bean-
+        // correction acknowledgement teaching must all ship together.
+        QVERIFY2(prompt.contains(QStringLiteral("Profile families")),
+                 "System prompt must teach the family rule when the catalog is present");
+        QVERIFY2(prompt.contains(QStringLiteral("Other-profile parameter discipline")),
+                 "System prompt must teach the anti-hallucination rule");
+        QVERIFY2(prompt.contains(QStringLiteral("Conversational metadata corrections")),
+                 "System prompt must teach the bean-correction acknowledgement rule");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)

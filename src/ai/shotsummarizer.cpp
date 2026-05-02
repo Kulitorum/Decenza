@@ -1240,9 +1240,30 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "profile — read it as feedback on your prior calls and self-correct\n"
         "mid-session rather than restarting analysis from scratch.\n");
 
-    // Structured nextShot output (issue #1054). The shot-analysis system
-    // prompt teaches the model to emit a fenced ```json block at the very
-    // end of any response that makes a concrete parameter recommendation
+    // Conversational metadata corrections (capability shot-metadata-capture).
+    // When the user volunteers a bean-field correction mid-conversation
+    // ("actually it's really dark", "the bean is from Sey", "roasted
+    // 2026-04-15"), the app parses the correction and writes it back to
+    // the anchored shot's metadata before the next request lands. This
+    // teaches the model to (a) acknowledge the write so the user knows it
+    // stuck, and (b) trust the next-turn `currentBean.*` over what the
+    // user typed last turn.
+    base += QStringLiteral("\n\n## Conversational metadata corrections\n\n"
+        "If the user clarifies bean info in their reply (roast level, brand,\n"
+        "roast date, bean type), the app silently writes the correction back\n"
+        "to the shot's metadata. When you detect such a correction, BRIEFLY\n"
+        "acknowledge it in your next reply with a one-line confirmation\n"
+        "(e.g., \"Got it — I've updated the shot's roast to Dark\") so the\n"
+        "user knows the change persisted. Then continue with advice using\n"
+        "the corrected value. On subsequent turns, rely on the envelope's\n"
+        "`currentBean.*` for the truth — do not keep referencing the user's\n"
+        "last-turn phrasing as if the prior recorded value still applied.\n\n"
+        "Bean-identity fields (roastLevel, beanBrand, beanType, roastDate)\n"
+        "are the only fields captured this way. Per-shot physical recordings\n"
+        "(dose, yield, grind setting, duration, curves) are NOT editable\n"
+        "from conversation — if those look wrong, ask the user to pull a\n"
+        "new shot rather than edit a prior one.\n");
+
     // (grind, dose, profile change). The app parses that block out of the
     // response, persists it alongside the assistant turn in
     // `AIConversation`, and surfaces it on the `ai_advisor_invoke` MCP
@@ -1325,6 +1346,44 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
                 "The current shot's profile has a detailed section below — the others are available "
                 "for comparison and recommendations.\n\n")
                 + s_profileCatalog;
+
+            // Profile families — every catalog entry above carries a
+            // [family: <name>] tag. Profiles in the same family share the
+            // same underlying mechanic; switching within a family is
+            // usually a parameter tweak in disguise (e.g., D-Flow → LRv2:
+            // both lever-decline). This block is added unconditionally
+            // after the catalog so the rule sits where the data is.
+            base += QStringLiteral("\n\n## Profile families\n\n"
+                "Each profile carries a `[family: <name>]` tag. Profiles in the same\n"
+                "family implement the same underlying extraction mechanic. Recommending\n"
+                "a within-family switch (e.g., D-Flow → LRv2 — both `lever-decline`) is\n"
+                "USUALLY a parameter tweak in disguise: the user could achieve the same\n"
+                "outcome by adjusting temperature, dose, or grind on their current\n"
+                "profile. Within-family switches are only meaningful when the\n"
+                "alternative encodes a constraint the user CANNOT replicate by tweaking\n"
+                "the current profile (e.g., `80's Espresso` is `lever-decline` like\n"
+                "D-Flow, but bakes in a low-temperature regime — 82°C declining to\n"
+                "72°C — that's hard to replicate by editing D-Flow's frame temps).\n\n"
+                "When you recommend a profile switch, name the family of the current\n"
+                "and proposed profile and explain what the family change buys the user.\n"
+                "If both are the same family, EITHER explain the specific constraint the\n"
+                "alternative bakes in, OR drop the recommendation and suggest a parameter\n"
+                "tweak on the current profile instead.\n\n"
+                "## Other-profile parameter discipline\n\n"
+                "You have full recipe data (frame setpoints, temperatures, pressures,\n"
+                "durations) ONLY for the current shot's profile in `result.profile.recipe`.\n"
+                "For every other profile in the catalog above, you have ONLY the one-line\n"
+                "description (category, family, roast suitability). DO NOT quote specific\n"
+                "numeric setpoints (e.g., \"Londinium runs 89-90°C\", \"E61 peaks at 9 bar\")\n"
+                "of profiles other than the current one — those numbers are not in your\n"
+                "context, and inventing them is hallucination.\n\n"
+                "When recommending a different profile, describe the difference\n"
+                "qualitatively — \"lower temperature regime\", \"higher peak pressure\",\n"
+                "\"shorter total duration\", \"flow-controlled instead of pressure-\n"
+                "controlled\" — and let the user pull a reference shot on that profile to\n"
+                "see its actual numbers. If the user explicitly asks for setpoints of a\n"
+                "non-current profile, say you don't have its recipe and offer to discuss\n"
+                "tradeoffs in qualitative terms.\n");
         }
     }
 
@@ -1460,16 +1519,22 @@ void ShotSummarizer::buildProfileCatalog()
         seen.insert(pk.name);
 
         QString category;
+        QString family;
         QString roast;
         for (const QString& line : pk.content.split('\n')) {
             if (line.startsWith(QStringLiteral("Category:")) && category.isEmpty()) {
                 category = line.mid(9).trimmed();
+            } else if (line.startsWith(QStringLiteral("Family:")) && family.isEmpty()) {
+                family = line.mid(7).trimmed();
             } else if (line.startsWith(QStringLiteral("Roast:")) && roast.isEmpty()) {
                 roast = line.mid(6).trimmed();
             }
         }
 
         QString entry = pk.name + QStringLiteral(" — ") + category;
+        if (!family.isEmpty()) {
+            entry += QStringLiteral(" [family: ") + family + QStringLiteral("]");
+        }
         if (!roast.isEmpty()) {
             entry += QStringLiteral(". ") + roast;
         }
