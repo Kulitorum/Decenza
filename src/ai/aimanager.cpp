@@ -29,6 +29,7 @@
 #include "../core/dbutils.h"
 #include <QPointer>
 #include <QCoreApplication>
+#include <QRegularExpression>
 #include <cmath>
 
 AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
@@ -153,6 +154,64 @@ AIProvider* AIManager::currentProvider() const
 {
     AIProvider* provider = providerById(selectedProvider());
     return provider ? provider : m_openaiProvider.get();  // Default
+}
+
+std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assistantMessage)
+{
+    // Locate the LAST fenced ```json ... ``` block whose closing fence is
+    // the final non-whitespace content in the message. Mid-message blocks
+    // (e.g., the model echoing a snippet from the user) MUST be ignored —
+    // the recommendation block always trails the prose.
+    //
+    // Strategy: walk all ``` fence positions, pair them as opener/closer,
+    // and check the LAST pair. If that pair's opener is tagged `json`
+    // (case-insensitive) and its closer is followed only by whitespace,
+    // parse the inner body. Anything else → std::nullopt.
+    if (assistantMessage.isEmpty()) return std::nullopt;
+
+    QList<qsizetype> fenceStarts;
+    fenceStarts.reserve(8);
+    qsizetype searchFrom = 0;
+    while (true) {
+        const qsizetype pos = assistantMessage.indexOf(QStringLiteral("```"), searchFrom);
+        if (pos < 0) break;
+        fenceStarts.append(pos);
+        searchFrom = pos + 3;
+    }
+    if (fenceStarts.size() < 2) return std::nullopt;
+
+    // Take the last two fences unconditionally — odd total counts (a
+    // stray ``` somewhere earlier in the prose) MUST NOT silently drop a
+    // structurally valid trailing block. The closer-followed-only-by-
+    // whitespace check below is what actually enforces "this is the
+    // trailing block."
+    const qsizetype openerStart = fenceStarts.at(fenceStarts.size() - 2);
+    const qsizetype closerStart = fenceStarts.at(fenceStarts.size() - 1);
+
+    // Closer must be followed only by whitespace.
+    const qsizetype closerEnd = closerStart + 3;
+    for (qsizetype i = closerEnd; i < assistantMessage.size(); ++i) {
+        if (!assistantMessage[i].isSpace()) return std::nullopt;
+    }
+
+    // Tag: characters between opener fence and the next newline.
+    const qsizetype tagStart = openerStart + 3;
+    const qsizetype newlineAfterOpener = assistantMessage.indexOf(QLatin1Char('\n'), tagStart);
+    if (newlineAfterOpener < 0 || newlineAfterOpener >= closerStart) return std::nullopt;
+    const QString tag = assistantMessage.mid(tagStart, newlineAfterOpener - tagStart).trimmed();
+    if (tag.compare(QStringLiteral("json"), Qt::CaseInsensitive) != 0) return std::nullopt;
+
+    const QString inner = assistantMessage.mid(newlineAfterOpener + 1, closerStart - newlineAfterOpener - 1).trimmed();
+    if (inner.isEmpty()) return std::nullopt;
+
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(inner.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError) {
+        qWarning() << "AIManager::parseStructuredNext: structuredNext parse failed —" << err.errorString();
+        return std::nullopt;
+    }
+    if (!doc.isObject()) return std::nullopt;
+    return doc.object();
 }
 
 ShotMetadata AIManager::buildMetadata(const QString& beanBrand,

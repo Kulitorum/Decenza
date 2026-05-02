@@ -8,6 +8,7 @@
 #include <QVariantMap>
 #include <QPair>
 #include <memory>
+#include <optional>
 
 #include "../history/shotprojection.h"
 #include "../history/shothistory_types.h"
@@ -170,6 +171,18 @@ public:
 
     // Multi-turn conversation - sends system prompt and full message array to current provider
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
+
+    // Extract the trailing fenced ```json block from an assistant message.
+    // The shot-analysis system prompt asks the model to append a `nextShot`
+    // JSON object at end-of-message when its response makes a concrete
+    // parameter recommendation. Returns the parsed object when found,
+    // std::nullopt when absent or unparseable. Mid-message fenced blocks
+    // are intentionally ignored — only a block whose closing ``` is the
+    // last non-whitespace content qualifies.
+    //
+    // Pure / static so callers without an AIManager (test harnesses,
+    // ai_advisor_invoke before the provider hop) can use it.
+    static std::optional<QJsonObject> parseStructuredNext(const QString& assistantMessage);
 
     // Ollama-specific
     Q_INVOKABLE void refreshOllamaModels();

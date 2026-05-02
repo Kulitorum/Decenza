@@ -1203,6 +1203,49 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "the session context as a best-effort inference, not a guaranteed\n"
         "match for that shot's actual recorded data.\n");
 
+    // Structured nextShot output (issue #1054). The shot-analysis system
+    // prompt teaches the model to emit a fenced ```json block at the very
+    // end of any response that makes a concrete parameter recommendation
+    // (grind, dose, profile change). The app parses that block out of the
+    // response, persists it alongside the assistant turn in
+    // `AIConversation`, and surfaces it on the `ai_advisor_invoke` MCP
+    // envelope so downstream consumers (closed-loop coaching #1053,
+    // future dial-in coachmarks) don't have to re-parse prose. The block
+    // MUST be omitted entirely when the response is a clarifying question
+    // or has no parameter recommendation — there is no null-state
+    // placeholder.
+    base += QStringLiteral("\n\n## Response Format\n\n"
+        "When your response recommends a concrete change to grinder setting,\n"
+        "dose, or profile, append a fenced JSON block named `nextShot` at the\n"
+        "very end of your message — after the prose, after any closing\n"
+        "thoughts, with NOTHING following the closing fence except whitespace.\n"
+        "The block lets the app track adherence and outcomes across turns. If\n"
+        "your response is a clarifying question (e.g., asking the user how the\n"
+        "shot tasted) or otherwise makes no parameter recommendation, OMIT the\n"
+        "block entirely — do not emit a placeholder.\n\n"
+        "Schema:\n\n"
+        "- `grinderSetting` (string) — REQUIRED iff you recommend moving grind. Omit when grind is unchanged.\n"
+        "- `doseG` (number) — REQUIRED iff you recommend moving dose. Omit when dose is unchanged.\n"
+        "- `profileTitle` (string) — REQUIRED iff you recommend switching profile. The title (`result.profile.title`), not the filename. Omit otherwise.\n"
+        "- `expectedDurationSec` ([low, high]) — REQUIRED. Predicted duration window if your recommendation is followed.\n"
+        "- `expectedFlowMlPerSec` ([low, high]) — REQUIRED.\n"
+        "- `expectedPeakPressureBar` ([low, high]) — OPTIONAL. Include only when your advice specifically targets pressure dynamics.\n"
+        "- `successCondition` (string) — REQUIRED. A short predicate the user can read (e.g., `\"score >= 70 OR (durationSec in [32,38] AND flowMlPerSec in [1.0,1.5])\"`).\n"
+        "- `reasoning` (string) — REQUIRED. One sentence explaining WHY.\n\n"
+        "Example (grind change):\n\n"
+        "```json\n"
+        "{\n"
+        "  \"grinderSetting\": \"4.75\",\n"
+        "  \"expectedDurationSec\": [32, 38],\n"
+        "  \"expectedFlowMlPerSec\": [1.0, 1.5],\n"
+        "  \"successCondition\": \"durationSec in [32,38] AND flowMlPerSec in [1.0,1.5]\",\n"
+        "  \"reasoning\": \"Slow flow toward profile target without going past the choke point\"\n"
+        "}\n"
+        "```\n\n"
+        "The block must be the LAST content in your response. Use the `json`\n"
+        "language tag on the opening fence (case-insensitive). Use only ASCII\n"
+        "double-quotes for keys and strings — no smart quotes.\n");
+
     // Detector-observations legend. Per openspec optimize-dialing-context-payload
     // (task 3), this lives in the system prompt (taught once per
     // conversation) instead of the per-call prose body. Per-shot blocks
@@ -1280,6 +1323,11 @@ void ShotSummarizer::loadProfileKnowledge()
     QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
+        // Latch the loaded flag even on failure so subsequent calls
+        // don't re-warn — the resource won't reappear inside one
+        // process's lifetime, and a per-call retry in test binaries
+        // (which don't link the qrc) creates noise without value.
+        s_knowledgeLoaded = true;
         return;
     }
 

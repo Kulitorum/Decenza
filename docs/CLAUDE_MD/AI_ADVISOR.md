@@ -101,6 +101,24 @@ The four DB-scoped blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, 
 
 Note: `dialing_get_context` (the MCP read tool) shares the four `McpDialingBlocks::*` block builders but does **not** go through `enrichUserPromptObject` — it assembles its own response envelope (top-level `dialInSessions` / `bestRecentShot` / `sawPrediction` / `grinderContext` plus `currentBean`, `profile`, `tastingFeedback`, `shotAnalysis`). The block-level shape is shared by construction; the wrapper envelope is not.
 
+### Structured `nextShot` output (issue #1054)
+
+The shot-analysis system prompt asks the model to append a fenced ` ```json ` block named `nextShot` at the very end of any response that recommends a concrete parameter change (grind / dose / profile). The block carries:
+
+- `grinderSetting`, `doseG`, `profileTitle` — present only on the field(s) the recommendation moves
+- `expectedDurationSec`, `expectedFlowMlPerSec` — required `[low, high]` ranges
+- `expectedPeakPressureBar` — optional `[low, high]` range when the advice targets pressure
+- `successCondition` — short natural-language predicate (stored verbatim)
+- `reasoning` — one sentence explaining why
+
+`AIManager::parseStructuredNext(QString)` extracts the trailing block. The parser is conservative: only the **last** fenced block whose closing fence is followed by nothing but whitespace, and whose opener is tagged `json` (case-insensitive), qualifies. Mid-message fenced blocks (e.g., the model echoing prior advice for context) are intentionally ignored. Malformed JSON returns `nullopt` with a `qWarning`. Absent block returns `nullopt` silently — the model is supposed to omit the block on clarifying-question responses.
+
+The parsed object is persisted on the assistant message as `structuredNext` alongside `role` / `content` in `AIConversation::m_messages`. `AIConversation::structuredNextForLastAssistantTurn()` reads it back. Older saved conversations (no `structuredNext` key) load cleanly and the reader returns `nullopt`.
+
+`ai_advisor_invoke` (MCP) parses the trailing block from the assistant response and surfaces it as a top-level `structuredNext` field in the tool result envelope, alongside `response`. The field is **omitted** (no `null`) when the response carries no recommendation.
+
+This block is the load-bearing precondition for #1053's closed-loop coaching — `recentAdvice[].structuredNext` is read straight back from this stored field, with `expectedDurationSec` / `expectedFlowMlPerSec` driving the `outcomeInPredictedRange` computation.
+
 ---
 
 ## Lessons Learned: Profile Knowledge Doesn't Scale (March 2026)

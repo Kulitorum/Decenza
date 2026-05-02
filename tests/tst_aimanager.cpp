@@ -25,6 +25,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSettings>
 #include <QSqlDatabase>
 
 #include "ai/aimanager.h"
@@ -1059,6 +1060,291 @@ private slots:
         QVERIFY(fields.durationSec.isEmpty());
         QVERIFY(fields.score.isEmpty());
         QVERIFY(fields.notes.isEmpty());
+    }
+
+    // -------------------------------------------------------------
+    // Structured nextShot parser (issue #1054)
+    // -------------------------------------------------------------
+
+    void parseStructuredNext_extractsTrailingBlock()
+    {
+        const QString message = QStringLiteral(
+            "Try going slightly finer to slow extraction toward the profile target.\n\n"
+            "```json\n"
+            "{\n"
+            "  \"grinderSetting\": \"4.75\",\n"
+            "  \"expectedDurationSec\": [32, 38],\n"
+            "  \"expectedFlowMlPerSec\": [1.0, 1.5],\n"
+            "  \"successCondition\": \"durationSec in [32,38] AND flowMlPerSec in [1.0,1.5]\",\n"
+            "  \"reasoning\": \"Slow flow toward profile target without going past the choke point\"\n"
+            "}\n"
+            "```");
+
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY2(parsed.has_value(), "trailing json block should parse");
+        const QJsonObject obj = *parsed;
+        QCOMPARE(obj.value("grinderSetting").toString(), QStringLiteral("4.75"));
+        QCOMPARE(obj.value("expectedDurationSec").toArray().size(), 2);
+        QCOMPARE(obj.value("expectedDurationSec").toArray()[0].toInt(), 32);
+        QCOMPARE(obj.value("expectedDurationSec").toArray()[1].toInt(), 38);
+        QCOMPARE(obj.value("expectedFlowMlPerSec").toArray().size(), 2);
+        QVERIFY(!obj.value("successCondition").toString().isEmpty());
+        QVERIFY(!obj.value("reasoning").toString().isEmpty());
+    }
+
+    void parseStructuredNext_toleratesTrailingWhitespace()
+    {
+        const QString message = QStringLiteral(
+            "Recommend a finer grind.\n\n"
+            "```json\n"
+            "{\"grinderSetting\":\"4.75\",\"expectedDurationSec\":[32,38],"
+            "\"expectedFlowMlPerSec\":[1.0,1.5],"
+            "\"successCondition\":\"OK\",\"reasoning\":\"r\"}\n"
+            "```\n\n   \n");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->value("grinderSetting").toString(), QStringLiteral("4.75"));
+    }
+
+    void parseStructuredNext_caseInsensitiveTag()
+    {
+        const QString message = QStringLiteral(
+            "advice\n\n```JSON\n{\"grinderSetting\":\"4.75\"}\n```");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->value("grinderSetting").toString(), QStringLiteral("4.75"));
+    }
+
+    void parseStructuredNext_returnsNulloptOnAbsentBlock()
+    {
+        const QString message = QStringLiteral(
+            "How did this shot taste? Please give a 1-100 score and 1-2 lines of notes.");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY(!parsed.has_value());
+    }
+
+    void parseStructuredNext_returnsNulloptOnMidMessageBlock()
+    {
+        // A mid-message json block (e.g., the model echoing prior advice
+        // for context) MUST NOT be picked up — only a trailing block
+        // qualifies. This message has a json block, then prose after it.
+        const QString message = QStringLiteral(
+            "Earlier I suggested:\n"
+            "```json\n{\"grinderSetting\":\"4.75\"}\n```\n"
+            "Now let's reconsider. Here's what I think went wrong: ...");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY2(!parsed.has_value(),
+                 "mid-message json blocks must not be extracted as the trailing recommendation");
+    }
+
+    void parseStructuredNext_ignoresNonJsonTrailingFence()
+    {
+        const QString message = QStringLiteral(
+            "advice\n\n"
+            "```python\nprint('hi')\n```");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY(!parsed.has_value());
+    }
+
+    void parseStructuredNext_returnsNulloptOnMalformedJson()
+    {
+        // Broken JSON: unterminated brace, unquoted key. Parser must log
+        // a warning and return nullopt — caller must not see a partial
+        // structuredNext object. Pin the expected qWarning per TESTING.md
+        // so a silent failure of the warning path would fail the test.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("AIManager::parseStructuredNext: structuredNext parse failed.*"));
+        const QString message = QStringLiteral(
+            "advice\n\n```json\n{grinderSetting: 4.75\n```");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY(!parsed.has_value());
+    }
+
+    void parseStructuredNext_emptyAndWhitespaceOnly()
+    {
+        QVERIFY(!AIManager::parseStructuredNext(QString()).has_value());
+        QVERIFY(!AIManager::parseStructuredNext(QStringLiteral("   \n\n  ")).has_value());
+    }
+
+    void parseStructuredNext_oddFenceCountStillExtractsTrailingBlock()
+    {
+        // A stray ``` somewhere in the prose (model truncation, escaped
+        // example, inline-code mishap) MUST NOT silently drop a
+        // structurally valid trailing block. Total fence count here is
+        // 3 (one orphan + opener+closer of the trailing block), which
+        // an earlier draft of the parser bailed on.
+        const QString message = QStringLiteral(
+            "I noticed your earlier response truncated mid-fence ```\n"
+            "but here's a fresh recommendation:\n\n"
+            "```json\n{\"grinderSetting\":\"4.75\"}\n```");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY2(parsed.has_value(),
+                 "trailing valid block must parse even when an earlier stray ``` makes the total count odd");
+        QCOMPARE(parsed->value("grinderSetting").toString(), QStringLiteral("4.75"));
+    }
+
+    // -------------------------------------------------------------
+    // ai_advisor_invoke MCP envelope shape (issue #1054, tasks.md task 6)
+    //
+    // The MCP tool's success-path lambda in src/mcp/mcptools_ai.cpp builds
+    // the envelope via:
+    //     QJsonObject body{{"response", response}};
+    //     const auto structured = AIManager::parseStructuredNext(response);
+    //     if (structured.has_value())
+    //         body.insert("structuredNext", *structured);
+    //     finalize(body);
+    // This test pins the omission semantics so a future refactor cannot
+    // accidentally re-introduce a `null` placeholder.
+    // -------------------------------------------------------------
+
+    static QJsonObject buildMcpEnvelopeForResponse(const QString& response)
+    {
+        QJsonObject body{{"response", response}};
+        const auto structured = AIManager::parseStructuredNext(response);
+        if (structured.has_value()) {
+            body.insert(QStringLiteral("structuredNext"), *structured);
+        }
+        return body;
+    }
+
+    void aiAdvisorInvokeSurfacesStructuredNextOnRecommendation()
+    {
+        const QString reply = QStringLiteral(
+            "Try grinder 4.75.\n\n```json\n{"
+            "\"grinderSetting\":\"4.75\","
+            "\"expectedDurationSec\":[32,38],"
+            "\"expectedFlowMlPerSec\":[1.0,1.5],"
+            "\"successCondition\":\"OK\","
+            "\"reasoning\":\"slow flow toward profile target\"}\n```");
+        const QJsonObject env = buildMcpEnvelopeForResponse(reply);
+        QVERIFY2(env.contains("structuredNext"),
+                 "ai_advisor_invoke envelope must surface structuredNext on a recommendation reply");
+        const QJsonObject sn = env.value("structuredNext").toObject();
+        QCOMPARE(sn.value("grinderSetting").toString(), QStringLiteral("4.75"));
+        QCOMPARE(sn.value("expectedDurationSec").toArray().size(), 2);
+        QCOMPARE(env.value("response").toString(), reply);  // prose unchanged
+    }
+
+    void aiAdvisorInvokeOmitsStructuredNextOnClarifyingResponse()
+    {
+        const QString reply = QStringLiteral(
+            "How did this shot taste? Please give a 1-100 score and 1-2 lines of notes.");
+        const QJsonObject env = buildMcpEnvelopeForResponse(reply);
+        QVERIFY2(!env.contains("structuredNext"),
+                 "absent structuredNext must be omitted, not emitted as null placeholder");
+        // Defensive: scan the serialized envelope to be sure no null
+        // placeholder slipped in via QJsonValue auto-conversion.
+        const QByteArray serialized = QJsonDocument(env).toJson(QJsonDocument::Compact);
+        QVERIFY2(!serialized.contains("structuredNext"),
+                 "serialized envelope must not contain the structuredNext key when absent");
+    }
+
+    // -------------------------------------------------------------
+    // AIConversation persistence of structuredNext (issue #1054)
+    // -------------------------------------------------------------
+
+    void aiConversation_addAssistantMessage_persistsStructuredNext()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_structurednext_persist");
+
+        const QString message = QStringLiteral(
+            "Try grinder 4.75.\n\n```json\n{"
+            "\"grinderSetting\":\"4.75\","
+            "\"expectedDurationSec\":[32,38],"
+            "\"expectedFlowMlPerSec\":[1.0,1.5],"
+            "\"successCondition\":\"OK\","
+            "\"reasoning\":\"r\"}\n```");
+
+        // Direct persistence path: addUserMessage then addAssistantMessage
+        // with a parsed structured block. We bypass the network round
+        // trip so the test stays hermetic.
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY(parsed.has_value());
+
+        // Friend access via tst_AIManager — see aiconversation.h DECENZA_TESTING block.
+        conv.m_systemPrompt = QStringLiteral("system");
+        conv.addUserMessage(QStringLiteral("user"));
+        conv.addAssistantMessage(message, parsed);
+
+        // Reader returns the parsed object on the latest assistant turn.
+        const auto retrieved = conv.structuredNextForLastAssistantTurn();
+        QVERIFY(retrieved.has_value());
+        QCOMPARE(retrieved->value("grinderSetting").toString(), QStringLiteral("4.75"));
+
+        // Saving + reloading round-trips the structured block.
+        conv.saveToStorage();
+
+        AIConversation conv2(&mgr);
+        conv2.setStorageKey("test_structurednext_persist");
+        conv2.loadFromStorage();
+        const auto reloaded = conv2.structuredNextForLastAssistantTurn();
+        QVERIFY2(reloaded.has_value(),
+                 "structuredNext must round-trip through QSettings save/load");
+        QCOMPARE(reloaded->value("grinderSetting").toString(), QStringLiteral("4.75"));
+        QCOMPARE(reloaded->value("expectedDurationSec").toArray()[0].toInt(), 32);
+
+        settings.clear();
+    }
+
+    void aiConversation_addAssistantMessage_omitsKeyWhenAbsent()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_structurednext_absent");
+
+        conv.m_systemPrompt = QStringLiteral("system");
+        conv.addUserMessage(QStringLiteral("user"));
+        conv.addAssistantMessage(QStringLiteral("clarifying question, no recommendation"));
+
+        // No `structuredNext` key SHALL be written when the parser returns nullopt.
+        QVERIFY(!conv.structuredNextForLastAssistantTurn().has_value());
+
+        conv.saveToStorage();
+        const QByteArray raw = QSettings().value(
+            QStringLiteral("ai/conversations/test_structurednext_absent/messages")).toByteArray();
+        QVERIFY2(!raw.contains("structuredNext"),
+                 "absent structuredNext must not be persisted as a key (no null placeholder)");
+
+        settings.clear();
+    }
+
+    void aiConversation_loadsLegacyMessagesWithoutStructuredNext()
+    {
+        // A pre-#1054 saved conversation has assistant messages with
+        // only {role, content}. Load must succeed; reader returns
+        // nullopt for every assistant turn.
+        QSettings settings;
+        settings.clear();
+        const QString prefix = QStringLiteral("ai/conversations/test_structurednext_legacy/");
+        settings.setValue(prefix + "systemPrompt", "system");
+        const QByteArray legacyMessages = QByteArrayLiteral(
+            "[{\"role\":\"user\",\"content\":\"u\"},"
+            "{\"role\":\"assistant\",\"content\":\"a\"}]");
+        settings.setValue(prefix + "messages", legacyMessages);
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_structurednext_legacy");
+        conv.loadFromStorage();
+
+        QVERIFY2(!conv.structuredNextForLastAssistantTurn().has_value(),
+                 "legacy assistant turns must read as no-structuredNext, not as malformed");
+
+        settings.clear();
     }
 };
 
