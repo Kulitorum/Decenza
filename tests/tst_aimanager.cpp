@@ -1150,7 +1150,10 @@ private slots:
     {
         // Broken JSON: unterminated brace, unquoted key. Parser must log
         // a warning and return nullopt — caller must not see a partial
-        // structuredNext object.
+        // structuredNext object. Pin the expected qWarning per TESTING.md
+        // so a silent failure of the warning path would fail the test.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("AIManager::parseStructuredNext: structuredNext parse failed.*"));
         const QString message = QStringLiteral(
             "advice\n\n```json\n{grinderSetting: 4.75\n```");
         const auto parsed = AIManager::parseStructuredNext(message);
