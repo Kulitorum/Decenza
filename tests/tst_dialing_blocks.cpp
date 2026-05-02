@@ -1209,7 +1209,7 @@ private slots:
             const QJsonObject fine = r.value(QStringLiteral("fineAnchor")).toObject();
             QCOMPARE(fine.value(QStringLiteral("profileName")).toString(),
                      QStringLiteral("80's Espresso"));
-            QCOMPARE(fine.value(QStringLiteral("ugs")).toDouble(), 0.25);
+            QCOMPARE(fine.value(QStringLiteral("ugs")).toDouble(), -0.5);
 
             const QJsonObject coarse = r.value(QStringLiteral("coarseAnchor")).toObject();
             QCOMPARE(coarse.value(QStringLiteral("profileName")).toString(),
@@ -1217,8 +1217,8 @@ private slots:
             QCOMPARE(coarse.value(QStringLiteral("medianSetting")).toString(),
                      QStringLiteral("7"));
 
-            // conversionKey = (7−5) / (8−0.25) = 2/7.75 = 0.258… → 0.26
-            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 0.26);
+            // conversionKey = (7−5) / (8−(−0.5)) = 2/8.5 = 0.235… → 0.24
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 0.24);
         });
     }
 
