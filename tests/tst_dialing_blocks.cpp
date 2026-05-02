@@ -166,7 +166,7 @@ private slots:
         // it here so individual tests don't have to ignoreMessage it
         // themselves — this is fixture noise, not a behavior to test.
         QTest::ignoreMessage(QtWarningMsg,
-            "ShotSummarizer: Failed to load profile knowledge resource");
+            QRegularExpression(QStringLiteral("ShotSummarizer: Failed to load profile knowledge resource")));
         ShotSummarizer::computeProfileKbId(QStringLiteral("dummy"), QStringLiteral("advanced"));
     }
 
@@ -687,7 +687,7 @@ private slots:
             QCOMPARE(entry.value("turnsAgo").toInt(), 1);
             const QJsonObject ur = entry.value("userResponse").toObject();
             QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
-            QCOMPARE(ur.value("outcomeRating").toInt(), 75);
+            QCOMPARE(ur.value("outcomeRating0to100").toInt(), 75);
             QCOMPARE(ur.value("outcomeNotes").toString(), QStringLiteral("balanced and sweet"));
             const QJsonObject rng = ur.value("outcomeInPredictedRange").toObject();
             QVERIFY(rng.value("duration").toBool());  // 35s in [32,38]
@@ -727,8 +727,8 @@ private slots:
             const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
             QCOMPARE(out.size(), 1);
             const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
-            QVERIFY2(!ur.contains("outcomeRating"),
-                     "outcomeRating must be omitted when the actual shot is unrated");
+            QVERIFY2(!ur.contains("outcomeRating0to100"),
+                     "outcomeRating0to100 must be omitted when the actual shot is unrated");
             // outcomeInPredictedRange survives — curve-based attribution
             // doesn't require a taste signal.
             QVERIFY(ur.value("outcomeInPredictedRange").toObject().contains("duration"));
@@ -837,6 +837,46 @@ private slots:
             const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
             QVERIFY2(out.isEmpty(),
                      "prior turn without a follow-up shot must be skipped");
+        });
+    }
+
+    // Parity test (in-app surface vs MCP surface) lives in tst_aimanager.cpp
+    // where AIManager + AIConversation are linked. This file's test binary
+    // intentionally avoids the AI module to stay focused on the SQL block
+    // builders.
+    void recentAdvice_byteStabilityAcrossCalls()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_byte_stable", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "5.0"
+            });
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 35, .finalWeight = 42, .doseWeight = 18,
+                .grinderSetting = "4.75",
+                .enjoyment = 75
+            });
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{
+                priorId, "advice", sampleStructuredNext()}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+
+            const QByteArray a = QJsonDocument(DialingBlocks::buildRecentAdviceBlock(db, in))
+                .toJson(QJsonDocument::Compact);
+            const QByteArray b = QJsonDocument(DialingBlocks::buildRecentAdviceBlock(db, in))
+                .toJson(QJsonDocument::Compact);
+            QCOMPARE(a, b);
         });
     }
 };

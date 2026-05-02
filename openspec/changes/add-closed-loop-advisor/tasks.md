@@ -30,7 +30,7 @@
   - Query the user's history for the next shot postdating the prior turn's timestamp on the same profile (excluding `currentShotId`). SKIP the entry if no such shot exists.
   - Compute `adherence` per the spec rules (string-equal grinder OR within 0.25 step; dose ±0.3g; profile filename equality). Default `"ignored"` when `structuredNext` carries no parameter recommendations and the actual shot's params equal the prior turn's shot's params, override to `"followed"`.
   - Compute `outcomeInPredictedRange.duration` / `.flow` / `.pressure` from the next shot's `durationSec`, `mainFlowMlPerSec` (or equivalent — match existing fields), `peakPressureBar`. `pressure` is included only if `expectedPeakPressureBar` was on the prior turn's `structuredNext`.
-  - Omit `outcomeRating` when `enjoyment0to100 <= 0`. Omit `outcomeNotes` when empty.
+  - Omit `outcomeRating0to100` when `enjoyment0to100 <= 0`. Omit `outcomeNotes` when empty.
   - Use `structuredNext.reasoning` verbatim for `recommendation`; when absent, synthesize a short summary (e.g., `"Try grinder X; expect Y-Zs, A-B ml/s"`).
 - [x] 6. Wire the in-app advisor:
   - in `AIManager::analyzeShotWithMetadata`'s background-thread closure (where `dialInSessions` etc. are built), pull `m_conversation->recentAssistantTurns(3)` once on the main thread before the closure starts, pass into the closure as `RecentAdviceInputs.turns`, call `buildRecentAdviceBlock`, and merge into the envelope alongside the existing four blocks.
@@ -42,7 +42,7 @@
 
 - [x] 8. Extend the espresso `shotAnalysisSystemPrompt` builder in `src/ai/shotsummarizer.cpp` with a new "How to use `recentAdvice`" subsection in "How to read structured fields":
   - explain `adherence` semantics and the three reactions (revise / stay-the-course / ask),
-  - explain the `outcomeRating` omission fallback,
+  - explain the `outcomeRating0to100` omission fallback,
   - emphasize that `recentAdvice` is the LLM's own prior recommendations + outcomes, so it can self-correct mid-session.
 
 ### Part D — Tests
@@ -50,8 +50,8 @@
 - [x] 9. `recentAdviceQualifyingTurnRendersWithAdherenceFollowed` in `tests/aimanager_tests/tst_aimanager.cpp`:
   - synthesize an `AIConversation` with one prior assistant turn (`shotId = 100`, `structuredNext` with `grinderSetting "4.75"` and `expectedDurationSec [32, 38]` and `expectedFlowMlPerSec [1.0, 1.5]`),
   - insert a fake DB with shot 100 and shot 105 on the same profile (shot 105 has `grinderSetting "4.75"`, `durationSec 35`, `mainFlowMlPerSec 1.2`, `enjoyment0to100 75`, `espressoNotes "balanced"`),
-  - call `buildRecentAdviceBlock`, assert one entry with `adherence == "followed"`, `outcomeRating == 75`, `outcomeInPredictedRange.duration == true`, `outcomeInPredictedRange.flow == true`.
-- [x] 10. `recentAdviceOmitsRatingWhenUnrated`: same setup but shot 105 has `enjoyment0to100 == 0`. Assert `outcomeRating` key is absent on the entry.
+  - call `buildRecentAdviceBlock`, assert one entry with `adherence == "followed"`, `outcomeRating0to100 == 75`, `outcomeInPredictedRange.duration == true`, `outcomeInPredictedRange.flow == true`.
+- [x] 10. `recentAdviceOmitsRatingWhenUnrated`: same setup but shot 105 has `enjoyment0to100 == 0`. Assert `outcomeRating0to100` key is absent on the entry.
 - [x] 11. `recentAdviceCrossProfileFiltersOut`: prior turn on profile A, current shot on profile B. Assert `recentAdvice` is empty (block-level absent).
 - [x] 12. `recentAdviceIgnoredWhenUserDidntFollow`: prior turn recommended `grinderSetting "4.75"` + `doseG 19`. Actual next shot kept `grinderSetting "5.0"` + `doseG 18`. Assert `adherence == "ignored"`.
 - [x] 13. `recentAdviceParityBetweenInAppAndMcp`: same conversation + DB + current shot, drive both the in-app advisor enrichment and `ai_advisor_invoke`'s envelope construction, assert `recentAdvice` JSON is byte-equal.

@@ -27,11 +27,11 @@ Each entry in the array SHALL carry:
   - `grinderSetting` (string) — actual grinder setting on that shot.
   - `doseG` (number) — actual dose on that shot.
   - `adherence` (`"followed" | "partial" | "ignored"`):
-    - `"followed"` — every recommended field present in `structuredNext` (grinderSetting, doseG, profileFilename) matches the actual within tolerance: grinderSetting equal as string OR within 0.25 of a numeric step; doseG within ±0.3g; profileFilename equal.
+    - `"followed"` — every recommended field present in `structuredNext` (grinderSetting, doseG, profileTitle) matches the actual within tolerance: grinderSetting equal as string OR within 0.25 of a numeric step; doseG within ±0.3g; profileTitle equal.
     - `"partial"` — at least one but not all recommended fields match.
     - `"ignored"` — none of the recommended fields match.
     - When `structuredNext` had no parameter recommendations (only ranges/successCondition), `adherence` SHALL be `"ignored"` only when the actual shot is on different parameters from the prior turn's shot; otherwise `"followed"`.
-  - `outcomeRating` (number, 0-100) — `enjoyment0to100` from the actual shot. OMITTED when the actual shot's enjoyment is `<= 0`.
+  - `outcomeRating0to100` (number, 0-100) — `enjoyment0to100` from the actual shot. OMITTED when the actual shot's enjoyment is `<= 0`.
   - `outcomeNotes` (string) — `espressoNotes` from the actual shot. OMITTED when empty.
   - `outcomeInPredictedRange` (object) — booleans for each range that was on the prior turn's `structuredNext`:
     - `duration` (bool) — REQUIRED.
@@ -48,7 +48,7 @@ The block SHALL be stable across calls for identical inputs (same conversation, 
 - **WHEN** the envelope is built
 - **THEN** `recentAdvice` SHALL have exactly one entry with `turnsAgo: 1`
 - **AND** `userResponse.adherence` SHALL be `"followed"`
-- **AND** `userResponse.outcomeRating` SHALL be `75`
+- **AND** `userResponse.outcomeRating0to100` SHALL be `75`
 - **AND** `userResponse.outcomeInPredictedRange.duration` SHALL be `true`
 - **AND** `userResponse.outcomeInPredictedRange.flow` SHALL be `true`
 
@@ -57,7 +57,7 @@ The block SHALL be stable across calls for identical inputs (same conversation, 
 - **GIVEN** the same prior turn as above
 - **AND** the actual follow-up shot has `enjoyment0to100 = 0` (unrated)
 - **WHEN** the envelope is built
-- **THEN** `userResponse.outcomeRating` SHALL be ABSENT from the entry
+- **THEN** `userResponse.outcomeRating0to100` SHALL be ABSENT from the entry
 - **AND** `outcomeInPredictedRange` SHALL still be present (curve-based signal, not rating-based)
 
 #### Scenario: Cross-profile prior turn is filtered out
@@ -93,7 +93,7 @@ The block SHALL be stable across calls for identical inputs (same conversation, 
 The espresso `shotAnalysisSystemPrompt` SHALL include teaching for the `recentAdvice` block in its "How to read structured fields" section. The teaching SHALL cover:
 
 - How to interpret `adherence`: `"followed"` + worse outcome ⇒ revise direction; `"ignored"` ⇒ stay the course; `"partial"` ⇒ ask before revising.
-- How to interpret omitted `outcomeRating`: do not assume good or bad — fall back to `outcomeInPredictedRange` for a curve-shape signal, or ask the user about taste.
+- How to interpret omitted `outcomeRating0to100`: do not assume good or bad — fall back to `outcomeInPredictedRange` for a curve-shape signal, or ask the user about taste.
 - That `recentAdvice` is the LLM's own prior recommendations + observed outcomes — it can self-correct based on it.
 
 #### Scenario: System prompt contains recentAdvice teaching

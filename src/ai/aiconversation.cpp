@@ -170,6 +170,14 @@ void AIConversation::addUserMessage(const QString& message)
     QJsonObject msg;
     msg["role"] = "user";
     msg["content"] = message;
+    // Apply the latched shotId to the new user turn (issue #1053) but
+    // do NOT consume the latch — the assistant message that follows
+    // shares the pair's shotId. Production flow is
+    // setShotIdForCurrentTurn → ask() → addUserMessage here →
+    // addAssistantMessage (which clears the latch).
+    if (m_pendingShotId != 0) {
+        msg["shotId"] = static_cast<double>(m_pendingShotId);
+    }
     m_messages.append(msg);
 }
 
@@ -214,15 +222,16 @@ std::optional<QJsonObject> AIConversation::structuredNextForLastAssistantTurn() 
 void AIConversation::setShotIdForCurrentTurn(qint64 shotId)
 {
     m_pendingShotId = shotId;
-    // Apply retroactively to the most recent user turn so the user
-    // entry and the assistant entry that follows share the same id.
-    // If no user turn exists yet (caller set the id before any
-    // addUserMessage), the id stays latched for the next user/assistant
-    // pair.
+    // Retroactively stamp the most recent user turn ONLY when it
+    // doesn't already carry a shotId — protects the prior pair's
+    // attribution when this is called between turns of an accumulating
+    // conversation. The latch above covers the future-pair case
+    // (the next addUserMessage / addAssistantMessage stamp from it).
     if (shotId == 0) return;
     for (qsizetype i = m_messages.size() - 1; i >= 0; --i) {
         QJsonObject msg = m_messages.at(i).toObject();
         if (msg.value("role").toString() == QStringLiteral("user")) {
+            if (msg.contains(QStringLiteral("shotId"))) return;  // already attributed; don't overwrite
             msg["shotId"] = static_cast<double>(shotId);
             m_messages.replace(i, msg);
             return;
