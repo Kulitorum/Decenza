@@ -222,6 +222,45 @@ public:
                                      const QString& priorAssistantMessage,
                                      qint64 shotId);
 
+    // Conversational bean-metadata corrections (capability
+    // shot-metadata-capture). When the recorded bean info on a shot is
+    // wrong (e.g. roastLevel saved as "Medium-Dark" but the user clarifies
+    // mid-conversation that the coffee is dark), the parser pulls the
+    // correction out of the user's reply so the app can write it back to
+    // ShotProjection. Sparse: only fields the user explicitly corrected
+    // are populated.
+    struct BeanCorrection {
+        std::optional<QString> roastLevel;  // canonical: Light/Medium-Light/Medium/Medium-Dark/Dark
+        std::optional<QString> beanBrand;
+        std::optional<QString> roastDate;   // ISO yyyy-MM-dd
+        bool isEmpty() const {
+            return !roastLevel && !beanBrand && !roastDate;
+        }
+    };
+
+    // Conservative parser. Returns std::nullopt when the reply contains no
+    // recognisable bean-correction patterns. Compound phrases like "dark
+    // chocolate notes" or "light citrus" do NOT yield a roastLevel; the
+    // parser requires a context word ("the coffee/bean/roast is X",
+    // "actually X") to bind the adjective to roast level. Static + pure
+    // for test isolation.
+    static std::optional<BeanCorrection> parseBeanCorrectionsFromReply(const QString& reply);
+
+    // Persist a parsed BeanCorrection back to the anchored shot via
+    // ShotHistoryStorage. No-op when ANY of:
+    //   - shotId is 0,
+    //   - m_shotHistory is unset,
+    //   - parser returns std::nullopt,
+    //   - neither the user reply carries explicit corrective phrasing
+    //     ("actually...", "the coffee/bean/roast is...") NOR the prior
+    //     assistant message asked about beans (the gating mirrors
+    //     maybePersistRatingFromReply's "must be answering a question"
+    //     stance to keep false positives low).
+    // Called by AIConversation::followUp alongside the rating-write hook.
+    void maybePersistBeanCorrectionFromReply(const QString& userReply,
+                                              const QString& priorAssistantMessage,
+                                              qint64 shotId);
+
     // Ollama-specific
     Q_INVOKABLE void refreshOllamaModels();
 

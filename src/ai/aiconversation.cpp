@@ -126,6 +126,10 @@ bool AIConversation::followUp(const QString& userMessage)
     }
     if (!priorAssistant.isEmpty() && turnShotId > 0) {
         m_aiManager->maybePersistRatingFromReply(userMessage, priorAssistant, turnShotId);
+        // shot-metadata-capture: same anchored-turn invariant as the rating
+        // hook above. Both can fire on the same reply (e.g. "82, dark roast,
+        // balanced" → enjoyment=82 AND roastLevel="Dark").
+        m_aiManager->maybePersistBeanCorrectionFromReply(userMessage, priorAssistant, turnShotId);
     }
 
     addUserMessage(userMessage);

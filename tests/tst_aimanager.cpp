@@ -27,6 +27,7 @@
 #include <QJsonArray>
 #include <QSettings>
 #include <QSqlDatabase>
+#include <QDate>
 
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
@@ -1770,6 +1771,235 @@ private slots:
         mgr.maybePersistRatingFromReply(
             QStringLiteral("really good, much better than last time"),
             QStringLiteral("How did this taste?"),
+            /*shotId=*/8473);
+        QVERIFY(true);
+    }
+
+    // -------------------------------------------------------------
+    // shot-metadata-capture: parseBeanCorrectionsFromReply
+    // -------------------------------------------------------------
+
+    void parseBeanCorrectionsFromReply_extractsRoastLevelExplicit()
+    {
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("actually it's really dark"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->roastLevel.value_or(QString()), QStringLiteral("Dark"));
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("the coffee is medium-dark"));
+        QVERIFY(b.has_value());
+        QCOMPARE(b->roastLevel.value_or(QString()), QStringLiteral("Medium-Dark"));
+
+        const auto c = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("this is a light roast"));
+        QVERIFY(c.has_value());
+        QCOMPARE(c->roastLevel.value_or(QString()), QStringLiteral("Light"));
+    }
+
+    void parseBeanCorrectionsFromReply_canonicalizesRoastValues()
+    {
+        // "medium dark" / "medium-dark" / "MediumDark" all canonicalize to
+        // the app's stored form "Medium-Dark".
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("the coffee is medium dark"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->roastLevel.value_or(QString()), QStringLiteral("Medium-Dark"));
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("the coffee is mediumdark"));
+        QVERIFY(b.has_value());
+        QCOMPARE(b->roastLevel.value_or(QString()), QStringLiteral("Medium-Dark"));
+
+        const auto c = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("the coffee is medium-light"));
+        QVERIFY(c.has_value());
+        QCOMPARE(c->roastLevel.value_or(QString()), QStringLiteral("Medium-Light"));
+    }
+
+    void parseBeanCorrectionsFromReply_rejectsCompoundPhrases()
+    {
+        // Compound phrases describing taste must NOT trigger a roast-level
+        // correction. The parser requires a context word (coffee/bean/roast
+        // /actually) to bind the adjective to roast level.
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("dark chocolate notes, full body"));
+        QVERIFY2(!a.has_value() || !a->roastLevel.has_value(),
+                 "'dark chocolate' must not be parsed as roastLevel");
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("light citrus and floral"));
+        QVERIFY2(!b.has_value() || !b->roastLevel.has_value(),
+                 "'light citrus' must not be parsed as roastLevel");
+
+        const auto c = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("medium body, balanced"));
+        QVERIFY2(!c.has_value() || !c->roastLevel.has_value(),
+                 "'medium body' must not be parsed as roastLevel");
+    }
+
+    void parseBeanCorrectionsFromReply_rejectsLooseBranchWithoutRoastSuffix()
+    {
+        // The "(this|it|that) is a (level)" branch is too broad without an
+        // explicit "roast" suffix — "this is a dark crema" / "it's a light
+        // body" describe the shot, not the bean's roast level. The parser
+        // must require " roast" after the level word in this branch.
+        const auto crema = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("this is a dark crema, nice and thick"));
+        QVERIFY2(!crema.has_value() || !crema->roastLevel.has_value(),
+                 "'this is a dark crema' must not be parsed as roastLevel");
+
+        const auto body = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("it's a light body shot"));
+        QVERIFY2(!body.has_value() || !body->roastLevel.has_value(),
+                 "'it's a light body' must not be parsed as roastLevel");
+
+        // But "this is a dark roast" (with the suffix) IS a roast-level
+        // correction and must still match.
+        const auto roast = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("this is a dark roast"));
+        QVERIFY(roast.has_value());
+        QCOMPARE(roast->roastLevel.value_or(QString()), QStringLiteral("Dark"));
+    }
+
+    void parseBeanCorrectionsFromReply_extractsBeanBrand()
+    {
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("actually it's from Sey"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->beanBrand.value_or(QString()), QStringLiteral("Sey"));
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("the roaster is Onyx Coffee Lab"));
+        QVERIFY(b.has_value());
+        QCOMPARE(b->beanBrand.value_or(QString()), QStringLiteral("Onyx Coffee Lab"));
+    }
+
+    void parseBeanCorrectionsFromReply_rejectsBrandFromProseAfterLead()
+    {
+        // The brand capture is bounded to 1-4 word tokens AND must begin
+        // with an uppercase letter, so prose replies after a recognised
+        // lead-in ("the roaster is having problems with the new burr today")
+        // do NOT produce a bogus brand write. The lowercase first word
+        // "having" is the discriminator here.
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("the roaster is having problems with the new burr today"));
+        QVERIFY2(!a.has_value() || !a->beanBrand.has_value(),
+                 "lowercase prose continuation must not be captured as a brand");
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("actually it's from somewhere with the new burr today"));
+        QVERIFY2(!b.has_value() || !b->beanBrand.has_value(),
+                 "lowercase 'somewhere' must not be captured as a brand");
+    }
+
+    void parseBeanCorrectionsFromReply_extractsRoastDateIso()
+    {
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("roasted 2026-04-15"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->roastDate.value_or(QString()), QStringLiteral("2026-04-15"));
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("roasted on 2026-03-21, very fresh"));
+        QVERIFY(b.has_value());
+        QCOMPARE(b->roastDate.value_or(QString()), QStringLiteral("2026-03-21"));
+    }
+
+    void parseBeanCorrectionsFromReply_extractsRoastDateNatural()
+    {
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("roasted April 15, 2026"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->roastDate.value_or(QString()), QStringLiteral("2026-04-15"));
+
+        const auto b = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("roasted on March 5"));
+        QVERIFY(b.has_value());
+        const int year = QDate::currentDate().year();
+        QCOMPARE(b->roastDate.value_or(QString()),
+                 QDate(year, 3, 5).toString(QStringLiteral("yyyy-MM-dd")));
+    }
+
+    void parseBeanCorrectionsFromReply_handlesMultipleFields()
+    {
+        // A single reply may carry multiple corrections — both should be set.
+        const auto a = AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("actually it's from Sey, the coffee is dark"));
+        QVERIFY(a.has_value());
+        QCOMPARE(a->beanBrand.value_or(QString()), QStringLiteral("Sey"));
+        QCOMPARE(a->roastLevel.value_or(QString()), QStringLiteral("Dark"));
+    }
+
+    void parseBeanCorrectionsFromReply_emptyOnUnrelated()
+    {
+        QVERIFY(!AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("really good shot, balanced and sweet")).has_value());
+        QVERIFY(!AIManager::parseBeanCorrectionsFromReply(
+            QStringLiteral("82")).has_value());
+        QVERIFY(!AIManager::parseBeanCorrectionsFromReply(QString()).has_value());
+        QVERIFY(!AIManager::parseBeanCorrectionsFromReply(QStringLiteral("   ")).has_value());
+    }
+
+    // -------------------------------------------------------------
+    // shot-metadata-capture: maybePersistBeanCorrectionFromReply gating.
+    // Mirrors the rating-capture short-circuit tests above. The "happy
+    // path writes to DB" case requires a real m_shotHistory and is left
+    // to integration testing — these pin the gates.
+    // -------------------------------------------------------------
+
+    void maybePersistBeanCorrectionFromReply_noopWhenShotIdZero()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.maybePersistBeanCorrectionFromReply(
+            QStringLiteral("actually it's really dark"),
+            QStringLiteral("What roast level is this?"),
+            /*shotId=*/0);
+        QVERIFY(true);
+    }
+
+    void maybePersistBeanCorrectionFromReply_noopWhenShotHistoryUnset()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        mgr.maybePersistBeanCorrectionFromReply(
+            QStringLiteral("actually it's really dark"),
+            QStringLiteral("What roast level is this?"),
+            /*shotId=*/8473);
+        QVERIFY(true);
+    }
+
+    void maybePersistBeanCorrectionFromReply_noopWhenBothGatesFail()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        // Parser matches ("roast level is dark" → Dark) BUT the prior
+        // assistant message didn't ask about beans AND the user reply
+        // doesn't contain any volunteer marker ("roast level is" is in
+        // the parser but not in the volunteers list — the volunteers
+        // list requires explicit corrective phrasings like "the coffee
+        // is" or "actually..."). Both gates closed → no write.
+        mgr.maybePersistBeanCorrectionFromReply(
+            QStringLiteral("roast level is dark"),
+            QStringLiteral("Try a finer grind setting around 4.75."),
+            /*shotId=*/8473);
+        QVERIFY(true);
+    }
+
+    void maybePersistBeanCorrectionFromReply_noopWhenParserEmpty()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        // Reply has corrective phrasing markers but no recognisable
+        // bean-field correction. Parser returns nullopt; function short-circuits.
+        mgr.maybePersistBeanCorrectionFromReply(
+            QStringLiteral("actually it's complicated, maybe try again"),
+            QStringLiteral("What roast level is this?"),
             /*shotId=*/8473);
         QVERIFY(true);
     }

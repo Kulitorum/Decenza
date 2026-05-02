@@ -284,6 +284,280 @@ void AIManager::maybePersistRatingFromReply(const QString& userReply,
     m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
 }
 
+// shot-metadata-capture: did the prior assistant turn ask the user about
+// beans (roast level, brand, type, date)? Mirrors priorAssistantAskedAboutTaste
+// — message must end in a question mark (allow trailing structuredNext fence)
+// and contain at least one bean-asking marker.
+static bool priorAssistantAskedAboutBean(const QString& priorAssistantMessage)
+{
+    if (priorAssistantMessage.isEmpty()) return false;
+    QString trimmed = priorAssistantMessage.trimmed();
+    if (trimmed.endsWith(QStringLiteral("```"))) {
+        const qsizetype openerStart = trimmed.lastIndexOf(QStringLiteral("```"),
+            trimmed.length() - 4);
+        if (openerStart > 0) trimmed = trimmed.left(openerStart).trimmed();
+    }
+    if (!trimmed.endsWith(QLatin1Char('?'))) return false;
+
+    const QString lc = priorAssistantMessage.toLower();
+    static const QStringList markers{
+        QStringLiteral("roast level"),
+        QStringLiteral("how dark"),
+        QStringLiteral("how light"),
+        QStringLiteral("light or dark"),
+        QStringLiteral("light, medium"),
+        QStringLiteral("medium or dark"),
+        QStringLiteral("what kind of bean"),
+        QStringLiteral("what bean"),
+        QStringLiteral("which bean"),
+        QStringLiteral("describe the bean"),
+        QStringLiteral("tell me about the bean"),
+        QStringLiteral("what roaster"),
+        QStringLiteral("which roaster"),
+        QStringLiteral("when was it roasted"),
+        QStringLiteral("when were they roasted"),
+        QStringLiteral("roast date"),
+    };
+    for (const QString& m : markers) {
+        if (lc.contains(m)) return true;
+    }
+    return false;
+}
+
+// Does the user's reply carry an explicit corrective phrasing? This is the
+// SECOND gate (alongside priorAssistantAskedAboutBean) — either the model
+// asked about beans OR the user volunteered a correction. Markers are
+// deliberately conservative: only phrasings that strongly imply a metadata
+// correction qualify ("actually...", "the coffee/bean/roast is/was...",
+// "the roaster is...", "roasted on/<ISO date>"). Common conversational
+// openers like "this is a great shot" or "it's really good" do NOT
+// qualify — those would create false-positive writes when paired with the
+// parser's roast-level patterns.
+static bool userReplyVolunteersBeanCorrection(const QString& reply)
+{
+    const QString lc = reply.toLower();
+    static const QStringList markers{
+        QStringLiteral("actually it"),
+        QStringLiteral("actually this"),
+        QStringLiteral("actually the"),
+        QStringLiteral("actually, it"),
+        QStringLiteral("actually, this"),
+        QStringLiteral("actually, the"),
+        QStringLiteral("the coffee is"),
+        QStringLiteral("the coffee was"),
+        QStringLiteral("the bean is"),
+        QStringLiteral("the bean was"),
+        QStringLiteral("the beans are"),
+        QStringLiteral("the beans were"),
+        QStringLiteral("the roast is"),
+        QStringLiteral("the roast was"),
+        QStringLiteral("the roaster is"),
+        QStringLiteral("the roaster was"),
+        QStringLiteral("roasted on "),
+    };
+    for (const QString& m : markers) {
+        if (lc.contains(m)) return true;
+    }
+    // "roasted YYYY-MM-DD" without "on" — match a digit immediately
+    // following "roasted ". Tighter than a bare "roasted " contains check
+    // (which would fire on "roasted chocolate notes").
+    static const QRegularExpression rxRoastedDate(
+        QStringLiteral("roasted\\s+\\d{4}-\\d{2}-\\d{2}"),
+        QRegularExpression::CaseInsensitiveOption);
+    return rxRoastedDate.match(reply).hasMatch();
+}
+
+// Canonicalise a free-form roast-level token into the app's stored form.
+// Returns an empty string when the token doesn't match any known level.
+static QString canonicalRoastLevel(const QString& raw)
+{
+    QString collapsed = raw.toLower().trimmed();
+    collapsed.replace(QRegularExpression(QStringLiteral("[\\s\\-]+")), QString());
+    if (collapsed == QLatin1String("light")) return QStringLiteral("Light");
+    if (collapsed == QLatin1String("mediumlight") || collapsed == QLatin1String("lightmedium"))
+        return QStringLiteral("Medium-Light");
+    if (collapsed == QLatin1String("medium")) return QStringLiteral("Medium");
+    if (collapsed == QLatin1String("mediumdark") || collapsed == QLatin1String("darkmedium"))
+        return QStringLiteral("Medium-Dark");
+    if (collapsed == QLatin1String("dark")) return QStringLiteral("Dark");
+    return QString();
+}
+
+std::optional<AIManager::BeanCorrection>
+AIManager::parseBeanCorrectionsFromReply(const QString& reply)
+{
+    if (reply.trimmed().isEmpty()) return std::nullopt;
+
+    BeanCorrection out;
+
+    // --- roastLevel ---------------------------------------------------------
+    // Require a context word that binds the adjective to roast level so
+    // tasting phrases ("dark chocolate notes", "light citrus", "this is a
+    // dark crema") don't fire the parser. Two regexes; the loosest branch
+    // ("(this|it|that) is a X") is split out and requires a mandatory
+    // "roast" suffix so "this is a dark crema" is rejected while "this is
+    // a dark roast" matches.
+    //
+    // Patterns covered:
+    //   - "the (coffee|bean|roast|roast level) is X (roast)?"
+    //   - "actually it's/this is/the X is X (roast)?"
+    //   - "roast level is X"
+    //   - "(this|it|that) is/was a X roast"  ← roast suffix MANDATORY
+    static const QRegularExpression rxRoastStrong(
+        QStringLiteral(
+            // Group 1 = the level adjective (incl. medium-light / medium-dark)
+            "(?:"
+              "the\\s+(?:coffee|bean|beans|roast|roastlevel|roast\\s+level)\\s+(?:is|was|are|were)\\s+"
+              "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){0,2}"
+            "|"
+              "actually[,\\s]+(?:it'?s|this\\s+is|the\\s+coffee\\s+is|the\\s+bean\\s+is|the\\s+roast\\s+is)\\s+"
+              "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){0,2}"
+            "|"
+              "roast\\s+level\\s+is\\s+"
+            ")"
+            "(light|medium[\\s\\-]?light|light[\\s\\-]?medium|medium[\\s\\-]?dark|dark[\\s\\-]?medium|medium|dark)"
+            "(?:\\s+roast)?\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression rxRoastLooseRequiresRoastSuffix(
+        QStringLiteral(
+            "(?:this|it|it's|its|that)\\s+(?:is|was)\\s+"
+            "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){1,3}"
+            "(light|medium[\\s\\-]?light|light[\\s\\-]?medium|medium[\\s\\-]?dark|dark[\\s\\-]?medium|medium|dark)"
+            "\\s+roast\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    {
+        QRegularExpressionMatch m = rxRoastStrong.match(reply);
+        if (!m.hasMatch()) m = rxRoastLooseRequiresRoastSuffix.match(reply);
+        if (m.hasMatch()) {
+            const QString canon = canonicalRoastLevel(m.captured(1));
+            if (!canon.isEmpty()) out.roastLevel = canon;
+        }
+    }
+
+    // --- beanBrand ----------------------------------------------------------
+    // Patterns:
+    //   "from <Brand>" preceded by a corrective lead-in (actually / it's /
+    //     this is / the coffee is / the bean is)
+    //   "the (roaster|brand) is <Brand>"
+    // Brand capture is bounded to 1-4 word tokens (each starting with a
+    // word character) so prose replies like "the roaster is having problems
+    // with the new burr today" don't get captured as a brand. The captured
+    // brand must also begin with an UPPERCASE letter — brand names in
+    // conversational English are essentially always capitalised, and the
+    // uppercase check rejects sentences that begin with lowercase verbs
+    // ("having", "starting", "working") even when they happen to fit the
+    // word-count window.
+    static const QRegularExpression rxBrand(
+        QStringLiteral(
+            "(?:"
+              "(?:actually[,\\s]+)?(?:it'?s|this\\s+is|the\\s+coffee\\s+is|the\\s+bean\\s+is|the\\s+beans\\s+are)\\s+from\\s+"
+            "|"
+              "the\\s+(?:roaster|brand)\\s+(?:is|was)\\s+"
+            ")"
+            "(\\w[\\w&'.\\-]{0,30}(?:\\s+\\w[\\w&'.\\-]{0,30}){0,3})"),
+        QRegularExpression::CaseInsensitiveOption);
+    {
+        const QRegularExpressionMatch m = rxBrand.match(reply);
+        if (m.hasMatch()) {
+            QString brand = m.captured(1).trimmed();
+            // Strip a trailing " roast" / " coffee" suffix the regex may have
+            // grabbed on its way to the natural terminator.
+            static const QRegularExpression suffix(
+                QStringLiteral("\\s+(?:roast|coffee|beans?|espresso)\\s*$"),
+                QRegularExpression::CaseInsensitiveOption);
+            brand.replace(suffix, QString());
+            // Require Title Case on the first character — rejects prose
+            // continuations ("having problems...") that the lead-in would
+            // otherwise gate through.
+            if (!brand.isEmpty() && brand.at(0).isUpper()) out.beanBrand = brand;
+        }
+    }
+
+    // --- roastDate ----------------------------------------------------------
+    // Patterns:
+    //   "roasted (on)? YYYY-MM-DD"
+    //   "roasted (on)? <Month> <Day>(,? YYYY)?"
+    // ISO form takes precedence. Natural-language form defaults year to the
+    // current year when omitted.
+    static const QRegularExpression rxIso(
+        QStringLiteral("roasted\\s+(?:on\\s+)?(\\d{4}-\\d{2}-\\d{2})"),
+        QRegularExpression::CaseInsensitiveOption);
+    {
+        const QRegularExpressionMatch m = rxIso.match(reply);
+        if (m.hasMatch()) {
+            const QDate d = QDate::fromString(m.captured(1), QStringLiteral("yyyy-MM-dd"));
+            if (d.isValid()) out.roastDate = d.toString(QStringLiteral("yyyy-MM-dd"));
+        }
+    }
+    if (!out.roastDate) {
+        static const QRegularExpression rxNatural(
+            QStringLiteral(
+                "roasted\\s+(?:on\\s+)?"
+                "(january|february|march|april|may|june|july|august|september|october|november|december|"
+                 "jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\s+"
+                "(\\d{1,2})"
+                "(?:[,\\s]+(\\d{4}))?"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rxNatural.match(reply);
+        if (m.hasMatch()) {
+            const QString monthRaw = m.captured(1).toLower();
+            const int day = m.captured(2).toInt();
+            int year = m.captured(3).toInt();
+            if (year < 1900) year = QDate::currentDate().year();
+            static const QHash<QString, int> monthMap{
+                {QStringLiteral("january"), 1}, {QStringLiteral("jan"), 1},
+                {QStringLiteral("february"), 2}, {QStringLiteral("feb"), 2},
+                {QStringLiteral("march"), 3}, {QStringLiteral("mar"), 3},
+                {QStringLiteral("april"), 4}, {QStringLiteral("apr"), 4},
+                {QStringLiteral("may"), 5},
+                {QStringLiteral("june"), 6}, {QStringLiteral("jun"), 6},
+                {QStringLiteral("july"), 7}, {QStringLiteral("jul"), 7},
+                {QStringLiteral("august"), 8}, {QStringLiteral("aug"), 8},
+                {QStringLiteral("september"), 9}, {QStringLiteral("sep"), 9},
+                {QStringLiteral("sept"), 9},
+                {QStringLiteral("october"), 10}, {QStringLiteral("oct"), 10},
+                {QStringLiteral("november"), 11}, {QStringLiteral("nov"), 11},
+                {QStringLiteral("december"), 12}, {QStringLiteral("dec"), 12},
+            };
+            const int month = monthMap.value(monthRaw, 0);
+            if (month > 0) {
+                const QDate d(year, month, day);
+                if (d.isValid()) out.roastDate = d.toString(QStringLiteral("yyyy-MM-dd"));
+            }
+        }
+    }
+
+    if (out.isEmpty()) return std::nullopt;
+    return out;
+}
+
+void AIManager::maybePersistBeanCorrectionFromReply(const QString& userReply,
+                                                     const QString& priorAssistantMessage,
+                                                     qint64 shotId)
+{
+    if (shotId <= 0) return;
+    if (!m_shotHistory) return;
+
+    const auto parsed = parseBeanCorrectionsFromReply(userReply);
+    if (!parsed.has_value()) return;
+
+    // Two-gate write: either the model asked about beans last turn OR the
+    // user volunteered the correction with explicit corrective phrasing.
+    const bool gated = priorAssistantAskedAboutBean(priorAssistantMessage)
+                    || userReplyVolunteersBeanCorrection(userReply);
+    if (!gated) return;
+
+    QVariantMap metadata;
+    if (parsed->roastLevel) metadata.insert(QStringLiteral("roastLevel"), *parsed->roastLevel);
+    if (parsed->beanBrand)  metadata.insert(QStringLiteral("beanBrand"),  *parsed->beanBrand);
+    if (parsed->roastDate)  metadata.insert(QStringLiteral("roastDate"),  *parsed->roastDate);
+    if (metadata.isEmpty()) return;
+
+    qDebug() << "AIManager: conversational bean-metadata capture — writing"
+             << metadata.keys() << "to shot" << shotId;
+    m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
+}
+
 std::optional<AIManager::UserRatingReply> AIManager::parseUserRatingReply(const QString& reply)
 {
     // A number 1-100 in the user's reply counts as a score ONLY when
