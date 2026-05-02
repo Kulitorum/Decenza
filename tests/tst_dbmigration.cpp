@@ -562,21 +562,15 @@ private slots:
 
         bool hasColumn = false;
         int versionFound = 0;
-        {
-            QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "v14_idem");
-            raw.setDatabaseName(path);
-            QVERIFY(raw.open());
-            QSqlQuery q(raw);
+        withRawDb(path, "v14_idem", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             if (q.next()) versionFound = q.value(0).toInt();
             QVERIFY(q.exec("PRAGMA table_info(shots)"));
             while (q.next()) {
                 if (q.value(1).toString() == "enjoyment_source") { hasColumn = true; break; }
             }
-            q.finish();
-            raw.close();
-        }
-        QSqlDatabase::removeDatabase("v14_idem");
+        });
         QCOMPARE(versionFound, 14);
         QVERIFY2(hasColumn, "enjoyment_source column survives idempotent re-initialize");
     }
