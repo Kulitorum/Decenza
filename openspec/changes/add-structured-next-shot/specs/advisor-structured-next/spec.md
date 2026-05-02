@@ -12,7 +12,7 @@ The schema for the block SHALL be:
 
 - `grinderSetting` (string) — REQUIRED iff the recommendation moves grind. Omitted when grind is unchanged.
 - `doseG` (number) — REQUIRED iff the recommendation moves dose. Omitted when dose is unchanged.
-- `profileFilename` (string) — REQUIRED iff the recommendation switches profile. Omitted otherwise.
+- `profileTitle` (string) — REQUIRED iff the recommendation switches profile. Omitted otherwise.
 - `expectedDurationSec` ([number, number]) — REQUIRED. The expected `[low, high]` window for the next shot's total duration assuming the recommendation is followed.
 - `expectedFlowMlPerSec` ([number, number]) — REQUIRED.
 - `expectedPeakPressureBar` ([number, number]) — OPTIONAL. Present when the recommendation specifically targets pressure dynamics.

@@ -20,7 +20,7 @@ See issue #1054.
 - **The `nextShot` schema** carries the recommendation in a fixed shape:
   - `grinderSetting` (string) — REQUIRED when the recommendation moves grind; omitted when grind is unchanged.
   - `doseG` (number) — REQUIRED when the recommendation moves dose; omitted when dose is unchanged.
-  - `profileFilename` (string) — REQUIRED when the recommendation switches profile; omitted otherwise.
+  - `profileTitle` (string) — REQUIRED when the recommendation switches profile; omitted otherwise.
   - `expectedDurationSec` (`[low, high]` two-element number array) — REQUIRED. The window the LLM expects the next shot's total duration to fall in if its recommendation is followed.
   - `expectedFlowMlPerSec` (`[low, high]`) — REQUIRED.
   - `expectedPeakPressureBar` (`[low, high]`) — OPTIONAL; included when the recommendation specifically targets pressure dynamics.

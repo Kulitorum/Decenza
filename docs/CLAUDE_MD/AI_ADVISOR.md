@@ -105,7 +105,7 @@ Note: `dialing_get_context` (the MCP read tool) shares the four `McpDialingBlock
 
 The shot-analysis system prompt asks the model to append a fenced ` ```json ` block named `nextShot` at the very end of any response that recommends a concrete parameter change (grind / dose / profile). The block carries:
 
-- `grinderSetting`, `doseG`, `profileFilename` — present only on the field(s) the recommendation moves
+- `grinderSetting`, `doseG`, `profileTitle` — present only on the field(s) the recommendation moves
 - `expectedDurationSec`, `expectedFlowMlPerSec` — required `[low, high]` ranges
 - `expectedPeakPressureBar` — optional `[low, high]` range when the advice targets pressure
 - `successCondition` — short natural-language predicate (stored verbatim)

@@ -1226,7 +1226,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "Schema:\n\n"
         "- `grinderSetting` (string) — REQUIRED iff you recommend moving grind. Omit when grind is unchanged.\n"
         "- `doseG` (number) — REQUIRED iff you recommend moving dose. Omit when dose is unchanged.\n"
-        "- `profileFilename` (string) — REQUIRED iff you recommend switching profile. Omit otherwise.\n"
+        "- `profileTitle` (string) — REQUIRED iff you recommend switching profile. The title (`result.profile.title`), not the filename. Omit otherwise.\n"
         "- `expectedDurationSec` ([low, high]) — REQUIRED. Predicted duration window if your recommendation is followed.\n"
         "- `expectedFlowMlPerSec` ([low, high]) — REQUIRED.\n"
         "- `expectedPeakPressureBar` ([low, high]) — OPTIONAL. Include only when your advice specifically targets pressure dynamics.\n"
@@ -1323,6 +1323,11 @@ void ShotSummarizer::loadProfileKnowledge()
     QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
+        // Latch the loaded flag even on failure so subsequent calls
+        // don't re-warn — the resource won't reappear inside one
+        // process's lifetime, and a per-call retry in test binaries
+        // (which don't link the qrc) creates noise without value.
+        s_knowledgeLoaded = true;
         return;
     }
 

@@ -4,7 +4,7 @@
 
 - [x] 1. Extend `ShotSummarizer::shotAnalysisSystemPrompt` (espresso variant) in `src/ai/shotsummarizer.cpp` with a "Response Format" section that:
   - asks for a fenced ` ```json ` block at end of message named `nextShot`,
-  - documents the schema (`grinderSetting`, `doseG`, `profileFilename`, `expectedDurationSec`, `expectedFlowMlPerSec`, `expectedPeakPressureBar`, `successCondition`, `reasoning`) with required-vs-optional rules,
+  - documents the schema (`grinderSetting`, `doseG`, `profileTitle`, `expectedDurationSec`, `expectedFlowMlPerSec`, `expectedPeakPressureBar`, `successCondition`, `reasoning`) with required-vs-optional rules,
   - includes one example block,
   - tells the LLM to OMIT the block entirely when the response is a clarifying question or has no concrete parameter recommendation.
 - [x] 2. Add `AIManager::parseStructuredNext(const QString& assistantText) -> std::optional<QJsonObject>` in `src/ai/aimanager.cpp`. Behavior:
