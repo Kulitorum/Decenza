@@ -627,10 +627,15 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& beverageType,
                                          qint64 resolvedShotId)
 {
-    if (grinderModel.isEmpty()) return QJsonObject();
-    const QString bev = beverageType.trimmed().toLower();
-    if (bev == QStringLiteral("filter") || bev == QStringLiteral("pourover"))
+    if (grinderModel.isEmpty()) {
+        qDebug() << "buildGrinderCalibrationBlock: skipped — grinderModel empty";
         return QJsonObject();
+    }
+    const QString bev = beverageType.trimmed().toLower();
+    if (bev == QStringLiteral("filter") || bev == QStringLiteral("pourover")) {
+        qDebug() << "buildGrinderCalibrationBlock: skipped — beverageType is" << beverageType;
+        return QJsonObject();
+    }
 
     // Query all shots on the same grinder+burrs combination, espresso only.
     // No time window — the conversion key (clicks per UGS unit) is a physical
@@ -703,7 +708,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
              << "grinder=" << grinderModel << "burrs=" << grinderBurrs;
 
     if (groups.isEmpty()) {
-        qDebug() << "buildGrinderCalibrationBlock: no groups → empty (no matching shots)";
+        if (rowCount > 0 && nonNumericCount == rowCount)
+            qDebug() << "buildGrinderCalibrationBlock: no groups → empty (all" << rowCount
+                     << "shots have non-numeric grinder settings — calibration requires numeric notation)";
+        else
+            qDebug() << "buildGrinderCalibrationBlock: no groups → empty"
+                     << "(no matching shots for grinder" << grinderModel << "burrs" << grinderBurrs << ")";
         return QJsonObject();
     }
 
@@ -714,9 +724,9 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     struct AnchorCandidate {
         QString canonicalName;
         QString kbId;
-        double ugs;
-        double medianSetting;
-        qsizetype sampleCount;
+        double ugs           = std::numeric_limits<double>::quiet_NaN();
+        double medianSetting = std::numeric_limits<double>::quiet_NaN();
+        qsizetype sampleCount = 0;
     };
     QList<AnchorCandidate> canonicalCandidates;
     QList<AnchorCandidate> inferredCandidates;
@@ -822,17 +832,26 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         return {fine, coarse};
     };
 
-    // First pass: canonical-only. If degenerate, retry with inferred added.
+    // First pass: canonical-only. Fall back to inferred pool when canonical-only
+    // yields < 2 candidates or no non-degenerate pair (setting diff < 0.5).
     auto [fineAnchor, coarseAnchor] = selectAnchors(canonicalCandidates);
     bool usedInferred = false;
     if (!fineAnchor || !coarseAnchor) {
         QList<AnchorCandidate> combined = canonicalCandidates + inferredCandidates;
         auto [f2, c2] = selectAnchors(combined);
         if (f2 && c2) {
-            // Re-select from combined — pointers into combined go out of scope,
-            // so find the matching entries in the persisted lists.
-            canonicalCandidates = combined;  // extend the canonical list for pointer stability
+            // f2/c2 point into `combined` which is about to go out of scope.
+            // Copy combined into canonicalCandidates for pointer stability, then
+            // re-run selectAnchors on the stable copy. Deterministic — same data,
+            // same result.
+            canonicalCandidates = combined;
             auto [f3, c3] = selectAnchors(canonicalCandidates);
+            if (!f3 || !c3) {
+                // Should be unreachable: deterministic re-run on identical data.
+                qWarning() << "buildGrinderCalibrationBlock: inferred fallback succeeded on"
+                           << "combined pool but failed on stable copy — returning empty";
+                return QJsonObject();
+            }
             fineAnchor   = f3;
             coarseAnchor = c3;
             usedInferred = true;
@@ -851,7 +870,11 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
              << (usedInferred ? "[used inferred fallback]" : "[canonical]");
 
     const double ugsSpan = coarseAnchor->ugs - fineAnchor->ugs;
-    if (ugsSpan < 1e-9) return QJsonObject();  // degenerate: both anchors at same UGS
+    if (ugsSpan < 1e-9) {
+        qWarning() << "buildGrinderCalibrationBlock: degenerate anchor pair — both at UGS"
+                   << fineAnchor->ugs << "→ empty";
+        return QJsonObject();
+    }
 
     const double conversionKey =
         (coarseAnchor->medianSetting - fineAnchor->medianSetting) / ugsSpan;

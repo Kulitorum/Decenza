@@ -1500,8 +1500,9 @@ void ShotSummarizer::loadProfileKnowledge()
                 pk.skipCatalog = (line.mid(13).trimmed().toLower() == QStringLiteral("true"));
             } else if (line.startsWith(QStringLiteral("UGS:"))) {
                 QString val = line.mid(4).trimmed();
+                bool inferredMarker = false;
                 if (val.startsWith('~')) {
-                    pk.ugsInferred = true;
+                    inferredMarker = true;
                     val = val.mid(1);
                 }
                 // Strip parenthetical annotation and everything after it
@@ -1511,8 +1512,14 @@ void ShotSummarizer::loadProfileKnowledge()
                 val = val.trimmed();
                 bool ok = false;
                 const double parsed = val.toDouble(&ok);
-                if (ok)
+                if (ok) {
                     pk.ugs = parsed;
+                    pk.ugsInferred = inferredMarker;
+                } else if (!val.isEmpty()) {
+                    qWarning() << "ShotSummarizer: UGS parse failed for profile"
+                               << pk.name << "— value:" << val;
+                }
+                // On failure: leave ugs=NaN, ugsInferred=false — identical to missing line.
             }
         }
 

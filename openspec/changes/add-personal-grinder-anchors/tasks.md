@@ -13,7 +13,7 @@
 
 - [x] **3. Implement `buildGrinderCalibrationBlock` in `src/ai/dialing_blocks.cpp`**
   - Return empty object when `grinderModel` is empty or `beverageType` is filter/pourover
-  - SQL: query shots within 90 days of resolved shot's timestamp, same `grinder_model` + `grinder_burrs`, espresso only; select `profile_name`, `grinder_setting`
+  - SQL: query all-time shots (no time window), same `grinder_model` + `grinder_burrs`, espresso only; select `profile_name`, `grinder_setting`
   - Filter to numeric settings; group by profile name; compute median, min, max, sample count per profile
   - For each profile with a median, look up canonical UGS via `ShotSummarizer::ugsForKbId` (match by profile name normalisation); skip inferred entries for anchor qualification
   - Require ≥ 2 profiles with canonical (non-NaN, non-inferred) UGS — return empty if not met

@@ -272,10 +272,10 @@ public:
     static QString canonicalNameForKbId(const QString& kbId);
 
     struct KbUgsEntry {
-        QString kbId;       // primary normalized key in s_profileKnowledge
-        QString name;       // canonical display name (pk.name)
-        double ugs;
-        bool ugsInferred;
+        QString kbId;               // a normalized key mapping to this canonical name
+        QString name;               // canonical display name (pk.name)
+        double ugs       = std::numeric_limits<double>::quiet_NaN();
+        bool ugsInferred = false;
     };
     static QList<KbUgsEntry> allKbUgsEntries();
 

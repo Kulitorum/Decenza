@@ -138,8 +138,12 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // Returns an empty `QJsonObject` (caller suppresses the key) when:
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
-//   - fewer than 2 qualifying profiles with canonical (non-inferred) UGS in
-//     the shot history.
+//   - fewer than 2 qualifying profiles with a usable UGS (canonical preferred;
+//     inferred used as fallback when canonical-only pair is degenerate), OR
+//   - no non-degenerate anchor pair exists (setting difference < 0.5).
+//
+// `resolvedShotId` is accepted for API symmetry with other block builders but
+// is not used — the all-time query is intentional (see proposal.md).
 //
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
@@ -147,7 +151,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
                                          const QString& grinderBurrs,
                                          const QString& beverageType,
-                                         qint64 resolvedShotId);
+                                         qint64 resolvedShotId  /* unused — see comment */);
 
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
 // empty `QJsonObject` when any of the following hold:
