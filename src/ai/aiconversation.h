@@ -145,6 +145,59 @@ public:
      */
     std::optional<QJsonObject> structuredNextForLastAssistantTurn() const;
 
+    /**
+     * Bind the resolved shot id to the current user/assistant turn pair.
+     * Called by AIManager::analyzeShotWithMetadata once the resolved
+     * shot is known and BEFORE the assistant message is appended; the
+     * id is applied retroactively to the latest user turn AND latched
+     * onto the next-appended assistant turn so a turn pair shares one
+     * shotId. Calling twice for the same pair is last-write-wins.
+     *
+     * Issue #1053 — without this linkage, recentAdvice cannot attribute
+     * a prior advisor recommendation to the shot it was about, and the
+     * follow-up shot lookup has no anchor.
+     */
+    void setShotIdForCurrentTurn(qint64 shotId);
+
+    /**
+     * Return the shotId stored on the turn at `index`, or 0 when the
+     * turn has no recorded shot (legacy conversation, free-form
+     * follow-up, or out-of-bounds index).
+     */
+    qint64 shotIdForTurn(qsizetype index) const;
+
+    /**
+     * Compact view of one historical assistant turn for the recentAdvice
+     * builder. Carries the shotId the advisor was asked about, the
+     * prose (for diagnostic/preview use), and the parsed structuredNext
+     * block. Only assistant turns with BOTH a non-zero shotId AND a
+     * stored structuredNext are returned by recentAssistantTurns().
+     */
+    struct HistoricalAssistantTurn {
+        qint64 shotId = 0;
+        QString content;
+        QJsonObject structuredNext;
+    };
+
+    /**
+     * Return up to `max` qualifying assistant turns from this conversation,
+     * most-recent-first. A turn qualifies iff it has BOTH a non-zero
+     * shotId AND a stored structuredNext object. Turns without one or
+     * the other are skipped — they do not consume a slot in the result.
+     */
+    QList<HistoricalAssistantTurn> recentAssistantTurns(qsizetype max) const;
+
+    /**
+     * Static helper for surfaces that want the recent-turn view but
+     * don't have an instantiated AIConversation. Reads QSettings
+     * directly (same `ai/conversations/<key>/messages` shape as
+     * loadFromStorage) and applies the same qualifying-turn filter.
+     * Used by `ai_advisor_invoke` to derive recentAdvice for the
+     * resolved shot's bean+profile conversation key.
+     */
+    static QList<HistoricalAssistantTurn> loadRecentAssistantTurnsForKey(
+        const QString& storageKey, qsizetype max);
+
 signals:
     void responseReceived(const QString& response);
     void errorOccurred(const QString& error);
@@ -220,10 +273,20 @@ private:
 
     AIManager* m_aiManager;
     QString m_systemPrompt;
-    // Array of {role, content[, structuredNext?]} objects. structuredNext
-    // is present only on assistant turns whose response ended with a
-    // parseable nextShot recommendation block (issue #1054).
+    // Array of {role, content[, shotId?, structuredNext?]} objects.
+    // shotId is the resolved shot id the advisor was asked about for
+    // the turn pair (issue #1053); structuredNext is present only on
+    // assistant turns whose response ended with a parseable nextShot
+    // recommendation block (issue #1054). Both fields are absent on
+    // legacy conversations saved before their respective changes — the
+    // readers return 0 / nullopt without erroring.
     QJsonArray m_messages;
+    // Latch for setShotIdForCurrentTurn: when non-zero, the next
+    // addAssistantMessage call stamps the same shotId onto the new
+    // assistant entry so the user/assistant pair shares it. Reset after
+    // application so a subsequent followUp without a setShotIdForCurrentTurn
+    // produces an unstamped turn (free-form follow-up).
+    qint64 m_pendingShotId = 0;
     QString m_lastResponse;
     QString m_errorMessage;
     bool m_busy = false;

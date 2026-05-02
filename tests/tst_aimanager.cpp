@@ -1346,6 +1346,163 @@ private slots:
 
         settings.clear();
     }
+
+    // -------------------------------------------------------------
+    // Per-turn shot linkage on AIConversation (issue #1053 Part A)
+    // -------------------------------------------------------------
+
+    void aiConversation_setShotIdForCurrentTurn_appliesToUserAndAssistantOfPair()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.m_systemPrompt = "system";
+
+        conv.addUserMessage("first user");
+        conv.addAssistantMessage("first assistant");  // no shotId — legacy turn
+
+        conv.addUserMessage("second user");
+        conv.setShotIdForCurrentTurn(8473);
+        conv.addAssistantMessage("second assistant", AIManager::parseStructuredNext(
+            QStringLiteral("a\n```json\n{\"grinderSetting\":\"4.75\","
+                "\"expectedDurationSec\":[32,38],"
+                "\"expectedFlowMlPerSec\":[1.0,1.5],"
+                "\"successCondition\":\"OK\","
+                "\"reasoning\":\"r\"}\n```")));
+
+        QCOMPARE(conv.shotIdForTurn(0), 0);  // legacy turn
+        QCOMPARE(conv.shotIdForTurn(1), 0);
+        QCOMPARE(conv.shotIdForTurn(2), 8473);  // user turn of pair 2
+        QCOMPARE(conv.shotIdForTurn(3), 8473);  // assistant turn of pair 2
+    }
+
+    void aiConversation_recentAssistantTurns_skipsLegacyAndQuestionTurns()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.m_systemPrompt = "system";
+
+        // Turn 0: legacy (no shotId, no structuredNext) — must skip.
+        conv.addUserMessage("u0");
+        conv.addAssistantMessage("a0");
+
+        // Turn 1: shotId set but no structuredNext (clarifying-question
+        // response) — must skip.
+        conv.addUserMessage("u1");
+        conv.setShotIdForCurrentTurn(100);
+        conv.addAssistantMessage("How did this taste?");
+
+        // Turn 2: shotId + structuredNext — qualifies.
+        conv.addUserMessage("u2");
+        conv.setShotIdForCurrentTurn(101);
+        conv.addAssistantMessage(
+            QStringLiteral("Try grinder 4.75.\n\n```json\n{\"grinderSetting\":\"4.75\","
+                "\"expectedDurationSec\":[32,38],"
+                "\"expectedFlowMlPerSec\":[1.0,1.5],"
+                "\"successCondition\":\"OK\","
+                "\"reasoning\":\"slow flow\"}\n```"),
+            AIManager::parseStructuredNext(
+                QStringLiteral("...\n```json\n{\"grinderSetting\":\"4.75\","
+                    "\"expectedDurationSec\":[32,38],"
+                    "\"expectedFlowMlPerSec\":[1.0,1.5],"
+                    "\"successCondition\":\"OK\","
+                    "\"reasoning\":\"slow flow\"}\n```")));
+
+        const auto turns = conv.recentAssistantTurns(5);
+        QCOMPARE(turns.size(), 1);
+        QCOMPARE(turns.first().shotId, qint64(101));
+        QCOMPARE(turns.first().structuredNext.value("grinderSetting").toString(),
+                 QStringLiteral("4.75"));
+    }
+
+    void aiConversation_recentAssistantTurns_capsAtMax()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.m_systemPrompt = "system";
+
+        const auto sn = AIManager::parseStructuredNext(
+            QStringLiteral("a\n```json\n{\"grinderSetting\":\"4.75\","
+                "\"expectedDurationSec\":[32,38],"
+                "\"expectedFlowMlPerSec\":[1.0,1.5],"
+                "\"successCondition\":\"OK\","
+                "\"reasoning\":\"r\"}\n```"));
+        QVERIFY(sn.has_value());
+
+        // 5 qualifying turns; ask for at most 3.
+        for (int i = 0; i < 5; ++i) {
+            conv.addUserMessage(QString("u%1").arg(i));
+            conv.setShotIdForCurrentTurn(100 + i);
+            conv.addAssistantMessage(QString("a%1").arg(i), sn);
+        }
+
+        const auto turns = conv.recentAssistantTurns(3);
+        QCOMPARE(turns.size(), 3);
+        // Most-recent-first: shotId 104, 103, 102.
+        QCOMPARE(turns.at(0).shotId, qint64(104));
+        QCOMPARE(turns.at(1).shotId, qint64(103));
+        QCOMPARE(turns.at(2).shotId, qint64(102));
+    }
+
+    void aiConversation_loadRecentAssistantTurnsForKey_static()
+    {
+        // The static loader is the parity path used by ai_advisor_invoke.
+        // Round-trip: write a conversation via QSettings directly, then
+        // assert the static loader returns the qualifying turns.
+        QSettings s;
+        s.clear();
+        const QString key = "test_recent_advice_static";
+        const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
+        const QByteArray messages = QByteArrayLiteral(
+            "[{\"role\":\"user\",\"content\":\"u0\",\"shotId\":100},"
+            "{\"role\":\"assistant\",\"content\":\"a0\",\"shotId\":100,"
+                "\"structuredNext\":{\"grinderSetting\":\"4.75\","
+                    "\"expectedDurationSec\":[32,38],"
+                    "\"expectedFlowMlPerSec\":[1.0,1.5],"
+                    "\"successCondition\":\"OK\","
+                    "\"reasoning\":\"r\"}},"
+            "{\"role\":\"user\",\"content\":\"u1\"},"
+            "{\"role\":\"assistant\",\"content\":\"a1\"}]");
+        s.setValue(prefix + "messages", messages);
+
+        const auto turns = AIConversation::loadRecentAssistantTurnsForKey(key, 3);
+        QCOMPARE(turns.size(), 1);  // turn 1 has no shotId / no structuredNext
+        QCOMPARE(turns.first().shotId, qint64(100));
+        QCOMPARE(turns.first().structuredNext.value("grinderSetting").toString(),
+                 QStringLiteral("4.75"));
+
+        s.clear();
+    }
+
+    void aiConversation_setShotIdForCurrentTurn_legacyConversationHasZeroShotId()
+    {
+        // A pre-#1053 conversation has no shotId on any entry; reader
+        // must return 0 without error.
+        QSettings s;
+        s.clear();
+        const QString key = "test_legacy_shotid";
+        const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
+        s.setValue(prefix + "messages", QByteArrayLiteral(
+            "[{\"role\":\"user\",\"content\":\"u\"},{\"role\":\"assistant\",\"content\":\"a\"}]"));
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey(key);
+        conv.loadFromStorage();
+
+        QCOMPARE(conv.shotIdForTurn(0), 0);
+        QCOMPARE(conv.shotIdForTurn(1), 0);
+        QVERIFY(conv.recentAssistantTurns(3).isEmpty());
+
+        s.clear();
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_AIManager)

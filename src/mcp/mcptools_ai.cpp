@@ -2,6 +2,7 @@
 #include "mcptoolregistry.h"
 #include "../ai/dialing_blocks.h"
 #include "../ai/aimanager.h"
+#include "../ai/aiconversation.h"
 #include "../ai/shotsummarizer.h"
 #include "../ai/aiprovider.h"
 #include "../controllers/maincontroller.h"
@@ -122,6 +123,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 QJsonArray dialInSessions;
                 QJsonObject bestRecentShot;
                 QJsonObject grinderContext;
+                QJsonArray recentAdvice;
 
                 if (resolvedShotId <= 0) {
                     withTempDb(dbPath, "mcp_advisor_latest", [&](QSqlDatabase& db) {
@@ -157,13 +159,31 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             db, shot.profileKbId, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
                             db, shot.grinderModel, shot.beverageType, shot.beanBrand);
+
+                        // Closed-loop recentAdvice (issue #1053). Read
+                        // the conversation history straight from QSettings
+                        // — the conversation key is the same hash the
+                        // in-app advisor uses, so the two surfaces ship
+                        // byte-equivalent recentAdvice for the same shot.
+                        if (!shot.profileKbId.isEmpty()) {
+                            const QString convKey = AIManager::conversationKey(
+                                shot.beanBrand, shot.beanType, shot.profileName);
+                            const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
+                            if (!turns.isEmpty()) {
+                                DialingBlocks::RecentAdviceInputs in;
+                                in.turns = turns;
+                                in.currentProfileKbId = shot.profileKbId;
+                                in.currentShotId = resolvedShotId;
+                                recentAdvice = DialingBlocks::buildRecentAdviceBlock(db, in);
+                            }
+                        }
                     }
                 });
 
                 QMetaObject::invokeMethod(qApp,
                     [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
                      resolvedShotId, dialInSessions, bestRecentShot, grinderContext,
-                     respond]() {
+                     recentAdvice, respond]() {
                     if (!aiPtr) {
                         respond(QJsonObject{{"error", "App shut down before advisor call could start"}});
                         return;
@@ -214,7 +234,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             return;
                         }
                         ai->enrichUserPromptObject(userPromptObj, shot,
-                            dialInSessions, bestRecentShot, grinderContext);
+                            dialInSessions, bestRecentShot, grinderContext, recentAdvice);
                         userPrompt = QString::fromUtf8(
                             QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                     }

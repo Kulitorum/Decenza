@@ -327,11 +327,31 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
         const qint64 excludeId = m_shotHistory->lastSavedShotId();
         QPointer<AIManager> self(this);
 
-        QThread* thread = QThread::create([self, dbPath, kbId, excludeId, systemPrompt, userPromptObj]() mutable {
+        // Snapshot the current conversation's recent assistant turns on
+        // the main thread BEFORE the background closure starts. Carrying
+        // them into the bg thread is safe (they're plain-data structs);
+        // touching m_conversation from the bg thread would be a race.
+        // Issue #1053 — closed-loop recentAdvice block.
+        QList<AIConversation::HistoricalAssistantTurn> recentTurns;
+        if (m_conversation) {
+            recentTurns = m_conversation->recentAssistantTurns(3);
+        }
+
+        // Latch the resolved shot id onto the conversation pair so
+        // future turns can attribute this advisor turn to the shot
+        // (#1053 setShotIdForCurrentTurn — applies to the latest user
+        // message and stamps the next assistant message).
+        if (m_conversation && excludeId > 0) {
+            m_conversation->setShotIdForCurrentTurn(excludeId);
+        }
+
+        QThread* thread = QThread::create([self, dbPath, kbId, excludeId, systemPrompt, userPromptObj,
+                                            recentTurns]() mutable {
             QVariantList recentShots;
             QJsonArray dialInSessions;
             QJsonObject bestRecentShot;
             QJsonObject grinderContext;
+            QJsonArray recentAdvice;
             ShotProjection resolvedShot;
 
             withTempDb(dbPath, "ai_recent", [&](QSqlDatabase& db) {
@@ -352,6 +372,13 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                         db, resolvedShot.grinderModel,
                         resolvedShot.beverageType, resolvedShot.beanBrand);
                 }
+                if (!recentTurns.isEmpty() && !kbId.isEmpty()) {
+                    DialingBlocks::RecentAdviceInputs in;
+                    in.turns = recentTurns;
+                    in.currentProfileKbId = kbId;
+                    in.currentShotId = excludeId;
+                    recentAdvice = DialingBlocks::buildRecentAdviceBlock(db, in);
+                }
             });
 
             QMetaObject::invokeMethod(qApp,
@@ -359,6 +386,7 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                  dialInSessions = std::move(dialInSessions),
                  bestRecentShot = std::move(bestRecentShot),
                  grinderContext = std::move(grinderContext),
+                 recentAdvice = std::move(recentAdvice),
                  resolvedShot]() mutable {
                 if (!self) return;
 
@@ -369,7 +397,7 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                 // source for the merge step — `ai_advisor_invoke` calls
                 // the same primitive so the two surfaces cannot drift.
                 self->enrichUserPromptObject(userPromptObj, resolvedShot,
-                    dialInSessions, bestRecentShot, grinderContext);
+                    dialInSessions, bestRecentShot, grinderContext, recentAdvice);
 
                 QString finalUserPrompt = QString::fromUtf8(
                     QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
@@ -484,7 +512,8 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
                                        const ShotProjection& shotData,
                                        const QJsonArray& dialInSessions,
                                        const QJsonObject& bestRecentShot,
-                                       const QJsonObject& grinderContext) const
+                                       const QJsonObject& grinderContext,
+                                       const QJsonArray& recentAdvice) const
 {
     if (!dialInSessions.isEmpty())
         payload["dialInSessions"] = dialInSessions;
@@ -492,6 +521,11 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
         payload["bestRecentShot"] = bestRecentShot;
     if (!grinderContext.isEmpty())
         payload["grinderContext"] = grinderContext;
+    // Closed-loop coaching: prior advisor turns paired with the user's
+    // actual next shots (issue #1053). Empty array (no qualifying turns
+    // yet) → key omitted; never `recentAdvice: []` placeholder.
+    if (!recentAdvice.isEmpty())
+        payload["recentAdvice"] = recentAdvice;
     if (shotData.isValid()) {
         const QJsonObject sawPrediction = DialingBlocks::buildSawPredictionBlock(
             m_settings, m_profileManager, shotData);
