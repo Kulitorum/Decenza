@@ -40,17 +40,23 @@ private slots:
     void onReconnectTimer();
     void onPingTimer();
     void onBinaryMessageReceived(const QByteArray& data);
+    void onRemoteActivityTimeout();
 
 private:
     void connectToRelay();
     void handleCommand(const QString& commandId, const QString& command);
     void pushStatus();
     QJsonObject buildStatusJson() const;
+    // Restart the watchdog whenever inbound traffic from the phone arrives.
+    // Without this, an OS-killed phone leaves the capture loop running forever
+    // because the tablet's own WS to AWS stays alive (5-min ping keeps it open).
+    void noteRemoteActivity();
 
     QWebSocket m_socket;
     QTimer m_reconnectTimer;
     QTimer m_pingTimer;
     QTimer m_statusPushTimer;
+    QTimer m_remoteActivityTimer;
     DE1Device* m_device;
     MachineState* m_machineState;
     Settings* m_settings;
