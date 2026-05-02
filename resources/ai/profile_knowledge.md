@@ -501,7 +501,7 @@ DO NOT flag channeling in dC/dt — the bloom path (triggered by fine grinds) pr
 AnalysisFlags: channeling_expected
 
 ## TurboBloom
-UGS: ~5–6 (inferred)
+UGS: ~5.5 (inferred)
 Category: Blooming/Turbo hybrid
 Family: turbo
 AnalysisFlags: flow_trend_ok, grind_check_skip, channeling_expected
@@ -532,7 +532,7 @@ Roast: All roasts.
 DO NOT flag high flow, fast duration, high temperatures, or high ratio as problems — these are intentional design elements for high-extraction coarse-grind setups.
 
 ## Nu Skool
-UGS: ~5–7 (inferred)
+UGS: ~6 (inferred)
 Also matches: "Nu Skool 14g", "Nu Skool 18g", "Nu Skool 20g", "Nu Skool large basket"
 Category: Flow/New wave light roast
 Family: flow-adaptive
@@ -609,7 +609,7 @@ DO NOT flag gradual pressure decline, long extraction duration, or temperature c
 AnalysisFlags: flow_trend_ok
 
 ## Pour Over Basket
-UGS: ~7+ (inferred)
+UGS: ~7.5 (inferred)
 Also matches: "Pour over basket/Decent pour over", "Pour over basket/Kalita 20g in, 340ml out", "Pour over basket/V60 15g in, 250g out", "Pour over basket/V60 20g in, 340g out", "Pour over basket/V60 22g in, 375g out", "Pour over basket/Cold brew 22g in, 375ml out"
 Category: Pour over (filter brewing through espresso machine)
 Family: filter
