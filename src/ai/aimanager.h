@@ -341,6 +341,9 @@ private:
     void touchConversationEntry(const QString& key);
     void evictOldestConversation();
     void migrateFromLegacyConversation();
+    // One-shot conversation wipe keyed by a migration id. Fires once per
+    // device; subsequent launches are no-ops. Call before loadConversationIndex.
+    static void clearAllConversationsOnce(const QString& migrationId);
 
     // Render the recent-shot-context prose from already-loaded data and
     // emit `recentShotContextReady` (or an empty string when stale).

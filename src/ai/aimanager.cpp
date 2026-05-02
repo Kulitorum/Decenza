@@ -44,6 +44,11 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // Create conversation handler for multi-turn interactions
     m_conversation = new AIConversation(this, this);
 
+    // One-time clear: grinder calibration (v1.7.2) changed what the advisor
+    // knows per shot; old conversations anchored on "I don't have LRV3 data"
+    // are misleading. Fires once per device, then becomes a no-op.
+    clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
+
     // Migrate legacy single-conversation storage if needed
     migrateFromLegacyConversation();
 
@@ -1531,6 +1536,21 @@ void AIManager::evictOldestConversation()
 
     qDebug() << "AIManager: Evicted oldest conversation:" << oldest.beanBrand << oldest.beanType << oldest.profileName;
     saveConversationIndex();
+}
+
+void AIManager::clearAllConversationsOnce(const QString& migrationId)
+{
+    QSettings settings;
+    const QString markerKey = QStringLiteral("ai/migrations/") + migrationId;
+    if (settings.value(markerKey).toBool())
+        return;
+
+    settings.beginGroup(QStringLiteral("ai/conversations"));
+    settings.remove(QString());  // removes all keys in this group
+    settings.endGroup();
+
+    settings.setValue(markerKey, true);
+    qDebug() << "AIManager: cleared all conversations for migration" << migrationId;
 }
 
 void AIManager::migrateFromLegacyConversation()
