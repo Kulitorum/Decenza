@@ -324,12 +324,15 @@ static bool priorAssistantAskedAboutBean(const QString& priorAssistantMessage)
     return false;
 }
 
-// shot-metadata-capture: does the user's reply carry an explicit corrective
-// phrasing? This is the SECOND gate (alongside priorAssistantAskedAboutBean)
-// — either the model asked about beans OR the user volunteered a correction.
-// Volunteering looks like "actually...", "this is actually...", "the coffee
-// is X", "the bean is X", "the roast is X". A bare "really good shot, dark
-// crema" does NOT qualify (no corrective verb).
+// Does the user's reply carry an explicit corrective phrasing? This is the
+// SECOND gate (alongside priorAssistantAskedAboutBean) — either the model
+// asked about beans OR the user volunteered a correction. Markers are
+// deliberately conservative: only phrasings that strongly imply a metadata
+// correction qualify ("actually...", "the coffee/bean/roast is/was...",
+// "the roaster is...", "roasted on/<ISO date>"). Common conversational
+// openers like "this is a great shot" or "it's really good" do NOT
+// qualify — those would create false-positive writes when paired with the
+// parser's roast-level patterns.
 static bool userReplyVolunteersBeanCorrection(const QString& reply)
 {
     const QString lc = reply.toLower();
@@ -348,20 +351,20 @@ static bool userReplyVolunteersBeanCorrection(const QString& reply)
         QStringLiteral("the beans were"),
         QStringLiteral("the roast is"),
         QStringLiteral("the roast was"),
-        QStringLiteral("this is a "),
-        QStringLiteral("this is really "),
-        QStringLiteral("this is very "),
-        QStringLiteral("it's really "),
-        QStringLiteral("it's a "),
-        QStringLiteral("it is a "),
-        QStringLiteral("it is really "),
+        QStringLiteral("the roaster is"),
+        QStringLiteral("the roaster was"),
         QStringLiteral("roasted on "),
-        QStringLiteral("roasted "),
     };
     for (const QString& m : markers) {
         if (lc.contains(m)) return true;
     }
-    return false;
+    // "roasted YYYY-MM-DD" without "on" — match a digit immediately
+    // following "roasted ". Tighter than a bare "roasted " contains check
+    // (which would fire on "roasted chocolate notes").
+    static const QRegularExpression rxRoastedDate(
+        QStringLiteral("roasted\\s+\\d{4}-\\d{2}-\\d{2}"),
+        QRegularExpression::CaseInsensitiveOption);
+    return rxRoastedDate.match(reply).hasMatch();
 }
 
 // Canonicalise a free-form roast-level token into the app's stored form.
@@ -388,26 +391,24 @@ AIManager::parseBeanCorrectionsFromReply(const QString& reply)
     BeanCorrection out;
 
     // --- roastLevel ---------------------------------------------------------
-    // Require a context word linking the adjective to roast level. Patterns:
-    //   "the (coffee|bean|beans|roast) is/was (really|very) X (roast)?"
-    //   "(this|it|it's) is/was a X roast"
-    //   "actually it's (a)? (really)? X (roast)?"
-    //   "X roast" preceded by a corrective lead-in
+    // Require a context word that binds the adjective to roast level so
+    // tasting phrases ("dark chocolate notes", "light citrus", "this is a
+    // dark crema") don't fire the parser. Two regexes; the loosest branch
+    // ("(this|it|that) is a X") is split out and requires a mandatory
+    // "roast" suffix so "this is a dark crema" is rejected while "this is
+    // a dark roast" matches.
     //
-    // The roast adjective is one of: light, medium-light, medium, medium-dark,
-    // dark. Compound phrases like "dark chocolate" are excluded because the
-    // pattern requires an explicit context word (`coffee`, `bean`, `roast`,
-    // `actually`, `is/was a`) — the X must be the adjective itself, not part
-    // of a compound.
-    static const QRegularExpression rxRoast(
+    // Patterns covered:
+    //   - "the (coffee|bean|roast|roast level) is X (roast)?"
+    //   - "actually it's/this is/the X is X (roast)?"
+    //   - "roast level is X"
+    //   - "(this|it|that) is/was a X roast"  ← roast suffix MANDATORY
+    static const QRegularExpression rxRoastStrong(
         QStringLiteral(
             // Group 1 = the level adjective (incl. medium-light / medium-dark)
             "(?:"
               "the\\s+(?:coffee|bean|beans|roast|roastlevel|roast\\s+level)\\s+(?:is|was|are|were)\\s+"
               "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){0,2}"
-            "|"
-              "(?:this|it|it's|its|that)\\s+(?:is|was)\\s+"
-              "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){1,3}"
             "|"
               "actually[,\\s]+(?:it'?s|this\\s+is|the\\s+coffee\\s+is|the\\s+bean\\s+is|the\\s+roast\\s+is)\\s+"
               "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){0,2}"
@@ -417,8 +418,16 @@ AIManager::parseBeanCorrectionsFromReply(const QString& reply)
             "(light|medium[\\s\\-]?light|light[\\s\\-]?medium|medium[\\s\\-]?dark|dark[\\s\\-]?medium|medium|dark)"
             "(?:\\s+roast)?\\b"),
         QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression rxRoastLooseRequiresRoastSuffix(
+        QStringLiteral(
+            "(?:this|it|it's|its|that)\\s+(?:is|was)\\s+"
+            "(?:a\\s+|really\\s+|very\\s+|pretty\\s+|quite\\s+){1,3}"
+            "(light|medium[\\s\\-]?light|light[\\s\\-]?medium|medium[\\s\\-]?dark|dark[\\s\\-]?medium|medium|dark)"
+            "\\s+roast\\b"),
+        QRegularExpression::CaseInsensitiveOption);
     {
-        const QRegularExpressionMatch m = rxRoast.match(reply);
+        QRegularExpressionMatch m = rxRoastStrong.match(reply);
+        if (!m.hasMatch()) m = rxRoastLooseRequiresRoastSuffix.match(reply);
         if (m.hasMatch()) {
             const QString canon = canonicalRoastLevel(m.captured(1));
             if (!canon.isEmpty()) out.roastLevel = canon;
@@ -429,9 +438,15 @@ AIManager::parseBeanCorrectionsFromReply(const QString& reply)
     // Patterns:
     //   "from <Brand>" preceded by a corrective lead-in (actually / it's /
     //     this is / the coffee is / the bean is)
-    //   "the (roaster|brand|coffee|bean) is <Brand>"
-    // Brand capture is conservative: up to 60 chars, terminated by . , ; : ?
-    // ! or end-of-string. Trim trailing ", dark roast" tail by a second pass.
+    //   "the (roaster|brand) is <Brand>"
+    // Brand capture is bounded to 1-4 word tokens (each starting with a
+    // word character) so prose replies like "the roaster is having problems
+    // with the new burr today" don't get captured as a brand. The captured
+    // brand must also begin with an UPPERCASE letter — brand names in
+    // conversational English are essentially always capitalised, and the
+    // uppercase check rejects sentences that begin with lowercase verbs
+    // ("having", "starting", "working") even when they happen to fit the
+    // word-count window.
     static const QRegularExpression rxBrand(
         QStringLiteral(
             "(?:"
@@ -439,7 +454,7 @@ AIManager::parseBeanCorrectionsFromReply(const QString& reply)
             "|"
               "the\\s+(?:roaster|brand)\\s+(?:is|was)\\s+"
             ")"
-            "([^.,;:?!\\n]{1,60})"),
+            "(\\w[\\w&'.\\-]{0,30}(?:\\s+\\w[\\w&'.\\-]{0,30}){0,3})"),
         QRegularExpression::CaseInsensitiveOption);
     {
         const QRegularExpressionMatch m = rxBrand.match(reply);
@@ -451,7 +466,10 @@ AIManager::parseBeanCorrectionsFromReply(const QString& reply)
                 QStringLiteral("\\s+(?:roast|coffee|beans?|espresso)\\s*$"),
                 QRegularExpression::CaseInsensitiveOption);
             brand.replace(suffix, QString());
-            if (!brand.isEmpty()) out.beanBrand = brand;
+            // Require Title Case on the first character — rejects prose
+            // continuations ("having problems...") that the lead-in would
+            // otherwise gate through.
+            if (!brand.isEmpty() && brand.at(0).isUpper()) out.beanBrand = brand;
         }
     }
 
@@ -532,7 +550,6 @@ void AIManager::maybePersistBeanCorrectionFromReply(const QString& userReply,
     QVariantMap metadata;
     if (parsed->roastLevel) metadata.insert(QStringLiteral("roastLevel"), *parsed->roastLevel);
     if (parsed->beanBrand)  metadata.insert(QStringLiteral("beanBrand"),  *parsed->beanBrand);
-    if (parsed->beanType)   metadata.insert(QStringLiteral("beanType"),   *parsed->beanType);
     if (parsed->roastDate)  metadata.insert(QStringLiteral("roastDate"),  *parsed->roastDate);
     if (metadata.isEmpty()) return;
 

@@ -232,10 +232,9 @@ public:
     struct BeanCorrection {
         std::optional<QString> roastLevel;  // canonical: Light/Medium-Light/Medium/Medium-Dark/Dark
         std::optional<QString> beanBrand;
-        std::optional<QString> beanType;
         std::optional<QString> roastDate;   // ISO yyyy-MM-dd
         bool isEmpty() const {
-            return !roastLevel && !beanBrand && !beanType && !roastDate;
+            return !roastLevel && !beanBrand && !roastDate;
         }
     };
 

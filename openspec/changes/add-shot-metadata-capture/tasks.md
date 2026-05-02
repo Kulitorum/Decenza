@@ -2,13 +2,12 @@
 
 ## 1. Parser
 
-- [ ] 1.1 Add `BeanCorrection` struct to `aimanager.h` (sparse: `std::optional<QString> roastLevel/beanBrand/beanType/roastDate`).
+- [ ] 1.1 Add `BeanCorrection` struct to `aimanager.h` (sparse: `std::optional<QString> roastLevel/beanBrand/roastDate`).
 - [ ] 1.2 Implement `static std::optional<BeanCorrection> AIManager::parseBeanCorrectionsFromReply(const QString &reply)` with conservative regex matching.
 - [ ] 1.3 Implement `roastLevel` extraction with canonical normalization ("medium dark"/"medium-dark"/"mediumdark" → `"Medium-Dark"`).
 - [ ] 1.4 Reject compound phrases ("dark chocolate", "light fruit", "medium body") via require-context-word patterns ("the coffee/bean/roast is X", "actually X").
 - [ ] 1.5 Implement `beanBrand` extraction from "actually (it's|this is) from X", "the (bean|coffee|brand|roaster) is X".
 - [ ] 1.6 Implement `roastDate` extraction (ISO `YYYY-MM-DD`, "Month D, YYYY", "Month D" defaulting to current year).
-- [ ] 1.7 Implement `beanType` extraction as a fallback bucket for "actually it's X" when X is not a roast-level keyword.
 
 ## 2. Persistence
 

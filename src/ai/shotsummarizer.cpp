@@ -1258,19 +1258,21 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "the corrected value. On subsequent turns, rely on the envelope's\n"
         "`currentBean.*` for the truth — do not keep referencing the user's\n"
         "last-turn phrasing as if the prior recorded value still applied.\n\n"
-        "Bean-identity fields (roastLevel, beanBrand, beanType, roastDate)\n"
+        "Bean-identity fields (roastLevel, beanBrand, roastDate)\n"
         "are the only fields captured this way. Per-shot physical recordings\n"
         "(dose, yield, grind setting, duration, curves) are NOT editable\n"
         "from conversation — if those look wrong, ask the user to pull a\n"
         "new shot rather than edit a prior one.\n");
 
-    // (grind, dose, profile change). The app parses that block out of the
+    // Structured nextShot output. The shot-analysis system prompt teaches
+    // the model to emit a fenced ```json block at the very end of any
+    // response that makes a concrete parameter recommendation (grind,
+    // dose, profile change). The app parses that block out of the
     // response, persists it alongside the assistant turn in
     // `AIConversation`, and surfaces it on the `ai_advisor_invoke` MCP
-    // envelope so downstream consumers (closed-loop coaching #1053,
-    // future dial-in coachmarks) don't have to re-parse prose. The block
-    // MUST be omitted entirely when the response is a clarifying question
-    // or has no parameter recommendation — there is no null-state
+    // envelope so downstream consumers don't have to re-parse prose. The
+    // block MUST be omitted entirely when the response is a clarifying
+    // question or has no parameter recommendation — there is no null-state
     // placeholder.
     base += QStringLiteral("\n\n## Response Format\n\n"
         "When your response recommends a concrete change to grinder setting,\n"
