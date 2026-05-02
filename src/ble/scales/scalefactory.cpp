@@ -184,7 +184,7 @@ QString ScaleFactory::scaleTypeName(ScaleType type) {
 
 // Detection functions based on device name patterns from de1app
 bool ScaleFactory::isDecentScale(const QString& name) {
-    return name.contains("decent scale");
+    return name.contains("decent scale") || name.contains("decenza");
 }
 
 bool ScaleFactory::isAcaiaScale(const QString& name) {
