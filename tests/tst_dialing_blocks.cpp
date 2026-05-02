@@ -1058,28 +1058,41 @@ private slots:
                      QStringLiteral("16"));
 
             // Both anchor profiles must appear in profiles array with source "history".
+            // Turbo Shot (UGS 5.0) is within [0.5, 8.0] with canonical UGS → "derived".
+            // Londinium (UGS 0.0) is below the fine anchor → "extrapolated".
+            // This exercises the three-way source classification in the profiles loop.
             const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
             QVERIFY(!profiles.isEmpty());
             bool foundDFlow = false, foundAllonge = false;
+            bool foundDerived = false, foundExtrapolated = false;
             for (const QJsonValue& pv : profiles) {
                 const QJsonObject p = pv.toObject();
                 const QString name = p.value(QStringLiteral("profileName")).toString();
+                const QString source = p.value(QStringLiteral("source")).toString();
                 if (name == QStringLiteral("D-Flow")) {
-                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
-                             QStringLiteral("history"));
+                    QCOMPARE(source, QStringLiteral("history"));
                     QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
                              QStringLiteral("6"));
                     foundDFlow = true;
                 } else if (name == QStringLiteral("Allonge")) {
-                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
-                             QStringLiteral("history"));
+                    QCOMPARE(source, QStringLiteral("history"));
                     QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
                              QStringLiteral("16"));
                     foundAllonge = true;
+                } else if (name == QStringLiteral("Turbo Shot")) {
+                    // UGS 5.0 is within calibrated range [0.5, 8.0] → "derived"
+                    QCOMPARE(source, QStringLiteral("derived"));
+                    foundDerived = true;
+                } else if (name == QStringLiteral("Londinium")) {
+                    // UGS 0.0 is below fine anchor (0.5) → "extrapolated"
+                    QCOMPARE(source, QStringLiteral("extrapolated"));
+                    foundExtrapolated = true;
                 }
             }
             QVERIFY2(foundDFlow, "D-Flow must appear in profiles array");
             QVERIFY2(foundAllonge, "Allonge must appear in profiles array");
+            QVERIFY2(foundDerived, "Turbo Shot must appear as 'derived' within the calibrated range");
+            QVERIFY2(foundExtrapolated, "Londinium must appear as 'extrapolated' below the fine anchor");
         });
     }
 
@@ -1201,9 +1214,102 @@ private slots:
             const QJsonObject coarse = r.value(QStringLiteral("coarseAnchor")).toObject();
             QCOMPARE(coarse.value(QStringLiteral("profileName")).toString(),
                      QStringLiteral("Allonge"));
+            QCOMPARE(coarse.value(QStringLiteral("medianSetting")).toString(),
+                     QStringLiteral("7"));
 
             // conversionKey = (7−5) / (8−0.25) = 2/7.75 = 0.258… → 0.26
             QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 0.26);
+        });
+    }
+
+    void calibrationBlock_emptyWhenDegenerateAndNoInferredFallback()
+    {
+        // Canonical anchors are degenerate (same setting) AND no inferred shots exist.
+        // The combined pool (canonical + empty inferred) still has no valid pair →
+        // the block must return empty. This covers the "no non-degenerate anchor pair"
+        // branch when the inferred fallback produces nothing.
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_degen_no_inferred"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("7.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("7.0")
+                });
+            }
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY2(r.isEmpty(),
+                "degenerate canonical pair with no inferred fallback must return empty");
+        });
+    }
+
+    void calibrationBlock_abortedShotsExcluded()
+    {
+        // D-Flow: 3 clean shots at 6.0 + 3 aborted shots (finalWeight 2.0) at 15.0.
+        // Without the final_weight >= 15 filter: median([6,6,6,15,15,15]) = 10.5.
+        // With the filter: median([6,6,6]) = 6 → conversionKey = 1.33.
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_aborted"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-clean-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("6.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-abort-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 2.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("15.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 3000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("16.0")
+                });
+            }
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY(!r.isEmpty());
+            // conversionKey 1.33 proves the sub-15g aborted shots were excluded.
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 1.33);
+            const QJsonObject fine = r.value(QStringLiteral("fineAnchor")).toObject();
+            QCOMPARE(fine.value(QStringLiteral("medianSetting")).toString(),
+                     QStringLiteral("6"));
         });
     }
 

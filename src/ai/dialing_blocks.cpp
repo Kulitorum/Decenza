@@ -644,7 +644,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // qualifying profiles even if one was many months ago.
     //
     // Only include shots with clean extraction:
-    //   - final_weight >= 5g (not aborted)
+    //   - final_weight >= 15g (not aborted; 5g is too small to be a real extraction)
     //   - no quality badge set (grind issue, channeling, pour truncated, temp unstable)
     // Badge columns default to 0 on old shots (pre-migration), so the filter
     // is safe on all DB versions.
@@ -655,7 +655,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "WHERE grinder_model = ? "
         "  AND COALESCE(grinder_burrs, '') = COALESCE(?, '') "
         "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
-        "  AND COALESCE(final_weight, 0) >= 5 "
+        "  AND COALESCE(final_weight, 0) >= 15 "
         "  AND COALESCE(grind_issue_detected, 0) = 0 "
         "  AND COALESCE(channeling_detected, 0) = 0 "
         "  AND COALESCE(pour_truncated_detected, 0) = 0 "
