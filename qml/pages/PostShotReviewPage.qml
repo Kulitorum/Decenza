@@ -203,6 +203,19 @@ Page {
     property double editDrinkTds: 0
     property double editDrinkEy: 0
     property int editEnjoyment: 0  // 0 = unrated
+
+    // Dismissed-for-this-shot mirror for QuickRatingRow's visibility
+    // (issue #1055 Layer 2). QSettings is not a notifiable QML property,
+    // so we cache the per-shot flag here at the page root and refresh
+    // it whenever editShotId changes. The QuickRatingRow's `visible`
+    // binding observes this property, so tapping dismiss takes effect
+    // immediately.
+    property bool _ratingPromptDismissed:
+        Settings.value("shotRatingDismissed/" + editShotId, false) === true
+    onEditShotIdChanged: {
+        _ratingPromptDismissed =
+            Settings.value("shotRatingDismissed/" + editShotId, false) === true
+    }
     property string editNotes: ""
     property string editBeverageType: "espresso"
 
@@ -673,17 +686,8 @@ Page {
             // shots (enjoymentSource == "inferred") still show the row so
             // the user can confirm or override the inferred score. The
             // precision slider below remains the fine-tuning surface.
-            //
-            // The dismissed flag is mirrored in a local QML property so
-            // tapping dismiss reactively updates the visible binding —
-            // QSettings on its own is not a notifiable property.
-            property bool _ratingPromptDismissed:
-                Settings.value("shotRatingDismissed/" + editShotId, false) === true
-            onEditShotIdChanged: {
-                _ratingPromptDismissed =
-                    Settings.value("shotRatingDismissed/" + editShotId, false) === true
-            }
-
+            // Dismiss mirror lives on the page root (_ratingPromptDismissed)
+            // so the binding updates reactively on tap.
             QuickRatingRow {
                 Layout.fillWidth: true
                 visible: postShotReviewPage.isEditMode &&
