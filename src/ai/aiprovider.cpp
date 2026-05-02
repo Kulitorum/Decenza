@@ -536,7 +536,16 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
-    QByteArray body = QJsonDocument(requestBody).toJson();
+    // Disable thinking tokens — espresso advice doesn't need extended reasoning
+    // and thinking output billing (~$3.50/MTok) dwarfs standard output ($0.60/MTok).
+    QJsonObject bodyWithConfig = requestBody;
+    QJsonObject thinkingConfig;
+    thinkingConfig["thinkingBudget"] = 0;
+    QJsonObject generationConfig;
+    generationConfig["thinkingConfig"] = thinkingConfig;
+    bodyWithConfig["generationConfig"] = generationConfig;
+
+    QByteArray body = QJsonDocument(bodyWithConfig).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
