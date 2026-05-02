@@ -2238,6 +2238,236 @@ private slots:
 
         s.clear();
     }
+
+    // -----------------------------------------------------------------
+    // emitRecentShotContext — roast level / date in Setup header
+    // Pins the fix from PR #1074: roastLevel and roastDate must appear in
+    // the hoisted ### Setup: header alongside grinder + bean identity.
+    // -----------------------------------------------------------------
+
+    void emitRecentShotContext_setupHeader_includesRoastLevelAndDate()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 20;
+
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        ShotProjection shot = makeShot(1, base,
+            QString(), QString(), QString(), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot.roastLevel = QStringLiteral("Medium-Dark");
+        shot.roastDate  = QStringLiteral("2026-03-15");
+        qualifiedShots.append({base, shot});
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QString(), 20);
+
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(payload.contains(QStringLiteral("(Medium-Dark)")),
+                 "roastLevel must appear in parentheses after bean name");
+        QVERIFY2(payload.contains(QStringLiteral(", roasted 2026-03-15")),
+                 "roastDate must appear as ', roasted <date>' after roast level");
+        QVERIFY2(payload.contains(
+                     QStringLiteral("Northbound - Spring Tour (Medium-Dark), roasted 2026-03-15")),
+                 qPrintable("Expected bean+roast segment in Setup header; payload: "
+                            + payload.left(500)));
+    }
+
+    void emitRecentShotContext_setupHeader_roastLevelOnly()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 21;
+
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        ShotProjection shot = makeShot(1, base,
+            QString(), QString(), QString(), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot.roastLevel = QStringLiteral("Light");
+        qualifiedShots.append({base, shot});
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QString(), 21);
+
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(payload.contains(QStringLiteral("(Light)")),
+                 "roastLevel must appear in parentheses even when roastDate is absent");
+        QVERIFY2(!payload.contains(QStringLiteral("roasted")),
+                 "no 'roasted' text when roastDate is absent");
+    }
+
+    void emitRecentShotContext_setupHeader_roastDateOnly()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 22;
+
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 3600;
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+        ShotProjection shot = makeShot(1, base,
+            QString(), QString(), QString(), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot.roastDate = QStringLiteral("2026-01-10");
+        qualifiedShots.append({base, shot});
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QString(), 22);
+
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(payload.contains(QStringLiteral("roasted 2026-01-10")),
+                 "roastDate must appear as 'roasted <date>' even when roastLevel is absent");
+        QVERIFY2(!payload.contains(QStringLiteral("()")),
+                 "no empty parentheses when roastLevel is absent");
+    }
+
+    void emitRecentShotContext_roastLevelConflictSuppressesSetup()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 23;
+
+        const qint64 base = QDateTime::currentSecsSinceEpoch() - 86400;
+        QList<QPair<qint64, ShotProjection>> qualifiedShots;
+
+        ShotProjection shot1 = makeShot(1, base + 3600,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot1.roastLevel = QStringLiteral("Light");
+
+        ShotProjection shot2 = makeShot(2, base,
+            QStringLiteral("Niche"), QStringLiteral("Zero"),
+            QStringLiteral("63mm Kony"), QStringLiteral("4.0"),
+            QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
+            QStringLiteral("Profile"), QString(), QString());
+        shot2.roastLevel = QStringLiteral("Dark");
+
+        qualifiedShots.append({base + 3600, shot1});
+        qualifiedShots.append({base, shot2});
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext(qualifiedShots, GrinderContext{}, QStringLiteral("Niche"), 23);
+
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QCOMPARE(payload.count(QStringLiteral("### Setup:")), 0);
+    }
+
+    // -----------------------------------------------------------------
+    // AIConversation::stripStructuredNextBlock
+    // Pins the fix from PR #1074: the trailing ```json ... ``` block the
+    // AI appends must be stripped before display in getConversationText.
+    // -----------------------------------------------------------------
+
+    void stripStructuredNextBlock_noFencedBlock_returnsUnchanged()
+    {
+        const QString plain = QStringLiteral("Adjust your grinder to 4.5.");
+        QCOMPARE(AIConversation::stripStructuredNextBlock(plain), plain);
+    }
+
+    void stripStructuredNextBlock_validTrailingJsonBlock_stripsBlock()
+    {
+        const QString content = QStringLiteral(
+            "Try 4.75.\n\n```json\n{\"grinderSetting\":\"4.75\"}\n```");
+        const QString result = AIConversation::stripStructuredNextBlock(content);
+        QCOMPARE(result, QStringLiteral("Try 4.75."));
+        QVERIFY2(!result.contains(QStringLiteral("```")),
+                 "stripped result must not contain any fence markers");
+    }
+
+    void stripStructuredNextBlock_nonJsonTag_returnsUnchanged()
+    {
+        const QString content = QStringLiteral(
+            "Try 4.75.\n\n```python\nprint('hello')\n```");
+        QCOMPARE(AIConversation::stripStructuredNextBlock(content), content);
+    }
+
+    void stripStructuredNextBlock_trailingContentAfterCloser_returnsUnchanged()
+    {
+        const QString content = QStringLiteral(
+            "Try 4.75.\n\n```json\n{\"grinderSetting\":\"4.75\"}\n```\nOne more thing.");
+        QCOMPARE(AIConversation::stripStructuredNextBlock(content), content);
+    }
+
+    void stripStructuredNextBlock_oddFenceCount_stripsIfLastTwoFormValidBlock()
+    {
+        // Prose contains an earlier fenced block (even count before the json
+        // block), then a valid trailing json block. The last two fences must
+        // form the json block and be stripped; earlier fences are untouched.
+        const QString content = QStringLiteral(
+            "For reference:\n```plain\ncode\n```\n\n"
+            "```json\n{\"grinderSetting\":\"4.75\"}\n```");
+        const QString result = AIConversation::stripStructuredNextBlock(content);
+        QVERIFY2(!result.contains(QStringLiteral("```json")),
+                 "trailing json block must be stripped even when earlier fences exist");
+        QVERIFY2(result.contains(QStringLiteral("For reference:")),
+                 "prose before the json block must be preserved");
+        QVERIFY2(result.contains(QStringLiteral("```plain")),
+                 "earlier non-json fences must be preserved");
+    }
+
+    void stripStructuredNextBlock_missingNewlineAfterTag_returnsUnchanged()
+    {
+        // No newline between the opening tag and the JSON body — the tag
+        // check requires a newline delimiter; without it the block is
+        // malformed and must not strip.
+        const QString content = QStringLiteral(
+            "Try 4.75.\n\n```json{\"grinderSetting\":\"4.75\"}\n```");
+        QCOMPARE(AIConversation::stripStructuredNextBlock(content), content);
+    }
+
+    void aiConversation_getConversationText_stripsJsonBlock()
+    {
+        QSettings s;
+        s.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey(QStringLiteral("test_strip_conversation_text"));
+
+        conv.m_systemPrompt = QStringLiteral("system");
+        conv.addUserMessage(QStringLiteral("What grind setting?"));
+
+        const QString response = QStringLiteral(
+            "Try grinder 4.75 for a 32-38 s shot.\n\n"
+            "```json\n{\"grinderSetting\":\"4.75\","
+            "\"expectedDurationSec\":[32,38],"
+            "\"expectedFlowMlPerSec\":[1.0,1.5],"
+            "\"successCondition\":\"OK\","
+            "\"reasoning\":\"r\"}\n```");
+        const auto parsed = AIManager::parseStructuredNext(response);
+        conv.addAssistantMessage(response, parsed);
+
+        const QString text = conv.getConversationText();
+
+        QVERIFY2(text.contains(QStringLiteral("Try grinder 4.75")),
+                 "prose advice must appear in conversation text");
+        QVERIFY2(!text.contains(QStringLiteral("```json")),
+                 "json fence must not appear in conversation text");
+        QVERIFY2(!text.contains(QStringLiteral("grinderSetting")),
+                 "json body must not appear in conversation text");
+
+        s.clear();
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_AIManager)
