@@ -498,7 +498,7 @@ QString AIConversation::getConversationText() const
                 text += "**You:** " + content;
             }
         } else if (role == "assistant") {
-            text += "**" + providerName() + ":** " + content;
+            text += "**" + providerName() + ":** " + stripStructuredNextBlock(content);
         }
     }
 
@@ -595,6 +595,40 @@ QString AIConversation::multiShotSystemPrompt(const QString& beverageType, const
         "Track progress across shots and reference previous attempts to identify trends. "
         "Keep advice to ONE specific change per shot — don't overload with multiple adjustments.");
     return base;
+}
+
+QString AIConversation::stripStructuredNextBlock(const QString& content)
+{
+    // Strip the trailing ```json ... ``` block that the system prompt asks the
+    // model to append when making a concrete parameter recommendation. The block
+    // is parsed and stored as structuredNext on the message; it must not appear
+    // in the displayed conversation text.
+    QList<qsizetype> fences;
+    qsizetype pos = 0;
+    while (true) {
+        pos = content.indexOf(QStringLiteral("```"), pos);
+        if (pos < 0) break;
+        fences.append(pos);
+        pos += 3;
+    }
+    if (fences.size() < 2) return content;
+
+    const qsizetype openerStart = fences.at(fences.size() - 2);
+    const qsizetype closerStart = fences.at(fences.size() - 1);
+
+    // Closer must be followed only by whitespace.
+    for (qsizetype i = closerStart + 3; i < content.size(); ++i) {
+        if (!content[i].isSpace()) return content;
+    }
+
+    // Opener tag must be "json".
+    const qsizetype tagStart = openerStart + 3;
+    const qsizetype nl = content.indexOf(QLatin1Char('\n'), tagStart);
+    if (nl < 0 || nl >= closerStart) return content;
+    if (content.mid(tagStart, nl - tagStart).trimmed().compare(QStringLiteral("json"), Qt::CaseInsensitive) != 0)
+        return content;
+
+    return content.left(openerStart).trimmed();
 }
 
 QString AIConversation::extractShotProse(const QString& content)

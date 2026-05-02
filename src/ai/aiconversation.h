@@ -249,6 +249,7 @@ private:
     void trimHistory();
     static QString summarizeShotMessage(const QString& content);
     static QString summarizeAdvice(const QString& response);
+    static QString stripStructuredNextBlock(const QString& content);
 
     // Legacy fallback: extracts the `shotAnalysis` prose from the JSON
     // envelope when present, otherwise returns the message unchanged.
