@@ -14,10 +14,10 @@ static constexpr int kReconnectBaseMs = 5000;
 static constexpr int kReconnectMaxMs = 60000;
 static constexpr int kPingIntervalMs = 5 * 60 * 1000;  // 5 minutes
 static constexpr int kStatusPushIntervalMs = 5000;      // 5 seconds
-// Tear down screen capture if the phone goes silent for this long. The phone
-// is expected to send a "keepalive" relay_command at a faster cadence (~10s)
-// while the remote-control screen is foregrounded; explicit touches and
-// other commands also count as activity.
+// Tear down screen capture if the phone goes silent for this long. Explicit
+// touches and relay commands count as activity. The phone will eventually send
+// a "keepalive" relay_command at ~10s cadence once DecenzaPocket implements it;
+// until then, idle viewing without touches is cut off at 30 s.
 static constexpr int kRemoteActivityTimeoutMs = 30000;
 static const QString kRelayUrl = QStringLiteral("wss://ws.decenza.coffee");
 
@@ -192,7 +192,7 @@ void RelayClient::onTextMessageReceived(const QString& message)
         qDebug() << "RelayClient: Successfully registered with relay";
     } else if (type == "binary_relay") {
         // Decode base64 data and handle as binary. noteRemoteActivity() runs
-        // inside onBinaryMessageReceived after the type byte is checked.
+        // inside onBinaryMessageReceived only for type 0x02 when capture is active.
         QByteArray binaryData = QByteArray::fromBase64(obj["data"].toString().toLatin1());
         onBinaryMessageReceived(binaryData);
     } else {
@@ -226,8 +226,6 @@ void RelayClient::onPingTimer()
 
 void RelayClient::handleCommand(const QString& commandId, const QString& command)
 {
-    qDebug() << "RelayClient: Handling command:" << command << "id:" << commandId;
-
     if (command == "wake") {
         if (m_device) m_device->wakeUp();
     } else if (command == "sleep") {

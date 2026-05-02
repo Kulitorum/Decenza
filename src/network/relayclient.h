@@ -47,9 +47,12 @@ private:
     void handleCommand(const QString& commandId, const QString& command);
     void pushStatus();
     QJsonObject buildStatusJson() const;
-    // Restart the watchdog whenever inbound traffic from the phone arrives.
-    // Without this, an OS-killed phone leaves the capture loop running forever
-    // because the tablet's own WS to AWS stays alive (5-min ping keeps it open).
+    // Restart the inactivity watchdog whenever the phone sends any traffic.
+    // The tablet uses a time-based fallback here because the AWS relay proxy
+    // keeps the tablet↔AWS socket alive (5-min ping) after the phone dies, so
+    // onDisconnected() never fires for the phone's disconnection. The correct
+    // long-term fix is a relay-server peer_disconnected event; until that
+    // exists, the watchdog timer is the only available signal.
     void noteRemoteActivity();
 
     QWebSocket m_socket;
