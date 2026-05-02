@@ -179,8 +179,12 @@ std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assista
         searchFrom = pos + 3;
     }
     if (fenceStarts.size() < 2) return std::nullopt;
-    if ((fenceStarts.size() % 2) != 0) return std::nullopt;  // unbalanced — bail
 
+    // Take the last two fences unconditionally — odd total counts (a
+    // stray ``` somewhere earlier in the prose) MUST NOT silently drop a
+    // structurally valid trailing block. The closer-followed-only-by-
+    // whitespace check below is what actually enforces "this is the
+    // trailing block."
     const qsizetype openerStart = fenceStarts.at(fenceStarts.size() - 2);
     const qsizetype closerStart = fenceStarts.at(fenceStarts.size() - 1);
 

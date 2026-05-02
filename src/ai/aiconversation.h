@@ -220,7 +220,10 @@ private:
 
     AIManager* m_aiManager;
     QString m_systemPrompt;
-    QJsonArray m_messages;  // Array of {role, content} objects
+    // Array of {role, content[, structuredNext?]} objects. structuredNext
+    // is present only on assistant turns whose response ended with a
+    // parseable nextShot recommendation block (issue #1054).
+    QJsonArray m_messages;
     QString m_lastResponse;
     QString m_errorMessage;
     bool m_busy = false;

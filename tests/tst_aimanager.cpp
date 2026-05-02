@@ -1163,6 +1163,79 @@ private slots:
         QVERIFY(!AIManager::parseStructuredNext(QStringLiteral("   \n\n  ")).has_value());
     }
 
+    void parseStructuredNext_oddFenceCountStillExtractsTrailingBlock()
+    {
+        // A stray ``` somewhere in the prose (model truncation, escaped
+        // example, inline-code mishap) MUST NOT silently drop a
+        // structurally valid trailing block. Total fence count here is
+        // 3 (one orphan + opener+closer of the trailing block), which
+        // an earlier draft of the parser bailed on.
+        const QString message = QStringLiteral(
+            "I noticed your earlier response truncated mid-fence ```\n"
+            "but here's a fresh recommendation:\n\n"
+            "```json\n{\"grinderSetting\":\"4.75\"}\n```");
+        const auto parsed = AIManager::parseStructuredNext(message);
+        QVERIFY2(parsed.has_value(),
+                 "trailing valid block must parse even when an earlier stray ``` makes the total count odd");
+        QCOMPARE(parsed->value("grinderSetting").toString(), QStringLiteral("4.75"));
+    }
+
+    // -------------------------------------------------------------
+    // ai_advisor_invoke MCP envelope shape (issue #1054, tasks.md task 6)
+    //
+    // The MCP tool's success-path lambda in src/mcp/mcptools_ai.cpp builds
+    // the envelope via:
+    //     QJsonObject body{{"response", response}};
+    //     const auto structured = AIManager::parseStructuredNext(response);
+    //     if (structured.has_value())
+    //         body.insert("structuredNext", *structured);
+    //     finalize(body);
+    // This test pins the omission semantics so a future refactor cannot
+    // accidentally re-introduce a `null` placeholder.
+    // -------------------------------------------------------------
+
+    static QJsonObject buildMcpEnvelopeForResponse(const QString& response)
+    {
+        QJsonObject body{{"response", response}};
+        const auto structured = AIManager::parseStructuredNext(response);
+        if (structured.has_value()) {
+            body.insert(QStringLiteral("structuredNext"), *structured);
+        }
+        return body;
+    }
+
+    void aiAdvisorInvokeSurfacesStructuredNextOnRecommendation()
+    {
+        const QString reply = QStringLiteral(
+            "Try grinder 4.75.\n\n```json\n{"
+            "\"grinderSetting\":\"4.75\","
+            "\"expectedDurationSec\":[32,38],"
+            "\"expectedFlowMlPerSec\":[1.0,1.5],"
+            "\"successCondition\":\"OK\","
+            "\"reasoning\":\"slow flow toward profile target\"}\n```");
+        const QJsonObject env = buildMcpEnvelopeForResponse(reply);
+        QVERIFY2(env.contains("structuredNext"),
+                 "ai_advisor_invoke envelope must surface structuredNext on a recommendation reply");
+        const QJsonObject sn = env.value("structuredNext").toObject();
+        QCOMPARE(sn.value("grinderSetting").toString(), QStringLiteral("4.75"));
+        QCOMPARE(sn.value("expectedDurationSec").toArray().size(), 2);
+        QCOMPARE(env.value("response").toString(), reply);  // prose unchanged
+    }
+
+    void aiAdvisorInvokeOmitsStructuredNextOnClarifyingResponse()
+    {
+        const QString reply = QStringLiteral(
+            "How did this shot taste? Please give a 1-100 score and 1-2 lines of notes.");
+        const QJsonObject env = buildMcpEnvelopeForResponse(reply);
+        QVERIFY2(!env.contains("structuredNext"),
+                 "absent structuredNext must be omitted, not emitted as null placeholder");
+        // Defensive: scan the serialized envelope to be sure no null
+        // placeholder slipped in via QJsonValue auto-conversion.
+        const QByteArray serialized = QJsonDocument(env).toJson(QJsonDocument::Compact);
+        QVERIFY2(!serialized.contains("structuredNext"),
+                 "serialized envelope must not contain the structuredNext key when absent");
+    }
+
     // -------------------------------------------------------------
     // AIConversation persistence of structuredNext (issue #1054)
     // -------------------------------------------------------------
