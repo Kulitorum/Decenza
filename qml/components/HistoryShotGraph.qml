@@ -242,6 +242,18 @@ ChartView {
         return minDist < 1.0 ? closest.y : null
     }
 
+    // Return the phase label active at the given time, or empty string if none
+    function getPhaseAtTime(time) {
+        var label = ""
+        for (var i = 0; i < phaseMarkers.length; i++) {
+            if (phaseMarkers[i].time <= time)
+                label = phaseMarkers[i].label
+            else
+                break
+        }
+        return label
+    }
+
     // Announce curve values at a pixel position (called on tap)
     function announceAtPosition(pixelX, pixelY) {
         var dataPoint = chart.mapToValue(Qt.point(pixelX, pixelY), pressureSeries)
@@ -249,16 +261,16 @@ ChartView {
         if (time < 0 || time > timeAxis.max) return
 
         var curves = [
-            { name: "Pressure", series: pressureSeries, show: showPressure },
-            { name: "Flow", series: flowSeries, show: showFlow },
-            { name: "Temp", series: temperatureSeries, show: showTemperature },
-            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix && advancedMode },
-            { name: "Weight", series: weightSeries, show: showWeight },
-            { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow },
-            { name: "Resistance", series: resistanceSeries, show: showResistance && advancedMode },
-            { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance && advancedMode },
-            { name: "Conductance", series: conductanceSeries, show: showConductance && advancedMode },
-            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative && advancedMode }
+            { name: "Pressure", series: pressureSeries, show: showPressure, unit: "bar" },
+            { name: "Flow", series: flowSeries, show: showFlow, unit: "mL/s" },
+            { name: "Temp", series: temperatureSeries, show: showTemperature, unit: "°C" },
+            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix && advancedMode, unit: "°C" },
+            { name: "Weight", series: weightSeries, show: showWeight, unit: "g" },
+            { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow, unit: "g/s" },
+            { name: "Resistance", series: resistanceSeries, show: showResistance && advancedMode, unit: "" },
+            { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance && advancedMode, unit: "" },
+            { name: "Conductance", series: conductanceSeries, show: showConductance && advancedMode, unit: "" },
+            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative && advancedMode, unit: "" }
         ]
 
         var parts = []
@@ -266,13 +278,18 @@ ChartView {
             if (!curves[i].show) continue
             var v = findValueAtTime(curves[i].series, time)
             if (v !== null) {
-                parts.push(curves[i].name + " " + v.toFixed(1))
+                var entry = curves[i].name + " " + v.toFixed(1)
+                if (curves[i].unit !== "") entry += " " + curves[i].unit
+                parts.push(entry)
             }
         }
 
         if (parts.length === 0) return
         if (typeof AccessibilityManager !== "undefined") {
-            AccessibilityManager.announce(time.toFixed(1) + ". " + parts.join(". "), true)
+            var phase = getPhaseAtTime(time)
+            var header = "At " + time.toFixed(1) + " seconds"
+            if (phase !== "") header += ", " + phase + " phase"
+            AccessibilityManager.announce(header + ". " + parts.join(". "), true)
         }
     }
 
