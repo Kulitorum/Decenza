@@ -40,17 +40,26 @@ private slots:
     void onReconnectTimer();
     void onPingTimer();
     void onBinaryMessageReceived(const QByteArray& data);
+    void onRemoteActivityTimeout();
 
 private:
     void connectToRelay();
     void handleCommand(const QString& commandId, const QString& command);
     void pushStatus();
     QJsonObject buildStatusJson() const;
+    // Restart the inactivity watchdog whenever the phone sends any traffic.
+    // The tablet uses a time-based fallback here because the AWS relay proxy
+    // keeps the tablet↔AWS socket alive (5-min ping) after the phone dies, so
+    // onDisconnected() never fires for the phone's disconnection. The correct
+    // long-term fix is a relay-server peer_disconnected event; until that
+    // exists, the watchdog timer is the only available signal.
+    void noteRemoteActivity();
 
     QWebSocket m_socket;
     QTimer m_reconnectTimer;
     QTimer m_pingTimer;
     QTimer m_statusPushTimer;
+    QTimer m_remoteActivityTimer;
     DE1Device* m_device;
     MachineState* m_machineState;
     Settings* m_settings;
