@@ -214,6 +214,137 @@ std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assista
     return doc.object();
 }
 
+// Heuristic for "the prior assistant message asked the user about
+// taste". Conservative: a false negative just means we don't auto-
+// persist — the user can still rate via the editor or QuickRatingRow.
+// False positives are the dangerous mode (a recommendation reply
+// mentioning a "score from 75" past tense triggers a writeback from
+// the user's next prose number). To minimize false positives:
+//   1. The marker list is tight — bare "score" / "how did" are too
+//      common in advisor recommendation prose. Require taste-specific
+//      phrasings.
+//   2. The message must end in a question — the assistant has to
+//      actually be asking, not just discussing scores in passing.
+static bool priorAssistantAskedAboutTaste(const QString& priorAssistantMessage)
+{
+    if (priorAssistantMessage.isEmpty()) return false;
+    // Must end in a question mark (allow trailing whitespace and the
+    // structuredNext fenced block from #1054).
+    QString trimmed = priorAssistantMessage.trimmed();
+    if (trimmed.endsWith(QStringLiteral("```"))) {
+        // Strip the trailing fenced JSON block before testing for a
+        // question-mark suffix on the prose body.
+        const qsizetype openerStart = trimmed.lastIndexOf(QStringLiteral("```"),
+            trimmed.length() - 4);
+        if (openerStart > 0) trimmed = trimmed.left(openerStart).trimmed();
+    }
+    if (!trimmed.endsWith(QLatin1Char('?'))) return false;
+
+    const QString lc = priorAssistantMessage.toLower();
+    static const QStringList markers{
+        QStringLiteral("how did it taste"),
+        QStringLiteral("how did this taste"),
+        QStringLiteral("how did this shot taste"),
+        QStringLiteral("how does it taste"),
+        QStringLiteral("how does this taste"),
+        QStringLiteral("how would you rate"),
+        QStringLiteral("rate this shot"),
+        QStringLiteral("rate the shot"),
+        QStringLiteral("score from 1"),
+        QStringLiteral("score 1-100"),
+        QStringLiteral("score 1 to 100"),
+        QStringLiteral("tasting notes"),
+        QStringLiteral("what did you think of the taste"),
+    };
+    for (const QString& m : markers) {
+        if (lc.contains(m)) return true;
+    }
+    return false;
+}
+
+void AIManager::maybePersistRatingFromReply(const QString& userReply,
+                                             const QString& priorAssistantMessage,
+                                             qint64 shotId)
+{
+    if (shotId <= 0) return;
+    if (!m_shotHistory) return;
+    if (!priorAssistantAskedAboutTaste(priorAssistantMessage)) return;
+
+    const auto parsed = parseUserRatingReply(userReply);
+    if (!parsed.has_value()) return;
+
+    QVariantMap metadata;
+    metadata.insert(QStringLiteral("enjoyment"), parsed->score);
+    if (!parsed->notes.isEmpty()) {
+        metadata.insert(QStringLiteral("espressoNotes"), parsed->notes);
+    }
+    qDebug() << "AIManager: conversational rating capture — writing"
+             << parsed->score << "to shot" << shotId
+             << "(notes" << (parsed->notes.isEmpty() ? "absent" : "present") << ")";
+    m_shotHistory->requestUpdateShotMetadata(shotId, metadata);
+}
+
+std::optional<AIManager::UserRatingReply> AIManager::parseUserRatingReply(const QString& reply)
+{
+    // A number 1-100 in the user's reply counts as a score ONLY when
+    // one of these strong signals is present:
+    //   (a) the number is followed by a `/100`, `out of 100`, or `%`
+    //       suffix (unambiguous score notation), OR
+    //   (b) the number is the first non-whitespace token in the reply
+    //       (the user's reply leads with a score, optionally followed
+    //       by notes — the conversational pattern "82, balanced and
+    //       sweet" or "82").
+    // Numbers that appear elsewhere in prose ("I dosed 18 grams",
+    // "30-day-old roast") MUST NOT be picked up as ratings. Out-of-range
+    // numbers, negatives, and non-numeric replies all return nullopt.
+    if (reply.trimmed().isEmpty()) return std::nullopt;
+
+    static const QRegularExpression rx(QStringLiteral(
+        "(\\d+(?:\\.\\d+)?)\\s*"
+        "(/\\s*100|out\\s*of\\s*100|%)?"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    // Where does the first non-whitespace character sit? The "leading
+    // token" gate compares each match's start against this anchor.
+    qsizetype firstNonWs = 0;
+    while (firstNonWs < reply.size() && reply.at(firstNonWs).isSpace()) ++firstNonWs;
+
+    QRegularExpressionMatchIterator it = rx.globalMatch(reply);
+    while (it.hasNext()) {
+        QRegularExpressionMatch m = it.next();
+        bool ok = false;
+        const double raw = m.captured(1).toDouble(&ok);
+        if (!ok) continue;
+        const int rounded = static_cast<int>(std::round(raw));
+        if (rounded < 1 || rounded > 100) continue;
+
+        // Reject negatives: the regex captures digits without the minus,
+        // but if the preceding character is `-` or U+2212 the user wrote
+        // a negative.
+        const qsizetype matchStartCheck = m.capturedStart(1);
+        if (matchStartCheck > 0) {
+            const QChar prev = reply.at(matchStartCheck - 1);
+            if (prev == QLatin1Char('-') || prev == QChar(0x2212)) continue;
+        }
+
+        const bool hasSuffix = !m.captured(2).isEmpty();
+        const bool isLeadingToken = m.capturedStart(0) == firstNonWs;
+        if (!hasSuffix && !isLeadingToken) continue;  // weak anchor — skip
+
+        UserRatingReply out;
+        out.score = rounded;
+        const qsizetype matchStart = m.capturedStart(0);
+        const qsizetype matchEnd = m.capturedEnd(0);
+        QString remaining = reply.left(matchStart) + reply.mid(matchEnd);
+        static const QRegularExpression edgeTrim(QStringLiteral(
+            "^[\\s,;:\\-—.!?]+|[\\s,;:\\-—.!?]+$"));
+        remaining.replace(edgeTrim, QString());
+        out.notes = remaining.trimmed();
+        return out;
+    }
+    return std::nullopt;
+}
+
 ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
                                        const QString& beanType,
                                        const QString& roastDate,

@@ -164,7 +164,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 13);
+            QCOMPARE(getSchemaVersion(db), 14);
         });
     }
 
@@ -226,7 +226,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 13);
+            QCOMPARE(getSchemaVersion(db), 14);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -338,7 +338,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 13);
+            QCOMPARE(getSchemaVersion(db), 14);
         });
     }
 
@@ -352,7 +352,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 13);
+            QCOMPARE(getSchemaVersion(db), 14);
         });
     }
 
@@ -372,7 +372,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 13);
+            QCOMPARE(getSchemaVersion(db), 14);
         });
     }
 
@@ -395,7 +395,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 13);
+            QCOMPARE(getSchemaVersion(db), 14);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
@@ -538,6 +538,41 @@ private slots:
                          qPrintable(QString("Smoothed[%1]=%2, expected near 1.0").arg(i).arg(val)));
             }
         });
+    }
+
+    // Migration 14: enjoyment_source column added. Idempotency check —
+    // running ShotHistoryStorage::initialize twice on the same DB does
+    // not re-apply the ALTER (which would fail with a duplicate-column
+    // error) and the schema_version stays at 14. The back-fill logic
+    // (UPDATE shots SET enjoyment_source = 'user' WHERE enjoyment > 0)
+    // is exercised in production; constructing a partial v13 schema
+    // here would force an unrealistic state through ShotHistoryStorage's
+    // distinct-cache prewarm path.
+    void v14_idempotentReapply()
+    {
+        const QString path = freshDbPath();
+        {
+            ShotHistoryStorage s1;
+            initAndClose(path, s1);
+        }
+        {
+            ShotHistoryStorage s2;
+            initAndClose(path, s2);
+        }
+
+        bool hasColumn = false;
+        int versionFound = 0;
+        withRawDb(path, "v14_idem", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT version FROM schema_version"));
+            if (q.next()) versionFound = q.value(0).toInt();
+            QVERIFY(q.exec("PRAGMA table_info(shots)"));
+            while (q.next()) {
+                if (q.value(1).toString() == "enjoyment_source") { hasColumn = true; break; }
+            }
+        });
+        QCOMPARE(versionFound, 14);
+        QVERIFY2(hasColumn, "enjoyment_source column survives idempotent re-initialize");
     }
 };
 

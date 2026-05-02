@@ -185,6 +185,40 @@ public:
     // ai_advisor_invoke before the provider hop) can use it.
     static std::optional<QJsonObject> parseStructuredNext(const QString& assistantMessage);
 
+    // Parsed numeric score + remaining notes from a user's conversational
+    // reply (issue #1055 Layer 1). When the advisor asks "how did this
+    // taste?" and the user answers with a number 1-100, we persist the
+    // score back to ShotProjection.enjoyment0to100 + remaining text to
+    // espressoNotes — closes the rating loop without forcing the user
+    // into the metadata editor.
+    struct UserRatingReply {
+        int score = 0;     // 1-100
+        QString notes;     // remaining text after the score token, trimmed
+    };
+
+    // Permissive but conservative parser. A bare integer in [1, 100] is
+    // a score; optional suffixes `/100`, `out of 100`, `%` are consumed.
+    // Decimal scores round to nearest int. Non-numeric replies ("really
+    // good") do NOT yield a score. Multiple numeric tokens → first
+    // in-range wins. Static + pure for test isolation.
+    static std::optional<UserRatingReply> parseUserRatingReply(const QString& reply);
+
+    // Issue #1055 Layer 1: when the advisor's prior assistant message
+    // asked about taste AND the user's reply contains a parseable score,
+    // persist the rating + remaining-text notes back to the shot via
+    // ShotHistoryStorage. No-op when ANY of:
+    //   - shotId is 0 (no shot is paired with the turn — typical for a
+    //     legacy conversation or a free-form follow-up),
+    //   - m_shotHistory is unset (no DB wired),
+    //   - priorAssistantMessage doesn't contain a taste-question marker
+    //     (the model wasn't asking; rating writeback would be spurious),
+    //   - parseUserRatingReply returns std::nullopt (the user replied
+    //     in prose without a numeric score).
+    // Called by AIConversation::followUp before the request is dispatched.
+    void maybePersistRatingFromReply(const QString& userReply,
+                                     const QString& priorAssistantMessage,
+                                     qint64 shotId);
+
     // Ollama-specific
     Q_INVOKABLE void refreshOllamaModels();
 

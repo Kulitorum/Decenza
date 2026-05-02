@@ -22,6 +22,7 @@
 #include <QDebug>
 #include <QThread>
 #include <algorithm>
+#include <cmath>
 #include "core/dbutils.h"
 
 #ifdef Q_OS_ANDROID
@@ -738,6 +739,28 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 13;
     }
 
+    // Migration 14: enjoyment_source column. Tracks whether
+    // enjoyment0to100 came from the user (manual editor, QuickRatingRow,
+    // conversational reply) or was inferred by the post-shot detector
+    // pipeline. Lets bestRecentShot prefer user-rated candidates and
+    // lets the system prompt teach the LLM to treat inferred ratings
+    // as hints rather than ground truth (issue #1055 Layer 3).
+    if (currentVersion < 14) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 14 (enjoyment_source)";
+
+        if (!hasColumn("shots", "enjoyment_source")) {
+            query.exec("ALTER TABLE shots ADD COLUMN enjoyment_source TEXT NOT NULL DEFAULT 'none'");
+            // Back-fill: existing rated rows are user-rated by definition
+            // (the column is new; only the manual editor / QuickRatingRow
+            // ever wrote those values).
+            query.exec("UPDATE shots SET enjoyment_source = 'user' WHERE enjoyment > 0");
+        }
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (14)");
+        currentVersion = 14;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -939,6 +962,55 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             data.targetWeight, data.finalWeight,
             inputs.frameCount);
         decenza::applyBadgesToTarget(data, analysis.detectors);
+
+        // Issue #1055 Layer 3: inferred-good auto-rating. All five
+        // gates from the spec must pass before the unrated shot earns
+        // a provisional enjoyment of 75 with source "inferred":
+        //   1. verdictCategory == "clean"
+        //   2. channelingSeverity == "none"
+        //   3. grindDirection == "onTarget"
+        //   4. yield within 0.5g of the saved targetWeight (when set)
+        //      — proxy for the spec's ratio-within-0.1 gate, since
+        //      targetWeight is what the user wired in profile setup
+        //   5. duration in [15s, 60s] — sanity bound around typical
+        //      espresso pulls; serves as the bounded fallback the spec
+        //      calls for when no profile median is available. The
+        //      profile-median version is deferred (would require a DB
+        //      query inside saveShot's hot path).
+        // The bestRecentShot block can then anchor on the shot until
+        // the user provides their own rating (which flips enjoymentSource
+        // back to "user" via updateShotMetadataStatic). The system
+        // prompt teaches the LLM to treat inferred ratings as a hint
+        // requiring user confirmation.
+        if (data.espressoEnjoyment <= 0) {
+            const auto& d = analysis.detectors;
+            const bool detectorsClean =
+                d.verdictCategory == QStringLiteral("clean")
+                && d.channelingSeverity == QStringLiteral("none")
+                && d.grindDirection == QStringLiteral("onTarget");
+            // Yield gate: skip when no targetWeight is recorded (legacy
+            // shots, or profiles without a target). When recorded,
+            // require the actual yield within 0.5g.
+            const bool yieldOk = data.targetWeight <= 0
+                || std::abs(data.finalWeight - data.targetWeight) <= 0.5;
+            // Duration gate: bounded sanity check.
+            const bool durationOk = data.duration >= 15.0 && data.duration <= 60.0;
+
+            if (detectorsClean && yieldOk && durationOk) {
+                constexpr int kInferredScore = 75;
+                data.espressoEnjoyment = kInferredScore;
+                data.enjoymentSource = QStringLiteral("inferred");
+                qDebug() << "ShotHistoryStorage: inferred-good auto-rating —"
+                         << "shot saved with enjoyment" << kInferredScore
+                         << "(clean+onTarget+no-channeling+yield+duration)";
+            }
+        } else if (data.enjoymentSource.isEmpty() ||
+                   data.enjoymentSource == QStringLiteral("none")) {
+            // The save path carries an explicit user-set enjoyment;
+            // record the source as "user" so future filtering / queries
+            // can distinguish from inferred ratings.
+            data.enjoymentSource = QStringLiteral("user");
+        }
     }
 
     // Compress sample data on main thread (reads QObject data vectors)
@@ -1029,7 +1101,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
                     channeling_detected, temperature_unstable, grind_issue_detected,
-                    skip_first_frame_detected, pour_truncated_detected
+                    skip_first_frame_detected, pour_truncated_detected, enjoyment_source
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1039,7 +1111,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
                     :channeling_detected, :temperature_unstable, :grind_issue_detected,
-                    :skip_first_frame_detected, :pour_truncated_detected
+                    :skip_first_frame_detected, :pour_truncated_detected, :enjoyment_source
                 )
             )");
 
@@ -1075,6 +1147,14 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
             query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
             query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
+            // Issue #1055 Layer 3: enjoymentSource defaults to "user"
+            // when the save path carries an explicit enjoyment value
+            // (manual save flow), and to "inferred" / "none" otherwise
+            // depending on whether the inferred-good evaluator fired.
+            // The caller (saveShot pre-write hook) is responsible for
+            // setting data.enjoymentSource appropriately.
+            query.bindValue(":enjoyment_source",
+                data.enjoymentSource.isEmpty() ? QStringLiteral("none") : data.enjoymentSource);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1393,7 +1473,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
                channeling_detected, temperature_unstable, grind_issue_detected,
-               skip_first_frame_detected, pour_truncated_detected
+               skip_first_frame_detected, pour_truncated_detected, enjoyment_source
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1441,6 +1521,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.grindIssueDetected = query.value(32).toInt() != 0;
     record.skipFirstFrameDetected = query.value(33).toInt() != 0;
     record.pourTruncatedDetected = query.value(34).toInt() != 0;
+    record.enjoymentSource = query.value(35).toString();
+    if (record.enjoymentSource.isEmpty()) record.enjoymentSource = QStringLiteral("none");
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -1700,28 +1782,41 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     // Only columns with keys present in the metadata map are updated,
     // so partial updates don't wipe unspecified fields.
     static const QList<QPair<QString, QString>> fieldMap = {
-        {"beanBrand",      "bean_brand"},
-        {"beanType",       "bean_type"},
-        {"roastDate",      "roast_date"},
-        {"roastLevel",     "roast_level"},
-        {"grinderBrand",   "grinder_brand"},
-        {"grinderModel",   "grinder_model"},
-        {"grinderBurrs",   "grinder_burrs"},
-        {"grinderSetting", "grinder_setting"},
-        {"drinkTds",       "drink_tds"},
-        {"drinkEy",        "drink_ey"},
-        {"enjoyment",      "enjoyment"},
-        {"espressoNotes",  "espresso_notes"},
-        {"barista",        "barista"},
-        {"doseWeight",     "dose_weight"},
-        {"finalWeight",    "final_weight"},
-        {"beverageType",   "beverage_type"},
+        {"beanBrand",       "bean_brand"},
+        {"beanType",        "bean_type"},
+        {"roastDate",       "roast_date"},
+        {"roastLevel",      "roast_level"},
+        {"grinderBrand",    "grinder_brand"},
+        {"grinderModel",    "grinder_model"},
+        {"grinderBurrs",    "grinder_burrs"},
+        {"grinderSetting",  "grinder_setting"},
+        {"drinkTds",        "drink_tds"},
+        {"drinkEy",         "drink_ey"},
+        {"enjoyment",       "enjoyment"},
+        {"espressoNotes",   "espresso_notes"},
+        {"barista",         "barista"},
+        {"doseWeight",      "dose_weight"},
+        {"finalWeight",     "final_weight"},
+        {"beverageType",    "beverage_type"},
+        {"enjoymentSource", "enjoyment_source"},  // issue #1055 Layer 3
     };
 
-    // Build SET clause from only the keys present in metadata
+    // Issue #1055 Layer 3: when the caller writes `enjoyment` without
+    // an explicit `enjoymentSource`, default the source to "user". Any
+    // explicit user-driven write path (manual editor, QuickRatingRow,
+    // conversational reply) is by definition a user rating; only the
+    // inferred-good evaluator passes "inferred". Materialize a local
+    // copy of the map so we don't mutate the caller's argument.
+    QVariantMap effective = metadata;
+    if (effective.contains(QStringLiteral("enjoyment")) &&
+        !effective.contains(QStringLiteral("enjoymentSource"))) {
+        effective.insert(QStringLiteral("enjoymentSource"), QStringLiteral("user"));
+    }
+
+    // Build SET clause from only the keys present in the (effective) metadata.
     QStringList setClauses;
     for (const auto& [metaKey, dbCol] : fieldMap) {
-        if (metadata.contains(metaKey))
+        if (effective.contains(metaKey))
             setClauses << QString("%1 = :%1").arg(dbCol);
     }
 
@@ -1740,10 +1835,10 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         return false;
     }
 
-    // Bind only the columns present in metadata
+    // Bind only the columns present in the (effective) metadata.
     for (const auto& [metaKey, dbCol] : fieldMap) {
-        if (metadata.contains(metaKey))
-            query.bindValue(QString(":%1").arg(dbCol), metadata.value(metaKey));
+        if (effective.contains(metaKey))
+            query.bindValue(QString(":%1").arg(dbCol), effective.value(metaKey));
     }
     query.bindValue(":id", shotId);
 

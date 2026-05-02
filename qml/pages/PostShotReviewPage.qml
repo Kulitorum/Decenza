@@ -667,6 +667,46 @@ Page {
             }
 
             // Rating (moved to top, right after graph)
+            // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
+            // rating row, visible only when the shot has no USER rating
+            // AND the user hasn't dismissed for this shot. Inferred-rated
+            // shots (enjoymentSource == "inferred") still show the row so
+            // the user can confirm or override the inferred score. The
+            // precision slider below remains the fine-tuning surface.
+            //
+            // The dismissed flag is mirrored in a local QML property so
+            // tapping dismiss reactively updates the visible binding —
+            // QSettings on its own is not a notifiable property.
+            property bool _ratingPromptDismissed:
+                Settings.value("shotRatingDismissed/" + editShotId, false) === true
+            onEditShotIdChanged: {
+                _ratingPromptDismissed =
+                    Settings.value("shotRatingDismissed/" + editShotId, false) === true
+            }
+
+            QuickRatingRow {
+                Layout.fillWidth: true
+                visible: postShotReviewPage.isEditMode &&
+                         (editShotData.enjoymentSource ?? "none") !== "user" &&
+                         !postShotReviewPage._ratingPromptDismissed
+                currentScore: editEnjoyment
+                onRateClicked: function(score) {
+                    editEnjoyment = score
+                    postShotReviewPage.saveEditedShot()
+                }
+                onReviseClicked: {
+                    // Pop the row back to the three-icon picker without
+                    // wiping the persisted score; user picks a new face,
+                    // saveEditedShot then overwrites with the new value.
+                    editEnjoyment = 0
+                }
+                onDismissedClicked: {
+                    Settings.setValue(
+                        "shotRatingDismissed/" + postShotReviewPage.editShotId, true)
+                    postShotReviewPage._ratingPromptDismissed = true
+                }
+            }
+
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
