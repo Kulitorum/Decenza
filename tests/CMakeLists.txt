@@ -409,6 +409,11 @@ target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 # byte-equivalence between the two surfaces. Renamed from
 # tst_mcptools_dialing_blocks alongside the src/mcp -> src/ai relocation
 # in #1040.
+# Compile the AI resource files (profile knowledge, dial-in reference,
+# claude agent) into the test binary so ShotSummarizer's KB loaders
+# find them silently during buildGrinderCalibrationBlock tests.
+qt_add_resources(TST_DIALING_BLOCKS_AI_RESOURCES
+    ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_dialing_blocks
     tst_dialing_blocks.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
@@ -420,6 +425,7 @@ add_decenza_test(tst_dialing_blocks
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${TST_DIALING_BLOCKS_AI_RESOURCES}
 )
 target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Charts Qt6::Quick)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})

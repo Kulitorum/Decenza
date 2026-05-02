@@ -123,6 +123,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 QJsonArray dialInSessions;
                 QJsonObject bestRecentShot;
                 QJsonObject grinderContext;
+                QJsonObject grinderCalibration;
                 QJsonArray recentAdvice;
 
                 if (resolvedShotId <= 0) {
@@ -159,6 +160,9 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             db, shot.profileKbId, resolvedShotId, shot);
                         grinderContext = DialingBlocks::buildGrinderContextBlock(
                             db, shot.grinderModel, shot.beverageType, shot.beanBrand);
+                        grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
+                            db, shot.grinderModel, shot.grinderBurrs,
+                            shot.beverageType, resolvedShotId);
 
                         // Closed-loop recentAdvice (issue #1053). Read
                         // the conversation history straight from QSettings
@@ -183,7 +187,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 QMetaObject::invokeMethod(qApp,
                     [aiPtr, shot, dryRun, userPromptOverride, systemPromptOverride,
                      resolvedShotId, dialInSessions, bestRecentShot, grinderContext,
-                     recentAdvice, respond]() {
+                     grinderCalibration, recentAdvice, respond]() {
                     if (!aiPtr) {
                         respond(QJsonObject{{"error", "App shut down before advisor call could start"}});
                         return;
@@ -234,7 +238,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             return;
                         }
                         ai->enrichUserPromptObject(userPromptObj, shot,
-                            dialInSessions, bestRecentShot, grinderContext, recentAdvice);
+                            dialInSessions, bestRecentShot, grinderContext, recentAdvice,
+                            grinderCalibration);
                         userPrompt = QString::fromUtf8(
                             QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
                     }

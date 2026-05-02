@@ -756,6 +756,7 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
             QJsonArray dialInSessions;
             QJsonObject bestRecentShot;
             QJsonObject grinderContext;
+            QJsonObject grinderCalibration;
             QJsonArray recentAdvice;
             ShotProjection resolvedShot;
 
@@ -776,6 +777,9 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                     grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, resolvedShot.grinderModel,
                         resolvedShot.beverageType, resolvedShot.beanBrand);
+                    grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
+                        db, resolvedShot.grinderModel, resolvedShot.grinderBurrs,
+                        resolvedShot.beverageType, excludeId);
                 }
                 if (!recentTurns.isEmpty() && !kbId.isEmpty()) {
                     DialingBlocks::RecentAdviceInputs in;
@@ -791,6 +795,7 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                  dialInSessions = std::move(dialInSessions),
                  bestRecentShot = std::move(bestRecentShot),
                  grinderContext = std::move(grinderContext),
+                 grinderCalibration = std::move(grinderCalibration),
                  recentAdvice = std::move(recentAdvice),
                  resolvedShot]() mutable {
                 if (!self) return;
@@ -802,7 +807,8 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                 // source for the merge step — `ai_advisor_invoke` calls
                 // the same primitive so the two surfaces cannot drift.
                 self->enrichUserPromptObject(userPromptObj, resolvedShot,
-                    dialInSessions, bestRecentShot, grinderContext, recentAdvice);
+                    dialInSessions, bestRecentShot, grinderContext, recentAdvice,
+                    grinderCalibration);
 
                 QString finalUserPrompt = QString::fromUtf8(
                     QJsonDocument(userPromptObj).toJson(QJsonDocument::Indented));
@@ -918,7 +924,8 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
                                        const QJsonArray& dialInSessions,
                                        const QJsonObject& bestRecentShot,
                                        const QJsonObject& grinderContext,
-                                       const QJsonArray& recentAdvice) const
+                                       const QJsonArray& recentAdvice,
+                                       const QJsonObject& grinderCalibration) const
 {
     if (!dialInSessions.isEmpty())
         payload["dialInSessions"] = dialInSessions;
@@ -926,6 +933,8 @@ void AIManager::enrichUserPromptObject(QJsonObject& payload,
         payload["bestRecentShot"] = bestRecentShot;
     if (!grinderContext.isEmpty())
         payload["grinderContext"] = grinderContext;
+    if (!grinderCalibration.isEmpty())
+        payload["grinderCalibration"] = grinderCalibration;
     // Closed-loop coaching: prior advisor turns paired with the user's
     // actual next shots (issue #1053). Empty array (no qualifying turns
     // yet) → key omitted; never `recentAdvice: []` placeholder.

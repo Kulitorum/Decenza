@@ -30,7 +30,8 @@ struct DialingDbResult {
     QString profileKbId;
     QJsonArray dialInSessions;
     QJsonObject grinderContext;
-    QJsonObject bestRecentShot;  // Empty when no rated shot exists on this profile
+    QJsonObject bestRecentShot;      // Empty when no rated shot exists on this profile
+    QJsonObject grinderCalibration;  // Empty when preconditions not met
 };
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
@@ -130,6 +131,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, dbResult.shotData.grinderModel,
                         dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
+                    dbResult.grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
+                        db, dbResult.shotData.grinderModel, dbResult.shotData.grinderBurrs,
+                        dbResult.shotData.beverageType, resolvedShotId);
                 });
 
                 // --- Deliver results to main thread for final assembly ---
@@ -153,6 +157,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["bestRecentShot"] = dbResult.bestRecentShot;
                     if (!dbResult.grinderContext.isEmpty())
                         result["grinderContext"] = dbResult.grinderContext;
+                    if (!dbResult.grinderCalibration.isEmpty())
+                        result["grinderCalibration"] = dbResult.grinderCalibration;
 
                     // --- Resolved shot reference (used by tasting + bean blocks below) ---
                     // Note: result["shot"] is intentionally NOT emitted (see openspec

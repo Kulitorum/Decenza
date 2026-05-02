@@ -1498,6 +1498,28 @@ void ShotSummarizer::loadProfileKnowledge()
                 }
             } else if (line.startsWith(QStringLiteral("Skip-Catalog:"))) {
                 pk.skipCatalog = (line.mid(13).trimmed().toLower() == QStringLiteral("true"));
+            } else if (line.startsWith(QStringLiteral("UGS:"))) {
+                QString val = line.mid(4).trimmed();
+                bool inferredMarker = false;
+                if (val.startsWith('~')) {
+                    inferredMarker = true;
+                    val = val.mid(1);
+                }
+                // Strip parenthetical annotation and everything after it
+                const int parenIdx = val.indexOf('(');
+                if (parenIdx >= 0)
+                    val = val.left(parenIdx);
+                val = val.trimmed();
+                bool ok = false;
+                const double parsed = val.toDouble(&ok);
+                if (ok) {
+                    pk.ugs = parsed;
+                    pk.ugsInferred = inferredMarker;
+                } else if (!val.isEmpty()) {
+                    qWarning() << "ShotSummarizer: UGS parse failed for profile"
+                               << pk.name << "— value:" << val;
+                }
+                // On failure: leave ugs=NaN, ugsInferred=false — identical to missing line.
             }
         }
 
@@ -1723,6 +1745,48 @@ QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QS
     loadProfileKnowledge();
 
     return matchProfileKey(s_profileKnowledge, profileTitle, editorType);
+}
+
+double ShotSummarizer::ugsForKbId(const QString& kbId)
+{
+    if (kbId.isEmpty()) return std::numeric_limits<double>::quiet_NaN();
+    loadProfileKnowledge();
+    return s_profileKnowledge.value(kbId).ugs;
+}
+
+bool ShotSummarizer::ugsInferredForKbId(const QString& kbId)
+{
+    if (kbId.isEmpty()) return false;
+    loadProfileKnowledge();
+    return s_profileKnowledge.value(kbId).ugsInferred;
+}
+
+QString ShotSummarizer::canonicalNameForKbId(const QString& kbId)
+{
+    if (kbId.isEmpty()) return QString();
+    loadProfileKnowledge();
+    return s_profileKnowledge.value(kbId).name;
+}
+
+QList<ShotSummarizer::KbUgsEntry> ShotSummarizer::allKbUgsEntries()
+{
+    loadProfileKnowledge();
+
+    // Deduplicate by canonical name (pk.name) — multiple aliases map to the
+    // same ProfileKnowledge; emit one entry per canonical name.
+    QMap<QString, KbUgsEntry> byName;
+    for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
+        const ProfileKnowledge& pk = it.value();
+        if (std::isnan(pk.ugs)) continue;
+        if (byName.contains(pk.name)) continue;
+        KbUgsEntry e;
+        e.kbId = it.key();
+        e.name = pk.name;
+        e.ugs = pk.ugs;
+        e.ugsInferred = pk.ugsInferred;
+        byName.insert(pk.name, e);
+    }
+    return byName.values();
 }
 
 QString ShotSummarizer::espressoSystemPrompt()
