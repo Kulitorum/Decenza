@@ -248,6 +248,13 @@ public:
     // in profile_knowledge.md and control which checks analyzeShot() suppresses.
     static QStringList getAnalysisFlags(const QString& kbId);
 
+    // Cross-cutting reference content (sections marked Skip-Catalog: true) —
+    // injected unconditionally into the system prompt and per-profile MCP
+    // payloads, since they apply across profiles rather than to any one.
+    // Currently surfaces the "Cross-Profile Grind Ordering" section from
+    // profile_knowledge.md.
+    static QString crossProfileReferenceContent();
+
 private:
     // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting
     // Feedback, ## Detector Observations) the legacy buildUserPrompt
@@ -351,6 +358,10 @@ private:
         //   flow_trend_ok       — don't flag declining/rising flow as a caution
         //   channeling_expected — minor channeling is normal for this profile
         QStringList analysisFlags;
+        // True when "Skip-Catalog: true" appears in the section. Marks the
+        // section as cross-cutting reference material rather than a profile —
+        // excluded from buildProfileCatalog() and from per-profile injection.
+        bool skipCatalog = false;
     };
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
     static bool s_knowledgeLoaded;

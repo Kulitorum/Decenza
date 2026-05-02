@@ -223,7 +223,7 @@ This avoids holding HTTP connections and works naturally with the conversational
 | Tool | Description | Category |
 |------|-------------|----------|
 | `debug_get_log` | Read the persisted app debug log. Three modes: (1) `sessions=true` lists all sessions with index/start line/timestamp/line count; (2) `session=N` returns lines from that session (-1 = most recent); (3) default — raw line-based pagination via `offset`/`limit` (1–2000 lines). | read |
-| `get_agent_file` | Returns the current Decenza `claude_agent.md` system-prompt content + the app's version string. Used by Claude Code Remote Control sessions to self-update their CLAUDE.md so agent instructions evolve with app updates without manual user intervention. | read |
+| `get_agent_file` | Returns the current Decenza `claude_agent.md` system-prompt content + the app's version string. Any MCP client (Claude Desktop, Claude mobile, Claude Code, etc.) should call this at session start to load behavioral guidance for dialing assistance. Clients with filesystem access (Claude Code Remote Control) additionally use the version to self-update a local CLAUDE.md. | read |
 
 ### AI Dial-In Conversation (key feature)
 

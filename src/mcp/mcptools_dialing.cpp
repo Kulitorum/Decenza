@@ -221,6 +221,17 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(dbResult.profileKbId);
                         if (profileKnowledge.isEmpty())
                             profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
+
+                        // Append cross-cutting reference (e.g. Cross-Profile
+                        // Grind Ordering) so default-mode MCP clients still
+                        // see direction guidance for profile/roast transitions
+                        // without having to ask for the full system prompt.
+                        const QString crossProfile = ShotSummarizer::crossProfileReferenceContent();
+                        if (!crossProfile.isEmpty()) {
+                            if (!profileKnowledge.isEmpty())
+                                profileKnowledge += QStringLiteral("\n\n");
+                            profileKnowledge += crossProfile;
+                        }
                     }
                     if (!profileKnowledge.isEmpty())
                         result["profileKnowledge"] = profileKnowledge;

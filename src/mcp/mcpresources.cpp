@@ -148,7 +148,8 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
 
     // decenza://dialing/current_context
     // Compact snapshot of the active bean, grinder, last 3 shots, active profile, and machine
-    // phase — intended for a Claude Code Remote Control session to read at turn start.
+    // phase — intended for any MCP client (Claude Desktop, Claude mobile, Claude Code, etc.) to
+    // read at session start and re-read when the user pulls a new shot.
     registry->registerAsyncResource(
         "decenza://dialing/current_context",
         "Current Dialing Context",

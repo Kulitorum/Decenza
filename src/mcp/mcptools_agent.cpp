@@ -10,16 +10,19 @@
 void registerAgentTools(McpToolRegistry* registry)
 {
     // get_agent_file
-    // Returns the current Decenza CLAUDE.md content and a version string tied to the Decenza app
-    // version. Claude Code Remote Control sessions call this at session start to self-update the
-    // CLAUDE.md in their working directory, so agent instructions evolve with app updates without
-    // any manual user intervention.
+    // Returns the current Decenza dialing-assistant system prompt and a version string tied to
+    // the Decenza app version. Any MCP client (Claude Desktop, Claude mobile, Claude Code, etc.)
+    // should call this at session start to load behavioral guidance for dialing assistance, so
+    // agent instructions evolve with app updates without manual user intervention. Claude Code
+    // Remote Control sessions additionally use the `version` to self-update a `CLAUDE.md` file in
+    // the working directory; other clients can simply read and follow the returned `content`.
     registry->registerTool(
         "get_agent_file",
-        "Returns the current Decenza CLAUDE.md content and version. "
-        "Claude Code Remote Control sessions should call this at session start: "
-        "if the returned `version` is newer than the version header in the existing CLAUDE.md "
-        "in the working directory, overwrite it with the returned `content` and reload.",
+        "Returns the Decenza dialing-assistant system prompt and version. "
+        "Any MCP client should call this at session start to load behavioral guidance for "
+        "dialing assistance — read the returned `content` and follow it for the rest of the "
+        "session. Clients with filesystem access (e.g. Claude Code Remote Control) may "
+        "additionally use `version` to self-update a local CLAUDE.md.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{}}
