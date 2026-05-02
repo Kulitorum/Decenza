@@ -49,6 +49,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             {"properties", QJsonObject{
                 {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}},
                 {"enjoyment", QJsonObject{{"type", "integer"}, {"description", "Enjoyment rating 0-100"}}},
+                {"enjoymentSource", QJsonObject{{"type", "string"},
+                    {"description", "Rating provenance — \"user\" (default when an enjoyment write is present) or \"inferred\" "
+                     "(used by the post-shot detector pipeline; rare for MCP callers). Setting it explicitly lets a caller "
+                     "downgrade an inferred rating back to \"none\" or convert one to \"user\". Issue #1055."}}},
                 {"notes", QJsonObject{{"type", "string"}, {"description", "Tasting notes"}}},
                 {"doseWeight", QJsonObject{{"type", "number"}, {"description", "Dose weight in grams"}}},
                 {"drinkWeight", QJsonObject{{"type", "number"}, {"description", "Yield/drink weight in grams"}}},
@@ -82,6 +86,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QVariantMap metadata;
             if (args.contains("enjoyment"))
                 metadata["enjoyment"] = qBound(0, args["enjoyment"].toInt(), 100);
+            if (args.contains("enjoymentSource")) {
+                const QString src = args["enjoymentSource"].toString();
+                if (src != QLatin1String("user")
+                    && src != QLatin1String("inferred")
+                    && src != QLatin1String("none")) {
+                    respond(QJsonObject{{"error",
+                        QString("enjoymentSource must be \"user\", \"inferred\", or \"none\"; got \"%1\"").arg(src)}});
+                    return;
+                }
+                metadata["enjoymentSource"] = src;
+            }
             if (args.contains("notes"))
                 metadata["espressoNotes"] = args["notes"].toString();
             if (args.contains("doseWeight"))

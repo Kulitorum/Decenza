@@ -17,6 +17,7 @@ QVariantMap ShotProjection::toVariantMap() const
     m["beanBrand"] = beanBrand;
     m["beanType"] = beanType;
     m["enjoyment0to100"] = enjoyment0to100;
+    m["enjoymentSource"] = enjoymentSource;
     m["hasVisualizerUpload"] = hasVisualizerUpload;
     m["beverageType"] = beverageType;
     m["roastDate"] = roastDate;
@@ -87,6 +88,8 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.beanBrand = m.value("beanBrand").toString();
     p.beanType = m.value("beanType").toString();
     p.enjoyment0to100 = m.value("enjoyment0to100").toInt();
+    p.enjoymentSource = m.value("enjoymentSource").toString();
+    if (p.enjoymentSource.isEmpty()) p.enjoymentSource = QStringLiteral("none");
     p.hasVisualizerUpload = m.value("hasVisualizerUpload").toBool();
     p.beverageType = m.value("beverageType").toString();
     p.roastDate = m.value("roastDate").toString();

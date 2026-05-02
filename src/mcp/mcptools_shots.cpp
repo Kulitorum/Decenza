@@ -105,6 +105,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 {"hasRating", QJsonObject{{"type", "boolean"}, {"description", "Only shots with an enjoyment score (>0). Composable with other filters; equivalent to minEnjoyment: 1."}}},
                 {"hasNotes", QJsonObject{{"type", "boolean"}, {"description", "Only shots with non-empty espresso notes."}}},
                 {"hasTds", QJsonObject{{"type", "boolean"}, {"description", "Only shots with a refractometer reading (drinkTdsPct > 0)."}}},
+                {"enjoymentSource", QJsonObject{{"type", "string"},
+                    {"description", "Filter by rating provenance. \"user\" = scored manually by the user. "
+                     "\"inferred\" = auto-rated 75 by the post-shot detector pipeline (clean verdict + onTarget grind + on-target yield + sane duration). "
+                     "\"none\" = unrated. Lets a caller distinguish user-validated successes from app-suggested ones (issue #1055)."}}},
                 {"after", QJsonObject{{"type", "string"}, {"description", "Only shots after this ISO timestamp (e.g. 2026-03-15T00:00:00)"}}},
                 {"before", QJsonObject{{"type", "string"}, {"description", "Only shots before this ISO timestamp (e.g. 2026-03-21T23:59:59)"}}}
             }}
@@ -127,6 +131,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             const bool hasRating = args.value("hasRating").toBool();
             const bool hasNotes = args.value("hasNotes").toBool();
             const bool hasTds = args.value("hasTds").toBool();
+            const QString enjoymentSourceFilter = args.value("enjoymentSource").toString();
             qint64 afterEpoch = 0, beforeEpoch = 0;
             if (args.contains("after")) {
                 QDateTime dt = QDateTime::fromString(args["after"].toString(), Qt::ISODate);
@@ -141,7 +146,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
             QThread* thread = QThread::create(
                 [dbPath, limit, offset, profileFilter, beanFilter,
-                 minEnjoyment, hasRating, hasNotes, hasTds,
+                 minEnjoyment, hasRating, hasNotes, hasTds, enjoymentSourceFilter,
                  afterEpoch, beforeEpoch, currentDateTime, respond]() {
                 QJsonObject result;
                 QJsonArray shots;
@@ -149,7 +154,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
                 if (!withTempDb(dbPath, "mcp_shots_list", [&](QSqlDatabase& db) {
                     QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
-                                  "duration_seconds, enjoyment, grinder_setting, grinder_model, "
+                                  "duration_seconds, enjoyment, enjoyment_source, "
+                                  "grinder_setting, grinder_model, "
                                   "espresso_notes, bean_brand, bean_type, yield_override, profile_json "
                                   "FROM shots WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
@@ -178,6 +184,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         sql += " AND drink_tds > 0";
                         countSql += " AND drink_tds > 0";
                     }
+                    if (!enjoymentSourceFilter.isEmpty()) {
+                        sql += " AND enjoyment_source = :enjoymentSource";
+                        countSql += " AND enjoyment_source = :enjoymentSource";
+                    }
                     if (afterEpoch > 0) {
                         sql += " AND timestamp >= :after";
                         countSql += " AND timestamp >= :after";
@@ -196,6 +206,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         query.bindValue(":beanFilter", "%" + beanFilter + "%");
                     if (minEnjoyment > 0)
                         query.bindValue(":minEnjoyment", minEnjoyment);
+                    if (!enjoymentSourceFilter.isEmpty())
+                        query.bindValue(":enjoymentSource", enjoymentSourceFilter);
                     if (afterEpoch > 0)
                         query.bindValue(":after", afterEpoch);
                     if (beforeEpoch > 0)
@@ -213,6 +225,14 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             shot["durationSec"] = query.value("duration_seconds").toDouble();
                             const int enjoyment = query.value("enjoyment").toInt();
                             shot["enjoyment0to100"] = enjoyment > 0 ? QJsonValue(enjoyment) : QJsonValue(QJsonValue::Null);
+                            // Rating provenance (issue #1055). "user" = scored
+                            // by the user, "inferred" = auto-rated by the
+                            // post-shot detector pipeline, "none" = unrated.
+                            // Lets MCP consumers distinguish user-validated
+                            // successes from app-suggested ones.
+                            QString enjoymentSource = query.value("enjoyment_source").toString();
+                            if (enjoymentSource.isEmpty()) enjoymentSource = QStringLiteral("none");
+                            shot["enjoymentSource"] = enjoymentSource;
                             shot["grinderSetting"] = query.value("grinder_setting").toString();
                             shot["grinderModel"] = query.value("grinder_model").toString();
                             shot["notes"] = query.value("espresso_notes").toString();
@@ -245,6 +265,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         countQuery.bindValue(":beanFilter", "%" + beanFilter + "%");
                     if (minEnjoyment > 0)
                         countQuery.bindValue(":minEnjoyment", minEnjoyment);
+                    if (!enjoymentSourceFilter.isEmpty())
+                        countQuery.bindValue(":enjoymentSource", enjoymentSourceFilter);
                     if (afterEpoch > 0)
                         countQuery.bindValue(":after", afterEpoch);
                     if (beforeEpoch > 0)
