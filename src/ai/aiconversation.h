@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <optional>
 
 class AIManager;
 
@@ -129,6 +130,21 @@ public:
      */
     Q_INVOKABLE bool hasSavedConversation() const;
 
+    /**
+     * Return the parsed `structuredNext` JSON object stored on the
+     * assistant turn at `index`, or std::nullopt when the turn has no
+     * stored structured block (clarifying-question response, legacy
+     * conversation predating the field, or non-assistant role at the
+     * given index). `index` is 0-based into the full m_messages array.
+     */
+    std::optional<QJsonObject> structuredNextForTurn(qsizetype index) const;
+
+    /**
+     * Convenience accessor: structured block on the most recent assistant
+     * turn, or std::nullopt when none exists.
+     */
+    std::optional<QJsonObject> structuredNextForLastAssistantTurn() const;
+
 signals:
     void responseReceived(const QString& response);
     void errorOccurred(const QString& error);
@@ -145,7 +161,12 @@ private slots:
 private:
     void sendRequest();
     void addUserMessage(const QString& message);
-    void addAssistantMessage(const QString& message);
+    // Append an assistant message. When `structuredNext` carries a value,
+    // it is persisted on the entry as a sibling of `role` and `content`
+    // (see openspec/changes/add-structured-next-shot). Absent → no key
+    // written; older saved conversations stay readable unchanged.
+    void addAssistantMessage(const QString& message,
+                             const std::optional<QJsonObject>& structuredNext = std::nullopt);
     void trimHistory();
     static QString summarizeShotMessage(const QString& content);
     static QString summarizeAdvice(const QString& response);

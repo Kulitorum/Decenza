@@ -173,12 +173,38 @@ void AIConversation::addUserMessage(const QString& message)
     m_messages.append(msg);
 }
 
-void AIConversation::addAssistantMessage(const QString& message)
+void AIConversation::addAssistantMessage(const QString& message,
+                                          const std::optional<QJsonObject>& structuredNext)
 {
     QJsonObject msg;
     msg["role"] = "assistant";
     msg["content"] = message;
+    if (structuredNext.has_value()) {
+        msg["structuredNext"] = *structuredNext;
+    }
     m_messages.append(msg);
+}
+
+std::optional<QJsonObject> AIConversation::structuredNextForTurn(qsizetype index) const
+{
+    if (index < 0 || index >= m_messages.size()) return std::nullopt;
+    const QJsonObject msg = m_messages.at(index).toObject();
+    if (msg.value("role").toString() != QStringLiteral("assistant")) return std::nullopt;
+    if (!msg.contains(QStringLiteral("structuredNext"))) return std::nullopt;
+    const QJsonValue v = msg.value(QStringLiteral("structuredNext"));
+    if (!v.isObject()) return std::nullopt;
+    return v.toObject();
+}
+
+std::optional<QJsonObject> AIConversation::structuredNextForLastAssistantTurn() const
+{
+    for (qsizetype i = m_messages.size() - 1; i >= 0; --i) {
+        const QJsonObject msg = m_messages.at(i).toObject();
+        if (msg.value("role").toString() == QStringLiteral("assistant")) {
+            return structuredNextForTurn(i);
+        }
+    }
+    return std::nullopt;
 }
 
 void AIConversation::sendRequest()
@@ -205,8 +231,12 @@ void AIConversation::onAnalysisComplete(const QString& response)
     m_busy = false;
     m_lastResponse = response;
 
-    // Add assistant response to history
-    addAssistantMessage(response);
+    // Parse the trailing fenced ```json block (issue #1054). When the
+    // response makes a concrete recommendation, the model appends a
+    // `nextShot` JSON object that we persist alongside the prose so
+    // downstream callers (recentAdvice block #1053, future coachmark UI)
+    // can read the structured prediction without re-parsing prose.
+    addAssistantMessage(response, AIManager::parseStructuredNext(response));
 
     // Auto-save so conversation can be continued later
     saveToStorage();

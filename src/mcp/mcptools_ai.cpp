@@ -48,6 +48,11 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
         "OpenRouter/Ollama), and returns the response. Always echoes the assembled "
         "systemPromptUsed + userPromptUsed in the response so the caller can see exactly "
         "what was sent — useful for prompt A/B testing and end-to-end advisor validation. "
+        "When the response makes a concrete parameter recommendation (grind / dose / profile change), "
+        "the trailing fenced ```json `nextShot` block defined in the system prompt is parsed and "
+        "surfaced as a top-level `structuredNext` object alongside `response`. The `structuredNext` "
+        "field is OMITTED (no null placeholder) when the response is a clarifying question or "
+        "otherwise carries no recommendation. "
         "Pass dryRun: true to skip the network call and just return the assembled "
         "prompts (no network call, no token cost — but does still spawn a worker thread "
         "and read the shot row from SQLite). "
@@ -290,7 +295,19 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
 
                     state->successConn = QObject::connect(ai, &AIManager::recommendationReceived,
                         ai, [finalize](const QString& response) {
-                            finalize(QJsonObject{{"response", response}});
+                            // Surface the trailing structured `nextShot`
+                            // block (issue #1054) as a top-level field
+                            // alongside the prose response, so MCP
+                            // consumers don't have to re-parse it. Absent
+                            // when the response is a clarifying question
+                            // or otherwise has no recommendation — no
+                            // null placeholder.
+                            QJsonObject body{{"response", response}};
+                            const auto structured = AIManager::parseStructuredNext(response);
+                            if (structured.has_value()) {
+                                body.insert(QStringLiteral("structuredNext"), *structured);
+                            }
+                            finalize(body);
                         });
                     state->errorConn = QObject::connect(ai, &AIManager::errorOccurred,
                         ai, [finalize](const QString& error) {
