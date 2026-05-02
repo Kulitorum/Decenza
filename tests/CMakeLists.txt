@@ -420,6 +420,7 @@ add_decenza_test(tst_dialing_blocks
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${CMAKE_SOURCE_DIR}/resources/ai.qrc
 )
 target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Charts Qt6::Quick)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
