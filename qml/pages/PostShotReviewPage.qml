@@ -669,18 +669,17 @@ Page {
 
             // Rating (moved to top, right after graph)
             // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
-            // rating row, visible whenever editEnjoyment is 0 (unrated).
-            // The precision slider below remains the fine-tuning surface.
+            // rating row, visible when the shot has no user rating.
+            // Inferred scores (enjoymentSource="inferred") are internal AI
+            // signals and are never shown to the user, so inferred shots
+            // show the row too. The precision slider is the fine-tuning surface.
             QuickRatingRow {
                 Layout.fillWidth: true
-                visible: postShotReviewPage.isEditMode && editEnjoyment === 0
-                currentScore: editEnjoyment
+                visible: postShotReviewPage.isEditMode &&
+                         (editShotData.enjoymentSource ?? "none") !== "user"
                 onRateClicked: function(score) {
                     editEnjoyment = score
                     postShotReviewPage.saveEditedShot()
-                }
-                onReviseClicked: {
-                    editEnjoyment = 0
                 }
             }
 
