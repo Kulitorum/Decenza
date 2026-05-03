@@ -295,7 +295,11 @@ The simplest of the five. `temperatureUnstable = true` when:
   TEMP_UNSTABLE_THRESHOLD` (2.0 °C).
 
 `avgTempDeviation` is the average absolute deviation over the pour window
-where the goal is non-zero.
+where the goal is non-zero. Leading samples where the group head is still
+warming up are excluded: any sample at the start of the window where
+`goal − actual > TEMP_WARMUP_SKIP_C` (3.0 °C) is skipped. The skip is
+one-directional (cold only) and latches off on the first in-range sample,
+so a mid-shot temperature drop is still counted as instability.
 
 The `pourStart > 0` and `reachedExtractionPhase` guards live exclusively
 in `analyzeShot`. Save-time (`saveShot`), load-time recompute
