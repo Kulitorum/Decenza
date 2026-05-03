@@ -30,6 +30,13 @@ public:
     static constexpr double TEMP_UNSTABLE_THRESHOLD = 2.0;        // °C avg deviation from goal
     static constexpr double TEMP_STEPPING_RANGE = 5.0;            // °C goal range = intentional stepping
     static constexpr double TEMP_MIN_EXTRACTION_SEC = 1.0;        // min seconds of extraction past frame 1 to score temp
+    // Skip leading pour samples where the machine hasn't yet reached operating
+    // temperature. Cold-start shots (e.g. first shot after idle) begin with the
+    // group head below goal; excluding this warmup ramp prevents false-positive
+    // "Temperature unstable" badges on otherwise clean shots. Only applied at
+    // the leading edge — once the first in-range sample is seen, the latch fires
+    // and all subsequent deviations (both below and above goal) are counted.
+    static constexpr double TEMP_WARMUP_SKIP_C = 3.0;
 
     // Mode-aware detection window tuning. A sample counts toward channeling
     // detection only inside a window where the active control goal (pressure

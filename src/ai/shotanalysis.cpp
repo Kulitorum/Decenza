@@ -327,15 +327,27 @@ double ShotAnalysis::avgTempDeviation(const QVector<QPointF>& tempData,
 {
     double devSum = 0;
     int count = 0;
+    bool warmupDone = false;
     for (const auto& pt : tempData) {
         if (pt.x() < startTime) continue;
         if (pt.x() > endTime) break;
         double goal = findValueAtTime(tempGoalData, pt.x());
-        if (goal > 0) {
-            devSum += std::abs(pt.y() - goal);
-            ++count;
+        if (goal <= 0) continue;
+        // Skip leading samples where the group head is still warming up to
+        // operating temperature. Once the first in-range sample is seen,
+        // warmupDone latches so a mid-shot temperature drop still counts.
+        if (!warmupDone) {
+            if (goal - pt.y() > TEMP_WARMUP_SKIP_C) continue;
+            warmupDone = true;
         }
+        devSum += std::abs(pt.y() - goal);
+        ++count;
     }
+    // count == 0: every pour sample was below the warmup threshold — the machine
+    // never reached operating temperature during extraction. No usable data means
+    // no diagnosis; return 0.0 so the caller fires no badge. This is intentional:
+    // a machine that stays this cold for a full extraction is extremely rare, and
+    // silence is preferable to a misleading badge with no valid signal.
     return count > 0 ? devSum / count : 0.0;
 }
 
