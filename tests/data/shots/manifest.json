@@ -41,9 +41,9 @@
     },
     {
       "file": "londinium_gusher.json",
-      "description": "Londonium lever profile finished in 15.7s at 1:1.78 ratio. Shot has structured profile.steps, so the harness uses the phase-aware path (not the phases.isEmpty() early return). The 3-bar Infuse soak (t≈1.9–7.7s) is excluded by WINDOW_MIN_EXTRACTION_BAR; the 9-bar extraction window (t≈8.9–14.2s) has flat conductance (~0.36) with no elevated dC/dt samples. The previous Sustained verdict was driven by Gaussian bleed from soak-phase dC/dt — the artifact PR #1076 corrects. Expected verdict is None.",
+      "description": "Synthetic Londinium true-positive channeling fixture (PR #1076). 3-bar Infuse soak (t=3–14.5s) excluded by WINDOW_MIN_EXTRACTION_BAR gate. Flow steps 1.5→5.0 mL/s at t=22s and 5.0→1.5 mL/s at t=31s; each step produces raw dC/dt≈25.3 at two adjacent samples, Gaussian kernel elevates 10 positions per transition → sustainedCount=20 → Sustained. Validates that the soak gate does not suppress genuine extraction-phase channeling.",
       "expect": {
-        "channeling": "None",
+        "channeling": "Sustained",
         "pourTruncated": false
       }
     },
@@ -52,14 +52,6 @@
       "description": "Synthetic Londinium-style clean shot (PR #1076 regression guard). 3-bar Infuse soak from t=2-12s drives C from 19 down to ~0.08 (puck wetting), producing 11 elevated dC/dt samples in the soak window — baseline would flag Sustained. WINDOW_MIN_EXTRACTION_BAR gate excludes all soak samples (goalNow=3 bar < 4.5 bar threshold); 9-bar extraction phase (t=14-30s) has flat C=0.36 with zero dC/dt. Mode-aware verdict must stay None. Removing or raising the gate would re-trigger Sustained on this fixture.",
       "expect": {
         "channeling": "None",
-        "pourTruncated": false
-      }
-    },
-    {
-      "file": "londinium_channeling_extraction.json",
-      "description": "Synthetic true-positive Londinium channeling fixture (PR #1076 regression guard). 3-bar Infuse soak (t=3–14.5s) is excluded by WINDOW_MIN_EXTRACTION_BAR. In the 9-bar extraction phase (t=15–40s): flow steps 1.5→5.0 mL/s at t=22s (index K=44) then 5.0→1.5 mL/s at t=31s (index M=62). Each step produces raw dC/dt ≈ 25.3 at two adjacent samples; Gaussian kernel elevates 8 positions per transition (K-4..K+3 and M-4..M+3, t=20–23.5s and t=29–32.5s). sustainedCount=16 > threshold 10 → Sustained. Lowering WINDOW_MIN_EXTRACTION_BAR below 9 or removing the channeling flow steps would break this fixture.",
-      "expect": {
-        "channeling": "Sustained",
         "pourTruncated": false
       }
     },
