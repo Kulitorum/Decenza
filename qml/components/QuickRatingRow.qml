@@ -6,11 +6,9 @@ import Decenza
 // QuickRatingRow — issue #1055 Layer 2.
 //
 // Low-friction one-tap rating row shown above the metadata fold on the
-// post-shot review page when the shot is unrated AND the user has not
-// dismissed the prompt for that shot. Three icon buttons map to default
-// scores 80 / 60 / 40 (good / okay / bad). Tapping persists the score
-// immediately via the existing saveEditedShot path; tapping the small
-// dismiss × hides the row for that shot via a per-shot QSettings key.
+// post-shot review page when the shot is unrated. Three icon buttons map
+// to default scores 80 / 60 / 40 (good / okay / bad). Tapping persists
+// the score immediately via the existing saveEditedShot path.
 //
 // Once the shot is rated (currentScore > 0) the row collapses into a
 // compact "Rated N — tap to revise" pill that reopens the three-icon
@@ -26,10 +24,6 @@ RowLayout {
     // Inputs ---------------------------------------------------------
     // The shot's current enjoyment score (0 = unrated → row visible).
     property int currentScore: 0
-    // Whether the user has dismissed the prompt for this specific shot.
-    // Caller owns persistence (per-shot QSettings key) and binds this
-    // property; the row only emits the dismiss signal.
-    property bool dismissed: false
 
     // Outputs --------------------------------------------------------
     // Emitted when the user taps a rating icon. Caller writes the score
@@ -41,14 +35,7 @@ RowLayout {
     // does NOT mutate `currentScore` itself — the caller owns the
     // persisted value.
     signal reviseClicked()
-    // Emitted when the user taps the dismiss control. Caller persists
-    // the per-shot dismissed flag.
-    signal dismissedClicked()
 
-    // Layout ---------------------------------------------------------
-    // Hidden entirely when dismissed; otherwise either the three-icon
-    // bar or the collapsed "Rated N" pill.
-    visible: !root.dismissed
     spacing: Theme.spacingMedium
 
     // Three-icon state — visible when currentScore == 0.
@@ -121,21 +108,7 @@ RowLayout {
                 }
             }
 
-            Item { Layout.fillWidth: true }  // spacer pushes dismiss to right edge
-
-            AccessibleButton {
-                accessibleName: TranslationManager.translate(
-                    "rating.quick.dismiss.accessibility", "Dismiss rating prompt")
-                Layout.preferredWidth: Theme.scaled(36)
-                Layout.preferredHeight: Theme.scaled(36)
-                onClicked: root.dismissedClicked()
-                contentItem: Image {
-                    source: "qrc:/icons/cross.svg"
-                    sourceSize.width: Theme.scaled(16)
-                    sourceSize.height: Theme.scaled(16)
-                    fillMode: Image.PreserveAspectFit
-                }
-            }
+            Item { Layout.fillWidth: true }
         }
     }
 
