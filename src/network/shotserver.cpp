@@ -1,5 +1,6 @@
 #include "core/settings_app.h"
 #include "shotserver.h"
+#include "visualizeruploader.h"
 #include "relayclient.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
@@ -1693,6 +1694,44 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                     sendResponse(socketGuard, 200, "application/json", prettyJson, headers);
                 } else {
                     sendResponse(socketGuard, 404, "application/json", R"({"error":"No profile data for this shot"})");
+                }
+            }, Qt::QueuedConnection);
+        });
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        thread->start();
+    }
+    else if (path.startsWith("/shot/") && path.endsWith("/shot.json")) {
+        // /shot/123/shot.json — download the shot as visualizer-format JSON
+        QString idPart = path.mid(6);
+        idPart = idPart.left(idPart.indexOf("/shot.json"));
+        bool ok;
+        qint64 shotId = idPart.toLongLong(&ok);
+        if (!ok) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
+            return;
+        }
+        QPointer<QTcpSocket> socketGuard(socket);
+        QString dbPath = m_storage->databasePath();
+        auto destroyed = m_destroyed;
+        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
+            ShotRecord record;
+            bool dbOpened = withTempDb(dbPath, "shs_web_shot", [&](QSqlDatabase& db) {
+                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            });
+
+            if (*destroyed) return;
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, record, shotId]() {
+                if (*destroyed || !socketGuard) return;
+                if (!dbOpened) {
+                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
+                } else if (record.summary.id == 0) {
+                    sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
+                } else {
+                    ShotProjection shotData = ShotHistoryStorage::convertShotRecord(record);
+                    QByteArray payload = VisualizerUploader::buildHistoryShotJson(shotData);
+                    QString filename = QString("shot%1.json").arg(shotId);
+                    QByteArray headers = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
+                    sendResponse(socketGuard, 200, "application/json", payload, headers);
                 }
             }, Qt::QueuedConnection);
         });

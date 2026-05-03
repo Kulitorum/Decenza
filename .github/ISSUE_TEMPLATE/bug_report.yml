@@ -80,11 +80,11 @@ body:
         3. In the web interface, open the **top-right burger menu (☰)** and choose **Debugging Tools**.
         4. Click **Download Log** and attach the file below.
 
-        **Shot debug log** — if the bug involves a specific shot (weight, profile, flow, stop-at-weight, etc.):
+        **Shot JSON + debug log** — if the bug involves a specific shot (badges, quality analysis, weight, profile, flow, stop-at-weight, etc.):
 
         1. In the web interface, open **Shot History** and click the affected shot.
-        2. Scroll toward the bottom of the shot detail page and click **View Debug Log** to expand the panel.
-        3. Click **Copy to Clipboard**, then paste the contents into the field below.
+        2. Click **Download Shot JSON** and attach the file below — this gives us the full pressure/flow/temperature curves needed to reproduce detector issues.
+        3. Optionally: scroll toward the bottom and click **View Debug Log → Copy to Clipboard** and paste the text below as well.
 
         Drag-and-drop log files (or paste text) into the field below. Zip large logs if needed.
 
