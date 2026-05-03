@@ -29,14 +29,12 @@ Dialog {
     footer: null
 
     // Analysis lines come from `shotData.summaryLines`, populated by
-    // ShotHistoryStorage::convertShotRecord's analyzeShot() pass. Empty
-    // fallback when the field is missing — better to render the dialog
-    // header with no body than to risk a divergent recomputation. Any
-    // shotData that reaches the dialog has flowed through convertShotRecord,
-    // so the empty case is theoretical.
+    // ShotHistoryStorage::convertShotRecord's analyzeShot() pass.
+    // QML exposes QVariantList from a Q_GADGET as a QML sequence type, not a
+    // native JS Array — Array.isArray() returns false for it. Use ?? instead.
     property var analysisLines: {
         if (!analysisDialog.visible) return []
-        return Array.isArray(shotData?.summaryLines) ? shotData.summaryLines : []
+        return shotData?.summaryLines ?? []
     }
 
     contentItem: ColumnLayout {
