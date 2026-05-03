@@ -42,7 +42,7 @@ RowLayout {
     Item {
         id: tripleState
         Layout.fillWidth: true
-        Layout.preferredHeight: Theme.scaled(56)
+        Layout.preferredHeight: Theme.scaled(80)
         visible: root.currentScore === 0
 
         RowLayout {
@@ -69,13 +69,13 @@ RowLayout {
             AccessibleButton {
                 accessibleName: TranslationManager.translate(
                     "rating.quick.good.accessibility", "Rate this shot good")
-                Layout.preferredWidth: Theme.scaled(48)
-                Layout.preferredHeight: Theme.scaled(48)
+                Layout.preferredWidth: Theme.scaled(72)
+                Layout.preferredHeight: Theme.scaled(72)
                 onClicked: root.rateClicked(80)
                 contentItem: Image {
                     source: Theme.emojiToImage("😊")  // 😊
-                    sourceSize.width: Theme.scaled(28)
-                    sourceSize.height: Theme.scaled(28)
+                    sourceSize.width: Theme.scaled(48)
+                    sourceSize.height: Theme.scaled(48)
                     fillMode: Image.PreserveAspectFit
                 }
             }
@@ -83,13 +83,13 @@ RowLayout {
             AccessibleButton {
                 accessibleName: TranslationManager.translate(
                     "rating.quick.ok.accessibility", "Rate this shot okay")
-                Layout.preferredWidth: Theme.scaled(48)
-                Layout.preferredHeight: Theme.scaled(48)
+                Layout.preferredWidth: Theme.scaled(72)
+                Layout.preferredHeight: Theme.scaled(72)
                 onClicked: root.rateClicked(60)
                 contentItem: Image {
                     source: Theme.emojiToImage("😐")  // 😐
-                    sourceSize.width: Theme.scaled(28)
-                    sourceSize.height: Theme.scaled(28)
+                    sourceSize.width: Theme.scaled(48)
+                    sourceSize.height: Theme.scaled(48)
                     fillMode: Image.PreserveAspectFit
                 }
             }
@@ -97,13 +97,13 @@ RowLayout {
             AccessibleButton {
                 accessibleName: TranslationManager.translate(
                     "rating.quick.bad.accessibility", "Rate this shot bad")
-                Layout.preferredWidth: Theme.scaled(48)
-                Layout.preferredHeight: Theme.scaled(48)
+                Layout.preferredWidth: Theme.scaled(72)
+                Layout.preferredHeight: Theme.scaled(72)
                 onClicked: root.rateClicked(40)
                 contentItem: Image {
                     source: Theme.emojiToImage("😟")  // 😟
-                    sourceSize.width: Theme.scaled(28)
-                    sourceSize.height: Theme.scaled(28)
+                    sourceSize.width: Theme.scaled(48)
+                    sourceSize.height: Theme.scaled(48)
                     fillMode: Image.PreserveAspectFit
                 }
             }
