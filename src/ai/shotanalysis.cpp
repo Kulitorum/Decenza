@@ -343,6 +343,11 @@ double ShotAnalysis::avgTempDeviation(const QVector<QPointF>& tempData,
         devSum += std::abs(pt.y() - goal);
         ++count;
     }
+    // count == 0: every pour sample was below the warmup threshold — the machine
+    // never reached operating temperature during extraction. No usable data means
+    // no diagnosis; return 0.0 so the caller fires no badge. This is intentional:
+    // a machine that stays this cold for a full extraction is extremely rare, and
+    // silence is preferable to a misleading badge with no valid signal.
     return count > 0 ? devSum / count : 0.0;
 }
 

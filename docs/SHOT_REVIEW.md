@@ -301,6 +301,12 @@ warming up are excluded: any sample at the start of the window where
 one-directional (cold only) and latches off on the first in-range sample,
 so a mid-shot temperature drop is still counted as instability.
 
+If every pour sample is below the warmup threshold (count == 0), the
+function returns 0.0 and no badge fires. This is intentional: a machine
+that never reaches operating temperature during a full extraction is
+extremely unlikely in practice, and returning silence is preferable to a
+misleading badge when there is no valid signal.
+
 The `pourStart > 0` and `reachedExtractionPhase` guards live exclusively
 in `analyzeShot`. Save-time (`saveShot`), load-time recompute
 (`loadShotRecordStatic`), the dialog, the AI advisor, and MCP all
