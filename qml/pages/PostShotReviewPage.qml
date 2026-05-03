@@ -675,8 +675,16 @@ Page {
             // The precision slider below remains the fine-tuning surface.
             QuickRatingRow {
                 Layout.fillWidth: true
-                visible: postShotReviewPage.isEditMode &&
-                         (editShotData.enjoymentSource ?? "none") !== "user"
+                visible: {
+                    var src = editShotData.enjoymentSource ?? "none"
+                    var show = postShotReviewPage.isEditMode && src !== "user"
+                    console.log("[QuickRatingRow] editShotId=" + postShotReviewPage.editShotId
+                        + " isEditMode=" + postShotReviewPage.isEditMode
+                        + " enjoymentSource=" + src
+                        + " editEnjoyment=" + editEnjoyment
+                        + " visible=" + show)
+                    return show
+                }
                 currentScore: editEnjoyment
                 onRateClicked: function(score) {
                     editEnjoyment = score
