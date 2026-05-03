@@ -137,7 +137,9 @@ Page {
                 if (editDrinkTds === 0)
                     editDrinkTds = editShotData.drinkTdsPct ?? 0
                 editDrinkEy = editShotData.drinkEyPct ?? 0
-                editEnjoyment = editShotData.enjoyment0to100 ?? 0  // Use ?? to avoid treating 0 as falsy
+                editEnjoyment = (editShotData.enjoymentSource === "inferred")
+                    ? 0
+                    : (editShotData.enjoyment0to100 ?? 0)
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
@@ -204,18 +206,6 @@ Page {
     property double editDrinkEy: 0
     property int editEnjoyment: 0  // 0 = unrated
 
-    // Dismissed-for-this-shot mirror for QuickRatingRow's visibility
-    // (issue #1055 Layer 2). QSettings is not a notifiable QML property,
-    // so we cache the per-shot flag here at the page root and refresh
-    // it whenever editShotId changes. The QuickRatingRow's `visible`
-    // binding observes this property, so tapping dismiss takes effect
-    // immediately.
-    property bool _ratingPromptDismissed:
-        Settings.value("shotRatingDismissed/" + editShotId, false) === true
-    onEditShotIdChanged: {
-        _ratingPromptDismissed =
-            Settings.value("shotRatingDismissed/" + editShotId, false) === true
-    }
     property string editNotes: ""
     property string editBeverageType: "espresso"
 
@@ -681,33 +671,17 @@ Page {
 
             // Rating (moved to top, right after graph)
             // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
-            // rating row, visible only when the shot has no USER rating
-            // AND the user hasn't dismissed for this shot. Inferred-rated
-            // shots (enjoymentSource == "inferred") still show the row so
-            // the user can confirm or override the inferred score. The
-            // precision slider below remains the fine-tuning surface.
-            // Dismiss mirror lives on the page root (_ratingPromptDismissed)
-            // so the binding updates reactively on tap.
+            // rating row, visible when the shot has no user rating.
+            // Inferred scores (enjoymentSource="inferred") are internal AI
+            // signals and are never shown to the user, so inferred shots
+            // show the row too. The precision slider is the fine-tuning surface.
             QuickRatingRow {
                 Layout.fillWidth: true
                 visible: postShotReviewPage.isEditMode &&
-                         (editShotData.enjoymentSource ?? "none") !== "user" &&
-                         !postShotReviewPage._ratingPromptDismissed
-                currentScore: editEnjoyment
+                         (editShotData.enjoymentSource ?? "none") !== "user"
                 onRateClicked: function(score) {
                     editEnjoyment = score
                     postShotReviewPage.saveEditedShot()
-                }
-                onReviseClicked: {
-                    // Pop the row back to the three-icon picker without
-                    // wiping the persisted score; user picks a new face,
-                    // saveEditedShot then overwrites with the new value.
-                    editEnjoyment = 0
-                }
-                onDismissedClicked: {
-                    Settings.setValue(
-                        "shotRatingDismissed/" + postShotReviewPage.editShotId, true)
-                    postShotReviewPage._ratingPromptDismissed = true
                 }
             }
 
