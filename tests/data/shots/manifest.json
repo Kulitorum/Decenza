@@ -48,6 +48,14 @@
       }
     },
     {
+      "file": "londinium_soak_clean.json",
+      "description": "Synthetic Londinium-style clean shot (PR #1076 regression guard). 3-bar Infuse soak from t=2-12s drives C from 19 down to ~0.08 (puck wetting), producing 11 elevated dC/dt samples in the soak window — baseline would flag Sustained. WINDOW_MIN_EXTRACTION_BAR gate excludes all soak samples (goalNow=3 bar < 4.5 bar threshold); 9-bar extraction phase (t=14-30s) has flat C=0.36 with zero dC/dt. Mode-aware verdict must stay None. Removing or raising the gate would re-trigger Sustained on this fixture.",
+      "expect": {
+        "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
       "file": "malabar_grind_too_fine.json",
       "description": "D-Flow / Malabar pinned at 10 bar for 40+ seconds, flow stuck at 1 ml/s vs goal 1.88. Classic 'too fine' grind. Validates the mode-aware flow-vs-goal check on flow-controlled pour.",
       "expect": {
