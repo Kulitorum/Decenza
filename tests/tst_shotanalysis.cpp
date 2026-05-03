@@ -2042,6 +2042,69 @@ private slots:
         QVERIFY(t.grindIssueDetected);
         QVERIFY(t.skipFirstFrameDetected);
     }
+
+    // avgTempDeviation -------------------------------------------------------
+
+    void avgTempDeviation_coldStartWarmupSkipped()
+    {
+        // First 3s: actual = 84°C, goal = 88°C → delta = 4°C > TEMP_WARMUP_SKIP_C (3.0)
+        // → those samples are skipped. Remaining 7s: actual = 87°C → delta = 1°C < threshold.
+        // Average over the non-skipped samples should be ~1°C → well below 2°C badge threshold.
+        const double goal = 88.0;
+        const double warmSamples = 7.0 * 10; // 7s at 10 Hz
+
+        QVector<QPointF> temp, tempGoal;
+        for (int i = 0; i < 30; ++i) {          // 3s cold: 84°C
+            temp.append(QPointF(i * 0.1, 84.0));
+            tempGoal.append(QPointF(i * 0.1, goal));
+        }
+        for (int i = 30; i < 130; ++i) {        // 10s warm: 87°C
+            temp.append(QPointF(i * 0.1, 87.0));
+            tempGoal.append(QPointF(i * 0.1, goal));
+        }
+
+        const double dev = ShotAnalysis::avgTempDeviation(temp, tempGoal, 0.0, 13.0);
+        QVERIFY2(dev < ShotAnalysis::TEMP_UNSTABLE_THRESHOLD,
+                 "cold-start leading samples should be skipped; stable tail should not badge");
+        QCOMPARE_LT(std::abs(dev - 1.0), 0.01); // should average to exactly 1.0°C
+    }
+
+    void avgTempDeviation_midShotDropCountedAfterLatch()
+    {
+        // 2s stable at goal, then 3s of a 5°C below-goal drop mid-shot.
+        // Latch fires on the stable prefix; the drop is counted and pushes avg above threshold.
+        const double goal = 93.0;
+
+        QVector<QPointF> temp, tempGoal;
+        for (int i = 0; i < 20; ++i) {          // 2s stable: 93°C (delta=0)
+            temp.append(QPointF(i * 0.1, 93.0));
+            tempGoal.append(QPointF(i * 0.1, goal));
+        }
+        for (int i = 20; i < 50; ++i) {         // 3s drop: 88°C (delta=5°C)
+            temp.append(QPointF(i * 0.1, 88.0));
+            tempGoal.append(QPointF(i * 0.1, goal));
+        }
+
+        const double dev = ShotAnalysis::avgTempDeviation(temp, tempGoal, 0.0, 5.0);
+        QVERIFY2(dev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD,
+                 "mid-shot temperature drop must be counted after warmup latch fires");
+    }
+
+    void avgTempDeviation_allSamplesColdReturnsZero()
+    {
+        // Every pour sample is 5°C below goal throughout — machine never warmed up.
+        // count stays 0; function must return 0.0 (no usable data → no badge).
+        const double goal = 90.0;
+
+        QVector<QPointF> temp, tempGoal;
+        for (int i = 0; i < 50; ++i) {
+            temp.append(QPointF(i * 0.1, 85.0));    // delta = 5°C > TEMP_WARMUP_SKIP_C
+            tempGoal.append(QPointF(i * 0.1, goal));
+        }
+
+        const double dev = ShotAnalysis::avgTempDeviation(temp, tempGoal, 0.0, 5.0);
+        QCOMPARE(dev, 0.0); // no usable data → no badge (intentional)
+    }
 };
 
 QTEST_MAIN(tst_ShotAnalysis)

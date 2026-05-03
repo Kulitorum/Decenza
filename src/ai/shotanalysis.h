@@ -34,8 +34,8 @@ public:
     // temperature. Cold-start shots (e.g. first shot after idle) begin with the
     // group head below goal; excluding this warmup ramp prevents false-positive
     // "Temperature unstable" badges on otherwise clean shots. Only applied at
-    // the leading edge — if temperature drops this far below goal mid-shot,
-    // that is a real instability event and is counted.
+    // the leading edge — once the first in-range sample is seen, the latch fires
+    // and all subsequent deviations (both below and above goal) are counted.
     static constexpr double TEMP_WARMUP_SKIP_C = 3.0;
 
     // Mode-aware detection window tuning. A sample counts toward channeling
