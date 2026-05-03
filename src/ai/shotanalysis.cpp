@@ -193,6 +193,16 @@ QVector<ShotAnalysis::DetectionWindow> ShotAnalysis::buildChannelingWindows(
             continue;
         }
 
+        // For pressure-mode phases, exclude low-pressure preinfusion soaks (e.g.
+        // Londinium / Adaptive 3-bar soak). Puck-wetting dC/dt fluctuations at
+        // soak pressure produce the same elevated signal as channeling, but are
+        // not diagnostic — the puck is still absorbing water, not being extracted.
+        // Flow-mode phases bypass this gate (their goalSeries is flow, not pressure).
+        if (!isFlowMode && goalNow < WINDOW_MIN_EXTRACTION_BAR) {
+            flushCurrent();
+            continue;
+        }
+
         // Stationarity: both past and future goal values within WINDOW_STATIONARY_REL of goalNow.
         const double relPast = std::abs(goalPast - goalNow) / goalNow;
         const double relFut = std::abs(goalFut - goalNow) / goalNow;

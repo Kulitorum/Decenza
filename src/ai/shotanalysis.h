@@ -40,6 +40,12 @@ public:
     static constexpr double WINDOW_HALF_SEC       = 0.75;   // stationarity half-width
     static constexpr double WINDOW_MIN_GOAL       = 0.1;    // treat goal below this (or sentinel values) as "no goal"
     static constexpr double WINDOW_GAP_MERGE_SEC  = 0.3;    // merge window fragments separated by ≤ this gap
+    // Minimum pressure goal for pressure-mode phases to be included in channeling windows.
+    // Excludes low-pressure soak/preinfusion phases (e.g. Londinium/Adaptive 3-bar soak)
+    // whose natural puck-wetting dC/dt fluctuations mimic the channeling signature.
+    // Shots at extraction pressure (6–9 bar) are not affected; flow-mode phases bypass
+    // this gate entirely (they use the flow goal, not pressure goal).
+    static constexpr double WINDOW_MIN_EXTRACTION_BAR = 4.5;
 
     // Puck-failure / truncated-pour detection (detectPourTruncated). Any
     // legitimate espresso extraction develops pressure above ~3 bar at some
