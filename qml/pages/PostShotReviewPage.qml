@@ -669,22 +669,11 @@ Page {
 
             // Rating (moved to top, right after graph)
             // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
-            // rating row, visible whenever the shot has no USER rating.
-            // Inferred-rated shots (enjoymentSource == "inferred") still
-            // show the row so the user can confirm or override the score.
+            // rating row, visible whenever editEnjoyment is 0 (unrated).
             // The precision slider below remains the fine-tuning surface.
             QuickRatingRow {
                 Layout.fillWidth: true
-                visible: {
-                    var src = editShotData.enjoymentSource ?? "none"
-                    var show = postShotReviewPage.isEditMode && src !== "user"
-                    console.log("[QuickRatingRow] editShotId=" + postShotReviewPage.editShotId
-                        + " isEditMode=" + postShotReviewPage.isEditMode
-                        + " enjoymentSource=" + src
-                        + " editEnjoyment=" + editEnjoyment
-                        + " visible=" + show)
-                    return show
-                }
+                visible: postShotReviewPage.isEditMode && editEnjoyment === 0
                 currentScore: editEnjoyment
                 onRateClicked: function(score) {
                     editEnjoyment = score

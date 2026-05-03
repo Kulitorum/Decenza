@@ -101,7 +101,7 @@ RowLayout {
                 Layout.preferredHeight: Theme.scaled(48)
                 onClicked: root.rateClicked(40)
                 contentItem: Image {
-                    source: Theme.emojiToImage("😞")  // 😞
+                    source: Theme.emojiToImage("😟")  // 😟
                     sourceSize.width: Theme.scaled(28)
                     sourceSize.height: Theme.scaled(28)
                     fillMode: Image.PreserveAspectFit

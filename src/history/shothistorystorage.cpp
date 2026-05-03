@@ -1802,15 +1802,16 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     };
 
     // Issue #1055 Layer 3: when the caller writes `enjoyment` without
-    // an explicit `enjoymentSource`, default the source to "user". Any
-    // explicit user-driven write path (manual editor, QuickRatingRow,
-    // conversational reply) is by definition a user rating; only the
-    // inferred-good evaluator passes "inferred". Materialize a local
-    // copy of the map so we don't mutate the caller's argument.
+    // an explicit `enjoymentSource`, default the source to "user" — but
+    // only for non-zero scores. 0 always means unrated regardless of who
+    // wrote it; stamping it "user" would hide the QuickRatingRow and
+    // mislead the AI into treating the shot as deliberately rated bad.
     QVariantMap effective = metadata;
     if (effective.contains(QStringLiteral("enjoyment")) &&
         !effective.contains(QStringLiteral("enjoymentSource"))) {
-        effective.insert(QStringLiteral("enjoymentSource"), QStringLiteral("user"));
+        const int score = effective.value(QStringLiteral("enjoyment")).toInt();
+        effective.insert(QStringLiteral("enjoymentSource"),
+                         score > 0 ? QStringLiteral("user") : QStringLiteral("none"));
     }
 
     // Build SET clause from only the keys present in the (effective) metadata.
