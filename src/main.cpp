@@ -960,6 +960,11 @@ int main(int argc, char *argv[])
     int de1ReconnectAttempt = 0;
     QTimer de1ReconnectTimer;
     de1ReconnectTimer.setSingleShot(true);
+    // Tracks "was connected or connecting" for edge-detection in the
+    // connectedChanged handler. Updated by connectingChanged so startup
+    // failures (connecting→failed, never reached connected) also arm the
+    // retry timer — not just mid-session disconnects (connected→disconnected).
+    bool de1WasActive = false;
 
     // Auto-wake manager for scheduled wake-ups
     AutoWakeManager autoWakeManager(settings.autoWake());
@@ -1179,6 +1184,14 @@ int main(int argc, char *argv[])
         }
     });
 
+    // When the DE1 starts connecting, mark it as active so that if the
+    // attempt fails before reaching connected, connectedChanged will still
+    // recognise the inactive transition and arm the retry timer.
+    QObject::connect(&de1Device, &DE1Device::connectingChanged,
+                     [&de1Device, &de1WasActive]() {
+        if (de1Device.isConnecting()) de1WasActive = true;
+    });
+
     // When DE1 connects or disconnects, manage reconnect timer.
     //
     // connectedChanged() can fire multiple times while the device is already
@@ -1186,31 +1199,31 @@ int main(int argc, char *argv[])
     // unconditionally, and our reconnect path calls disconnect() on the old
     // transport before spinning up a new one. Without edge-tracking, every
     // spurious emission would reset de1ReconnectAttempt=0 and re-arm the 5 s
-    // timer, scrambling the backoff schedule (a mid-attempt spurious emit
-    // was observed converting a 30 s retry into a 60 s retry and losing the
-    // attempt counter). Track the previous state and only act on genuine
-    // edges.
-    static bool s_de1WasConnected = false;
+    // timer, scrambling the backoff schedule. de1WasActive is set true by
+    // connectingChanged when a connection attempt starts and cleared here on
+    // each inactive→inactive emission, so startup failures (connecting→failed
+    // without ever reaching connected) also arm the retry timer.
     QObject::connect(&de1Device, &DE1Device::connectedChanged,
-                     [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings
+                     [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings, &de1WasActive
 #ifndef Q_OS_IOS
                      , &usbManager
 #endif
                      ]() {
         const bool isConnected = de1Device.isConnected();
-        if (isConnected == s_de1WasConnected) {
-            return;  // Spurious same-state emission — ignore
+        const bool isActive = isConnected || de1Device.isConnecting();
+        if (!de1WasActive && !isActive) {
+            return;  // Spurious inactive→inactive emission — ignore
         }
-        s_de1WasConnected = isConnected;
+        const bool wasActive = de1WasActive;
+        de1WasActive = isActive;
 
         if (isConnected) {
-            // Just transitioned disconnected → connected: stop any pending
-            // reconnect attempts.
+            // Just transitioned to connected: stop any pending reconnect attempts.
             de1ReconnectTimer.stop();
             de1ReconnectAttempt = 0;
-        } else {
-            // Just transitioned connected → disconnected: start auto-reconnect
-            // if we have a saved address.
+        } else if (wasActive) {
+            // Was active (connecting or connected), now neither: start
+            // auto-reconnect if we have a saved address.
 #ifndef Q_OS_IOS
             if (usbManager.isDe1Connected()) {
                 // Don't try BLE reconnect if USB is handling the DE1
