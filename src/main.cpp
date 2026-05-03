@@ -1200,9 +1200,10 @@ int main(int argc, char *argv[])
     // transport before spinning up a new one. Without edge-tracking, every
     // spurious emission would reset de1ReconnectAttempt=0 and re-arm the 5 s
     // timer, scrambling the backoff schedule. de1WasActive is set true by
-    // connectingChanged when a connection attempt starts and cleared here on
-    // each inactive→inactive emission, so startup failures (connecting→failed
-    // without ever reaching connected) also arm the retry timer.
+    // connectingChanged when a connection attempt starts and reset to false
+    // here on each active→inactive transition, so startup failures
+    // (connecting→failed without ever reaching connected) also arm the retry
+    // timer while spurious inactive→inactive emissions are still suppressed.
     QObject::connect(&de1Device, &DE1Device::connectedChanged,
                      [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings, &de1WasActive
 #ifndef Q_OS_IOS
@@ -1230,7 +1231,9 @@ int main(int argc, char *argv[])
                 return;
             }
 #endif
-            if (!settings.machineAddress().isEmpty() && !de1ReconnectTimer.isActive()) {
+            if (settings.machineAddress().isEmpty()) {
+                qDebug() << "DE1 reconnect: no saved address — skipping auto-reconnect";
+            } else if (!de1ReconnectTimer.isActive()) {
                 de1ReconnectAttempt = 0;
                 de1ReconnectTimer.start(5000);  // First retry after 5s
                 qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
