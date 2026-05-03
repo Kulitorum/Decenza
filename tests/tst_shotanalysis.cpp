@@ -189,12 +189,15 @@ private slots:
         QList<HistoryPhaseMarker> phases{
             phase(3.0, "Pour", 0, /*isFlowMode=*/false),
         };
-        // Goal: flat 8 from 3→10s, ramp 8→3 from 10→12s (2.5 bar/s),
-        // flat 3 from 12→20s. Actual tracks goal (converged).
+        // Goal: flat 8 from 3→10s, ramp 8→5 from 10→11.5s (2 bar/s),
+        // flat 5 from 11.5→20s. Actual tracks goal (converged).
+        // Late plateau at 5 bar (> WINDOW_MIN_EXTRACTION_BAR = 4.5) so the
+        // soak-exclusion gate doesn't suppress it — the test exercises ramp
+        // exclusion behaviour, not low-pressure soak exclusion.
         QVector<QPointF> pressureGoal;
         pressureGoal = concat(pressureGoal, flatSeries(3.0, 10.0 - 0.1, 8.0));
-        pressureGoal = concat(pressureGoal, rampSeries(10.0, 12.0, 8.0, 3.0));
-        pressureGoal = concat(pressureGoal, flatSeries(12.0 + 0.1, 20.0, 3.0));
+        pressureGoal = concat(pressureGoal, rampSeries(10.0, 11.5, 8.0, 5.0));
+        pressureGoal = concat(pressureGoal, flatSeries(11.5 + 0.1, 20.0, 5.0));
         auto pressure = pressureGoal;  // actual tracks goal exactly
 
         auto flow = flatSeries(3.0, 20.0, 1.0);
@@ -206,25 +209,26 @@ private slots:
 
         QVERIFY2(!windows.isEmpty(), "expected plateau windows");
 
-        // The ramp itself (10–12 s) must be excluded from every window. The
-        // ±0.75 s lookup fringes around each ramp boundary can still qualify
-        // when the magnitude change stays under 15 %, so do not assert on
-        // them — only the ramp core.
+        // The ramp itself (10–11.5 s) must be excluded from every window. At
+        // 2 bar/s the ±0.75 s stationarity fringe around the ramp start is
+        // already above 15 %, so no early fringe window bleeds into the ramp.
+        // The fringe at the ramp end (t ≈ 11.9 s) starts at w.start ≥ 11.5
+        // and is therefore not counted as intersecting the ramp core.
         for (const auto& w : windows) {
-            const bool intersectsRampCore = !(w.end <= 10.0 || w.start >= 12.0);
+            const bool intersectsRampCore = !(w.end <= 10.0 || w.start >= 11.5);
             QVERIFY2(!intersectsRampCore,
-                     qPrintable(QString("window [%1, %2] intersects ramp core 10–12 s")
+                     qPrintable(QString("window [%1, %2] intersects ramp core 10–11.5 s")
                                     .arg(w.start).arg(w.end)));
         }
 
-        // At least one window should sit entirely on each flat plateau.
+        // At least one window should lie on each flat plateau.
         bool sawEarlyPlateau = false, sawLatePlateau = false;
         for (const auto& w : windows) {
             if (w.start >= 7.0 && w.end <= 10.0) sawEarlyPlateau = true;
-            if (w.start >= 12.0 && w.end <= 18.5) sawLatePlateau = true;
+            if (w.start <= 14.0 && w.end >= 14.0) sawLatePlateau = true;  // window spans t=14 s (well into late plateau)
         }
         QVERIFY2(sawEarlyPlateau, "expected a window inside the 7–10 s plateau");
-        QVERIFY2(sawLatePlateau, "expected a window inside the 12–18 s plateau");
+        QVERIFY2(sawLatePlateau, "expected a window over the late plateau (containing t=14 s)");
     }
 
     // A flow-mode phase with a stationary flow goal where actual flow is

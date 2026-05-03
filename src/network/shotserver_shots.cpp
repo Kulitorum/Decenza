@@ -1727,6 +1727,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             <button onclick="downloadProfile()" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
                 &#128196; Download Profile JSON
             </button>
+            <button onclick="window.location.href=window.location.pathname+'/shot.json'" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
+                &#11015; Download Shot JSON
+            </button>
             <button onclick="var c=document.getElementById('debugLogContainer'); if(c){if(c.style.display==='none'){c.style.display='block';c.scrollIntoView({behavior:'smooth'});}else{c.style.display='none';}}" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
                 &#128203; View Debug Log
             </button>

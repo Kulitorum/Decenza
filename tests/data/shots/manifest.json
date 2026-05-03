@@ -41,9 +41,17 @@
     },
     {
       "file": "londinium_gusher.json",
-      "description": "Londonium lever profile finished in 15.7s at 1:1.78 ratio — the pressure should have held longer. True-positive Sustained channeling: pressure hit 9 bar then the puck gave up.",
+      "description": "Synthetic Londinium true-positive channeling fixture (PR #1076). 3-bar Infuse soak (t=3–14.5s) excluded by WINDOW_MIN_EXTRACTION_BAR gate. Flow steps 1.5→5.0 mL/s at t=22s and 5.0→1.5 mL/s at t=31s; each step produces raw dC/dt≈25.3 at two adjacent samples, Gaussian kernel elevates 10 positions per transition → sustainedCount=20 → Sustained. Validates that the soak gate does not suppress genuine extraction-phase channeling.",
       "expect": {
         "channeling": "Sustained",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "londinium_soak_clean.json",
+      "description": "Synthetic Londinium-style clean shot (PR #1076 regression guard). 3-bar Infuse soak from t=2-12s drives C from 19 down to ~0.08 (puck wetting), producing 11 elevated dC/dt samples in the soak window — baseline would flag Sustained. WINDOW_MIN_EXTRACTION_BAR gate excludes all soak samples (goalNow=3 bar < 4.5 bar threshold); 9-bar extraction phase (t=14-30s) has flat C=0.36 with zero dC/dt. Mode-aware verdict must stay None. Removing or raising the gate would re-trigger Sustained on this fixture.",
+      "expect": {
+        "channeling": "None",
         "pourTruncated": false
       }
     },
