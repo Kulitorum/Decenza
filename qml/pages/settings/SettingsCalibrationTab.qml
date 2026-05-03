@@ -280,6 +280,12 @@ Item {
                         }
                     }
                 }
+
+                // Decenza Scale calibration — bottom of the left column.
+                // Component renders nothing when the active scale isn't a
+                // Decenza (visibility gate inside the file), so users with
+                // other scales never see this card.
+                DecenzaCalibrationCard {}
             }
 
             // ========== RIGHT COLUMN ==========

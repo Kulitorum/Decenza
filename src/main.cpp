@@ -49,6 +49,7 @@
 #include "core/settings_network.h"
 #include "core/settings_app.h"
 #include "core/settings_calibration.h"
+#include "core/settings_connections.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -59,6 +60,7 @@
 #include "network/crashreporter.h"
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
+#include "ble/scales/decenzawifimanager.h"
 #include "ble/de1device.h"
 #include "ble/de1transport.h"
 #ifndef Q_OS_IOS
@@ -468,6 +470,7 @@ int main(int argc, char *argv[])
     TranslationManager translationManager(&sharedNetworkManager, &settings);
     checkpoint("TranslationManager");
     BLEManager bleManager;
+    DecenzaWifiManager decenzaWifiManager(&bleManager, settings.connections());
 
     // Disable BLE when simulation mode is active
 #ifdef QT_DEBUG
@@ -1243,7 +1246,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &decenzaWifiManager](const QBluetoothDeviceInfo& device, const QString& type) {
         // Don't connect if we already have a connected scale
         if (physicalScale && physicalScale->isConnected()) {
             return;
@@ -1283,8 +1286,23 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Create new scale object
-        physicalScale = ScaleFactory::createScale(device, type);
+        // Create new scale object. Pass settings.connections() on the first
+        // attempt so the factory can prefer a stored Wi-Fi pairing for a
+        // Decenza Scale; pass nullptr on subsequent retries to force BLE,
+        // which gives the user a working connection immediately if the
+        // Wi-Fi target is unreachable. Once a connection (Wi-Fi or BLE)
+        // succeeds, scaleReconnectAttempt is zeroed and the next
+        // disconnect-cycle will retry Wi-Fi.
+        SettingsConnections* connectionsForFactory =
+            (scaleReconnectAttempt == 0) ? settings.connections() : nullptr;
+        // Track whether this connect attempt is going via Wi-Fi so the
+        // post-connect IP-refresh path can skip itself when we're already
+        // on Wi-Fi (no point re-reading STATUS over BLE in that case).
+        const QString lowerMac = device.address().toString().toLower();
+        const bool wifiAttempt = connectionsForFactory && !lowerMac.isEmpty()
+            && !connectionsForFactory->scaleWifiPairing(lowerMac)
+                  .value(QStringLiteral("ip")).toString().isEmpty();
+        physicalScale = ScaleFactory::createScale(device, type, nullptr, connectionsForFactory);
         if (!physicalScale) {
             qWarning() << "Failed to create scale for type:" << type;
             return;
@@ -1315,13 +1333,25 @@ int main(int argc, char *argv[])
         QObject::connect(physicalScale.get(), &ScaleDevice::weightChanged,
                          &mainController, &MainController::onScaleWeightChanged);
 
-        // When physical scale connects/disconnects, switch between physical and FlowScale
+        // When physical scale connects/disconnects, switch between physical and FlowScale.
+        // Capture `lowerMac` and `wifiAttempt` by value so the post-connect
+        // IP-refresh decision uses the values from THIS connect attempt
+        // even if a subsequent reconnect cycle overwrites the locals.
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed]() {
+                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed, &decenzaWifiManager, lowerMac, wifiAttempt]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();
                 scaleReconnectAttempt = 0;
+                // Opportunistic IP refresh: when a Decenza-named scale just
+                // connected via BLE (i.e. we did NOT take the Wi-Fi path),
+                // read fee4 once over BLE to capture the firmware's current
+                // IP. If it differs from the stored pairing, the pairing is
+                // updated so the next launch's Wi-Fi-first attempt lands on
+                // the fresh IP. Doesn't switch transports mid-session.
+                if (!wifiAttempt && physicalScale->type() == "decent" && !lowerMac.isEmpty()) {
+                    decenzaWifiManager.refreshStoredIp(lowerMac);
+                }
                 // A fresh successful connect clears any deliberate-disconnect
                 // suppression (e.g. scale reconnected during DE1 sleep via a
                 // manual scan).
@@ -1616,6 +1646,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
     context->setContextProperty("BLEManager", &bleManager);
+    context->setContextProperty("DecenzaWifiManager", &decenzaWifiManager);
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
     context->setContextProperty("FlowScale", &flowScale);  // Always available for diagnostics
@@ -1707,6 +1738,8 @@ int main(int argc, char *argv[])
         "SettingsApp is created in C++");
     qmlRegisterUncreatableType<SettingsCalibration>("Decenza", 1, 0, "SettingsCalibrationType",
         "SettingsCalibration is created in C++");
+    qmlRegisterUncreatableType<SettingsConnections>("Decenza", 1, 0, "SettingsConnectionsType",
+        "SettingsConnections is created in C++");
 
     // ShotProjection is a Q_GADGET value type used as the parameter of
     // ShotHistoryStorage::shotReady. qmlRegisterUncreatableMetaObject registers
