@@ -1719,16 +1719,22 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                 record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
             });
 
+            QByteArray payload;
+            bool found = dbOpened && record.summary.id != 0;
+            if (found) {
+                ShotProjection shotData = ShotHistoryStorage::convertShotRecord(record);
+                payload = VisualizerUploader::buildHistoryShotJson(shotData);
+            }
+
             if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, record, shotId]() {
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, found,
+                                             payload = std::move(payload), shotId]() {
                 if (*destroyed || !socketGuard) return;
                 if (!dbOpened) {
                     sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                } else if (record.summary.id == 0) {
+                } else if (!found) {
                     sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
                 } else {
-                    ShotProjection shotData = ShotHistoryStorage::convertShotRecord(record);
-                    QByteArray payload = VisualizerUploader::buildHistoryShotJson(shotData);
                     QString filename = QString("shot%1.json").arg(shotId);
                     QByteArray headers = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
                     sendResponse(socketGuard, 200, "application/json", payload, headers);
