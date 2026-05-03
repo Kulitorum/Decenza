@@ -137,7 +137,9 @@ Page {
                 if (editDrinkTds === 0)
                     editDrinkTds = editShotData.drinkTdsPct ?? 0
                 editDrinkEy = editShotData.drinkEyPct ?? 0
-                editEnjoyment = editShotData.enjoyment0to100 ?? 0  // Use ?? to avoid treating 0 as falsy
+                editEnjoyment = (editShotData.enjoymentSource === "inferred")
+                    ? 0
+                    : (editShotData.enjoyment0to100 ?? 0)
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
