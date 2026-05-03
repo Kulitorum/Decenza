@@ -97,6 +97,15 @@ body:
       required: false
 
   - type: textarea
+    id: visualizer_links
+    attributes:
+      label: Visualizer.coffee shot links (if applicable)
+      description: |
+        If the bug involves a specific shot (weight, flow, pressure, stop-at-weight, etc.), share a link to that shot on Visualizer.coffee. This gives us the full shot data without needing a file upload.
+      placeholder: |
+        https://visualizer.coffee/shots/...
+
+  - type: textarea
     id: screenshots
     attributes:
       label: Screenshots or video
