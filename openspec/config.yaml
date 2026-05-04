@@ -1,0 +1,30 @@
+context: |
+  Decenza is a cross-platform Qt/C++ controller for the Decent Espresso DE1 espresso machine,
+  communicating over BLE. It manages extraction profiles, steaming, hot water, flushing, scale
+  integration, shot history, and visualizer.coffee upload.
+
+  Tech stack: C++17, Qt 6.10.3 (QML/Quick Controls 2 UI), CMake, SQLite, Eclipse Paho MQTT C.
+  Platforms: Windows, macOS, Linux, Android (API 28+), iOS (17.0+).
+  CI/CD: GitHub Actions (tag-push triggers builds; iOS uploads to App Store).
+
+  Architecture:
+  - BLE signal flow: DE1Device → MainController → ShotDataModel → QML graphs
+  - Settings: 7 domain sub-objects (SettingsMqtt, SettingsTheme, etc.) under a Settings façade
+  - Scale: abstract ScaleDevice base, FlowScale fallback, factory for 14+ physical scale types
+  - Navigation: QML StackView, auto-navigates on machine phase changes
+  - Machine phases: Disconnected → Sleep → Idle → Heating → Ready → Espresso/Steam/HotWater/Flush → Ending
+  - DB/disk I/O: always off main thread via QThread::create() + QueuedConnection callback
+
+  Key constraints:
+  - BLE: 50ms minimum between writes; command queue with 5s timeout, 3 retries
+  - No timers as guards — use event-based flags instead
+  - No Google Play Services on Decent tablets; GPS-only location
+  - New QML files must be added to CMakeLists.txt qt_add_qml_module list
+  - New layout widgets need registration in 4 places (see CLAUDE.md)
+  - New Settings properties go in a domain sub-object, never on Settings directly
+
+  Domain:
+  - Profiles define extraction frames (pressure/flow/temp curves) uploaded to machine via BLE
+  - Shot data sampled at ~5Hz; pressure, flow, weight, temperature tracked in real time
+  - Scales (Acaia, Felicita, Decent, etc.) provide weight for stop-at-weight and graphing
+  - visualizer.coffee: community shot-sharing (upload shots, import profiles via REST)
