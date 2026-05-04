@@ -19,9 +19,8 @@ namespace {
 // batch is sufficient signal. See docs/CLAUDE_MD/SAW_LEARNING.md.
 constexpr qsizetype kSawMinMediansForGraduation = 1;
 
-constexpr int kBatchSize = 3;
-constexpr int kMaxPairHistory = 10;
-constexpr double kBatchMaxIqr = 1.0;          // seconds — IQR of lags within a batch
+constexpr qsizetype kBatchSize = 3;
+constexpr qsizetype kMaxPairHistory = 10;
 constexpr double kBatchMaxDeviation = 1.5;    // seconds — single lag from batch median
 
 QJsonObject parseFlowCalBatch(const QSettings& settings) {
@@ -227,7 +226,7 @@ double SettingsCalibration::sawLearnedLag() const {
     double sumLag = 0;
     int count = 0;
 
-    for (qsizetype i = arr.size() - 1; i >= 0 && count < 5; --i) {
+    for (qsizetype i = arr.size() - 1; i >= 0 && count < 3; --i) {
         QJsonObject obj = arr[i].toObject();
         if (obj["scale"].toString() == currentScale) {
             if (obj.contains("drip") && obj.contains("flow")) {
@@ -461,10 +460,10 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, cons
     }
 
     // When called with a profile filename, route through the per-(profile, scale) batch
-    // accumulator. The pending batch holds 5 shots before committing the median to the
+    // accumulator. The pending batch holds 3 shots before committing the median to the
     // per-pair history AND the global pool — this reduces churn from individual shots
-    // and provides outlier rejection via the median + IQR check. See AUTO_FLOW_CALIBRATION
-    // for the same pattern applied to flow cal.
+    // and provides outlier rejection via the median + per-element deviation check. See
+    // AUTO_FLOW_CALIBRATION for the same pattern applied to flow cal.
     if (!profileFilename.isEmpty()) {
         addSawPerPairEntry(drip, flowRate, scaleType, overshoot, profileFilename);
         return;
@@ -717,9 +716,8 @@ double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             // Same flow-similarity kernel as the global getExpectedDrip(), but
             // recencyMin is fixed at 3.0 — per-pair history only kicks in after
-            // graduation (≥ kSawMinMediansForGraduation committed medians) and
-            // is small (capped at 10), so the pre-convergence steepening that
-            // the global path uses (recencyMin=1.0) doesn't apply here.
+            // graduation (≥ kSawMinMediansForGraduation committed medians).
+            // Reads at most 3 recent entries, matching the per-pair read window.
             struct Entry { double drip; double flow; };
             QVector<Entry> entries;
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < 3; --i) {
@@ -796,31 +794,21 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         const qsizetype n = v.size();
         return (n % 2 == 0) ? (v[n / 2 - 1] + v[n / 2]) / 2.0 : v[n / 2];
     };
-    auto iqrOf = [](QVector<double> v) -> double {
-        if (v.size() < 4) return 0.0;
-        std::sort(v.begin(), v.end());
-        const qsizetype n = v.size();
-        return v[3 * n / 4] - v[n / 4];
-    };
-
     const double medianDrip = medianOf(drips);
     const double medianFlow = medianOf(flows);
     const double medianOver = medianOf(overs);
     const double medianLag = (medianFlow > 0.5) ? medianDrip / medianFlow : 0.0;
-    const double lagIqr = iqrOf(lags);
 
-    // 3. Outlier check on the batch as a whole.
+    // 3. Outlier check: reject batch if any lag deviates too far from the median.
+    //    IQR gating is not used here because kBatchSize=3 produces too few values
+    //    for a meaningful IQR estimate; per-element deviation is sufficient.
     QString rejectReason;
-    if (lagIqr > kBatchMaxIqr) {
-        rejectReason = QString("iqr=%1 > %2s").arg(lagIqr).arg(kBatchMaxIqr);
-    } else {
-        for (double l : std::as_const(lags)) {
-            double dev = qAbs(l - medianLag);
-            if (dev > kBatchMaxDeviation) {
-                rejectReason = QString("outlier lag=%1 deviates %2s > %3s from median")
-                                   .arg(l).arg(dev).arg(kBatchMaxDeviation);
-                break;
-            }
+    for (double l : std::as_const(lags)) {
+        double dev = qAbs(l - medianLag);
+        if (dev > kBatchMaxDeviation) {
+            rejectReason = QString("outlier lag=%1 deviates %2s > %3s from median")
+                               .arg(l).arg(dev).arg(kBatchMaxDeviation);
+            break;
         }
     }
     if (!rejectReason.isEmpty()) {
@@ -895,7 +883,7 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
 
 void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) {
     // Bootstrap is a cold-start prior for *new* pairs: a single committed batch median
-    // (5 real shots) is already more informative than the static sensorLag() constant,
+    // (3 real shots) is already more informative than the static sensorLag() constant,
     // so any pair with at least one committed median contributes. The IQR fence below
     // protects against under-trained outliers if many pairs accumulate. Pairs that have
     // crossed the per-profile graduation threshold (kSawMinMediansForGraduation

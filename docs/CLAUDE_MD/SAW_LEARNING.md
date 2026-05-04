@@ -100,9 +100,9 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
     log "[SAW] accumulated drip=… flow=… (n/3) lag=…"
     return
 
-  compute median drip, flow, overshoot, lag, IQR(lags)
-  if IQR > 1.0 s or any |lag - median_lag| > 1.5 s:
-    log "[SAW] batch rejected — high dispersion …"
+  compute median drip, flow, overshoot, lag
+  if any |lag - median_lag| > 1.5 s:
+    log "[SAW] batch rejected — outlier lag=… deviates …s > …s from median …"
     drop pending, return
 
   if median_overshoot < -6 g and last committed median for pair was also < -6 g:
@@ -130,7 +130,7 @@ Median rejects single outliers but does not detect the case where the user chang
 
 ### Why a global bootstrap median instead of just the scale default
 
-A new profile starting from `sensorLag(scaleType) + 0.1 s` will be off until 5 shots populate its history. With `globalSawBootstrapLag`, it starts from "what we have learned about this user's machine on this scale across their other profiles" — a much closer prior. Flow cal uses the same idea (median of espresso per-profile multipliers) and it noticeably reduces the cold-start error.
+A new profile starting from `sensorLag(scaleType) + 0.1 s` will be off until 3 shots populate its history (one batch). With `globalSawBootstrapLag`, it starts from "what we have learned about this user's machine on this scale across their other profiles" — a much closer prior. Flow cal uses the same idea (median of espresso per-profile multipliers) and it noticeably reduces the cold-start error.
 
 ## User Experience
 
@@ -150,7 +150,7 @@ System log lines:
 | Event | Format |
 |-------|--------|
 | Entry accepted into batch | `[SAW] accumulated drip=… flow=… for <profile>::<scale> (n/3) lag=…` |
-| Batch rejected (dispersion) | `[SAW] batch rejected — high dispersion median_lag=… iqr=… for <pair> — dropping batch` |
+| Batch rejected (dispersion) | `[SAW] batch rejected — outlier lag=… deviates …s > …s from median median_lag=… for <pair> — dropping batch` |
 | Batch committed | `[SAW] committed median lag=… (drip=… flow=…) for <pair> — n_medians=k` |
 | Auto-reset | `[SAW] 2nd consecutive overshoot<-6g for <pair> — clearing committed history` |
 | Bootstrap recompute | `[SAW] global bootstrap lag for <scale> updated to … (median of n graduated pairs)` |
