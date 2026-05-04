@@ -34,10 +34,10 @@ Shot 1054 is a separate point: even within a single profile, end-of-shot flow ca
 The same architecture that fixed the analogous problem in flow calibration ([AUTO_FLOW_CALIBRATION.md](AUTO_FLOW_CALIBRATION.md), issue [#739](https://github.com/Kulitorum/Decenza/issues/739)) applies cleanly to SAW:
 
 1. **Per-(profile, scale) history** — each pair learns its own drip dynamics. Switching profiles or scales does not contaminate the active pair's data.
-2. **Batched median commits** — accumulate 5 shots' worth of pending entries before changing the model. The median is robust to single-shot outliers (channeling, scale glitches, cup interaction). 5 was chosen to match flow cal.
-3. **Batch-level dispersion check** — if the 5 lags within a batch are too spread out (IQR > 1.0 s, or any single lag > 1.5 s from the batch median), the whole batch is dropped. Dispersion that high indicates the user changed conditions mid-batch (different beans, different grinder, manual stop).
+2. **Batched median commits** — accumulate 3 shots' worth of pending entries before changing the model. The median is robust to single-shot outliers (channeling, scale glitches, cup interaction). N=3 is chosen because SAW has no feedback loop (a stop command does not alter pump dynamics for the next shot), so a single confirmed 3-shot batch is sufficient signal — the conservative N=5 from flow calibration is not needed here.
+3. **Batch-level dispersion check** — if the 3 lags within a batch are too spread out (any single lag > 1.5 s from the batch median), the whole batch is dropped. Dispersion that high indicates the user changed conditions mid-batch (different beans, different grinder, manual stop). IQR gating requires ≥ 4 values; with N=3 the per-element deviation check handles all outlier cases.
 4. **Global bootstrap** — the median lag across all graduated `(profile, scale)` pairs on the same scale is published as `saw/globalBootstrapLag/<scaleType>`. New pairs use this as their first-shot default instead of the scale's hardware-only `sensorLag()`.
-5. **Read-path fallback chain** — `perProfile` (≥ `kSawMinMediansForGraduation` committed batches, currently 2 = 10 SAW shots) → `globalBootstrap` → `globalPool` (legacy entries) → `scaleDefault`. New users / new pairs degrade gracefully.
+5. **Read-path fallback chain** — `perProfile` (≥ `kSawMinMediansForGraduation` committed batches, currently 1 = 3 SAW shots minimum) → `globalBootstrap` → `globalPool` (legacy entries) → `scaleDefault`. New users / new pairs degrade gracefully.
 
 ### Why this is the right shape
 
@@ -56,8 +56,8 @@ Three QSettings keys, each a JSON object keyed by `"<profileFilename>::<scaleTyp
 
 | Key | Shape | Trim | Purpose |
 |-----|-------|------|---------|
-| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, ts, batchSize}` | 10 medians (~50 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the pair has graduated (≥ `kSawMinMediansForGraduation` medians, currently 2). |
-| `saw/perProfileBatch` | array of pending raw entries `{drip, flow, overshoot, scale, profile, ts}` (target size 5) | 5 (commit point) | Pending accumulator; flushed on commit or rejection. |
+| `saw/perProfileHistory` | array of committed batch-median entries `{drip, flow, overshoot, scale, profile, ts, batchSize}` | 10 medians (~30 shots-worth) | Source of truth for `sawLearnedLagFor` / `getExpectedDripFor` once the pair has graduated (≥ `kSawMinMediansForGraduation` medians, currently 1). |
+| `saw/perProfileBatch` | array of pending raw entries `{drip, flow, overshoot, scale, profile, ts}` (target size 3) | 3 (commit point) | Pending accumulator; flushed on commit or rejection. |
 | `saw/globalBootstrapLag/<scaleType>` | scalar `double` (seconds) | n/a | IQR-fenced median of last committed median lag from each pair on this scale with at least one committed batch-median. Used as first-shot default for new pairs. (Graduation for the per-profile *read* path is a stricter `kSawMinMediansForGraduation` medians; the bootstrap is a cold-start prior, so it accepts pairs with any committed history — IQR fencing handles the rest.) |
 
 The legacy `saw/learningHistory` key is preserved as a **global pool**: every committed batch-median is mirrored into it (trim 50). This keeps `isSawConverged()` and the legacy convergence-divergence detection working without changes, and provides a final read-path fallback for users with pre-update data.
@@ -71,7 +71,7 @@ The per-entry shape gains one optional field, `profile`. Old entries without it 
 ```
 sawLearnedLagFor(profile, scale):
   if perProfileSawHistory(profile, scale).size ≥ kSawMinMediansForGraduation:
-    return mean(drip / flow over last 5 medians)        ← perProfile
+    return mean(drip / flow over last 3 medians)        ← perProfile
   if globalSawBootstrapLag(scale) > 0:
     return globalSawBootstrapLag(scale)                 ← globalBootstrap
   return sawLearnedLag()                                ← globalPool / scaleDefault
@@ -96,13 +96,13 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
     return
 
   append entry to perProfileBatch[profile::scale]
-  if pending.size < 5:
-    log "[SAW] accumulated drip=… flow=… (n/5) lag=…"
+  if pending.size < 3:
+    log "[SAW] accumulated drip=… flow=… (n/3) lag=…"
     return
 
-  compute median drip, flow, overshoot, lag, IQR(lags)
-  if IQR > 1.0 s or any |lag - median_lag| > 1.5 s:
-    log "[SAW] batch rejected — high dispersion …"
+  compute median drip, flow, overshoot, lag
+  if any |lag - median_lag| > 1.5 s:
+    log "[SAW] batch rejected — outlier lag=… deviates …s > …s from median …"
     drop pending, return
 
   if median_overshoot < -6 g and last committed median for pair was also < -6 g:
@@ -120,15 +120,17 @@ addSawLearningPoint(drip, flow, scale, overshoot, profile):
 
 Per-shot updates create a feedback loop: each update changes the predicted-drip threshold, which changes when the stop command fires, which changes the observed drip. The model partially chases its own tail.
 
-Batching to N=5 holds the model constant for 5 shots, so the 5 ideals are pulled under identical conditions and are directly comparable. Taking the **median** of those 5 ideals is a built-in outlier filter: a single bad shot (channeling, scale glitch, manual stop, runaway) cannot move the model. This same logic, with the same numerical constants, has held up well in flow calibration since #739 closed.
+Batching to N=3 holds the model constant for 3 shots, so the 3 ideals are pulled under identical conditions and are directly comparable. Taking the **median** of those 3 ideals is a built-in outlier filter: a single bad shot (channeling, scale glitch, manual stop, runaway) cannot move the model.
+
+Flow calibration uses N=5 for the same reason, but SAW has no feedback loop: a stop command does not alter pump pressure or flow dynamics for the next shot. Because the model update cannot shift the conditions it is measuring, N=3 converges 2× faster with equal or better accuracy. A post-hoc simulation over real shot data (Apr 2026) confirmed this: N=3 graduated D-Flow/Q at shot 6 vs never within 9 shots for N=5 (outlier in shot 3 was cleanly isolated rather than absorbed), and graduated 80's Espresso at shot 3 vs shot 10.
 
 ### Why dispersion guards on top of the median
 
-Median rejects single outliers but does not detect the case where the user changed conditions mid-batch (new beans, new grind setting). In that case all 5 ideals have shifted, and committing the median would lock in a half-changed model. The IQR-and-deviation gate (`IQR > 1 s` or `|lag - median| > 1.5 s`) drops the batch entirely in that case, forcing the user to start a fresh batch under stable conditions.
+Median rejects single outliers but does not detect the case where the user changed conditions mid-batch (new beans, new grind setting). In that case all 3 ideals have shifted, and committing the median would lock in a half-changed model. The deviation gate (`|lag - median| > 1.5 s`) drops the batch entirely in that case, forcing the user to start a fresh batch under stable conditions. (IQR gating requires ≥ 4 values; N=3 relies exclusively on the per-element deviation check.)
 
 ### Why a global bootstrap median instead of just the scale default
 
-A new profile starting from `sensorLag(scaleType) + 0.1 s` will be off until 5 shots populate its history. With `globalSawBootstrapLag`, it starts from "what we have learned about this user's machine on this scale across their other profiles" — a much closer prior. Flow cal uses the same idea (median of espresso per-profile multipliers) and it noticeably reduces the cold-start error.
+A new profile starting from `sensorLag(scaleType) + 0.1 s` will be off until 3 shots populate its history (one batch). With `globalSawBootstrapLag`, it starts from "what we have learned about this user's machine on this scale across their other profiles" — a much closer prior. Flow cal uses the same idea (median of espresso per-profile multipliers) and it noticeably reduces the cold-start error.
 
 ## User Experience
 
@@ -147,8 +149,8 @@ System log lines:
 
 | Event | Format |
 |-------|--------|
-| Entry accepted into batch | `[SAW] accumulated drip=… flow=… for <profile>::<scale> (n/5) lag=…` |
-| Batch rejected (dispersion) | `[SAW] batch rejected — high dispersion median_lag=… iqr=… for <pair> — dropping batch` |
+| Entry accepted into batch | `[SAW] accumulated drip=… flow=… for <profile>::<scale> (n/3) lag=…` |
+| Batch rejected (dispersion) | `[SAW] batch rejected — outlier lag=… deviates …s > …s from median median_lag=… for <pair> — dropping batch` |
 | Batch committed | `[SAW] committed median lag=… (drip=… flow=…) for <pair> — n_medians=k` |
 | Auto-reset | `[SAW] 2nd consecutive overshoot<-6g for <pair> — clearing committed history` |
 | Bootstrap recompute | `[SAW] global bootstrap lag for <scale> updated to … (median of n graduated pairs)` |
@@ -173,7 +175,7 @@ A user who hits "Reset all" gets a clean slate (legacy + new keys both wiped) an
 - [src/main.cpp](../../src/main.cpp) — wires `ProfileManager::baseProfileName()` into the WeightProcessor snapshot path and the `sawLearningComplete` handler, and emits the per-shot `model:` / `accuracy:` log lines.
 - [qml/pages/settings/SettingsCalibrationTab.qml](../../qml/pages/settings/SettingsCalibrationTab.qml) — Calibration tab UI changes (source suffix, per-profile reset).
 - [src/mcp/mcptools_control.cpp](../../src/mcp/mcptools_control.cpp) — `reset_saw_learning_for_profile` tool.
-- [tests/tst_saw_settings.cpp](../../tests/tst_saw_settings.cpp) — per-pair isolation, batch commit at N=5, dispersion-rejection, bootstrap recompute, fallback chain, reset behaviour, legacy-path preservation.
+- [tests/tst_saw_settings.cpp](../../tests/tst_saw_settings.cpp) — per-pair isolation, batch commit at N=3, dispersion-rejection, bootstrap recompute, fallback chain, reset behaviour, legacy-path preservation.
 
 ## Related
 

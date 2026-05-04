@@ -21,9 +21,9 @@ private:
     static constexpr const char* kProfileB = "profile_b";
     static constexpr const char* kProfileC = "profile_c";
 
-    // Drive a full 5-shot batch with consistent (drip, flow, overshoot).
+    // Drive a full 3-shot batch with consistent (drip, flow, overshoot).
     void commitBatch(const QString& profile, double drip, double flow, double overshoot = 0.0) {
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < 3; ++i)
             m_settings.calibration()->addSawLearningPoint(drip, flow, kScale, overshoot, profile);
     }
 
@@ -41,11 +41,11 @@ private slots:
 
     void perPairIsolatesFromOtherProfile() {
         // A's batch commits a small drip; B's commits a large drip.
-        // After both have graduated (2 committed medians each), sawLearnedLagFor(A)
+        // After both have graduated (≥ 1 committed median each), sawLearnedLagFor(A)
         // and sawLearnedLagFor(B) should reflect their own batches, not the global average.
-        commitBatch(kProfileA, 0.6, 1.5);   // lag 0.4s
-        commitBatch(kProfileA, 0.6, 1.5);   // 2 medians → graduated
-        commitBatch(kProfileB, 3.0, 1.5);   // lag 2.0s
+        commitBatch(kProfileA, 0.6, 1.5);   // lag 0.4s — 1 median → graduated
+        commitBatch(kProfileA, 0.6, 1.5);   // 2nd median, extra stability
+        commitBatch(kProfileB, 3.0, 1.5);   // lag 2.0s — graduated
         commitBatch(kProfileB, 3.0, 1.5);
 
         const double lagA = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale);
@@ -54,32 +54,29 @@ private slots:
         QVERIFY2(lagB > 1.8, qPrintable(QString("B lag %1 not isolated").arg(lagB)));
     }
 
-    // ===== Batch commit at N=5 =====
+    // ===== Batch commit at N=3 =====
 
-    void batchAccumulatesUntilFiveThenCommits() {
-        // Before 5 shots: pending batch grows, no committed history.
-        for (int i = 0; i < 4; ++i) {
+    void batchAccumulatesUntilThreeThenCommits() {
+        // Before 3 shots: pending batch grows, no committed history.
+        for (int i = 0; i < 2; ++i) {
             m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
             QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), i + 1);
             QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 0);
         }
 
-        // 5th shot triggers commit: pending cleared, history gains one median.
+        // 3rd shot triggers commit: pending cleared, history gains one median.
         m_settings.calibration()->addSawLearningPoint(1.0, 2.0, kScale, 0.0, kProfileA);
         QCOMPARE(m_settings.calibration()->sawPendingBatch(kProfileA, kScale).size(), 0);
         QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileA, kScale).size(), 1);
     }
 
-    // ===== Batch rejection on high IQR =====
+    // ===== Batch rejection on high deviation =====
 
     void batchRejectedWhenDispersionTooHigh() {
-        // 4 tight entries at lag=0.4s and 1 wild outlier at lag=2.5s. Median lag = 0.4s,
-        // deviation of the outlier = 2.1s > 1.5s threshold → batch rejected and dropped.
-        // All lags remain ≤ 4s so they pass the entry-level lag-too-high guard.
+        // 2 tight entries at lag=0.4s and 1 wild outlier at lag=2.5s (N=3 batch).
+        // Median lag = 0.4s, deviation of the outlier = 2.1s > 1.5s → batch rejected.
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(R"(\[SAW\] batch rejected — outlier lag=\S+ deviates \S+ > \S+ from median)"));
-        m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
-        m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
         m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
         m_settings.calibration()->addSawLearningPoint(0.6, 1.5, kScale, 0.0, kProfileA);   // lag 0.40
         m_settings.calibration()->addSawLearningPoint(3.75, 1.5, kScale, 0.0, kProfileA);  // lag 2.50 → reject
@@ -115,25 +112,22 @@ private slots:
         commitBatch(kProfileB, 0.9, 1.5);
         QCOMPARE(m_settings.calibration()->sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
 
-        // 3. C graduates (needs ≥ kSawMinMediansForGraduation committed medians,
-        //    currently 2) → uses its own data.
-        commitBatch(kProfileC, 1.2, 1.5);
+        // 3. C graduates (needs ≥ kSawMinMediansForGraduation = 1 committed median) → uses its own data.
         commitBatch(kProfileC, 1.2, 1.5);
         QCOMPARE(m_settings.calibration()->sawModelSource(kProfileC, kScale), QString("perProfile"));
     }
 
-    // ===== One median is not enough to graduate =====
+    // ===== Zero medians still fall back to bootstrap =====
 
-    void singleMedianStillFallsBackToBootstrap() {
-        // After one committed median on C, the read path must still treat C as a
-        // cold-start pair and fall back to globalBootstrap (set up by A and B below).
-        // This guards the lower-bound boundary of the graduation gate.
+    void zeroMediansStillFallsBackToBootstrap() {
+        // Before C has any committed medians, the read path must fall back to
+        // globalBootstrap (set up by A and B). Guards the pre-graduation boundary.
         commitBatch(kProfileA, 0.6, 1.5);
         commitBatch(kProfileB, 0.9, 1.5);
         QVERIFY(m_settings.calibration()->globalSawBootstrapLag(kScale) > 0.0);
 
-        commitBatch(kProfileC, 1.2, 1.5);  // 1 median — below graduation threshold
-        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileC, kScale).size(), 1);
+        // C has no committed medians yet — should use globalBootstrap.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory(kProfileC, kScale).size(), 0);
         QCOMPARE(m_settings.calibration()->sawModelSource(kProfileC, kScale), QString("globalBootstrap"));
     }
 
