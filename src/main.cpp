@@ -1152,6 +1152,21 @@ int main(int argc, char *argv[])
         }
     });
 
+    // Arm the scale retry timer when a startup direct-connect attempt times out.
+    // Without this, a startup ConnectionError (scale asleep / not advertising)
+    // leaves the scale disconnected until the user manually reopens the app —
+    // same root cause as the DE1 reconnect bug fixed in a0bade6f. flowScaleFallback
+    // is guarded by m_flowScaleFallbackEmitted so it fires at most once per connect
+    // attempt; the retry loop above handles subsequent failures itself.
+    QObject::connect(&bleManager, &BLEManager::flowScaleFallback,
+                     [&settings, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays]() {
+        if (!settings.scaleAddress().isEmpty() && !scaleReconnectTimer.isActive()) {
+            scaleReconnectAttempt = 0;
+            scaleReconnectTimer.start(reconnectDelays[0]);
+            qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms (startup failure)";
+        }
+    });
+
     // DE1 auto-reconnect after disconnect. Matches de1app behaviour: on Android it
     // retries essentially forever (99999999 attempts) because the DE1 may be in deep
     // sleep and take a while to become reachable. We use backoff: 5s, 30s, then 60s
