@@ -12,14 +12,14 @@ namespace {
 
 // Minimum committed batch-medians before a (profile, scale) pair graduates from
 // the global fallbacks (globalBootstrap / globalPool / scaleDefault) to its own
-// per-pair model. Each median represents 5 SAW shots that survived the IQR
-// dispersion gate, so 2 medians = 10 shots — already a stronger signal than the
-// legacy single-shot global pool it replaces. Trade-off: smaller = faster to
-// adapt to per-profile drip dynamics; larger = more stability against early
-// regime bias. See docs/CLAUDE_MD/SAW_LEARNING.md.
-constexpr qsizetype kSawMinMediansForGraduation = 2;
+// per-pair model. Each median represents 3 SAW shots that survived the IQR
+// dispersion gate, so 1 median = 3 shots minimum. Unlike flow calibration,
+// SAW sends only a stop command and creates no feedback loop, so the model
+// update does not alter conditions for the next shot — a single confirmed
+// batch is sufficient signal. See docs/CLAUDE_MD/SAW_LEARNING.md.
+constexpr qsizetype kSawMinMediansForGraduation = 1;
 
-constexpr int kBatchSize = 5;
+constexpr int kBatchSize = 3;
 constexpr int kMaxPairHistory = 10;
 constexpr double kBatchMaxIqr = 1.0;          // seconds — IQR of lags within a batch
 constexpr double kBatchMaxDeviation = 1.5;    // seconds — single lag from batch median
@@ -692,7 +692,7 @@ double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, con
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             double sumLag = 0;
             qsizetype count = 0;
-            for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < 5; --i) {
+            for (qsizetype i = pairHistory.size() - 1; i >= 0 && count < 3; --i) {
                 QJsonObject obj = pairHistory[i].toObject();
                 double drip = obj.value("drip").toDouble();
                 double flow = obj.value("flow").toDouble();
@@ -720,10 +720,9 @@ double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
             // graduation (≥ kSawMinMediansForGraduation committed medians) and
             // is small (capped at 10), so the pre-convergence steepening that
             // the global path uses (recencyMin=1.0) doesn't apply here.
-            // Uses up to 12 medians (pair history caps at 10 in practice).
             struct Entry { double drip; double flow; };
             QVector<Entry> entries;
-            for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < 12; --i) {
+            for (qsizetype i = pairHistory.size() - 1; i >= 0 && entries.size() < 3; --i) {
                 QJsonObject obj = pairHistory[i].toObject();
                 if (obj.contains("drip")) entries.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
             }
@@ -834,8 +833,8 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
 
     // 4. Auto-reset: 2nd consecutive batch with median overshoot < -6g → wipe pair history,
     //    let the new median be the sole baseline. The legacy single-shot path triggers on
-    //    2 consecutive bad shots; here, since each median represents 5 shots, the
-    //    auto-reset trigger is effectively 10 consecutive bad shots — intentional
+    //    2 consecutive bad shots; here, since each median represents 3 shots, the
+    //    auto-reset trigger is effectively 6 consecutive bad shots — intentional
     //    debouncing for the batched update model. (Distinct from the graduation
     //    threshold defined at the top of this section.)
     QJsonObject historyMap = loadPerProfileSawHistoryMap();
