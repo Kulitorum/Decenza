@@ -70,18 +70,22 @@ The system prompt produced by `ShotSummarizer::shotAnalysisSystemPrompt` (espres
 
 ### Requirement: dialing_get_context response SHALL move static framing strings to the system prompt
 
-The response SHALL NOT include the static framing strings `currentBean.inferredNote`, `currentBean.daysSinceRoastNote`, or `tastingFeedback.recommendation`. These are taught once in the system prompt rather than shipped on every call. The structural fields they previously qualified — `currentBean.inferredFromShotId`, `currentBean.inferredFields`, `currentBean.beanFreshness`, `tastingFeedback.hasEnjoymentScore` / `.hasNotes` / `.hasRefractometer` — SHALL remain.
+The response SHALL NOT include the static framing strings `currentBean.inferredNote`, `currentBean.daysSinceRoastNote`, or `tastingFeedback.recommendation`. These are taught once in the system prompt rather than shipped on every call. The structural fields they previously qualified — `currentBean.beanFreshness`, `tastingFeedback.hasEnjoymentScore` / `.hasNotes` / `.hasRefractometer` — SHALL remain.
 
-The `shotAnalysisSystemPrompt` SHALL include a "How to read structured fields" section covering: (a) `inferredFields` semantics (fields inferred from the most recent shot, confirm before recommending), (b) `tastingFeedback` gating (when all `has*` booleans are false, ASK the user about taste before suggesting changes), and (c) `beanFreshness` gating (never quote calendar age until `freshnessKnown == true`).
+The `currentBean.inferredFromShotId` and `currentBean.inferredFields` fields SHALL NOT appear in the response. The DYE-with-shot-fallback machinery they qualified is removed; `currentBean` is now sourced solely from the resolved shot (see "currentBean SHALL describe the resolved shot's setup, not live DYE").
+
+The `shotAnalysisSystemPrompt` SHALL include a "How to read structured fields" section covering: (a) `tastingFeedback` gating (when all `has*` booleans are false, ASK the user about taste before suggesting changes), (b) `beanFreshness` gating (never quote calendar age until `freshnessKnown == true`), and (c) the meaning of empty-string fields on `currentBean` — an empty value means the shot did not record that field (common on legacy shots), NOT that the user has no grinder / bean / etc.; the AI must ask before recommending a change to a blank field. The `inferredFields` clause that previously appeared in this section SHALL be removed.
 
 The `currentBean.daysSinceRoastNote` field is replaced by the `beanFreshness.instruction` field defined in the next requirement, NOT by a system-prompt entry — the freshness instruction is bean-state-specific and benefits from sitting next to the `roastDate` field.
 
-#### Scenario: Inferred fields ship without a per-call note
+#### Scenario: currentBean ships without inferred-field fallback machinery
 
-- **GIVEN** a `dialing_get_context` call where the resolved shot's grinder fields back-fill blank DYE
+- **GIVEN** a `dialing_get_context` call where the resolved shot's grinder fields are populated but live DYE is blank, OR vice versa
 - **WHEN** the response is built
-- **THEN** `currentBean.inferredFromShotId` and `currentBean.inferredFields` SHALL be present
+- **THEN** `currentBean.inferredFromShotId` SHALL NOT be present
+- **AND** `currentBean.inferredFields` SHALL NOT be present
 - **AND** `currentBean.inferredNote` SHALL NOT be present
+- **AND** `currentBean`'s grinder / bean / dose values SHALL be those of the resolved shot
 
 #### Scenario: Tasting feedback ships booleans only
 
@@ -94,9 +98,10 @@ The `currentBean.daysSinceRoastNote` field is replaced by the `beanFreshness.ins
 
 - **GIVEN** the espresso `shotAnalysisSystemPrompt` output
 - **WHEN** rendered
-- **THEN** the output SHALL contain guidance for `inferredFields` (the AI must confirm before acting on inferred values)
-- **AND** SHALL contain guidance for `tastingFeedback` (when all `has*` are false, ask first)
+- **THEN** the output SHALL contain guidance for `tastingFeedback` (when all `has*` are false, ask first)
 - **AND** SHALL contain guidance for `beanFreshness` (never quote age until `freshnessKnown == true`)
+- **AND** SHALL contain guidance teaching that an empty-string `currentBean` field means "the shot did not record that field" (not "the user has no grinder / bean")
+- **AND** SHALL NOT contain a section describing `inferredFields` semantics
 
 ### Requirement: dialInSessions[].shots[] SHALL NOT include roastDate
 
@@ -114,17 +119,17 @@ The single canonical surface for `roastDate` in the response is `currentBean.bea
 
 `currentBean.daysSinceRoast` and `currentBean.daysSinceRoastNote` SHALL NOT be present in the response. They are replaced by `currentBean.beanFreshness`, a structured block with three fields:
 
-- `roastDate` — the user-entered date string, surfaced verbatim.
+- `roastDate` — the resolved shot's saved `roastDate` string, surfaced verbatim.
 - `freshnessKnown` — boolean. Until a separate change introduces storage-mode tracking, this SHALL always be `false`.
 - `instruction` — a fixed imperative string: `"Calendar age from roastDate is NOT freshness — many users freeze and thaw weekly. ASK the user about storage before applying any bean-aging guidance."`
 
-The block SHALL be omitted entirely when `roastDate` is empty (no user-entered date). The block SHALL NOT contain a precomputed day count under any field name; the AI MUST do the subtraction itself, in front of the user, to make the assumption visible.
+The block SHALL be omitted entirely when the resolved shot's `roastDate` is empty. The block SHALL NOT contain a precomputed day count under any field name; the AI MUST do the subtraction itself, in front of the user, to make the assumption visible.
 
 The `shotAnalysis` prose SHALL NOT contain the parenthetical "(N days since roast, not necessarily freshness — ask about storage)" that previously rendered next to the bean name. It is replaced by the lighter "(roasted YYYY-MM-DD; ask user about storage before reasoning about age)" — same caveat, no day count.
 
 #### Scenario: beanFreshness emits with freshnessKnown false and the imperative instruction
 
-- **GIVEN** a `currentBean` with `roastDate = "2026-04-15"` and no storage-mode information
+- **GIVEN** a resolved shot with `roastDate = "2026-04-15"` and no storage-mode information
 - **WHEN** the response is built
 - **THEN** `currentBean.beanFreshness.roastDate` SHALL be `"2026-04-15"`
 - **AND** `currentBean.beanFreshness.freshnessKnown` SHALL be `false`
@@ -132,11 +137,12 @@ The `shotAnalysis` prose SHALL NOT contain the parenthetical "(N days since roas
 - **AND** `currentBean` SHALL NOT contain `daysSinceRoast` or `daysSinceRoastNote` under any spelling
 - **AND** `currentBean.beanFreshness` SHALL NOT contain a `daysSinceRoast`, `calendarDaysSinceRoast`, `effectiveAgeDays`, or any other precomputed-day-count field
 
-#### Scenario: Empty roastDate omits the block entirely
+#### Scenario: Empty shot roastDate omits the block entirely
 
-- **GIVEN** a `currentBean` with no `roastDate` (DYE field blank, no shot fallback)
+- **GIVEN** a resolved shot with no `roastDate` (the shot's saved `roastDate` field is empty)
 - **WHEN** the response is built
 - **THEN** `currentBean.beanFreshness` SHALL be absent
+- **AND** the block SHALL be absent regardless of whether live DYE has a `dyeRoastDate` value
 
 #### Scenario: shotAnalysis prose mirrors the no-day-count contract
 
@@ -253,4 +259,221 @@ The `shotAnalysis` prose body is also subject to this requirement at the *conten
 - **AND** the response SHALL contain exactly one occurrence of the substring `"2026-03-30"`: under `currentBean.beanFreshness.roastDate`. The date SHALL NOT appear inside `dialInSessions[*].shots[*]`, inside `bestRecentShot`, or anywhere in the `shotAnalysis` prose body
 - **AND** the `shotAnalysis` prose SHALL NOT contain `"## Profile Recipe"` (it lives in `result.profile.recipe`)
 - **AND** the `shotAnalysis` prose SHALL NOT contain a `"Coffee:"`, `"Beans:"`, or `"Grinder:"` line for the resolved shot (these live in `currentBean` and `dialInSessions[].context`)
+
+### Requirement: dialing-context payload SHALL include grinderCalibration block
+
+The system SHALL compute a `grinderCalibration` block and include it in the dialing-context payload delivered by both `dialing_get_context` (MCP) and the in-app advisor's user-prompt enrichment path. The two surfaces SHALL call the same `DialingBlocks::buildGrinderCalibrationBlock` helper and produce byte-equivalent JSON for the same input.
+
+#### Preconditions — block is present when ALL of the following hold:
+
+1. The resolved shot's `grinderModel` is non-empty.
+2. The resolved shot's `beverageType` is espresso (NOT `filter` or `pourover`).
+3. At least 2 profiles in the all-time history (same grinder model + burrs) have qualifying shots with numeric grinder settings AND a canonical (non-inferred) UGS value in the knowledge base.
+
+A shot qualifies when: `final_weight >= 5g` (not aborted) AND no quality badge is set (`grind_issue_detected = 0`, `channeling_detected = 0`, `pour_truncated_detected = 0`, `temperature_unstable = 0`, `skip_first_frame_detected = 0`). Badge columns default to 0 for shots predating the badge migrations, so all old shots pass this filter.
+
+The block SHALL be omitted (no key, no `null`) when any precondition fails.
+
+#### Anchor selection
+
+From the qualifying profiles, the system SHALL select a **fine anchor** (lowest UGS) and **coarse anchor** (highest UGS) to maximize the calibrated span. The conversion key SHALL be:
+
+```
+conversionKey = (coarseAnchorMedianSetting − fineAnchorMedianSetting)
+              / (coarseAnchorUGS − fineAnchorUGS)
+```
+
+#### Block shape
+
+`grinderCalibration` SHALL be a JSON object with:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `grinderModel` | string | Grinder model from the resolved shot |
+| `fineAnchor` | object | Fine-end anchor: `profileName`, `ugs`, `medianSetting` (string), `sampleCount` |
+| `coarseAnchor` | object | Coarse-end anchor: same shape as `fineAnchor` |
+| `conversionKey` | number | Settings per UGS unit, rounded to 2 decimal places |
+| `calibratedUgsRange` | [number, number] | `[fineAnchorUGS, coarseAnchorUGS]` — the UGS span covered by real data |
+| `profiles` | array | RGS for every KB profile with a known UGS (see below) |
+
+Each entry in `profiles` SHALL carry:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `profileName` | string | Profile name from the KB |
+| `ugs` | number | UGS value (canonical or inferred) |
+| `rgs` | string | Derived grinder setting, formatted as the median (trailing zeros stripped) |
+| `source` | string | `"history"` — median from real shots; `"derived"` — within calibrated range; `"extrapolated"` — outside calibrated range or UGS is inferred |
+
+Profiles SHALL be ordered by UGS value ascending.
+
+#### Source tagging rules
+
+- `"history"`: the profile has a qualifying median in the all-time history (includes anchor profiles).
+- `"derived"`: profile has a canonical UGS within `[fineAnchorUGS, coarseAnchorUGS]` and no history entry.
+- `"extrapolated"`: profile's UGS is outside `[fineAnchorUGS, coarseAnchorUGS]`, OR the UGS value is marked inferred in the KB.
+
+#### Scenario: User has two espresso profiles with canonical UGS values in history
+
+- **GIVEN** history containing 4 shots on "80's Espresso" (numeric settings 4–6, canonical UGS 0.25) and 3 shots on "Adaptive v2" (settings 9–10, canonical UGS 1.25), same Niche Zero grinder, same burrs, all shots with no quality badges set
+- **WHEN** `buildGrinderCalibrationBlock` is called for an "80's Espresso" shot
+- **THEN** `fineAnchor.profileName` SHALL be `"80's Espresso"`, `fineAnchor.ugs` SHALL be `0.25`
+- **AND** `coarseAnchor.profileName` SHALL be `"Adaptive v2"`, `coarseAnchor.ugs` SHALL be `1.25`
+- **AND** `conversionKey` SHALL equal `(medianAdaptive − median80s) / (1.25 − 0.25)` rounded to 2 dp
+- **AND** `calibratedUgsRange` SHALL be `[0.25, 1.25]`
+- **AND** `profiles` SHALL include entries for every KB profile with a known UGS
+- **AND** "80's Espresso" and "Adaptive v2" SHALL have `source: "history"`
+- **AND** profiles with UGS between 0.25 and 1.25 (e.g. "D-Flow" at 0.5) SHALL have `source: "derived"`
+- **AND** profiles outside that range (e.g. "Rao Allongé" at UGS 8) SHALL have `source: "extrapolated"`
+
+#### Scenario: Fewer than 2 profiles with canonical UGS in history — block omitted
+
+- **GIVEN** all-time history has shots on only one profile with a canonical KB UGS value
+- **WHEN** `buildGrinderCalibrationBlock` is called
+- **THEN** the return value SHALL be an empty `QJsonObject`
+- **AND** `grinderCalibration` SHALL be absent from the response
+
+#### Scenario: Filter beverage type — block omitted
+
+- **GIVEN** the resolved shot has `beverageType: "filter"`
+- **WHEN** `buildGrinderCalibrationBlock` is called
+- **THEN** the return value SHALL be an empty `QJsonObject`
+- **AND** `grinderCalibration` SHALL be absent from the response
+
+#### Scenario: Grinder model changed — old shots excluded
+
+- **GIVEN** the user switched grinders 30 days ago; earlier shots have a different grinder model
+- **WHEN** `buildGrinderCalibrationBlock` is called
+- **THEN** only shots matching the resolved shot's `grinderModel` AND `grinderBurrs` SHALL contribute
+- **AND** profiles that only have shots from the old grinder SHALL NOT qualify as anchors
+
+#### Scenario: History profile has no canonical KB UGS — included as history-only
+
+- **GIVEN** the user has history on "Custom Title Profile" which has no entry in the KB (or only an inferred UGS)
+- **WHEN** `buildGrinderCalibrationBlock` is called
+- **THEN** "Custom Title Profile" SHALL NOT be used as an anchor
+- **AND** it SHALL appear in `profiles` with `source: "history"`, its actual `medianSetting`, and no `ugs` field (or with `source: "extrapolated"` when UGS is inferred)
+
+### Requirement: ProfileKnowledge SHALL expose UGS as a parsed numeric field
+
+The `ShotSummarizer::ProfileKnowledge` struct SHALL carry a `double ugs` field (default `NaN` — not present) and a `bool ugsInferred` field (default `false`). The `loadProfileKnowledge()` parser SHALL populate these from `UGS:` lines in `profile_knowledge.md`:
+
+- Strip a leading `~` character and set `ugsInferred = true`.
+- Strip parenthetical annotations (everything from `(` to end of line).
+- Parse the remaining token as a `double`. If parsing fails, leave `ugs` as `NaN`.
+
+Skip-Catalog sections (cross-profile reference material) do not carry UGS lines and SHALL have `ugs = NaN`.
+
+#### Scenario: Canonical UGS line parsed correctly
+
+- **GIVEN** a section containing `UGS: 0.5`
+- **WHEN** `loadProfileKnowledge()` parses the section
+- **THEN** `pk.ugs` SHALL be `0.5` and `pk.ugsInferred` SHALL be `false`
+
+#### Scenario: Inferred UGS line parsed with flag
+
+- **GIVEN** a section containing `UGS: ~0.25 (inferred — low-temp regime requires finer grind)`
+- **WHEN** `loadProfileKnowledge()` parses the section
+- **THEN** `pk.ugs` SHALL be `0.25` and `pk.ugsInferred` SHALL be `true`
+
+### Requirement: currentBean SHALL describe the resolved shot's setup, not live DYE
+
+`currentBean` SHALL be built from the resolved shot's saved bean / grinder / dose / roastDate metadata on every surface that emits it. The two surfaces — `dialing_get_context.currentBean` (the MCP read tool's top-level block) and the in-app advisor's user-prompt `currentBean` (rendered by `ShotSummarizer::buildUserPromptObject` from `summarizeFromHistory(shot)`) — SHALL produce byte-equivalent JSON for the same resolved shot.
+
+The block SHALL contain `brand`, `type`, `roastLevel`, `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG` keys with values read directly from the shot's saved fields. The block SHALL NOT read from `Settings::dye()` or any other "live machine state" source on either surface. When a shot string field is empty, its value SHALL be the empty string; `doseWeightG` SHALL be the shot's saved numeric value (which may be `0` when the shot has no recorded dose). The block SHALL NOT fall back to a different shot or to live DYE.
+
+The system prompt's "How to read structured fields" section SHALL describe `currentBean` as "the setup that produced the resolved shot." The prompt SHALL NOT teach an `inferredFields` reading.
+
+#### Scenario: Both surfaces produce equal currentBean for the same shot under divergent live DYE
+
+- **GIVEN** a saved shot with `beanType = "Spring Tour 2026 #2"`, `roastLevel = "Dark"`, `doseWeightG = 20`, `roastDate = "2026-03-30"`
+- **AND** a live `Settings::dye()` state with `dyeBeanType = "TypeA"`, `dyeRoastLevel = ""`, `dyeBeanWeight = 18`, `dyeRoastDate = ""` (the user changed DYE since the shot was pulled)
+- **WHEN** `dialing_get_context` builds `result["currentBean"]` for that shot
+- **AND** `ShotSummarizer::buildUserPromptObject(summarizeFromHistory(shot))` builds `payload["currentBean"]` for the same shot
+- **THEN** the two `currentBean` `QJsonObject`s SHALL be equal under `==`
+- **AND** both SHALL carry `type = "Spring Tour 2026 #2"`, `roastLevel = "Dark"`, `doseWeightG = 20`
+- **AND** both SHALL carry a `beanFreshness` block with `roastDate = "2026-03-30"`
+- **AND** neither SHALL contain `inferredFields`, `inferredFromShotId`, or `inferredNote`
+
+#### Scenario: Empty shot fields render as empty strings, not DYE fallback
+
+- **GIVEN** a saved shot with `grinderBrand = ""`, `grinderModel = ""`, `grinderBurrs = ""`, `grinderSetting = ""`
+- **AND** a live `Settings::dye()` state with `dyeGrinderBrand = "Niche"`, `dyeGrinderModel = "Zero"`, `dyeGrinderBurrs = "63mm Kony"`, `dyeGrinderSetting = "4.5"`
+- **WHEN** `dialing_get_context` builds `result["currentBean"]` for that shot
+- **THEN** `currentBean.grinderBrand`, `.grinderModel`, `.grinderBurrs`, `.grinderSetting` SHALL all be the empty string `""`
+- **AND** `currentBean.inferredFields` SHALL be absent
+- **AND** `currentBean.inferredFromShotId` SHALL be absent
+
+### Requirement: dialing_get_context.shotAnalysis SHALL be prose, not a JSON envelope
+
+The `dialing_get_context` response field `result.shotAnalysis` SHALL be a prose markdown string carrying the `## Shot Summary` block, `## Phase Data` block, and `## Detector Observations` block — the same content the in-app advisor's user-prompt envelope carries under its own `shotAnalysis` key. The field SHALL NOT carry a JSON-encoded object; specifically, it SHALL NOT carry an embedded copy of `currentBean`, `profile`, `tastingFeedback`, or any other structured field that the response already exposes at the top level.
+
+The structured fields (`currentBean`, `profile`, `tastingFeedback`, `dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) continue to live exactly once at the top level of the response. The `shotAnalysis` field carries only the prose body the system prompt teaches the AI to read.
+
+`ShotSummarizer::buildShotAnalysisProse(summary)` SHALL be the single source for the prose body. Both `dialing_get_context.shotAnalysis` and the in-app advisor's user-prompt envelope's `shotAnalysis` key SHALL produce byte-identical prose for identical input — the prose comes from the same private renderer in both code paths.
+
+#### Scenario: dialing_get_context.shotAnalysis is a prose string
+
+- **GIVEN** any successful `dialing_get_context` call
+- **WHEN** the response is assembled
+- **THEN** `result.shotAnalysis` SHALL be a string starting with `## Shot Summary` (or the equivalent prose body header the renderer emits)
+- **AND** parsing `result.shotAnalysis` as JSON via `QJsonDocument::fromJson(...)` SHALL fail (the value is prose, not an object)
+
+#### Scenario: dialing_get_context.shotAnalysis carries no structured-field block names
+
+- **GIVEN** any successful `dialing_get_context` call against a shot with populated DYE state
+- **WHEN** the response is assembled
+- **THEN** `result.shotAnalysis` SHALL NOT contain the substring `"currentBean"` (the JSON key name that the previous nested envelope embedded)
+- **AND** `result.shotAnalysis` SHALL NOT contain the substring `"tastingFeedback"`
+- **AND** `result.shotAnalysis` SHALL NOT contain `\"profile\":` or any other structured-field block-name token in JSON form
+
+#### Scenario: dialing_get_context.shotAnalysis matches the in-app advisor's shotAnalysis field byte-for-byte
+
+- **GIVEN** a fixed resolved shot
+- **WHEN** `dialing_get_context.shotAnalysis` is captured AND the in-app advisor's user-prompt envelope's `shotAnalysis` field is captured for the same shot
+- **THEN** the two strings SHALL be `==` (byte-for-byte identical)
+- **AND** both SHALL come from `ShotSummarizer::buildShotAnalysisProse(summary)` — no other prose builder may produce either value
+
+### Requirement: dialing_get_context response SHALL NOT double-ship currentBean / profile / tastingFeedback
+
+The `dialing_get_context` response SHALL contain `currentBean`, `profile`, and `tastingFeedback` exactly once each, at the top level of the response. The values previously embedded inside the `shotAnalysis` field's JSON envelope SHALL NOT appear at any nesting level.
+
+#### Scenario: top-level structured blocks remain unchanged
+
+- **GIVEN** any successful `dialing_get_context` call
+- **WHEN** the response is assembled
+- **THEN** `result.currentBean`, `result.profile`, `result.tastingFeedback` SHALL be emitted at the top level exactly as the existing requirements specify
+
+#### Scenario: no nested copies inside shotAnalysis
+
+- **GIVEN** any successful `dialing_get_context` call
+- **WHEN** the response is assembled
+- **THEN** `result.shotAnalysis` SHALL NOT contain a JSON-encoded copy of `currentBean`, `profile`, or `tastingFeedback`
+- **AND** the LLM SHALL see each of those three blocks exactly once
+
+### Requirement: Dialing block builders SHALL be shared between MCP and in-app advisor surfaces
+
+The block-construction code that produces `dialInSessions`, `bestRecentShot`, `sawPrediction`, and `grinderContext` for `dialing_get_context` SHALL be exported from a shared header (`src/mcp/mcptools_dialing_blocks.h`) so both `mcptools_dialing.cpp` and the in-app advisor's user-prompt enrichment path call the same code. Inline construction of these blocks inside `mcptools_dialing.cpp` SHALL be removed once the helpers are in place.
+
+The shared module SHALL expose, at minimum:
+
+- `QJsonArray buildDialInSessionsBlock(QSqlDatabase& db, const QString& profileKbId, qint64 resolvedShotId, int historyLimit)` — same `kDialInSessionGapSec` threshold, same `groupSessions` + `hoistSessionContext` composition, same per-shot serialization.
+- `QJsonObject buildBestRecentShotBlock(QSqlDatabase& db, const QString& profileKbId, qint64 resolvedShotId, const ShotProjection& currentShot)` — same `kBestRecentShotWindowDays = 90` constant, same `enjoyment > 0` filter, same `changeFromBest` diff via `McpDialingHelpers::buildShotChangeDiff`.
+- `QJsonObject buildGrinderContextBlock(QSqlDatabase& db, const QString& grinderModel, const QString& beverageType, const QString& beanBrand)` — same bean-scoped → cross-bean fallback semantics, same `allBeansSettings` tagging when bean-scoped is sparse.
+- `QJsonObject buildSawPredictionBlock(Settings* settings, ProfileManager* profileManager, const ShotProjection& currentShot)` — main-thread only (touches `settings->calibration()` and `profileManager->baseProfileName()`); same espresso-only, scale + profile, and flow-data-present gates as today.
+
+The response shape of `dialing_get_context` SHALL remain byte-equivalent after the refactor. Existing `tst_mcptools_dialing` tests SHALL pass without modification (the change is a pure refactor at the dialing tool's surface).
+
+#### Scenario: dialing_get_context response is byte-equivalent before and after the refactor
+
+- **GIVEN** a fixed DB state, a fixed resolved shot, and fixed Settings + ProfileManager state
+- **WHEN** `dialing_get_context` is invoked before the refactor and after the refactor
+- **THEN** the two response JSON strings SHALL be byte-for-byte identical
+
+#### Scenario: Shared helpers are the single source of truth for the four blocks
+
+- **GIVEN** any change to the shape, gating, or content of `dialInSessions`, `bestRecentShot`, `sawPrediction`, or `grinderContext`
+- **WHEN** the change is made
+- **THEN** it SHALL be made in `src/mcp/mcptools_dialing_blocks.h` (or its `.cpp`)
+- **AND** both `dialing_get_context` and the in-app advisor SHALL pick up the change automatically because both call the helpers
 
