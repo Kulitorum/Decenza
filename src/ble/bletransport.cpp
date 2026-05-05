@@ -663,6 +663,9 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     m_lastWriteUuid = uuidShort;
     m_lastWriteData = data;
     m_writeTimeoutTimer.start();
+    // Log every submission so we can correlate DE1 write failures with surrounding scale BLE
+    // activity (scale CCCD writes, scale notify bursts) on the same Android GATT pipeline.
+    log(QString("write submit %1 (%2 bytes)").arg(uuidShort).arg(data.size()));
     m_service->writeCharacteristic(m_characteristics[uuid], data);
 }
 
