@@ -510,6 +510,12 @@ void UpdateChecker::startDownload()
     QNetworkRequest request(m_downloadUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    // 60s inactivity timeout — without this a stalled Wi-Fi (no FIN, no RST,
+    // packets blackholed) leaves the reply hanging forever. The hang has been
+    // observed to coincide with activity destruction on Samsung devices when
+    // a network change races with a long-running QSocketNotifier (issue #1089).
+    // A clean self-abort emits errorOccurred → finished, which we already handle.
+    request.setTransferTimeout(60000);
 
     m_currentReply = m_network->get(request);
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &UpdateChecker::onDownloadProgress);
@@ -523,6 +529,16 @@ void UpdateChecker::startDownload()
                 m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
                 m_currentReply->abort();
             }
+        }
+    });
+    // Log transport errors as soon as they happen so we can distinguish a
+    // stalled-then-self-aborted reply from a clean transport failure.
+    // finished() still fires after this — that's where teardown happens.
+    connect(m_currentReply, &QNetworkReply::errorOccurred, this,
+            [this](QNetworkReply::NetworkError code) {
+        if (m_currentReply) {
+            qWarning() << "UpdateChecker: Download errorOccurred code=" << code
+                       << "msg=" << m_currentReply->errorString();
         }
     });
     connect(m_currentReply, &QNetworkReply::finished, this, &UpdateChecker::onDownloadFinished);
