@@ -1,6 +1,7 @@
 #include "qtscalebletransport.h"
 #include "../blecapability.h"
 #include "../blemanager.h"
+#include <QDateTime>
 #include <QDebug>
 #include <QTimer>
 #include <QLowEnergyConnectionParameters>
@@ -161,10 +162,7 @@ void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceU
 
 void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid) {
-    const bool firstEnable = !m_notificationsEnabledOnce;
-    if (firstEnable) {
-        QT_TRANSPORT_LOG(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
-    }
+    QT_TRANSPORT_LOG(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
 
     QLowEnergyService* service = m_services.value(serviceUuid);
     if (!service) {
@@ -184,15 +182,14 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
         QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
 
     if (cccd.isValid()) {
-        if (firstEnable) {
-            QT_TRANSPORT_LOG("Writing CCCD to enable notifications");
-        }
+        // Always log: with auto-enable removed and keepalive CCCD re-writes gone, this should
+        // fire once per characteristic per session. If it appears more often, something is
+        // re-enabling notifications and we want to see it.
+        QT_TRANSPORT_LOG(QString("write CCCD enable %1").arg(characteristicUuid.toString().mid(1, 8)));
         service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
     } else {
         QT_TRANSPORT_LOG("CCCD descriptor not found - scale may still send notifications");
     }
-
-    m_notificationsEnabledOnce = true;
 
     // Emit immediately (fire-and-forget) - don't wait for CCCD write response.
     // Some scales (e.g. Bookoo) reject CCCD writes but still send notifications.
@@ -221,6 +218,11 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
         ? QLowEnergyService::WriteWithoutResponse
         : QLowEnergyService::WriteWithResponse;
 
+    // Log every write so we can correlate scale BLE activity with DE1 write failures.
+    QT_TRANSPORT_LOG(QString("write %1 (%2 bytes, %3)")
+        .arg(characteristicUuid.toString().mid(1, 8))
+        .arg(data.size())
+        .arg(writeType == WriteType::WithoutResponse ? "WithoutResponse" : "WithResponse"));
     service->writeCharacteristic(characteristic, data, mode);
 }
 
@@ -261,7 +263,8 @@ void QtScaleBleTransport::onControllerConnected() {
 void QtScaleBleTransport::onControllerDisconnected() {
     QT_TRANSPORT_LOG("Controller disconnected");
     m_connected = false;
-    m_notificationsEnabledOnce = false;
+    m_notifyCountSinceSummary = 0;
+    m_lastNotifySummaryMs = 0;
     emit disconnected();
 }
 
@@ -355,37 +358,34 @@ void QtScaleBleTransport::onServiceStateChanged(QLowEnergyService::ServiceState 
                                          static_cast<int>(props));
         }
 
-        // Delay notification enabling by one event loop tick (iOS descriptor timing)
-        QTimer::singleShot(0, this, [this, service, serviceUuid]() {
-            if (!service) return;
-
-            QT_TRANSPORT_LOG("Auto-enabling notifications for all Notify/Indicate characteristics...");
-            const QList<QLowEnergyCharacteristic> chars = service->characteristics();
-            for (const QLowEnergyCharacteristic& c : chars) {
-                auto props = c.properties();
-                if (props.testFlag(QLowEnergyCharacteristic::Notify) ||
-                    props.testFlag(QLowEnergyCharacteristic::Indicate)) {
-
-                    auto cccd = c.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-                    QT_TRANSPORT_LOG(QString("Notify-capable %1, CCCD valid=%2")
-                        .arg(c.uuid().toString())
-                        .arg(cccd.isValid()));
-
-                    if (cccd.isValid()) {
-                        QT_TRANSPORT_LOG(QString("Auto-enabling notify for %1").arg(c.uuid().toString()));
-                        service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
-                    }
-                }
-            }
-
-            emit characteristicsDiscoveryFinished(serviceUuid);
-        });
+        // Each scale calls enableNotifications() explicitly for the characteristic(s) it needs;
+        // the transport no longer auto-enables CCCDs for every notify-capable characteristic.
+        // The auto-enable was a redundant second CCCD write per characteristic that piled onto
+        // the Android GATT pipeline at scale-connect time. On Android 9 + concurrent DE1 GATT
+        // writes, those extra descriptor writes appear to starve DE1 writes
+        // (CharacteristicWriteError on 0xa00f / 0xa010). The CoreBluetooth transport already
+        // disabled this for the same reason. de1app writes CCCDs once, never automatically.
+        emit characteristicsDiscoveryFinished(serviceUuid);
     }
 }
 
 void QtScaleBleTransport::onCharacteristicChanged(const QLowEnergyCharacteristic& c,
                                                    const QByteArray& value) {
-    // Don't log every notification - too spammy (weight updates come constantly)
+    // Per-packet logs would flood — log a periodic summary (count + interval) instead so
+    // we can see scale notify volume in the timeline without drowning out other events.
+    ++m_notifyCountSinceSummary;
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastNotifySummaryMs == 0) m_lastNotifySummaryMs = nowMs;
+    constexpr qint64 kSummaryIntervalMs = 5000;
+    if (nowMs - m_lastNotifySummaryMs >= kSummaryIntervalMs) {
+        QT_TRANSPORT_LOG(QString("notify rate: %1 in last %2 ms (last %3 = %4 bytes)")
+            .arg(m_notifyCountSinceSummary)
+            .arg(nowMs - m_lastNotifySummaryMs)
+            .arg(c.uuid().toString().mid(1, 8))
+            .arg(value.size()));
+        m_notifyCountSinceSummary = 0;
+        m_lastNotifySummaryMs = nowMs;
+    }
     emit characteristicChanged(c.uuid(), value);
 }
 
