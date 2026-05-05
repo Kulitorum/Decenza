@@ -160,8 +160,9 @@ void EurekaPrecisaScale::sendCommand(const QByteArray& cmd) {
 }
 
 void EurekaPrecisaScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady)
-        m_transport->enableNotifications(Scale::Generic::SERVICE, Scale::Generic::STATUS);
+    // No keep-alive needed — this scale streams notifications continuously once
+    // subscribed; re-writing the CCCD causes AuthorizationError disconnects
+    // (de1app writes CCCD only once at connect time and never again).
 }
 
 void EurekaPrecisaScale::tare() {
