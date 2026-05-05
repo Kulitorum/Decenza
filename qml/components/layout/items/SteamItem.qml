@@ -231,7 +231,7 @@ Item {
                     MainController.applySteamSettings()
 
                     if (wasAlreadySelected) {
-                        if (MachineState.isReady) {
+                        if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                             DE1Device.startSteam()
                         } else {
                             console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)

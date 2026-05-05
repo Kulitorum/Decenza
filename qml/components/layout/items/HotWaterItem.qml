@@ -194,7 +194,7 @@ Item {
                 MainController.applyHotWaterSettings()
 
                 if (wasAlreadySelected) {
-                    if (MachineState.isReady) {
+                    if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                         DE1Device.startHotWater()
                     } else {
                         console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)

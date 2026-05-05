@@ -288,19 +288,19 @@ Item {
                         win.goToScreensaver()
                     break
                 case "startEspresso":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled && (DE1Device.isHeadless || DE1Device.simulationMode))
                         DE1Device.startEspresso()
                     break
                 case "startSteam":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled && (DE1Device.isHeadless || DE1Device.simulationMode))
                         DE1Device.startSteam()
                     break
                 case "startHotWater":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled && (DE1Device.isHeadless || DE1Device.simulationMode))
                         DE1Device.startHotWater()
                     break
                 case "startFlush":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled && (DE1Device.isHeadless || DE1Device.simulationMode))
                         DE1Device.startFlush()
                     break
                 case "idle":

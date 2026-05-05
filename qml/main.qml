@@ -2911,11 +2911,11 @@ ApplicationWindow {
     Shortcut {
         sequence: "E"
         onActivated: {
-            if (MachineState.isReady) {
+            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                 console.log("[Keyboard] Starting espresso via 'E' key")
                 DE1Device.startEspresso()
             } else {
-                console.log("[Keyboard] Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                console.log("[Keyboard] Cannot start espresso - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -2924,11 +2924,11 @@ ApplicationWindow {
     Shortcut {
         sequence: "S"
         onActivated: {
-            if (MachineState.isReady) {
+            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                 console.log("[Keyboard] Starting steam via 'S' key")
                 DE1Device.startSteam()
             } else {
-                console.log("[Keyboard] Cannot start steam - machine not ready, phase:", MachineState.phase)
+                console.log("[Keyboard] Cannot start steam - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -2937,11 +2937,11 @@ ApplicationWindow {
     Shortcut {
         sequence: "W"
         onActivated: {
-            if (MachineState.isReady) {
+            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                 console.log("[Keyboard] Starting hot water via 'W' key")
                 DE1Device.startHotWater()
             } else {
-                console.log("[Keyboard] Cannot start hot water - machine not ready, phase:", MachineState.phase)
+                console.log("[Keyboard] Cannot start hot water - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }
@@ -2950,11 +2950,11 @@ ApplicationWindow {
     Shortcut {
         sequence: "F"
         onActivated: {
-            if (MachineState.isReady) {
+            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                 console.log("[Keyboard] Starting flush via 'F' key")
                 DE1Device.startFlush()
             } else {
-                console.log("[Keyboard] Cannot start flush - machine not ready, phase:", MachineState.phase)
+                console.log("[Keyboard] Cannot start flush - machine not ready or GHC active, phase:", MachineState.phase)
             }
         }
     }

@@ -179,7 +179,7 @@ Item {
                     var preset = Settings.app.getFavoriteProfile(index)
 
                     if (wasAlreadySelected) {
-                        if (MachineState.isReady) {
+                        if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                             DE1Device.startEspresso()
                         } else {
                             console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
@@ -198,7 +198,7 @@ Item {
             // Non-favorite profile pill
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: Settings.app.selectedFavoriteProfile === -1
+                visible: Settings.app.selectedFavoriteProfile === -1 && (DE1Device.isHeadless || DE1Device.simulationMode)
                 spacing: Theme.scaled(8)
 
                 Rectangle {
@@ -226,7 +226,7 @@ Item {
                         id: nonFavMouseArea
                         anchors.fill: parent
                         onClicked: {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                                 DE1Device.startEspresso()
                             } else {
                                 console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)

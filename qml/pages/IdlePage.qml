@@ -308,7 +308,7 @@ Page {
                         MainController.applySteamSettings()
 
                         if (wasAlreadySelected) {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                                 DE1Device.startSteam()
                             } else {
                                 console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
@@ -346,7 +346,7 @@ Page {
                             var preset = Settings.app.getFavoriteProfile(index)
 
                             if (wasAlreadySelected) {
-                                if (MachineState.isReady) {
+                                if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                                     DE1Device.startEspresso()
                                 } else {
                                     console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
@@ -377,7 +377,7 @@ Page {
                     // Green pill showing non-favorite profile name
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        visible: Settings.app.selectedFavoriteProfile === -1
+                        visible: Settings.app.selectedFavoriteProfile === -1 && (DE1Device.isHeadless || DE1Device.simulationMode)
                         spacing: Theme.scaled(8)
 
                         Rectangle {
@@ -409,7 +409,7 @@ Page {
                                 id: idleNonFavMouseArea
                                 anchors.fill: parent
                                 onClicked: {
-                                    if (MachineState.isReady) {
+                                    if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                                         DE1Device.startEspresso()
                                     } else {
                                         console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
@@ -457,7 +457,7 @@ Page {
                         MainController.applyHotWaterSettings()
 
                         if (wasAlreadySelected) {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                                 DE1Device.startHotWater()
                             } else {
                                 console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
@@ -491,7 +491,7 @@ Page {
                         MainController.applyFlushSettings()
 
                         if (wasAlreadySelected) {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                                 DE1Device.startFlush()
                             } else {
                                 console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)

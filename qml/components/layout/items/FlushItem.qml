@@ -195,7 +195,7 @@ Item {
                 MainController.applyFlushSettings()
 
                 if (wasAlreadySelected) {
-                    if (MachineState.isReady) {
+                    if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
                         DE1Device.startFlush()
                     } else {
                         console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
