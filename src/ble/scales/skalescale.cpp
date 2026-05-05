@@ -163,10 +163,8 @@ void SkaleScale::sendCommand(uint8_t cmd) {
 }
 
 void SkaleScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady) {
-        m_transport->enableNotifications(Scale::Skale::SERVICE, Scale::Skale::WEIGHT);
-        m_transport->enableNotifications(Scale::Skale::SERVICE, Scale::Skale::BUTTON);
-    }
+    // No keep-alive needed — notifications stay active without periodic CCCD re-writes.
+    // Re-writing the CCCD risks AuthorizationError disconnects.
 }
 
 void SkaleScale::tare() {

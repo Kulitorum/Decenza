@@ -161,8 +161,8 @@ void FelicitaScale::sendCommand(uint8_t cmd) {
 }
 
 void FelicitaScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady)
-        m_transport->enableNotifications(Scale::Felicita::SERVICE, Scale::Felicita::CHARACTERISTIC);
+    // No keep-alive needed — notifications stay active without periodic CCCD re-writes.
+    // Re-writing the CCCD risks AuthorizationError disconnects.
 }
 
 void FelicitaScale::tare() {

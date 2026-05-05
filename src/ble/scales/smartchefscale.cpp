@@ -132,8 +132,8 @@ void SmartChefScale::onCharacteristicChanged(const QBluetoothUuid& characteristi
 }
 
 void SmartChefScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady)
-        m_transport->enableNotifications(Scale::Generic::SERVICE, Scale::Generic::STATUS);
+    // No keep-alive needed — scale streams notifications continuously once subscribed.
+    // Re-writing the CCCD causes AuthorizationError disconnects (same issue as Eureka Precisa).
 }
 
 void SmartChefScale::tare() {

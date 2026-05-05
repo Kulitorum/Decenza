@@ -155,8 +155,8 @@ void AtomheartEclairScale::sendCommand(const QByteArray& cmd) {
 }
 
 void AtomheartEclairScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady)
-        m_transport->enableNotifications(Scale::AtomheartEclair::SERVICE, Scale::AtomheartEclair::STATUS);
+    // No keep-alive needed — notifications stay active without periodic CCCD re-writes.
+    // Re-writing the CCCD risks AuthorizationError disconnects.
 }
 
 void AtomheartEclairScale::tare() {

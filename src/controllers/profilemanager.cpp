@@ -140,6 +140,12 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     if (m_device) {
         connect(m_device, &DE1Device::profileUploaded, this,
                 [this](bool success, const QString& reason) {
+            // Clear the in-flight gate so the next uploadCurrentProfile() call can proceed.
+            // If a newer profile change arrived while the upload was in flight, trigger it now.
+            m_uploadInFlight = false;
+            bool hadPending = m_uploadPendingAfterInFlight;
+            m_uploadPendingAfterInFlight = false;
+
             if (success) {
                 // A successful upload clears all retry state. If a prior
                 // communication-failure dialog is still up, leave it — the
@@ -150,12 +156,19 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 m_profileUploadRetryAttempts = 0;
                 m_lastUploadFailureReason.clear();
                 updateProfileUploadRetrying();
+                if (hadPending) {
+                    uploadCurrentProfile();
+                }
                 return;
             }
             if (!isRetryableUploadFailure(reason)) {
                 // Not a retry condition — don't bump the counter. The
                 // existing m_profileUploadPending / phaseChanged machinery
                 // handles queue-clear and supersede cases on its own.
+                // The pending upload (if any) will ride the reconnect path.
+                if (hadPending) {
+                    m_profileUploadPending = true;
+                }
                 return;
             }
             m_lastUploadFailureReason = reason;
@@ -188,6 +201,8 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 .arg(kMaxUploadRetryAttempts);
             m_profileUploadRetryTimer.start(delayMs);
             updateProfileUploadRetrying();
+            // On retryable failure, the retry timer will call uploadCurrentProfile() which
+            // uploads m_currentProfile (the latest selection) — no need to track hadPending.
 
             // Safety: if a shot is already running on the DE1 (started via the
             // group-head button before the new profile landed), the DE1 is
@@ -221,6 +236,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
         // start from attempt 1.
         connect(m_device, &DE1Device::connectedChanged, this, [this]() {
             if (m_device && !m_device->isConnected()) {
+                // Safety reset: clear in-flight gate in case profileUploaded(false, "BLE disconnect")
+                // fires after this signal (signal ordering is not guaranteed).
+                m_uploadInFlight = false;
+                m_uploadPendingAfterInFlight = false;
                 if (m_profileUploadRetryTimer.isActive()
                     || m_profileUploadRetryAttempts > 0) {
                     qDebug() << "ProfileManager: resetting upload-retry state "
@@ -1450,7 +1469,16 @@ void ProfileManager::uploadCurrentProfile() {
     }
 
     if (m_device && m_device->isConnected()) {
+        // If a profile upload is already in flight, defer this one rather than flooding the
+        // Android BLE GATT write queue. The profileUploaded signal will trigger a follow-up
+        // upload when the current one completes, carrying the latest m_currentProfile.
+        if (m_uploadInFlight) {
+            m_uploadPendingAfterInFlight = true;
+            return;
+        }
+
         m_profileUploadPending = false;
+        m_uploadInFlight = true;
         double groupTemp;
 
         // Apply temperature override as delta offset (preserves per-frame differences)

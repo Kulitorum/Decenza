@@ -228,6 +228,8 @@ private:
     QString m_previousProfileName;
     bool m_profileModified = false;
     bool m_profileUploadPending = false;
+    bool m_uploadInFlight = false;        // True while a profile upload is in progress at DE1Device
+    bool m_uploadPendingAfterInFlight = false;  // True if a newer profile change arrived mid-upload
     bool m_startupLoadDone = false;
 
     // Auto-retry state for failed profile uploads. A failure with a retryable

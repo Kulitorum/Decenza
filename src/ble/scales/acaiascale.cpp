@@ -395,14 +395,9 @@ void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {
 }
 
 void AcaiaScale::sendKeepAlive() {
-    if (!m_transport || !m_characteristicsReady) return;
-
-    // Re-enable BLE notifications to prevent OS-level subscription expiry
-    if (m_isPyxis) {
-        m_transport->enableNotifications(Scale::Acaia::SERVICE, Scale::Acaia::STATUS);
-    } else {
-        m_transport->enableNotifications(Scale::AcaiaIPS::SERVICE, Scale::AcaiaIPS::CHARACTERISTIC);
-    }
+    // No keep-alive needed — the 3s heartbeat packets (sendHeartbeat()) maintain the
+    // connection and keep notifications active. Periodic CCCD re-writes are unnecessary
+    // and risk AuthorizationError disconnects.
 }
 
 void AcaiaScale::sendTareCommand() {

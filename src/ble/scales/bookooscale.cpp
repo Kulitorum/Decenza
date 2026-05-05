@@ -178,8 +178,9 @@ void BookooScale::sendCommand(const QByteArray& cmd) {
 }
 
 void BookooScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady)
-        m_transport->enableNotifications(Scale::Bookoo::SERVICE, Scale::Bookoo::STATUS);
+    // No keep-alive needed — notifications stay active without periodic CCCD re-writes.
+    // Re-writing the CCCD risks AuthorizationError disconnects on BLE stacks that
+    // reject duplicate subscription requests.
 }
 
 void BookooScale::tare() {
