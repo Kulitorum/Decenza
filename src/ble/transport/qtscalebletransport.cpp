@@ -182,9 +182,8 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
         QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
 
     if (cccd.isValid()) {
-        // Always log: with auto-enable removed and keepalive CCCD re-writes gone, this should
-        // fire once per characteristic per session. If it appears more often, something is
-        // re-enabling notifications and we want to see it.
+        // Expected to fire once per characteristic per session. If it appears more often,
+        // something is re-enabling notifications and we want to see it in the log.
         QT_TRANSPORT_LOG(QString("write CCCD enable %1").arg(characteristicUuid.toString().mid(1, 8)));
         service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
     } else {
@@ -364,7 +363,8 @@ void QtScaleBleTransport::onServiceStateChanged(QLowEnergyService::ServiceState 
         // the Android GATT pipeline at scale-connect time. On Android 9 + concurrent DE1 GATT
         // writes, those extra descriptor writes appear to starve DE1 writes
         // (CharacteristicWriteError on 0xa00f / 0xa010). The CoreBluetooth transport already
-        // disabled this for the same reason. de1app writes CCCDs once, never automatically.
+        // skipped auto-enable (its rationale was Bookoo-scale double-enable confusion);
+        // de1app writes CCCDs once, never automatically.
         emit characteristicsDiscoveryFinished(serviceUuid);
     }
 }
