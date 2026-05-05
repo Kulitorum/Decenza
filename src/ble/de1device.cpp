@@ -908,7 +908,12 @@ void DE1Device::uploadProfile(const Profile& profile) {
 #endif
 
     if (!m_transport) return;
-    if (dropDeviceWriteIfFirmwareFlash("uploadProfile")) return;
+    if (dropDeviceWriteIfFirmwareFlash("uploadProfile")) {
+        // Emit so ProfileManager's m_uploadInFlight gate is always released — without
+        // this, the gate stays permanently stuck if the call is dropped here.
+        emit profileUploaded(false, QStringLiteral("firmware flash in progress"));
+        return;
+    }
 
     // Attach the ACK listener BEFORE queuing writes so we observe every
     // writeComplete for this upload.

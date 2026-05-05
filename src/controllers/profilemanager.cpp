@@ -86,6 +86,10 @@ static bool isRetryableUploadFailure(const QString& reason) {
     // applyAllSettings -> uploadCurrentProfile) already re-uploads when the
     // link comes back. Retrying on a timer would race with that.
     if (reason.startsWith(QStringLiteral("BLE disconnect"))) return false;
+    // Firmware flash: DE1Device dropped the call because a firmware update is in
+    // progress. The reconnect path re-uploads once the flash completes and the
+    // DE1 reconnects — no timer retry needed, and it would just flood the log.
+    if (reason.startsWith(QStringLiteral("firmware flash"))) return false;
     return true;
 }
 
