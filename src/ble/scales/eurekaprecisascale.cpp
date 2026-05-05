@@ -160,9 +160,9 @@ void EurekaPrecisaScale::sendCommand(const QByteArray& cmd) {
 }
 
 void EurekaPrecisaScale::sendKeepAlive() {
-    // Eureka Precisa streams weight notifications continuously once subscribed.
-    // Periodic CCCD re-writes cause AuthorizationError disconnects on this scale —
-    // the de1app only writes the CCCD once (200ms after connect) and never again.
+    // No keep-alive needed — this scale streams notifications continuously once
+    // subscribed; re-writing the CCCD causes AuthorizationError disconnects
+    // (de1app writes CCCD only once at connect time and never again).
 }
 
 void EurekaPrecisaScale::tare() {

@@ -405,7 +405,7 @@ void QtScaleBleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic
 
 void QtScaleBleTransport::onDescriptorWritten(const QLowEnergyDescriptor& d, const QByteArray& value) {
     Q_UNUSED(value);
-    // CCCD confirmations are expected and frequent (keep-alive re-enables every ~5 min) - don't log
+    // CCCD confirmations are not logged — some scales send them frequently
     Q_UNUSED(d);
 }
 
