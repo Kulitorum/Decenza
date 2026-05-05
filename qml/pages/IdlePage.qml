@@ -11,6 +11,12 @@ Page {
     property alias idleBrewDialog: idleBrewDialog
     background: Rectangle { color: Theme.backgroundColor }
 
+    // True when the app is allowed to start machine operations on-screen.
+    // The hardware Group Head Controller (GHC), when present and active, takes
+    // exclusive control of starting shots/steam/etc., so on-screen start calls
+    // are only valid in headless (no/inactive GHC) or simulation mode.
+    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
+
     StackView.onActivated: {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         if (root.pendingBrewDialog) {
@@ -308,7 +314,7 @@ Page {
                         MainController.applySteamSettings()
 
                         if (wasAlreadySelected) {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && idlePage.canStartOperations) {
                                 DE1Device.startSteam()
                             } else {
                                 console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
@@ -346,7 +352,7 @@ Page {
                             var preset = Settings.app.getFavoriteProfile(index)
 
                             if (wasAlreadySelected) {
-                                if (MachineState.isReady) {
+                                if (MachineState.isReady && idlePage.canStartOperations) {
                                     DE1Device.startEspresso()
                                 } else {
                                     console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
@@ -377,7 +383,7 @@ Page {
                     // Green pill showing non-favorite profile name
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        visible: Settings.app.selectedFavoriteProfile === -1
+                        visible: Settings.app.selectedFavoriteProfile === -1 && idlePage.canStartOperations
                         spacing: Theme.scaled(8)
 
                         Rectangle {
@@ -409,7 +415,7 @@ Page {
                                 id: idleNonFavMouseArea
                                 anchors.fill: parent
                                 onClicked: {
-                                    if (MachineState.isReady) {
+                                    if (MachineState.isReady && idlePage.canStartOperations) {
                                         DE1Device.startEspresso()
                                     } else {
                                         console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
@@ -457,7 +463,7 @@ Page {
                         MainController.applyHotWaterSettings()
 
                         if (wasAlreadySelected) {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && idlePage.canStartOperations) {
                                 DE1Device.startHotWater()
                             } else {
                                 console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
@@ -491,7 +497,7 @@ Page {
                         MainController.applyFlushSettings()
 
                         if (wasAlreadySelected) {
-                            if (MachineState.isReady) {
+                            if (MachineState.isReady && idlePage.canStartOperations) {
                                 DE1Device.startFlush()
                             } else {
                                 console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)

@@ -277,6 +277,12 @@ Item {
                     pageStack.push(Qt.resolvedUrl("../../../pages/" + page))
             }
         } else if (category === "command") {
+            // The hardware Group Head Controller (GHC), when present and active, takes
+            // exclusive control of starting shots/steam/etc., so on-screen start calls
+            // are only valid in headless (no/inactive GHC) or simulation mode.
+            var canStart = typeof DE1Device !== "undefined"
+                    && DE1Device.guiEnabled
+                    && (DE1Device.isHeadless || DE1Device.simulationMode)
             switch (target) {
                 case "sleep":
                     if (typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected)
@@ -288,19 +294,19 @@ Item {
                         win.goToScreensaver()
                     break
                 case "startEspresso":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (canStart)
                         DE1Device.startEspresso()
                     break
                 case "startSteam":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (canStart)
                         DE1Device.startSteam()
                     break
                 case "startHotWater":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (canStart)
                         DE1Device.startHotWater()
                     break
                 case "startFlush":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
+                    if (canStart)
                         DE1Device.startFlush()
                     break
                 case "idle":

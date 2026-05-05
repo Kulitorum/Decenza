@@ -11,6 +11,9 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
+    // See EspressoItem.qml for rationale.
+    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
+
     property var idlePage: {
         var p = root.parent
         while (p) {
@@ -195,7 +198,7 @@ Item {
                 MainController.applyFlushSettings()
 
                 if (wasAlreadySelected) {
-                    if (MachineState.isReady) {
+                    if (MachineState.isReady && root.canStartOperations) {
                         DE1Device.startFlush()
                     } else {
                         console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
