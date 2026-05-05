@@ -511,11 +511,13 @@ void UpdateChecker::startDownload()
     request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     // 90s inactivity timeout — without this a stalled Wi-Fi (no FIN, no RST,
-    // packets blackholed) leaves the reply hanging forever. The hang has been
-    // observed to coincide with activity destruction on Samsung devices when
-    // a network change races with a long-running QSocketNotifier (issue #1089).
-    // A clean self-abort emits errorOccurred → finished, which we already handle.
-    // 90s is well above any normal inactivity gap on a healthy connection.
+    // packets blackholed) leaves the reply hanging forever, and on Android the
+    // hang has been observed to coincide with activity destruction when a
+    // network change races with the in-flight socket reader (issue #1089).
+    // A clean self-abort emits errorOccurred → finished, which we already
+    // handle. 90s is well above any normal inactivity gap on a healthy
+    // connection. (Qt 6.10's setTransferTimeout resets on every received
+    // chunk — true inactivity semantics, not a total-transfer cap.)
     request.setTransferTimeout(90000);
 
     m_currentReply = m_network->get(request);
