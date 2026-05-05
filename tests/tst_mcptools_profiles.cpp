@@ -82,6 +82,7 @@ private:
 
         QString jsonStr = QJsonDocument(json).toJson(QJsonDocument::Compact);
         f.profileManager.loadProfileFromJson(jsonStr);
+        emit f.device.profileUploaded(true, QString());
     }
 
     // Load a minimal advanced profile
@@ -117,6 +118,7 @@ private:
 
         QString jsonStr = QJsonDocument(json).toJson(QJsonDocument::Compact);
         f.profileManager.loadProfileFromJson(jsonStr);
+        emit f.device.profileUploaded(true, QString());
     }
 
 private slots:

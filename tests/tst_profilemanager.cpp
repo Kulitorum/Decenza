@@ -99,6 +99,10 @@ private:
 
         QString jsonStr = QJsonDocument(json).toJson(QJsonDocument::Compact);
         f.profileManager.loadProfileFromJson(jsonStr);
+        // Simulate the setup upload completing so m_uploadInFlight is cleared.
+        // MockTransport never ACKs writes, so tests that call uploadCurrentProfile()
+        // after this helper would otherwise find the gate permanently blocked.
+        emit f.device.profileUploaded(true, QString());
     }
 
 private slots:
