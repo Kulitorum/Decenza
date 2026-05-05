@@ -179,8 +179,7 @@ void BookooScale::sendCommand(const QByteArray& cmd) {
 
 void BookooScale::sendKeepAlive() {
     // No keep-alive needed — notifications stay active without periodic CCCD re-writes.
-    // Re-writing the CCCD risks AuthorizationError disconnects on BLE stacks that
-    // reject duplicate subscription requests.
+    // Re-writing the CCCD risks AuthorizationError disconnects.
 }
 
 void BookooScale::tare() {

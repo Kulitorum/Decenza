@@ -181,6 +181,10 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                     .arg(m_profileUploadRetryAttempts)
                     .arg(m_lastUploadFailureReason);
                 m_profileUploadRetryTimer.stop();
+                if (hadPending) {
+                    // Preserve intent so reconnect path re-uploads the latest profile.
+                    m_profileUploadPending = true;
+                }
                 if (!m_de1CommunicationFailure) {
                     m_de1CommunicationFailure = true;
                     emit de1CommunicationFailureChanged();
@@ -201,8 +205,9 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
                 .arg(kMaxUploadRetryAttempts);
             m_profileUploadRetryTimer.start(delayMs);
             updateProfileUploadRetrying();
-            // On retryable failure, the retry timer will call uploadCurrentProfile() which
-            // uploads m_currentProfile (the latest selection) — no need to track hadPending.
+            // hadPending was already consumed and m_uploadPendingAfterInFlight cleared at the top
+            // of this handler. The retry timer calls uploadCurrentProfile(), which re-reads
+            // m_currentProfile at fire time and thus naturally uploads the latest selection.
 
             // Safety: if a shot is already running on the DE1 (started via the
             // group-head button before the new profile landed), the DE1 is
@@ -238,6 +243,12 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             if (m_device && !m_device->isConnected()) {
                 // Safety reset: clear in-flight gate in case profileUploaded(false, "BLE disconnect")
                 // fires after this signal (signal ordering is not guaranteed).
+                if (m_uploadPendingAfterInFlight) {
+                    // A deferred profile change was queued mid-upload. Preserve the intent
+                    // so the reconnect path (initialSettingsComplete → uploadCurrentProfile)
+                    // re-uploads the latest profile when the link comes back.
+                    m_profileUploadPending = true;
+                }
                 m_uploadInFlight = false;
                 m_uploadPendingAfterInFlight = false;
                 if (m_profileUploadRetryTimer.isActive()
@@ -1473,6 +1484,8 @@ void ProfileManager::uploadCurrentProfile() {
         // Android BLE GATT write queue. The profileUploaded signal will trigger a follow-up
         // upload when the current one completes, carrying the latest m_currentProfile.
         if (m_uploadInFlight) {
+            qDebug() << "ProfileManager: uploadCurrentProfile deferred — "
+                        "upload in flight, will retry on profileUploaded";
             m_uploadPendingAfterInFlight = true;
             return;
         }

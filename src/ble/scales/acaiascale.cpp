@@ -395,9 +395,9 @@ void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {
 }
 
 void AcaiaScale::sendKeepAlive() {
-    // No keep-alive needed — the 3s heartbeat packets (sendHeartbeat()) maintain the
-    // connection and keep notifications active. Periodic CCCD re-writes are unnecessary
-    // and risk AuthorizationError disconnects.
+    // No keep-alive needed — the 3s heartbeat packets (sendHeartbeat()) keep the BLE
+    // link alive. Periodic CCCD re-writes are unnecessary and risk AuthorizationError
+    // disconnects.
 }
 
 void AcaiaScale::sendTareCommand() {
