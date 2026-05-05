@@ -510,12 +510,13 @@ void UpdateChecker::startDownload()
     QNetworkRequest request(m_downloadUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-    // 60s inactivity timeout — without this a stalled Wi-Fi (no FIN, no RST,
+    // 90s inactivity timeout — without this a stalled Wi-Fi (no FIN, no RST,
     // packets blackholed) leaves the reply hanging forever. The hang has been
     // observed to coincide with activity destruction on Samsung devices when
     // a network change races with a long-running QSocketNotifier (issue #1089).
     // A clean self-abort emits errorOccurred → finished, which we already handle.
-    request.setTransferTimeout(60000);
+    // 90s is well above any normal inactivity gap on a healthy connection.
+    request.setTransferTimeout(90000);
 
     m_currentReply = m_network->get(request);
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &UpdateChecker::onDownloadProgress);
