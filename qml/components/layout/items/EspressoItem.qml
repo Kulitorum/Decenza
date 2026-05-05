@@ -11,6 +11,12 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
+    // True when the app is allowed to start machine operations on-screen.
+    // The hardware Group Head Controller (GHC), when present and active, takes
+    // exclusive control of starting shots/steam/etc., so on-screen start calls
+    // are only valid in headless (no/inactive GHC) or simulation mode.
+    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
+
     // Access the IdlePage's activePresetFunction via the page
     property var idlePage: {
         var p = root.parent
@@ -179,7 +185,7 @@ Item {
                     var preset = Settings.app.getFavoriteProfile(index)
 
                     if (wasAlreadySelected) {
-                        if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+                        if (MachineState.isReady && root.canStartOperations) {
                             DE1Device.startEspresso()
                         } else {
                             console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
@@ -198,7 +204,7 @@ Item {
             // Non-favorite profile pill
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: Settings.app.selectedFavoriteProfile === -1 && (DE1Device.isHeadless || DE1Device.simulationMode)
+                visible: Settings.app.selectedFavoriteProfile === -1 && root.canStartOperations
                 spacing: Theme.scaled(8)
 
                 Rectangle {
@@ -226,7 +232,7 @@ Item {
                         id: nonFavMouseArea
                         anchors.fill: parent
                         onClicked: {
-                            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+                            if (MachineState.isReady && root.canStartOperations) {
                                 DE1Device.startEspresso()
                             } else {
                                 console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)

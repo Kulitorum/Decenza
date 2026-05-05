@@ -30,6 +30,12 @@ ApplicationWindow {
     // Debug flag to force live view on operation pages (for development)
     property bool debugLiveView: false
 
+    // True when the app is allowed to start machine operations on-screen.
+    // The hardware Group Head Controller (GHC), when present and active, takes
+    // exclusive control of starting shots/steam/etc., so on-screen start calls
+    // are only valid in headless (no/inactive GHC) or simulation mode.
+    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
+
     // Flag to open BrewDialog when IdlePage becomes active (set by AutoFavoritesPage)
     property bool pendingBrewDialog: false
 
@@ -2911,7 +2917,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "E"
         onActivated: {
-            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+            if (MachineState.isReady && root.canStartOperations) {
                 console.log("[Keyboard] Starting espresso via 'E' key")
                 DE1Device.startEspresso()
             } else {
@@ -2924,7 +2930,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "S"
         onActivated: {
-            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+            if (MachineState.isReady && root.canStartOperations) {
                 console.log("[Keyboard] Starting steam via 'S' key")
                 DE1Device.startSteam()
             } else {
@@ -2937,7 +2943,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "W"
         onActivated: {
-            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+            if (MachineState.isReady && root.canStartOperations) {
                 console.log("[Keyboard] Starting hot water via 'W' key")
                 DE1Device.startHotWater()
             } else {
@@ -2950,7 +2956,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "F"
         onActivated: {
-            if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+            if (MachineState.isReady && root.canStartOperations) {
                 console.log("[Keyboard] Starting flush via 'F' key")
                 DE1Device.startFlush()
             } else {

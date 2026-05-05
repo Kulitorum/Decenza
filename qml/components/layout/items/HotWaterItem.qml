@@ -11,6 +11,9 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
+    // See EspressoItem.qml for rationale.
+    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
+
     property var idlePage: {
         var p = root.parent
         while (p) {
@@ -194,7 +197,7 @@ Item {
                 MainController.applyHotWaterSettings()
 
                 if (wasAlreadySelected) {
-                    if (MachineState.isReady && (DE1Device.isHeadless || DE1Device.simulationMode)) {
+                    if (MachineState.isReady && root.canStartOperations) {
                         DE1Device.startHotWater()
                     } else {
                         console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
