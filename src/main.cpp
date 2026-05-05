@@ -23,6 +23,7 @@
 #include <vector>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
+#include <QNetworkInformation>
 #ifdef Q_OS_MACOS
 #include <QProcess>
 #endif
@@ -464,6 +465,21 @@ int main(int argc, char *argv[])
     // pooling, reduced thread count). Passed by pointer to most HTTP consumers.
     // Exceptions: CrashReporter, LibrarySharing, ShotServer test endpoint keep own NAM.
     QNetworkAccessManager sharedNetworkManager;
+
+    // Monitor network reachability so the debug log captures connectivity
+    // changes that race with long-running downloads (issue #1089). Best-effort:
+    // load fails on platforms without a backend, in which case we just don't log.
+    if (QNetworkInformation::loadDefaultBackend()) {
+        if (auto* info = QNetworkInformation::instance()) {
+            qDebug() << "[Network] initial reachability:" << info->reachability();
+            QObject::connect(info, &QNetworkInformation::reachabilityChanged,
+                             [](QNetworkInformation::Reachability r) {
+                qDebug() << "[Network] reachability changed ->" << r;
+            });
+        }
+    } else {
+        qDebug() << "[Network] QNetworkInformation backend unavailable";
+    }
 
     TranslationManager translationManager(&sharedNetworkManager, &settings);
     checkpoint("TranslationManager");
@@ -2118,6 +2134,18 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
                      [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed](Qt::ApplicationState state) {
         static bool wasSuspended = false;
+
+        // Log every state transition so the debug log captures pre-suspend
+        // flickers (Inactive, Hidden) that precede an activity destroy.
+        // Adds one line per transition — negligible noise.
+        const char* name = "Unknown";
+        switch (state) {
+            case Qt::ApplicationSuspended: name = "Suspended"; break;
+            case Qt::ApplicationHidden:    name = "Hidden";    break;
+            case Qt::ApplicationInactive:  name = "Inactive";  break;
+            case Qt::ApplicationActive:    name = "Active";    break;
+        }
+        qDebug() << "[AppState] applicationStateChanged ->" << name;
 
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
