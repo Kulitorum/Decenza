@@ -80,7 +80,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           variant: sccache
-          key: sccache-windows-x64-qt6.10.3
+          key: sccache-windows-x64-qt6.10.3-vs2026
           max-size: 500M
 
       - name: Locate OpenSSL 3
