@@ -236,6 +236,8 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 - **Pressure adaptation**: Adapts to grind coarseness — e.g., 6.8 bar peak with a coarser grind, up to 9 bar with fine grind. The pressure rise phase determines grind coarseness and sets the flow rate accordingly. `[SRC:light-video]` `[SRC:medium-video]`
 - **Flow range**: 2.0-2.7 ml/s (community data) `[SRC:adaptive-adastra]`
 - **Shot duration**: 26-40 seconds (manual termination) `[SRC:adaptive-adastra]`
+- **Official dial-in target**: 18g in, 36g out, ~25 seconds, ~4g dripping during pre-infusion, peak pressure 8-9 bar. `[SRC:decent-guide]`
+- **Grind diagnostics**: Too coarse → peak pressure below 7 bar, sharp acidity. Too fine → extended duration, decreased acidity, increased bitterness. `[SRC:decent-guide]`
 - **Ratio**: 1:2 to 1:3 `[SRC:adaptive-adastra]`. Best at shorter ratio (~1.8:1) for maximum fruitiness; longer ratios (2.3:1+) taste more like filter coffee with less brightness and mouthfeel `[SRC:light-video]`
 - **Pressure curve**: Should peak near 9 bar then gradually decline. If pressure starts rising again during extraction, indicates fines migration (common with non-SSP burrs). `[SRC:adaptive-adastra]` `[SRC:light-video]`
 - **Key advantage**: Tolerant of grind-size variation — too coarse produces allonge-style, too fine produces standard espresso, both potentially pleasant `[SRC:adaptive-adastra]`
@@ -339,6 +341,8 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
   - **LRv3**: Pure lever decline — always pressure-controlled, just decreases pressure like a real lever. Preferred when dialed in perfectly. Different users prefer different versions.
 - **Pressure curve**: Rises to ~9 bar, stays high during extraction. Pressure didn't decline much in dark roast testing (9 to ~8 bar) because flow was held constant by the declining pressure compensating for puck erosion. `[SRC:dark-video]`
 - **Flow curve**: Flow stays relatively constant — the declining pressure compensates for puck erosion, which is considered desirable `[SRC:dark-video]`
+- **Official dial-in target**: 30-35 seconds, 9 bar peak with gradual pressure decrease, consistent flow without significant dips. `[SRC:decent-guide]`
+- **Grind diagnostics**: Too coarse → pressure crash mid-shot, maximum flow safety step triggers. Too fine → pressure exceeds 9 bar, reduced flow, extended duration. `[SRC:decent-guide]`
 - **Grind**: Fine grind required (same as Cremina). Finer than E61 or 80's Espresso. The pressurized soak requires finer grind to control dripping to 2-8g. `[SRC:dark-video]` `[SRC:medium-video]`
 - **Dripping target**: 2-8g of dripping during soak phase before pressure rise. If dripping exceeds ~17g, grind is too coarse. `[SRC:medium-video]`
 - **Extraction**: Highest extraction of dark roast profiles — the soak time extracts far more from the beans. Most full-bodied cup. `[SRC:dark-video]`
@@ -1125,5 +1129,6 @@ Broad title and keyword search completed. Zero relevant threads or mentions foun
 | `bc-classic-italian` | Classic Italian community threads — "Classic Italian Style Espresso Profiles" (7987079735), "My latest achievements in Italian classic espresso" (7337357895), "D-Flow / Luca's Italian Style" (7968612029), "7g basket Italian espresso" (7394876404) | https://3.basecamp.com/3671212/buckets/7351439/messages/7987079735 |
 | `bc-ilp` | Innovative Long Preinfusion troubleshooting threads — "Innovative Long Preinfusion Profile is Skipping Preinfusion" (5902713440), "long preinfusion profile" (7219702170) | https://3.basecamp.com/3671212/buckets/7351439/messages/5902713440 |
 | `bc-pour-over` | Pour over basket community threads — John Buckman's V60 intro (6478301972), "Tips for pour over basket?" (8927624349), "Need help with pour over basket!" (8728303973), "Filter 2.1 vs Pour Over basket+V60" (5979806761), "Pour Over basket questions" (6955693508) | https://3.basecamp.com/3671212/buckets/7351439/messages/6478301972 |
+| `decent-guide` | Your First Decent Espresso — official Decent dial-in guide for Adaptive v2 and Londinium | https://decentespresso.com/first_decent_espresso |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
 | `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 16 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |

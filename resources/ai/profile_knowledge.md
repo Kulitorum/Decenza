@@ -115,6 +115,7 @@ Family: flow-adaptive
 How it works: Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists. Switches to stable flow after pressure peak. Extraction flow limiter at 9.5 bar. The Low Pressure Infusion variant (by Trevor Rainey + Jonathan Gagné) modifies this with a high-flow fill (8 ml/s), 3 bar soak pressure, and 8 bar rise — targeting ~30s total shot time. Canonical recipe for LPI variant: 15g dose, ~33g out in ~30s, targeting ~4g drip-through during bloom and ~1.5 ml/s flow at pressurize step.
 Expected curves: Pressure peaks near 9 bar then gradually declines. Flow settles at 2.0-2.7 ml/s. Variable curves are expected — the profile adapts to grind size.
 Duration: 26-40s. With large flat burrs, the extraction phase may be very short (rapid high-flow extraction in 15-20s after long pre-infusion soak).
+Dial-in target: 18g in, 36g out, ~25s, peak 8-9 bar, ~4g dripping during pre-infusion. Too coarse: peak below 7 bar, sharp acidity. Too fine: extended duration, decreased acidity, bitterness.
 Pre-infusion: Lots of dripping is fine with flat burr grinders (up to 17g dripping worked well in testing). Pressure drops steeply during drip phase with coarse/flat-burr grinds — this is normal.
 Ratio: Best at 1:1.8-2.3 for light roasts (fruitiness). Can extend to 1:2.5 if no off-flavors.
 Stop strategy: The LPI variant's extraction step has a 60s safety timeout — shots should be stopped manually at ~30s (or by weight/time stop condition) well before the timeout fires.
@@ -195,6 +196,7 @@ Grind: Fine (same as Cremina, finer than E61/80s)
 Extraction: Highest of dark roast profiles — most full-bodied cup
 Flavor: Dark chocolate, smooth. Rich and bold.
 Roast: Excellent for dark (full body without harshness). Good for medium-dark. Struggles with light.
+Dial-in target: 30-35s, 9 bar peak with gradual decline, consistent flow. Too coarse: pressure crash, max-flow safety step triggers. Too fine: pressure over 9 bar, reduced flow, longer shots.
 DO NOT flag the 3 bar soak phase as "low pressure" — it's intentional pre-infusion.
 
 ## Turbo Shot
