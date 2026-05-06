@@ -32,6 +32,7 @@ Q_SIGNALS:
 
 private:
     JsCanvasContext m_ctx;
+    bool m_loggedInit = false;  // one-shot startup info on first paint
 };
 
 #endif // JSCANVASPAINTERITEM_H

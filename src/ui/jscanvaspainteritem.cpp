@@ -5,7 +5,30 @@
 #include <QtCanvasPainter/qcanvaslineargradient.h>
 #include <QtCanvasPainter/qcanvasradialgradient.h>
 
+#include <QDebug>
+#include <QElapsedTimer>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
+
 namespace {
+
+// Recording is on the main thread; if it exceeds half a 30 fps frame we'll
+// drop a frame. Warn on outliers so field reports include the signal.
+constexpr qint64 kSlowRecordThresholdNs = 16'000'000;  // 16 ms
+
+const char *graphicsApiName(QSGRendererInterface::GraphicsApi api)
+{
+    switch (api) {
+    case QSGRendererInterface::Software:    return "Software";
+    case QSGRendererInterface::OpenGL:      return "OpenGL";
+    case QSGRendererInterface::Direct3D11:  return "D3D11";
+    case QSGRendererInterface::Direct3D12:  return "D3D12";
+    case QSGRendererInterface::Vulkan:      return "Vulkan";
+    case QSGRendererInterface::Metal:       return "Metal";
+    case QSGRendererInterface::Null:        return "Null";
+    default:                                return "Unknown";
+    }
+}
 
 QCanvasPainter::LineCap toLineCap(quint8 v)
 {
@@ -130,7 +153,29 @@ void JsCanvasPainterItem::requestPaint()
     // calls per frame coalesce inside Qt's update mechanism — only the latest
     // recording wins, which matches CupFillView's intent (it always redraws
     // from scratch on every animation tick).
+    QElapsedTimer t;
+    t.start();
     m_ctx.resetForNextFrame();
     Q_EMIT paint(&m_ctx);
+    const qint64 elapsedNs = t.nsecsElapsed();
     update();
+
+    // First successful paint: log the RHI backend so field reports identify
+    // which graphics path the user's device picked (Vulkan/Metal/GL).
+    if (!m_loggedInit && window() && window()->rendererInterface()) {
+        const auto api = window()->rendererInterface()->graphicsApi();
+        qInfo().nospace().noquote()
+            << "[CupFill] JsCanvasPainterItem ready (name=" << objectName()
+            << " RHI=" << graphicsApiName(api) << ")";
+        m_loggedInit = true;
+    }
+
+    // Outlier-only warning: a recording pass over half a 30 fps frame budget
+    // means we're at risk of dropping frames. Stays silent in normal operation.
+    if (elapsedNs > kSlowRecordThresholdNs) {
+        qWarning().nospace().noquote()
+            << "[CupFill] slow record (" << objectName() << "): "
+            << QString::number(elapsedNs / 1e6, 'f', 2) << " ms cmds="
+            << m_ctx.cmds().size();
+    }
 }

@@ -159,6 +159,7 @@ Item {
 
             JsCanvasPainterItem {
                 id: liquidCanvas
+                objectName: "liquid"
                 anchors.fill: parent
 
                 onPaint: function(ctx) {
@@ -368,6 +369,7 @@ Item {
     readonly property real effectsExtra: root.cupY  // extra space above cup
     JsCanvasPainterItem {
         id: effectsCanvas
+        objectName: "effects"
         x: root.cupX
         y: 0
         width: root.cupDisplayW

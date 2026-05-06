@@ -592,6 +592,19 @@ if(WIN32)
     set_property(TARGET Decenza PROPERTY QT_WIN_RC_ICONS "${app_icon_resource_windows}")
 endif()
 
+# Qt 6.11 added a new required target property QT_ANDROID_COMPILE_SDK_VERSION
+# (the SDK platform used at BUILD time, separate from target SDK at runtime).
+# Without it, Qt Creator fails the APK packaging step with "Android build SDK
+# version is not defined". Compile SDK >= target SDK conventionally; use
+# android-35 here (Android 15) — installed by default by setup-android in CI
+# and on most local dev machines. Target SDK is the runtime-targeted API
+# level the AndroidManifest declares, controlled by ANDROID_TARGET_SDK_VERSION.
+if(ANDROID)
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_MIN_SDK_VERSION ${ANDROID_MIN_SDK_VERSION})
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_TARGET_SDK_VERSION ${ANDROID_TARGET_SDK_VERSION})
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_COMPILE_SDK_VERSION "android-35")
+endif()
+
 # Optionally link Quick3D and add 3D screensaver sources
 if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     target_link_libraries(Decenza PRIVATE Qt6::Quick3D)
