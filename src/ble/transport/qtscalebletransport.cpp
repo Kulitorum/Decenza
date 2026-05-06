@@ -89,14 +89,6 @@ void QtScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
             this, &QtScaleBleTransport::onControllerDisconnected, qc);
     connect(m_controller, &QLowEnergyController::errorOccurred,
             this, &QtScaleBleTransport::onControllerError, qc);
-    // Log negotiated connection parameters (see bletransport.cpp for rationale).
-    // We need to compare scale + DE1 against each other on the same Android BT
-    // pipeline, so log on both transports.
-    connect(m_controller, &QLowEnergyController::connectionUpdated, this,
-            [this](const QLowEnergyConnectionParameters& p) {
-        this->log(QString("connectionUpdated: interval=%1ms latency=%2 supervisionTimeout=%3ms")
-            .arg(p.minimumInterval()).arg(p.latency()).arg(p.supervisionTimeout()));
-    }, qc);
     connect(m_controller, &QLowEnergyController::serviceDiscovered,
             this, &QtScaleBleTransport::onServiceDiscovered, qc);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
@@ -229,11 +221,6 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
         ? QLowEnergyService::WriteWithoutResponse
         : QLowEnergyService::WriteWithResponse;
 
-    // Log every write so we can correlate scale BLE activity with DE1 write failures.
-    QT_TRANSPORT_LOG(QString("write %1 (%2 bytes, %3)")
-        .arg(characteristicUuid.toString().mid(1, 8))
-        .arg(data.size())
-        .arg(writeType == WriteType::WithoutResponse ? "WithoutResponse" : "WithResponse"));
     service->writeCharacteristic(characteristic, data, mode);
 }
 
