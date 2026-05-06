@@ -6,6 +6,10 @@
 #include <QTimer>
 #include <QLowEnergyConnectionParameters>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
+
 // Helper macro for consistent logging
 #define QT_TRANSPORT_LOG(msg) log(msg)
 
@@ -258,10 +262,39 @@ void QtScaleBleTransport::onControllerConnected() {
     QT_TRANSPORT_LOG("Controller connected!");
     m_connected = true;
 
-    // Request CONNECTION_PRIORITY_HIGH — see bletransport.cpp for details.
+    // Request CONNECTION_PRIORITY_HIGH on the scale link (7.5-15ms intervals)
+    // — see bletransport.cpp for the general rationale. The DE1 always asks
+    // for HIGH unconditionally; the scale only asks on Android 11+.
+    //
+    // On older Android (< 11) with weaker BT chipsets — notably the Decent
+    // P80X tablet (Android 9) — running both DE1 and a notify-heavy scale
+    // simultaneously at HIGH priority appears to starve DE1 GATT writes
+    // (single-write CharacteristicWriteError → AuthorizationError disconnect,
+    // #1087/#1091/#1093). Falling the scale back to BALANCED (~30-50ms) costs
+    // a bit of weight-update latency but avoids the radio contention. Newer
+    // Android stacks handle dual-HIGH cleanly so we keep the low-latency
+    // behaviour for users on capable hardware.
     if (m_controller) {
+#ifdef Q_OS_ANDROID
+        const jint sdkInt = QJniObject::getStaticField<jint>(
+            "android/os/Build$VERSION", "SDK_INT");
+        constexpr jint kMinSdkForScaleHighPriority = 30;  // Android 11
+        if (sdkInt < kMinSdkForScaleHighPriority) {
+            QT_TRANSPORT_LOG(QString(
+                "Skipping CONNECTION_PRIORITY_HIGH on scale "
+                "(Android SDK %1 < %2) — see #1093")
+                .arg(sdkInt).arg(kMinSdkForScaleHighPriority));
+        } else {
+            QT_TRANSPORT_LOG(QString(
+                "Requesting CONNECTION_PRIORITY_HIGH on scale (Android SDK %1)")
+                .arg(sdkInt));
+            QLowEnergyConnectionParameters params;
+            m_controller->requestConnectionUpdate(params);
+        }
+#else
         QLowEnergyConnectionParameters params;
         m_controller->requestConnectionUpdate(params);
+#endif
     }
 
     emit connected();
