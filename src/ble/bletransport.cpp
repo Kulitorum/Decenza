@@ -392,7 +392,17 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
         default:
             errorName = QString::number(static_cast<int>(error)); userMessage = "Connection error"; break;
     }
-    warn(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
+    QString stateName;
+    switch (m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState) {
+        case QLowEnergyController::UnconnectedState: stateName = "Unconnected"; break;
+        case QLowEnergyController::ConnectingState:  stateName = "Connecting"; break;
+        case QLowEnergyController::ConnectedState:   stateName = "Connected"; break;
+        case QLowEnergyController::DiscoveringState: stateName = "Discovering"; break;
+        case QLowEnergyController::DiscoveredState:  stateName = "Discovered"; break;
+        case QLowEnergyController::ClosingState:     stateName = "Closing"; break;
+        default: stateName = QString::number(static_cast<int>(m_controller ? m_controller->state() : -1)); break;
+    }
+    warn(QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName));
     emit errorOccurred(userMessage);
 
     // Dump a one-shot Linux BT diagnostics block into the debug log the
@@ -599,6 +609,16 @@ bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {
             this, &BleTransport::onControllerDisconnected, qc);
     connect(m_controller, &QLowEnergyController::errorOccurred,
             this, &BleTransport::onControllerError, qc);
+    // Log the connection parameters Android actually grants us (vs what we
+    // requested via requestConnectionUpdate). This fires at least once shortly
+    // after connect, and again any time the link parameters change. Lets us
+    // see the real negotiated interval/latency/timeout for diagnosing radio
+    // contention when the DE1 + a scale share the same Android BT pipeline.
+    connect(m_controller, &QLowEnergyController::connectionUpdated, this,
+            [this](const QLowEnergyConnectionParameters& p) {
+        this->log(QString("connectionUpdated: interval=%1ms latency=%2 supervisionTimeout=%3ms")
+            .arg(p.minimumInterval()).arg(p.latency()).arg(p.supervisionTimeout()));
+    }, qc);
     connect(m_controller, &QLowEnergyController::serviceDiscovered,
             this, &BleTransport::onServiceDiscovered, qc);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
