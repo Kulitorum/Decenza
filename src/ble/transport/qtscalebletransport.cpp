@@ -85,6 +85,14 @@ void QtScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
             this, &QtScaleBleTransport::onControllerDisconnected, qc);
     connect(m_controller, &QLowEnergyController::errorOccurred,
             this, &QtScaleBleTransport::onControllerError, qc);
+    // Log negotiated connection parameters (see bletransport.cpp for rationale).
+    // We need to compare scale + DE1 against each other on the same Android BT
+    // pipeline, so log on both transports.
+    connect(m_controller, &QLowEnergyController::connectionUpdated, this,
+            [this](const QLowEnergyConnectionParameters& p) {
+        this->log(QString("connectionUpdated: interval=%1ms latency=%2 supervisionTimeout=%3ms")
+            .arg(p.minimumInterval()).arg(p.latency()).arg(p.supervisionTimeout()));
+    }, qc);
     connect(m_controller, &QLowEnergyController::serviceDiscovered,
             this, &QtScaleBleTransport::onServiceDiscovered, qc);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
@@ -282,7 +290,17 @@ void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
         case QLowEnergyController::MissingPermissionsError: errorName = "MissingPermissionsError"; break;
         default: errorName = QString::number(static_cast<int>(err)); break;
     }
-    QString msg = QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName);
+    QString stateName;
+    switch (m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState) {
+        case QLowEnergyController::UnconnectedState: stateName = "Unconnected"; break;
+        case QLowEnergyController::ConnectingState:  stateName = "Connecting"; break;
+        case QLowEnergyController::ConnectedState:   stateName = "Connected"; break;
+        case QLowEnergyController::DiscoveringState: stateName = "Discovering"; break;
+        case QLowEnergyController::DiscoveredState:  stateName = "Discovered"; break;
+        case QLowEnergyController::ClosingState:     stateName = "Closing"; break;
+        default: stateName = QString::number(static_cast<int>(m_controller ? m_controller->state() : -1)); break;
+    }
+    QString msg = QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName);
     QT_TRANSPORT_LOG(msg);
     emit error(msg);
 
