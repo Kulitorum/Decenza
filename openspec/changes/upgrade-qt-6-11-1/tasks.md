@@ -52,20 +52,63 @@
 - [ ] Smoke test on Android (Decent tablet or phone): verify BLE scanning, scale connection, live shot graph
 - [ ] Smoke test on iOS (device): verify BLE, shot history, graphs
 
-## Qt Canvas Painter — CupFillView
+## Qt Canvas Painter — CupFillView GPU acceleration (C++ wrapper)
 
-- [ ] Add `find_package(Qt6 QUIET COMPONENTS CanvasPainter)` to `CMakeLists.txt` (after the ShaderTools block; same quiet/optional pattern)
-- [ ] Replace both `Canvas` items in `qml/components/CupFillView.qml` with `CanvasPainterItem`:
-  - `liquidCanvas` (line ~153) — liquid fill, crema, waves, ripples
-  - `effectsCanvas` (line ~370) — portafilter stream, steam wisps, completion glow
-  - Import `QtCanvasPainter` at the top of the file
-  - Keep all `ctx.*` drawing code unchanged — the 2D API is identical
-  - Replace `renderStrategy: Canvas.Threaded` (not applicable to CanvasPainterItem — remove it)
-- [ ] Evaluate on Windows: visual match against Canvas baseline (side-by-side at idle and during live extraction)
-- [ ] Evaluate on macOS: same visual match check
-- [ ] Evaluate on Android (Decent tablet): run a live shot and assess animation smoothness vs. Canvas baseline
-- [ ] Evaluate on iOS: visual match check
-- [ ] Decision: if all platforms pass visual + smoothness evaluation, ship; if any platform has rendering issues, revert `CupFillView.qml` and note the blocker for Qt 6.12 follow-up
+> **Note on approach.** Qt 6.11's Canvas Painter ships only the C++ side (`QCanvasPainter`, `QCanvasPainterItem`, `QCanvasLinearGradient`, etc.); there is no QML-importable `CanvasPainterItem`. We build a small wrapper that exposes a `Canvas`-like JS surface so CupFillView's existing `onPaint:` body can stay almost as-is. See proposal.md "Qt Canvas Painter — CupFillView GPU acceleration" for the full architecture.
+
+### CMake wiring
+
+- [ ] Add `find_package(Qt6 REQUIRED COMPONENTS CanvasPainter)` to `CMakeLists.txt` (after the ShaderTools block). Required, not QUIET, because the wrapper sources won't compile without it. Add `Qt6::CanvasPainter` to the `target_link_libraries(Decenza ...)` block.
+- [ ] Add the two new source files (`src/ui/jscanvaspainteritem.{h,cpp}`, `src/ui/jscanvascontext.{h,cpp}`) to the executable's `SOURCES` list in `CMakeLists.txt`.
+
+### `JsCanvasContext` — JS-callable 2D context (`src/ui/jscanvascontext.{h,cpp}`)
+
+- [ ] Define `DrawCmd` POD struct: tag enum + small fixed-size payload union (floats, color RGBA8, brush-id int). Fixed size keeps `QVector<DrawCmd>` allocation-free per call.
+- [ ] Define `BrushSpec` (color | linear gradient | radial gradient with stops) stored in a parallel `QVector<BrushSpec>` indexed by id; ids reset per frame to keep storage flat.
+- [ ] `JsCanvasContext : public QObject` — Q_INVOKABLE methods (record into the buffer):
+  - Path: `beginPath()`, `closePath()`, `moveTo(x,y)`, `lineTo(x,y)`, `arc(cx,cy,r,a0,a1, anticw=false)`, `ellipse(cx,cy,rx,ry, rot=0, a0=0, a1=2π, anticw=false)`
+  - Fill/stroke: `fill()`, `stroke()`, `fillRect(x,y,w,h)`, `clearRect(x,y,w,h)`, `strokeRect(x,y,w,h)`
+  - State: `save()`, `restore()`, `reset()`
+  - Properties exposed via `Q_PROPERTY` writes that record `SetX` commands: `fillStyle`, `strokeStyle` (accept `QColor` *or* `JsCanvasGradient*` via `QVariant`), `lineWidth` (float), `lineCap` (string `"butt"`/`"round"`/`"square"` mapped to enum), `globalAlpha` (float)
+  - Gradient factories: `Q_INVOKABLE QObject* createLinearGradient(x0,y0,x1,y1)`, `createRadialGradient(x0,y0,r0,x1,y1,r1)` — returns a `JsCanvasGradient` parented to the ctx (lifetime-tied to one frame)
+- [ ] `JsCanvasGradient : public QObject` — `Q_INVOKABLE addColorStop(float pos, QColor color)`; holds `BrushSpec` in-place; assigned-as-fillStyle records its id.
+- [ ] Provide `void resetForNextFrame()` that truncates the command + brush vectors (keeps capacity, no reallocs).
+
+### `JsCanvasPainterItem` — `QCanvasPainterItem` subclass (`src/ui/jscanvaspainteritem.{h,cpp}`)
+
+- [ ] `class JsCanvasPainterItem : public QCanvasPainterItem` with:
+  - `QML_NAMED_ELEMENT(JsCanvasPainterItem)` so QML can use it without explicit registration
+  - `Q_INVOKABLE void requestPaint()` — sets a dirty flag and schedules `update()`
+  - `Q_SIGNAL void paint(QObject *ctx)` — emitted on the **main thread** to let QML record draw commands
+- [ ] On dirty + before `update()`: clear the ctx, emit `paint(ctx)` (so QML's `onPaint:` runs and records into the buffer), then call `update()`.
+- [ ] Override `createItemRenderer()` to return a `JsCanvasPainterItemRenderer`.
+- [ ] Implement `JsCanvasPainterItemRenderer : public QCanvasPainterItemRenderer`:
+  - `synchronize(QCanvasPainterItem*)` — called on render thread with main blocked. Atomic-swap the recorded `QVector<DrawCmd>` and `QVector<BrushSpec>` into the renderer (use `std::swap` on the vectors held by the item and the renderer).
+  - `paint(QCanvasPainter*)` — replay loop: switch on `DrawCmd::tag`, call the matching `painter->...()`. For `SetFillStyle`/`SetStrokeStyle` resolve the brush id and translate `BrushSpec` → `QColor`/`QCanvasLinearGradient`/`QCanvasRadialGradient` (constructed in-place; cheap).
+- [ ] Register the QML element. If we use `QML_NAMED_ELEMENT` + the existing `qt_add_qml_module(Decenza)` setup, registration is automatic — confirm by reading the current `qt_add_qml_module` block in `CMakeLists.txt` and adding the new headers to its `SOURCES` if needed.
+
+### CupFillView migration (`qml/components/CupFillView.qml`)
+
+- [ ] Replace both `Canvas { id: liquidCanvas; ...; renderStrategy: Canvas.Threaded; onPaint: { ... } }` with `JsCanvasPainterItem { id: liquidCanvas; ...; onPaint: function(ctx) { ... } }`. Note `onPaint` becomes a signal handler with an explicit `ctx` parameter (the QObject we emit), instead of a Canvas-style scope where `getContext("2d")` returns the context.
+- [ ] Same swap for `effectsCanvas`.
+- [ ] Remove `var ctx = getContext("2d")` lines — `ctx` arrives as a signal parameter.
+- [ ] Audit the existing drawing code for any Canvas-2D feature outside our wrapper's scope. Known items used today: `createLinearGradient`/`createRadialGradient`, `addColorStop`, `beginPath`/`closePath`, `moveTo`/`lineTo`, `fill`/`stroke`, `fillRect`/`clearRect`, `arc`, `ellipse`, `reset`, `clearRect`, `fillStyle`/`strokeStyle`/`lineWidth`/`lineCap`/`globalAlpha`. **Not** in scope: `shadowColor`/`shadowBlur` (commented out today — keep commented), `bezierCurveTo` (used inside steam-wisp `function stmX/stmY` with manual cubic eval — already manual, no change needed). If the audit finds anything else, add it to `JsCanvasContext` before swapping.
+
+### Validation
+
+- [ ] Build on Windows (Qt Creator) — confirm wrapper compiles; CupFillView renders.
+- [ ] Build on macOS (Qt Creator) — same.
+- [ ] Build on iOS — confirm Tech Preview module is available for iOS targets; if not, fall back to `Canvas` for `IOS` only (a `Loader` with a platform check).
+- [ ] Build on Android (Decent tablet) — same iOS check.
+- [ ] Visual match: side-by-side screenshot comparison (idle + mid-shot + completion) on Windows, macOS, Android. Note any rendering deltas; gradients and antialiasing are the most likely diff points.
+- [ ] Performance: on the Decent tablet during a live extraction, capture before/after CPU usage for the QtQuick render thread (Qt Creator profiler) and main thread. Goal: measurable reduction; no main-thread regression from command recording.
+- [ ] Frame budget check: log `JsCanvasContext::resetForNextFrame()` timings and command count; at 30 fps the recording cost per frame should be sub-millisecond on the tablet.
+
+### Decision gate
+
+- [ ] If visual + perf gates pass on all four platforms: ship.
+- [ ] If perf is neutral or worse on the tablet (recording overhead eats the GPU win): revert CupFillView to `Canvas`, leave wrapper sources behind a `BUILD_CANVASPAINTER_WRAPPER` CMake option for later revisit.
+- [ ] If only one platform fails (most likely iOS / Tech Preview missing): use a QML `Loader` with platform check to keep `Canvas` on the failing platform.
 
 ## Follow-up
 

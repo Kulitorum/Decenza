@@ -18,11 +18,26 @@ Qt 6.11.1 is the next minor release in the Qt 6 series and is a prerequisite for
 
 `CupFillView.qml` renders the liquid fill, crema, waves, ripples, and steam wisps using two `Canvas` items with `renderStrategy: Canvas.Threaded`. This is software-rasterized on a CPU background thread and repaints at ~30fps via a 33ms `Timer` — the Decent tablet is already busy processing BLE data at 5Hz and updating the shot graph during extraction, so offloading this to the GPU is a meaningful win.
 
-Qt 6.11 ships **Qt Canvas Painter** (Technology Preview) — a GPU-accelerated `CanvasPainterItem` that exposes the same HTML Canvas 2D context API (`ctx.beginPath`, `ctx.fill`, `ctx.createLinearGradient`, etc.). Because CupFillView's drawing code uses only standard Canvas 2D calls, the migration is a drop-in swap of the QML type; the drawing logic itself is unchanged.
+Qt 6.11 ships the **Qt Canvas Painter** module (Technology Preview): a GPU-accelerated 2D painting toolkit (`QCanvasPainter`) whose C++ API is named to match HTML Canvas 2D (`beginPath`, `moveTo`, `fill`, `setFillStyle`, `arc`, `ellipse`, `QCanvasLinearGradient`, `QCanvasRadialGradient`, etc.). Rendering goes through Qt's RHI (Vulkan/Metal/D3D12/OpenGL) on the scene-graph render thread.
 
-**Approach**: Replace both `Canvas` items in `CupFillView.qml` with `CanvasPainterItem`, add `CanvasPainter` as an optional `find_package` in `CMakeLists.txt` (quiet, like `ShaderTools`), and evaluate visually and by feel on the Decent tablet. If the Tech Preview causes any rendering issues on any platform, revert to `Canvas` — the diff is small and localised to `CupFillView.qml`.
+**The module ships only the C++ side.** There is no QML-importable `CanvasPainterItem` element — `qtcanvaspainter`'s sources contain no `QML_NAMED_ELEMENT` registration and the install lays down no `qml/QtCanvasPainter/` directory. The official example (`Src/qtcanvaspainter/examples/canvaspainter/gallery/`) subclasses `QCanvasPainterItem` in C++ and registers its own QML element. So the migration is **not** a drop-in QML swap; it requires a small C++ wrapper that bridges QML/JS callbacks to `QCanvasPainter` calls on the render thread.
 
-**Acceptance gate**: visual output matches the Canvas baseline side-by-side on Windows, macOS, and Android; animation feels at least as smooth on the Decent tablet during a live extraction.
+**Approach**: Build a reusable `JsCanvasPainterItem` C++ wrapper that exposes a `Canvas`-like QML surface (`onPaint`, `requestPaint()`, a `ctx`-shaped object). The wrapper:
+
+1. Subclasses `QCanvasPainterItem` and registers itself to QML as `JsCanvasPainterItem` in the Decenza module.
+2. On `requestPaint()` (or property change), schedules a main-thread callback that invokes the `paint(ctx)` signal with a `JsCanvasContext` proxy QObject.
+3. `JsCanvasContext` exposes `Q_INVOKABLE` methods mirroring the Canvas 2D API used by CupFillView. Each call **records a typed POD command** into a flat `QVector<DrawCmd>` (no per-call allocation; ~16–32 bytes per command).
+4. Gradients (`createLinearGradient`/`createRadialGradient`) return small `JsCanvasGradient` QObjects with `addColorStop()`. Setting `fillStyle = grad` records a "set fill brush #N" command and copies stops into the buffer.
+5. On the next render cycle, `synchronize(QCanvasPainterItem*)` (called on the render thread while main is blocked) atomic-swaps the recorded buffer into the renderer.
+6. `paint(QCanvasPainter*)` replays the buffer using `QCanvasPainter` calls — `MoveTo` → `painter->moveTo()`, `SetFillStyle` → `painter->setFillStyle()`, etc.
+
+The wrapper is **isolated to two new files** (`src/ui/jscanvaspainteritem.{h,cpp}` and `src/ui/jscanvascontext.{h,cpp}`) and `CupFillView.qml` swaps `Canvas { ... }` → `JsCanvasPainterItem { ... }` with the existing `onPaint:` body intact (modulo a few enum/string mappings: `lineCap = "round"` → `lineCap = JsCanvasContext.Round`, etc.). All other QML files using `Canvas` continue to use the built-in type.
+
+**Scope of the JS API surface**: only what CupFillView actually uses today — `beginPath`/`closePath`, `moveTo`/`lineTo`, `fill`/`stroke`, `fillRect`/`clearRect`, `arc`/`ellipse`, `reset`; properties `fillStyle`/`strokeStyle`/`lineWidth`/`lineCap`/`globalAlpha`; and the two gradient types with `addColorStop()`. Roughly 15 ctx methods + 6 properties + 2 gradient classes. We are **not** rebuilding the full HTML Canvas 2D API — anything we don't use today is out of scope.
+
+**Acceptance gate**: visual output matches the Canvas baseline side-by-side on Windows, macOS, and Android; animation feels at least as smooth on the Decent tablet during a live extraction; CPU usage (sampled via Qt Creator profiler or Android Studio CPU profiler) measurably drops on the tablet during a live shot.
+
+**Rollback**: if the Tech Preview misbehaves on any platform, revert `CupFillView.qml` to `Canvas` (one-line type change per item) and leave the wrapper in tree behind a guard for future revival.
 
 ### Impact on `migrate-charting-to-qt-graphs`
 
@@ -43,9 +58,11 @@ This is a **minor version upgrade** within Qt 6; binary compatibility is maintai
 - **Affected specs**: `build-config` (new capability — records Qt version constraints and platform targets)
 - **Affected code**:
   - `.github/workflows/*.yml` — all 6 workflow files
-  - `CMakeLists.txt` — comment + policy block + optional CanvasPainter find_package
+  - `CMakeLists.txt` — comment + policy block + `find_package(Qt6 ... CanvasPainter)` + new sources
   - `CLAUDE.md` — Qt version and path references
   - `openspec/project.md` — tech stack entry
-  - `qml/components/CupFillView.qml` — swap `Canvas` → `CanvasPainterItem` (two instances)
-- **Risk**: Low for version bump; Low-Medium for Canvas Painter (Tech Preview). Canvas Painter is isolated to `CupFillView.qml`; a revert is a small, localised change if the Tech Preview causes issues on any platform.
+  - `src/ui/jscanvaspainteritem.{h,cpp}` — **new** — `QCanvasPainterItem` subclass + QML registration
+  - `src/ui/jscanvascontext.{h,cpp}` — **new** — JS-callable Canvas 2D ctx proxy + command buffer
+  - `qml/components/CupFillView.qml` — swap `Canvas` → `JsCanvasPainterItem` (two instances), fix `lineCap` enum
+- **Risk**: Low for version bump; Medium for the JS↔QCanvasPainter wrapper (Tech Preview C++ API may shift in 6.12; command-recording overhead must be measured). Wrapper code is isolated to two new files and one QML file — revert path is a one-line QML change per item.
 - **Unblocks**: `migrate-charting-to-qt-graphs` Stage 0 (gate condition #4 satisfied)
