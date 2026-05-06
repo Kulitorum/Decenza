@@ -64,7 +64,7 @@ jobs:
           cache-key-prefix: 'qt-windows-v2'
 
       - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
           arch: x64
 
@@ -80,7 +80,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           variant: sccache
-          key: sccache-windows-x64-qt6.10.3
+          key: sccache-windows-x64-qt6.10.3-vs2026
           max-size: 500M
 
       - name: Locate OpenSSL 3
@@ -141,7 +141,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path vcredist
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vcredist\vc_redist.x64.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/vs/18/release/vc_redist.x64.exe" -OutFile "vcredist\vc_redist.x64.exe"
 
       - name: Install Inno Setup
         shell: powershell
