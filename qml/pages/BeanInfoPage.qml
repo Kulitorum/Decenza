@@ -1072,7 +1072,7 @@ Page {
             inputMask: parent.inputMask
             EnterKey.type: Qt.EnterKeyNext
             Keys.onReturnPressed: nextItemInFocusChain().forceActiveFocus()
-            onTextChanged: parent.textEdited(text)
+            onTextEdited: parent.textEdited(text)
             onActiveFocusChanged: {
                 if (activeFocus) {
                     focusedField = fieldInput
