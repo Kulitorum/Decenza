@@ -92,6 +92,7 @@
 #endif
 #include "screensaver/strangeattractorrenderer.h"
 #include "rendering/fastlinerenderer.h"
+#include "ui/jscanvaspainteritem.h"
 #ifdef ENABLE_QUICK3D
 #include "screensaver/pipegeometry.h"
 #endif
@@ -1726,6 +1727,11 @@ int main(int argc, char *argv[])
     // property — this type registration is only needed for enum access.
     qmlRegisterUncreatableType<SteamHealthTracker>("Decenza", 1, 0, "SteamHealthTrackerType",
         "SteamHealthTracker is created in C++");
+
+    // GPU-accelerated Canvas-like surface (CupFillView). The wrapper exposes
+    // an `onPaint(ctx)` signal whose ctx replays JS-recorded draw commands
+    // through QCanvasPainter on the scene-graph render thread.
+    qmlRegisterType<JsCanvasPainterItem>("Decenza", 1, 0, "JsCanvasPainterItem");
 
     // Register Settings sub-object types so QML can introspect their properties
     // when accessed via Settings.mqtt, Settings.theme, etc. The Q_PROPERTY

@@ -74,6 +74,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Sql
     Positioning
     WebSockets
+    CanvasPainter
 )
 
 # SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
@@ -282,6 +283,8 @@ set(SOURCES
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
+    src/ui/jscanvaspainteritem.cpp
+    src/ui/jscanvascontext.cpp
     src/network/visualizeruploader.cpp
     src/network/visualizerimporter.cpp
     src/ai/aimanager.cpp
@@ -453,6 +456,8 @@ set(HEADERS
     src/screensaver/iosbrightness.h
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
+    src/ui/jscanvaspainteritem.h
+    src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
     src/ai/aimanager.h
@@ -554,6 +559,7 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Sql
     Qt6::Positioning
     Qt6::WebSockets
+    Qt6::CanvasPainter
 )
 
 # Link SerialPort only on desktop (not available on Android/iOS)

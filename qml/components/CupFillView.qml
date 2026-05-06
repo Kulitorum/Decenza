@@ -157,13 +157,11 @@ Item {
                 fragmentShader: "qrc:/shaders/cup_mask.frag.qsb"
             }
 
-            Canvas {
+            JsCanvasPainterItem {
                 id: liquidCanvas
                 anchors.fill: parent
-                renderStrategy: Canvas.Threaded
 
-                onPaint: {
-                    var ctx = getContext("2d")
+                onPaint: function(ctx) {
                     var w = width, h = height
                     ctx.reset()
                     ctx.clearRect(0, 0, w, h)
@@ -368,16 +366,14 @@ Item {
     // Extended above the cup so the stream can enter from off-screen
     // ================================================================
     readonly property real effectsExtra: root.cupY  // extra space above cup
-    Canvas {
+    JsCanvasPainterItem {
         id: effectsCanvas
         x: root.cupX
         y: 0
         width: root.cupDisplayW
         height: root.cupDisplayH + root.effectsExtra
-        renderStrategy: Canvas.Threaded
 
-            onPaint: {
-                var ctx = getContext("2d")
+            onPaint: function(ctx) {
                 var w = width
                 var canvasH = height
                 var cupH = root.cupDisplayH
