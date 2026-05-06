@@ -609,16 +609,6 @@ bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {
             this, &BleTransport::onControllerDisconnected, qc);
     connect(m_controller, &QLowEnergyController::errorOccurred,
             this, &BleTransport::onControllerError, qc);
-    // Log the connection parameters Android actually grants us (vs what we
-    // requested via requestConnectionUpdate). This fires at least once shortly
-    // after connect, and again any time the link parameters change. Lets us
-    // see the real negotiated interval/latency/timeout for diagnosing radio
-    // contention when the DE1 + a scale share the same Android BT pipeline.
-    connect(m_controller, &QLowEnergyController::connectionUpdated, this,
-            [this](const QLowEnergyConnectionParameters& p) {
-        this->log(QString("connectionUpdated: interval=%1ms latency=%2 supervisionTimeout=%3ms")
-            .arg(p.minimumInterval()).arg(p.latency()).arg(p.supervisionTimeout()));
-    }, qc);
     connect(m_controller, &QLowEnergyController::serviceDiscovered,
             this, &BleTransport::onServiceDiscovered, qc);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
@@ -683,9 +673,6 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     m_lastWriteUuid = uuidShort;
     m_lastWriteData = data;
     m_writeTimeoutTimer.start();
-    // Log every submission so we can correlate DE1 write failures with surrounding scale BLE
-    // activity (scale CCCD writes, scale notify bursts) on the same Android GATT pipeline.
-    log(QString("write submit %1 (%2 bytes)").arg(uuidShort).arg(data.size()));
     m_service->writeCharacteristic(m_characteristics[uuid], data);
 }
 
