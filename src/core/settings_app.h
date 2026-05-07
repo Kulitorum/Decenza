@@ -34,6 +34,7 @@ class SettingsApp : public QObject {
     // Auto-update
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
+    Q_PROPERTY(qint64 lastKnownApkSizeBytes READ lastKnownApkSizeBytes WRITE setLastKnownApkSizeBytes NOTIFY lastKnownApkSizeBytesChanged)
 
     // DE1 firmware update channel. When false (default), firmware comes
     // from fast.decentespresso.com/download/sync/de1plus; when true,
@@ -152,6 +153,7 @@ signals:
     void currentProfileChanged();
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
+    void lastKnownApkSizeBytesChanged();
     void firmwareNightlyChannelChanged();
     void dailyBackupHourChanged();
     void waterLevelDisplayUnitChanged();

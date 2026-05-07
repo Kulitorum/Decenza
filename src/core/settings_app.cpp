@@ -395,7 +395,9 @@ qint64 SettingsApp::lastKnownApkSizeBytes() const {
 }
 
 void SettingsApp::setLastKnownApkSizeBytes(qint64 size) {
+    if (lastKnownApkSizeBytes() == size) return;
     m_settings.setValue("updates/lastKnownApkSizeBytes", size);
+    emit lastKnownApkSizeBytesChanged();
 }
 
 bool SettingsApp::firmwareNightlyChannel() const {

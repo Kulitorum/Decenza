@@ -4,6 +4,8 @@
 #include "settings_app.h"
 #include "version.h"
 
+#include <algorithm>
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -593,7 +595,7 @@ void UpdateChecker::onDownloadProgress(qint64 received, qint64 total)
         effectiveTotal = m_settings->app()->lastKnownApkSizeBytes();
     }
     if (effectiveTotal > 0) {
-        m_downloadProgress = static_cast<int>((received * 100) / effectiveTotal);
+        m_downloadProgress = std::clamp(static_cast<int>((received * 100) / effectiveTotal), 0, 100);
         emit downloadProgressChanged();
     }
 }
@@ -786,9 +788,10 @@ void UpdateChecker::dismissUpdate()
     // this, the QNetworkReply continues, onDownloadFinished() fires, and the
     // system install dialog appears despite the user explicitly dismissing.
     // Disconnect finished() first so the slot does not run during abort().
-    // Note: m_currentReply may be null while a Content-Length retry timer is
-    // pending — we must still clear m_downloading so the startDownload() guard
-    // stops the timer callback from launching a new request after dismiss.
+    // Note: m_currentReply may be null while a queued startDownload() invocation
+    // is pending (via QMetaObject::invokeMethod QueuedConnection) — we must still
+    // clear m_downloading so the startDownload() guard stops the queued callback
+    // from launching a new request after dismiss.
     if (m_downloading) {
         if (m_currentReply) {
             QString partialPath;
