@@ -542,16 +542,17 @@ void UpdateChecker::startDownload()
             if (contentLength <= 0 && m_contentLengthRetries < kMaxRetries) {
                 m_contentLengthRetries++;
                 qDebug() << "UpdateChecker: no Content-Length on attempt" << m_contentLengthRetries
-                         << "/" << kMaxRetries << "- retrying in 2s";
+                         << "/" << kMaxRetries << "- retrying";
                 disconnect(m_currentReply, &QNetworkReply::finished,
                            this, &UpdateChecker::onDownloadFinished);
+                disconnect(m_currentReply, &QNetworkReply::errorOccurred, this, nullptr);
                 m_currentReply->abort();
                 m_currentReply->deleteLater();
                 m_currentReply = nullptr;
                 m_downloadFile->close();
                 delete m_downloadFile;
                 m_downloadFile = nullptr;
-                QTimer::singleShot(2000, this, &UpdateChecker::startDownload);
+                QMetaObject::invokeMethod(this, &UpdateChecker::startDownload, Qt::QueuedConnection);
                 return;
             }
             if (contentLength <= 0) {
