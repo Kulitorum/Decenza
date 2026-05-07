@@ -586,8 +586,14 @@ void UpdateChecker::startDownload()
 
 void UpdateChecker::onDownloadProgress(qint64 received, qint64 total)
 {
-    if (total > 0) {
-        m_downloadProgress = static_cast<int>((received * 100) / total);
+    qint64 effectiveTotal = total;
+    if (effectiveTotal > 0) {
+        m_settings->app()->setLastKnownApkSizeBytes(effectiveTotal);
+    } else {
+        effectiveTotal = m_settings->app()->lastKnownApkSizeBytes();
+    }
+    if (effectiveTotal > 0) {
+        m_downloadProgress = static_cast<int>((received * 100) / effectiveTotal);
         emit downloadProgressChanged();
     }
 }

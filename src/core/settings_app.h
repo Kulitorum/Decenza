@@ -109,6 +109,8 @@ public:
     void setBetaUpdatesEnabled(bool enabled);
     bool firmwareNightlyChannel() const;
     void setFirmwareNightlyChannel(bool enabled);
+    qint64 lastKnownApkSizeBytes() const;
+    void setLastKnownApkSizeBytes(qint64 size);
 
     // Daily backup
     int dailyBackupHour() const;
