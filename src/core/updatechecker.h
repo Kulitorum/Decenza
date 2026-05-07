@@ -121,6 +121,8 @@ private:
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
     bool m_installInFlight = false;  // True between installApk() dispatch and terminal PackageInstaller status
+    int m_contentLengthRetries = 0;  // Attempts so far waiting for a response with Content-Length
+    bool m_contentLengthConfirmed = false;  // True once a response with Content-Length has been seen
     // Generation counter lives at file scope in updatechecker.cpp so background
     // QFile::remove threads don't capture `this` (see s_downloadGeneration).
 

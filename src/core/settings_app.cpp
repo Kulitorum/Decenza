@@ -390,6 +390,16 @@ void SettingsApp::setBetaUpdatesEnabled(bool enabled) {
     }
 }
 
+qint64 SettingsApp::lastKnownApkSizeBytes() const {
+    return m_settings.value("updates/lastKnownApkSizeBytes", 0).toLongLong();
+}
+
+void SettingsApp::setLastKnownApkSizeBytes(qint64 size) {
+    if (lastKnownApkSizeBytes() == size) return;
+    m_settings.setValue("updates/lastKnownApkSizeBytes", size);
+    emit lastKnownApkSizeBytesChanged();
+}
+
 bool SettingsApp::firmwareNightlyChannel() const {
     return m_settings.value("firmware/nightlyChannel", false).toBool();
 }
