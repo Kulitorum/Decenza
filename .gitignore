@@ -48,6 +48,9 @@ screenshot.png
 logcat_*.txt
 -.zip
 .claude/*
+
+# Local how-to docs
+.howto.md
 !.claude/skills/
 !.claude/agents/
 !.claude/commands/

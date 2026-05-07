@@ -1777,6 +1777,112 @@ bool ProfileManager::saveProfileAs(const QString& filename, const QString& title
     return success;
 }
 
+bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QString& newTitle) {
+    // Generate a unique filename from the title
+    QString newFilename = titleToFilename(newTitle);
+    
+    // Check if the new filename already exists
+    if (profileExists(newFilename)) {
+        qWarning() << "ProfileManager::duplicateProfile: Profile already exists:" << newFilename;
+        return false;
+    }
+
+    // Prevent duplicating with a built-in profile filename
+    if (isBuiltInFilename(newFilename)) {
+        qWarning() << "ProfileManager::duplicateProfile: Cannot use built-in profile filename:" << newFilename;
+        return false;
+    }
+
+    // Load the source profile JSON
+    QString jsonContent;
+    
+    // Try ProfileStorage first
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        jsonContent = m_profileStorage->readProfile(sourceFilename);
+    }
+    
+    // If not found in ProfileStorage, try loading from file
+    if (jsonContent.isEmpty()) {
+        // Check built-in profiles
+        QString builtInPath = ":/profiles/" + sourceFilename + ".json";
+        QFile builtInFile(builtInPath);
+        if (builtInFile.open(QIODevice::ReadOnly)) {
+            jsonContent = QString::fromUtf8(builtInFile.readAll());
+            builtInFile.close();
+        }
+        
+        // Check downloaded profiles
+        if (jsonContent.isEmpty()) {
+            QString downloadedPath = downloadedProfilesPath() + "/" + sourceFilename + ".json";
+            QFile downloadedFile(downloadedPath);
+            if (downloadedFile.open(QIODevice::ReadOnly)) {
+                jsonContent = QString::fromUtf8(downloadedFile.readAll());
+                downloadedFile.close();
+            }
+        }
+        
+        // Check user profiles
+        if (jsonContent.isEmpty()) {
+            QString userPath = userProfilesPath() + "/" + sourceFilename + ".json";
+            QFile userFile(userPath);
+            if (userFile.open(QIODevice::ReadOnly)) {
+                jsonContent = QString::fromUtf8(userFile.readAll());
+                userFile.close();
+            }
+        }
+    }
+    
+    if (jsonContent.isEmpty()) {
+        qWarning() << "ProfileManager::duplicateProfile: Could not load source profile:" << sourceFilename;
+        return false;
+    }
+
+    // Parse the profile JSON
+    Profile duplicatedProfile = Profile::loadFromJsonString(jsonContent);
+    if (duplicatedProfile.title().isEmpty()) {
+        qWarning() << "ProfileManager::duplicateProfile: Failed to parse source profile JSON";
+        return false;
+    }
+
+    // Update the title and clear read-only flag
+    duplicatedProfile.setTitle(newTitle);
+    duplicatedProfile.setReadOnly(0);
+
+    // Save the duplicated profile
+    bool success = false;
+    
+    // Try ProfileStorage first (SAF on Android)
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        success = m_profileStorage->writeProfile(newFilename, duplicatedProfile.toJsonString());
+        if (success) {
+            qDebug() << "Duplicated profile to ProfileStorage:" << newFilename;
+        }
+    }
+
+    if (!success) {
+        // Fall back to local file
+        QString path = userProfilesPath() + "/" + newFilename + ".json";
+        success = duplicatedProfile.saveToFile(path);
+        if (success) {
+            qDebug() << "Duplicated profile to local file:" << path;
+        } else {
+            qWarning() << "Failed to save duplicated profile to:" << path;
+        }
+    }
+
+    if (success) {
+        // Add to favorites
+        if (m_settings) {
+            m_settings->app()->addFavoriteProfile(newTitle, newFilename);
+        }
+        
+        // Refresh the profile list to show the new profile
+        refreshProfiles();
+    }
+    
+    return success;
+}
+
 
 // === Profile editing (recipe/frame) ===
 
