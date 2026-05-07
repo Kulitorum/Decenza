@@ -461,6 +461,8 @@ void UpdateChecker::downloadAndInstall()
 
     m_downloading = true;
     m_downloadProgress = 0;
+    m_contentLengthRetries = 0;
+    m_contentLengthConfirmed = false;
     m_errorMessage.clear();
     emit downloadingChanged();
     emit downloadProgressChanged();
@@ -471,6 +473,10 @@ void UpdateChecker::downloadAndInstall()
 
 void UpdateChecker::startDownload()
 {
+    // Guard: dismissUpdate() clears m_downloading; if the retry timer fires
+    // after dismiss we must not start a new download.
+    if (!m_downloading) return;
+
     // Prepare download path
     QString savePath;
 #ifdef Q_OS_ANDROID
@@ -523,15 +529,45 @@ void UpdateChecker::startDownload()
     m_currentReply = m_network->get(request);
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &UpdateChecker::onDownloadProgress);
     connect(m_currentReply, &QNetworkReply::readyRead, this, [this]() {
-        if (m_downloadFile && m_currentReply) {
-            QByteArray chunk = m_currentReply->readAll();
-            if (m_downloadFile->write(chunk) != chunk.size()) {
-                qWarning() << "UpdateChecker: Write failed during download:" << m_downloadFile->errorString();
-                // Set the real error before aborting — abort() triggers onDownloadFinished
-                // with OperationCanceledError, which would show a misleading message
-                m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
+        if (!m_currentReply || !m_downloadFile) return;
+
+        // On the first chunk of every attempt, verify GitHub returned Content-Length
+        // so the progress bar works. If not, abort and retry — GitHub's CDN sometimes
+        // omits it but will include it on a subsequent connection. After kMaxRetries
+        // attempts we give up and proceed without progress tracking.
+        if (!m_contentLengthConfirmed) {
+            constexpr int kMaxRetries = 10;
+            const qint64 contentLength =
+                m_currentReply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+            if (contentLength <= 0 && m_contentLengthRetries < kMaxRetries) {
+                m_contentLengthRetries++;
+                qDebug() << "UpdateChecker: no Content-Length on attempt" << m_contentLengthRetries
+                         << "/" << kMaxRetries << "- retrying in 2s";
+                disconnect(m_currentReply, &QNetworkReply::finished,
+                           this, &UpdateChecker::onDownloadFinished);
                 m_currentReply->abort();
+                m_currentReply->deleteLater();
+                m_currentReply = nullptr;
+                m_downloadFile->close();
+                delete m_downloadFile;
+                m_downloadFile = nullptr;
+                QTimer::singleShot(2000, this, &UpdateChecker::startDownload);
+                return;
             }
+            if (contentLength <= 0) {
+                qDebug() << "UpdateChecker: no Content-Length after" << kMaxRetries
+                         << "retries, proceeding without progress tracking";
+            }
+            m_contentLengthConfirmed = true;
+        }
+
+        QByteArray chunk = m_currentReply->readAll();
+        if (m_downloadFile->write(chunk) != chunk.size()) {
+            qWarning() << "UpdateChecker: Write failed during download:" << m_downloadFile->errorString();
+            // Set the real error before aborting — abort() triggers onDownloadFinished
+            // with OperationCanceledError, which would show a misleading message
+            m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
+            m_currentReply->abort();
         }
     });
     // Log transport errors as soon as they happen so we can distinguish a
@@ -626,7 +662,10 @@ void UpdateChecker::onDownloadFinished()
         // Preserve specific error set by readyRead write failure (otherwise
         // abort() produces a generic "Operation canceled" message)
         if (m_errorMessage.isEmpty()) {
-            m_errorMessage = "Download failed: " + m_currentReply->errorString();
+            const bool isTimeout = (m_currentReply->error() == QNetworkReply::TimeoutError);
+            m_errorMessage = isTimeout
+                ? "Download timed out — check your network connection and tap Download & Install to try again."
+                : "Download failed: " + m_currentReply->errorString();
         }
         emit errorMessageChanged();
         {
@@ -740,32 +779,37 @@ void UpdateChecker::dismissUpdate()
     // this, the QNetworkReply continues, onDownloadFinished() fires, and the
     // system install dialog appears despite the user explicitly dismissing.
     // Disconnect finished() first so the slot does not run during abort().
-    if (m_downloading && m_currentReply) {
-        QString partialPath;
-        if (m_downloadFile) partialPath = m_downloadFile->fileName();
-        disconnect(m_currentReply, &QNetworkReply::finished, this, &UpdateChecker::onDownloadFinished);
-        m_currentReply->abort();
-        m_currentReply->deleteLater();
-        m_currentReply = nullptr;
-        if (m_downloadFile) {
-            m_downloadFile->close();
-            delete m_downloadFile;
-            m_downloadFile = nullptr;
+    // Note: m_currentReply may be null while a Content-Length retry timer is
+    // pending — we must still clear m_downloading so the startDownload() guard
+    // stops the timer callback from launching a new request after dismiss.
+    if (m_downloading) {
+        if (m_currentReply) {
+            QString partialPath;
+            if (m_downloadFile) partialPath = m_downloadFile->fileName();
+            disconnect(m_currentReply, &QNetworkReply::finished, this, &UpdateChecker::onDownloadFinished);
+            m_currentReply->abort();
+            m_currentReply->deleteLater();
+            m_currentReply = nullptr;
+            if (m_downloadFile) {
+                m_downloadFile->close();
+                delete m_downloadFile;
+                m_downloadFile = nullptr;
+            }
+            if (!partialPath.isEmpty()) {
+                // Generation guard: if a new startDownload() (programmatic or via a
+                // subsequent user action) reuses the same filename before this thread
+                // runs, we must not delete the new download's freshly-opened file.
+                const int capturedGen = s_downloadGeneration.loadAcquire();
+                QThread* t = QThread::create([partialPath, capturedGen]() {
+                    if (s_downloadGeneration.loadAcquire() == capturedGen)
+                        QFile::remove(partialPath);
+                });
+                connect(t, &QThread::finished, t, &QThread::deleteLater);
+                t->start();
+            }
         }
         m_downloading = false;
         emit downloadingChanged();
-        if (!partialPath.isEmpty()) {
-            // Generation guard: if a new startDownload() (programmatic or via a
-            // subsequent user action) reuses the same filename before this thread
-            // runs, we must not delete the new download's freshly-opened file.
-            const int capturedGen = s_downloadGeneration.loadAcquire();
-            QThread* t = QThread::create([partialPath, capturedGen]() {
-                if (s_downloadGeneration.loadAcquire() == capturedGen)
-                    QFile::remove(partialPath);
-            });
-            connect(t, &QThread::finished, t, &QThread::deleteLater);
-            t->start();
-        }
     }
 
     // Dismiss is an explicit user action: clean up the cached APK unconditionally.
