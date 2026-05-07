@@ -32,7 +32,7 @@ Q_SIGNALS:
 
 private:
     JsCanvasContext m_ctx;
-    bool m_loggedInit = false;  // one-shot startup info on first paint
+    bool m_loggedInit = false;  // one-shot RHI-backend log on first requestPaint() with a window
 };
 
 #endif // JSCANVASPAINTERITEM_H

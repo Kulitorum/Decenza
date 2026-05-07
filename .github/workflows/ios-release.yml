@@ -75,7 +75,7 @@ jobs:
           version: '6.11.0'
           target: 'ios'
           arch: 'ios'
-          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats'
+          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'
           cache: true
           cache-key-prefix: 'qt-ios-v4'
 

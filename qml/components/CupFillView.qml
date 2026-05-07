@@ -388,7 +388,6 @@ Item {
                 // Shift all geometry down by yOff to align with cup image
                 g.rimCy += yOff
                 g.botCy += yOff
-                g.fillTopY += yOff
                 // Match the visual fill level used by the liquid canvas (+0.12 boost)
                 var effectiveFillRatio = Math.min(g.fillRatio + 0.12, 1.0)
                 var effectiveFillH = effectiveFillRatio * g.interiorH

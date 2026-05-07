@@ -12,8 +12,9 @@
 
 namespace {
 
-// Recording is on the main thread; if it exceeds half a 30 fps frame we'll
-// drop a frame. Warn on outliers so field reports include the signal.
+// Recording is on the main thread; if it exceeds half a 30 fps frame
+// budget we're at risk of dropping a frame. Warn on outliers so field
+// reports include the signal.
 constexpr qint64 kSlowRecordThresholdNs = 16'000'000;  // 16 ms
 
 const char *graphicsApiName(QSGRendererInterface::GraphicsApi api)
@@ -47,10 +48,14 @@ void applyBrush(QCanvasPainter *p, const BrushSpec &s, bool fill)
         if (fill) p->setFillStyle(g);
         else      p->setStrokeStyle(g);
     } else {
-        // QCanvasRadialGradient is single-center with inner/outer radii.
-        // Approximate the Canvas-2D two-circle form by using the outer
-        // circle's center+radius and the inner circle's radius.
-        QCanvasRadialGradient g(s.x1, s.y1, s.r1, s.r0);
+        // Canvas-2D's createRadialGradient takes two circles (inner focal
+        // point and outer extent) but QCanvasRadialGradient is single-center
+        // with concentric radii. When the centers differ we use the inner
+        // circle's center as the gradient origin: in Canvas 2D the inner
+        // circle is the focal point where the start color is brightest, so
+        // anchoring the gradient there preserves the "lit-from-this-side"
+        // asymmetry the QML caller designed (e.g. CupFillView's crema).
+        QCanvasRadialGradient g(s.x0, s.y0, s.r1, s.r0);
         g.setStops(s.stops);
         if (fill) p->setFillStyle(g);
         else      p->setStrokeStyle(g);
@@ -70,10 +75,12 @@ public:
 
     void paint(QCanvasPainter *p) override
     {
-        // Renderer holds the painter's state across frames, so reset() each
-        // pass to mirror the Canvas semantics CupFillView relies on (the QML
-        // handler calls ctx.reset() at the start; without our own reset here,
-        // residual state from the previous swap would leak in).
+        // Defensive: QCanvasPainter holds its state across frames. CupFillView's
+        // QML handlers always record a ctx.reset() as their first command (which
+        // is replayed below as DrawCmd::Op::Reset), so this reset is currently
+        // redundant. Keep it as defense-in-depth in case a future handler omits
+        // ctx.reset() — without it residual state from the previous frame would
+        // leak in.
         p->reset();
 
         for (const DrawCmd &c : std::as_const(m_cmds)) {
@@ -160,8 +167,10 @@ void JsCanvasPainterItem::requestPaint()
     const qint64 elapsedNs = t.nsecsElapsed();
     update();
 
-    // First successful paint: log the RHI backend so field reports identify
-    // which graphics path the user's device picked (Vulkan/Metal/GL).
+    // First requestPaint() with the item attached to a window: log the RHI
+    // backend so field reports identify which graphics path the device picked
+    // (Vulkan/Metal/GL). Runs on the main thread; the actual GPU paint comes
+    // later via update() → render-thread paint().
     if (!m_loggedInit && window() && window()->rendererInterface()) {
         const auto api = window()->rendererInterface()->graphicsApi();
         qInfo().nospace().noquote()
