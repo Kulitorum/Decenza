@@ -72,6 +72,11 @@ jobs:
           # it yet — pin to that merge commit until aqtinstall 3.4 lands.
           # Other platforms still use the old single-dir layout in 6.11.0
           # and work with stock 3.3.0; this override is Windows-only.
+          # TODO(qt-6.11): when aqtinstall >= 3.4.0 ships
+          # (https://pypi.org/project/aqtinstall/), drop this `aqtsource` line
+          # and let install-qt-action use its default. If the cycle repeats
+          # on a future Qt minor (3-month upstream-fix-to-release gap was the
+          # failure mode), evaluate `use-official: true` instead.
           aqtsource: 'git+https://github.com/miurahr/aqtinstall@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b'
 
       - name: Setup MSVC
