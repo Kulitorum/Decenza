@@ -61,7 +61,18 @@ jobs:
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport qtimageformats qtcanvaspainter'
           tools: 'tools_ninja'
           cache: true
-          cache-key-prefix: 'qt-windows-v2'
+          cache-key-prefix: 'qt-windows-v3-aqt-master'
+          # Qt 6.11.0 reorganised the Windows online repo layout: the
+          # `qt6_6110/qt6_6110/Updates.xml` path was replaced by per-arch
+          # subdirectories (`qt6_6110_msvc2022_64`, `qt6_6110_mingw`, ...).
+          # aqtinstall 3.3.0 (the latest release, pinned by install-qt-action)
+          # only knows the old layout and fails with "Failed to locate XML
+          # data for Qt version '6.11.0'". The fix landed on master via
+          # miurahr/aqtinstall#1000 (merged 2026-03-24) but no release ships
+          # it yet — pin to that merge commit until aqtinstall 3.4 lands.
+          # Other platforms still use the old single-dir layout in 6.11.0
+          # and work with stock 3.3.0; this override is Windows-only.
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b'
 
       - name: Setup MSVC
         uses: TheMrMilchmann/setup-msvc-dev@v4
