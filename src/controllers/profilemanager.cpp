@@ -1777,6 +1777,136 @@ bool ProfileManager::saveProfileAs(const QString& filename, const QString& title
     return success;
 }
 
+bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QString& newTitle) {
+    // Generate a unique filename from the title
+    QString newFilename = titleToFilename(newTitle);
+
+    // titleToFilename strips everything but letters/digits/underscores; titles that are
+    // entirely non-Latin (CJK / Cyrillic / emoji / punctuation) reduce to an empty string.
+    if (newFilename.isEmpty()) {
+        qWarning() << "ProfileManager::duplicateProfile: title sanitises to empty filename:" << newTitle;
+        return false;
+    }
+
+    // Prevent duplicating with a built-in profile filename
+    if (isBuiltInFilename(newFilename)) {
+        qWarning() << "ProfileManager::duplicateProfile: Cannot use built-in profile filename:" << newFilename;
+        return false;
+    }
+
+    // Check if the new filename already exists in any of the locations we might write to.
+    // profileExists() only checks m_availableProfiles + profilesPath() root, so we also
+    // probe ProfileStorage and the user/downloaded folders to avoid silent overwrite when
+    // m_availableProfiles is stale.
+    auto collides = [this](const QString& fn) {
+        if (profileExists(fn))
+            return true;
+        if (m_profileStorage && m_profileStorage->isConfigured()
+            && !m_profileStorage->readProfile(fn).isEmpty())
+            return true;
+        if (QFile::exists(userProfilesPath() + "/" + fn + ".json"))
+            return true;
+        if (QFile::exists(downloadedProfilesPath() + "/" + fn + ".json"))
+            return true;
+        return false;
+    };
+    if (collides(newFilename)) {
+        qWarning() << "ProfileManager::duplicateProfile: Profile already exists:" << newFilename;
+        return false;
+    }
+
+    // Load the source profile JSON. Order mirrors loadProfile() so a user-edited copy
+    // of a built-in profile is preferred over the pristine resource.
+    QString jsonContent;
+
+    // 1. ProfileStorage (SAF on Android)
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        jsonContent = m_profileStorage->readProfile(sourceFilename);
+    }
+
+    // 2. User profiles (local fallback)
+    if (jsonContent.isEmpty()) {
+        QString userPath = userProfilesPath() + "/" + sourceFilename + ".json";
+        QFile userFile(userPath);
+        if (userFile.open(QIODevice::ReadOnly)) {
+            jsonContent = QString::fromUtf8(userFile.readAll());
+        }
+    }
+
+    // 3. Downloaded profiles (local fallback)
+    if (jsonContent.isEmpty()) {
+        QString downloadedPath = downloadedProfilesPath() + "/" + sourceFilename + ".json";
+        QFile downloadedFile(downloadedPath);
+        if (downloadedFile.open(QIODevice::ReadOnly)) {
+            jsonContent = QString::fromUtf8(downloadedFile.readAll());
+        }
+    }
+
+    // 4. Built-in profiles
+    if (jsonContent.isEmpty()) {
+        QString builtInPath = ":/profiles/" + sourceFilename + ".json";
+        QFile builtInFile(builtInPath);
+        if (builtInFile.open(QIODevice::ReadOnly)) {
+            jsonContent = QString::fromUtf8(builtInFile.readAll());
+        }
+    }
+
+    if (jsonContent.isEmpty()) {
+        qWarning() << "ProfileManager::duplicateProfile: Could not load source profile:" << sourceFilename;
+        return false;
+    }
+
+    // Verify the JSON is well-formed before handing it to Profile::loadFromJsonString,
+    // which returns a default-constructed Profile (title="Default") on parse failure —
+    // so a checking-the-title guard alone would silently save a near-empty profile.
+    QJsonParseError parseErr;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "ProfileManager::duplicateProfile: source JSON is malformed:" << parseErr.errorString();
+        return false;
+    }
+
+    Profile duplicatedProfile = Profile::loadFromJsonString(jsonContent);
+
+    // Update the title and clear read-only flag
+    duplicatedProfile.setTitle(newTitle);
+    duplicatedProfile.setReadOnly(0);
+
+    // Save the duplicated profile
+    bool success = false;
+    
+    // Try ProfileStorage first (SAF on Android)
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        success = m_profileStorage->writeProfile(newFilename, duplicatedProfile.toJsonString());
+        if (success) {
+            qDebug() << "Duplicated profile to ProfileStorage:" << newFilename;
+        }
+    }
+
+    if (!success) {
+        // Fall back to local file
+        QString path = userProfilesPath() + "/" + newFilename + ".json";
+        success = duplicatedProfile.saveToFile(path);
+        if (success) {
+            qDebug() << "Duplicated profile to local file:" << path;
+        } else {
+            qWarning() << "Failed to save duplicated profile to:" << path;
+        }
+    }
+
+    if (success) {
+        // Add to favorites
+        if (m_settings) {
+            m_settings->app()->addFavoriteProfile(newTitle, newFilename);
+        }
+        
+        // Refresh the profile list to show the new profile
+        refreshProfiles();
+    }
+    
+    return success;
+}
+
 
 // === Profile editing (recipe/frame) ===
 

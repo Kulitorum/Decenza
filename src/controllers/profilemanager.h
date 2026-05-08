@@ -168,6 +168,7 @@ public slots:
     Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);
+    Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);
 
     // Communication-failure dialog support.
     bool de1CommunicationFailure() const { return m_de1CommunicationFailure; }
