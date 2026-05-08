@@ -475,6 +475,8 @@ Page {
 
                                 Accessible.role: Accessible.MenuItem
                                 Accessible.name: TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: { ProfileManager.loadProfile(modelData.name); root.goToProfileEditor() }
                             }
 
                             MenuItem {
@@ -514,6 +516,8 @@ Page {
 
                                 Accessible.role: Accessible.MenuItem
                                 Accessible.name: TranslationManager.translate("profileselector.accessible.copy_profile", "Copy profile")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: { copyProfileDialog.sourceFilename = modelData.name; copyProfileDialog.sourceTitle = modelData.title; copyProfileDialog.open() }
                             }
 
                             MenuSeparator {
@@ -564,6 +568,8 @@ Page {
 
                                 Accessible.role: Accessible.MenuItem
                                 Accessible.name: TranslationManager.translate("profileselector.accessible.remove_from_list", "Remove from selected list")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: { if (profileDelegate.isBuiltIn) { Settings.app.removeSelectedBuiltInProfile(modelData.name) } else { Settings.app.addHiddenProfile(modelData.name) } }
                             }
 
                             MenuItem {
@@ -605,6 +611,8 @@ Page {
 
                                 Accessible.role: Accessible.MenuItem
                                 Accessible.name: TranslationManager.translate("profileselector.accessible.delete_permanently", "Delete profile permanently")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: { deleteDialog.profileName = modelData.name; deleteDialog.profileTitle = modelData.title; deleteDialog.isFavorite = profileDelegate.isFavorite; deleteDialog.open() }
                             }
                         }
 
@@ -1155,7 +1163,7 @@ Page {
         }
     }
 
-    // Copy Profile Dialog
+    // Copy profile dialog
     Dialog {
         id: copyProfileDialog
         anchors.centerIn: parent
