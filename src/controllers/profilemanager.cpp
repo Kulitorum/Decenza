@@ -1781,8 +1781,9 @@ bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QStri
     // Generate a unique filename from the title
     QString newFilename = titleToFilename(newTitle);
 
-    // titleToFilename strips everything but letters/digits/underscores; titles that are
-    // entirely non-Latin (CJK / Cyrillic / emoji / punctuation) reduce to an empty string.
+    // titleToFilename transliterates accented Latin, then replaces remaining non-alphanumerics
+    // with underscores. Only emoji/punctuation/symbol-only titles (no Unicode letters or digits)
+    // reduce to an empty string; CJK and Cyrillic titles produce a non-empty Unicode filename.
     if (newFilename.isEmpty()) {
         qWarning() << "ProfileManager::duplicateProfile: title sanitises to empty filename:" << newTitle;
         return false;
@@ -1802,7 +1803,7 @@ bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QStri
         if (profileExists(fn))
             return true;
         if (m_profileStorage && m_profileStorage->isConfigured()
-            && !m_profileStorage->readProfile(fn).isEmpty())
+            && m_profileStorage->profileExists(fn))
             return true;
         if (QFile::exists(userProfilesPath() + "/" + fn + ".json"))
             return true;
@@ -1868,11 +1869,10 @@ bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QStri
 
     Profile duplicatedProfile = Profile::loadFromJsonString(jsonContent);
 
-    // Update the title and clear read-only flag
+    // Clear read-only so the copy is editable even when duplicated from a built-in profile
     duplicatedProfile.setTitle(newTitle);
     duplicatedProfile.setReadOnly(0);
 
-    // Save the duplicated profile
     bool success = false;
     
     // Try ProfileStorage first (SAF on Android)
@@ -1895,12 +1895,9 @@ bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QStri
     }
 
     if (success) {
-        // Add to favorites
         if (m_settings) {
-            m_settings->app()->addFavoriteProfile(newTitle, newFilename);
+            m_settings->app()->addSelectedBuiltInProfile(newFilename);
         }
-        
-        // Refresh the profile list to show the new profile
         refreshProfiles();
     }
     
