@@ -1193,78 +1193,86 @@ Page {
             }
         }
 
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(12)
+        contentItem: KeyboardAwareContainer {
+            inOverlay: true
+            textFields: [copyProfileNameField]
+            implicitHeight: copyProfileColumn.implicitHeight
+            implicitWidth: copyProfileColumn.implicitWidth
 
-            Item { implicitHeight: Theme.scaled(8) }
-
-            Text {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                text: TranslationManager.translate("profileselector.copyProfile.label", "Enter a name for the copy:")
-                color: Theme.textColor
-                font: Theme.bodyFont
-                wrapMode: Text.Wrap
-            }
-
-            StyledTextField {
-                id: copyProfileNameField
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.preferredHeight: Theme.scaled(44)
-                placeholder: TranslationManager.translate("profileselector.copyProfile.placeholder", "Profile name")
-                font.pixelSize: Theme.scaled(16)
-
-                Keys.onReturnPressed: {
-                    Qt.inputMethod.commit()
-                    if (copyProfileNameField.text.trim() !== "") {
-                        copyProfileButton.clicked()
-                    }
-                }
-            }
-
-            Item { implicitHeight: Theme.scaled(8) }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
+            ColumnLayout {
+                id: copyProfileColumn
+                anchors.fill: parent
                 spacing: Theme.scaled(12)
 
-                Item { Layout.fillWidth: true }
+                Item { implicitHeight: Theme.scaled(8) }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("common.button.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("common.accessibility.cancel", "Cancel")
-                    Layout.preferredHeight: Theme.scaled(40)
-                    onClicked: copyProfileDialog.close()
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+                    text: TranslationManager.translate("profileselector.copyProfile.label", "Enter a name for the copy:")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.Wrap
                 }
 
-                AccessibleButton {
-                    id: copyProfileButton
-                    text: TranslationManager.translate("profileselector.copyProfile.button", "Copy")
-                    accessibleName: TranslationManager.translate("profileselector.copyProfile.accessible", "Copy profile with new name")
-                    primary: true
-                    enabled: copyProfileNameField.text.trim() !== ""
-                    Layout.preferredHeight: Theme.scaled(40)
-                    onClicked: {
+                StyledTextField {
+                    id: copyProfileNameField
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+                    Layout.preferredHeight: Theme.scaled(44)
+                    placeholder: TranslationManager.translate("profileselector.copyProfile.placeholder", "Profile name")
+
+                    Keys.onReturnPressed: {
                         Qt.inputMethod.commit()
-                        var newTitle = copyProfileNameField.text.trim()
-                        if (newTitle !== "") {
-                            if (ProfileManager.duplicateProfile(copyProfileDialog.sourceFilename, newTitle)) {
-                                profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.profile_copied", "Profile copied"))
-                                copyProfileDialog.close()
-                            } else {
-                                profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.copy_failed", "Failed to copy profile"))
+                        if (copyProfileNameField.displayText.trim() !== "") {
+                            copyProfileButton.clicked()
+                        }
+                    }
+                }
+
+                Item { implicitHeight: Theme.scaled(8) }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+                    spacing: Theme.scaled(12)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("common.accessibility.cancel", "Cancel")
+                        Layout.preferredHeight: Theme.scaled(40)
+                        onClicked: copyProfileDialog.close()
+                    }
+
+                    AccessibleButton {
+                        id: copyProfileButton
+                        text: TranslationManager.translate("profileselector.copyProfile.button", "Copy")
+                        accessibleName: TranslationManager.translate("profileselector.copyProfile.accessible", "Copy profile with new name")
+                        primary: true
+                        enabled: copyProfileNameField.displayText.trim() !== ""
+                        Layout.preferredHeight: Theme.scaled(40)
+                        onClicked: {
+                            Qt.inputMethod.commit()
+                            var newTitle = copyProfileNameField.text.trim()
+                            if (newTitle !== "") {
+                                if (ProfileManager.duplicateProfile(copyProfileDialog.sourceFilename, newTitle)) {
+                                    profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.profile_copied", "Profile copied"))
+                                    copyProfileDialog.close()
+                                } else {
+                                    profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.copy_failed", "Failed to copy profile"))
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            Item { implicitHeight: Theme.scaled(8) }
+                Item { implicitHeight: Theme.scaled(8) }
+            }
         }
 
         background: Rectangle {
