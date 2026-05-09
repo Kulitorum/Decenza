@@ -59,14 +59,27 @@ public:
                                  qint64 shotEpoch = 0);
 
     // Upload a shot from history (takes the typed projection from
-    // ShotHistoryStorage::convertShotRecord). QML callers can pass either a
-    // ShotProjection (from shotReady) or a JS object (post-Object.assign in
-    // PostShotReviewPage); the QVariantMap → ShotProjection meta-converter
-    // registered at startup handles both shapes.
+    // ShotHistoryStorage::convertShotRecord).
     Q_INVOKABLE void uploadShotFromHistory(const ShotProjection& shotData);
+
+    // Upload with metadata overrides applied on top of a base ShotProjection.
+    // Use from QML instead of Object.assign({}, editShotData, overrides): V4 can
+    // pass a QQmlValueTypeWrapper as ShotProjection, but Object.assign on a
+    // Q_GADGET yields a plain object that omits id/durationSec/frames, causing
+    // isValid() to fail silently with no UI feedback.
+    Q_INVOKABLE void uploadShotFromHistoryWithOverrides(
+        const ShotProjection& baseShot, const QVariantMap& overrides);
 
     // Update metadata on an already-uploaded shot (PATCH to visualizer.coffee)
     Q_INVOKABLE void updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
+
+    // PATCH with overrides applied on top of a base ShotProjection.
+    // Pass the Q_GADGET directly so fields not present in overrides (notably profileName)
+    // are taken from the original shot record rather than left empty.
+    Q_INVOKABLE void updateShotOnVisualizerWithOverrides(
+        const QString& visualizerId,
+        const ShotProjection& baseShot,
+        const QVariantMap& overrides);
 
     // Test connection with current credentials
     Q_INVOKABLE void testConnection();
