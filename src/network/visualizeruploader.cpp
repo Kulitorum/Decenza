@@ -34,7 +34,7 @@ static QJsonArray interpolateGoalData(const QVector<QPointF>& goalData, const QV
 
     if (goalData.isEmpty() || masterData.isEmpty()) {
         // Return zeros for all timestamps if no goal data
-        for (int i = 0; i < masterData.size(); ++i) {
+        for (qsizetype i = 0; i < masterData.size(); ++i) {
             result.append(0.0);
         }
         return result;
@@ -43,7 +43,7 @@ static QJsonArray interpolateGoalData(const QVector<QPointF>& goalData, const QV
     // Gap threshold: if consecutive goal points are more than 0.5s apart, treat as a gap
     constexpr double GAP_THRESHOLD = 0.5;
 
-    int goalIdx = 0;
+    qsizetype goalIdx = 0;
     for (const auto& masterPt : masterData) {
         double t = masterPt.x();
 
@@ -176,6 +176,44 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
     applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
 
     uploadShotFromHistory(shot);
+}
+
+void VisualizerUploader::updateShotOnVisualizerWithOverrides(
+    const QString& visualizerId,
+    const ShotProjection& baseShot,
+    const QVariantMap& overrides)
+{
+    ShotProjection shot = baseShot;
+    auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toString();
+    };
+    auto applyDouble = [&](double        ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toDouble();
+    };
+    auto applyInt    = [&](int           ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toInt();
+    };
+
+    applyStr   (&ShotProjection::beanBrand,       "beanBrand");
+    applyStr   (&ShotProjection::beanType,        "beanType");
+    applyStr   (&ShotProjection::roastDate,       "roastDate");
+    applyStr   (&ShotProjection::roastLevel,      "roastLevel");
+    applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
+    applyStr   (&ShotProjection::grinderModel,    "grinderModel");
+    applyStr   (&ShotProjection::grinderBurrs,    "grinderBurrs");
+    applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
+    applyStr   (&ShotProjection::barista,         "barista");
+    applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
+    applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
+    applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
+    applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
+    applyDouble(&ShotProjection::drinkEyPct,      "drinkEyPct");
+    applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
+
+    updateShotOnVisualizer(visualizerId, shot);
 }
 
 void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)

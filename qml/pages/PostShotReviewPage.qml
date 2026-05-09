@@ -56,6 +56,7 @@ Page {
     property bool isEditMode: editShotId > 0
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
+    property string uploadError: ""
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -245,7 +246,7 @@ Page {
         editDrinkWeight !== (editShotData.finalWeightG ?? 0) ||
         editDrinkTds !== (editShotData.drinkTdsPct ?? 0) ||
         editDrinkEy !== (editShotData.drinkEyPct ?? 0) ||
-        editEnjoyment !== (editShotData.enjoyment0to100 ?? 0) ||
+        editEnjoyment !== ((editShotData.enjoymentSource === "inferred") ? 0 : (editShotData.enjoyment0to100 ?? 0)) ||
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso")
     )
@@ -268,10 +269,13 @@ Page {
             "finalWeight": editDrinkWeight,
             "drinkTds": editDrinkTds,
             "drinkEy": editDrinkEy,
-            "enjoyment": editEnjoyment,
             "espressoNotes": editNotes,
             "beverageType": editBeverageType
         }
+        // Don't write inferred enjoyment back to DB — it's AI-only data.
+        // Include enjoyment only when the user has explicitly set a value.
+        if (editShotData.enjoymentSource !== "inferred" || editEnjoyment > 0)
+            metadata["enjoyment"] = editEnjoyment
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         // Sync sticky metadata back to Settings (bean/grinder info) for the next shot.
@@ -308,6 +312,7 @@ Page {
             }
         }
         function onUploadSuccess(shotId, url) {
+            uploadError = ""
             // Update the shot history with visualizer info (async);
             // reload triggered by onVisualizerInfoUpdated handler above
             if (editShotId > 0) {
@@ -315,10 +320,14 @@ Page {
             }
         }
         function onUpdateSuccess(visualizerId) {
+            uploadError = ""
             // Reload shot data to refresh the UI after metadata update
             if (editShotId > 0) {
                 loadShotForEditing()
             }
+        }
+        function onUploadFailed(error) {
+            uploadError = error
         }
     }
 
@@ -1343,9 +1352,13 @@ Page {
                         saveEditedShot()
                     }
 
+                    uploadError = ""
                     if (editShotData.visualizerId) {
-                        // Re-upload: PATCH metadata from current edit fields
-                        var currentData = {
+                        // Re-upload: PATCH metadata from current edit fields.
+                        // Pass editShotData as Q_GADGET base (V4 preserves all
+                        // properties); plain JS object via updateShotOnVisualizer
+                        // would produce a default-constructed ShotProjection.
+                        var patchOverrides = {
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
                             "roastDate": editRoastDate,
@@ -1359,12 +1372,12 @@ Page {
                             "finalWeightG": editDrinkWeight,
                             "drinkTdsPct": editDrinkTds,
                             "drinkEyPct": editDrinkEy,
-                            "enjoyment0to100": editEnjoyment,
-                            "espressoNotes": editNotes,
-                            "profileName": editShotData.profileName || ""
+                            "espressoNotes": editNotes
                         }
-                        MainController.visualizer.updateShotOnVisualizer(
-                            editShotData.visualizerId, currentData)
+                        if (editShotData.enjoymentSource !== "inferred" || editEnjoyment > 0)
+                            patchOverrides["enjoyment0to100"] = editEnjoyment
+                        MainController.visualizer.updateShotOnVisualizerWithOverrides(
+                            editShotData.visualizerId, editShotData, patchOverrides)
                     } else {
                         // First upload: pass editShotData directly (preserves id,
                         // durationSec, and frame arrays) and supply current edit-field
@@ -1372,24 +1385,26 @@ Page {
                         // not work here — Q_GADGET properties are non-enumerable in V4,
                         // so Object.assign silently drops them, leaving id=0 and causing
                         // isValid() to fail with no UI feedback.
+                        var uploadOverrides = {
+                            "beanBrand": editBeanBrand,
+                            "beanType": editBeanType,
+                            "roastDate": editRoastDate,
+                            "roastLevel": editRoastLevel,
+                            "grinderBrand": editGrinderBrand,
+                            "grinderModel": editGrinderModel,
+                            "grinderBurrs": editGrinderBurrs,
+                            "grinderSetting": editGrinderSetting,
+                            "barista": editBarista,
+                            "doseWeightG": editDoseWeight,
+                            "finalWeightG": editDrinkWeight,
+                            "drinkTdsPct": editDrinkTds,
+                            "drinkEyPct": editDrinkEy,
+                            "espressoNotes": editNotes
+                        }
+                        if (editShotData.enjoymentSource !== "inferred" || editEnjoyment > 0)
+                            uploadOverrides["enjoyment0to100"] = editEnjoyment
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(
-                            editShotData, {
-                                "beanBrand": editBeanBrand,
-                                "beanType": editBeanType,
-                                "roastDate": editRoastDate,
-                                "roastLevel": editRoastLevel,
-                                "grinderBrand": editGrinderBrand,
-                                "grinderModel": editGrinderModel,
-                                "grinderBurrs": editGrinderBurrs,
-                                "grinderSetting": editGrinderSetting,
-                                "barista": editBarista,
-                                "doseWeightG": editDoseWeight,
-                                "finalWeightG": editDrinkWeight,
-                                "drinkTdsPct": editDrinkTds,
-                                "drinkEyPct": editDrinkEy,
-                                "enjoyment0to100": editEnjoyment,
-                                "espressoNotes": editNotes
-                            })
+                            editShotData, uploadOverrides)
                     }
                 }
             }
@@ -1404,6 +1419,15 @@ Page {
             fallback: editShotData.visualizerId ? "Updating..." : "Uploading..."
             color: Theme.textSecondaryColor
             font: Theme.labelFont
+        }
+
+        Text {
+            visible: uploadError.length > 0 && !MainController.visualizer.uploading
+            text: uploadError
+            color: Theme.errorColor
+            font: Theme.labelFont
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
         }
 
         // AI Advice button - visible when AI is configured and we have shot data
