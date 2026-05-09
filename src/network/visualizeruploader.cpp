@@ -169,6 +169,7 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
     applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
     applyStr   (&ShotProjection::barista,         "barista");
     applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
+    applyStr   (&ShotProjection::beverageType,    "beverageType");
     applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
     applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
     applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
@@ -207,6 +208,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
     applyStr   (&ShotProjection::barista,         "barista");
     applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
+    applyStr   (&ShotProjection::beverageType,    "beverageType");
     applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
     applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
     applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");

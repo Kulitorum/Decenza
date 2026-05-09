@@ -73,9 +73,9 @@ public:
     // Update metadata on an already-uploaded shot (PATCH to visualizer.coffee)
     Q_INVOKABLE void updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
 
-    // PATCH with overrides applied on top of a base ShotProjection — same rationale
-    // as uploadShotFromHistoryWithOverrides: pass the Q_GADGET directly, not a plain
-    // JS object, so V4 transfers the full projection instead of a default-constructed one.
+    // PATCH with overrides applied on top of a base ShotProjection.
+    // Pass the Q_GADGET directly so fields not present in overrides (notably profileName)
+    // are taken from the original shot record rather than left empty.
     Q_INVOKABLE void updateShotOnVisualizerWithOverrides(
         const QString& visualizerId,
         const ShotProjection& baseShot,

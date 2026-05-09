@@ -1355,9 +1355,8 @@ Page {
                     uploadError = ""
                     if (editShotData.visualizerId) {
                         // Re-upload: PATCH metadata from current edit fields.
-                        // Pass editShotData as Q_GADGET base (V4 preserves all
-                        // properties); plain JS object via updateShotOnVisualizer
-                        // would produce a default-constructed ShotProjection.
+                        // Pass editShotData as Q_GADGET base so profileName (and any
+                        // field not in patchOverrides) comes from the original shot record.
                         var patchOverrides = {
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
@@ -1368,14 +1367,18 @@ Page {
                             "grinderBurrs": editGrinderBurrs,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
+                            "beverageType": editBeverageType,
                             "doseWeightG": editDoseWeight,
                             "finalWeightG": editDrinkWeight,
                             "drinkTdsPct": editDrinkTds,
                             "drinkEyPct": editDrinkEy,
-                            "espressoNotes": editNotes
+                            "espressoNotes": editNotes,
+                            // Always include enjoyment so it overrides the base shot value.
+                            // editEnjoyment is initialized to 0 for inferred shots, which
+                            // keeps the inferred rating from leaking to Visualizer (the
+                            // serializer skips enjoyment0to100 == 0).
+                            "enjoyment0to100": editEnjoyment
                         }
-                        if (editShotData.enjoymentSource !== "inferred" || editEnjoyment > 0)
-                            patchOverrides["enjoyment0to100"] = editEnjoyment
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
                             editShotData.visualizerId, editShotData, patchOverrides)
                     } else {
@@ -1384,7 +1387,7 @@ Page {
                         // values as overrides. Object.assign({}, editShotData, ...) does
                         // not work here — Q_GADGET properties are non-enumerable in V4,
                         // so Object.assign silently drops them, leaving id=0 and causing
-                        // isValid() to fail with no UI feedback.
+                        // isValid() to fail.
                         var uploadOverrides = {
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
@@ -1395,14 +1398,14 @@ Page {
                             "grinderBurrs": editGrinderBurrs,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
+                            "beverageType": editBeverageType,
                             "doseWeightG": editDoseWeight,
                             "finalWeightG": editDrinkWeight,
                             "drinkTdsPct": editDrinkTds,
                             "drinkEyPct": editDrinkEy,
-                            "espressoNotes": editNotes
+                            "espressoNotes": editNotes,
+                            "enjoyment0to100": editEnjoyment
                         }
-                        if (editShotData.enjoymentSource !== "inferred" || editEnjoyment > 0)
-                            uploadOverrides["enjoyment0to100"] = editEnjoyment
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(
                             editShotData, uploadOverrides)
                     }
@@ -1423,7 +1426,7 @@ Page {
 
         Text {
             visible: uploadError.length > 0 && !MainController.visualizer.uploading
-            text: uploadError
+            text: TranslationManager.translate("postshotreview.upload.failed", "Upload failed") + ": " + uploadError
             color: Theme.errorColor
             font: Theme.labelFont
             wrapMode: Text.WordWrap
