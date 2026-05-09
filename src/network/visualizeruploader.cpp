@@ -142,6 +142,42 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
     sendUpload(jsonData);
 }
 
+void VisualizerUploader::uploadShotFromHistoryWithOverrides(
+    const ShotProjection& baseShot, const QVariantMap& overrides)
+{
+    ShotProjection shot = baseShot;
+    auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toString();
+    };
+    auto applyDouble = [&](double        ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toDouble();
+    };
+    auto applyInt    = [&](int           ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toInt();
+    };
+
+    applyStr   (&ShotProjection::beanBrand,       "beanBrand");
+    applyStr   (&ShotProjection::beanType,        "beanType");
+    applyStr   (&ShotProjection::roastDate,       "roastDate");
+    applyStr   (&ShotProjection::roastLevel,      "roastLevel");
+    applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
+    applyStr   (&ShotProjection::grinderModel,    "grinderModel");
+    applyStr   (&ShotProjection::grinderBurrs,    "grinderBurrs");
+    applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
+    applyStr   (&ShotProjection::barista,         "barista");
+    applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
+    applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
+    applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
+    applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
+    applyDouble(&ShotProjection::drinkEyPct,      "drinkEyPct");
+    applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
+
+    uploadShotFromHistory(shot);
+}
+
 void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
     if (visualizerId.isEmpty()) {

@@ -1366,26 +1366,30 @@ Page {
                         MainController.visualizer.updateShotOnVisualizer(
                             editShotData.visualizerId, currentData)
                     } else {
-                        // First upload: merge current edits into shot data (editShotData
-                        // was loaded at page open and may have stale metadata)
-                        var uploadData = Object.assign({}, editShotData, {
-                            "beanBrand": editBeanBrand,
-                            "beanType": editBeanType,
-                            "roastDate": editRoastDate,
-                            "roastLevel": editRoastLevel,
-                            "grinderBrand": editGrinderBrand,
-                            "grinderModel": editGrinderModel,
-                            "grinderBurrs": editGrinderBurrs,
-                            "grinderSetting": editGrinderSetting,
-                            "barista": editBarista,
-                            "doseWeightG": editDoseWeight,
-                            "finalWeightG": editDrinkWeight,
-                            "drinkTdsPct": editDrinkTds,
-                            "drinkEyPct": editDrinkEy,
-                            "enjoyment0to100": editEnjoyment,
-                            "espressoNotes": editNotes
-                        })
-                        MainController.visualizer.uploadShotFromHistory(uploadData)
+                        // First upload: pass editShotData directly (preserves id,
+                        // durationSec, and frame arrays) and supply current edit-field
+                        // values as overrides. Object.assign({}, editShotData, ...) does
+                        // not work here — Q_GADGET properties are non-enumerable in V4,
+                        // so Object.assign silently drops them, leaving id=0 and causing
+                        // isValid() to fail with no UI feedback.
+                        MainController.visualizer.uploadShotFromHistoryWithOverrides(
+                            editShotData, {
+                                "beanBrand": editBeanBrand,
+                                "beanType": editBeanType,
+                                "roastDate": editRoastDate,
+                                "roastLevel": editRoastLevel,
+                                "grinderBrand": editGrinderBrand,
+                                "grinderModel": editGrinderModel,
+                                "grinderBurrs": editGrinderBurrs,
+                                "grinderSetting": editGrinderSetting,
+                                "barista": editBarista,
+                                "doseWeightG": editDoseWeight,
+                                "finalWeightG": editDrinkWeight,
+                                "drinkTdsPct": editDrinkTds,
+                                "drinkEyPct": editDrinkEy,
+                                "enjoyment0to100": editEnjoyment,
+                                "espressoNotes": editNotes
+                            })
                     }
                 }
             }
