@@ -348,7 +348,7 @@ QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& mess
 
     QJsonObject cacheControl;
     cacheControl["type"] = QString("ephemeral");
-    cacheControl["ttl"] = QString("1h");
+    cacheControl["ttl"] = 3600;
 
     QJsonObject block;
     block["type"] = QString("text");
@@ -376,7 +376,7 @@ QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPromp
     // 2 reads per write — easily met for any iterative user.
     QJsonObject cacheControl;
     cacheControl["type"] = QString("ephemeral");
-    cacheControl["ttl"] = QString("1h");
+    cacheControl["ttl"] = 3600;
 
     QJsonObject block;
     block["type"] = QString("text");
@@ -394,6 +394,20 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
+        QByteArray body = reply->readAll();
+        if (!body.isEmpty()) {
+            QJsonDocument bodyDoc = QJsonDocument::fromJson(body);
+            QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
+            if (!apiError.isEmpty()) {
+                int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                qWarning() << "Anthropic API error" << status << "-" << apiError;
+                emit analysisFailed("Anthropic error: " + apiError);
+                return;
+            }
+            qWarning() << "AI request failed"
+                       << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                       << "-" << body;
+        }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
