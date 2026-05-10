@@ -139,9 +139,10 @@ void WebDebugLogger::trimLogFile()
         newlinePos = trimPoint;
     }
 
-    // Write trimmed content
+    // Write trimmed content; re-emit the session marker so it survives the trim.
     if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         file.write("... [log trimmed] ...\n");
+        file.write(("========== SESSION START: " + m_startTime.toString(Qt::ISODate) + " ==========\n").toUtf8());
         file.write(content.mid(newlinePos + 1));
     }
 }
