@@ -59,9 +59,9 @@ QJsonArray AIProvider::buildOpenAIMessages(const QString& systemPrompt, const QJ
 
 bool AIProvider::isRetryableHttpStatus(int httpStatus, int retryCount)
 {
-    // Primary transient codes: retry up to kMaxRetries times
+    // Primary transient codes: retry up to MAX_RETRIES times
     if (httpStatus == 429 || httpStatus == 502 || httpStatus == 503 || httpStatus == 504)
-        return retryCount < kMaxRetries;
+        return retryCount < MAX_RETRIES;
     // Other 5xx (e.g. 500 internal server error): retry once only
     if (httpStatus >= 500 && httpStatus < 600)
         return retryCount < 1;
@@ -92,7 +92,14 @@ bool AIProvider::tryScheduleRetry(QNetworkReply* reply)
     const QByteArray body = reply->readAll();
     qWarning() << name() << "HTTP" << status << "- retry" << m_retryCount
                << "in" << delay << "ms" << (body.isEmpty() ? QByteArray() : ("- " + body.left(200)));
-    QTimer::singleShot(delay, this, [this]() { m_retryFn(); });
+    // QTimer::singleShot is intentional: the server signalled a transient error and we must
+    // wait before retrying (rate-limit or overload backoff). This is a server-driven delay,
+    // not a heuristic guard. The generation counter prevents stale timers from firing if a
+    // new analyze() call arrives before this one fires.
+    const int gen = m_reqGen;
+    QTimer::singleShot(delay, this, [this, gen]() {
+        if (gen == m_reqGen) m_retryFn();
+    });
     return true;
 }
 
@@ -157,6 +164,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -184,6 +192,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -360,6 +369,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -384,6 +394,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -641,6 +652,7 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     // Gemini uses a different format
     QJsonObject requestBody;
@@ -678,6 +690,7 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
 
@@ -896,6 +909,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     // OpenRouter uses OpenAI-compatible format
     QJsonObject requestBody;
@@ -924,6 +938,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
@@ -1105,6 +1120,7 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
@@ -1128,6 +1144,7 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
     setStatus(Status::Busy);
     m_retryCount = 0;
+    ++m_reqGen;
 
     // Use /api/chat which supports messages array natively
     QJsonObject requestBody;

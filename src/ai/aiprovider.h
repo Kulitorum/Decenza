@@ -51,17 +51,18 @@ protected:
     // Build OpenAI-compatible messages array: system message + conversation messages
     static QJsonArray buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages);
 
-    // Retry support: call from each provider's sendRequest() and onAnalysisReply()
+    // Retry support: each sendRequest() assigns m_retryFn; each onAnalysisReply() calls tryScheduleRetry()
     bool tryScheduleRetry(QNetworkReply* reply);  // returns true if retry was scheduled
 
     static constexpr int ANALYSIS_TIMEOUT_MS = 60000;   // 60s for cloud AI analysis
     static constexpr int TEST_TIMEOUT_MS = 15000;        // 15s for connection tests
-    static constexpr int kMaxRetries = 3;                // max retries for 429/502/503/504
+    static constexpr int MAX_RETRIES = 3;                // max retries for 429/502/503/504
 
     QNetworkAccessManager* m_networkManager = nullptr;
     Status m_status = Status::Ready;
     std::function<void()> m_retryFn;  // set by each sendRequest() to re-send the pending request
-    int m_retryCount = 0;             // reset to 0 before each new analyze() call
+    int m_retryCount = 0;             // reset to 0 before each new analyze() / analyzeConversation() call
+    int m_reqGen = 0;                 // incremented on each new request; guards against stale retry timers
 
 private:
     static bool isRetryableHttpStatus(int httpStatus, int retryCount);
