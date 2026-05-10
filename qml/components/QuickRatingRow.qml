@@ -39,7 +39,7 @@ RowLayout {
             Text {
                 text: trPrompt.text
                 color: Theme.textColor
-                font.pixelSize: Theme.bodyFontSize
+                font: Theme.bodyFont
                 Layout.fillWidth: false
                 // The three AccessibleButton children below carry the
                 // navigation focus; this prompt is decorative for
