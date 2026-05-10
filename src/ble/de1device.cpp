@@ -1201,7 +1201,9 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     // 10-minute auto-enable timeout means we must keep reasserting even when
     // the value is unchanged).
     auto it = m_lastMMRValues.constFind(address);
-    if (!force && it != m_lastMMRValues.constEnd() && it.value() == value) {
+    const bool valueUnchanged = (it != m_lastMMRValues.constEnd() && it.value() == value);
+
+    if (!force && valueUnchanged) {
         qDebug().noquote() << QString(
             "[MMR] write skipped: 0x%1 unchanged (%2)%3")
             .arg(address, 6, 16, QLatin1Char('0'))
@@ -1210,10 +1212,14 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
         return;
     }
 
-    qDebug().noquote() << QString("[MMR] write: 0x%1 = %2%3")
-        .arg(address, 6, 16, QLatin1Char('0'))
-        .arg(value)
-        .arg(reasonSuffix);
+    // Log only when the value changes; force-resends of an unchanged value
+    // (e.g. the USB charger 10-minute keepalive) are silent to avoid noise.
+    if (!valueUnchanged) {
+        qDebug().noquote() << QString("[MMR] write: 0x%1 = %2%3")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(value)
+            .arg(reasonSuffix);
+    }
 
     m_lastMMRValues.insert(address, value);
     m_transport->write(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
