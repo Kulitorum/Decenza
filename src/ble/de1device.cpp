@@ -90,6 +90,19 @@ void DE1Device::onTransportConnected() {
 
     // Send Idle state to wake the machine (same as de1app on connect)
     requestState(DE1::State::Idle);
+
+    // Send initial settings once the transport signals a full connection.
+    // Previously called from parseVersion(), but on Linux/BlueZ the VERSION
+    // characteristic can be readable while the service is still in
+    // RemoteServiceDiscovering state, so write characteristics were not yet
+    // available and MMR writes silently failed. At this point Qt has reached
+    // RemoteServiceDiscovered and all characteristics are populated. Verified
+    // on Linux; other platforms (macOS, Windows, Android, iOS) should behave
+    // the same since RemoteServiceDiscovered is a Qt-level guarantee, but have
+    // not been explicitly regression-tested for this ordering.
+    // VERSION read (which triggers parseVersion) is still in the subscribeAll()
+    // queue, so firmware version will be populated shortly after.
+    sendInitialSettings();
 }
 
 void DE1Device::onTransportDisconnected() {
@@ -508,8 +521,10 @@ void DE1Device::parseVersion(const QByteArray& data) {
         .arg(fwRelease, 0, 'f', 1).arg(fwChanges).arg(fwCommits).arg(fwApi);
     emit firmwareVersionChanged();
 
-    // Trigger full initialization after version is received (like de1app does)
-    sendInitialSettings();
+    // NOTE: sendInitialSettings() is now called from onTransportConnected()
+    // instead of here, to ensure write characteristics are available first.
+    // On some platforms (Linux/BlueZ), VERSION arrives before the service
+    // reaches RemoteServiceDiscovered state, causing MMR writes to fail.
 }
 
 void DE1Device::rebuildVersionLine3() {
