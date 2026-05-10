@@ -1439,8 +1439,10 @@ void DE1Device::sendInitialSettings() {
         emit usbChargerOnChanged();
     }
 
-    // CRITICAL: Set fan temperature threshold via MMR
-    writeMMR(DE1::MMR::FAN_THRESHOLD, 60);
+    // CRITICAL: Set fan temperature threshold via MMR.
+    // Default DE1 fan runs continuously; threshold > 0 means fan only runs when
+    // internal temp exceeds this value. 0 = always on (DE1 firmware default).
+    writeMMR(DE1::MMR::FAN_THRESHOLD, m_settings ? m_settings->fanThreshold() : 60);
 
     // Heater tweaks — matches de1app's set_heater_tweaks()
     if (m_settings) {

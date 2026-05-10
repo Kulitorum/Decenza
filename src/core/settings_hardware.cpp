@@ -78,3 +78,16 @@ void SettingsHardware::setSteamTwoTapStop(bool value) {
         emit steamTwoTapStopChanged();
     }
 }
+
+int SettingsHardware::fanThreshold() const {
+    int val = m_settings.value("calibration/fanThreshold", 60).toInt();
+    return qBound(0, val, 60);
+}
+
+void SettingsHardware::setFanThreshold(int value) {
+    value = qBound(0, value, 60);
+    if (fanThreshold() != value) {
+        m_settings.setValue("calibration/fanThreshold", value);
+        emit fanThresholdChanged();
+    }
+}
