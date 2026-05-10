@@ -755,22 +755,25 @@ int main(int argc, char *argv[])
     // to reduce stop-the-world pause impact on BLE delivery and SAW latency.
     //
     // Strategy:
+    //   - App startup:
+    //       • Call idleGc() immediately and start the 15-minute periodic timer.
     //   - EspressoPreheating / HotWater / Flush start:
-    //       • Cancel any pending idle GC timer (don't want GC firing at shot start).
+    //       • Stop the periodic timer (no GC right before or during a shot).
     //       • Raise heap utilization threshold to 0.95 (GC only if heap is 95% full).
     //         No explicit System.gc() here — GC near preinfusion is worse than no GC.
     //   - Returning to Idle/Ready:
-    //       • Reset heap threshold to default.
-    //       • Schedule post-shot cleanup GC immediately (fine, nothing critical running).
-    //       • Start 30-second idle timer; if still idle when it fires, run a second
-    //         proactive GC to clean up any accumulation since the post-shot pass.
+    //       • onFlowingEnded() resets the heap threshold and runs an immediate GC.
+    //       • Restart the 15-minute periodic timer for ongoing idle maintenance.
+    //
+    // During extended idle (screensaver, overnight) the timer fires every 15 minutes
+    // to prevent unbounded Java heap growth from BLE GATT callbacks.
     //
     // s_inOperation prevents double-calls as the machine moves through sub-phases
     // (EspressoPreheating → Preinfusion → Pouring → Ending).
 
     auto* idleGcTimer = new QTimer();
-    idleGcTimer->setSingleShot(true);
-    idleGcTimer->setInterval(30000);  // 30 seconds of idle before proactive GC
+    idleGcTimer->setSingleShot(false);
+    idleGcTimer->setInterval(15 * 60 * 1000);  // 15-minute periodic idle GC
     QObject::connect(idleGcTimer, &QTimer::timeout, []() {
         QJniObject::callStaticMethod<void>(
             "io/github/kulitorum/decenza_de1/BleHelper",
@@ -799,7 +802,7 @@ int main(int argc, char *argv[])
 
         if (enteringOp) {
             s_inOperation = true;
-            idleGcTimer->stop();  // Cancel idle GC — don't start a GC right before a shot
+            idleGcTimer->stop();  // Pause periodic GC during operations
             QJniObject::callStaticMethod<void>(
                 "io/github/kulitorum/decenza_de1/BleHelper",
                 "onFlowingStarted", "()V");
@@ -807,17 +810,18 @@ int main(int argc, char *argv[])
             s_inOperation = false;
             QJniObject::callStaticMethod<void>(
                 "io/github/kulitorum/decenza_de1/BleHelper",
-                "onFlowingEnded", "()V");
-            idleGcTimer->start();  // Schedule proactive GC if still idle in 30s
+                "onFlowingEnded", "()V");  // runs immediate post-shot GC
+            idleGcTimer->start();  // Resume periodic idle GC
         }
     });
 
-    // Set idle heap utilization at startup — the app starts idle and onFlowingEnded()
-    // won't fire until the first shot ends. Without this, ART uses its default (0.75)
-    // and BLE stack garbage accumulates for a long time before GC triggers.
+    // Run GC at startup and start the periodic idle timer. The app starts idle
+    // and onFlowingEnded() won't fire until the first shot ends, so without this
+    // the heap accumulates BLE stack garbage unchecked until the first shot.
     QJniObject::callStaticMethod<void>(
         "io/github/kulitorum/decenza_de1/BleHelper",
         "idleGc", "()V");
+    idleGcTimer->start();
 
     // BLE dead system recovery: Android's Bluetooth system service can die
     // (DeadSystemException) during deep sleep or OEM power management.

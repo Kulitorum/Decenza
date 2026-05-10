@@ -68,9 +68,9 @@ public class BleHelper {
     /**
      * Trigger a proactive GC while the app is sitting idle.
      *
-     * Called after the machine has been on the idle screen for a sustained
-     * period (e.g. 30 seconds). Cleans the Java heap so it is in good shape
-     * before the next shot without risking a GC pause during extraction.
+     * Called at app startup and every 15 minutes while the machine is idle.
+     * Cleans the Java heap so it is in good shape before the next shot without
+     * risking a GC pause during extraction.
      */
     public static void idleGc() {
         setHeapUtilization(HEAP_UTIL_IDLE);

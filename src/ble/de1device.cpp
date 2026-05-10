@@ -1212,8 +1212,11 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
         return;
     }
 
-    // Log only when the value changes; force-resends of an unchanged value
-    // (e.g. the USB charger 10-minute keepalive) are silent to avoid noise.
+    // Log only when the value changes. force=true + unchanged is intentionally
+    // silent: the USB charger keepalive fires every 60 s at the same value and
+    // was the dominant source of log noise. For writeMMRVerified retries the
+    // caller already logs "[MMR] verify retry" before invoking writeMMR, so
+    // the retry BLE write is still traceable without a duplicate log here.
     if (!valueUnchanged) {
         qDebug().noquote() << QString("[MMR] write: 0x%1 = %2%3")
             .arg(address, 6, 16, QLatin1Char('0'))
