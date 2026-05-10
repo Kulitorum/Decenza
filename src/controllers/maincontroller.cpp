@@ -123,6 +123,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         connect(hw, &SettingsHardware::heaterWarmupTimeoutChanged, this, startHeaterTimer);
         connect(hw, &SettingsHardware::hotWaterFlowRateChanged, this, startHeaterTimer);
         connect(hw, &SettingsHardware::steamTwoTapStopChanged, this, startHeaterTimer);
+        connect(hw, &SettingsHardware::fanThresholdChanged, this, startHeaterTimer);
     }
     // Connect to machine state events
     if (m_machineState) {
@@ -1368,6 +1369,7 @@ void MainController::applyHeaterTweaks() {
     m_device->writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->hardware()->heaterWarmupTimeout(), reason);
     m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hardware()->hotWaterFlowRate(), reason);
     m_device->writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->hardware()->steamTwoTapStop() ? 1 : 0, reason);
+    m_device->writeMMR(DE1::MMR::FAN_THRESHOLD, m_settings->hardware()->fanThreshold(), reason);
 }
 
 double MainController::getGroupTemperature() const {

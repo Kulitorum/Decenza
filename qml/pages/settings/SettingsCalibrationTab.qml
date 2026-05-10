@@ -772,9 +772,10 @@ Item {
                 Text { text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                 ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: fanThresholdSlider; KeyNavigation.backtab: heaterTestFlowSlider }
 
-                // Fan temperature threshold
-                Text { text: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { id: fanThresholdSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : value + "°C"; rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — 60°C"; value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                // Fan temperature threshold: 0 = "Always on" (fan runs continuously,
+                // matching DE1 firmware default); 1–60 suppresses fan below that temp.
+                Text { text: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); font: Theme.captionFont; color: Theme.temperatureColor }
+                ValueInput { id: fanThresholdSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : value + "°C"; rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — 60°C"; value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 

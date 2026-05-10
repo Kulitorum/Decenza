@@ -85,6 +85,7 @@ int SettingsHardware::fanThreshold() const {
 }
 
 void SettingsHardware::setFanThreshold(int value) {
+    value = qBound(0, value, 60);
     if (fanThreshold() != value) {
         m_settings.setValue("calibration/fanThreshold", value);
         emit fanThresholdChanged();
