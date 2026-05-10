@@ -155,6 +155,20 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
+        QByteArray body = reply->readAll();
+        if (!body.isEmpty()) {
+            QJsonDocument bodyDoc = QJsonDocument::fromJson(body);
+            QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
+            if (!apiError.isEmpty()) {
+                int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                qWarning() << "OpenAI API error" << status << "-" << apiError;
+                emit analysisFailed("OpenAI error: " + apiError);
+                return;
+            }
+            qWarning() << "AI request failed"
+                       << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                       << "-" << body;
+        }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
@@ -651,6 +665,20 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
+        QByteArray body = reply->readAll();
+        if (!body.isEmpty()) {
+            QJsonDocument bodyDoc = QJsonDocument::fromJson(body);
+            QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
+            if (!apiError.isEmpty()) {
+                int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                qWarning() << "Gemini API error" << status << "-" << apiError;
+                emit analysisFailed("Gemini error: " + apiError);
+                return;
+            }
+            qWarning() << "AI request failed"
+                       << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                       << "-" << body;
+        }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
@@ -852,6 +880,20 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
+        QByteArray body = reply->readAll();
+        if (!body.isEmpty()) {
+            QJsonDocument bodyDoc = QJsonDocument::fromJson(body);
+            QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
+            if (!apiError.isEmpty()) {
+                int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                qWarning() << "OpenRouter API error" << status << "-" << apiError;
+                emit analysisFailed("OpenRouter error: " + apiError);
+                return;
+            }
+            qWarning() << "AI request failed"
+                       << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                       << "-" << body;
+        }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
@@ -1042,6 +1084,11 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
+        QByteArray body = reply->readAll();
+        if (!body.isEmpty())
+            qWarning() << "Ollama request failed"
+                       << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                       << "-" << body;
         emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
