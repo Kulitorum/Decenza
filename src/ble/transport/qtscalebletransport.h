@@ -58,8 +58,4 @@ private:
     QString m_deviceName;
     QString m_deviceId;  // UUID on iOS, address on other platforms - for duplicate detection
     bool m_connected = false;
-    // Periodic notify-rate logging — counts notifications since the last summary line so
-    // we can correlate scale traffic volume with DE1 write failures without per-packet spam.
-    int m_notifyCountSinceSummary = 0;
-    qint64 m_lastNotifySummaryMs = 0;
 };

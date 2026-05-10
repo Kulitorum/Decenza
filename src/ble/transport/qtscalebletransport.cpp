@@ -409,21 +409,6 @@ void QtScaleBleTransport::onServiceStateChanged(QLowEnergyService::ServiceState 
 
 void QtScaleBleTransport::onCharacteristicChanged(const QLowEnergyCharacteristic& c,
                                                    const QByteArray& value) {
-    // Per-packet logs would flood — log a periodic summary (count + interval) instead so
-    // we can see scale notify volume in the timeline without drowning out other events.
-    ++m_notifyCountSinceSummary;
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    if (m_lastNotifySummaryMs == 0) m_lastNotifySummaryMs = nowMs;
-    constexpr qint64 kSummaryIntervalMs = 5000;
-    if (nowMs - m_lastNotifySummaryMs >= kSummaryIntervalMs) {
-        QT_TRANSPORT_LOG(QString("notify rate: %1 in last %2 ms (last %3 = %4 bytes)")
-            .arg(m_notifyCountSinceSummary)
-            .arg(nowMs - m_lastNotifySummaryMs)
-            .arg(c.uuid().toString().mid(1, 8))
-            .arg(value.size()));
-        m_notifyCountSinceSummary = 0;
-        m_lastNotifySummaryMs = nowMs;
-    }
     emit characteristicChanged(c.uuid(), value);
 }
 
