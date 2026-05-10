@@ -292,9 +292,9 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("anthropic-version", "2023-06-01");
     // 1-hour cache TTL is set on each cache_control block in the request
     // body (see buildCachedSystemPrompt + messagesWithCachedFirstUser).
-    // The 1h tier is GA — no beta header required. Cache writes cost
-    // 2x base input (vs 1.25x for 5-min); reads stay at 0.1x. Break-even
-    // is ~2 reads per write, easily met for any iterative dial-in.
+    // The 1-hour TTL tier is GA — no beta header required. Cache writes
+    // cost 2x base input (vs 1.25x for 5-min); reads stay at 0.1x.
+    // Break-even is ~2 reads per write, easily met for any iterative dial-in.
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
@@ -350,8 +350,8 @@ QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& mess
     // The first user message carries the per-shot context, which is stable
     // across follow-up turns within the cache TTL. Wrap its content in a
     // structured block with cache_control so subsequent turns read from
-    // cache instead of re-billing the per-shot payload. ttl=1h covers a
-    // typical iterative dial-in spread across an hour-long session.
+    // cache instead of re-billing the per-shot payload. A 1-hour TTL covers
+    // a typical iterative dial-in spread across an hour-long session.
     //
     // No-op when messages[0] isn't a plain-string user message (caller
     // pre-wrapped, or first message isn't from user) — preserves input.
@@ -362,7 +362,7 @@ QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& mess
 
     QJsonObject cacheControl;
     cacheControl["type"] = QString("ephemeral");
-    cacheControl["ttl"] = 3600;
+    cacheControl["ttl"] = QString("1h");  // Anthropic API: Literal["5m", "1h"]
 
     QJsonObject block;
     block["type"] = QString("text");
@@ -382,15 +382,15 @@ QJsonArray AnthropicProvider::messagesWithCachedFirstUser(const QJsonArray& mess
 
 QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPrompt)
 {
-    // Cache the system prompt with the 1-hour extended TTL. Sonnet 4.6
+    // Cache the system prompt with the 1-hour extended TTL. Anthropic
     // caches give ~90% off input cost on hits; a 1-hour TTL covers most
     // dial-in patterns (back-to-back, "let me try again in 20 minutes",
     // and the typical morning-pull-evening-pull iteration). Cache writes
-    // cost 2x base for the 1h tier (vs 1.25x for 5-min); break-even is
-    // 2 reads per write — easily met for any iterative user.
+    // cost 2x base for the 1-hour tier (vs 1.25x for 5-min); break-even
+    // is 2 reads per write — easily met for any iterative user.
     QJsonObject cacheControl;
     cacheControl["type"] = QString("ephemeral");
-    cacheControl["ttl"] = 3600;
+    cacheControl["ttl"] = QString("1h");  // Anthropic API: Literal["5m", "1h"]
 
     QJsonObject block;
     block["type"] = QString("text");
