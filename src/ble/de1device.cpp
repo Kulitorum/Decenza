@@ -90,6 +90,15 @@ void DE1Device::onTransportConnected() {
 
     // Send Idle state to wake the machine (same as de1app on connect)
     requestState(DE1::State::Idle);
+
+    // Send initial settings now that write characteristics are ready.
+    // This was previously called from parseVersion(), but that happens too
+    // early on some platforms (Linux/BlueZ) where VERSION can be read while
+    // the service is still in RemoteServiceDiscovering state (before write
+    // characteristics are available). Moving this here ensures MMR writes
+    // succeed. VERSION read (which triggers parseVersion) is still in the
+    // subscribeAll() queue, so firmware version will be populated shortly.
+    sendInitialSettings();
 }
 
 void DE1Device::onTransportDisconnected() {
@@ -508,8 +517,10 @@ void DE1Device::parseVersion(const QByteArray& data) {
         .arg(fwRelease, 0, 'f', 1).arg(fwChanges).arg(fwCommits).arg(fwApi);
     emit firmwareVersionChanged();
 
-    // Trigger full initialization after version is received (like de1app does)
-    sendInitialSettings();
+    // NOTE: sendInitialSettings() is now called from onTransportConnected()
+    // instead of here, to ensure write characteristics are available first.
+    // On some platforms (Linux/BlueZ), VERSION arrives before the service
+    // reaches RemoteServiceDiscovered state, causing MMR writes to fail.
 }
 
 void DE1Device::rebuildVersionLine3() {
@@ -1439,7 +1450,9 @@ void DE1Device::sendInitialSettings() {
         emit usbChargerOnChanged();
     }
 
-    // CRITICAL: Set fan temperature threshold via MMR
+    // CRITICAL: Set fan temperature threshold via MMR.
+    // Default DE1 fan runs continuously; setting threshold to 60°C means
+    // fan only runs when temp exceeds 60°C, effectively turning it off during normal operation.
     writeMMR(DE1::MMR::FAN_THRESHOLD, 60);
 
     // Heater tweaks — matches de1app's set_heater_tweaks()
