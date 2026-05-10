@@ -15,8 +15,13 @@ class ScaleDevice : public QObject {
     Q_PROPERTY(double flowRate READ flowRate NOTIFY flowRateChanged)
     Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY batteryLevelChanged)
     Q_PROPERTY(QString name READ name CONSTANT)
+    Q_PROPERTY(QString type READ type CONSTANT)
     Q_PROPERTY(bool isFlowScale READ isFlowScale CONSTANT)
     Q_PROPERTY(bool isSimulated READ isSimulated CONSTANT)
+    // "ble" / "wifi" / "" (when no transport is in use, e.g. FlowScale).
+    // Notifies on connectedChanged because transport identity is fixed
+    // for the lifetime of any one connection.
+    Q_PROPERTY(QString transportKind READ transportKind NOTIFY connectedChanged)
 
 public:
     explicit ScaleDevice(QObject* parent = nullptr);
@@ -32,6 +37,9 @@ public:
     virtual QString type() const { return QString(); }
     virtual bool isFlowScale() const { return false; }
     virtual bool isSimulated() const { return false; }
+    // Subclasses with a transport delegate; default is empty (FlowScale,
+    // simulator) so QML can hide the badge for non-physical paths.
+    virtual QString transportKind() const { return QString(); }
 
     bool simulationMode() const { return m_simulationMode; }
     void setSimulationMode(bool enabled);

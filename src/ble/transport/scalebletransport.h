@@ -99,6 +99,15 @@ public:
      */
     virtual bool isConnected() const = 0;
 
+    /**
+     * Identifier for the underlying link type. Returns "ble" by default,
+     * "wifi" for the Decenza Wi-Fi adapter. Surfaces to QML so the
+     * Connections tab can render a visible badge instead of forcing the
+     * user to read scale-log prefixes. Concrete BLE transports inherit
+     * the default; non-BLE adapters override.
+     */
+    virtual QString transportKind() const { return QStringLiteral("ble"); }
+
 signals:
     /**
      * Emitted when BLE connection is established.

@@ -15,9 +15,14 @@
 
 // Transport implementations
 #include "../transport/qtscalebletransport.h"
+#include "../transport/wifiscaletransport.h"
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "../transport/corebluetooth/corebluetoothscalebletransport.h"
 #endif
+
+#include "../../core/settings_connections.h"
+#include <QDebug>
+#include <QVariantMap>
 
 namespace {
     ScaleBleTransport* createTransportForPlatform() {
@@ -28,6 +33,34 @@ namespace {
         // Qt 6.10+ BLE works reliably on Android and Desktop
         return new QtScaleBleTransport();
 #endif
+    }
+
+    // Build the runtime transport for a Decent Scale (which includes the
+    // user's DecenzaScale, since both share the protocol). Prefers a stored
+    // Wi-Fi pairing when available, falling back to BLE otherwise.
+    //
+    // Pairing keys are lowercase BLE MACs. iOS exposes a Qt-generated UUID
+    // instead of a real MAC for privacy reasons — Wi-Fi-pairing identification
+    // would need a different shape on iOS, so the path silently falls through
+    // to BLE there.
+    ScaleBleTransport* createDecentScaleTransport(
+        const QBluetoothDeviceInfo& device, SettingsConnections* connections) {
+        if (!connections) return createTransportForPlatform();
+
+        const QString mac = device.address().toString().toLower();
+        if (mac.isEmpty()) return createTransportForPlatform();  // iOS path
+
+        const QVariantMap pairing = connections->scaleWifiPairing(mac);
+        const QString ip = pairing.value(QStringLiteral("ip")).toString();
+        if (ip.isEmpty()) return createTransportForPlatform();
+
+        const int port = pairing.value(QStringLiteral("port"), 8765).toInt();
+        qInfo().noquote() << QStringLiteral(
+            "[wifi/factory] Using Wi-Fi transport for %1 (mac=%2 ip=%3 port=%4)")
+            .arg(device.name(), mac, ip).arg(port);
+        auto* transport = new WifiScaleTransport();
+        transport->setTarget(ip, port);
+        return transport;
     }
 }
 
@@ -53,12 +86,15 @@ ScaleType ScaleFactory::detectScaleType(const QBluetoothDeviceInfo& device) {
     return ScaleType::Unknown;
 }
 
-std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInfo& device, QObject* parent) {
+std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInfo& device,
+                                                       QObject* parent,
+                                                       SettingsConnections* connections) {
     ScaleType type = detectScaleType(device);
 
     switch (type) {
         case ScaleType::DecentScale:
-            return std::make_unique<DecentScale>(createTransportForPlatform(), parent);
+            return std::make_unique<DecentScale>(
+                createDecentScaleTransport(device, connections), parent);
         case ScaleType::Acaia:
         case ScaleType::AcaiaPyxis:
             // Unified AcaiaScale auto-detects IPS vs Pyxis protocol
@@ -120,17 +156,21 @@ ScaleType ScaleFactory::resolveScaleType(const QString& name) {
     return ScaleType::Unknown;
 }
 
-std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInfo& device, const QString& typeName, QObject* parent) {
+std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInfo& device,
+                                                       const QString& typeName,
+                                                       QObject* parent,
+                                                       SettingsConnections* connections) {
     ScaleType type = resolveScaleType(typeName);
 
     if (type == ScaleType::Unknown) {
         // Fall back to detection from device name
-        return createScale(device, parent);
+        return createScale(device, parent, connections);
     }
 
     switch (type) {
         case ScaleType::DecentScale:
-            return std::make_unique<DecentScale>(createTransportForPlatform(), parent);
+            return std::make_unique<DecentScale>(
+                createDecentScaleTransport(device, connections), parent);
         case ScaleType::Acaia:
         case ScaleType::AcaiaPyxis:
             // Unified AcaiaScale auto-detects IPS vs Pyxis protocol

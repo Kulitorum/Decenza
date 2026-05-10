@@ -5,6 +5,7 @@
 #include <memory>
 
 class ScaleDevice;
+class SettingsConnections;
 
 // Scale types supported
 enum class ScaleType {
@@ -30,11 +31,21 @@ public:
     // Detect scale type from BLE device info
     static ScaleType detectScaleType(const QBluetoothDeviceInfo& device);
 
-    // Create appropriate scale instance (auto-detect type from device name)
-    static std::unique_ptr<ScaleDevice> createScale(const QBluetoothDeviceInfo& device, QObject* parent = nullptr);
+    // Create appropriate scale instance (auto-detect type from device name).
+    // If `connections` is provided and the device matches a Decenza Scale
+    // with a stored Wi-Fi pairing, the scale is built on a WifiScaleTransport
+    // targeting the paired IP. Otherwise the platform BLE transport is used.
+    // Pass `nullptr` to force the BLE path (e.g. on a Wi-Fi-failure retry).
+    static std::unique_ptr<ScaleDevice> createScale(const QBluetoothDeviceInfo& device,
+                                                    QObject* parent = nullptr,
+                                                    SettingsConnections* connections = nullptr);
 
-    // Create scale with explicit type (for direct connect without device name)
-    static std::unique_ptr<ScaleDevice> createScale(const QBluetoothDeviceInfo& device, const QString& typeName, QObject* parent = nullptr);
+    // Create scale with explicit type (for direct connect without device name).
+    // Same `connections` semantics as the auto-detect overload.
+    static std::unique_ptr<ScaleDevice> createScale(const QBluetoothDeviceInfo& device,
+                                                    const QString& typeName,
+                                                    QObject* parent = nullptr,
+                                                    SettingsConnections* connections = nullptr);
 
     // Check if a device is a known scale
     static bool isKnownScale(const QBluetoothDeviceInfo& device);

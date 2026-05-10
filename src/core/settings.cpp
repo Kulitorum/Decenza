@@ -11,6 +11,7 @@
 #include "settings_network.h"
 #include "settings_app.h"
 #include "settings_calibration.h"
+#include "settings_connections.h"
 #include "grinderaliases.h"
 #include <algorithm>
 #include <QStandardPaths>
@@ -53,6 +54,7 @@ Settings::Settings(QObject* parent)
     , m_network(new SettingsNetwork(this))
     , m_app(new SettingsApp(this))
     , m_calibration(new SettingsCalibration(this, this))
+    , m_connections(new SettingsConnections(this))
 {
     qDebug() << "Settings: system time format =" << QLocale::system().timeFormat(QLocale::ShortFormat)
              << "-> use12HourTime =" << m_app->use12HourTime();
@@ -289,6 +291,7 @@ QObject* Settings::dyeQObject() const { return m_dye; }
 QObject* Settings::networkQObject() const { return m_network; }
 QObject* Settings::appQObject() const { return m_app; }
 QObject* Settings::calibrationQObject() const { return m_calibration; }
+QObject* Settings::connectionsQObject() const { return m_connections; }
 
 // Machine settings
 QString Settings::machineAddress() const {

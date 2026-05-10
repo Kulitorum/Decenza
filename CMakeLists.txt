@@ -225,6 +225,7 @@ set(SOURCES
     src/core/settings_network.cpp
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
+    src/core/settings_connections.cpp
     src/core/widgetlibrary.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
@@ -258,6 +259,9 @@ set(SOURCES
     src/ble/scales/timemorescale.cpp
     src/ble/scales/flowscale.cpp
     src/ble/transport/qtscalebletransport.cpp
+    src/ble/transport/wifiscaletransport.cpp
+    src/ble/scales/decenzaprovisioningclient.cpp
+    src/ble/scales/decenzawifimanager.cpp
     src/core/asynclogger.cpp
     src/core/btlogfilter.cpp
     src/machine/machinestate.cpp
@@ -394,6 +398,7 @@ set(HEADERS
     src/core/settings_network.h
     src/core/settings_app.h
     src/core/settings_calibration.h
+    src/core/settings_connections.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
@@ -430,6 +435,9 @@ set(HEADERS
     src/ble/scales/flowscale.h
     src/ble/transport/scalebletransport.h
     src/ble/transport/qtscalebletransport.h
+    src/ble/transport/wifiscaletransport.h
+    src/ble/scales/decenzaprovisioningclient.h
+    src/ble/scales/decenzawifimanager.h
     src/core/asynclogger.h
     src/core/btlogfilter.h
     src/machine/machinestate.h
@@ -656,6 +664,8 @@ set(QML_FILES
     qml/pages/FlowCalibrationPage.qml
     qml/pages/ProfileInfoPage.qml
     qml/pages/settings/SettingsConnectionsTab.qml
+    qml/pages/settings/DecenzaWifiSetupDialog.qml
+    qml/components/DecenzaCalibrationCard.qml
     qml/pages/settings/SettingsMachineTab.qml
     qml/pages/settings/SettingsCalibrationTab.qml
     qml/pages/settings/SettingsScreensaverTab.qml
@@ -1059,6 +1069,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
+        src/core/settings_connections.cpp
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
     target_include_directories(saw_parity PRIVATE ${CMAKE_SOURCE_DIR}/src)

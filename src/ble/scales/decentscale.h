@@ -14,6 +14,9 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return m_name; }
     QString type() const override { return "decent"; }
+    QString transportKind() const override {
+        return m_transport ? m_transport->transportKind() : QString();
+    }
 
 public slots:
     void tare() override;
@@ -25,6 +28,14 @@ public slots:
     void wake() override;
     void disableLcd() override;
     void setLed(int r, int g, int b);
+
+    // Decenza-side calibration command. Coordinated with the DecenzaScale
+    // firmware repo: 0x03 0x10 [int16BE decigrams] 0x00 0x00 [xor]. The
+    // firmware reads its puck-cell ADC and persists the resulting scale
+    // factor to NVS; there is no response packet — the calibrated weight
+    // stream is the implicit ack. Works on any Decent-Scale-protocol scale,
+    // but only DecenzaScale firmware honors the 0x10 command byte today.
+    Q_INVOKABLE void calibrateToKnownWeight(double grams);
 
 private slots:
     void onTransportConnected();
