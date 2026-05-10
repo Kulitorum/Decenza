@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
+#include <QTimer>
 #include <QUrl>
 #include <QVariant>
 
@@ -56,6 +57,45 @@ QJsonArray AIProvider::buildOpenAIMessages(const QString& systemPrompt, const QJ
     return apiMessages;
 }
 
+bool AIProvider::isRetryableHttpStatus(int httpStatus, int retryCount)
+{
+    // Primary transient codes: retry up to kMaxRetries times
+    if (httpStatus == 429 || httpStatus == 502 || httpStatus == 503 || httpStatus == 504)
+        return retryCount < kMaxRetries;
+    // Other 5xx (e.g. 500 internal server error): retry once only
+    if (httpStatus >= 500 && httpStatus < 600)
+        return retryCount < 1;
+    return false;
+}
+
+int AIProvider::computeRetryDelayMs(int retryCount, QNetworkReply* reply)
+{
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (httpStatus == 429) {
+        const QByteArray retryAfter = reply->rawHeader("Retry-After");
+        if (!retryAfter.isEmpty()) {
+            bool ok;
+            const int seconds = retryAfter.toInt(&ok);
+            if (ok && seconds > 0)
+                return qMin(seconds * 1000, 30000);
+        }
+    }
+    return 1000 << (retryCount - 1);  // 1s, 2s, 4s for retries 1, 2, 3
+}
+
+bool AIProvider::tryScheduleRetry(QNetworkReply* reply)
+{
+    if (!m_retryFn) return false;
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (!isRetryableHttpStatus(status, m_retryCount)) return false;
+    const int delay = computeRetryDelayMs(++m_retryCount, reply);
+    const QByteArray body = reply->readAll();
+    qWarning() << name() << "HTTP" << status << "- retry" << m_retryCount
+               << "in" << delay << "ms" << (body.isEmpty() ? QByteArray() : ("- " + body.left(200)));
+    QTimer::singleShot(delay, this, [this]() { m_retryFn(); });
+    return true;
+}
+
 void AIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     // Default fallback: flatten messages into a single string and call analyze()
@@ -99,6 +139,8 @@ void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
+    m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
+
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -114,6 +156,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -140,6 +183,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -151,6 +195,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
 void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
 {
+    if (tryScheduleRetry(reply)) { reply->deleteLater(); return; }
     reply->deleteLater();
     setStatus(Status::Ready);
 
@@ -297,6 +342,8 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
     // Break-even is ~2 reads per write, easily met for any iterative dial-in.
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
+    m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
+
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -312,6 +359,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -335,6 +383,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
@@ -404,6 +453,7 @@ QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPromp
 
 void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
 {
+    if (tryScheduleRetry(reply)) { reply->deleteLater(); return; }
     reply->deleteLater();
     setStatus(Status::Ready);
 
@@ -573,6 +623,8 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     generationConfig["thinkingConfig"] = thinkingConfig;
     bodyWithConfig["generationConfig"] = generationConfig;
 
+    m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
+
     QByteArray body = QJsonDocument(bodyWithConfig).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -588,6 +640,7 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     // Gemini uses a different format
     QJsonObject requestBody;
@@ -624,6 +677,7 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
 
@@ -661,6 +715,7 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
 void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
 {
+    if (tryScheduleRetry(reply)) { reply->deleteLater(); return; }
     reply->deleteLater();
     setStatus(Status::Ready);
 
@@ -823,6 +878,8 @@ void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("X-Title", "Decenza");
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
+    m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
+
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -838,6 +895,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     // OpenRouter uses OpenAI-compatible format
     QJsonObject requestBody;
@@ -865,6 +923,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
@@ -876,6 +935,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
 
 void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
 {
+    if (tryScheduleRetry(reply)) { reply->deleteLater(); return; }
     reply->deleteLater();
     setStatus(Status::Ready);
 
@@ -1027,6 +1087,8 @@ void OllamaProvider::sendRequest(const QUrl& url, const QJsonObject& requestBody
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setTransferTimeout(LOCAL_ANALYSIS_TIMEOUT_MS);
 
+    m_retryFn = [this, url, requestBody]() { sendRequest(url, requestBody); };
+
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -1042,6 +1104,7 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
@@ -1064,6 +1127,7 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
     }
 
     setStatus(Status::Busy);
+    m_retryCount = 0;
 
     // Use /api/chat which supports messages array natively
     QJsonObject requestBody;
@@ -1080,6 +1144,7 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
 void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
 {
+    if (tryScheduleRetry(reply)) { reply->deleteLater(); return; }
     reply->deleteLater();
     setStatus(Status::Ready);
 

@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <functional>
 
 // Abstract base class for AI providers
 class AIProvider : public QObject {
@@ -50,11 +51,21 @@ protected:
     // Build OpenAI-compatible messages array: system message + conversation messages
     static QJsonArray buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages);
 
+    // Retry support: call from each provider's sendRequest() and onAnalysisReply()
+    bool tryScheduleRetry(QNetworkReply* reply);  // returns true if retry was scheduled
+
     static constexpr int ANALYSIS_TIMEOUT_MS = 60000;   // 60s for cloud AI analysis
     static constexpr int TEST_TIMEOUT_MS = 15000;        // 15s for connection tests
+    static constexpr int kMaxRetries = 3;                // max retries for 429/502/503/504
 
     QNetworkAccessManager* m_networkManager = nullptr;
     Status m_status = Status::Ready;
+    std::function<void()> m_retryFn;  // set by each sendRequest() to re-send the pending request
+    int m_retryCount = 0;             // reset to 0 before each new analyze() call
+
+private:
+    static bool isRetryableHttpStatus(int httpStatus, int retryCount);
+    static int computeRetryDelayMs(int retryCount, QNetworkReply* reply);
 };
 
 // OpenAI provider

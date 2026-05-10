@@ -290,8 +290,6 @@ void QtScaleBleTransport::onControllerConnected() {
 void QtScaleBleTransport::onControllerDisconnected() {
     QT_TRANSPORT_LOG("Controller disconnected");
     m_connected = false;
-    m_notifyCountSinceSummary = 0;
-    m_lastNotifySummaryMs = 0;
     emit disconnected();
 }
 
