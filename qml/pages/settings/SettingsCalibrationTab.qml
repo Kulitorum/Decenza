@@ -770,7 +770,11 @@ Item {
 
                 // Heater test time-out
                 Text { text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestFlowSlider }
+                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: fanThresholdSlider; KeyNavigation.backtab: heaterTestFlowSlider }
+
+                // Fan temperature threshold
+                Text { text: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                ValueInput { id: fanThresholdSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : value + "°C"; rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — 60°C"; value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
@@ -786,13 +790,14 @@ Item {
                         Settings.hardware.heaterWarmupFlow = 20
                         Settings.hardware.heaterTestFlow = 40
                         Settings.hardware.heaterWarmupTimeout = 10
+                        Settings.hardware.fanThreshold = 60
                         // Cafe defaults force two-tap stop for safety: the first tap puts
                         // the firmware in Puffing, allowing the auto-flush timer to clear
                         // the wand reliably. Toggle UI lives in Steam Heater (Machine tab).
                         Settings.hardware.steamTwoTapStop = true
                     }
                     KeyNavigation.tab: doneButton
-                    KeyNavigation.backtab: heaterTestTimeoutSlider
+                    KeyNavigation.backtab: fanThresholdSlider
                 }
 
                 RowLayout {

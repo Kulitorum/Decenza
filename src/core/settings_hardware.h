@@ -14,6 +14,7 @@ class SettingsHardware : public QObject {
     Q_PROPERTY(int heaterWarmupTimeout READ heaterWarmupTimeout WRITE setHeaterWarmupTimeout NOTIFY heaterWarmupTimeoutChanged)
     Q_PROPERTY(int hotWaterFlowRate READ hotWaterFlowRate WRITE setHotWaterFlowRate NOTIFY hotWaterFlowRateChanged)
     Q_PROPERTY(bool steamTwoTapStop READ steamTwoTapStop WRITE setSteamTwoTapStop NOTIFY steamTwoTapStopChanged)
+    Q_PROPERTY(int fanThreshold READ fanThreshold WRITE setFanThreshold NOTIFY fanThresholdChanged)
 
 public:
     explicit SettingsHardware(QObject* parent = nullptr);
@@ -36,6 +37,9 @@ public:
     bool steamTwoTapStop() const;
     void setSteamTwoTapStop(bool value);
 
+    int fanThreshold() const;
+    void setFanThreshold(int value);
+
 signals:
     void heaterIdleTempChanged();
     void heaterWarmupFlowChanged();
@@ -43,6 +47,7 @@ signals:
     void heaterWarmupTimeoutChanged();
     void hotWaterFlowRateChanged();
     void steamTwoTapStopChanged();
+    void fanThresholdChanged();
 
 private:
     mutable QSettings m_settings;
