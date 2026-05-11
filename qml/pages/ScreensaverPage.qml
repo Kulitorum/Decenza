@@ -284,7 +284,7 @@ Page {
         }
     }
 
-    function handleVideoFailure() {
+    function handleVideoFailure(formatError) {
         // Ignore stale signals from a destroyed MediaPlayer
         if (!mediaPlayerLoader.item) return
 
@@ -297,11 +297,17 @@ Page {
         console.warn("[Screensaver] Media failed (" + videoFailCount + "/5):", playerSource)
 
         // Tell the manager the underlying file is corrupt so it deletes the
-        // local copy and re-queues a download. Only do this for cached files
-        // (file:// URLs) — streaming sources can fail for transient reasons
-        // and there's nothing on disk to clean up. Personal media URLs that
-        // don't appear in the catalog cache are no-op'd inside the manager.
-        if (playerSource.indexOf("file://") === 0) {
+        // local copy and re-queues a download. Two gates:
+        //   1. file:// URLs only — streaming sources can fail for transient
+        //      reasons and there's nothing on disk to clean up. Personal media
+        //      URLs that don't appear in the catalog cache are no-op'd inside
+        //      the manager.
+        //   2. formatError === true — only delete when MediaPlayer reports a
+        //      definite format/decode failure (FormatError code or
+        //      InvalidMedia status). Transient errors (ResourceError,
+        //      NetworkError, AccessDeniedError) skip the delete so a working
+        //      file isn't evicted because the decoder hiccupped once.
+        if (formatError === true && playerSource.indexOf("file://") === 0) {
             ScreensaverManager.markVideoCorrupt(playerSource)
         }
 
@@ -367,13 +373,19 @@ Page {
                         lastFailedSource = ""
                         playNextMedia()
                     } else if (mediaStatus === MediaPlayer.InvalidMedia) {
-                        handleVideoFailure()
+                        // InvalidMedia is the parser's verdict that the bytes
+                        // aren't valid media — treat as a format error so the
+                        // cached file gets evicted and re-fetched.
+                        handleVideoFailure(true)
                     }
                 }
 
                 onErrorOccurred: function(error, errorString) {
                     console.warn("[Screensaver] MediaPlayer error:", error, errorString)
-                    handleVideoFailure()
+                    // Only Qt's FormatError implies the on-disk bytes are
+                    // bad. Other codes (ResourceError, NetworkError,
+                    // AccessDeniedError) are transient — leave the file alone.
+                    handleVideoFailure(error === MediaPlayer.FormatError)
                 }
 
                 onPlaybackStateChanged: {
