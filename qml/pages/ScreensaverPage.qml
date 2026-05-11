@@ -296,6 +296,15 @@ Page {
         videoFailCount++
         console.warn("[Screensaver] Media failed (" + videoFailCount + "/5):", playerSource)
 
+        // Tell the manager the underlying file is corrupt so it deletes the
+        // local copy and re-queues a download. Only do this for cached files
+        // (file:// URLs) — streaming sources can fail for transient reasons
+        // and there's nothing on disk to clean up. Personal media URLs that
+        // don't appear in the catalog cache are no-op'd inside the manager.
+        if (playerSource.indexOf("file://") === 0) {
+            ScreensaverManager.markVideoCorrupt(playerSource)
+        }
+
         if (videoFailCount >= 5) {
             mediaPlaying = false
             mediaPlayerLoader.active = false

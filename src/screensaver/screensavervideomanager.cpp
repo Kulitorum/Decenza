@@ -1497,6 +1497,33 @@ void ScreensaverVideoManager::markVideoPlayed(const QString& source)
     }
 }
 
+void ScreensaverVideoManager::markVideoCorrupt(const QString& source)
+{
+    // Resolve `source` (a QML file:// URL or raw local path) against the cache
+    // index. If it matches, delete the file and drop the entry so the next
+    // queueAllVideosForDownload() pass re-fetches a clean copy.
+    for (auto it = m_cacheIndex.begin(); it != m_cacheIndex.end(); ++it) {
+        const QString localPath = it.value().localPath;
+        if (!source.contains(localPath) &&
+            QUrl::fromLocalFile(localPath).toString() != source) {
+            continue;
+        }
+
+        qWarning() << "ScreensaverVideoManager: marking corrupt and deleting" << localPath;
+        QFile::remove(localPath);
+        m_cacheIndex.erase(it);
+        updateCacheUsedBytes();
+        saveCacheIndex();
+        emit cacheUsedBytesChanged();
+
+        // Re-queue uncached catalog items (including the one we just dropped).
+        startBackgroundDownload();
+        return;
+    }
+    // Not found in the catalog cache index — likely personal media (handled by
+    // deletePersonalMedia) or already evicted. Either way, no further action.
+}
+
 QVariantList ScreensaverVideoManager::creditsList() const
 {
     QVariantList credits;
