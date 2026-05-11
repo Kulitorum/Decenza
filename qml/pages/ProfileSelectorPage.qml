@@ -677,6 +677,7 @@ Page {
                             MenuItem {
                                 id: autoLoadMenuItem
                                 visible: viewFilter.currentIndex === 0 || profileDelegate.isSelected
+                                height: visible ? implicitHeight : 0
 
                                 onTriggered: {
                                     if (profileDelegate.isAutoLoad) {
@@ -729,6 +730,7 @@ Page {
 
                             MenuSeparator {
                                 visible: viewFilter.currentIndex === 0 || !profileDelegate.isBuiltIn
+                                height: visible ? implicitHeight : 0
                                 contentItem: Rectangle {
                                     implicitHeight: Theme.scaled(1)
                                     color: Theme.borderColor
@@ -737,6 +739,7 @@ Page {
 
                             MenuItem {
                                 visible: viewFilter.currentIndex === 0  // Only on "Selected" view
+                                height: visible ? implicitHeight : 0
                                 onTriggered: {
                                     if (profileDelegate.isBuiltIn) {
                                         Settings.app.removeSelectedBuiltInProfile(modelData.name)
@@ -781,6 +784,7 @@ Page {
 
                             MenuItem {
                                 visible: !profileDelegate.isBuiltIn
+                                height: visible ? implicitHeight : 0
                                 onTriggered: {
                                     deleteDialog.profileName = modelData.name
                                     deleteDialog.profileTitle = modelData.title
