@@ -906,10 +906,18 @@ void ShotServer::onCleanupTimerTick()
     if (m_server) {
         qintptr fd = m_server->socketDescriptor();
         bool listening = m_server->isListening();
-        if (fd == -1 && listening)
+        if (fd == -1 && listening) {
+            // The bug we're hunting — always log this when it happens, no
+            // de-dup, so consecutive ticks paint a clear timeline.
             qWarning() << "ShotServer: socketDescriptor() == -1 while isListening() == true — listen socket may have been invalidated by OS";
-        else
+        } else if (fd != m_lastHealthFd || listening != m_lastHealthListening) {
+            // Only log when state changes (incl. the first tick after startup).
+            // Steady-state was burning ~120 lines/hr without surfacing any new
+            // signal; a flip in either field is the actual breadcrumb.
             qDebug() << "ShotServer: health check — isListening:" << listening << "socketDescriptor:" << fd;
+        }
+        m_lastHealthFd = fd;
+        m_lastHealthListening = listening;
     }
 
     QList<QTcpSocket*> staleConnections;
