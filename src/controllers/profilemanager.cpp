@@ -786,6 +786,12 @@ bool ProfileManager::isProfileInSelectedList(const QString& filename) const {
         case ProfileSource::UserCreated:
             return !hiddenProfiles.contains(filename);
         }
+        // Defensive: an unknown ProfileSource (added later without updating
+        // this switch) should default to "not selectable" so auto-load doesn't
+        // silently pin a profile whose eligibility rules haven't been defined.
+        qWarning() << "isProfileInSelectedList: unhandled ProfileSource for"
+                   << filename << "— treating as not selected";
+        return false;
     }
     return false;
 }

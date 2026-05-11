@@ -41,7 +41,9 @@ Page {
                 Rectangle {
                     id: autoLoadStrip
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(28)
+                    // Sized off captionFont so the strip scales with the user's
+                    // customFontSizes.captionSize accessibility override.
+                    Layout.preferredHeight: Math.round(Theme.captionFont.pixelSize * 2.4)
                     color: Theme.surfaceColor
                     border.color: Theme.borderColor
                     border.width: 1
@@ -86,8 +88,7 @@ Page {
                         Text {
                             text: TranslationManager.translate("profileselector.strip.auto_load_label", "Auto-load:")
                             color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(10)
+                            font: Theme.captionFont
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
                         }
@@ -95,8 +96,7 @@ Page {
                         Text {
                             text: autoLoadStrip.autoLoadTitle
                             color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(10)
+                            font: Theme.captionFont
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
@@ -106,8 +106,7 @@ Page {
                         Text {
                             text: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
                             color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(10)
+                            font: Theme.captionFont
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
                         }
@@ -115,14 +114,15 @@ Page {
                         ValueInput {
                             id: autoLoadRevertInput
                             // Let the value text + min/plus glyphs determine
-                            // the width — at 10 dp font the fixed-86-dp clamp
-                            // was eliding "60 min" mid-suffix.
+                            // the width — a fixed clamp was eliding "60 min"
+                            // mid-suffix at the reduced font size.
                             Layout.preferredWidth: implicitWidth
-                            Layout.preferredHeight: Theme.scaled(22)
+                            Layout.preferredHeight: Math.round(Theme.captionFont.pixelSize * 1.9)
                             Layout.alignment: Qt.AlignVCenter
-                            // Match the strip's label text size so the inline
-                            // value doesn't dominate visually.
-                            valueFontPixelSize: Theme.scaled(10)
+                            // Match the strip's label text size (and its
+                            // customFontSizes.captionSize override) so the
+                            // inline value doesn't dominate visually.
+                            valueFontPixelSize: Theme.captionFont.pixelSize
                             value: Settings.app.autoLoadRevertMinutes
                             from: 0
                             to: 60
@@ -148,14 +148,14 @@ Page {
                         AccessibleButton {
                             id: autoLoadClearButton
                             text: "×"
-                            Layout.preferredWidth: Theme.scaled(22)
-                            Layout.preferredHeight: Theme.scaled(22)
+                            Layout.preferredWidth: Math.round(Theme.captionFont.pixelSize * 1.9)
+                            Layout.preferredHeight: Math.round(Theme.captionFont.pixelSize * 1.9)
                             Layout.alignment: Qt.AlignVCenter
                             accessibleName: TranslationManager.translate("profileselector.strip.clear_aria", "Disable auto-load")
                             contentItem: Text {
                                 text: "×"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(13)
+                                font.pixelSize: Math.round(Theme.captionFont.pixelSize * 1.3)
                                 font.bold: true
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -843,6 +843,9 @@ Page {
         property bool profileIsFavorite: false
         property bool profileIsAutoLoad: false
         property bool viewIsSelectedList: false
+
+        Accessible.role: Accessible.Dialog
+        Accessible.name: TranslationManager.translate("profileselector.dialog.profile_actions_title", "Profile actions") + (profileTitle ? ": " + profileTitle : "")
 
         background: Rectangle {
             color: Theme.surfaceColor

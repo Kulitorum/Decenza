@@ -207,6 +207,11 @@ signals:
     // Emitted when loadAutoLoadProfileIfNeeded() finds the configured filename
     // no longer resolves to a Selected-list profile. The setting is cleared as
     // part of the same call; QML listens to surface a toast.
+    //
+    // Not emitted on eager-clear paths (Settings::addHiddenProfile /
+    // removeSelectedBuiltInProfile / ProfileManager::deleteProfile) — those
+    // clear the filename directly while the user is already on a UI that
+    // makes the change obvious, so no toast is warranted.
     void autoLoadStaleCleared();
 
 private:

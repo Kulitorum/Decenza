@@ -398,22 +398,6 @@ ApplicationWindow {
                 console.log("[AutoSleep] Both counters expired — triggering sleep")
                 triggerAutoSleep()
             }
-
-            // Auto-load idle-revert tick: piggybacks on this minute timer so we
-            // don't add a second QTimer. Only fires on the Idle page; pauses
-            // during operations (the timer above is already gated on
-            // !operationActive, so we're free to decrement here).
-            if (root.autoLoadIdleCountdown > 0) {
-                root.autoLoadIdleCountdown--
-                if (root.autoLoadIdleCountdown <= 0) {
-                    var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-                    if (pageName === "idlePage") {
-                        console.log("[AutoLoad] Idle countdown expired — invoking auto-load")
-                        ProfileManager.loadAutoLoadProfileIfNeeded()
-                    }
-                    root.autoLoadIdleCountdown = root.autoLoadCountdownReload()
-                }
-            }
         }
     }
 
@@ -422,6 +406,30 @@ ApplicationWindow {
     // off, no profile is pinned, the revert-minutes is 0, or we're not on the
     // Idle page.
     property int autoLoadIdleCountdown: -1
+
+    // Auto-load idle-revert tick. Lives in its own timer (not the sleep
+    // countdown's) so the trigger keeps working when the user has set
+    // auto-sleep to "Never" — sleepCountdownTimer is gated on
+    // autoSleepMinutes > 0, which would otherwise silently kill this path.
+    // Allowed under CLAUDE.md's UI-behaviour-timer carve-out.
+    Timer {
+        id: autoLoadCountdownTimer
+        interval: 60 * 1000  // 1 minute
+        running: root.autoLoadIdleCountdown > 0 && !screensaverActive && !root.operationActive
+        repeat: true
+        onTriggered: {
+            if (root.autoLoadIdleCountdown <= 0) return
+            root.autoLoadIdleCountdown--
+            if (root.autoLoadIdleCountdown <= 0) {
+                var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+                if (pageName === "idlePage") {
+                    console.log("[AutoLoad] Idle countdown expired — invoking auto-load")
+                    ProfileManager.loadAutoLoadProfileIfNeeded()
+                }
+                root.autoLoadIdleCountdown = root.autoLoadCountdownReload()
+            }
+        }
+    }
 
     function autoLoadCountdownReload() {
         var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
@@ -448,11 +456,21 @@ ApplicationWindow {
     // Trigger: DE1 wake from Sleep → Idle. Tracks previous state in QML since
     // DE1Device does not expose it. State values come from DE1::State (see
     // src/ble/protocol/de1characteristics.h): Sleep = 0x00, Idle = 0x02.
+    //
+    // BLE reconnect handling: a reconnect can replay a Sleep → Idle transition
+    // even when the user didn't physically wake the machine. We reset the
+    // previous-state tracker on every connected-change so the first state
+    // notification after a (re)connect is treated as the initial state, not a
+    // transition. A real user wake-from-sleep produces a second notification
+    // while the machine stays connected; that one fires the auto-load.
     property int autoLoadPreviousDe1State: -1
     readonly property int de1StateSleep: 0x00
     readonly property int de1StateIdle: 0x02
     Connections {
         target: DE1Device
+        function onConnectedChanged() {
+            root.autoLoadPreviousDe1State = -1
+        }
         function onStateChanged() {
             var prev = root.autoLoadPreviousDe1State
             var curr = DE1Device.state

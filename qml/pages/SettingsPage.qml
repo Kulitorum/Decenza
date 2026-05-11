@@ -366,9 +366,10 @@ Page {
         id: settingsSearchDialog
         onResultSelected: function(tabId, cardId, externalRoute) {
             if (externalRoute) {
-                // External destination (e.g., ProfileSelectorPage) — replace
-                // the settings page rather than push so the user gets a clean
-                // back-stack from the search.
+                // External destination outside the Settings tab stack (e.g.
+                // ProfileSelectorPage). `goToProfileSelector()` pushes the
+                // target on top of the Settings page, so the user can press
+                // Back to return to the search context.
                 if (externalRoute === "profileSelector") {
                     root.goToProfileSelector()
                 }
