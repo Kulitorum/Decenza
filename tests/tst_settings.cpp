@@ -252,15 +252,15 @@ private slots:
     }
 
     void autoLoadRevertMinutesClamped() {
-        // Range is 1..60 — sub-1 values floor to 1, above-60 ceil to 60.
+        // Range is 0..60 — 0 means "idle revert off" but startup + wake still fire.
         m_settings.app()->setAutoLoadRevertMinutes(-5);
-        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 1);
-        m_settings.app()->setAutoLoadRevertMinutes(0);
-        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 1);
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 0);
         m_settings.app()->setAutoLoadRevertMinutes(200);
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 60);
         m_settings.app()->setAutoLoadRevertMinutes(30);
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 30);
+        m_settings.app()->setAutoLoadRevertMinutes(0);
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 0);
     }
 
     void autoLoadBundleRoundTrip() {

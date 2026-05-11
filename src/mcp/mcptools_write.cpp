@@ -1170,7 +1170,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             {"type", "object"},
             {"properties", QJsonObject{
                 {"filename", QJsonObject{{"type", "string"}, {"description", "Profile filename (without .json extension)"}}},
-                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "Optional. Minutes of idle inactivity on the Idle page before reverting to the auto-load profile. Range 1..60; values are clamped."}}}
+                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "Optional. Minutes of idle inactivity on the Idle page before reverting to the auto-load profile. Range 0..60 (clamped); 0 disables the idle trigger but keeps the startup and wake-from-sleep triggers."}}}
             }},
             {"required", QJsonArray{"filename"}}
         },

@@ -118,11 +118,15 @@ Page {
                             Layout.preferredHeight: Theme.scaled(28)
                             Layout.alignment: Qt.AlignVCenter
                             value: Settings.app.autoLoadRevertMinutes
-                            from: 1
+                            from: 0
                             to: 60
                             stepSize: 1
                             suffix: TranslationManager.translate("profileselector.strip.minutes_short", "min")
-                            displayText: value + " " + TranslationManager.translate("profileselector.strip.minutes_short", "min")
+                            // 0 disables the idle-revert trigger only; the
+                            // startup and wake-from-sleep triggers still fire.
+                            displayText: value === 0
+                                ? TranslationManager.translate("profileselector.strip.off", "off")
+                                : value + " " + TranslationManager.translate("profileselector.strip.minutes_short", "min")
                             accessibleName: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
 
                             // ValueInput emits valueModified on every adjustment and

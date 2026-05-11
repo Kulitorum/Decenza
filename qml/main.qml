@@ -425,7 +425,11 @@ ApplicationWindow {
 
     function autoLoadCountdownReload() {
         var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-        if (Settings.app.autoLoadProfileFilename === "" || pageName !== "idlePage") {
+        // 0 disables the idle-revert trigger only — startup and wake-from-sleep
+        // still fire via their own paths.
+        if (Settings.app.autoLoadProfileFilename === ""
+            || Settings.app.autoLoadRevertMinutes <= 0
+            || pageName !== "idlePage") {
             return -1
         }
         return Settings.app.autoLoadRevertMinutes
