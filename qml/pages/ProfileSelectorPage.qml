@@ -41,7 +41,7 @@ Page {
                 Rectangle {
                     id: autoLoadStrip
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(28)
                     color: Theme.surfaceColor
                     border.color: Theme.borderColor
                     border.width: 1
@@ -63,15 +63,15 @@ Page {
                     RowLayout {
                         id: autoLoadStripRow
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.scaled(10)
-                        anchors.rightMargin: Theme.scaled(4)
-                        spacing: Theme.scaled(6)
+                        anchors.leftMargin: Theme.scaled(8)
+                        anchors.rightMargin: Theme.scaled(2)
+                        spacing: Theme.scaled(4)
 
                         Image {
                             id: autoLoadStripPin
                             source: "qrc:/icons/pin.svg"
-                            sourceSize.width: Theme.scaled(14)
-                            sourceSize.height: Theme.scaled(14)
+                            sourceSize.width: Theme.scaled(11)
+                            sourceSize.height: Theme.scaled(11)
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
 
@@ -87,7 +87,7 @@ Page {
                             text: TranslationManager.translate("profileselector.strip.auto_load_label", "Auto-load:")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.scaled(10)
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
                         }
@@ -96,7 +96,7 @@ Page {
                             text: autoLoadStrip.autoLoadTitle
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.scaled(10)
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
@@ -107,15 +107,15 @@ Page {
                             text: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.scaled(10)
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
                         }
 
                         ValueInput {
                             id: autoLoadRevertInput
-                            Layout.preferredWidth: Theme.scaled(110)
-                            Layout.preferredHeight: Theme.scaled(28)
+                            Layout.preferredWidth: Theme.scaled(86)
+                            Layout.preferredHeight: Theme.scaled(22)
                             Layout.alignment: Qt.AlignVCenter
                             value: Settings.app.autoLoadRevertMinutes
                             from: 0
@@ -142,14 +142,14 @@ Page {
                         AccessibleButton {
                             id: autoLoadClearButton
                             text: "×"
-                            Layout.preferredWidth: Theme.scaled(28)
-                            Layout.preferredHeight: Theme.scaled(28)
+                            Layout.preferredWidth: Theme.scaled(22)
+                            Layout.preferredHeight: Theme.scaled(22)
                             Layout.alignment: Qt.AlignVCenter
                             accessibleName: TranslationManager.translate("profileselector.strip.clear_aria", "Disable auto-load")
                             contentItem: Text {
                                 text: "×"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(16)
+                                font.pixelSize: Theme.scaled(13)
                                 font.bold: true
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
