@@ -242,6 +242,14 @@ private:
 
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
+
+    // Listen-socket health-check state. We only log on state change instead
+    // of every 30s tick — both to cut steady-state noise and so the actual
+    // signal (a flip in isListening/socketDescriptor) stands out when
+    // chasing the listen-socket invalidation bug. Sentinel `-2` distinguishes
+    // "no health check yet observed" from a valid `-1` socket descriptor.
+    qintptr m_lastHealthFd = -2;
+    bool m_lastHealthListening = false;
 #ifdef Q_OS_ANDROID
     QJniObject m_multicastLock;
 #endif

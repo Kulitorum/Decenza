@@ -13,6 +13,14 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets Qt's QNetworkInformation report real reachability instead of
+         "Unknown". Without this, QtAndroidNetworkInformation.registerReceiver()
+         throws a SecurityException at every cold start (issue #1124) and any
+         reachability-driven code (Visualizer retry, ShotServer wifi-loss
+         handling, UpdateChecker reconnect retry) sees stale state forever.
+         Normal protection level — granted at install time, no runtime
+         prompt. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Allows us to hold a WifiManager.MulticastLock so incoming UDP broadcast
          discovery datagrams aren't filtered by the OS on Wi-Fi. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
