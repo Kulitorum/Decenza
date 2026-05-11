@@ -44,6 +44,13 @@ ApplicationWindow {
     property string returnToPageName: ""
     property int returnToShotId: 0
 
+    // Set true when the user explicitly taps back during an active flush.
+    // Consumed by the Idle/Ready phase handler to suppress the 1.5s "Flush Complete"
+    // overlay — the user already chose to leave, so the overlay would just delay them.
+    // Cleared on the next Idle/Ready transition while flushPage is current, so it
+    // cannot leak into a later unrelated operation's completion overlay.
+    property bool userExitedFlush: false
+
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
 
     // Global accessibility: find closest Text within radius of tap
@@ -2628,7 +2635,16 @@ ApplicationWindow {
                 } else if (currentPage === "hotWaterPage") {
                     showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
-                    showCompletion(trFlushComplete.text, "flush")
+                    // Suppress the completion overlay when the user explicitly tapped
+                    // back to leave the flush — they don't need a 1.5s "Flush Complete"
+                    // toast on the way out. Consume the flag here so a later, unrelated
+                    // operation's completion is unaffected.
+                    if (root.userExitedFlush) {
+                        console.log("Phase Idle/Ready: flush exited by user, skipping completion overlay")
+                        root.userExitedFlush = false
+                    } else {
+                        showCompletion(trFlushComplete.text, "flush")
+                    }
                 } else {
                     console.log("Phase Idle/Ready: NOT on operation page, no completion shown")
                 }

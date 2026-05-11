@@ -589,12 +589,19 @@ Page {
         }
     }
 
-    // Bottom bar
+    // Bottom bar — visible in both settings and active-flush views so the back
+    // arrow is always reachable. During an active flush the duration/flow chips
+    // are hidden (the live timer above already shows the relevant state), and
+    // back stops the flush + suppresses the completion overlay.
     BottomBar {
-        visible: !isFlushing
         title: getCurrentPresetName() || pageTitle
         onBackClicked: {
-            MainController.applyFlushSettings()
+            if (isFlushing) {
+                root.userExitedFlush = true
+                DE1Device.stopOperation()
+            } else {
+                MainController.applyFlushSettings()
+            }
             // Handle both pushed (user nav) and replaced (auto nav) cases
             if (pageStack.depth > 1) {
                 root.goBack()
@@ -604,12 +611,17 @@ Page {
         }
 
         Text {
+            visible: !isFlushing
             text: secondsInput.value.toFixed(1) + "s"
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
+        Rectangle {
+            visible: !isFlushing
+            width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3
+        }
         Text {
+            visible: !isFlushing
             text: flowInput.value.toFixed(1) + " mL/s"
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
