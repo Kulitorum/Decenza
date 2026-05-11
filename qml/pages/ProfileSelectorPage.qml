@@ -117,6 +117,9 @@ Page {
                             Layout.preferredWidth: Theme.scaled(86)
                             Layout.preferredHeight: Theme.scaled(22)
                             Layout.alignment: Qt.AlignVCenter
+                            // Match the strip's label text size so the inline
+                            // value doesn't dominate visually.
+                            valueFontPixelSize: Theme.scaled(10)
                             value: Settings.app.autoLoadRevertMinutes
                             from: 0
                             to: 60

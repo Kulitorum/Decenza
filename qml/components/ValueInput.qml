@@ -31,6 +31,12 @@ Item {
         return useBaseScale ? Theme.scaledBase(value) : Theme.scaled(value)
     }
 
+    // Font size for the inline value text and +/- glyphs. Defaults to sc(16) to
+    // preserve previous appearance; compact callers (e.g. status strips) can
+    // lower it so the inline value matches surrounding label text. Only affects
+    // the inline display — the full-screen popup keeps its own larger sizes.
+    property int valueFontPixelSize: sc(16)
+
     // Signals
     //
     // valueModified fires on every adjustment step — every +/- click, every
@@ -132,7 +138,7 @@ Item {
     // Measure the text width for auto-sizing
     TextMetrics {
         id: textMetrics
-        font.pixelSize: sc(16)
+        font.pixelSize: root.valueFontPixelSize
         font.bold: true
         text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
     }
@@ -178,7 +184,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: "\u2212"
-                    font.pixelSize: sc(16)
+                    font.pixelSize: root.valueFontPixelSize
                     font.bold: true
                     color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
                     Accessible.ignored: true
@@ -223,7 +229,7 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                    font.pixelSize: sc(16)
+                    font.pixelSize: root.valueFontPixelSize
                     font.bold: true
                     color: root.valueColor
                     elide: Text.ElideRight
@@ -492,7 +498,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: "+"
-                    font.pixelSize: sc(16)
+                    font.pixelSize: root.valueFontPixelSize
                     font.bold: true
                     color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
                     Accessible.ignored: true
