@@ -202,8 +202,8 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onSpacePressed:  { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onReturnPressed: { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onSpacePressed:  { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
                 Keys.onTabPressed: {
                     if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -229,6 +229,7 @@ Page {
                     accessibleName: TranslationManager.translate("flush.accessible.stopFlushing", "Stop flushing")
                     accessibleItem: flushStopButton
                     onAccessibleClicked: {
+                        root.userExitedFlush = true
                         DE1Device.stopOperation()
                         root.goToIdle()
                     }
@@ -589,12 +590,17 @@ Page {
         }
     }
 
-    // Bottom bar
+    // Always visible: back stays reachable during active flush. Chips collapse
+    // during flush (live timer above shows state); back stops + suppresses overlay.
     BottomBar {
-        visible: !isFlushing
         title: getCurrentPresetName() || pageTitle
         onBackClicked: {
-            MainController.applyFlushSettings()
+            if (isFlushing) {
+                root.userExitedFlush = true
+                DE1Device.stopOperation()
+            } else {
+                MainController.applyFlushSettings()
+            }
             // Handle both pushed (user nav) and replaced (auto nav) cases
             if (pageStack.depth > 1) {
                 root.goBack()
@@ -604,15 +610,22 @@ Page {
         }
 
         Text {
+            visible: !isFlushing
             text: secondsInput.value.toFixed(1) + "s"
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
+        Rectangle {
+            visible: !isFlushing
+            width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3
+        }
         Text {
+            visible: !isFlushing
             text: flowInput.value.toFixed(1) + " mL/s"
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
     }
 

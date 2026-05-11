@@ -44,6 +44,11 @@ ApplicationWindow {
     property string returnToPageName: ""
     property int returnToShotId: 0
 
+    // Set by FlushPage's back-arrow / STOP handlers to suppress the 1.5s "Flush
+    // Complete" overlay when the user explicitly chose to leave. Single-shot:
+    // cleared on the next Idle/Ready transition regardless of current page.
+    property bool userExitedFlush: false
+
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
 
     // Global accessibility: find closest Text within radius of tap
@@ -2619,8 +2624,9 @@ ApplicationWindow {
                     goToScreensaver()
                 }
             } else if (phase === MachineStateType.Phase.Idle || phase === MachineStateType.Phase.Ready) {
-                // DE1 went to idle - if we're on an operation page, show completion
-                // Note: Don't check pageStack.busy here - completion must always be handled
+                // DE1 went to idle - if we're on an operation page, show completion.
+                // Don't check pageStack.busy: completion must be handled, except when
+                // the user explicitly exited a flush (userExitedFlush below).
                 console.log("Phase Idle/Ready: currentPage=" + currentPage + " completionOverlay.opacity=" + completionOverlay.opacity)
 
                 if (currentPage === "steamPage") {
@@ -2628,10 +2634,20 @@ ApplicationWindow {
                 } else if (currentPage === "hotWaterPage") {
                     showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
-                    showCompletion(trFlushComplete.text, "flush")
+                    if (root.userExitedFlush) {
+                        console.log("Phase Idle/Ready: flush exited by user, skipping completion overlay")
+                    } else {
+                        showCompletion(trFlushComplete.text, "flush")
+                    }
                 } else {
                     console.log("Phase Idle/Ready: NOT on operation page, no completion shown")
                 }
+
+                // Always clear the flag, even when currentPage is no longer flushPage
+                // (synchronous back-handler navigation typically changes the page
+                // before this async phase signal arrives). Without this, the flag
+                // would strand and suppress a later legitimate flush completion.
+                root.userExitedFlush = false
             }
         }
     }
