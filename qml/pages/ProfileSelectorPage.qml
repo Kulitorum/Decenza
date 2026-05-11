@@ -943,17 +943,6 @@ Page {
                     deleteDialog.open()
                 }
             }
-
-            // Cancel — dismisses without action. Gives keyboard/SR users a clear
-            // out without relying on Esc / outside-tap.
-            AccessibleButton {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(40)
-                Layout.topMargin: Theme.scaled(4)
-                text: TranslationManager.translate("profileselector.button.cancel", "Cancel")
-                accessibleName: TranslationManager.translate("profileselector.accessible.cancel_actions", "Cancel and close")
-                onClicked: profileActionsDialog.close()
-            }
         }
     }
 
