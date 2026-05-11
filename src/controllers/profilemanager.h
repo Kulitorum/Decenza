@@ -127,6 +127,8 @@ public:
     Q_INVOKABLE QString titleToFilename(const QString& title) const;
     Q_INVOKABLE QString findProfileByTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
+    Q_INVOKABLE bool isProfileInSelectedList(const QString& filename) const;
+    Q_INVOKABLE void loadAutoLoadProfileIfNeeded();
     Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
@@ -201,6 +203,11 @@ signals:
     // frames; the UI should surface a toast/warning. Mirrors the
     // MainController::shotAbortedNoScale pattern.
     void shotAbortedProfileUploadRetrying();
+
+    // Emitted when loadAutoLoadProfileIfNeeded() finds the configured filename
+    // no longer resolves to a Selected-list profile. The setting is cleared as
+    // part of the same call; QML listens to surface a toast.
+    void autoLoadStaleCleared();
 
 private:
     void loadDefaultProfile();

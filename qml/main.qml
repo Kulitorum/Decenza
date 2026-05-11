@@ -398,6 +398,81 @@ ApplicationWindow {
                 console.log("[AutoSleep] Both counters expired — triggering sleep")
                 triggerAutoSleep()
             }
+
+            // Auto-load idle-revert tick: piggybacks on this minute timer so we
+            // don't add a second QTimer. Only fires on the Idle page; pauses
+            // during operations (the timer above is already gated on
+            // !operationActive, so we're free to decrement here).
+            if (root.autoLoadIdleCountdown > 0) {
+                root.autoLoadIdleCountdown--
+                if (root.autoLoadIdleCountdown <= 0) {
+                    var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+                    if (pageName === "idlePage") {
+                        console.log("[AutoLoad] Idle countdown expired — invoking auto-load")
+                        ProfileManager.loadAutoLoadProfileIfNeeded()
+                    }
+                    root.autoLoadIdleCountdown = root.autoLoadCountdownReload()
+                }
+            }
+        }
+    }
+
+    // Auto-load countdown (minutes remaining on the Idle page before reverting
+    // to the pinned profile). -1 means "not running" — either the feature is
+    // off, no profile is pinned, the revert-minutes is 0, or we're not on the
+    // Idle page.
+    property int autoLoadIdleCountdown: -1
+
+    function autoLoadCountdownReload() {
+        var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+        if (Settings.app.autoLoadRevertMinutes <= 0
+            || Settings.app.autoLoadProfileFilename === ""
+            || pageName !== "idlePage") {
+            return -1
+        }
+        return Settings.app.autoLoadRevertMinutes
+    }
+
+    function autoLoadResetCountdown() {
+        root.autoLoadIdleCountdown = autoLoadCountdownReload()
+    }
+
+    Connections {
+        target: Settings.app
+        function onAutoLoadProfileFilenameChanged() { root.autoLoadResetCountdown() }
+        function onAutoLoadRevertMinutesChanged() { root.autoLoadResetCountdown() }
+    }
+
+    // Trigger: DE1 wake from Sleep → Idle. Tracks previous state in QML since
+    // DE1Device does not expose it. State values come from DE1::State (see
+    // src/ble/protocol/de1characteristics.h): Sleep = 0x00, Idle = 0x02.
+    property int autoLoadPreviousDe1State: -1
+    readonly property int de1StateSleep: 0x00
+    readonly property int de1StateIdle: 0x02
+    Connections {
+        target: DE1Device
+        function onStateChanged() {
+            var prev = root.autoLoadPreviousDe1State
+            var curr = DE1Device.state
+            root.autoLoadPreviousDe1State = curr
+            if (prev === root.de1StateSleep && curr === root.de1StateIdle) {
+                console.log("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
+                ProfileManager.loadAutoLoadProfileIfNeeded()
+            }
+        }
+    }
+
+    // Trigger: stale-target toast surface — ProfileManager clears the setting
+    // and emits this signal when the pinned filename is no longer in the
+    // Selected list.
+    Connections {
+        target: ProfileManager
+        function onAutoLoadStaleCleared() {
+            autoLoadStaleToast.opacity = 1
+            autoLoadStaleToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trAutoLoadStaleToast.text, true)
+            }
         }
     }
 
@@ -409,6 +484,8 @@ ApplicationWindow {
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 console.log("[AutoSleep] Reset by phase change: normal=" + root.sleepCountdownNormal)
             }
+            // Phase change is also user activity for the auto-load countdown
+            root.autoLoadResetCountdown()
         }
     }
 
@@ -711,6 +788,14 @@ ApplicationWindow {
 
         // startupGracePeriod is cleared by the phaseChanged handler when the
         // machine first reaches a non-Sleep state (no timer needed)
+
+        // Trigger: app startup — invoke auto-load once after ProfileManager
+        // and Settings are ready. Q-callLater defers past initialItem mount
+        // so the load sees the fully-initialised profile catalog.
+        Qt.callLater(function() {
+            ProfileManager.loadAutoLoadProfileIfNeeded()
+            root.autoLoadResetCountdown()
+        })
     }
 
     function updateScale() {
@@ -1030,6 +1115,8 @@ ApplicationWindow {
             updateCurrentPageScale()
             announceCurrentPage()
             pageColorTimer.restart()  // Detect colors after page settles
+            // Reset the auto-load countdown: clears off-Idle, full value back on Idle
+            root.autoLoadResetCountdown()
         }
     }
 
@@ -2909,6 +2996,9 @@ ApplicationWindow {
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 if (prev <= 5) console.log("[AutoSleep] Reset by touch: " + prev + " -> " + root.sleepCountdownNormal)
             }
+            // Touch also resets the auto-load countdown so reading on the
+            // Idle page doesn't silently swap the active profile.
+            root.autoLoadResetCountdown()
             mouse.accepted = false  // Let the touch through
         }
         onReleased: function(mouse) { mouse.accepted = false }
@@ -3331,6 +3421,46 @@ ApplicationWindow {
         id: discardedShotToastTimer
         interval: 4000
         onTriggered: discardedShotToast.opacity = 0
+    }
+
+    // ============ AUTO-LOAD STALE TOAST ============
+    // Shown when ProfileManager.loadAutoLoadProfileIfNeeded() finds the pinned
+    // filename no longer resolves to a Selected-list profile (deleted, hidden,
+    // or imported from another device). Setting is cleared automatically.
+    Tr { id: trAutoLoadStaleToast; key: "profileselector.toast.auto_load_stale"; fallback: "Auto-load profile is no longer available"; visible: false }
+
+    Rectangle {
+        id: autoLoadStaleToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: autoLoadStaleToastLabel.implicitWidth + Theme.scaled(32)
+        height: autoLoadStaleToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: autoLoadStaleToastLabel
+            anchors.centerIn: parent
+            text: trAutoLoadStaleToast.text
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: autoLoadStaleToastTimer
+        interval: 4000
+        onTriggered: autoLoadStaleToast.opacity = 0
     }
 
     Connections {

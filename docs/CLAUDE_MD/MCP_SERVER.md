@@ -86,7 +86,7 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context |
 | `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale |
 | `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme |
 
@@ -189,6 +189,9 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `profiles_save` | Save the current (modified) profile to disk. Without this, edits are active on the machine but lost if another profile is loaded. Optionally provide filename + title for Save As. | settings |
 | `profiles_delete` | Delete a user/downloaded profile. For built-in profiles, removes local overrides and reverts to the original built-in version. | settings |
 | `profiles_create` | Create a new blank profile with a given editor type (dflow, aflow, pressure, flow, advanced) and title. Uses the same creation functions as the QML UI. | settings |
+| `profiles_get_auto_load` | Get the configured auto-load profile filename, title, and revert-minutes. Returns `filename: ""` and the current `revertMinutes` when no auto-load is set. | read |
+| `profiles_set_auto_load` | Pin a profile as the auto-load target (reloads on app start, DE1 wake, and after N idle minutes on the Idle page). Validates filename existence + Selected-list membership. Accepts optional `revertMinutes` (0..60). | settings |
+| `profiles_clear_auto_load` | Disable auto-load by clearing the pinned filename. Preserves the configured `revertMinutes`. | settings |
 
 ### Settings
 | Tool | Description | Category |

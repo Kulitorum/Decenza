@@ -13,7 +13,8 @@ using namespace DE1::Characteristic;
 // Forward declaration — implemented in mcptools_profiles.cpp
 class ProfileManager;
 class McpToolRegistry;
-void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
+class Settings;
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings);
 
 // Test MCP profile tools against ProfileManager + MockTransport.
 // Critical regression: profiles_edit_params must trigger BLE upload (PR #561).
@@ -128,7 +129,7 @@ private slots:
     void profilesListReturnsArray()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
 
         QJsonObject result = f.callTool("profiles_list", {});
         QVERIFY(result.contains("profiles"));
@@ -141,7 +142,7 @@ private slots:
     void profilesGetActiveReturnsFilename()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
         loadDFlowProfile(f);
 
         QJsonObject result = f.callTool("profiles_get_active", {});
@@ -156,7 +157,7 @@ private slots:
     void profilesGetParamsReturnsDFlowFields()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
         loadDFlowProfile(f);
 
         QJsonObject result = f.callTool("profiles_get_params", {});
@@ -169,7 +170,7 @@ private slots:
     void profilesGetParamsReturnsAdvancedFields()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
         loadAdvancedProfile(f);
 
         QJsonObject result = f.callTool("profiles_get_params", {});
@@ -184,7 +185,7 @@ private slots:
         // The critical test: editing recipe params must write frames to BLE.
         // PR #561 was a regression where this path silently stopped uploading.
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
         loadDFlowProfile(f);
         f.transport.clearWrites();
 
@@ -206,7 +207,7 @@ private slots:
     void editParamsAdvancedTriggersBleUpload()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
         loadAdvancedProfile(f);
         f.transport.clearWrites();
 
@@ -224,7 +225,7 @@ private slots:
     void editParamsUpdatesProfileState()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
         loadDFlowProfile(f);
 
         QJsonObject args;
@@ -241,7 +242,7 @@ private slots:
     void profilesGetDetailRequiresFilename()
     {
         McpTestFixture f;
-        registerProfileTools(&f.registry, &f.profileManager);
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
 
         QJsonObject result = f.callTool("profiles_get_detail", {{"filename", ""}});
         QVERIFY(result.contains("error"));

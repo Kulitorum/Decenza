@@ -364,7 +364,16 @@ Page {
     // Settings search dialog
     SettingsSearchDialog {
         id: settingsSearchDialog
-        onResultSelected: function(tabId, cardId) {
+        onResultSelected: function(tabId, cardId, externalRoute) {
+            if (externalRoute) {
+                // External destination (e.g., ProfileSelectorPage) — replace
+                // the settings page rather than push so the user gets a clean
+                // back-stack from the search.
+                if (externalRoute === "profileSelector") {
+                    root.goToProfileSelector()
+                }
+                return
+            }
             var tabIndex = SettingsTabs.indexOf(tabId)
             if (tabIndex < 0) return
             settingsPage.highlightCardId = cardId || ""

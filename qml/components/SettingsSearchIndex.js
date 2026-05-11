@@ -95,6 +95,13 @@ function getSearchEntries(tr) {
           description: tr("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing."),
           keywords: ["pocket", "remote", "pair", "control", "screen"] },
 
+        // External: Auto-Load Profile lives on ProfileSelectorPage (not a
+        // settings tab). When chosen, the dialog navigates there.
+        { externalRoute: "profileSelector",
+          title: tr("settings.search.autoLoadProfileTitle", "Auto-Load Profile"),
+          description: tr("settings.search.autoLoadProfileDesc", "Pin a profile to auto-load on app start, wake, or after idle"),
+          keywords: ["auto-load", "auto load", "automatic profile", "pin", "default", "revert", "home"] },
+
         // Calibration
         { tabId: "calibration", cardId: "flowCalibration",
           title: tr("settings.preferences.flowCalibration", "Flow Calibration"),

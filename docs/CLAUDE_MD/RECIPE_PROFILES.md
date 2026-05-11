@@ -565,6 +565,27 @@ Decenza and de1app share the same JSON profile format. The writer (`toJson()`) o
 - **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
 - **Profile import test**: Run `ctest -R tst_tclimport` (requires `-DBUILD_TESTS=ON`). The `compareWithBuiltin` test loads all TCL files from `tests/data/de1app_profiles/` through the C++ parser and verifies they match their built-in JSON counterparts field-by-field.
 
+## Auto-Load
+
+Decenza can pin a single profile to be reloaded automatically on three triggers:
+
+1. **App startup** — fires once after `ProfileManager` is initialised.
+2. **DE1 wake from sleep** — `DE1Device.state` transitions `Sleep → Idle`.
+3. **N-minute idle on the Idle page** — controlled by `Settings.app.autoLoadRevertMinutes` (0 disables this trigger only; startup + wake still fire). Touch input, phase changes, and navigating off the Idle page all reset the countdown.
+
+State lives on two `SettingsApp` properties:
+- `autoLoadProfileFilename` (default `""`) — empty = feature off.
+- `autoLoadRevertMinutes` (default `5`, clamped 0..60) — preserved across enable/disable cycles.
+
+**Eligibility**: only profiles currently in the Selected list (`selectedBuiltInProfiles` ∪ user profiles not in `hiddenProfiles`) can be the auto-load. If the pinned profile is deleted, hidden, or de-selected, the setting is cleared eagerly (in `SettingsApp::addHiddenProfile` / `removeSelectedBuiltInProfile` / `ProfileManager::deleteProfile`) and at trigger time (`ProfileManager::loadAutoLoadProfileIfNeeded()`), with `autoLoadStaleCleared` emitted so the UI can toast.
+
+**UI** lives entirely on `ProfileSelectorPage`:
+- A pin icon on the auto-load row (next to the title, beside the AI-knowledge sparkle).
+- A contextual overflow MenuItem labelled `Set Auto-Load` / `Disable Auto-Load`, visible only when the row is in the Selected list.
+- A status strip above the view filter showing the pinned title, the revert-minutes `ValueInput` (0 renders as "Never"), and a clear button. The strip is the only place `autoLoadRevertMinutes` can be tuned.
+
+**MCP**: three tools — `profiles_get_auto_load` (read), `profiles_set_auto_load` (settings), `profiles_clear_auto_load` (settings). See `docs/CLAUDE_MD/MCP_SERVER.md`.
+
 ## References
 
 - [D-Flow GitHub Repository](https://github.com/Damian-AU/D_Flow_Espresso_Profile)

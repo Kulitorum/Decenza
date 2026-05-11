@@ -30,6 +30,8 @@ class SettingsApp : public QObject {
     Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged)
     Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged)
     Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged)
+    Q_PROPERTY(QString autoLoadProfileFilename READ autoLoadProfileFilename WRITE setAutoLoadProfileFilename NOTIFY autoLoadProfileFilenameChanged)
+    Q_PROPERTY(int autoLoadRevertMinutes READ autoLoadRevertMinutes WRITE setAutoLoadRevertMinutes NOTIFY autoLoadRevertMinutesChanged)
 
     // Auto-update
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
@@ -103,6 +105,12 @@ public:
     QString currentProfile() const;
     void setCurrentProfile(const QString& profile);
 
+    // Auto-load profile
+    QString autoLoadProfileFilename() const;
+    void setAutoLoadProfileFilename(const QString& filename);
+    int autoLoadRevertMinutes() const;
+    void setAutoLoadRevertMinutes(int minutes);
+
     // Auto-update
     bool autoCheckUpdates() const;
     void setAutoCheckUpdates(bool enabled);
@@ -151,6 +159,8 @@ signals:
     void selectedBuiltInProfilesChanged();
     void hiddenProfilesChanged();
     void currentProfileChanged();
+    void autoLoadProfileFilenameChanged();
+    void autoLoadRevertMinutesChanged();
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
     void lastKnownApkSizeBytesChanged();

@@ -2,10 +2,14 @@
 #include <QSignalSpy>
 
 #include "core/settings.h"
+#include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
+#include "core/settingsserializer.h"
+#include <QJsonObject>
+#include <QRegularExpression>
 
 // Test Settings property round-trip and signal emission.
 // Settings uses QSettings("DecentEspresso", "DE1Qt") which reads/writes to
@@ -26,6 +30,8 @@ private:
     int m_origShotRating;
     bool m_origIgnoreVolume;
     QString m_origDyeBeanBrand;
+    QString m_origAutoLoadFilename;
+    int m_origAutoLoadRevertMinutes;
 
 private slots:
 
@@ -38,6 +44,8 @@ private slots:
         m_origShotRating = m_settings.visualizer()->defaultShotRating();
         m_origIgnoreVolume = m_settings.brew()->ignoreVolumeWithScale();
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
+        m_origAutoLoadFilename = m_settings.app()->autoLoadProfileFilename();
+        m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
     }
 
     void cleanup() {
@@ -49,6 +57,8 @@ private slots:
         m_settings.visualizer()->setDefaultShotRating(m_origShotRating);
         m_settings.brew()->setIgnoreVolumeWithScale(m_origIgnoreVolume);
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
+        m_settings.app()->setAutoLoadProfileFilename(m_origAutoLoadFilename);
+        m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
     }
 
     // ==========================================
@@ -216,6 +226,59 @@ private slots:
 
         m_settings.brew()->setWaterVolumeMode(origMode);
         m_settings.brew()->setWaterVolume(origVol);
+    }
+
+    // ==========================================
+    // Auto-load profile settings
+    // ==========================================
+
+    void autoLoadFilenameRoundTrip() {
+        m_settings.app()->setAutoLoadProfileFilename("");  // baseline
+        QSignalSpy spy(m_settings.app(), &SettingsApp::autoLoadProfileFilenameChanged);
+        m_settings.app()->setAutoLoadProfileFilename("my-profile");
+        QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("my-profile"));
+        QCOMPARE(spy.count(), 1);
+        // Setting the same value again is a no-op (no second signal).
+        m_settings.app()->setAutoLoadProfileFilename("my-profile");
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void autoLoadRevertMinutesRoundTrip() {
+        m_settings.app()->setAutoLoadRevertMinutes(5);
+        QSignalSpy spy(m_settings.app(), &SettingsApp::autoLoadRevertMinutesChanged);
+        m_settings.app()->setAutoLoadRevertMinutes(12);
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 12);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void autoLoadRevertMinutesClamped() {
+        m_settings.app()->setAutoLoadRevertMinutes(-5);
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 0);
+        m_settings.app()->setAutoLoadRevertMinutes(200);
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 60);
+        m_settings.app()->setAutoLoadRevertMinutes(30);
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 30);
+    }
+
+    void autoLoadBundleRoundTrip() {
+        m_settings.app()->setAutoLoadProfileFilename("preferred-profile");
+        m_settings.app()->setAutoLoadRevertMinutes(17);
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        // Mutate to confirm import overwrites
+        m_settings.app()->setAutoLoadProfileFilename("other-profile");
+        m_settings.app()->setAutoLoadRevertMinutes(2);
+
+        // importFromJson emits a qWarning when it replaces the favorites array,
+        // even with 0 → 0 favorites. Suppress that one expected message so the
+        // test doesn't fall foul of the "no warnings in tests" rule.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+        QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("preferred-profile"));
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 17);
     }
 };
 

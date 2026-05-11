@@ -27,7 +27,7 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                           ProfileManager* profileManager);
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
 class ProfileManager;
-void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager);
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings);
 class AccessibilityManager;
 class ScreensaverVideoManager;
 class TranslationManager;
@@ -148,7 +148,7 @@ void McpServer::registerAllTools()
 {
     registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController, m_profileManager);
     registerShotTools(m_toolRegistry, m_shotHistory);
-    registerProfileTools(m_toolRegistry, m_profileManager);
+    registerProfileTools(m_toolRegistry, m_profileManager, m_settings);
     registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
                               m_screensaverManager, m_translationManager, m_batteryManager);
     registerDialingTools(m_toolRegistry, m_mainController, m_profileManager, m_shotHistory, m_settings);

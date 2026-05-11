@@ -171,6 +171,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         hiddenProfiles.append(s);
     }
     profile["hiddenProfiles"] = hiddenProfiles;
+    profile["autoLoadFilename"] = settings->app()->autoLoadProfileFilename();
+    profile["autoLoadRevertMinutes"] = settings->app()->autoLoadRevertMinutes();
     root["profile"] = profile;
 
     // Shot history settings
@@ -571,6 +573,13 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 hidden.append(v.toString());
             }
             settings->app()->setHiddenProfiles(hidden);
+        }
+
+        if (profile.contains("autoLoadFilename")) {
+            settings->app()->setAutoLoadProfileFilename(profile["autoLoadFilename"].toString());
+        }
+        if (profile.contains("autoLoadRevertMinutes")) {
+            settings->app()->setAutoLoadRevertMinutes(profile["autoLoadRevertMinutes"].toInt());
         }
     }
 

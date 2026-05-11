@@ -155,6 +155,7 @@ add_decenza_test(tst_recipeparams
 add_decenza_test(tst_settings
     tst_settings.cpp
     ${CORE_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp
 )
 
 # --- tst_saw_settings: per-(profile, scale) SAW learning + batch + bootstrap ---

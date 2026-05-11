@@ -32,6 +32,127 @@ Page {
                 anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
+                // ===== Auto-Load status strip =====
+                // Visible only when an auto-load profile is configured AND it
+                // resolves to a Selected-list profile. Stale entries are
+                // cleared at trigger time by ProfileManager (or eagerly by
+                // hide/de-select/delete), so the visible-condition below is
+                // the steady-state truth.
+                Rectangle {
+                    id: autoLoadStrip
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: autoLoadStripRow.implicitHeight + Theme.scaled(16)
+                    color: Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: 1
+                    radius: Theme.cardRadius
+
+                    visible: Settings.app.autoLoadProfileFilename !== ""
+                             && ProfileManager.isProfileInSelectedList(Settings.app.autoLoadProfileFilename)
+
+                    readonly property var autoLoadProfile: visible
+                        ? ProfileManager.getProfileByFilename(Settings.app.autoLoadProfileFilename)
+                        : ({})
+                    readonly property string autoLoadTitle: autoLoadProfile && autoLoadProfile.title
+                                                            ? autoLoadProfile.title
+                                                            : Settings.app.autoLoadProfileFilename
+
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: TranslationManager.translate("profileselector.strip.auto_load_label", "Auto-load:") + " " + autoLoadStrip.autoLoadTitle
+
+                    RowLayout {
+                        id: autoLoadStripRow
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.scaled(12)
+                        anchors.rightMargin: Theme.scaled(8)
+                        spacing: Theme.scaled(8)
+
+                        Image {
+                            id: autoLoadStripPin
+                            source: "qrc:/icons/pin.svg"
+                            sourceSize.width: Theme.scaled(16)
+                            sourceSize.height: Theme.scaled(16)
+                            Layout.alignment: Qt.AlignVCenter
+                            Accessible.ignored: true
+
+                            layer.enabled: true
+                            layer.smooth: true
+                            layer.effect: MultiEffect {
+                                colorization: 1.0
+                                colorizationColor: Theme.primaryColor
+                            }
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("profileselector.strip.auto_load_label", "Auto-load:")
+                            color: Theme.textSecondaryColor
+                            font: Theme.bodyFont
+                            Layout.alignment: Qt.AlignVCenter
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            text: autoLoadStrip.autoLoadTitle
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
+                            color: Theme.textSecondaryColor
+                            font: Theme.bodyFont
+                            Layout.alignment: Qt.AlignVCenter
+                            Accessible.ignored: true
+                        }
+
+                        ValueInput {
+                            id: autoLoadRevertInput
+                            Layout.preferredWidth: Theme.scaled(120)
+                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.alignment: Qt.AlignVCenter
+                            value: Settings.app.autoLoadRevertMinutes
+                            from: 0
+                            to: 60
+                            stepSize: 1
+                            suffix: TranslationManager.translate("profileselector.strip.minutes_short", "min")
+                            displayText: value === 0
+                                ? TranslationManager.translate("profileselector.strip.never", "Never")
+                                : value + " " + TranslationManager.translate("profileselector.strip.minutes_short", "min")
+                            accessibleName: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
+
+                            onValueCommitted: function(newValue) {
+                                Settings.app.setAutoLoadRevertMinutes(newValue)
+                            }
+                        }
+
+                        AccessibleButton {
+                            id: autoLoadClearButton
+                            text: "×"
+                            Layout.preferredWidth: Theme.scaled(36)
+                            Layout.preferredHeight: Theme.scaled(36)
+                            Layout.alignment: Qt.AlignVCenter
+                            accessibleName: TranslationManager.translate("profileselector.strip.clear_aria", "Disable auto-load")
+                            contentItem: Text {
+                                text: "×"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(20)
+                                font.bold: true
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                Accessible.ignored: true
+                            }
+                            onClicked: {
+                                Settings.app.setAutoLoadProfileFilename("")
+                                profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.auto_load_disabled", "Auto-load disabled"))
+                            }
+                        }
+                    }
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
@@ -232,6 +353,7 @@ Page {
                             return Settings.app.isFavoriteProfile(modelData.name)
                         }
                         property bool isCurrentProfile: modelData.name === ProfileManager.currentProfileName
+                        readonly property bool isAutoLoad: modelData && modelData.name === Settings.app.autoLoadProfileFilename && Settings.app.autoLoadProfileFilename !== ""
 
                         // Source-based colors
                         property color sourceColor: isBuiltIn ? Theme.sourceBadgeBlueColor :      // Blue for Decent
@@ -291,6 +413,25 @@ Page {
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
                                     Accessible.ignored: true
+                                }
+
+                                Image {
+                                    id: autoLoadPinIcon
+                                    visible: profileDelegate.isAutoLoad
+                                    source: "qrc:/icons/pin.svg"
+                                    sourceSize.width: Theme.scaled(14)
+                                    sourceSize.height: Theme.scaled(14)
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Accessible.role: Accessible.Indicator
+                                    Accessible.name: TranslationManager.translate("profileselector.accessible.auto_load_profile", "Auto-load profile")
+                                    Accessible.ignored: !visible
+
+                                    layer.enabled: true
+                                    layer.smooth: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Theme.primaryColor
+                                    }
                                 }
 
                                 Image {
@@ -518,6 +659,62 @@ Page {
                                 Accessible.name: TranslationManager.translate("profileselector.accessible.copy_profile", "Copy profile")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: { copyProfileDialog.sourceFilename = modelData.name; copyProfileDialog.sourceTitle = modelData.title; copyProfileDialog.open() }
+                            }
+
+                            // === Set / Disable Auto-Load ===
+                            // Visible only when the row's profile is in the Selected list
+                            // (Selected view, or row.isSelected when browsing other views).
+                            MenuItem {
+                                id: autoLoadMenuItem
+                                visible: viewFilter.currentIndex === 0 || profileDelegate.isSelected
+
+                                onTriggered: {
+                                    if (profileDelegate.isAutoLoad) {
+                                        Settings.app.setAutoLoadProfileFilename("")
+                                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.auto_load_disabled", "Auto-load disabled"))
+                                    } else {
+                                        Settings.app.setAutoLoadProfileFilename(modelData.name)
+                                        profileSelectorPage.showToast(
+                                            TranslationManager.translate("profileselector.toast.auto_load_set", "Auto-load set to %1").arg(modelData.title))
+                                    }
+                                }
+
+                                contentItem: Row {
+                                    spacing: Theme.scaled(8)
+                                    leftPadding: Theme.scaled(8)
+                                    Image {
+                                        source: "qrc:/icons/pin.svg"
+                                        sourceSize.width: Theme.scaled(16)
+                                        sourceSize.height: Theme.scaled(16)
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: true
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.textColor
+                                        }
+                                    }
+                                    Text {
+                                        text: profileDelegate.isAutoLoad
+                                              ? TranslationManager.translate("profileselector.menu.disable_auto_load", "Disable Auto-Load")
+                                              : TranslationManager.translate("profileselector.menu.set_auto_load", "Set Auto-Load")
+                                        color: Theme.textColor
+                                        font: Theme.bodyFont
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Accessible.ignored: true
+                                    }
+                                }
+                                background: Rectangle {
+                                    color: parent.highlighted ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                                }
+
+                                Accessible.role: Accessible.MenuItem
+                                Accessible.name: profileDelegate.isAutoLoad
+                                                 ? TranslationManager.translate("profileselector.accessible.disable_auto_load", "Disable auto-load")
+                                                 : TranslationManager.translate("profileselector.accessible.set_auto_load", "Set as auto-load profile")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: autoLoadMenuItem.triggered()
                             }
 
                             MenuSeparator {

@@ -1157,4 +1157,82 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         },
         "settings");
 
+    // profiles_set_auto_load — pin a profile as the auto-load target. Validated
+    // synchronously (filename non-empty, profile exists, profile is in the
+    // Selected list); the actual settings write hops to the GUI thread.
+    registry->registerAsyncTool(
+        "profiles_set_auto_load",
+        "Pin a profile as the auto-load target. The pinned profile is reloaded "
+        "on app start, DE1 wake-from-sleep, and after `revertMinutes` of "
+        "inactivity on the Idle page. Replaces any prior auto-load. The "
+        "filename must exist and be in the Selected list.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"filename", QJsonObject{{"type", "string"}, {"description", "Profile filename (without .json extension)"}}},
+                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "Optional. Minutes of idle inactivity before reverting. 0..60; 0 disables the inactivity trigger but keeps startup/wake triggers."}}}
+            }},
+            {"required", QJsonArray{"filename"}}
+        },
+        [profileManager, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!settings || !profileManager) {
+                respond(QJsonObject{{"error", "Settings or ProfileManager not available"}});
+                return;
+            }
+            const QString filename = args["filename"].toString();
+            if (filename.isEmpty()) {
+                respond(QJsonObject{{"error", "filename is required"}});
+                return;
+            }
+            if (!profileManager->profileExists(filename)) {
+                respond(QJsonObject{{"error", "Profile not found: " + filename}});
+                return;
+            }
+            if (!profileManager->isProfileInSelectedList(filename)) {
+                respond(QJsonObject{{"error", "Profile is not in the Selected list"}});
+                return;
+            }
+
+            const bool hasRevert = args.contains("revertMinutes");
+            const int revertMinutes = hasRevert ? args["revertMinutes"].toInt() : -1;
+
+            QMetaObject::invokeMethod(qApp, [settings, profileManager, filename, hasRevert, revertMinutes, respond]() {
+                settings->app()->setAutoLoadProfileFilename(filename);
+                if (hasRevert) {
+                    settings->app()->setAutoLoadRevertMinutes(revertMinutes);
+                }
+                QJsonObject result;
+                result["success"] = true;
+                result["filename"] = filename;
+                result["revertMinutes"] = settings->app()->autoLoadRevertMinutes();
+                QVariantMap profile = profileManager->getProfileByFilename(filename);
+                if (!profile.isEmpty()) {
+                    result["title"] = profile["title"].toString();
+                }
+                respond(result);
+            }, Qt::QueuedConnection);
+        },
+        "settings");
+
+    // profiles_clear_auto_load — disable auto-load without modifying the
+    // revert-timeout setting (so enabling auto-load later preserves the
+    // configured value).
+    registry->registerAsyncTool(
+        "profiles_clear_auto_load",
+        "Disable auto-load by clearing the pinned filename. Does not modify "
+        "`revertMinutes` — the configured timeout is preserved across "
+        "enable/disable cycles.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+            if (!settings) {
+                respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+            QMetaObject::invokeMethod(qApp, [settings, respond]() {
+                settings->app()->setAutoLoadProfileFilename("");
+                respond(QJsonObject{{"success", true}});
+            }, Qt::QueuedConnection);
+        },
+        "settings");
+
 }

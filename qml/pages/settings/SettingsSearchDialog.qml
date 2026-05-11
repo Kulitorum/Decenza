@@ -16,7 +16,11 @@ Dialog {
     padding: Theme.scaled(16)
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
-    signal resultSelected(string tabId, string cardId)
+    // `externalRoute` is an optional out-of-settings destination — when set,
+    // `tabId`/`cardId` are ignored and the caller routes by `externalRoute`
+    // (e.g., "profileSelector" navigates to ProfileSelectorPage). Entries
+    // without an `externalRoute` field continue to route by tab/card.
+    signal resultSelected(string tabId, string cardId, string externalRoute)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -168,8 +172,12 @@ Dialog {
                 color: resultMouseArea.containsMouse ? Theme.backgroundColor : "transparent"
                 radius: Theme.scaled(6)
 
+                readonly property string badgeLabel: modelData.externalRoute
+                    ? TranslationManager.translate("settings.search.externalBadge", "Profiles")
+                    : SettingsTabs.tabName(modelData.tabId)
+
                 Accessible.role: Accessible.Button
-                Accessible.name: modelData.title + ", " + SettingsTabs.tabName(modelData.tabId) + " tab"
+                Accessible.name: modelData.title + ", " + resultDelegate.badgeLabel + (modelData.externalRoute ? "" : " tab")
                 Accessible.focusable: true
                 Accessible.onPressAction: resultMouseArea.clicked(null)
 
@@ -214,7 +222,7 @@ Dialog {
                         Text {
                             id: tabBadgeText
                             anchors.centerIn: parent
-                            text: SettingsTabs.tabName(modelData.tabId)
+                            text: resultDelegate.badgeLabel
                             color: Theme.primaryColor
                             font.pixelSize: Theme.scaled(10)
                             font.bold: true
@@ -229,7 +237,7 @@ Dialog {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        searchDialog.resultSelected(modelData.tabId, modelData.cardId || "")
+                        searchDialog.resultSelected(modelData.tabId || "", modelData.cardId || "", modelData.externalRoute || "")
                         searchDialog.close()
                     }
                 }
