@@ -571,18 +571,18 @@ Decenza can pin a single profile to be reloaded automatically on three triggers:
 
 1. **App startup** — fires once after `ProfileManager` is initialised.
 2. **DE1 wake from sleep** — `DE1Device.state` transitions `Sleep → Idle`.
-3. **N-minute idle on the Idle page** — controlled by `Settings.app.autoLoadRevertMinutes` (0 disables this trigger only; startup + wake still fire). Touch input, phase changes, and navigating off the Idle page all reset the countdown.
+3. **N-minute idle on the Idle page** — controlled by `Settings.app.autoLoadRevertMinutes`. Touch input, phase changes, and navigating off the Idle page all reset the countdown.
 
 State lives on two `SettingsApp` properties:
-- `autoLoadProfileFilename` (default `""`) — empty = feature off.
-- `autoLoadRevertMinutes` (default `5`, clamped 0..60) — preserved across enable/disable cycles.
+- `autoLoadProfileFilename` (default `""`) — empty = feature off; the only disable path is clearing this.
+- `autoLoadRevertMinutes` (default `5`, clamped 1..60) — preserved across enable/disable cycles.
 
 **Eligibility**: only profiles currently in the Selected list (`selectedBuiltInProfiles` ∪ user profiles not in `hiddenProfiles`) can be the auto-load. If the pinned profile is deleted, hidden, or de-selected, the setting is cleared eagerly (in `SettingsApp::addHiddenProfile` / `removeSelectedBuiltInProfile` / `ProfileManager::deleteProfile`) and at trigger time (`ProfileManager::loadAutoLoadProfileIfNeeded()`), with `autoLoadStaleCleared` emitted so the UI can toast.
 
 **UI** lives entirely on `ProfileSelectorPage`:
 - A pin icon on the auto-load row (next to the title, beside the AI-knowledge sparkle).
 - A contextual overflow MenuItem labelled `Set Auto-Load` / `Disable Auto-Load`, visible only when the row is in the Selected list.
-- A status strip above the view filter showing the pinned title, the revert-minutes `ValueInput` (0 renders as "Never"), and a clear button. The strip is the only place `autoLoadRevertMinutes` can be tuned.
+- A compact status strip above the view filter showing the pinned title, the revert-minutes `ValueInput` (1..60), and a clear button. The strip is the only place `autoLoadRevertMinutes` can be tuned.
 
 **MCP**: three tools — `profiles_get_auto_load` (read), `profiles_set_auto_load` (settings), `profiles_clear_auto_load` (settings). See `docs/CLAUDE_MD/MCP_SERVER.md`.
 

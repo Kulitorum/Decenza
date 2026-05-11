@@ -41,7 +41,7 @@ Page {
                 Rectangle {
                     id: autoLoadStrip
                     Layout.fillWidth: true
-                    Layout.preferredHeight: autoLoadStripRow.implicitHeight + Theme.scaled(16)
+                    Layout.preferredHeight: Theme.scaled(36)
                     color: Theme.surfaceColor
                     border.color: Theme.borderColor
                     border.width: 1
@@ -63,15 +63,15 @@ Page {
                     RowLayout {
                         id: autoLoadStripRow
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.scaled(12)
-                        anchors.rightMargin: Theme.scaled(8)
-                        spacing: Theme.scaled(8)
+                        anchors.leftMargin: Theme.scaled(10)
+                        anchors.rightMargin: Theme.scaled(4)
+                        spacing: Theme.scaled(6)
 
                         Image {
                             id: autoLoadStripPin
                             source: "qrc:/icons/pin.svg"
-                            sourceSize.width: Theme.scaled(16)
-                            sourceSize.height: Theme.scaled(16)
+                            sourceSize.width: Theme.scaled(14)
+                            sourceSize.height: Theme.scaled(14)
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
 
@@ -86,7 +86,8 @@ Page {
                         Text {
                             text: TranslationManager.translate("profileselector.strip.auto_load_label", "Auto-load:")
                             color: Theme.textSecondaryColor
-                            font: Theme.bodyFont
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
                         }
@@ -94,7 +95,8 @@ Page {
                         Text {
                             text: autoLoadStrip.autoLoadTitle
                             color: Theme.textColor
-                            font: Theme.bodyFont
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
@@ -104,27 +106,31 @@ Page {
                         Text {
                             text: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
                             color: Theme.textSecondaryColor
-                            font: Theme.bodyFont
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
                             Layout.alignment: Qt.AlignVCenter
                             Accessible.ignored: true
                         }
 
                         ValueInput {
                             id: autoLoadRevertInput
-                            Layout.preferredWidth: Theme.scaled(120)
-                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.preferredWidth: Theme.scaled(110)
+                            Layout.preferredHeight: Theme.scaled(28)
                             Layout.alignment: Qt.AlignVCenter
                             value: Settings.app.autoLoadRevertMinutes
-                            from: 0
+                            from: 1
                             to: 60
                             stepSize: 1
                             suffix: TranslationManager.translate("profileselector.strip.minutes_short", "min")
-                            displayText: value === 0
-                                ? TranslationManager.translate("profileselector.strip.never", "Never")
-                                : value + " " + TranslationManager.translate("profileselector.strip.minutes_short", "min")
+                            displayText: value + " " + TranslationManager.translate("profileselector.strip.minutes_short", "min")
                             accessibleName: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
 
-                            onValueCommitted: function(newValue) {
+                            // ValueInput emits valueModified on every adjustment and
+                            // valueCommitted on release; valueCommitted carries the
+                            // already-updated value only if the consumer wrote it
+                            // back during valueModified, so we wire to valueModified
+                            // for the live setting write.
+                            onValueModified: function(newValue) {
                                 Settings.app.autoLoadRevertMinutes = newValue
                             }
                         }
@@ -132,14 +138,14 @@ Page {
                         AccessibleButton {
                             id: autoLoadClearButton
                             text: "×"
-                            Layout.preferredWidth: Theme.scaled(36)
-                            Layout.preferredHeight: Theme.scaled(36)
+                            Layout.preferredWidth: Theme.scaled(28)
+                            Layout.preferredHeight: Theme.scaled(28)
                             Layout.alignment: Qt.AlignVCenter
                             accessibleName: TranslationManager.translate("profileselector.strip.clear_aria", "Disable auto-load")
                             contentItem: Text {
                                 text: "×"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(20)
+                                font.pixelSize: Theme.scaled(16)
                                 font.bold: true
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter

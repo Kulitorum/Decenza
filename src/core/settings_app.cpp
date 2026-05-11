@@ -394,7 +394,7 @@ int SettingsApp::autoLoadRevertMinutes() const {
 }
 
 void SettingsApp::setAutoLoadRevertMinutes(int minutes) {
-    int clamped = qBound(0, minutes, 60);
+    int clamped = qBound(1, minutes, 60);
     if (autoLoadRevertMinutes() != clamped) {
         m_settings.setValue("profile/autoLoadRevertMinutes", clamped);
         emit autoLoadRevertMinutesChanged();

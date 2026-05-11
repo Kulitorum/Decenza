@@ -425,9 +425,7 @@ ApplicationWindow {
 
     function autoLoadCountdownReload() {
         var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-        if (Settings.app.autoLoadRevertMinutes <= 0
-            || Settings.app.autoLoadProfileFilename === ""
-            || pageName !== "idlePage") {
+        if (Settings.app.autoLoadProfileFilename === "" || pageName !== "idlePage") {
             return -1
         }
         return Settings.app.autoLoadRevertMinutes
