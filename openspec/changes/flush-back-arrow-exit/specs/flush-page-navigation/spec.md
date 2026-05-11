@@ -52,22 +52,23 @@ The "Flush Complete" completion overlay SHALL be suppressed when the phase trans
 - **THEN** the completion overlay is shown for its existing duration (1.5 seconds)
 - **AND** the user-exit flag remains clear
 
-#### Scenario: Stale user-exit flag is not consumed by an unrelated page
+#### Scenario: Flag is unconditionally cleared on every Idle/Ready transition
 
 - **WHEN** the user-exit flag is set
-- **AND** the next phase transition to Idle or Ready occurs while a page other than the Flush Water page is current
-- **THEN** the completion overlay decision for that other page is unaffected by the flag
-- **AND** the flag remains set until consumed by an Idle/Ready transition where the Flush Water page is current, ensuring no cross-page suppression
+- **AND** any phase transition to Idle or Ready occurs (regardless of which page is current)
+- **THEN** the flag is cleared at the end of the Idle/Ready handler so it cannot strand and suppress a later legitimate completion
+- **AND** the flag is only ever checked inside the Flush Water page branch, so it cannot suppress steam or hot-water completion overlays
 
-### Requirement: Existing headless STOP button preserved
+### Requirement: Existing headless STOP button preserved and made equivalent to back arrow
 
-The existing on-screen STOP button shown only on headless machines (`DE1Device.isHeadless`) during an active flush SHALL remain unchanged in placement and behavior. The new back-arrow exit is additive, not a replacement.
+The existing on-screen STOP button shown only on headless machines (`DE1Device.isHeadless`) during an active flush SHALL remain in place. To make the two on-screen exits behaviorally equivalent, the STOP button's handlers SHALL also set the user-exit flag so the completion overlay is suppressed identically to the back-arrow path.
 
-#### Scenario: Headless machine retains STOP button
+#### Scenario: Headless machine retains STOP button with equivalent exit behavior
 
 - **WHEN** the machine is flushing and `DE1Device.isHeadless` is true
 - **THEN** the on-page STOP button is visible alongside the back arrow on the BottomBar
-- **AND** both controls invoke `DE1Device.stopOperation()` and navigate away from the FlushPage
+- **AND** both controls set the user-exit flag, invoke `DE1Device.stopOperation()`, and navigate away from the FlushPage
+- **AND** neither path shows the 1.5s "Flush Complete" overlay
 
 #### Scenario: Non-headless machine relies on back arrow only
 

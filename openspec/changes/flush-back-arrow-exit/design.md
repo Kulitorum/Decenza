@@ -8,7 +8,7 @@ The Flush Water page (`qml/pages/FlushPage.qml`) has two visual states driven by
 The settings view's `BottomBar` is gated by `visible: !isFlushing`, so during a flush the page has no on-screen navigation chrome. The flush ends one of two ways:
 
 - The DE1 firmware reaches the configured flush duration → phase transitions to Idle/Ready → `main.qml:2630` calls `showCompletion(trFlushComplete.text, "flush")` → a full-screen completion overlay (`completionOverlay`, z:500) is shown for 1500ms before navigating to idle.
-- A headless user taps the on-page STOP button → `DE1Device.stopOperation()` + `root.goToIdle()` → still triggers the same Idle/Ready handler, which still shows the 1.5s overlay.
+- A headless user taps the on-page STOP button → `DE1Device.stopOperation()` + `root.goToIdle()` → triggers the same Idle/Ready handler. To make STOP genuinely equivalent to the new back-arrow exit, this change also sets `root.userExitedFlush = true` in the STOP handlers so both paths suppress the 1.5s overlay identically.
 
 GitHub issue #1115 reports both that the 1.5s overlay feels long for users who don't need it, and that there's no way to abort early on machines without a GHC button. The completion overlay code path is shared with steam and hot water completions (`main.qml:2626-2631`), so any change there has cross-page implications.
 
@@ -24,7 +24,7 @@ GitHub issue #1115 reports both that the 1.5s overlay feels long for users who d
 
 - Adding a user-configurable overlay duration setting (explicitly declined per Jeff's preference for good defaults over knobs).
 - Changing the completion overlay's behavior for *natural* flush completion (timer-driven), or for steam / hot water completion. Those paths are untouched.
-- Removing or repositioning the existing headless-only on-page STOP button. It stays; headless users get two equivalent exits.
+- Removing or repositioning the existing headless-only on-page STOP button. It stays; both the STOP button and the new back arrow set `userExitedFlush` so headless users get two equivalent exits.
 - Extending the same back-arrow pattern to `SteamPage` and `HotWaterPage`. The pattern exists there too but is out of scope for this change.
 
 ## Decisions
@@ -49,14 +49,14 @@ This matches the project rule "no timers as guards" (CLAUDE.md): the flag is eve
 
 **Alternative considered:** Use the existing `returnToPageName` / `returnToShotId` mechanism. Rejected — that system handles *where* to return after the overlay, not whether to skip it.
 
-### Decision: Flag is single-shot and self-clearing on the next Idle transition
+### Decision: Flag is single-shot and unconditionally cleared on the next Idle/Ready transition
 
-The flag is cleared immediately after it's consumed by the Idle/Ready handler, regardless of whether `showCompletion()` was suppressed. This guarantees that:
+The flag is cleared after the per-page completion decision runs, **regardless of which page is current**. Why unconditional: `root.goBack()` / `root.goToIdle()` from the back handler mutate `currentPage` synchronously, before the BLE-driven phase change arrives, so by the time the Idle/Ready handler runs `currentPage` is typically no longer `"flushPage"`. If we only cleared inside the flushPage branch, the flag would strand and silently suppress the next legitimate flush completion. Clearing unconditionally at the end of the Idle/Ready handler guarantees:
 
-- A natural flush completion right after a user-initiated exit (extremely unlikely but possible in racey scenarios) still shows its overlay normally.
-- A stale flag from a prior exit can't suppress a future legitimate completion.
+- A natural flush completion right after a user-initiated exit (racey but possible) still shows its overlay normally on a subsequent flush.
+- A stale flag from a prior exit cannot survive past the very next Idle/Ready transition — and that transition is exactly the one caused by `stopOperation()` from the back handler, so the lifetime is one phase event.
 
-The handler runs on every phase change to Idle/Ready, so the flag has a tight, deterministic consumption point.
+The flag is only ever *consumed for suppression* inside the flushPage branch, so unconditional clearing is safe — it cannot accidentally suppress a steam or hot-water completion.
 
 ### Decision: Back handler stops the operation, then navigates
 
@@ -82,7 +82,7 @@ The order (set flag → stop → navigate) matters: the flag must be set before 
 ## Risks / Trade-offs
 
 - **[Risk]** Race: user taps back at the exact moment the firmware-driven flush completes on its own. → Both paths converge on `Phase.Idle/Ready`; the flag suppresses the overlay either way. Acceptable outcome — the user wanted to leave, and they leave.
-- **[Risk]** Race: user taps back, then before the next phase transition, the user navigates to another operation page (e.g., espresso). → The flag remains set until the next Idle/Ready transition consumes it, which could suppress a completion overlay from an unrelated operation. **Mitigation:** Consume the flag only when the current page is `flushPage` (or was). Implemented as: in the Idle/Ready handler, only check/clear `userExitedFlush` inside the `currentPage === "flushPage"` branch.
+- **[Risk]** Race: user taps back, then before the next phase transition, the user navigates to another operation page (e.g., espresso). → The flag is only ever *checked* inside the flushPage branch of the Idle/Ready handler, so it cannot suppress steam/hot-water completion overlays. The flag is also cleared unconditionally at the end of every Idle/Ready handler invocation, so it cannot survive past one phase event.
 - **[Risk]** Hidden value chips during flush could be missed by users who relied on the bottom bar to see preset config. → The full settings view re-appears the moment the flush ends, and the preset name remains visible in the bar's title. Low impact.
 - **[Trade-off]** Two ways to exit on headless machines (STOP button + back arrow). → Intentional. Removing the STOP button would be a behavioral regression for headless users who learned that gesture; back arrow is additive.
 - **[Trade-off]** Skipping the completion overlay means the user loses the "12.4s" final-time confirmation on explicit exit. → Acceptable: the timer was visible up to the moment of exit, and the user explicitly chose to leave. Natural completions still show it.

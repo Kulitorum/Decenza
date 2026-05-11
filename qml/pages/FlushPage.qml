@@ -202,8 +202,8 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onSpacePressed:  { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onReturnPressed: { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onSpacePressed:  { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
                 Keys.onTabPressed: {
                     if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -229,6 +229,7 @@ Page {
                     accessibleName: TranslationManager.translate("flush.accessible.stopFlushing", "Stop flushing")
                     accessibleItem: flushStopButton
                     onAccessibleClicked: {
+                        root.userExitedFlush = true
                         DE1Device.stopOperation()
                         root.goToIdle()
                     }
@@ -589,10 +590,8 @@ Page {
         }
     }
 
-    // Bottom bar — visible in both settings and active-flush views so the back
-    // arrow is always reachable. During an active flush the duration/flow chips
-    // are hidden (the live timer above already shows the relevant state), and
-    // back stops the flush + suppresses the completion overlay.
+    // Always visible: back stays reachable during active flush. Chips collapse
+    // during flush (live timer above shows state); back stops + suppresses overlay.
     BottomBar {
         title: getCurrentPresetName() || pageTitle
         onBackClicked: {
@@ -615,6 +614,7 @@ Page {
             text: secondsInput.value.toFixed(1) + "s"
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
         Rectangle {
             visible: !isFlushing
@@ -625,6 +625,7 @@ Page {
             text: flowInput.value.toFixed(1) + " mL/s"
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
     }
 
