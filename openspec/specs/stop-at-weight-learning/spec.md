@@ -1,6 +1,9 @@
-# Spec Delta: stop-at-weight-learning
+# stop-at-weight-learning Specification
 
-## ADDED Requirements
+## Purpose
+Define the post-shot stop-at-weight (SAW) prediction model that drives both the live SAW stop trigger and the per-shot accuracy log. The predictor estimates post-stop drip from recency-weighted, Gaussian-flow-similarity weighted historical (drip, flow) data, with a pre-graduation scalar bootstrap path and per-pair refinement once enough committed medians exist.
+
+## Requirements
 
 ### Requirement: Drip Prediction Model
 
@@ -55,10 +58,8 @@ The live SAW threshold computation in `WeightProcessor::getExpectedDrip` SHALL p
 
 ### Requirement: Per-Shot Prediction Diagnostics
 
-The system SHALL log enough per-shot prediction state to support post-deploy validation that the σ=0.25 change matches the Phase 0 simulation's predictions on real shots.
+The system SHALL log per-shot prediction state to support post-deploy validation of SAW predictions on real shots.
 
-#### Scenario: Accuracy log line includes both old-σ and new-σ predictions during shadow logging
-- **WHEN** a SAW learning point is added (the `[SAW] accuracy:` log line)
-- **THEN** the log line SHALL include the predicted drip, actual drip, error, overshoot, flow at stop, scale type, profile filename
-- **AND** SHALL also include `oldSigmaDrip` (what σ=1.5 would have predicted at this shot's flow with the same pool — computed via a helper that runs the OLD math at the OLD constant) and `predictionSource` (one of `perPair`, `globalBootstrap`, `scaleDefault`)
-- **AND** the shadow-logging fields SHALL remain in the log line for at least one full release cycle after deployment so post-deploy analysis has data to compare against the Phase 0 baseline
+#### Scenario: Accuracy log line is emitted on each SAW learning point
+- **WHEN** a SAW learning point is added
+- **THEN** the system SHALL emit a `[SAW] accuracy:` log line containing the predicted drip, actual drip, delta, overshoot, flow at stop, scale type, and profile filename

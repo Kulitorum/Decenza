@@ -1,5 +1,8 @@
 # Change: Tune Stop-At-Weight Old Prediction Model
 
+**Status (2026-05-11):** Shipped via PR #870 (commit `407d4c26`, 2026-04-26); shared helper extracted via PR #874. Phase 3 production validation on 14 real shots: MAE 0.381 g (excluding one out-of-scope stall-recovery), within noise of Phase 0's 0.348 g prediction. **Decision A — keep the σ change.** See `analysis.md` Phase 3 section.
+
+
 ## Why
 
 Phase 0 evaluation of the archived `update-saw-prediction-model` proposal established two findings on a 63-shot real-shot corpus, validated end-to-end through `Settings::getExpectedDripFor` via `tools/saw_parity/`:
