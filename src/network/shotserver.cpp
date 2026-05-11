@@ -437,6 +437,11 @@ bool ShotServer::start()
             // newConnection fires on TCP accept (before SSL handshake), when hasPendingConnections() is still false.
             // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
             connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
+            connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
+                qWarning() << "ShotServer: accept error:" << err
+                           << "socketDescriptor:" << m_server->socketDescriptor()
+                           << "isListening:" << m_server->isListening();
+            });
             connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* socket, const QList<QSslError>& errors) {
                 for (const auto& err : errors)
                     qWarning() << "ShotServer: SSL error:" << err.errorString();
@@ -467,6 +472,11 @@ bool ShotServer::start()
         // Plain HTTP mode (security disabled)
         m_server = new QTcpServer(this);
         connect(m_server, &QTcpServer::newConnection, this, &ShotServer::onNewConnection);
+        connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
+            qWarning() << "ShotServer: accept error:" << err
+                       << "socketDescriptor:" << m_server->socketDescriptor()
+                       << "isListening:" << m_server->isListening();
+        });
 
         if (!m_server->listen(QHostAddress::Any, m_port)) {
             qWarning() << "ShotServer: Failed to start on port" << m_port << m_server->errorString();
@@ -893,6 +903,15 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
 
 void ShotServer::onCleanupTimerTick()
 {
+    if (m_server) {
+        qintptr fd = m_server->socketDescriptor();
+        bool listening = m_server->isListening();
+        if (fd == -1 && listening)
+            qWarning() << "ShotServer: socketDescriptor() == -1 while isListening() == true — listen socket may have been invalidated by OS";
+        else
+            qDebug() << "ShotServer: health check — isListening:" << listening << "socketDescriptor:" << fd;
+    }
+
     QList<QTcpSocket*> staleConnections;
     for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {
         if (it.value().lastActivity.isValid() &&
