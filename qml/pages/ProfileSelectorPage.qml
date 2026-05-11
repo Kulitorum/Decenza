@@ -560,6 +560,8 @@ Page {
                             }
 
                             // === Overflow menu button (edit, remove, delete) ===
+                            // Opens a modal Dialog (not a popup Menu) so screen
+                            // readers receive proper focus + role announcements.
                             StyledIconButton {
                                 id: overflowButton
                                 visible: true  // All views
@@ -571,261 +573,18 @@ Page {
                                 accessibleName: TranslationManager.translate("profileselector.accessible.more_options", "More options for") + " " + modelData.title
 
                                 onClicked: {
-                                    var pos = mapToItem(profileDelegate, 0, height)
-                                    overflowMenu.x = pos.x
-                                    overflowMenu.y = pos.y
-                                    overflowMenu.open()
+                                    profileActionsDialog.profileFilename = modelData.name
+                                    profileActionsDialog.profileTitle = modelData.title
+                                    profileActionsDialog.profileIsBuiltIn = profileDelegate.isBuiltIn
+                                    profileActionsDialog.profileIsSelected = profileDelegate.isSelected
+                                    profileActionsDialog.profileIsFavorite = profileDelegate.isFavorite
+                                    profileActionsDialog.profileIsAutoLoad = profileDelegate.isAutoLoad
+                                    profileActionsDialog.viewIsSelectedList = (viewFilter.currentIndex === 0)
+                                    profileActionsDialog.open()
                                 }
                             }
                         }
 
-                        // Overflow menu (outside the RowLayout for proper positioning)
-                        Menu {
-                            id: overflowMenu
-                            width: Theme.scaled(220)
-
-                            background: Rectangle {
-                                color: Theme.surfaceColor
-                                border.color: Theme.borderColor
-                                radius: Theme.scaled(6)
-                            }
-
-                            MenuItem {
-                                onTriggered: {
-                                    ProfileManager.loadProfile(modelData.name)
-                                    root.goToProfileEditor()
-                                }
-
-                                contentItem: Row {
-                                    spacing: Theme.scaled(8)
-                                    leftPadding: Theme.scaled(8)
-                                    Image {
-                                        source: "qrc:/icons/edit.svg"
-                                        sourceSize.width: Theme.scaled(16)
-                                        sourceSize.height: Theme.scaled(16)
-                                        anchors.verticalCenter: parent.verticalCenter
-
-                                        layer.enabled: true
-                                        layer.smooth: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: Theme.textColor
-                                        }
-                                    }
-                                    Text {
-                                        text: TranslationManager.translate("profileselector.menu.edit", "Edit Profile")
-                                        color: Theme.textColor
-                                        font: Theme.bodyFont
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.ignored: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: parent.highlighted ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                                }
-
-                                Accessible.role: Accessible.MenuItem
-                                Accessible.name: TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: { ProfileManager.loadProfile(modelData.name); root.goToProfileEditor() }
-                            }
-
-                            MenuItem {
-                                onTriggered: {
-                                    copyProfileDialog.sourceFilename = modelData.name
-                                    copyProfileDialog.sourceTitle = modelData.title
-                                    copyProfileDialog.open()
-                                }
-
-                                contentItem: Row {
-                                    spacing: Theme.scaled(8)
-                                    leftPadding: Theme.scaled(8)
-                                    Image {
-                                        source: "qrc:/icons/plus.svg"
-                                        sourceSize.width: Theme.scaled(16)
-                                        sourceSize.height: Theme.scaled(16)
-                                        anchors.verticalCenter: parent.verticalCenter
-
-                                        layer.enabled: true
-                                        layer.smooth: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: Theme.textColor
-                                        }
-                                    }
-                                    Text {
-                                        text: TranslationManager.translate("profileselector.menu.copy", "Copy Profile")
-                                        color: Theme.textColor
-                                        font: Theme.bodyFont
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.ignored: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: parent.highlighted ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                                }
-
-                                Accessible.role: Accessible.MenuItem
-                                Accessible.name: TranslationManager.translate("profileselector.accessible.copy_profile", "Copy profile")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: { copyProfileDialog.sourceFilename = modelData.name; copyProfileDialog.sourceTitle = modelData.title; copyProfileDialog.open() }
-                            }
-
-                            // === Set / Disable Auto-Load ===
-                            // Visible only when the row's profile is in the Selected list
-                            // (Selected view, or row.isSelected when browsing other views).
-                            MenuItem {
-                                id: autoLoadMenuItem
-                                visible: viewFilter.currentIndex === 0 || profileDelegate.isSelected
-                                height: visible ? implicitHeight : 0
-
-                                onTriggered: {
-                                    if (profileDelegate.isAutoLoad) {
-                                        Settings.app.autoLoadProfileFilename = ""
-                                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.auto_load_disabled", "Auto-load disabled"))
-                                    } else {
-                                        Settings.app.autoLoadProfileFilename = modelData.name
-                                        profileSelectorPage.showToast(
-                                            TranslationManager.translate("profileselector.toast.auto_load_set", "Auto-load set to %1").arg(modelData.title))
-                                    }
-                                }
-
-                                contentItem: Row {
-                                    spacing: Theme.scaled(8)
-                                    leftPadding: Theme.scaled(8)
-                                    Image {
-                                        source: "qrc:/icons/pin.svg"
-                                        sourceSize.width: Theme.scaled(16)
-                                        sourceSize.height: Theme.scaled(16)
-                                        anchors.verticalCenter: parent.verticalCenter
-
-                                        layer.enabled: true
-                                        layer.smooth: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: Theme.textColor
-                                        }
-                                    }
-                                    Text {
-                                        text: profileDelegate.isAutoLoad
-                                              ? TranslationManager.translate("profileselector.menu.disable_auto_load", "Disable Auto-Load")
-                                              : TranslationManager.translate("profileselector.menu.set_auto_load", "Set Auto-Load")
-                                        color: Theme.textColor
-                                        font: Theme.bodyFont
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.ignored: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: parent.highlighted ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                                }
-
-                                Accessible.role: Accessible.MenuItem
-                                Accessible.name: profileDelegate.isAutoLoad
-                                                 ? TranslationManager.translate("profileselector.accessible.disable_auto_load", "Disable auto-load")
-                                                 : TranslationManager.translate("profileselector.accessible.set_auto_load", "Set as auto-load profile")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: autoLoadMenuItem.triggered()
-                            }
-
-                            MenuSeparator {
-                                visible: viewFilter.currentIndex === 0 || !profileDelegate.isBuiltIn
-                                height: visible ? implicitHeight : 0
-                                contentItem: Rectangle {
-                                    implicitHeight: Theme.scaled(1)
-                                    color: Theme.borderColor
-                                }
-                            }
-
-                            MenuItem {
-                                visible: viewFilter.currentIndex === 0  // Only on "Selected" view
-                                height: visible ? implicitHeight : 0
-                                onTriggered: {
-                                    if (profileDelegate.isBuiltIn) {
-                                        Settings.app.removeSelectedBuiltInProfile(modelData.name)
-                                    } else {
-                                        Settings.app.addHiddenProfile(modelData.name)
-                                    }
-                                }
-
-                                contentItem: Row {
-                                    spacing: Theme.scaled(8)
-                                    leftPadding: Theme.scaled(8)
-                                    Image {
-                                        source: "qrc:/icons/minus.svg"
-                                        sourceSize.width: Theme.scaled(16)
-                                        sourceSize.height: Theme.scaled(16)
-                                        anchors.verticalCenter: parent.verticalCenter
-
-                                        layer.enabled: true
-                                        layer.smooth: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: Theme.errorColor
-                                        }
-                                    }
-                                    Text {
-                                        text: TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
-                                        color: Theme.errorColor
-                                        font: Theme.bodyFont
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.ignored: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: parent.highlighted ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.2) : "transparent"
-                                }
-
-                                Accessible.role: Accessible.MenuItem
-                                Accessible.name: TranslationManager.translate("profileselector.accessible.remove_from_list", "Remove from selected list")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: { if (profileDelegate.isBuiltIn) { Settings.app.removeSelectedBuiltInProfile(modelData.name) } else { Settings.app.addHiddenProfile(modelData.name) } }
-                            }
-
-                            MenuItem {
-                                visible: !profileDelegate.isBuiltIn
-                                height: visible ? implicitHeight : 0
-                                onTriggered: {
-                                    deleteDialog.profileName = modelData.name
-                                    deleteDialog.profileTitle = modelData.title
-                                    deleteDialog.isFavorite = profileDelegate.isFavorite
-                                    deleteDialog.open()
-                                }
-
-                                contentItem: Row {
-                                    spacing: Theme.scaled(8)
-                                    leftPadding: Theme.scaled(8)
-                                    Image {
-                                        source: "qrc:/icons/trash.svg"
-                                        sourceSize.width: Theme.scaled(16)
-                                        sourceSize.height: Theme.scaled(16)
-                                        anchors.verticalCenter: parent.verticalCenter
-
-                                        layer.enabled: true
-                                        layer.smooth: true
-                                        layer.effect: MultiEffect {
-                                            colorization: 1.0
-                                            colorizationColor: Theme.errorColor
-                                        }
-                                    }
-                                    Text {
-                                        text: TranslationManager.translate("profileselector.menu.delete", "Delete Profile")
-                                        color: Theme.errorColor
-                                        font: Theme.bodyFont
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.ignored: true
-                                    }
-                                }
-                                background: Rectangle {
-                                    color: parent.highlighted ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.2) : "transparent"
-                                }
-
-                                Accessible.role: Accessible.MenuItem
-                                Accessible.name: TranslationManager.translate("profileselector.accessible.delete_permanently", "Delete profile permanently")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: { deleteDialog.profileName = modelData.name; deleteDialog.profileTitle = modelData.title; deleteDialog.isFavorite = profileDelegate.isFavorite; deleteDialog.open() }
-                            }
-                        }
 
                         MouseArea {
                             id: profileMouseArea
@@ -1054,6 +813,146 @@ Page {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Profile actions dialog — replaces the row's overflow Menu (popup) with a
+    // proper modal Dialog. Menus don't surface role/focus to screen readers
+    // reliably; Dialog does. Follows the same shape as the bean-info preset
+    // dialogs: centered, modal, AccessibleButton stack.
+    Dialog {
+        id: profileActionsDialog
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2
+        padding: 20
+        modal: true
+        focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        property string profileFilename: ""
+        property string profileTitle: ""
+        property bool profileIsBuiltIn: false
+        property bool profileIsSelected: false
+        property bool profileIsFavorite: false
+        property bool profileIsAutoLoad: false
+        property bool viewIsSelectedList: false
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.textSecondaryColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                Layout.preferredWidth: Theme.scaled(280)
+                text: profileActionsDialog.profileTitle
+                color: Theme.textColor
+                font: Theme.subtitleFont
+                elide: Text.ElideRight
+                Accessible.role: Accessible.StaticText
+                Accessible.name: TranslationManager.translate("profileselector.dialog.actions_for", "Actions for") + " " + profileActionsDialog.profileTitle
+            }
+
+            // Edit profile
+            AccessibleButton {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(40)
+                text: TranslationManager.translate("profileselector.menu.edit", "Edit Profile")
+                accessibleName: TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
+                onClicked: {
+                    profileActionsDialog.close()
+                    ProfileManager.loadProfile(profileActionsDialog.profileFilename)
+                    root.goToProfileEditor()
+                }
+            }
+
+            // Copy profile
+            AccessibleButton {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(40)
+                text: TranslationManager.translate("profileselector.menu.copy", "Copy Profile")
+                accessibleName: TranslationManager.translate("profileselector.accessible.copy_profile", "Copy profile")
+                onClicked: {
+                    profileActionsDialog.close()
+                    copyProfileDialog.sourceFilename = profileActionsDialog.profileFilename
+                    copyProfileDialog.sourceTitle = profileActionsDialog.profileTitle
+                    copyProfileDialog.open()
+                }
+            }
+
+            // Set / Disable Auto-Load (Selected-list only)
+            AccessibleButton {
+                visible: profileActionsDialog.viewIsSelectedList || profileActionsDialog.profileIsSelected
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? Theme.scaled(40) : 0
+                text: profileActionsDialog.profileIsAutoLoad
+                      ? TranslationManager.translate("profileselector.menu.disable_auto_load", "Disable Auto-Load")
+                      : TranslationManager.translate("profileselector.menu.set_auto_load", "Set Auto-Load")
+                accessibleName: profileActionsDialog.profileIsAutoLoad
+                      ? TranslationManager.translate("profileselector.accessible.disable_auto_load", "Disable auto-load")
+                      : TranslationManager.translate("profileselector.accessible.set_auto_load", "Set as auto-load profile")
+                onClicked: {
+                    if (profileActionsDialog.profileIsAutoLoad) {
+                        Settings.app.autoLoadProfileFilename = ""
+                        profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.auto_load_disabled", "Auto-load disabled"))
+                    } else {
+                        Settings.app.autoLoadProfileFilename = profileActionsDialog.profileFilename
+                        profileSelectorPage.showToast(
+                            TranslationManager.translate("profileselector.toast.auto_load_set", "Auto-load set to %1").arg(profileActionsDialog.profileTitle))
+                    }
+                    profileActionsDialog.close()
+                }
+            }
+
+            // Remove from Selected (Selected view only)
+            AccessibleButton {
+                visible: profileActionsDialog.viewIsSelectedList
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? Theme.scaled(40) : 0
+                destructive: true
+                text: TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
+                accessibleName: TranslationManager.translate("profileselector.accessible.remove_from_list", "Remove from selected list")
+                onClicked: {
+                    if (profileActionsDialog.profileIsBuiltIn) {
+                        Settings.app.removeSelectedBuiltInProfile(profileActionsDialog.profileFilename)
+                    } else {
+                        Settings.app.addHiddenProfile(profileActionsDialog.profileFilename)
+                    }
+                    profileActionsDialog.close()
+                }
+            }
+
+            // Delete profile (user/downloaded only)
+            AccessibleButton {
+                visible: !profileActionsDialog.profileIsBuiltIn
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? Theme.scaled(40) : 0
+                destructive: true
+                text: TranslationManager.translate("profileselector.menu.delete", "Delete Profile")
+                accessibleName: TranslationManager.translate("profileselector.accessible.delete_permanently", "Delete profile permanently")
+                onClicked: {
+                    profileActionsDialog.close()
+                    deleteDialog.profileName = profileActionsDialog.profileFilename
+                    deleteDialog.profileTitle = profileActionsDialog.profileTitle
+                    deleteDialog.isFavorite = profileActionsDialog.profileIsFavorite
+                    deleteDialog.open()
+                }
+            }
+
+            // Cancel — dismisses without action. Gives keyboard/SR users a clear
+            // out without relying on Esc / outside-tap.
+            AccessibleButton {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(40)
+                Layout.topMargin: Theme.scaled(4)
+                text: TranslationManager.translate("profileselector.button.cancel", "Cancel")
+                accessibleName: TranslationManager.translate("profileselector.accessible.cancel_actions", "Cancel and close")
+                onClicked: profileActionsDialog.close()
             }
         }
     }
