@@ -771,6 +771,53 @@ bool ProfileManager::profileExists(const QString& filename) const {
     return QFile::exists(path);
 }
 
+bool ProfileManager::isProfileInSelectedList(const QString& filename) const {
+    if (filename.isEmpty() || !m_settings) return false;
+
+    const QStringList selectedBuiltIns = m_settings->app()->selectedBuiltInProfiles();
+    const QStringList hiddenProfiles = m_settings->app()->hiddenProfiles();
+
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.filename != filename) continue;
+        switch (info.source) {
+        case ProfileSource::BuiltIn:
+            return selectedBuiltIns.contains(filename);
+        case ProfileSource::Downloaded:
+        case ProfileSource::UserCreated:
+            return !hiddenProfiles.contains(filename);
+        }
+        // Defensive: an unknown ProfileSource (added later without updating
+        // this switch) should default to "not selectable" so auto-load doesn't
+        // silently pin a profile whose eligibility rules haven't been defined.
+        qWarning() << "isProfileInSelectedList: unhandled ProfileSource for"
+                   << filename << "— treating as not selected";
+        return false;
+    }
+    return false;
+}
+
+void ProfileManager::loadAutoLoadProfileIfNeeded() {
+    if (!m_settings) return;
+
+    const QString filename = m_settings->app()->autoLoadProfileFilename();
+    if (filename.isEmpty()) return;
+
+    if (!isProfileInSelectedList(filename)) {
+        qDebug() << "ProfileManager: auto-load filename" << filename
+                 << "no longer in Selected list — clearing";
+        m_settings->app()->setAutoLoadProfileFilename("");
+        emit autoLoadStaleCleared();
+        return;
+    }
+
+    if (filename == m_baseProfileName) {
+        return; // Already active
+    }
+
+    qDebug() << "ProfileManager: loading auto-load profile" << filename;
+    loadProfile(filename);
+}
+
 bool ProfileManager::deleteProfile(const QString& filename) {
     // Find the profile info
     ProfileSource source = ProfileSource::BuiltIn;
@@ -825,6 +872,11 @@ bool ProfileManager::deleteProfile(const QString& filename) {
                     break;
                 }
             }
+        }
+
+        // Eager-clear: deleting the auto-load profile makes it ineligible
+        if (m_settings && m_settings->app()->autoLoadProfileFilename() == filename) {
+            m_settings->app()->setAutoLoadProfileFilename("");
         }
 
         // Refresh the profile list

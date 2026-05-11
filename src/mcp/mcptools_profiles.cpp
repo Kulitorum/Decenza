@@ -6,6 +6,8 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../controllers/profilemanager.h"
+#include "../core/settings.h"
+#include "../core/settings_app.h"
 #include "../profile/profile.h"
 #include "../profile/recipeparams.h"
 
@@ -14,7 +16,7 @@
 #include <QJsonDocument>
 #include <QSet>
 
-void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager)
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings)
 {
     // profiles_list
     registry->registerTool(
@@ -107,6 +109,32 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             result["profiles"] = profiles;
             result["count"] = profiles.size();
             result["_resourceLinks"] = links;
+            return result;
+        },
+        "read");
+
+    // profiles_get_auto_load
+    registry->registerTool(
+        "profiles_get_auto_load",
+        "Get the configured auto-load profile filename and revert timeout. "
+        "Auto-load reloads the pinned profile on app start, DE1 wake-from-sleep, "
+        "and after `revertMinutes` of inactivity on the Idle page.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [profileManager, settings](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            if (!settings) {
+                result["error"] = "Settings not available";
+                return result;
+            }
+            const QString filename = settings->app()->autoLoadProfileFilename();
+            result["filename"] = filename;
+            result["revertMinutes"] = settings->app()->autoLoadRevertMinutes();
+            if (!filename.isEmpty() && profileManager) {
+                QVariantMap profile = profileManager->getProfileByFilename(filename);
+                if (!profile.isEmpty()) {
+                    result["title"] = profile["title"].toString();
+                }
+            }
             return result;
         },
         "read");

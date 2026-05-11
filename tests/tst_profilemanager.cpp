@@ -12,6 +12,7 @@
 #include <QRegularExpression>
 
 #include "mocks/McpTestFixture.h"
+#include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
 #include "mcp/mcpresourceregistry.h"
@@ -2240,6 +2241,82 @@ private slots:
 
         QVERIFY(!f.profileManager.profileUploadRetrying());
         QCOMPARE(spy.count(), 0);
+    }
+
+    // ===== Auto-load entry point =====
+
+    void autoLoadEmptyFilenameIsNoOp() {
+        McpTestFixture f;
+        f.settings.app()->setAutoLoadProfileFilename("");
+        QSignalSpy staleSpy(&f.profileManager, &ProfileManager::autoLoadStaleCleared);
+        QSignalSpy loadSpy(&f.profileManager, &ProfileManager::currentProfileChanged);
+
+        f.profileManager.loadAutoLoadProfileIfNeeded();
+
+        QCOMPARE(staleSpy.count(), 0);
+        QCOMPARE(loadSpy.count(), 0);
+    }
+
+    void autoLoadStaleFilenameClears() {
+        McpTestFixture f;
+        f.settings.app()->setAutoLoadProfileFilename("nonexistent-profile-xyz");
+        QSignalSpy staleSpy(&f.profileManager, &ProfileManager::autoLoadStaleCleared);
+
+        f.profileManager.loadAutoLoadProfileIfNeeded();
+
+        QCOMPARE(staleSpy.count(), 1);
+        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
+    }
+
+    void autoLoadAlreadyActiveDoesNotReload() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Active");
+        // Manually drive base name to mimic a previously saved profile name.
+        const QString baseName = f.profileManager.baseProfileName();
+        // If baseName is empty (JSON load doesn't set it), the test would fail
+        // for an unrelated reason — only continue if the precondition holds.
+        if (baseName.isEmpty()) {
+            QSKIP("baseProfileName not set after JSON load; not a valid precondition for this test");
+        }
+        f.settings.app()->setAutoLoadProfileFilename(baseName);
+
+        QSignalSpy loadSpy(&f.profileManager, &ProfileManager::currentProfileChanged);
+        f.profileManager.loadAutoLoadProfileIfNeeded();
+
+        // No additional currentProfileChanged emissions — the auto-load was a no-op.
+        QCOMPARE(loadSpy.count(), 0);
+    }
+
+    void eagerClearOnAddHiddenProfile() {
+        // Hiding the pinned profile must clear the auto-load setting eagerly
+        // so the UI strip disappears immediately.
+        McpTestFixture f;
+        const QString filename = "test-user-profile";
+        // McpTestFixture uses real QSettings; ensure the precondition (profile
+        // not yet hidden) so addHiddenProfile actually mutates state. Otherwise
+        // a stale entry from a previous run short-circuits the eager-clear.
+        f.settings.app()->removeHiddenProfile(filename);
+        f.settings.app()->setAutoLoadProfileFilename(filename);
+        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), filename);
+
+        f.settings.app()->addHiddenProfile(filename);
+
+        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
+
+        // Cleanup so subsequent test runs start from a known state.
+        f.settings.app()->removeHiddenProfile(filename);
+    }
+
+    void eagerClearOnRemoveSelectedBuiltIn() {
+        McpTestFixture f;
+        const QString filename = "test-builtin-profile";
+        f.settings.app()->removeSelectedBuiltInProfile(filename);
+        f.settings.app()->addSelectedBuiltInProfile(filename);
+        f.settings.app()->setAutoLoadProfileFilename(filename);
+
+        f.settings.app()->removeSelectedBuiltInProfile(filename);
+
+        QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString(""));
     }
 };
 

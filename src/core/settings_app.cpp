@@ -267,6 +267,11 @@ void SettingsApp::removeSelectedBuiltInProfile(const QString& filename) {
         m_settings.setValue("profile/selectedBuiltIns", current);
         emit selectedBuiltInProfilesChanged();
 
+        // Eager-clear: deselecting the auto-load profile makes it ineligible
+        if (autoLoadProfileFilename() == filename) {
+            setAutoLoadProfileFilename("");
+        }
+
         // Also remove from favorites if it was a favorite
         if (isFavoriteProfile(filename)) {
             QByteArray data = m_settings.value("profile/favorites").toByteArray();
@@ -316,6 +321,11 @@ void SettingsApp::addHiddenProfile(const QString& filename) {
         m_settings.setValue("profile/hiddenProfiles", current);
         emit hiddenProfilesChanged();
 
+        // Eager-clear: hiding the auto-load profile makes it ineligible
+        if (autoLoadProfileFilename() == filename) {
+            setAutoLoadProfileFilename("");
+        }
+
         // Also remove from favorites if it was a favorite
         if (isFavoriteProfile(filename)) {
             QByteArray data = m_settings.value("profile/favorites").toByteArray();
@@ -364,6 +374,30 @@ void SettingsApp::setCurrentProfile(const QString& profile) {
     if (currentProfile() != profile) {
         m_settings.setValue("profile/current", profile);
         emit currentProfileChanged();
+    }
+}
+
+// Auto-load profile
+QString SettingsApp::autoLoadProfileFilename() const {
+    return m_settings.value("profile/autoLoadFilename", "").toString();
+}
+
+void SettingsApp::setAutoLoadProfileFilename(const QString& filename) {
+    if (autoLoadProfileFilename() != filename) {
+        m_settings.setValue("profile/autoLoadFilename", filename);
+        emit autoLoadProfileFilenameChanged();
+    }
+}
+
+int SettingsApp::autoLoadRevertMinutes() const {
+    return m_settings.value("profile/autoLoadRevertMinutes", 5).toInt();
+}
+
+void SettingsApp::setAutoLoadRevertMinutes(int minutes) {
+    int clamped = qBound(0, minutes, 60);
+    if (autoLoadRevertMinutes() != clamped) {
+        m_settings.setValue("profile/autoLoadRevertMinutes", clamped);
+        emit autoLoadRevertMinutesChanged();
     }
 }
 
