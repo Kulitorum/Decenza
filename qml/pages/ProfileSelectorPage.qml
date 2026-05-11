@@ -114,7 +114,10 @@ Page {
 
                         ValueInput {
                             id: autoLoadRevertInput
-                            Layout.preferredWidth: Theme.scaled(86)
+                            // Let the value text + min/plus glyphs determine
+                            // the width — at 10 dp font the fixed-86-dp clamp
+                            // was eliding "60 min" mid-suffix.
+                            Layout.preferredWidth: implicitWidth
                             Layout.preferredHeight: Theme.scaled(22)
                             Layout.alignment: Qt.AlignVCenter
                             // Match the strip's label text size so the inline
