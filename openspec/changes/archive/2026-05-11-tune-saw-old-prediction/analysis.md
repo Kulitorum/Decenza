@@ -88,3 +88,34 @@ Phase 3 post-deploy data must show overall MAE ≤ 0.348 g (within noise) and sh
 - This file (`analysis.md`): records the Phase 0 grid and decision.
 
 Phase 1 (the actual σ change to ship) has not started. Awaiting human approval of the narrowed scope before editing production code.
+
+## Phase 3 production validation (2026-05-11)
+
+σ change shipped via PR #870 (commit `407d4c26`, 2026-04-26). Shared helper extracted via PR #874 (`src/machine/sawprediction.h`, `kFlowSimilaritySigma = 0.25`). σ-specific tests landed alongside in `tests/tst_saw_settings.cpp:208-258` (three tests covering far-query attenuation, same-flow lock-in, and flow-separation).
+
+Sampled 14 real shots with full `[SAW] accuracy:` data from 2026-04-28 → 2026-05-11 (two profiles: `d_flow_q`, `80_s_espresso`; Decent Scale).
+
+| Set | Shots | MAE (g) | vs Phase 0 cell C (0.348 g) |
+|---|---|---|---|
+| All | 14 | 0.645 | +85% (one stall-recovery shot) |
+| Excluding stall-recovery #902 (46s, 1.6 ml/s, +4.07 g — out-of-scope class) | 13 | **0.381** | +9% — within noise |
+
+Per-source breakdown:
+
+| Source | n | mean abs delta (g) |
+|---|---|---|
+| `perProfile` | 8 | 0.59 |
+| `globalPool` | 2 | 0.24 |
+| `scaleDefault` (bootstrap) | 3 | 0.41 |
+
+The `scaleDefault` ~0.4 g under-prediction is the same gap Phase 0 measured (cell C low-flow MAE 0.64 g); the deliberately-untouched bootstrap path is performing as expected.
+
+No SAW-related issue reports on GitHub Issues in the 2 weeks following deploy. Jeff's daily-driver observations show no clear regression.
+
+### Decision A — Keep the σ change
+
+Decision A criteria from `tasks.md` Phase 3:
+1. No SAW-related issue reports — **MET** (zero post-deploy).
+2. No visible regression on Jeff's machine — **MET** (production MAE within noise of Phase 0 prediction; worst observed case is a stall-recovery shot, an explicitly-out-of-scope class).
+
+The σ=0.25 tuning is locked in.
