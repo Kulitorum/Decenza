@@ -125,7 +125,7 @@ Page {
                             accessibleName: TranslationManager.translate("profileselector.strip.revert_after", "revert after")
 
                             onValueCommitted: function(newValue) {
-                                Settings.app.setAutoLoadRevertMinutes(newValue)
+                                Settings.app.autoLoadRevertMinutes = newValue
                             }
                         }
 
@@ -146,7 +146,7 @@ Page {
                                 Accessible.ignored: true
                             }
                             onClicked: {
-                                Settings.app.setAutoLoadProfileFilename("")
+                                Settings.app.autoLoadProfileFilename = ""
                                 profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.auto_load_disabled", "Auto-load disabled"))
                             }
                         }
@@ -670,10 +670,10 @@ Page {
 
                                 onTriggered: {
                                     if (profileDelegate.isAutoLoad) {
-                                        Settings.app.setAutoLoadProfileFilename("")
+                                        Settings.app.autoLoadProfileFilename = ""
                                         profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.auto_load_disabled", "Auto-load disabled"))
                                     } else {
-                                        Settings.app.setAutoLoadProfileFilename(modelData.name)
+                                        Settings.app.autoLoadProfileFilename = modelData.name
                                         profileSelectorPage.showToast(
                                             TranslationManager.translate("profileselector.toast.auto_load_set", "Auto-load set to %1").arg(modelData.title))
                                     }
