@@ -1497,6 +1497,54 @@ void ScreensaverVideoManager::markVideoPlayed(const QString& source)
     }
 }
 
+void ScreensaverVideoManager::markVideoCorrupt(const QString& source)
+{
+    // Normalize the caller's path so we can compare against `localPath` by
+    // EXACT equality. A substring match is unsafe here: filenames embed the
+    // numeric catalog id as a prefix (e.g. `42_<hash>.mp4` vs
+    // `142_<hash>.mp4`), so a longer path could trigger a `contains()` match
+    // against a shorter entry and we would delete the wrong file.
+    const QString fileUrl = source;                // e.g. "file:///.../42_xxx.mp4"
+    const QString rawPath = QUrl(source).toLocalFile();  // e.g. "/.../42_xxx.mp4"
+
+    for (auto it = m_cacheIndex.begin(); it != m_cacheIndex.end(); ++it) {
+        const QString& localPath = it.value().localPath;
+        const QString entryUrl = QUrl::fromLocalFile(localPath).toString();
+        if (localPath != rawPath && localPath != fileUrl && entryUrl != fileUrl) {
+            continue;
+        }
+
+        const int catalogId = it.value().catalogId;
+        qWarning() << "ScreensaverVideoManager: marking corrupt and deleting" << localPath;
+        QFile::remove(localPath);
+        m_cacheIndex.erase(it);
+        // updateCacheUsedBytes() emits cacheUsedBytesChanged() itself when the
+        // total changes — don't double-emit here.
+        updateCacheUsedBytes();
+        saveCacheIndex();
+
+        // Re-queue the just-dropped item. `startBackgroundDownload()` early-
+        // returns when `m_isDownloading` is true, which would otherwise leave
+        // the deleted catalog item un-fetched until the next catalog refresh.
+        // Append directly to the queue in that case so the in-flight download
+        // chain picks it up via `processDownloadQueue()`.
+        if (m_isDownloading) {
+            for (int i = 0; i < m_catalog.size(); ++i) {
+                if (m_catalog[i].id == catalogId) {
+                    m_downloadQueue.append(i);
+                    m_totalToDownload++;
+                    break;
+                }
+            }
+        } else {
+            startBackgroundDownload();
+        }
+        return;
+    }
+    // Not found in the catalog cache index — likely personal media (handled by
+    // deletePersonalMedia) or already evicted. Either way, no further action.
+}
+
 QVariantList ScreensaverVideoManager::creditsList() const
 {
     QVariantList credits;

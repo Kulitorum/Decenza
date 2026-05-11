@@ -237,6 +237,13 @@ public slots:
     // Mark current video as played (for LRU tracking)
     void markVideoPlayed(const QString& source);
 
+    // Mark a cached video as corrupt / unplayable. Deletes the local file,
+    // drops the cache-index entry, and triggers a background re-download so
+    // a clean copy is fetched on the next download cycle. No-op if `source`
+    // doesn't resolve to a cached catalog video (e.g. personal media, which
+    // has its own delete path, or an already-evicted entry).
+    void markVideoCorrupt(const QString& source);
+
     // Cache management
     void clearCache();
     void clearCacheWithRateLimit();  // Clears cache and enables rate limiting
