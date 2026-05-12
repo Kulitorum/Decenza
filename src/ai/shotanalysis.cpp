@@ -709,7 +709,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
 
     // --- Pour-truncated detection (runs first; dominates the cascade) ---
     // When peak pressure stayed below PRESSURE_FLOOR_BAR the puck never built,
-    // so channeling / flow-trend / temp-stability / grind blocks are all
+    // so channeling / flow-trend / grind blocks are all
     // reading off curves the failed puck didn't produce. Skip those blocks
     // entirely when this fires, and emit a single "Puck failed" warning +
     // verdict that names the meta-action ("don't tune off this shot"). Peak
@@ -1018,7 +1018,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     if (pourTruncated) {
         // Dominates over every other signal. Lead with the meta-action
         // ("don't tune off this shot") because peak pressure never built —
-        // the channeling / grind / temp detectors are reading off curves the
+        // the channeling / grind detectors are reading off curves the
         // failed puck didn't produce, so their silence (or any drift they
         // happen to flag) is not a tuning signal. Naming the unreliable
         // detectors explicitly is important: a user who sees no Channeling
@@ -1027,7 +1027,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         d.verdictCategory = QStringLiteral("puckTruncated");
         verdict["text"] = QStringLiteral("Verdict: Don't tune off this shot \u2014 "
             "peak pressure never built, so the other quality signals "
-            "(channeling, grind direction, temp) are unreliable. Check prep "
+            "(channeling, grind direction) are unreliable. Check prep "
             "(dose, distribution, basket, grind) and pull another.");
     } else if (skipFirstFrame) {
         // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice

@@ -719,11 +719,11 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 13: Add pour_truncated_detected flag.
     // Catches puck failures where peak pressure stayed below PRESSURE_FLOOR_BAR
-    // (puck offered no resistance — channeling/temp/grind detectors stay silent
+    // (puck offered no resistance — channeling/grind detectors stay silent
     // or fire wrong because the curves they read off never built). When this
-    // flag is true the other three quality flags stay false because
+    // flag is true the other quality flags stay false because
     // ShotAnalysis::analyzeShot's suppression cascade skips the
-    // channeling/temp/grind blocks, leaving those DetectorResults fields at
+    // channeling/grind blocks, leaving those DetectorResults fields at
     // their defaults; the badge projection (decenza::deriveBadgesFromAnalysis)
     // then reads those defaults. The cascade lives in exactly one place —
     // ShotAnalysis::analyzeShot — and the UI shows a single red "Puck failed"
@@ -772,8 +772,19 @@ bool ShotHistoryStorage::runMigrations()
     if (currentVersion < 15) {
         qDebug() << "ShotHistoryStorage: Running migration to version 15 (drop temperature_unstable)";
 
-        if (hasColumn("shots", "temperature_unstable"))
-            query.exec("ALTER TABLE shots DROP COLUMN temperature_unstable");
+        if (hasColumn("shots", "temperature_unstable")) {
+            // Bail out without bumping schema_version if DROP COLUMN fails.
+            // Otherwise we'd advance to v15 with the column stranded — and
+            // since post-v15 SELECTs no longer reference the column, the
+            // load path would silently see stale data instead of erroring.
+            // Better to retry the migration on next launch than to leave
+            // the schema in a half-migrated state.
+            if (!query.exec("ALTER TABLE shots DROP COLUMN temperature_unstable")) {
+                qWarning() << "ShotHistoryStorage: migration 15 DROP COLUMN failed:"
+                           << query.lastError().text();
+                return false;
+            }
+        }
 
         query.exec("DELETE FROM schema_version");
         query.exec("INSERT INTO schema_version (version) VALUES (15)");
@@ -1604,7 +1615,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // (post-migration-10) or filled by computeDerivedCurves() above (legacy).
     // The grind and skip-first-frame sub-blocks need only flow / flowGoal /
     // pressure / phases, which are always available.
-    // Compute all five quality badges via a single ShotAnalysis::analyzeShot
+    // Compute all four quality badges via a single ShotAnalysis::analyzeShot
     // pass and project the booleans from DetectorResults. The cascade lives in
     // exactly one place (analyzeShot's body) and the badge columns are a
     // deterministic projection — see decenza::deriveBadgesFromAnalysis (in
@@ -2300,8 +2311,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override, profile_kb_id,
                         channeling_detected, grind_issue_detected,
-                        skip_first_frame_detected)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skip_first_frame_detected, pour_truncated_detected,
+                        enjoyment_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2341,6 +2353,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue((gi.isValid() && !gi.isNull()) ? gi : QVariant(0));
                 QVariant sf = srcShots.value("skip_first_frame_detected");
                 insert.addBindValue((sf.isValid() && !sf.isNull()) ? sf : QVariant(0));
+                QVariant pt = srcShots.value("pour_truncated_detected");
+                insert.addBindValue((pt.isValid() && !pt.isNull()) ? pt : QVariant(0));
+                QVariant es = srcShots.value("enjoyment_source");
+                insert.addBindValue((es.isValid() && !es.isNull()) ? es : QVariant(QString("none")));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();

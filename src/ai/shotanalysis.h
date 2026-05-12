@@ -12,8 +12,8 @@ struct HistoryPhaseMarker;
 // Used by ShotSummarizer (AI prompts), ShotHistoryStorage (save-time flags),
 // and ShotAnalysisDialog.qml (user-facing summary via Q_INVOKABLE).
 //
-// Single source of truth for channeling detection, temperature stability,
-// and shot summary generation. Threshold constants are defined here so
+// Single source of truth for channeling detection, grind direction, and
+// shot summary generation. Threshold constants are defined here so
 // tuning happens in one place.
 class ShotAnalysis {
 public:

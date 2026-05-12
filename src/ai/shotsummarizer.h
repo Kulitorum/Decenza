@@ -85,7 +85,7 @@ struct ShotSummary {
     // a QVariantMap with "text" (QString) and "type" (QString: "good" |
     // "caution" | "warning" | "observation" | "verdict"). Sharing the dialog's
     // output keeps the AI advisor's prompt and the badge UI in lockstep, so
-    // the suppression cascade (pour truncated → channeling/temp/grind forced
+    // the suppression cascade (pour truncated → channeling/grind forced
     // false) is enforced in exactly one place. See docs/SHOT_REVIEW.md §3.
     QVariantList summaryLines;
 

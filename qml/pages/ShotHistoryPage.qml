@@ -741,7 +741,7 @@ Page {
 
                             // Quality issue indicator dots. Order: red puckFailed first
                             // (most severe — shot has no tuning signal), then channeling
-                            // (red), temp/grind (orange), skipFirstFrame (red).
+                            // (red), grind (orange), skipFirstFrame (red).
                             Rectangle {
                                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor

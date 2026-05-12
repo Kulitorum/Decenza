@@ -270,7 +270,7 @@ The system SHALL compute a `grinderCalibration` block and include it in the dial
 2. The resolved shot's `beverageType` is espresso (NOT `filter` or `pourover`).
 3. At least 2 profiles in the all-time history (same grinder model + burrs) have qualifying shots with numeric grinder settings AND a canonical (non-inferred) UGS value in the knowledge base.
 
-A shot qualifies when: `final_weight >= 5g` (not aborted) AND no quality badge is set (`grind_issue_detected = 0`, `channeling_detected = 0`, `pour_truncated_detected = 0`, `temperature_unstable = 0`, `skip_first_frame_detected = 0`). Badge columns default to 0 for shots predating the badge migrations, so all old shots pass this filter.
+A shot qualifies when: `final_weight >= 5g` (not aborted) AND no quality badge is set (`grind_issue_detected = 0`, `channeling_detected = 0`, `pour_truncated_detected = 0`, `skip_first_frame_detected = 0`). Badge columns default to 0 for shots predating the badge migrations, so all old shots pass this filter. (The historical `temperature_unstable` predicate was retired alongside its column in the openspec change `remove-temperature-unstable-badge`.)
 
 The block SHALL be omitted (no key, no `null`) when any precondition fails.
 

@@ -38,7 +38,7 @@ The change is mechanical deletion across this surface. The architectural decisio
 
 ### Decision 1: Drop the `temperature_unstable` SQLite column outright
 
-**Choice:** Migration 14 issues `ALTER TABLE shots DROP COLUMN temperature_unstable;` matching the existing migration style in `shothistorystorage.cpp`.
+**Choice:** Migration 15 issues `ALTER TABLE shots DROP COLUMN temperature_unstable;` matching the existing migration style in `shothistorystorage.cpp`. (Migration 14 was taken by `enjoyment_source` between when this design doc was first drafted and when the implementation landed.)
 
 **Alternatives considered:**
 - *Leave the column dormant.* Pros: zero migration risk, no DB change. Cons: column rot accumulates; future readers wonder why the column exists; load path either ignores it (silently confusing) or has dead read code. Rejected — we have the migration framework in place and the column is now dead weight.
@@ -99,7 +99,7 @@ The change is mechanical deletion across this surface. The architectural decisio
 ## Migration Plan
 
 1. **Code changes ship in app version N** (current main → next release). The new code stops writing to `temperature_unstable`, stops reading it on load, and stops emitting it in MCP / signal / QML.
-2. **Schema migration 14 runs on first launch** of version N. Drops the column. Idempotent — checks the schema before running, like existing migrations.
+2. **Schema migration 15 runs on first launch** of version N. Drops the column. Idempotent — checks the schema before running, like existing migrations.
 3. **Rollback story:** if we have to roll back to N-1 after a user has run the migration, the column is gone but N-1's load path tolerates a missing column? **Verify before merge** — if N-1 reads the column unconditionally, rollback would crash. Likely we have to either (a) accept no-rollback, or (b) make the column drop conditional on a feature-flag / settings key. Default plan: no-rollback (consistent with all prior migrations being one-way).
 
 No data migration is needed (no value being preserved or transformed).

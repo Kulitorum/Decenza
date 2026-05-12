@@ -466,15 +466,11 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     // of running analyzeShot a second time on the same data — both the fast
     // path's pre-computed lines and the slow path's recomputation invoke the
     // same analyzeShot body on equivalent inputs, so the two paths produce
-    // matching observation lines. Per-phase temperature markers are still
-    // gated on the same conditions as the slow path; only the detector
-    // orchestration block is bypassed.
+    // matching observation lines.
     //
     // Precondition: callers populating `summaryLines` MUST also populate
-    // `detectorResults.pourTruncated` (convertShotRecord does both, atomically).
-    // If detectorResults is absent, .toBool() defaults to false, so a callsite
-    // that stuffs only summaryLines could mis-suppress per-phase temp markers
-    // on a truncated-pour shot. Today no such callsite exists.
+    // `detectorResults.pourTruncated` (convertShotRecord does both, atomically),
+    // since downstream consumers read the flag separately from the prose.
     if (!shotData.summaryLines.isEmpty()) {
         summary.summaryLines = shotData.summaryLines;
         summary.pourTruncatedDetected = shotData.detectorResults.value("pourTruncated").toBool();
@@ -1274,7 +1270,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "them as diagnostic signals (evidence), not your conclusions. Severity\n"
         "tags reflect detector confidence, not your final assessment:\n\n"
         "- [warning] high-confidence failure mode (sustained channeling, choked puck, yield overshoot/gusher, pour truncated, frame skip)\n"
-        "- [caution] directional hint (grind drift, flow trend, temp drift)\n"
+        "- [caution] directional hint (grind drift, flow trend)\n"
         "- [good] positive signal (puck stable)\n"
         "- [observation] context (preinfusion drip mass)\n\n"
         "Cross-check against the raw curves and the user's tasting feedback, and\n"

@@ -32,7 +32,7 @@
 - [x] 5.3 Update `requestReanalyzeBadges`: drop the temp arg from the worker, drop it from the comparison, drop it from the `shotBadgesUpdated` emit (5 args, not 6).
 - [x] 5.4 Drop the `temperature_unstable` predicate from `buildFilterQuery`.
 - [x] 5.5 Drop the field write in `convertShotRecord`'s output map AND the temperature block from the nested `detectorResults` it builds.
-- [x] 5.6 Add migration 14 to drop the column. Match the existing migration style (in-band SQL, `withTempDb`, version bump, idempotent skip-if-absent guard). Statement: `ALTER TABLE shots DROP COLUMN temperature_unstable;`.
+- [x] 5.6 Add migration 15 to drop the column (migration 14 was taken by `enjoyment_source` between drafting and implementation). Match the existing migration style (in-band SQL, `withTempDb`, version bump, idempotent skip-if-absent guard). Statement: `ALTER TABLE shots DROP COLUMN temperature_unstable;`. Bail-out on exec failure so a stranded column can't ship with schema_version=15.
 - [x] 5.7 Update `ShotHistoryStorage::shotBadgesUpdated` signal declaration in the `.h` to take 5 booleans (`channelingDetected, grindIssue, skipFirstFrame, pourTruncated` — pick the existing arg order minus `tempUnstable`).
 
 ## 6. MCP serializer in `src/mcp/mcptools_shots.cpp`
