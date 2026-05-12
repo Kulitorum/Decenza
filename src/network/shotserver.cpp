@@ -2634,9 +2634,19 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 }
 
-void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
+void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QString& contentType,
                                const QByteArray& body, const QByteArray& extraHeaders)
 {
+    // Raw socket pointers reach this function via posted QMetaCallEvents and
+    // multiple synchronous frames. If the peer drops the TCP connection while a
+    // queued event is in flight, onDisconnected → deleteLater can destroy the
+    // socket before/while we write. Wrap once in QPointer so a mid-call
+    // destruction reads as null rather than a UAF on the underlying QIODevice.
+    QPointer<QTcpSocket> socket(rawSocket);
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
+
     QString statusText;
     switch (statusCode) {
         case 200: statusText = "OK"; break;
@@ -2665,10 +2675,13 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
     response.append("\r\n");
     response.append(body);
 
+    if (!socket) return;
     socket->write(response);
+    if (!socket) return;
     socket->flush();
-
-    // Reset idle timer — close connection if no new request arrives
+    if (!socket) return;
+    // Arm the idle-close timer for HTTP keep-alive: drop the connection if no
+    // further request arrives within KEEPALIVE_TIMEOUT_S seconds.
     resetKeepAliveTimer(socket);
 }
 
@@ -2706,8 +2719,15 @@ void ShotServer::sendHtml(QTcpSocket* socket, const QString& html)
     sendResponse(socket, 200, "text/html; charset=utf-8", finalHtml.toUtf8());
 }
 
-void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString& contentType)
+void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QString& contentType)
 {
+    // waitForBytesWritten() below spins a local event loop, so unlike
+    // sendResponse the socket really can be destroyed mid-function via a
+    // deleteLater queued from onDisconnected. Hold a QPointer and re-check it
+    // after every operation that yields to the event loop.
+    QPointer<QTcpSocket> socket(rawSocket);
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         sendResponse(socket, 404, "text/plain", "File not found");
@@ -2729,9 +2749,10 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
         "\r\n"
     ).arg(contentType).arg(fileSize).arg(filename).toUtf8();
 
+    if (!socket) return;
     if (socket->write(headers) == -1) {
         qWarning() << "ShotServer::sendFile: Failed to write headers -" << socket->errorString();
-        socket->abort();
+        if (socket) socket->abort();
         return;
     }
 
@@ -2745,28 +2766,38 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
             success = false;
             break;
         }
+        if (!socket) return;
         if (socket->write(chunk) == -1) {
             qWarning() << "ShotServer::sendFile: Socket write failed -" << socket->errorString();
             success = false;
             break;
         }
+        if (!socket) return;
         if (!socket->waitForBytesWritten(5000)) {
-            qWarning() << "ShotServer::sendFile: Write timed out";
+            // Either a write timeout OR the socket was destroyed by a
+            // deleteLater fired from the nested event loop above.
+            if (socket) qWarning() << "ShotServer::sendFile: Write timed out";
             success = false;
             break;
         }
     }
 
+    if (!socket) return;
     if (success) {
         socket->flush();
-        socket->disconnectFromHost();
+        if (socket) socket->disconnectFromHost();
     } else {
         socket->abort();
     }
 }
 
-void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie)
+void ShotServer::sendRedirect(QTcpSocket* rawSocket, const QString& location, const QString& setCookie)
 {
+    // Same lifetime trap as sendResponse — guard against the socket being
+    // destroyed under us while the response is being constructed.
+    QPointer<QTcpSocket> socket(rawSocket);
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
     QByteArray response;
     response.append("HTTP/1.1 302 Found\r\n");
     response.append(QString("Location: %1\r\n").arg(location).toUtf8());
@@ -2777,8 +2808,11 @@ void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const
     response.append("Connection: keep-alive\r\n");
     response.append(QString("Keep-Alive: timeout=%1\r\n").arg(KEEPALIVE_TIMEOUT_S).toUtf8());
     response.append("\r\n");
+    if (!socket) return;
     socket->write(response);
+    if (!socket) return;
     socket->flush();
+    if (!socket) return;
     resetKeepAliveTimer(socket);
 }
 
