@@ -29,6 +29,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -166,6 +167,86 @@ QList<HistoryPhaseMarker> inferPhasesFromGoals(const QVector<QPointF>& pressure,
     return markers;
 }
 
+// Visualizer's public download drops `app.data.settings.advanced_shot` so we
+// can't see the per-frame `pump` field. The same shot's profile is reachable
+// at /api/shots/<uuid>/profile in raw Tcl; downloaders can save it next to
+// the shot JSON as `<basename>.profile.tcl` (or `<basename>.profile`). This
+// helper extracts the ordered pump modes from the advanced_shot block — the
+// only field we need for proper isFlowMode attribution.
+//
+// Returns an empty list when no sidecar is present or the regex matches
+// nothing — callers fall back to the goal-curve inference path.
+QStringList loadSidecarPumpModes(const QString& shotJsonPath)
+{
+    const QFileInfo fi(shotJsonPath);
+    const QString base = fi.absolutePath() + "/" + fi.completeBaseName();
+    QString profilePath = base + ".profile.tcl";
+    if (!QFileInfo::exists(profilePath)) {
+        profilePath = base + ".profile";
+        if (!QFileInfo::exists(profilePath)) return {};
+    }
+    QFile f(profilePath);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    const QString content = QString::fromUtf8(f.readAll());
+
+    // The advanced_shot block lists steps in order; each step has exactly one
+    // `pump <pressure|flow>` field. No other Tcl key uses the literal `pump `
+    // prefix followed by `pressure` or `flow` as a bare word (the rest are
+    // `pressure_end`, `flow_profile_*`, etc.), so a flat ordered match
+    // suffices without nested-brace parsing.
+    static const QRegularExpression re(QStringLiteral(R"(\bpump\s+(pressure|flow)\b)"));
+    QStringList modes;
+    auto it = re.globalMatch(content);
+    while (it.hasNext()) modes.append(it.next().captured(1));
+    return modes;
+}
+
+// Build phase markers from Visualizer's espresso_state_change array combined
+// with the ordered pump modes from the sidecar profile. The state_change
+// array carries one entry per pressure sample, alternating sign at each
+// frame transition (de1app convention). Frame N's mode comes from
+// pumpModes[N]; frames past the end of pumpModes are treated as unknown
+// mode (we emit them as pressure-mode markers since that's the safer
+// default for the grind detector — Arm 1 ignores pressure-mode samples).
+//
+// Returns empty if either input is missing or the state_change array's
+// length disagrees with the pressure series — callers fall back to the
+// goal-curve inference path.
+QList<HistoryPhaseMarker> phasesFromStateChange(
+    const QVector<QPointF>& pressure,
+    const QJsonArray& stateChange,
+    const QStringList& pumpModes)
+{
+    QList<HistoryPhaseMarker> markers;
+    if (pumpModes.isEmpty() || stateChange.size() != pressure.size()) return markers;
+
+    int frame = 0;
+    auto emitMarker = [&](double t) {
+        HistoryPhaseMarker m;
+        m.time = t;
+        m.frameNumber = frame;
+        m.isFlowMode = (frame < pumpModes.size()
+            && pumpModes[frame].compare(QStringLiteral("flow"), Qt::CaseInsensitive) == 0);
+        m.label = (frame < pumpModes.size())
+            ? QStringLiteral("frame%1_%2").arg(frame).arg(pumpModes[frame])
+            : QStringLiteral("frame%1").arg(frame);
+        markers.append(m);
+    };
+
+    // Frame 0 starts at the first sample.
+    emitMarker(pressure[0].x());
+    bool prevPositive = toDouble(stateChange[0]) > 0;
+    for (qsizetype i = 1; i < stateChange.size(); ++i) {
+        const bool curPositive = toDouble(stateChange[i]) > 0;
+        if (curPositive != prevPositive) {
+            ++frame;
+            emitMarker(pressure[i].x());
+        }
+        prevPositive = curPositive;
+    }
+    return markers;
+}
+
 // Pour-start proxy for visualizer shots which don't expose Decenza's phase
 // markers directly. Scans for the first sample where P > 2.0 bar and
 // F > 0.2 ml/s — the same heuristic ShotSummarizer falls back to.
@@ -190,7 +271,8 @@ bool looksLikeDecenzaFormat(const QJsonObject& root)
     return root.contains("elapsed") && root.value("pressure").isObject();
 }
 
-bool loadVisualizerFormat(const QJsonObject& root, LoadedShot& out, QString* errOut)
+bool loadVisualizerFormat(const QJsonObject& root, const QString& path,
+                           LoadedShot& out, QString* errOut)
 {
     out.id = root.value("id").toString();
     out.profileTitle = root.value("profile_title").toString();
@@ -213,7 +295,20 @@ bool loadVisualizerFormat(const QJsonObject& root, LoadedShot& out, QString* err
         if (errOut) *errOut = QStringLiteral("not enough samples");
         return false;
     }
-    out.phases = inferPhasesFromGoals(out.pressure, out.pressureGoal, out.flowGoal);
+    // Prefer state_change + sidecar profile when both are available — this
+    // matches the per-sample isFlowMode the production code captures from
+    // BLE, instead of inferring mode from goal curves (which silently drops
+    // pressure-mode preinfusion samples whose flow goal is a safety
+    // limiter, see PRs #811/#864). Fall back to inferPhasesFromGoals when
+    // either source is absent.
+    const QJsonArray stateChange = data.value("espresso_state_change").toArray();
+    const QStringList pumpModes = loadSidecarPumpModes(path);
+    if (!stateChange.isEmpty() && !pumpModes.isEmpty()) {
+        out.phases = phasesFromStateChange(out.pressure, stateChange, pumpModes);
+    }
+    if (out.phases.isEmpty()) {
+        out.phases = inferPhasesFromGoals(out.pressure, out.pressureGoal, out.flowGoal);
+    }
     return true;
 }
 
@@ -328,7 +423,7 @@ bool loadShotFile(const QString& path, LoadedShot& out, QString* errOut)
 
     const bool ok = looksLikeDecenzaFormat(root)
         ? loadDecenzaFormat(root, out, errOut)
-        : loadVisualizerFormat(root, out, errOut);
+        : loadVisualizerFormat(root, path, out, errOut);
     if (!ok) return false;
     out.conductance = Conductance::fromPressureFlow(out.pressure, out.flow);
     out.conductanceDerivative = Conductance::derivative(out.conductance);
