@@ -2634,9 +2634,19 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 }
 
-void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
+void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QString& contentType,
                                const QByteArray& body, const QByteArray& extraHeaders)
 {
+    // Raw socket pointers reach this function via posted QMetaCallEvents and
+    // multiple synchronous frames. If the peer drops the TCP connection while a
+    // queued event is in flight, onDisconnected → deleteLater can destroy the
+    // socket before/while we write. Wrap once in QPointer so a mid-call
+    // destruction reads as null rather than a UAF on the underlying QIODevice.
+    QPointer<QTcpSocket> socket(rawSocket);
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
+
     QString statusText;
     switch (statusCode) {
         case 200: statusText = "OK"; break;
@@ -2665,10 +2675,11 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
     response.append("\r\n");
     response.append(body);
 
+    if (!socket) return;
     socket->write(response);
+    if (!socket) return;
     socket->flush();
-
-    // Reset idle timer — close connection if no new request arrives
+    if (!socket) return;
     resetKeepAliveTimer(socket);
 }
 
@@ -2765,8 +2776,13 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
     }
 }
 
-void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie)
+void ShotServer::sendRedirect(QTcpSocket* rawSocket, const QString& location, const QString& setCookie)
 {
+    // Same lifetime trap as sendResponse — guard against the socket being
+    // destroyed under us while the response is being constructed.
+    QPointer<QTcpSocket> socket(rawSocket);
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
     QByteArray response;
     response.append("HTTP/1.1 302 Found\r\n");
     response.append(QString("Location: %1\r\n").arg(location).toUtf8());
@@ -2777,8 +2793,11 @@ void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const
     response.append("Connection: keep-alive\r\n");
     response.append(QString("Keep-Alive: timeout=%1\r\n").arg(KEEPALIVE_TIMEOUT_S).toUtf8());
     response.append("\r\n");
+    if (!socket) return;
     socket->write(response);
+    if (!socket) return;
     socket->flush();
+    if (!socket) return;
     resetKeepAliveTimer(socket);
 }
 
