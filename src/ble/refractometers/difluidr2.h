@@ -16,13 +16,9 @@ class ScaleBleTransport;
  * Protocol: header 0xDF 0xDF, func, cmd, datalen, data, additive checksum.
  * Service 0x00FF, characteristic 0xAA01.
  *
- * Emits tdsChanged whenever the device completes a measurement — including
- * measurements triggered by the physical button on the R2 itself, not just
- * those requested via requestMeasurement(). Consumers MUST gate by context
- * (e.g., "is the post-shot review page visible?") and validate the value
- * (reject calibrations / empty-cuvette readings below the plausible espresso
- * range) before persisting. PostShotReviewPage owns this contract today; do
- * not re-introduce an unconditional Settings auto-populate handler.
+ * Emits tdsChanged on every completed measurement, including device-initiated
+ * ones (physical button on the R2, idle polls). Consumers must gate by context
+ * and validate the value before persisting.
  */
 class DiFluidR2 : public QObject {
     Q_OBJECT

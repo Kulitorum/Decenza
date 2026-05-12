@@ -16,7 +16,7 @@ Refractometer TDS readings from the DiFluid R2 (received via the BLE `tdsChanged
 
 - **WHEN** any other page is active (idle, espresso-running, settings, history, etc.)
 - **AND** the DiFluid R2 emits a `tdsChanged` signal
-- **THEN** the signal is logged at debug level with the received value and the reason "review page not active"
+- **THEN** the signal is logged at debug level by `MainController` (the non-mutating observability handler) with the received value
 - **AND** no Settings field is modified
 - **AND** no shot record is modified
 - **AND** no carry-over occurs into the next shot's metadata
@@ -48,13 +48,22 @@ The system SHALL reject incoming `tdsChanged` values that are below 3.0% as cali
 
 ### Requirement: TDS capture has no global side effects on the BLE signal path
 
-The BLE-level R2 signal handler in `MainController` SHALL NOT write directly to `Settings.dyeDrinkTds` or `Settings.dyeDrinkEy` from the `tdsChanged` callback. The only writers to these settings SHALL be: (a) shot-end cleanup writes that reset to 0, (b) MCP tool writes, and (c) the legacy settings serializer at app startup.
+The BLE-level R2 signal handler in `MainController` SHALL NOT write to `Settings.dyeDrinkTds` or `Settings.dyeDrinkEy` from the `tdsChanged` callback. It MAY emit a non-mutating debug log to make device-side activity observable. The only writers to these settings SHALL be: (a) shot-end cleanup writes that reset to 0, (b) MCP tool writes (intentional, for AI dialing flows), and (c) PostShotReviewPage when it accepts a value into its local edit fields.
 
-#### Scenario: Connecting refractometer does not install a global auto-populate handler
+Additionally, `Settings.dyeDrinkTds` and `Settings.dyeDrinkEy` SHALL be in-memory (session-scratch) values, not persisted to QSettings or written to settings backup files. A stale TDS reading from a previous app session MUST NOT be visible at the start of the next session.
+
+#### Scenario: Connecting refractometer installs only a non-mutating log handler
 
 - **WHEN** `MainController::setRefractometer()` is called with a non-null R2 instance
-- **THEN** no `connect(...tdsChanged → setDyeDrinkTds...)` wiring is created
-- **AND** disconnecting from a refractometer instance does not require tearing down any such wiring
+- **THEN** the only `tdsChanged` connection installed is a `qDebug()`-only observer that does not modify any Settings field or shot record
+- **AND** disconnecting from a refractometer instance cleanly drops the observer
+
+#### Scenario: Settings.dyeDrinkTds is session-scratch
+
+- **WHEN** the user has a non-zero `Settings.dyeDrinkTds` value at the end of an app session
+- **AND** the app is restarted
+- **THEN** `Settings.dyeDrinkTds` reads 0 on next launch
+- **AND** restoring from a settings backup file does NOT bring back the TDS value (backup explicitly skips this field)
 
 #### Scenario: Settings remain zero between shots when no review takes place
 

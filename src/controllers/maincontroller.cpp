@@ -2493,12 +2493,11 @@ void MainController::setRefractometer(DiFluidR2* refractometer) {
     m_refractometer = refractometer;
     if (!m_refractometer) return;
 
-    // No tdsChanged auto-populate is installed here. PostShotReviewPage owns
-    // the R2 → shot-record path: it subscribes to tdsChanged while visible,
-    // validates the value, and writes to its local edit fields. This prevents
-    // device-initiated readings (physical button on the R2, calibrations,
-    // empty-cuvette polls) from leaking into Settings.dyeDrinkTds between
-    // shots. See change gate-r2-tds-auto-populate.
+    // Non-mutating log only. PostShotReviewPage owns context-gated capture; do
+    // not write to Settings here — device-initiated readings would leak forward.
+    connect(m_refractometer, &DiFluidR2::tdsChanged, this, [](double tds) {
+        qDebug() << "[Refractometer] tdsChanged" << tds;
+    });
 }
 
 

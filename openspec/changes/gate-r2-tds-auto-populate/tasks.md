@@ -21,13 +21,14 @@
 ## 4. Manual verification on hardware
 
 - [ ] 4.1 Build a Debug binary, install on a tablet with a paired DiFluid R2.
-- [ ] 4.2 Pull a shot. While the review page is visible, press the physical R2 button on a real espresso sample. Confirm the TDS appears in the review page and that the on-screen EY is computed correctly.
+- [ ] 4.2 Pull a shot. While the review page is visible, press the physical R2 button on a real espresso sample. Confirm the TDS appears in the review page and that the on-screen EY is computed correctly. Also verify: with the review page visible but a sub-dialog open (date picker, beverage chooser), an R2 reading still populates `editDrinkTds` (sub-dialogs sit over the page without flipping its `visible`).
 - [ ] 4.3 With the review page dismissed (e.g., during idle or while running another shot), press the physical R2 button on water or an empty sample. Confirm no shot record is mutated and no Settings change is observable. Inspect `qDebug()` log for the "review page not active" message.
 - [ ] 4.4 Test the validation threshold: with the review page visible, take an R2 reading on plain water (which reads <1%). Confirm the reading is dropped and the "below plausible-espresso threshold" debug log appears.
 - [ ] 4.5 Test the on-screen "Take Reading" button still works end-to-end on a sample.
 
 ## 5. Ship
 
-- [ ] 5.1 Open a PR via `/commit-commands:commit-push-pr` with a clear summary referencing the issue and PR #814 history.
-- [ ] 5.2 Squash-merge per project standard once review passes (via `/merge-pr`).
-- [ ] 5.3 Archive this OpenSpec change via `/opsx:archive gate-r2-tds-auto-populate`.
+- [x] 5.1 Open a PR via `/commit-commands:commit-push-pr` with a clear summary referencing the issue and PR #814 history. _(PR #1127: https://github.com/Kulitorum/Decenza/pull/1127)_
+- [ ] 5.2 Run automated code review on the PR via `/pr-review-toolkit:review-pr` (or `/code-review:code-review` / `/review`). Address any findings before merging.
+- [ ] 5.3 Squash-merge per project standard once review passes and hardware tests are green (via `/merge-pr`).
+- [ ] 5.4 Archive this OpenSpec change via `/opsx:archive gate-r2-tds-auto-populate`.

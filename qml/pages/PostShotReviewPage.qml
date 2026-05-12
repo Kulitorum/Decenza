@@ -210,25 +210,21 @@ Page {
     property string editNotes: ""
     property string editBeverageType: "espresso"
 
-    // Lowest plausible espresso TDS. Anything below is a calibration, empty
-    // cuvette, or rinse-water reading and is dropped. Real espresso is 5–22%;
-    // 3.0 leaves a safe margin while excluding every observed-bug value
-    // (max 0.64). See change gate-r2-tds-auto-populate.
+    // Real espresso TDS is 5–22%; below 3.0% is a calibration or empty cuvette.
     readonly property real kMinimumPlausibleTds: 3.0
 
-    // Capture R2 readings only while this page is the active StackView page.
-    // Device-initiated readings (physical button on R2, idle polls) that arrive
-    // while the user is elsewhere are dropped, preventing leaks into the next
-    // shot's metadata.
+    // Gate by visibility so device-initiated R2 readings between shots don't
+    // land on whichever shot happens to be loaded.
     Connections {
         target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
         enabled: postShotReviewPage.visible
         function onTdsChanged(tds) {
             if (!isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
-                console.debug("[PostShotReview] R2 tds", tds,
-                    "dropped: below plausible-espresso threshold",
-                    postShotReviewPage.kMinimumPlausibleTds)
+                console.warn("[PostShotReview] R2 tds", tds.toFixed(2),
+                    "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
+                    "shotId=", editShotId,
+                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
                 return
             }
             editDrinkTds = tds

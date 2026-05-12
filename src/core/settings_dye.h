@@ -173,4 +173,10 @@ private:
     mutable double m_dyeBeanWeightCache = 18.0;
     mutable double m_dyeDrinkWeightCache = 36.0;
     mutable bool m_dyeCacheInitialized = false;
+
+    // Per-shot refractometer values. Held in memory only, never persisted —
+    // a stale TDS from a previous app session has no business showing up on
+    // the next shot. The shot record is the source of truth post-save.
+    double m_dyeDrinkTds = 0.0;
+    double m_dyeDrinkEy = 0.0;
 };
