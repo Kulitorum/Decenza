@@ -215,8 +215,20 @@ Page {
 
     // Gate by visibility so device-initiated R2 readings between shots don't
     // land on whichever shot happens to be loaded.
+    //
+    // The `BLEManager.refractometerConnected` reference is load-bearing — it
+    // gives the target binding a signal to re-evaluate on. `Refractometer` is
+    // a context property whose value gets swapped (null ↔ live pointer) over
+    // the app lifetime, but `setContextProperty` doesn't emit a notify signal,
+    // so a binding that captured `null` at page-load stays stuck. Adding the
+    // BLEManager Q_PROPERTY (which DOES emit refractometerConnectedChanged)
+    // forces the binding to re-evaluate when the R2 connects after the review
+    // page has already opened. Without this, R2 readings that arrive after
+    // the page opens are silently dropped.
     Connections {
-        target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
+        target: BLEManager.refractometerConnected
+            && (typeof Refractometer !== "undefined") && Refractometer
+            ? Refractometer : null
         enabled: postShotReviewPage.visible
         function onTdsChanged(tds) {
             if (!isEditMode) return
