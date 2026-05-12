@@ -135,9 +135,10 @@ Page {
                 editDrinkWeight = editShotData.finalWeightG ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
-                if (editDrinkTds === 0)
+                if (editDrinkTds === 0) {
                     editDrinkTds = editShotData.drinkTdsPct ?? 0
-                editDrinkEy = editShotData.drinkEyPct ?? 0
+                    editDrinkEy = editShotData.drinkEyPct ?? 0
+                }
                 editEnjoyment = (editShotData.enjoymentSource === "inferred")
                     ? 0
                     : (editShotData.enjoyment0to100 ?? 0)
@@ -221,7 +222,7 @@ Page {
         function onTdsChanged(tds) {
             if (!isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
-                console.warn("[PostShotReview] R2 tds", tds.toFixed(2),
+                console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
                     "shotId=", editShotId,
                     "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
