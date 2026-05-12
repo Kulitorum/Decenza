@@ -6,7 +6,7 @@
 #include <cmath>
 
 // Projection from the typed ShotAnalysis::DetectorResults struct onto the
-// five boolean quality-badge columns persisted in the `shots` DB table and
+// four boolean quality-badge columns persisted in the `shots` DB table and
 // surfaced via QualityBadges.qml. Single source of truth for the badge↔struct
 // mapping — used by both save-time computation (saveShot) and the
 // recompute-on-load path (loadShotRecordStatic) so the cascade definition
@@ -21,9 +21,6 @@
 //   - grindIssueDetected fires on chokedPuck OR yieldOvershoot OR
 //     |flowDelta| > FLOW_DEVIATION_THRESHOLD, mirroring ShotAnalysis::
 //     detectGrindIssue's semantics.
-//   - tempUnstable already encodes its gates inside analyzeShot
-//     (tempStabilityChecked && !tempIntentionalStepping && avgDev > threshold),
-//     so no caller-side conjuncts are needed.
 //   - pourTruncated and skipFirstFrame are 1:1 with their struct fields.
 //
 // Header-only by design: lets unit tests (`tst_shotanalysis`'s
@@ -32,11 +29,10 @@
 
 namespace decenza {
 
-// Bag of the five boolean badge values, returned by deriveBadgesFromAnalysis.
+// Bag of the four boolean badge values, returned by deriveBadgesFromAnalysis.
 struct BadgeFlags {
     bool pourTruncatedDetected = false;
     bool channelingDetected = false;
-    bool temperatureUnstable = false;
     bool grindIssueDetected = false;
     bool skipFirstFrameDetected = false;
 };
@@ -48,7 +44,6 @@ inline BadgeFlags deriveBadgesFromAnalysis(const ShotAnalysis::DetectorResults& 
     flags.pourTruncatedDetected = d.pourTruncated;
     flags.skipFirstFrameDetected = d.skipFirstFrame;
     flags.channelingDetected = (d.channelingSeverity == QStringLiteral("sustained"));
-    flags.temperatureUnstable = d.tempUnstable;
     flags.grindIssueDetected = d.grindHasData
         && (d.grindChokedPuck
             || d.grindYieldOvershoot
@@ -67,7 +62,6 @@ inline void applyBadgesToTarget(T& target, const ShotAnalysis::DetectorResults& 
     target.pourTruncatedDetected = flags.pourTruncatedDetected;
     target.skipFirstFrameDetected = flags.skipFirstFrameDetected;
     target.channelingDetected = flags.channelingDetected;
-    target.temperatureUnstable = flags.temperatureUnstable;
     target.grindIssueDetected = flags.grindIssueDetected;
 }
 

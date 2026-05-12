@@ -273,7 +273,6 @@ private:
         QString score;
         QString notes;
         bool channelingDetected = false;
-        bool temperatureUnstable = false;
         bool fromStructuredEnvelope = false;  // false ⇒ legacy regex path fired
     };
 

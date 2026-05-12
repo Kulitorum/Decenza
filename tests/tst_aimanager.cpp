@@ -1016,21 +1016,19 @@ private slots:
     {
         // Use the actual production-emitted strings from
         // ShotAnalysis::analyzeShot — "Sustained channeling detected"
-        // (lowercase "c" in "channeling") and "Temperature drifted X°C
-        // from goal on average". These are what the deterministic
+        // (lowercase "c" in "channeling"). This is what the deterministic
         // detector pipeline writes into summaryLines.text, and the
-        // substring matchers in extractShotFields are tuned to them.
+        // substring matcher in extractShotFields is tuned to it.
         const QString content = QStringLiteral(
             "## Shot (2026-05-01)\n\nHere's my latest shot:\n\n"
             "{"
             "  \"shot\": {\"doseG\": 18.0, \"yieldG\": 36.0},"
-            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\\n- [caution] Temperature drifted 2.4\\u00B0C from goal on average\""
+            "  \"shotAnalysis\": \"## Shot Summary\\n- [warning] Sustained channeling detected in dC/dt\""
             "}\n\nWhat to do?");
 
         const auto fields = AIConversation::extractShotFields(content);
         QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY(fields.channelingDetected);
-        QVERIFY(fields.temperatureUnstable);
     }
 
     // After issue #1037, the structured `shot.detectorObservations[]`
@@ -1054,8 +1052,6 @@ private slots:
         QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY2(fields.channelingDetected,
                  "detectorObservations[] takes precedence over the prose body");
-        QVERIFY2(!fields.temperatureUnstable,
-                 "no temp-unstable observation present, so the flag must stay false");
     }
 
     // The structured-array path's stable `kind` enum is the canonical
@@ -1071,9 +1067,7 @@ private slots:
             "    \"doseG\": 18.0,"
             "    \"detectorObservations\": ["
             "      {\"type\": \"warning\", \"kind\": \"channeling_sustained\","
-            "       \"text\": \"PUCK PREP ISSUE — totally rewritten in a future release\"},"
-            "      {\"type\": \"caution\", \"kind\": \"temperature_drift\","
-            "       \"text\": \"Heating element behaving oddly\"}"
+            "       \"text\": \"PUCK PREP ISSUE — totally rewritten in a future release\"}"
             "    ]"
             "  }"
             "}");
@@ -1082,8 +1076,6 @@ private slots:
         QVERIFY(fields.fromStructuredEnvelope);
         QVERIFY2(fields.channelingDetected,
                  "kind=channeling_sustained must set channelingDetected even when text drifts");
-        QVERIFY2(fields.temperatureUnstable,
-                 "kind=temperature_drift must set temperatureUnstable even when text drifts");
     }
 
     // Transient channeling also sets the flag (kind=channeling_transient).
@@ -1103,22 +1095,20 @@ private slots:
     }
 
     // Pre-#1037 envelopes ship `text` without `kind`. Substring fallback
-    // against the production text strings (`channeling detected` /
-    // `Temperature drifted`) keeps those envelopes working.
+    // against the production text string (`channeling detected`) keeps
+    // those envelopes working.
     void aiConversation_extractShotFields_kindAbsentFallsBackToTextSubstring()
     {
         const QString content = QStringLiteral(
             "{"
             "  \"shot\": {"
             "    \"detectorObservations\": ["
-            "      {\"type\": \"warning\", \"text\": \"Sustained channeling detected in dC/dt\"},"
-            "      {\"type\": \"caution\", \"text\": \"Temperature drifted 2.4\\u00B0C from goal on average\"}"
+            "      {\"type\": \"warning\", \"text\": \"Sustained channeling detected in dC/dt\"}"
             "    ]"
             "  }"
             "}");
         const auto fields = AIConversation::extractShotFields(content);
         QVERIFY(fields.channelingDetected);
-        QVERIFY(fields.temperatureUnstable);
     }
 
     void aiConversation_extractShotFields_legacyProseFallsBackToRegex()
@@ -1146,7 +1136,6 @@ private slots:
         QCOMPARE(fields.grinder, QStringLiteral("Niche Zero"));
         QCOMPARE(fields.profileTitle, QStringLiteral("80's Espresso"));
         QVERIFY(fields.channelingDetected);
-        QVERIFY(!fields.temperatureUnstable);
     }
 
     // Cross-era equivalence: the structured path produces the same

@@ -302,82 +302,6 @@ bool ShotAnalysis::shouldSkipChannelingCheck(const QString& beverageType,
     return false;
 }
 
-bool ShotAnalysis::hasIntentionalTempStepping(const QVector<QPointF>& tempGoalData)
-{
-    double goalMin = 999, goalMax = 0;
-    for (const auto& gp : tempGoalData) {
-        if (gp.y() > 0) {
-            goalMin = qMin(goalMin, gp.y());
-            goalMax = qMax(goalMax, gp.y());
-        }
-    }
-    return (goalMax - goalMin) > TEMP_STEPPING_RANGE;
-}
-
-bool ShotAnalysis::hasIntentionalTempStepping(const QVector<QPointF>& tempGoalData,
-                                                double startTime, double endTime)
-{
-    double goalMin = 999, goalMax = 0;
-    bool hasGoal = false;
-    for (const auto& gp : tempGoalData) {
-        if (gp.x() < startTime) continue;
-        if (gp.x() > endTime) break;
-        if (gp.y() > 0) {
-            goalMin = qMin(goalMin, gp.y());
-            goalMax = qMax(goalMax, gp.y());
-            hasGoal = true;
-        }
-    }
-    return hasGoal && (goalMax - goalMin) > TEMP_STEPPING_RANGE;
-}
-
-double ShotAnalysis::avgTempDeviation(const QVector<QPointF>& tempData,
-                                        const QVector<QPointF>& tempGoalData,
-                                        double startTime, double endTime)
-{
-    double devSum = 0;
-    int count = 0;
-    bool warmupDone = false;
-    for (const auto& pt : tempData) {
-        if (pt.x() < startTime) continue;
-        if (pt.x() > endTime) break;
-        double goal = findValueAtTime(tempGoalData, pt.x());
-        if (goal <= 0) continue;
-        // Skip leading samples where the group head is still warming up to
-        // operating temperature. Once the first in-range sample is seen,
-        // warmupDone latches so a mid-shot temperature drop still counts.
-        if (!warmupDone) {
-            if (goal - pt.y() > TEMP_WARMUP_SKIP_C) continue;
-            warmupDone = true;
-        }
-        devSum += std::abs(pt.y() - goal);
-        ++count;
-    }
-    // count == 0: every pour sample was below the warmup threshold — the machine
-    // never reached operating temperature during extraction. No usable data means
-    // no diagnosis; return 0.0 so the caller fires no badge. This is intentional:
-    // a machine that stays this cold for a full extraction is extremely rare, and
-    // silence is preferable to a misleading badge with no valid signal.
-    return count > 0 ? devSum / count : 0.0;
-}
-
-bool ShotAnalysis::reachedExtractionPhase(const QList<HistoryPhaseMarker>& phases,
-                                           double shotDuration)
-{
-    if (shotDuration <= 0.0) return false;
-    for (const auto& pm : phases) {
-        if (pm.frameNumber < 1) continue;
-        // Frame ≥ 1 marker found. The shot must have continued past it for
-        // long enough to actually run extraction. Aborted shots sometimes
-        // record the 0→1 transition in firmware in the final ms before the
-        // shot ends (frame marker present, but no samples land inside it),
-        // so a presence-only check would let those slip through.
-        if (shotDuration - pm.time >= TEMP_MIN_EXTRACTION_SEC)
-            return true;
-    }
-    return false;
-}
-
 double ShotAnalysis::findValueAtTime(const QVector<QPointF>& data, double time)
 {
     if (data.isEmpty()) return 0.0;
@@ -741,8 +665,6 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     const QVector<QPointF>& pressure,
     const QVector<QPointF>& flow,
     const QVector<QPointF>& weight,
-    const QVector<QPointF>& temperature,
-    const QVector<QPointF>& temperatureGoal,
     const QVector<QPointF>& conductanceDerivative,
     const QList<HistoryPhaseMarker>& phases,
     const QString& beverageType,
@@ -787,7 +709,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
 
     // --- Pour-truncated detection (runs first; dominates the cascade) ---
     // When peak pressure stayed below PRESSURE_FLOOR_BAR the puck never built,
-    // so channeling / flow-trend / temp-stability / grind blocks are all
+    // so channeling / flow-trend / grind blocks are all
     // reading off curves the failed puck didn't produce. Skip those blocks
     // entirely when this fires, and emit a single "Puck failed" warning +
     // verdict that names the meta-action ("don't tune off this shot"). Peak
@@ -905,31 +827,6 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             line["type"] = QStringLiteral("observation");
             line["kind"] = QStringLiteral("preinfusion_drip");
             lines.append(line);
-        }
-    }
-
-    // --- Temperature stability ---
-    // Gated on reachedExtractionPhase so aborted shots that died during
-    // preinfusion-start (frame 0 only) don't fire on the preheat ramp.
-    // Suppressed when pourTruncated fires — temp drift on a puck that never
-    // built is a downstream symptom, not a useful diagnosis.
-    if (!pourTruncated
-        && temperature.size() > 10 && temperatureGoal.size() > 10 && pourStart > 0
-        && reachedExtractionPhase(phases, duration)) {
-        d.tempStabilityChecked = true;
-        if (hasIntentionalTempStepping(temperatureGoal)) {
-            d.tempIntentionalStepping = true;
-        } else {
-            const double avgDev = avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd);
-            d.tempAvgDeviationC = avgDev;
-            if (avgDev > TEMP_UNSTABLE_THRESHOLD) {
-                d.tempUnstable = true;
-                QVariantMap line;
-                line["text"] = QStringLiteral("Temperature drifted %1\u00B0C from goal on average").arg(avgDev, 0, 'f', 1);
-                line["type"] = QStringLiteral("caution");
-                line["kind"] = QStringLiteral("temperature_drift");
-                lines.append(line);
-            }
         }
     }
 
@@ -1121,7 +1018,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     if (pourTruncated) {
         // Dominates over every other signal. Lead with the meta-action
         // ("don't tune off this shot") because peak pressure never built —
-        // the channeling / grind / temp detectors are reading off curves the
+        // the channeling / grind detectors are reading off curves the
         // failed puck didn't produce, so their silence (or any drift they
         // happen to flag) is not a tuning signal. Naming the unreliable
         // detectors explicitly is important: a user who sees no Channeling
@@ -1130,7 +1027,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         d.verdictCategory = QStringLiteral("puckTruncated");
         verdict["text"] = QStringLiteral("Verdict: Don't tune off this shot \u2014 "
             "peak pressure never built, so the other quality signals "
-            "(channeling, grind direction, temp) are unreliable. Check prep "
+            "(channeling, grind direction) are unreliable. Check prep "
             "(dose, distribution, basket, grind) and pull another.");
     } else if (skipFirstFrame) {
         // Skip-first-frame is a machine/profile issue, not puck integrity — give specific advice
@@ -1216,8 +1113,6 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
 QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              const QVector<QPointF>& flow,
                                              const QVector<QPointF>& weight,
-                                             const QVector<QPointF>& temperature,
-                                             const QVector<QPointF>& temperatureGoal,
                                              const QVector<QPointF>& conductanceDerivative,
                                              const QList<HistoryPhaseMarker>& phases,
                                              const QString& beverageType,
@@ -1230,7 +1125,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              double finalWeightG,
                                              int expectedFrameCount)
 {
-    return analyzeShot(pressure, flow, weight, temperature, temperatureGoal,
+    return analyzeShot(pressure, flow, weight,
                        conductanceDerivative, phases, beverageType, duration,
                        pressureGoal, flowGoal, analysisFlags,
                        firstFrameConfiguredSeconds, targetWeightG, finalWeightG,

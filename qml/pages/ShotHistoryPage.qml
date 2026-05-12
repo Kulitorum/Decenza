@@ -194,10 +194,9 @@ Page {
                 }
             }
 
-            // Parse quality flag keywords (channeling:yes, temp:yes, grind:yes, skipframe:yes, puckfailed:yes)
+            // Parse quality flag keywords (channeling:yes, grind:yes, skipframe:yes, puckfailed:yes)
             var flagKeywords = [
                 { pattern: /\bchanneling:yes\b/gi, filterKey: "filterChanneling" },
-                { pattern: /\btemp:yes\b/gi, filterKey: "filterTemperatureUnstable" },
                 { pattern: /\bgrind:yes\b/gi, filterKey: "filterGrindIssue" },
                 { pattern: /\bskipframe:yes\b/gi, filterKey: "filterSkipFirstFrame" },
                 { pattern: /\bpuckfailed:yes\b/gi, filterKey: "filterPourTruncated" }
@@ -607,7 +606,6 @@ Page {
                     var issues = []
                     if (model.pourTruncatedDetected) issues.push("puck failed")
                     if (model.channelingDetected) issues.push("channeling")
-                    if (model.temperatureUnstable) issues.push("temp unstable")
                     if (model.grindIssueDetected) issues.push("grind issue")
                     if (model.skipFirstFrameDetected) issues.push("first step skipped")
                     if (issues.length > 0) parts.push(issues.join(", "))
@@ -743,7 +741,7 @@ Page {
 
                             // Quality issue indicator dots. Order: red puckFailed first
                             // (most severe — shot has no tuning signal), then channeling
-                            // (red), temp/grind (orange), skipFirstFrame (red).
+                            // (red), grind (orange), skipFirstFrame (red).
                             Rectangle {
                                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
@@ -754,12 +752,6 @@ Page {
                                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
                                 visible: model.channelingDetected ?? false
-                                Accessible.ignored: true
-                            }
-                            Rectangle {
-                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
-                                color: Theme.warningColor
-                                visible: model.temperatureUnstable ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
@@ -1329,21 +1321,6 @@ Page {
                 Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
                 Rectangle {
-                    color: tempArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: tempLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: tempLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("temp:yes")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: tempArea.clicked(null)
-                    Text { id: tempLabel; text: "temp:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: tempArea; anchors.fill: parent; onClicked: insertSearchKeyword("temp:yes") }
-                }
-                Text { text: TranslationManager.translate("shothistory.helptemp", "Temp unstable"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "temp:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-
-                Rectangle {
                     color: grindArea.pressed ? Theme.surfaceColor : "transparent"
                     radius: Theme.scaled(4)
                     implicitWidth: grindLabel.implicitWidth + Theme.scaled(8)
@@ -1372,12 +1349,27 @@ Page {
                 }
                 Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Rectangle {
+                    color: puckFailedArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: puckFailedLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: puckFailedLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("puckfailed:yes")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: puckFailedArea.clicked(null)
+                    Text { id: puckFailedLabel; text: "puckfailed:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: insertSearchKeyword("puckfailed:yes") }
+                }
+                Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
             }
 
             // Syntax explanation
             Text {
                 text: TranslationManager.translate("shothistory.searchhelpsyntax",
-                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, temp:yes, grind:yes, skipframe:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
+                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, grind:yes, skipframe:yes, puckfailed:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap

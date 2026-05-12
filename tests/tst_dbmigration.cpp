@@ -10,7 +10,7 @@
 
 #include "history/shothistorystorage.h"
 
-// Test the ShotHistoryStorage schema creation and migration chain (v1->v12).
+// Test the ShotHistoryStorage schema creation and migration chain (v1->v15).
 //
 // Strategy: create a temp DB with an old schema (missing columns),
 // set schema_version to an old value, then call initialize() which runs
@@ -164,7 +164,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 14);
+            QCOMPARE(getSchemaVersion(db), 15);
         });
     }
 
@@ -183,7 +183,9 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
-            QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
+            // temperature_unstable was added in migration 10 and dropped in
+            // migration 15 — see remove-temperature-unstable-badge change.
+            QVERIFY(!hasColumn(db, "shots", "temperature_unstable"));
             QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
             QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
             QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
@@ -226,7 +228,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 14);
+            QCOMPARE(getSchemaVersion(db), 15);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -234,7 +236,9 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
-            QVERIFY(hasColumn(db, "shots", "temperature_unstable"));
+            // temperature_unstable was added in migration 10 and dropped in
+            // migration 15 — see remove-temperature-unstable-badge change.
+            QVERIFY(!hasColumn(db, "shots", "temperature_unstable"));
             QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
             QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
             QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
@@ -338,7 +342,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 14);
+            QCOMPARE(getSchemaVersion(db), 15);
         });
     }
 
@@ -352,7 +356,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 14);
+            QCOMPARE(getSchemaVersion(db), 15);
         });
     }
 
@@ -372,7 +376,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 14);
+            QCOMPARE(getSchemaVersion(db), 15);
         });
     }
 
@@ -395,7 +399,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 14);
+            QCOMPARE(getSchemaVersion(db), 15);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
@@ -448,7 +452,7 @@ private slots:
     }
 
     // ==========================================
-    // Full chain v1->v12 preserves existing data
+    // Full chain v1->v15 preserves existing data
     // ==========================================
 
     void fullChainPreservesData() {
@@ -543,7 +547,8 @@ private slots:
     // Migration 14: enjoyment_source column added. Idempotency check —
     // running ShotHistoryStorage::initialize twice on the same DB does
     // not re-apply the ALTER (which would fail with a duplicate-column
-    // error) and the schema_version stays at 14. The back-fill logic
+    // error) and the schema_version reaches the latest version (currently
+    // 15, post the temperature_unstable drop). The back-fill logic
     // (UPDATE shots SET enjoyment_source = 'user' WHERE enjoyment > 0)
     // is exercised in production; constructing a partial v13 schema
     // here would force an unrealistic state through ShotHistoryStorage's
@@ -571,7 +576,7 @@ private slots:
                 if (q.value(1).toString() == "enjoyment_source") { hasColumn = true; break; }
             }
         });
-        QCOMPARE(versionFound, 14);
+        QCOMPARE(versionFound, 15);
         QVERIFY2(hasColumn, "enjoyment_source column survives idempotent re-initialize");
     }
 };

@@ -157,27 +157,10 @@ QList<PhaseSummary> ShotSummarizer::buildPhaseSummariesForRange(
 }
 
 
-void ShotSummarizer::markPerPhaseTempInstability(ShotSummary& summary,
-    const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
-{
-    if (tempGoalData.isEmpty()) return;
-
-    for (auto& phase : summary.phases) {
-        if (ShotAnalysis::hasIntentionalTempStepping(tempGoalData, phase.startTime, phase.endTime)) {
-            phase.temperatureUnstable = false;
-            continue;
-        }
-        double avgDev = ShotAnalysis::avgTempDeviation(tempData, tempGoalData, phase.startTime, phase.endTime);
-        phase.temperatureUnstable = (avgDev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD);
-    }
-}
-
 void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
     const QVector<QPointF>& pressure,
     const QVector<QPointF>& flow,
     const QVector<QPointF>& weight,
-    const QVector<QPointF>& temperature,
-    const QVector<QPointF>& temperatureGoal,
     const QVector<QPointF>& conductanceDerivative,
     const QList<HistoryPhaseMarker>& markers,
     const QVector<QPointF>& pressureGoal,
@@ -188,7 +171,7 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
     int frameCount) const
 {
     const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
-        pressure, flow, weight, temperature, temperatureGoal,
+        pressure, flow, weight,
         conductanceDerivative, markers,
         summary.beverageType, summary.totalDuration,
         pressureGoal, flowGoal, analysisFlags,
@@ -196,10 +179,6 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
         frameCount);
     summary.summaryLines = analysis.lines;
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
-    summary.tempIntentionalStepping = analysis.detectors.tempIntentionalStepping;
-    if (!summary.pourTruncatedDetected
-        && ShotAnalysis::reachedExtractionPhase(markers, summary.totalDuration))
-        markPerPhaseTempInstability(summary, temperature, temperatureGoal);
 }
 
 ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
@@ -321,7 +300,6 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     // pourTruncatedDetected onto summary. The suppression cascade (pour
     // truncated → channeling/temp/grind forced false) lives in exactly one
     // place — see SHOT_REVIEW.md §3.
-    const auto& tempGoalData = shotData->temperatureGoalData();
     const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
     const double firstFrameSeconds = (profile && !profile->steps().isEmpty())
         ? profile->steps().first().seconds : -1.0;
@@ -334,7 +312,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         ? static_cast<int>(profile->steps().size()) : -1;
 
     runShotAnalysisAndPopulate(summary,
-        pressureData, flowData, cumulativeWeightData, tempData, tempGoalData,
+        pressureData, flowData, cumulativeWeightData,
         shotData->conductanceDerivativeData(), historyMarkers,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
         firstFrameSeconds, summary.targetWeight, frameCount);
@@ -488,27 +466,14 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     // of running analyzeShot a second time on the same data — both the fast
     // path's pre-computed lines and the slow path's recomputation invoke the
     // same analyzeShot body on equivalent inputs, so the two paths produce
-    // matching observation lines. Per-phase temperature markers are still
-    // gated on the same conditions as the slow path; only the detector
-    // orchestration block is bypassed.
+    // matching observation lines.
     //
     // Precondition: callers populating `summaryLines` MUST also populate
-    // `detectorResults.pourTruncated` (convertShotRecord does both, atomically).
-    // If detectorResults is absent, .toBool() defaults to false, so a callsite
-    // that stuffs only summaryLines could mis-suppress per-phase temp markers
-    // on a truncated-pour shot. Today no such callsite exists.
+    // `detectorResults.pourTruncated` (convertShotRecord does both, atomically),
+    // since downstream consumers read the flag separately from the prose.
     if (!shotData.summaryLines.isEmpty()) {
         summary.summaryLines = shotData.summaryLines;
         summary.pourTruncatedDetected = shotData.detectorResults.value("pourTruncated").toBool();
-        // .toMap() on a missing tempStability key returns an empty map and
-        // .toBool() then defaults to false — a row without the envelope
-        // reads as !intentionalStepping (correct fallback).
-        summary.tempIntentionalStepping = shotData.detectorResults
-            .value("tempStability").toMap()
-            .value("intentionalStepping").toBool();
-        if (!summary.pourTruncatedDetected
-            && ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration))
-            markPerPhaseTempInstability(summary, summary.tempCurve, summary.tempGoalCurve);
         return summary;
     }
 
@@ -542,7 +507,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
 
     runShotAnalysisAndPopulate(summary,
         summary.pressureCurve, summary.flowCurve, summary.weightCurve,
-        summary.tempCurve, summary.tempGoalCurve, derivCurve, historyMarkers,
+        derivCurve, historyMarkers,
         summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
         firstFrameSeconds, targetWeightG, frameCount);
 
@@ -638,12 +603,11 @@ static QJsonObject buildOverallPeaksBlock(const ShotSummary& summary)
 }
 
 // Build a structured phases[] array. Each phase carries name, duration,
-// control mode, peak pressure / flow within the phase, and per-phase
-// `temperatureUnstable` flag. Phase samples (start / peakDeviation /
-// end) stay in the prose body for now — the deterministic detector
-// lines that summarize them already live in `detectorObservations`.
-// Issue #1037: structural fields the AI can iterate over without
-// pattern-matching prose.
+// control mode, and peak pressure / flow within the phase. Phase samples
+// (start / peakDeviation / end) stay in the prose body for now — the
+// deterministic detector lines that summarize them already live in
+// `detectorObservations`. Issue #1037: structural fields the AI can
+// iterate over without pattern-matching prose.
 //
 // Threading: pure read of `summary.phases` and the curve members. Safe
 // to call on any thread that owns `summary`. Same threading contract
@@ -669,15 +633,6 @@ static QJsonArray buildPhasesBlock(const ShotSummary& summary)
         if (fp.value(QStringLiteral("value")).toDouble() > 0.1)
             phasePeaks["flowMlPerSec"] = fp;
         if (!phasePeaks.isEmpty()) p["peaks"] = phasePeaks;
-        // Per-phase temperature flag. The same suppression cascade the
-        // prose body uses — a failed pour's temp drift is a downstream
-        // symptom, not signal; intentional cross-phase stepping is
-        // by-design, not instability.
-        if (phase.temperatureUnstable
-            && !summary.pourTruncatedDetected
-            && !summary.tempIntentionalStepping) {
-            p["temperatureUnstable"] = true;
-        }
         phases.append(p);
     }
     return phases;
@@ -687,7 +642,7 @@ static QJsonArray buildPhasesBlock(const ShotSummary& summary)
 // `{type, kind, text}`:
 //   - `type` ∈ {warning, caution, good, observation} — severity tag.
 //   - `kind` is a stable enum identifier ("channeling_sustained",
-//     "temperature_drift", "grind_too_fine", etc.) populated by the
+//     "grind_too_fine", etc.) populated by the
 //     deterministic detector pipeline. Consumers SHOULD read by `kind`
 //     instead of substring-matching `text`, which is freeform prose
 //     intended for the LLM and may be reworded across releases.
@@ -962,14 +917,6 @@ QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, Rend
             out << "\u00B0C ";
             out << QString::number(weight, 'f', 1) << "g\n";
         }
-        // Suppress per-phase temp instability when the puck never built \u2014
-        // temp drift on a failed pour is a downstream symptom, not signal.
-        // Also suppress on intentionally-stepping profiles: per-phase
-        // deviation against a stepped goal is by design, not instability.
-        if (phase.temperatureUnstable
-            && !summary.pourTruncatedDetected
-            && !summary.tempIntentionalStepping)
-            out << "- **Temperature instability**: Average temperature deviated from target by >2\u00B0C during this phase\n";
         out << "\n";
     }
 
@@ -1323,7 +1270,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "them as diagnostic signals (evidence), not your conclusions. Severity\n"
         "tags reflect detector confidence, not your final assessment:\n\n"
         "- [warning] high-confidence failure mode (sustained channeling, choked puck, yield overshoot/gusher, pour truncated, frame skip)\n"
-        "- [caution] directional hint (grind drift, flow trend, temp drift)\n"
+        "- [caution] directional hint (grind drift, flow trend)\n"
         "- [good] positive signal (puck stable)\n"
         "- [observation] context (preinfusion drip mass)\n\n"
         "Cross-check against the raw curves and the user's tasting feedback, and\n"

@@ -645,7 +645,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     //
     // Only include shots with clean extraction:
     //   - final_weight >= 15g (not aborted; 5g is too small to be a real extraction)
-    //   - no quality badge set (grind issue, channeling, pour truncated, temp unstable)
+    //   - no quality badge set (grind issue, channeling, pour truncated, skip-first-frame)
     // Badge columns default to 0 on old shots (pre-migration), so the filter
     // is safe on all DB versions.
     QSqlQuery q(db);
@@ -659,7 +659,6 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "  AND COALESCE(grind_issue_detected, 0) = 0 "
         "  AND COALESCE(channeling_detected, 0) = 0 "
         "  AND COALESCE(pour_truncated_detected, 0) = 0 "
-        "  AND COALESCE(temperature_unstable, 0) = 0 "
         "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
         "ORDER BY timestamp DESC");
     q.addBindValue(grinderModel);

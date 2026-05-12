@@ -44,7 +44,7 @@ static void stripDetectorInternals(QJsonObject& obj)
         return;
     QJsonObject detectorResults = obj.value("detectorResults").toObject();
     static const char* detectorKeys[] = {
-        "grind", "channeling", "flowTrend", "tempStability", "preinfusion"
+        "grind", "channeling", "flowTrend", "preinfusion"
     };
     for (const char* key : detectorKeys) {
         const QString k = QString::fromLatin1(key);
@@ -366,7 +366,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
         "shots_get_detail",
         "Get a shot record. Default detail='summary' returns scalars, phase summaries, "
         "summary lines, detector results (every detector wrapped in its own envelope object: "
-        "grind / channeling / flowTrend / tempStability / preinfusion / pour / skipFirstFrame / "
+        "grind / channeling / flowTrend / preinfusion / pour / skipFirstFrame / "
         "verdict), and ratings (~3K chars). Pass detail='full' to include time-series curves "
         "(pressure, flow, temperature, weight), debug log, and embedded profile JSON (~85K chars "
         "— only useful for curve-aware analysis).",

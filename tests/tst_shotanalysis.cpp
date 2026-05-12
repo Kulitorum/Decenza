@@ -933,7 +933,7 @@ private slots:
         QVector<QPointF> weight;  // unused
 
         const QVariantList lines = ShotAnalysis::generateSummary(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, /*beverageType=*/"espresso", /*duration=*/60.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
 
@@ -1123,7 +1123,7 @@ private slots:
         QVector<QPointF> weight;
 
         const QVariantList lines = ShotAnalysis::generateSummary(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, /*beverageType=*/"espresso", /*duration=*/35.4,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
             /*firstFrameConfiguredSeconds=*/-1.0,
@@ -1198,8 +1198,8 @@ private slots:
 
     // ---- Suppression cascade in analyzeShot ----
     //
-    // When pourTruncated fires, the channeling / flow-trend / temp-stability /
-    // grind blocks all read off curves the failed puck didn't produce, so
+    // When pourTruncated fires, the channeling / flow-trend / grind blocks
+    // all read off curves the failed puck didn't produce, so
     // their output is unreliable. The summary path suppresses those blocks
     // entirely and emits a single "Pour never pressurized" warning + the
     // "Don't tune off this shot" verdict instead. These tests lock in that
@@ -1228,7 +1228,7 @@ private slots:
         QVector<QPointF> weight;
 
         const QVariantList lines = ShotAnalysis::generateSummary(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, /*beverageType=*/"espresso", /*duration=*/7.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
 
@@ -1255,38 +1255,6 @@ private slots:
                  qPrintable("verdict should name the unreliable signals: " + verdictText));
     }
 
-    // Temperature drift well above the 2°C threshold must NOT produce a
-    // "Temperature drifted" caution line when pourTruncated fires. This is
-    // the exact misdiagnosis from shot 868 — fix is the suppression gate in
-    // analyzeShot.
-    void pourTruncated_summary_suppressesTempDriftLine()
-    {
-        QList<HistoryPhaseMarker> phases{
-            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
-            phase(2.0, "pour",              1, /*isFlowMode=*/true),
-        };
-        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);  // puck failure
-        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
-        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
-        // 5°C below goal — would normally trip the temp-unstable detector.
-        QVector<QPointF> temperature = flatSeries(0.0, 7.0, 77.0);
-        QVector<QPointF> temperatureGoal = flatSeries(0.0, 7.0, 82.0);
-        QVector<QPointF> dCdt = flatSeries(0.0, 7.0, 0.0);
-        QVector<QPointF> weight;
-
-        const QVariantList lines = ShotAnalysis::generateSummary(
-            pressure, flow, weight, temperature, temperatureGoal,
-            dCdt, phases, /*beverageType=*/"espresso", /*duration=*/7.0,
-            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
-
-        for (const QVariant& v : lines) {
-            const QVariantMap m = v.toMap();
-            const QString text = m["text"].toString();
-            QVERIFY2(!text.contains("Temperature drifted", Qt::CaseInsensitive),
-                     qPrintable("temp-drift line leaked through suppression: " + text));
-        }
-    }
-
     // Sustained dC/dt elevation must NOT produce a channeling line (or its
     // green "Puck stable — no channeling spikes" companion) when
     // pourTruncated fires — the conductance signal is unreliable when peak
@@ -1309,7 +1277,7 @@ private slots:
         QVector<QPointF> weight;
 
         const QVariantList lines = ShotAnalysis::generateSummary(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, /*beverageType=*/"espresso", /*duration=*/7.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
 
@@ -1355,7 +1323,7 @@ private slots:
         QVector<QPointF> weight;
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 60.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
 
@@ -1401,7 +1369,7 @@ private slots:
         QVector<QPointF> weight;
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 7.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
 
@@ -1439,7 +1407,7 @@ private slots:
         QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 30.0,
             pressureGoal, flowGoal, /*analysisFlags=*/{},
             /*firstFrameConfiguredSeconds=*/-1.0,
@@ -1483,7 +1451,7 @@ private slots:
         QVector<QPointF> weight;
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 30.0,
             pressureGoal, flowGoal, /*analysisFlags=*/{},
             /*firstFrameConfiguredSeconds=*/-1.0,
@@ -1534,7 +1502,7 @@ private slots:
         QVector<QPointF> weight;
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 25.0,
             pressureGoal, flowGoal, /*analysisFlags=*/{},
             /*firstFrameConfiguredSeconds=*/-1.0,
@@ -1582,7 +1550,7 @@ private slots:
         QVector<QPointF> weight;
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 7.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{});
 
@@ -1607,9 +1575,8 @@ private slots:
     // (`shots_get_detail`) read these directly instead of re-deriving the
     // window from phase markers; the previous `ShotSummarizer::computePourWindow`
     // re-derivation is what let drift creep in (PR #944 deleted it).
-    // ShotSummarizer's per-phase temperature instability check iterates
-    // `summary.phases` directly and doesn't read these fields — only the
-    // `pourTruncatedDetected` cascade gate couples it to analyzeShot.
+    // MCP consumers read `pourStartSec` / `pourEndSec` directly off
+    // DetectorResults instead of re-deriving the window themselves.
     void analyzeShot_pourWindow_matchesPhaseBoundaries()
     {
         QList<HistoryPhaseMarker> phases{
@@ -1628,7 +1595,7 @@ private slots:
         QVector<QPointF> weight = rampSeries(0.0, 30.0, 0.0, 36.0);
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 30.0,
             pressureGoal, flowGoal);
         const auto& d = result.detectors;
@@ -1639,9 +1606,10 @@ private slots:
     // No-marker whole-shot fallback: when phases is empty but pressure data
     // is present, analyzeShot still runs but the boundary loop produces no
     // hits, so pourStart stays at 0 and pourEnd stays at the full shot
-    // duration. ShotSummarizer's per-phase temp gate sees this as "whole
-    // shot is the pour window" — same behavior as the deleted
-    // computePourWindow's `pourEnd = summary.totalDuration` default.
+    // duration — same behavior as the deleted computePourWindow's
+    // `pourEnd = summary.totalDuration` default. MCP consumers reading
+    // pourStartSec / pourEndSec from DetectorResults see the whole shot
+    // as the pour window on legacy / phase-marker-less shots.
     void analyzeShot_pourWindow_noMarkers_spansWholeShot()
     {
         const double duration = 30.0;
@@ -1653,7 +1621,7 @@ private slots:
         QVector<QPointF> weight = rampSeries(0.0, duration, 0.0, 36.0);
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, /*phases=*/{}, "espresso", duration);
         const auto& d = result.detectors;
         QCOMPARE(d.pourStartSec, 0.0);
@@ -1668,8 +1636,8 @@ private slots:
     {
         QVector<QPointF> pressure;  // empty — triggers early return
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, /*flow=*/{}, /*weight=*/{}, /*temperature=*/{},
-            /*tempGoal=*/{}, /*dCdt=*/{}, /*phases=*/{}, "espresso", 30.0);
+            pressure, /*flow=*/{}, /*weight=*/{},
+            /*dCdt=*/{}, /*phases=*/{}, "espresso", 30.0);
         const auto& d = result.detectors;
         QCOMPARE(d.pourStartSec, 0.0);
         QCOMPARE(d.pourEndSec, 0.0);
@@ -1694,7 +1662,7 @@ private slots:
         QVector<QPointF> weight = rampSeries(0.0, duration, 0.0, 36.0);
 
         const auto result = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", duration);
         const auto& d = result.detectors;
         QCOMPARE(d.pourStartSec, 2.0);
@@ -1729,14 +1697,14 @@ private slots:
         // save/load/MCP for 1-frame profiles — see SHOT_REVIEW.md §4.
         const int frameCount = 2;
         const QVariantList legacy = ShotAnalysis::generateSummary(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 30.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
             /*firstFrameConfiguredSeconds=*/-1.0,
             /*targetWeightG=*/0.0, /*finalWeightG=*/0.0,
             frameCount);
         const auto fresh = ShotAnalysis::analyzeShot(
-            pressure, flow, weight, temperature, temperatureGoal,
+            pressure, flow, weight,
             dCdt, phases, "espresso", 30.0,
             /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
             /*firstFrameConfiguredSeconds=*/-1.0,
@@ -1753,7 +1721,7 @@ private slots:
     }
     // ---- Badge projection (decenza::deriveBadgesFromAnalysis) ----
     //
-    // The five boolean quality-badge columns are now a deterministic
+    // The four boolean quality-badge columns are now a deterministic
     // projection of ShotAnalysis::DetectorResults via the helper in
     // src/history/shotbadgeprojection.h. saveShot and loadShotRecordStatic
     // both call analyzeShot once and apply the projection — the cascade
@@ -1770,8 +1738,6 @@ private slots:
         d.channelingSeverity = QStringLiteral("none");
         d.flowTrendChecked = true;
         d.flowTrend = QStringLiteral("stable");
-        d.tempStabilityChecked = true;
-        d.tempUnstable = false;
         d.grindChecked = true;
         d.grindHasData = true;
         d.grindDirection = QStringLiteral("onTarget");
@@ -1781,7 +1747,6 @@ private slots:
         const auto flags = decenza::deriveBadgesFromAnalysis(d);
         QVERIFY(!flags.pourTruncatedDetected);
         QVERIFY(!flags.channelingDetected);
-        QVERIFY(!flags.temperatureUnstable);
         QVERIFY(!flags.grindIssueDetected);
         QVERIFY(!flags.skipFirstFrameDetected);
     }
@@ -1796,8 +1761,6 @@ private slots:
         ShotAnalysis::DetectorResults d;
         d.channelingChecked = true;
         d.channelingSeverity = QStringLiteral("none");
-        d.tempStabilityChecked = true;
-        d.tempUnstable = false;
         d.grindChecked = true;
         d.grindHasData = true;
         d.grindVerifiedClean = true;          // new positive signal
@@ -1832,8 +1795,6 @@ private slots:
                  "pourTruncated must project to pourTruncatedDetected");
         QVERIFY2(!flags.channelingDetected,
                  "cascade must leave channelingDetected at false");
-        QVERIFY2(!flags.temperatureUnstable,
-                 "cascade must leave temperatureUnstable at false");
         QVERIFY2(!flags.grindIssueDetected,
                  "cascade must leave grindIssueDetected at false");
         QVERIFY2(!flags.skipFirstFrameDetected,
@@ -1853,7 +1814,6 @@ private slots:
         QVERIFY(flags.pourTruncatedDetected);
         QVERIFY(flags.skipFirstFrameDetected);
         QVERIFY(!flags.channelingDetected);
-        QVERIFY(!flags.temperatureUnstable);
         QVERIFY(!flags.grindIssueDetected);
     }
 
@@ -1983,50 +1943,15 @@ private slots:
         QVERIFY(flags.skipFirstFrameDetected);
     }
 
-    void badgeProjection_tempUnstable_firesBadge()
-    {
-        // tempUnstable already encodes the gates inside analyzeShot
-        // (tempStabilityChecked && !tempIntentionalStepping && avgDev > threshold);
-        // the projection just reads the flag.
-        ShotAnalysis::DetectorResults d;
-        d.tempStabilityChecked = true;
-        d.tempIntentionalStepping = false;
-        d.tempAvgDeviationC = 3.0;
-        d.tempUnstable = true;
-        d.verdictCategory = QStringLiteral("minorIssues");
-
-        const auto flags = decenza::deriveBadgesFromAnalysis(d);
-        QVERIFY(flags.temperatureUnstable);
-    }
-
-    void badgeProjection_tempIntentionalStepping_doesNotFireBadge()
-    {
-        // D-Flow style profile with intentional temp stepping: tempUnstable
-        // stays false even with a large measured deviation, because the
-        // gate is held inside analyzeShot. Locks in that the projection
-        // doesn't second-guess the struct.
-        ShotAnalysis::DetectorResults d;
-        d.tempStabilityChecked = true;
-        d.tempIntentionalStepping = true;
-        d.tempAvgDeviationC = 8.0;  // would normally trip threshold
-        d.tempUnstable = false;
-        d.verdictCategory = QStringLiteral("clean");
-
-        const auto flags = decenza::deriveBadgesFromAnalysis(d);
-        QVERIFY2(!flags.temperatureUnstable,
-                 "intentional temp stepping must NOT fire the temp badge");
-    }
-
-    void badgeProjection_applyBadgesToTarget_writesAllFiveFields()
+    void badgeProjection_applyBadgesToTarget_writesAllFourFields()
     {
         // Compile-time + runtime check that the templated apply helper
-        // writes all five fields onto a target struct shape. Uses a local
+        // writes all four fields onto a target struct shape. Uses a local
         // throwaway struct that mimics ShotSaveData / ShotRecord's badge
         // surface — keeps this test independent of the storage TU layout.
         struct FakeTarget {
             bool pourTruncatedDetected = false;
             bool channelingDetected = false;
-            bool temperatureUnstable = false;
             bool grindIssueDetected = false;
             bool skipFirstFrameDetected = false;
         };
@@ -2035,79 +1960,14 @@ private slots:
         d.pourTruncated = true;
         d.skipFirstFrame = true;
         d.channelingSeverity = QStringLiteral("sustained");
-        d.tempUnstable = true;
         d.grindHasData = true;
         d.grindChokedPuck = true;
 
         decenza::applyBadgesToTarget(t, d);
         QVERIFY(t.pourTruncatedDetected);
         QVERIFY(t.channelingDetected);
-        QVERIFY(t.temperatureUnstable);
         QVERIFY(t.grindIssueDetected);
         QVERIFY(t.skipFirstFrameDetected);
-    }
-
-    // avgTempDeviation -------------------------------------------------------
-
-    void avgTempDeviation_coldStartWarmupSkipped()
-    {
-        // First 3s: actual = 84°C, goal = 88°C → delta = 4°C > TEMP_WARMUP_SKIP_C (3.0)
-        // → those samples are skipped. Remaining 7s: actual = 87°C → delta = 1°C < threshold.
-        // Average over the non-skipped samples should be ~1°C → well below 2°C badge threshold.
-        const double goal = 88.0;
-        const double warmSamples = 7.0 * 10; // 7s at 10 Hz
-
-        QVector<QPointF> temp, tempGoal;
-        for (int i = 0; i < 30; ++i) {          // 3s cold: 84°C
-            temp.append(QPointF(i * 0.1, 84.0));
-            tempGoal.append(QPointF(i * 0.1, goal));
-        }
-        for (int i = 30; i < 130; ++i) {        // 10s warm: 87°C
-            temp.append(QPointF(i * 0.1, 87.0));
-            tempGoal.append(QPointF(i * 0.1, goal));
-        }
-
-        const double dev = ShotAnalysis::avgTempDeviation(temp, tempGoal, 0.0, 13.0);
-        QVERIFY2(dev < ShotAnalysis::TEMP_UNSTABLE_THRESHOLD,
-                 "cold-start leading samples should be skipped; stable tail should not badge");
-        QCOMPARE_LT(std::abs(dev - 1.0), 0.01); // should average to exactly 1.0°C
-    }
-
-    void avgTempDeviation_midShotDropCountedAfterLatch()
-    {
-        // 2s stable at goal, then 3s of a 5°C below-goal drop mid-shot.
-        // Latch fires on the stable prefix; the drop is counted and pushes avg above threshold.
-        const double goal = 93.0;
-
-        QVector<QPointF> temp, tempGoal;
-        for (int i = 0; i < 20; ++i) {          // 2s stable: 93°C (delta=0)
-            temp.append(QPointF(i * 0.1, 93.0));
-            tempGoal.append(QPointF(i * 0.1, goal));
-        }
-        for (int i = 20; i < 50; ++i) {         // 3s drop: 88°C (delta=5°C)
-            temp.append(QPointF(i * 0.1, 88.0));
-            tempGoal.append(QPointF(i * 0.1, goal));
-        }
-
-        const double dev = ShotAnalysis::avgTempDeviation(temp, tempGoal, 0.0, 5.0);
-        QVERIFY2(dev > ShotAnalysis::TEMP_UNSTABLE_THRESHOLD,
-                 "mid-shot temperature drop must be counted after warmup latch fires");
-    }
-
-    void avgTempDeviation_allSamplesColdReturnsZero()
-    {
-        // Every pour sample is 5°C below goal throughout — machine never warmed up.
-        // count stays 0; function must return 0.0 (no usable data → no badge).
-        const double goal = 90.0;
-
-        QVector<QPointF> temp, tempGoal;
-        for (int i = 0; i < 50; ++i) {
-            temp.append(QPointF(i * 0.1, 85.0));    // delta = 5°C > TEMP_WARMUP_SKIP_C
-            tempGoal.append(QPointF(i * 0.1, goal));
-        }
-
-        const double dev = ShotAnalysis::avgTempDeviation(temp, tempGoal, 0.0, 5.0);
-        QCOMPARE(dev, 0.0); // no usable data → no badge (intentional)
     }
 };
 

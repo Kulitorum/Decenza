@@ -474,15 +474,15 @@ EvaluatedShot evaluate(const LoadedShot& s)
     // User-facing verdict text. Calls into the same generateSummary() that the
     // Shot Summary popup uses, so the manifest can lock in the verdict-cascade
     // wording and catch regressions to the suppression rules (e.g. PR #922's
-    // pourTruncated → "Don't tune off this shot" verdict). Pass empty vectors
-    // for weight / temperature / temperatureGoal — the function tolerates
-    // missing curves and skips the corresponding observation lines, but the
-    // verdict cascade still picks the right branch from pressure / flow / dC/dt
-    // and the phase markers, which is what the manifest gates check.
+    // pourTruncated → "Don't tune off this shot" verdict). Pass an empty
+    // weight vector — the function tolerates the missing curve and skips the
+    // preinfusion-drip observation; the verdict cascade still picks the right
+    // branch from pressure / flow / dC/dt and the phase markers, which is what
+    // the manifest gates check.
     {
         const QVariantList lines = ShotAnalysis::generateSummary(
-            s.pressure, s.flow, /*weight=*/{}, /*temperature=*/{},
-            /*temperatureGoal=*/{}, s.conductanceDerivative, s.phases,
+            s.pressure, s.flow, /*weight=*/{},
+            s.conductanceDerivative, s.phases,
             s.beverageType, s.durationSec, s.pressureGoal, s.flowGoal,
             /*analysisFlags=*/{}, /*firstFrameConfiguredSeconds=*/-1.0,
             s.targetWeightG, s.yieldG);

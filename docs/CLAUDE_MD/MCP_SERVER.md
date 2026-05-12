@@ -294,7 +294,6 @@ Both are populated by a single call to `ShotAnalysis::analyzeShot`, so they cann
   "channeling": { "checked": true, "severity": "none" | "transient" | "sustained", "spikeTimeSec": 18.2 },
   "flowTrend":  { "checked": true, "direction": "stable" | "rising" | "falling", "deltaMlPerSec": 0.3 },
   "preinfusion": { "observed": true, "dripWeightG": 1.4, "durationSec": 8.3 },
-  "tempStability": { "checked": true, "intentionalStepping": false, "avgDeviationC": 1.1, "unstable": false },
   "grind": {
     "checked": true, "hasData": true,
     "direction": "tooFine" | "tooCoarse" | "onTarget" | "chokedPuck" | "yieldOvershoot",
@@ -353,7 +352,7 @@ Either sub-arm sets `chokedPuck = true`. The per-sample pressure floor is `minPr
 
 When a detector's `checked` (or `hasData`) flag is `false`, the detector was suppressed — most often by the `pourTruncated` cascade, but also by beverage-type skips (filter / pourover) or per-profile analysis flags (e.g. `flow_trend_ok`). Treat that as "no signal for this detector," not "clean signal."
 
-The five legacy badge booleans (`channelingDetected`, `temperatureUnstable`, `grindIssueDetected`, `skipFirstFrameDetected`, `pourTruncatedDetected`) remain available for backwards compatibility and are computed identically — `detectorResults` is a superset.
+The four legacy badge booleans (`channelingDetected`, `grindIssueDetected`, `skipFirstFrameDetected`, `pourTruncatedDetected`) remain available for backwards compatibility and are computed identically — `detectorResults` is a superset. The historical fifth (`temperatureUnstable`) and its `tempStability` block were removed end-to-end (see openspec change `remove-temperature-unstable-badge`).
 
 ## Resources (SSE Notifications)
 

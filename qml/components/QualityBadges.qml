@@ -5,17 +5,16 @@ import Decenza
 
 // Compact quality status chip(s) for a shot. Sized to its content (shrink-wraps).
 // Note: always shows at least one chip when visible — either a flag or "Clean extraction".
-// Shows the most important quality indicator: channeling (red), temp unstable (orange),
-// grind issue (orange), or clean extraction (green). Multiple flags show multiple chips.
+// Shows the most important quality indicator: channeling (red), grind issue
+// (orange), or clean extraction (green). Multiple flags show multiple chips.
 Item {
     id: root
 
     required property bool channelingDetected
-    required property bool temperatureUnstable
     required property bool grindIssueDetected
     required property bool skipFirstFrameDetected
     // Puck-failure flag (peak pressure < PRESSURE_FLOOR_BAR). Dominant: when
-    // true the C++ detector path forces channeling/temp/grind to false so
+    // true the C++ detector path forces channeling/grind to false so
     // this chip stands alone. (skipFirstFrameDetected is intentionally NOT
     // suppressed — it's a machine/profile issue orthogonal to puck integrity
     // and can co-fire with this chip.) The clean-extraction green chip
@@ -62,41 +61,6 @@ Item {
                     fallback: "Channeling detected"
                     font: Theme.captionFont
                     color: Theme.errorColor
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-        }
-
-        // Temperature unstable badge (orange/warning)
-        Rectangle {
-            visible: root.temperatureUnstable
-            width: tempRow.width + Theme.spacingMedium * 2
-            height: Theme.scaled(28)
-            radius: Theme.scaled(14)
-            color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
-            border.color: Theme.warningColor
-            border.width: Theme.scaled(1)
-
-            Accessible.role: Accessible.StaticText
-            Accessible.name: tempText.text
-            Accessible.focusable: true
-
-            Row {
-                id: tempRow
-                anchors.centerIn: parent
-                spacing: Theme.scaled(4)
-                Rectangle {
-                    width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
-                    color: Theme.warningColor; anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-                Tr {
-                    id: tempText
-                    key: "badges.tempUnstable"
-                    fallback: "Temp unstable"
-                    font: Theme.captionFont
-                    color: Theme.warningColor
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }
@@ -211,7 +175,7 @@ Item {
 
         // Clean extraction badge (green) — only shown when no flags are set
         Rectangle {
-            visible: !root.channelingDetected && !root.temperatureUnstable && !root.grindIssueDetected && !root.skipFirstFrameDetected && !root.pourTruncatedDetected
+            visible: !root.channelingDetected && !root.grindIssueDetected && !root.skipFirstFrameDetected && !root.pourTruncatedDetected
             width: cleanRow.width + Theme.spacingMedium * 2
             height: Theme.scaled(28)
             radius: Theme.scaled(14)
