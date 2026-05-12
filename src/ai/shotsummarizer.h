@@ -42,7 +42,6 @@ struct PhaseSummary {
 
     // Temperature metrics (C)
     double avgTemperature = 0;
-    bool temperatureUnstable = false;
 
     // Weight gained during this phase
     double weightGained = 0;
@@ -90,15 +89,9 @@ struct ShotSummary {
     // false) is enforced in exactly one place. See docs/SHOT_REVIEW.md §3.
     QVariantList summaryLines;
 
-    // Pour-truncated flag — gates the per-phase temperature markers below
-    // (which analyzeShot's aggregate output doesn't surface).
+    // Pour-truncated flag carried alongside summaryLines for callers that
+    // need the cascade dominator without re-running detectors.
     bool pourTruncatedDetected = false;
-
-    // True when the profile goal steps temperature across the shot (e.g.
-    // 82→72°C). markPerPhaseTempInstability only checks for stepping within
-    // a single phase, so cross-phase stepping (flat goal per phase, different
-    // goal each phase) needs this global flag to suppress per-phase prose.
-    bool tempIntentionalStepping = false;
 
     // Profile recipe rendered from profileJson (frame-by-frame intent).
     // Pre-computed at summarize() time so the JSON user prompt can ship it
@@ -321,21 +314,9 @@ private:
         const QVector<QPointF>& weight,
         const QList<HistoryPhaseMarker>& markers,
         double totalDuration);
-    // Per-phase temperature instability. Sets only PhaseSummary::temperatureUnstable;
-    // the aggregate "Temperature drifted X°C from goal" observation is produced by
-    // ShotAnalysis::analyzeShot instead. Callers must gate on
-    // !pourTruncatedDetected AND ShotAnalysis::reachedExtractionPhase() — same
-    // gates the aggregate detector uses. Without the reachedExtractionPhase
-    // check, aborted-during-preinfusion shots get false positives on the
-    // preheat ramp; see SHOT_REVIEW.md §2.3 and PR #898.
-    void markPerPhaseTempInstability(ShotSummary& summary,
-        const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
-
     // Run the detector pipeline and stamp the result onto `summary`: call
-    // `ShotAnalysis::analyzeShot`, copy `summaryLines` from the result,
-    // derive `pourTruncatedDetected` from `detectors.pourTruncated`, then
-    // conditionally call `markPerPhaseTempInstability` under the cascade
-    // gate (`!pourTruncatedDetected && reachedExtractionPhase(markers, ...)`).
+    // `ShotAnalysis::analyzeShot`, copy `summaryLines` from the result, and
+    // derive `pourTruncatedDetected` from `detectors.pourTruncated`.
     //
     // Preconditions on `summary`: `beverageType`, `totalDuration`, and
     // `finalWeight` must already be populated — this helper reads them off
@@ -347,15 +328,11 @@ private:
     // (saved-shot recompute), so those two paths can no longer drift on
     // detector wiring. The fast path of `summarizeFromHistory` bypasses
     // this helper — it consumes pre-computed `summaryLines` +
-    // `detectorResults.pourTruncated` from `convertShotRecord` (PR #939, D)
-    // and runs the same cascade gate inline; that gate must be kept in
-    // sync with this helper's gate.
+    // `detectorResults.pourTruncated` from `convertShotRecord` (PR #939, D).
     void runShotAnalysisAndPopulate(ShotSummary& summary,
         const QVector<QPointF>& pressure,
         const QVector<QPointF>& flow,
         const QVector<QPointF>& weight,
-        const QVector<QPointF>& temperature,
-        const QVector<QPointF>& temperatureGoal,
         const QVector<QPointF>& conductanceDerivative,
         const QList<HistoryPhaseMarker>& markers,
         const QVector<QPointF>& pressureGoal,

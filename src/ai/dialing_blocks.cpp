@@ -659,7 +659,6 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "  AND COALESCE(grind_issue_detected, 0) = 0 "
         "  AND COALESCE(channeling_detected, 0) = 0 "
         "  AND COALESCE(pour_truncated_detected, 0) = 0 "
-        "  AND COALESCE(temperature_unstable, 0) = 0 "
         "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
         "ORDER BY timestamp DESC");
     q.addBindValue(grinderModel);

@@ -27,16 +27,6 @@ public:
     static constexpr double CHANNELING_DC_POUR_SKIP_SEC = 2.0;    // skip first N seconds of pour (transition spike)
     static constexpr double CHANNELING_DC_POUR_SKIP_END_SEC = 1.5; // skip last N seconds of pour (natural tail acceleration)
     static constexpr double CHANNELING_MAX_AVG_FLOW = 3.0;        // mL/s — skip turbo/filter shots
-    static constexpr double TEMP_UNSTABLE_THRESHOLD = 2.0;        // °C avg deviation from goal
-    static constexpr double TEMP_STEPPING_RANGE = 5.0;            // °C goal range = intentional stepping
-    static constexpr double TEMP_MIN_EXTRACTION_SEC = 1.0;        // min seconds of extraction past frame 1 to score temp
-    // Skip leading pour samples where the machine hasn't yet reached operating
-    // temperature. Cold-start shots (e.g. first shot after idle) begin with the
-    // group head below goal; excluding this warmup ramp prevents false-positive
-    // "Temperature unstable" badges on otherwise clean shots. Only applied at
-    // the leading edge — once the first in-range sample is seen, the latch fires
-    // and all subsequent deviations (both below and above goal) are counted.
-    static constexpr double TEMP_WARMUP_SKIP_C = 3.0;
 
     // Mode-aware detection window tuning. A sample counts toward channeling
     // detection only inside a window where the active control goal (pressure
@@ -135,32 +125,6 @@ public:
     static bool shouldSkipChannelingCheck(const QString& beverageType,
                                            const QVector<QPointF>& flowData,
                                            double pourStart, double pourEnd);
-
-    // --- Temperature stability ---
-
-    // Check if temperature goal range indicates intentional stepping (e.g. D-Flow 84→94°C).
-    static bool hasIntentionalTempStepping(const QVector<QPointF>& tempGoalData);
-
-    // Check if temperature goal range indicates intentional stepping within a time range.
-    static bool hasIntentionalTempStepping(const QVector<QPointF>& tempGoalData,
-                                            double startTime, double endTime);
-
-    // Calculate average absolute deviation from goal in a time range.
-    // Returns 0 if no data or no goal data.
-    static double avgTempDeviation(const QVector<QPointF>& tempData,
-                                    const QVector<QPointF>& tempGoalData,
-                                    double startTime, double endTime);
-
-    // Returns true when the shot reached actual extraction — at least one phase
-    // marker with frameNumber >= 1 sits more than TEMP_MIN_EXTRACTION_SEC before
-    // the shot's last sample. Used to gate the temperature-stability detector
-    // so that aborted shots which died during preinfusion-start don't get
-    // flagged for temp drift caused by the machine still preheating. Frame 1 is
-    // sometimes recorded in firmware in the final ms of an aborted shot
-    // (the marker exists but no samples land inside it), so checking marker
-    // presence alone is not sufficient — we require the phase to have lasted.
-    static bool reachedExtractionPhase(const QList<HistoryPhaseMarker>& phases,
-                                        double shotDuration);
 
     // --- Helpers ---
 
@@ -381,9 +345,9 @@ public:
     // same signals without parsing prose. Every observation line in
     // `summaryLines` is formatted from one of these fields, but the
     // struct is a *superset* of what `summaryLines` renders: clean signals
-    // (e.g. `flowTrend = "stable"`, `grindDirection = "onTarget"`,
-    // `tempUnstable = false`) are captured here even when no prose line
-    // is emitted — silence in the dialog is not silence in the struct.
+    // (e.g. `flowTrend = "stable"`, `grindDirection = "onTarget"`) are
+    // captured here even when no prose line is emitted — silence in the
+    // dialog is not silence in the struct.
     // Kept in sync with `summaryLines` by construction: `analyzeShot`
     // populates this struct as it walks the detectors and formats lines
     // from the same intermediates, so a detector flip moves both
@@ -439,12 +403,6 @@ public:
         bool preinfusionObserved = false;
         double preinfusionDripWeightG = 0.0;
         double preinfusionDripDurationSec = 0.0;
-
-        // === Temperature stability ===
-        bool tempStabilityChecked = false;
-        bool tempIntentionalStepping = false;
-        double tempAvgDeviationC = 0.0;
-        bool tempUnstable = false;
 
         // === Grind direction (mirrors GrindCheck plus a derived label) ===
         bool grindChecked = false;
@@ -546,8 +504,6 @@ public:
     static AnalysisResult analyzeShot(const QVector<QPointF>& pressure,
                                        const QVector<QPointF>& flow,
                                        const QVector<QPointF>& weight,
-                                       const QVector<QPointF>& temperature,
-                                       const QVector<QPointF>& temperatureGoal,
                                        const QVector<QPointF>& conductanceDerivative,
                                        const QList<HistoryPhaseMarker>& phases,
                                        const QString& beverageType,
@@ -566,8 +522,6 @@ public:
     static QVariantList generateSummary(const QVector<QPointF>& pressure,
                                          const QVector<QPointF>& flow,
                                          const QVector<QPointF>& weight,
-                                         const QVector<QPointF>& temperature,
-                                         const QVector<QPointF>& temperatureGoal,
                                          const QVector<QPointF>& conductanceDerivative,
                                          const QList<HistoryPhaseMarker>& phases,
                                          const QString& beverageType,

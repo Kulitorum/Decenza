@@ -160,7 +160,6 @@ private slots:
         // would do) and stash the result in cachedAnalysis.
         recordCached.cachedAnalysis = ShotAnalysis::analyzeShot(
             recordCached.pressure, recordCached.flow, recordCached.weight,
-            recordCached.temperature, recordCached.temperatureGoal,
             recordCached.conductanceDerivative,
             recordCached.phases, recordCached.summary.beverageType,
             recordCached.summary.duration,

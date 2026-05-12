@@ -56,7 +56,6 @@ QVariantMap ShotProjection::toVariantMap() const
     m["weightFlowRate"] = weightFlowRate;
 
     m["channelingDetected"] = channelingDetected;
-    m["temperatureUnstable"] = temperatureUnstable;
     m["grindIssueDetected"] = grindIssueDetected;
     m["skipFirstFrameDetected"] = skipFirstFrameDetected;
     m["pourTruncatedDetected"] = pourTruncatedDetected;
@@ -113,7 +112,6 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.profileKbId = m.value("profileKbId").toString();
 
     p.channelingDetected = m.value("channelingDetected").toBool();
-    p.temperatureUnstable = m.value("temperatureUnstable").toBool();
     p.grindIssueDetected = m.value("grindIssueDetected").toBool();
     p.skipFirstFrameDetected = m.value("skipFirstFrameDetected").toBool();
     p.pourTruncatedDetected = m.value("pourTruncatedDetected").toBool();

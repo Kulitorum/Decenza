@@ -42,7 +42,7 @@ shared `shotReview/advancedMode` setting toggles information density on both.
 
 ### Quality badges
 
-Five flags, surfaced via `qml/components/QualityBadges.qml`. When any fire,
+Four flags, surfaced via `qml/components/QualityBadges.qml`. When any fire,
 those chips show; when none fire, a single green "Clean extraction" chip
 shows. A tappable "Shot Summary" chip always sits at the end of the row —
 it's the entry point to the analysis dialog described in §3.
@@ -51,23 +51,27 @@ it's the entry point to the analysis dialog described in §3.
 | -------------------------- | ------ | ---------------------- | ---------------------------- |
 | `pourTruncatedDetected`    | red    | "Puck failed"          | `detectPourTruncated`        |
 | `channelingDetected`       | red    | "Channeling detected"  | `detectChannelingFromDerivative` |
-| `temperatureUnstable`      | orange | "Temp unstable"        | `avgTempDeviation` + threshold |
 | `grindIssueDetected`       | orange | "Grind issue"          | `detectGrindIssue` (`analyzeFlowVsGoal`) |
 | `skipFirstFrameDetected`   | red    | "First step skipped"   | `detectSkipFirstFrame`       |
 
+(A fifth flag, `temperatureUnstable`, was retired — see openspec change
+`remove-temperature-unstable-badge`. The detector measured average
+deviation from goal but was labeled "Temp unstable"; in practice, the
+deviation it caught was profile-design intent on D-Flow / Extractamundo /
+TurboBloom and 9+ other built-in profiles whose temperature gap is by
+design.)
+
 **Suppression cascade.** `pourTruncatedDetected` is dominant: when it fires,
-`channelingDetected` / `temperatureUnstable` / `grindIssueDetected` are
-forced to false. The cascade is enforced in exactly one place —
-`ShotAnalysis::analyzeShot` — and the boolean badge columns are a
-deterministic projection of the resulting `DetectorResults` struct (see
-§4 mapping table; helper at `src/history/shotbadgeprojection.h`). Save-
-time, load-time recompute, the dialog, the AI advisor, and MCP
-`shots_get_detail` all share that one pipeline and projection. The puck
-failed to build pressure, so the curves the
-other three detectors read off don't mean what they normally mean
+`channelingDetected` / `grindIssueDetected` are forced to false. The
+cascade is enforced in exactly one place — `ShotAnalysis::analyzeShot` —
+and the boolean badge columns are a deterministic projection of the
+resulting `DetectorResults` struct (see §4 mapping table; helper at
+`src/history/shotbadgeprojection.h`). Save-time, load-time recompute, the
+dialog, the AI advisor, and MCP `shots_get_detail` all share that one
+pipeline and projection. The puck failed to build pressure, so the curves
+the other detectors read off don't mean what they normally mean
 (conductance saturates → derivative flat, flow tracks preinfusion goal →
-grind delta ≈ 0, temp drift measured against a pour that didn't really
-happen). `skipFirstFrameDetected` is **not** suppressed — it's a
+grind delta ≈ 0). `skipFirstFrameDetected` is **not** suppressed — it's a
 machine/profile issue orthogonal to puck integrity. The clean-extraction
 green chip's visibility gate also includes `!pourTruncatedDetected` so a
 suppressed puck-failure shot can't fall through to the wrong all-clear.
@@ -274,48 +278,7 @@ other reason). Consumers wanting "verified clean" specifically must read
 - `analysisFlags` contains `grind_check_skip`.
 - Pressure data is empty (the arm-2 path early-returns).
 
-### 2.3 Temperature unstable
-
-The simplest of the five. `temperatureUnstable = true` when:
-
-- `temperature` and `temperatureGoal` both have > 10 samples, AND
-- `pourStart > 0` (a Pour / infus / Start phase marker was found — without
-  it, `avgTempDeviation` would average from t=0 and pull in the preheat
-  ramp), AND
-- `reachedExtractionPhase(phases, duration)` is true: at least one phase
-  marker with `frameNumber ≥ 1` exists `TEMP_MIN_EXTRACTION_SEC` (1.0 s)
-  before the shot's last sample. Aborted shots that died during
-  preinfusion-start would otherwise read the machine's preheat ramp as
-  drift; the firmware sometimes records the 0→1 transition in the final
-  ms before stop, so a marker-presence-only check is not enough — the
-  phase has to have actually lasted, AND
-- `hasIntentionalTempStepping(temperatureGoal)` is false (goal range ≤
-  `TEMP_STEPPING_RANGE` = 5 °C — D-Flow 84 → 94 is intentional, ignore), AND
-- `avgTempDeviation(temperature, temperatureGoal, pourStart, pourEnd) >
-  TEMP_UNSTABLE_THRESHOLD` (2.0 °C).
-
-`avgTempDeviation` is the average absolute deviation over the pour window
-where the goal is non-zero. Leading samples where the group head is still
-warming up are excluded: any sample at the start of the window where
-`goal − actual > TEMP_WARMUP_SKIP_C` (3.0 °C) is skipped. The skip is
-one-directional (cold only) and latches off on the first in-range sample,
-so a mid-shot temperature drop is still counted as instability.
-
-If every pour sample is below the warmup threshold (count == 0), the
-function returns 0.0 and no badge fires. This is intentional: a machine
-that never reaches operating temperature during a full extraction is
-extremely unlikely in practice, and returning silence is preferable to a
-misleading badge when there is no valid signal.
-
-The `pourStart > 0` and `reachedExtractionPhase` guards live exclusively
-in `analyzeShot`. Save-time (`saveShot`), load-time recompute
-(`loadShotRecordStatic`), the dialog, the AI advisor, and MCP all
-delegate to the same `analyzeShot` body, so the cascade definition is
-the gates — no risk of asymmetry across the call sites and no chance for
-`loadShotRecordStatic`'s drift-on-load write-back to disagree with what
-save produced (see §4).
-
-### 2.4 Skip first frame
+### 2.3 Skip first frame
 
 `detectSkipFirstFrame` operates on phase markers only — no curves needed. Two
 distinct branches inside one function, picked from the marker stream:
@@ -346,7 +309,7 @@ malformed.
 `firstFrameConfiguredSeconds` is fed in by callers from `ProfileFrameInfo`
 (parsed from the stored profile JSON via `profileFrameInfoFromJson`).
 
-### 2.5 Pour truncated (puck failed)
+### 2.4 Pour truncated (puck failed)
 
 `detectPourTruncated` returns true when peak pressure inside the pour window
 stays below `PRESSURE_FLOOR_BAR` (2.5). It catches the failure mode where
@@ -356,11 +319,11 @@ wrong diagnosis. Skipped for filter / pourover / tea / steam / cleaning
 beverages where low pressure is expected.
 
 **Suppression cascade.** When this detector fires, `analyzeShot` (the
-single enforcement point) skips the channeling, temperature, and grind
-blocks, leaving those `DetectorResults` fields at their `false` defaults.
-The badge projection then reads those defaults so `channelingDetected` /
-`temperatureUnstable` / `grindIssueDetected` all stay `false`. See §1
-for the rationale; see §4 for the projection mapping.
+single enforcement point) skips the channeling and grind blocks, leaving
+those `DetectorResults` fields at their `false` defaults. The badge
+projection then reads those defaults so `channelingDetected` /
+`grindIssueDetected` stay `false`. See §1 for the rationale; see §4 for
+the projection mapping.
 
 **Population the badge catches.** A puck-failure shot can come from any of:
 grind way too coarse, distribution failure (massive channel), no/loose
@@ -449,11 +412,7 @@ top-to-bottom:
 3. **Preinfusion drip** — when preinfusion lasted > 1 s and at least 0.5 g
    landed during it, emits "Preinfusion: Xg in Ys" as an "observation".
    Not gated on `pourTruncated` — drip mass is a fact, not a diagnosis.
-4. **Temperature stability** — when `hasIntentionalTempStepping` is false
-   and `avgTempDeviation` exceeds 2 °C, emits "Temperature drifted X °C
-   from goal on average" as "caution". **Suppressed when `pourTruncated`
-   fires.**
-5. **Grind direction** — uses the same `analyzeFlowVsGoal` path as the
+4. **Grind direction** — uses the same `analyzeFlowVsGoal` path as the
    badge. Emits one of: "Pour produced near-zero flow while pressure
    held — puck choked" ("warning") when `chokedPuck` fires, "Flow
    averaged X mL/s below target — grind may be too fine" ("caution"),
@@ -463,13 +422,13 @@ top-to-bottom:
    data on a non-degenerate espresso pour — "Could not analyze grind on
    this profile shape — check flow trend, channeling, and taste
    instead" ("observation"). **Suppressed when `pourTruncated` fires.**
-6. **Pour truncated** — `detectPourTruncated`. Emits "Pour never
+5. **Pour truncated** — `detectPourTruncated`. Emits "Pour never
    pressurized (peak X bar) — puck offered no resistance. Likely
    causes: grind way too coarse, distribution failure, no/loose puck,
    severe underdose, or profile without a pressure cap." as "warning"
    when peak pressure stayed under 2.5 bar. The actual peak value is
    substituted into the line.
-7. **Skip first frame** — `detectSkipFirstFrame`. Emits "First profile
+6. **Skip first frame** — `detectSkipFirstFrame`. Emits "First profile
    step skipped — likely a DE1 firmware bug…" as "warning". Not gated
    on `pourTruncated` — frame-skip is orthogonal to puck integrity.
 
@@ -560,7 +519,7 @@ in `detectorResults` but produce no prose line. The verdict prose is
 intentionally NOT exposed as a separate field; external agents read
 `verdictCategory` and compose their own framing.
 
-The five legacy badge booleans (`channelingDetected`, etc.) on
+The four legacy badge booleans (`channelingDetected`, etc.) on
 `convertShotRecord` remain available for backwards compatibility.
 
 ---
@@ -569,15 +528,17 @@ The five legacy badge booleans (`channelingDetected`, etc.) on
 
 ### Save-time: stored columns
 
-The `shots` table has five flag columns: `pour_truncated_detected`,
-`channeling_detected`, `temperature_unstable`, `grind_issue_detected`,
+The `shots` table has four flag columns: `pour_truncated_detected`,
+`channeling_detected`, `grind_issue_detected`,
 `skip_first_frame_detected`. At shot save (or import), the badges are
 computed once from the captured curves and written into these columns
-alongside the rest of the shot record.
+alongside the rest of the shot record. The historical fifth column
+(`temperature_unstable`) was added in migration 10 and dropped in
+migration 15 — see openspec change `remove-temperature-unstable-badge`.
 
 ### Single-pass detector pipeline + projection (post PR #934, #935, #936)
 
-`saveShot` and `loadShotRecordStatic` both compute all five quality
+`saveShot` and `loadShotRecordStatic` both compute all four quality
 badges via a single `ShotAnalysis::analyzeShot(...)` call and project the
 booleans from the returned `DetectorResults` struct using the helper in
 `src/history/shotbadgeprojection.h`. The cascade lives in exactly one
@@ -591,7 +552,6 @@ or hand-rolled gate conditions in the storage layer.
 |---|---|
 | `pourTruncatedDetected` | `d.pourTruncated` |
 | `channelingDetected` | `d.channelingSeverity == "sustained"` (Transient does NOT fire the badge) |
-| `temperatureUnstable` | `d.tempUnstable` (gates `tempStabilityChecked` / `!intentionalStepping` / `avgDev > threshold` already applied inside `analyzeShot`) |
 | `grindIssueDetected` | `d.grindHasData && (d.grindChokedPuck \|\| d.grindYieldOvershoot \|\| std::abs(d.grindFlowDeltaMlPerSec) > FLOW_DEVIATION_THRESHOLD)` |
 | `skipFirstFrameDetected` | `d.skipFirstFrame` |
 
@@ -606,9 +566,6 @@ Notes on the projection:
   The `grindHasData` conjunct is a defensive zero — it short-circuits
   the projection if any of the grind sub-flags are set on a struct
   whose `hasData` is false.
-- `tempUnstable` already encodes its gates inside `analyzeShot`, so the
-  projection just reads the flag — no caller-side `pourStart > 0` or
-  `reachedExtractionPhase` conjuncts needed.
 - `pourTruncated` and `skipFirstFrame` are 1:1 with their struct fields.
 
 The projection is unit-tested via `tst_shotanalysis::badgeProjection_*` —
@@ -618,7 +575,7 @@ the load-bearing `Transient` carve-out.
 ### Load-time: always recompute (PR #893, extended for the 5th badge in PR #922)
 
 `ShotHistoryStorage::loadShotRecordStatic` reads the stored columns, then
-**unconditionally recomputes all five badges** from the loaded curve data
+**unconditionally recomputes all four badges** from the loaded curve data
 before returning. The recompute is now a single `analyzeShot` + projection
 call (post PR #936), so it cannot diverge from the save-time computation.
 This means the in-memory `ShotRecord` always reflects the current detector
@@ -638,13 +595,12 @@ structured `detectorResults` JSON for MCP / dialog consumers.
 
 When a shot is opened in `ShotDetailPage` or `PostShotReviewPage`, QML calls
 `MainController.shotHistory.requestReanalyzeBadges(id)`. That method runs on
-the DB worker thread and recomputes the five flags. If at least one flag
+the DB worker thread and recomputes the four flags. If at least one flag
 differs from the stored value, it issues an `UPDATE` *and* emits
-`shotBadgesUpdated(shotId, channeling, tempUnstable, grindIssue,
-skipFirstFrame, pourTruncated)` (six args; the puck-failure flag was added
-in PR #922) so the UI can refresh without a full reload. If every flag
-already matches the stored value, the worker exits silently — no `UPDATE`,
-no signal, no UI refresh.
+`shotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame,
+pourTruncated)` (five args) so the UI can refresh without a full reload.
+If every flag already matches the stored value, the worker exits silently
+— no `UPDATE`, no signal, no UI refresh.
 
 The wiring lives at `qml/pages/ShotDetailPage.qml` (in `onShotReady`) and
 `qml/pages/PostShotReviewPage.qml`. The visualizer-update reload path
@@ -675,14 +631,14 @@ require another sweep.
 
 ### Detector logic
 
-- `src/ai/shotanalysis.{h,cpp}` — all five detectors, `analyzeFlowVsGoal`,
+- `src/ai/shotanalysis.{h,cpp}` — all four detectors, `analyzeFlowVsGoal`,
   `buildChannelingWindows`, `detectChannelingFromDerivative`,
   `detectGrindIssue`, `detectSkipFirstFrame`, `detectPourTruncated`,
-  `hasIntentionalTempStepping`, `avgTempDeviation`, `shouldSkipChannelingCheck`,
-  `analyzeShot` (returns `AnalysisResult { lines, detectors }` — feeds
-  the Shot Summary dialog and MCP; see §3), `generateSummary` (thin
-  wrapper returning `analyzeShot(...).lines`), `DetectorResults` /
-  `AnalysisResult` structs, all tuning constants.
+  `shouldSkipChannelingCheck`, `analyzeShot` (returns
+  `AnalysisResult { lines, detectors }` — feeds the Shot Summary dialog
+  and MCP; see §3), `generateSummary` (thin wrapper returning
+  `analyzeShot(...).lines`), `DetectorResults` / `AnalysisResult`
+  structs, all tuning constants.
 
 ### Persistence
 
@@ -697,8 +653,9 @@ require another sweep.
     emits `summaryLines` (prose) and a nested `detectorResults` JSON
     object on every shot record served by MCP / web endpoints. The dialog
     reads `summaryLines` directly from the resulting `shotData` map.
-  - DB migrations for the five flag columns (10–13; migration 13 adds
-    `pour_truncated_detected`).
+  - DB migrations for the four flag columns (10–13; migration 13 adds
+    `pour_truncated_detected`; migration 15 drops the
+    `temperature_unstable` column added by migration 10).
   - `computeDerivedCurves` — fills conductance / dC/dt for legacy shots that
     predate migration 10.
   - `profileFrameInfoFromJson` — extracts `frameCount` and
@@ -721,11 +678,10 @@ require another sweep.
   `shotData.summaryLines` directly (populated by `convertShotRecord`)
   and renders the `{ text, type }` lines via a `Repeater`.
 - `qml/pages/ShotDetailPage.qml` and `qml/pages/PostShotReviewPage.qml` —
-  consume `shotData.channelingDetected` / `temperatureUnstable` /
-  `grindIssueDetected` / `skipFirstFrameDetected` / `pourTruncatedDetected`,
-  listen for `shotBadgesUpdated`, call `requestReanalyzeBadges` on load,
-  host the `ShotAnalysisDialog` instance and wire `summaryRequested` to
-  `open()`.
+  consume `shotData.channelingDetected` / `grindIssueDetected` /
+  `skipFirstFrameDetected` / `pourTruncatedDetected`, listen for
+  `shotBadgesUpdated`, call `requestReanalyzeBadges` on load, host the
+  `ShotAnalysisDialog` instance and wire `summaryRequested` to `open()`.
 - `qml/pages/ShotHistoryPage.qml` — filter chips that consume the stored
   columns.
 
@@ -781,7 +737,9 @@ To add a fixture:
   view.
 - Issue #894 — residual stored-column drift (history-list filter and
   `shots_list` MCP read stored, not recomputed values).
-- PR #898 — `temperatureUnstable` gating fix (`reachedExtractionPhase`).
+- PR #898 — `temperatureUnstable` gating fix (`reachedExtractionPhase`)
+  — superseded; the badge has since been removed entirely (see
+  `remove-temperature-unstable-badge` openspec change).
 - PR #901 — flow/pressure-mode rising-pressure gate fix.
 - PR #910 — yield-overshoot ("gusher") arm in `analyzeFlowVsGoal`.
 - PR #922 / Issue #903 — fifth badge `pourTruncatedDetected` ("Puck failed"),
@@ -797,13 +755,10 @@ To add a fixture:
   framing the lines as detector evidence. The `verdict` line is filtered
   out before emission so the AI reasons from the same observations the
   user sees in the dialog without anchoring on the dialog's prescriptive
-  conclusion. Per-phase `PhaseSummary::temperatureUnstable` markers are
-  gated on the same `reachedExtractionPhase` + `pourTruncatedDetected`
-  cascade the aggregate temp detector uses. Cleanup: dropped dead
-  `ShotSummary` fields (`channelingDetected`, `temperatureUnstable`,
-  `timeToFirstDrip`, `preinfusionDuration`, `mainExtractionDuration`)
-  and the wrapper helpers (`detectChannelingInPhases`,
-  `calculateTemperatureStability`) they fed.
+  conclusion. Cleanup: dropped dead `ShotSummary` fields
+  (`channelingDetected`, `timeToFirstDrip`, `preinfusionDuration`,
+  `mainExtractionDuration`) and the wrapper helpers
+  (`detectChannelingInPhases`) they fed.
 - PR #933 / Issue #931 — `convertShotRecord` runs `analyzeShot` once
   per shot conversion and emits both `summaryLines` (prose) and
   structured `detectorResults` JSON on `shots_get_detail` /
@@ -814,6 +769,18 @@ To add a fixture:
   outputs in lockstep. Verdict prose is intentionally NOT exposed —
   agents read the stable `verdictCategory` enum instead. Field
   reference: `docs/CLAUDE_MD/MCP_SERVER.md` "Shot Detector Outputs".
+- openspec change `remove-temperature-unstable-badge` / Issue #1128 —
+  retired the `temperatureUnstable` badge end-to-end (detector,
+  projection, badge UI, MCP `detectorResults.tempStability`, history
+  filter, DB column via migration 15). The detector measured average
+  deviation from goal but was labeled "Temp unstable" — and the
+  deviation it caught was, in practice, profile-design intent on
+  D-Flow / Extractamundo / TurboBloom and 9+ other built-in profiles.
+  `analyzeShot` and `generateSummary` lost their `temperature` and
+  `temperatureGoal` parameters; the static helpers
+  `hasIntentionalTempStepping`, `avgTempDeviation`, and
+  `reachedExtractionPhase` were removed. `shotBadgesUpdated` shrank
+  from 6 to 5 args.
 
 External resources that informed the diagnostic patterns:
 

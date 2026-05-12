@@ -65,7 +65,6 @@ class ShotProjection {
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
 
     Q_PROPERTY(bool channelingDetected MEMBER channelingDetected)
-    Q_PROPERTY(bool temperatureUnstable MEMBER temperatureUnstable)
     Q_PROPERTY(bool grindIssueDetected MEMBER grindIssueDetected)
     Q_PROPERTY(bool skipFirstFrameDetected MEMBER skipFirstFrameDetected)
     Q_PROPERTY(bool pourTruncatedDetected MEMBER pourTruncatedDetected)
@@ -132,7 +131,6 @@ public:
     QString profileKbId;
 
     bool channelingDetected = false;
-    bool temperatureUnstable = false;
     bool grindIssueDetected = false;
     bool skipFirstFrameDetected = false;
     bool pourTruncatedDetected = false;

@@ -93,7 +93,6 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.weightFlowRate = pointsToVariant(record.weightFlowRate);
 
     p.channelingDetected = record.channelingDetected;
-    p.temperatureUnstable = record.temperatureUnstable;
     p.grindIssueDetected = record.grindIssueDetected;
     p.skipFirstFrameDetected = record.skipFirstFrameDetected;
     p.pourTruncatedDetected = record.pourTruncatedDetected;
@@ -122,7 +121,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
             analysisOwned = ShotAnalysis::analyzeShot(
                 record.pressure, record.flow, record.weight,
-                record.temperature, record.temperatureGoal, record.conductanceDerivative,
+                record.conductanceDerivative,
                 record.phases, record.summary.beverageType, record.summary.duration,
                 record.pressureGoal, record.flowGoal,
                 inputs.analysisFlags, inputs.firstFrameSeconds,
@@ -159,15 +158,6 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             preinfusion["durationSec"] = d.preinfusionDripDurationSec;
         }
         detectorResults["preinfusion"] = preinfusion;
-
-        QVariantMap tempStability;
-        tempStability["checked"] = d.tempStabilityChecked;
-        if (d.tempStabilityChecked) {
-            tempStability["intentionalStepping"] = d.tempIntentionalStepping;
-            tempStability["avgDeviationC"] = d.tempAvgDeviationC;
-            tempStability["unstable"] = d.tempUnstable;
-        }
-        detectorResults["tempStability"] = tempStability;
 
         QVariantMap grind;
         grind["checked"] = d.grindChecked;

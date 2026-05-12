@@ -175,7 +175,6 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.searchText = filterMap.value("searchText").toString();
     filter.onlyWithVisualizer = filterMap.value("onlyWithVisualizer", false).toBool();
     filter.filterChanneling = filterMap.value("filterChanneling", false).toBool();
-    filter.filterTemperatureUnstable = filterMap.value("filterTemperatureUnstable", false).toBool();
     filter.filterGrindIssue = filterMap.value("filterGrindIssue", false).toBool();
     filter.filterSkipFirstFrame = filterMap.value("filterSkipFirstFrame", false).toBool();
     filter.filterPourTruncated = filterMap.value("filterPourTruncated", false).toBool();
@@ -252,9 +251,6 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
     }
     if (filter.filterChanneling) {
         conditions << "channeling_detected = 1";
-    }
-    if (filter.filterTemperatureUnstable) {
-        conditions << "temperature_unstable = 1";
     }
     if (filter.filterGrindIssue) {
         conditions << "grind_issue_detected = 1";
@@ -359,7 +355,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    enjoyment, visualizer_id, grinder_setting,
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
-                   channeling_detected, temperature_unstable, grind_issue_detected,
+                   channeling_detected, grind_issue_detected,
                    skip_first_frame_detected, pour_truncated_detected
             FROM shots
             WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
@@ -374,7 +370,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    enjoyment, visualizer_id, grinder_setting,
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
-                   channeling_detected, temperature_unstable, grind_issue_detected,
+                   channeling_detected, grind_issue_detected,
                    skip_first_frame_detected, pour_truncated_detected
             FROM shots
             %1
@@ -441,10 +437,9 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["drinkTdsPct"] = query.value(15).toDouble();
                             shot["drinkEyPct"] = query.value(16).toDouble();
                             shot["channelingDetected"] = query.value(17).toInt() != 0;
-                            shot["temperatureUnstable"] = query.value(18).toInt() != 0;
-                            shot["grindIssueDetected"] = query.value(19).toInt() != 0;
-                            shot["skipFirstFrameDetected"] = query.value(20).toInt() != 0;
-                            shot["pourTruncatedDetected"] = query.value(21).toInt() != 0;
+                            shot["grindIssueDetected"] = query.value(18).toInt() != 0;
+                            shot["skipFirstFrameDetected"] = query.value(19).toInt() != 0;
+                            shot["pourTruncatedDetected"] = query.value(20).toInt() != 0;
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());

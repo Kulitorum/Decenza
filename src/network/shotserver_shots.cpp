@@ -1179,11 +1179,10 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
             .arg(kind, text);
     };
     QString badgesHtml = QStringLiteral("<div class=\"shot-quality\">");
-    const bool hasFlag = shot.channelingDetected || shot.temperatureUnstable
+    const bool hasFlag = shot.channelingDetected
                        || shot.grindIssueDetected || shot.pourTruncatedDetected
                        || shot.skipFirstFrameDetected;
     if (shot.channelingDetected)     badgesHtml += badgeChip("danger",  "Channeling detected");
-    if (shot.temperatureUnstable)    badgesHtml += badgeChip("warning", "Temp unstable");
     if (shot.grindIssueDetected)     badgesHtml += badgeChip("warning", "Grind issue");
     if (shot.pourTruncatedDetected)  badgesHtml += badgeChip("danger",  "Puck failed");
     if (shot.skipFirstFrameDetected) badgesHtml += badgeChip("danger",  "First step skipped");

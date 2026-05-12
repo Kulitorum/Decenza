@@ -761,6 +761,25 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 14;
     }
 
+    // Migration 15: Drop temperature_unstable column. The temp-stability badge
+    // was retired because the underlying detector measured average deviation
+    // from goal but was labeled "Temp unstable" - and the deviation it caught
+    // was, in practice, profile-design intent (D-Flow / Extractamundo /
+    // TurboBloom and 9+ other profiles deliberately ask the head to do things
+    // it can't physically follow). Removed end-to-end; this migration drops
+    // the now-unused column. SQLite >= 3.35 is required for ALTER TABLE
+    // DROP COLUMN; every Qt 6.10 platform we ship satisfies this.
+    if (currentVersion < 15) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 15 (drop temperature_unstable)";
+
+        if (hasColumn("shots", "temperature_unstable"))
+            query.exec("ALTER TABLE shots DROP COLUMN temperature_unstable");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (15)");
+        currentVersion = 15;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -943,7 +962,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         computePhaseSummaries(tmpRecord);
         data.phaseSummariesJson = tmpRecord.phaseSummariesJson;
 
-        // Compute all five quality badges via a single ShotAnalysis::analyzeShot
+        // Compute all four quality badges via a single ShotAnalysis::analyzeShot
         // pass and project the booleans from DetectorResults using the
         // documented mapping. This unifies the save-time, load-time, and
         // dialog/AI/MCP cascades on one pipeline — the cascade lives in exactly
@@ -954,7 +973,6 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         const auto analysis = ShotAnalysis::analyzeShot(
             tmpRecord.pressure, shotData->flowData(),
             shotData->cumulativeWeightData(),
-            shotData->temperatureData(), shotData->temperatureGoalData(),
             shotData->conductanceDerivativeData(),
             tmpRecord.phases, data.beverageType, duration,
             shotData->pressureGoalData(), shotData->flowGoalData(),
@@ -1100,7 +1118,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
-                    channeling_detected, temperature_unstable, grind_issue_detected,
+                    channeling_detected, grind_issue_detected,
                     skip_first_frame_detected, pour_truncated_detected, enjoyment_source
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
@@ -1110,7 +1128,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
-                    :channeling_detected, :temperature_unstable, :grind_issue_detected,
+                    :channeling_detected, :grind_issue_detected,
                     :skip_first_frame_detected, :pour_truncated_detected, :enjoyment_source
                 )
             )");
@@ -1143,7 +1161,6 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":yield_override", data.targetWeight);
             query.bindValue(":profile_kb_id", data.profileKbId.isEmpty() ? QVariant() : data.profileKbId);
             query.bindValue(":channeling_detected", data.channelingDetected ? 1 : 0);
-            query.bindValue(":temperature_unstable", data.temperatureUnstable ? 1 : 0);
             query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
             query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
             query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
@@ -1307,7 +1324,6 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
             if (badgesPersisted) {
                 emit shotBadgesUpdated(shotId,
                     record.channelingDetected,
-                    record.temperatureUnstable,
                     record.grindIssueDetected,
                     record.skipFirstFrameDetected,
                     record.pourTruncatedDetected);
@@ -1334,7 +1350,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         bool recordFound = false;
         bool badgesPersisted = false;
-        bool newChanneling = false, newTempUnstable = false;
+        bool newChanneling = false;
         bool newGrindIssue = false, newSkipFirstFrame = false, newPourTruncated = false;
 
         withTempDb(dbPath, "shs_badges", [&](QSqlDatabase& db) {
@@ -1342,7 +1358,6 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             if (record.summary.id == 0) return;
             recordFound = true;
             newChanneling = record.channelingDetected;
-            newTempUnstable = record.temperatureUnstable;
             newGrindIssue = record.grindIssueDetected;
             newSkipFirstFrame = record.skipFirstFrameDetected;
             newPourTruncated = record.pourTruncatedDetected;
@@ -1351,9 +1366,9 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
         if (!recordFound || !badgesPersisted || *destroyed) return;
         QMetaObject::invokeMethod(
             this,
-            [this, shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, newPourTruncated, destroyed]() {
+            [this, shotId, newChanneling, newGrindIssue, newSkipFirstFrame, newPourTruncated, destroyed]() {
                 if (*destroyed) return;
-                emit shotBadgesUpdated(shotId, newChanneling, newTempUnstable, newGrindIssue, newSkipFirstFrame, newPourTruncated);
+                emit shotBadgesUpdated(shotId, newChanneling, newGrindIssue, newSkipFirstFrame, newPourTruncated);
             },
             Qt::QueuedConnection);
     });
@@ -1472,7 +1487,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
-               channeling_detected, temperature_unstable, grind_issue_detected,
+               channeling_detected, grind_issue_detected,
                skip_first_frame_detected, pour_truncated_detected, enjoyment_source
         FROM shots WHERE id = ?
     )")) {
@@ -1517,18 +1532,16 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.summary.beverageType = query.value(28).toString();
     record.profileKbId = query.value(29).toString();
     record.channelingDetected = query.value(30).toInt() != 0;
-    record.temperatureUnstable = query.value(31).toInt() != 0;
-    record.grindIssueDetected = query.value(32).toInt() != 0;
-    record.skipFirstFrameDetected = query.value(33).toInt() != 0;
-    record.pourTruncatedDetected = query.value(34).toInt() != 0;
-    record.enjoymentSource = query.value(35).toString();
+    record.grindIssueDetected = query.value(31).toInt() != 0;
+    record.skipFirstFrameDetected = query.value(32).toInt() != 0;
+    record.pourTruncatedDetected = query.value(33).toInt() != 0;
+    record.enjoymentSource = query.value(34).toString();
     if (record.enjoymentSource.isEmpty()) record.enjoymentSource = QStringLiteral("none");
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
     // we can detect drift and persist the corrected flags below.
     const bool storedChanneling = record.channelingDetected;
-    const bool storedTempUnstable = record.temperatureUnstable;
     const bool storedGrindIssue = record.grindIssueDetected;
     const bool storedSkipFirstFrame = record.skipFirstFrameDetected;
     const bool storedPourTruncated = record.pourTruncatedDetected;
@@ -1608,7 +1621,6 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
         auto analysis = ShotAnalysis::analyzeShot(
             record.pressure, record.flow, record.weight,
-            record.temperature, record.temperatureGoal,
             record.conductanceDerivative,
             record.phases, record.summary.beverageType, record.summary.duration,
             record.pressureGoal, record.flowGoal,
@@ -1629,19 +1641,17 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // converges with detector improvements as shots are viewed without needing a
     // separate bulk-resweep migration. The UPDATE is skipped when nothing changed.
     const bool flagsChanged = (storedChanneling != record.channelingDetected
-        || storedTempUnstable != record.temperatureUnstable
         || storedGrindIssue != record.grindIssueDetected
         || storedSkipFirstFrame != record.skipFirstFrameDetected
         || storedPourTruncated != record.pourTruncatedDetected);
     if (flagsChanged) {
         QSqlQuery upd(db);
         upd.prepare("UPDATE shots SET channeling_detected=:c,"
-                    " temperature_unstable=:t, grind_issue_detected=:g,"
+                    " grind_issue_detected=:g,"
                     " skip_first_frame_detected=:s,"
                     " pour_truncated_detected=:p,"
                     " updated_at = strftime('%s', 'now') WHERE id=:id");
         upd.bindValue(":c", record.channelingDetected ? 1 : 0);
-        upd.bindValue(":t", record.temperatureUnstable ? 1 : 0);
         upd.bindValue(":g", record.grindIssueDetected ? 1 : 0);
         upd.bindValue(":s", record.skipFirstFrameDetected ? 1 : 0);
         upd.bindValue(":p", record.pourTruncatedDetected ? 1 : 0);
@@ -2289,9 +2299,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override, profile_kb_id,
-                        channeling_detected, temperature_unstable, grind_issue_detected,
+                        channeling_detected, grind_issue_detected,
                         skip_first_frame_detected)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2327,8 +2337,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // Quality flags — fallback to 0 for pre-migration source databases
                 QVariant ch = srcShots.value("channeling_detected");
                 insert.addBindValue((ch.isValid() && !ch.isNull()) ? ch : QVariant(0));
-                QVariant tu = srcShots.value("temperature_unstable");
-                insert.addBindValue((tu.isValid() && !tu.isNull()) ? tu : QVariant(0));
                 QVariant gi = srcShots.value("grind_issue_detected");
                 insert.addBindValue((gi.isValid() && !gi.isNull()) ? gi : QVariant(0));
                 QVariant sf = srcShots.value("skip_first_frame_detected");
@@ -2513,7 +2521,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
-            channeling_detected, temperature_unstable, grind_issue_detected,
+            channeling_detected, grind_issue_detected,
             skip_first_frame_detected, pour_truncated_detected
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
@@ -2523,7 +2531,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
-            :channeling_detected, :temperature_unstable, :grind_issue_detected,
+            :channeling_detected, :grind_issue_detected,
             :skip_first_frame_detected, :pour_truncated_detected
         )
     )");
@@ -2558,7 +2566,6 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":yield_override", record.targetWeight);
     query.bindValue(":profile_kb_id", record.profileKbId.isEmpty() ? QVariant() : record.profileKbId);
     query.bindValue(":channeling_detected", record.channelingDetected ? 1 : 0);
-    query.bindValue(":temperature_unstable", record.temperatureUnstable ? 1 : 0);
     query.bindValue(":grind_issue_detected", record.grindIssueDetected ? 1 : 0);
     query.bindValue(":skip_first_frame_detected", record.skipFirstFrameDetected ? 1 : 0);
     query.bindValue(":pour_truncated_detected", record.pourTruncatedDetected ? 1 : 0);
