@@ -35,8 +35,6 @@ When `ShotSummarizer::summarizeFromHistory(shotData)` is invoked with a `shotDat
 
 When `summaryLines` is absent or empty (legacy shots, direct test callers, imported shots without the new fields), the function SHALL fall back to the existing inline detector orchestration path. The fast and fallback paths SHALL produce equivalent `ShotSummary::summaryLines` for identical shot data — they cannot drift because both ultimately rely on the same `ShotAnalysis::analyzeShot` body.
 
-The per-phase temperature instability markers (`markPerPhaseTempInstability`) SHALL remain gated on `!summary.pourTruncatedDetected AND ShotAnalysis::reachedExtractionPhase(historyMarkers, summary.totalDuration)` regardless of which path produced the summary lines.
-
 The live-path entry point `ShotSummarizer::summarize(ShotDataModel*)` is OUT OF SCOPE — it operates on an in-progress shot for which no `convertShotRecord` has run, and SHALL continue to call `analyzeShot` (via `generateSummary`) inline.
 
 #### Scenario: Modern shotData with pre-computed lines bypasses recomputation
@@ -65,11 +63,10 @@ The live-path entry point `ShotSummarizer::summarize(ShotDataModel*)` is OUT OF 
 - **GIVEN** a `shotData` map with non-empty `summaryLines` and `detectorResults.pourTruncated == true`
 - **WHEN** the AI advisor invokes `summarizeFromHistory(shotData)`
 - **THEN** `ShotSummary::pourTruncatedDetected` SHALL be `true`
-- **AND** no `PhaseSummary::temperatureUnstable` markers SHALL be set on the summary's phase list (the cascade gates the per-phase pass identically to the slow path)
 
 ### Requirement: Save and load paths SHALL derive boolean quality badges from `DetectorResults` via a single documented projection
 
-`ShotHistoryStorage::saveShot` (save-time badge computation) and `ShotHistoryStorage::loadShotRecordStatic` (recompute-on-load) SHALL invoke `ShotAnalysis::analyzeShot(...)` exactly once per shot and project the five boolean badge columns from the returned `DetectorResults` struct using the documented mapping. Neither function SHALL retain hand-rolled per-detector calls or hand-rolled cascade gate conditions; the cascade SHALL live in exactly one place — `ShotAnalysis::analyzeShot`.
+`ShotHistoryStorage::saveShot` (save-time badge computation) and `ShotHistoryStorage::loadShotRecordStatic` (recompute-on-load) SHALL invoke `ShotAnalysis::analyzeShot(...)` exactly once per shot and project the four boolean badge columns from the returned `DetectorResults` struct using the documented mapping. Neither function SHALL retain hand-rolled per-detector calls or hand-rolled cascade gate conditions; the cascade SHALL live in exactly one place — `ShotAnalysis::analyzeShot`.
 
 The projection mapping SHALL be implemented in `decenza::deriveBadgesFromAnalysis` (header-only, in `src/history/shotbadgeprojection.h`) as:
 
@@ -77,7 +74,6 @@ The projection mapping SHALL be implemented in `decenza::deriveBadgesFromAnalysi
 |---|---|
 | `pourTruncatedDetected` | `d.pourTruncated` |
 | `channelingDetected` | `d.channelingSeverity == "sustained"` (Transient does NOT set the badge) |
-| `temperatureUnstable` | `d.tempUnstable` |
 | `grindIssueDetected` | `d.grindHasData && (d.grindChokedPuck || d.grindYieldOvershoot || std::abs(d.grindFlowDeltaMlPerSec) > FLOW_DEVIATION_THRESHOLD)` |
 | `skipFirstFrameDetected` | `d.skipFirstFrame` |
 
@@ -87,7 +83,7 @@ The lazy-persist write-back in `loadShotRecordStatic` (when stored badge columns
 
 `ShotAnalysis::analyzeShot` SHALL accept an optional `expectedFrameCount` parameter and forward it to `detectSkipFirstFrame`. Save and load paths SHALL pass the profile's actual frame count so 1-frame profiles correctly suppress the skip-first-frame detector. Backwards-compatible: the parameter defaults to `-1` (unknown), preserving behavior for callers (legacy `generateSummary` wrapper) that don't pass it.
 
-The DB schema, the badge column types, and the badge-driven UI surfaces (history-list filter chips, badge UI, `shots_list` MCP) are OUT OF SCOPE — they continue to read the same five boolean columns; only the *production* of those values is unified.
+The DB schema, the badge column types, and the badge-driven UI surfaces (history-list filter chips, badge UI, `shots_list` MCP) are OUT OF SCOPE — they continue to read the same four boolean columns; only the *production* of those values is unified.
 
 The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly. A shot whose `DetectorResults.channelingSeverity` is `"transient"` MUST result in `channelingDetected = false`. This matches the badge behavior established by PR #922 and is documented in the projection table.
 
@@ -95,14 +91,14 @@ The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly.
 
 - **GIVEN** a shot whose `analyzeShot` returns `DetectorResults` with `verdictCategory = "clean"` and all detector gates clear
 - **WHEN** save-time or load-time badge derivation runs
-- **THEN** all five boolean badge columns SHALL be `false`
+- **THEN** all four boolean badge columns SHALL be `false`
 
 #### Scenario: Pour-truncated cascade dominates the projection
 
-- **GIVEN** a shot whose `analyzeShot` returns `pourTruncated = true` (and consequently `channelingChecked = false`, `grindChecked = false`, `tempUnstable = false`)
+- **GIVEN** a shot whose `analyzeShot` returns `pourTruncated = true` (and consequently `channelingChecked = false`, `grindChecked = false`)
 - **WHEN** save-time or load-time badge derivation runs
 - **THEN** `pourTruncatedDetected` SHALL be `true`
-- **AND** `channelingDetected`, `temperatureUnstable`, `grindIssueDetected` SHALL each be `false`
+- **AND** `channelingDetected`, `grindIssueDetected` SHALL each be `false`
 - **AND** `skipFirstFrameDetected` SHALL reflect `d.skipFirstFrame` independently (skip-first-frame is NOT suppressed by the cascade, matching PR #922's invariant)
 
 #### Scenario: Transient channeling does NOT set the badge
@@ -135,13 +131,6 @@ The Sustained-only semantic for `channelingDetected` SHALL be preserved exactly.
 - **GIVEN** a shot whose `analyzeShot` returns `grindHasData = true`, both `grindChokedPuck` and `grindYieldOvershoot` false, and `|grindFlowDeltaMlPerSec| <= FLOW_DEVIATION_THRESHOLD`
 - **WHEN** save-time or load-time badge derivation runs
 - **THEN** `grindIssueDetected` SHALL be `false`
-
-#### Scenario: Intentional temperature stepping does NOT fire the temp badge
-
-- **GIVEN** a shot using a profile whose temperature goal range exceeds `TEMP_STEPPING_RANGE` (e.g. D-Flow 84→94°C)
-- **AND** `analyzeShot` returns `tempIntentionalStepping = true`, `tempUnstable = false`
-- **WHEN** save-time or load-time badge derivation runs
-- **THEN** `temperatureUnstable` SHALL be `false`
 
 #### Scenario: 1-frame profile suppresses skip-first-frame detection
 
@@ -252,7 +241,7 @@ A future addition to `PhaseSummary`'s field set or per-phase metric computation 
 
 `ShotAnalysis::DetectorResults` SHALL include `pourStartSec` and `pourEndSec` fields populated by `analyzeShot` from the same `pourStart` / `pourEnd` locals it uses internally for the suppression cascade and detector gates. These fields SHALL be the canonical pour-window values for any consumer that needs them.
 
-`ShotSummarizer::computePourWindow` SHALL be deleted. Its sole consumer (the `markPerPhaseTempInstability` gate) SHALL read from `AnalysisResult::detectors::pourStartSec` / `pourEndSec` instead.
+`ShotSummarizer::computePourWindow` SHALL be deleted. MCP consumers reading `pourStartSec` / `pourEndSec` SHALL read from `AnalysisResult::detectors::pourStartSec` / `pourEndSec` instead of re-deriving the window themselves.
 
 `ShotHistoryStorage::convertShotRecord` SHALL serialize the two new fields onto the MCP `detectorResults` JSON object so external agents have access to the same pour-window values the in-app cascade uses.
 
@@ -263,11 +252,11 @@ A future addition to `PhaseSummary`'s field set or per-phase metric computation 
 - **THEN** `result.detectors.pourStartSec` SHALL equal the `pourStart` value `analyzeShot` uses internally for its suppression-cascade gates
 - **AND** `result.detectors.pourEndSec` SHALL equal the corresponding `pourEnd` value
 
-#### Scenario: ShotSummarizer's per-phase temp gate uses the exposed window
+#### Scenario: computePourWindow is gone
 
-- **GIVEN** a shot for which `markPerPhaseTempInstability` would run (not pour-truncated, reached extraction phase)
-- **WHEN** `ShotSummarizer::summarize` or `summarizeFromHistory` runs
-- **THEN** the gate's pour-window inputs SHALL come from `summary.pourStartSec` / `pourEndSec` (or equivalent cached `AnalysisResult` fields)
+- **GIVEN** the current codebase
+- **WHEN** any consumer needs the pour window
+- **THEN** it SHALL read from `AnalysisResult::detectors::pourStartSec` / `pourEndSec`
 - **AND** `computePourWindow` SHALL no longer exist in the codebase
 
 #### Scenario: MCP consumers see the pour window
@@ -278,9 +267,9 @@ A future addition to `PhaseSummary`'s field set or per-phase metric computation 
 
 ### Requirement: ShotSummarizer's detector-orchestration glue SHALL live in exactly one helper
 
-`ShotSummarizer::summarize` (live shot) and `ShotSummarizer::summarizeFromHistory` (saved shot) SHALL each delegate their final detector-orchestration block to a single private static helper `ShotSummarizer::runShotAnalysisAndPopulate`. The helper accepts pre-extracted typed inputs (curves, markers, beverage type, analysis flags, frame info, target/final weights) plus an optional cached `AnalysisResult`, and populates the passed-in `ShotSummary`'s `summaryLines`, `pourTruncatedDetected`, and per-phase `temperatureUnstable` markers.
+`ShotSummarizer::summarize` (live shot) and `ShotSummarizer::summarizeFromHistory` (saved shot) SHALL each delegate their final detector-orchestration block to a single private static helper `ShotSummarizer::runShotAnalysisAndPopulate`. The helper accepts pre-extracted typed inputs (curves, markers, beverage type, analysis flags, frame info, target/final weights) plus an optional cached `AnalysisResult`, and populates the passed-in `ShotSummary`'s `summaryLines` and `pourTruncatedDetected`.
 
-The two callers SHALL retain their respective input-adapter roles (live extracts from `ShotDataModel*`; history extracts from `QVariantMap` via `variantListToPoints`) but SHALL NOT contain duplicated `analyzeShot`-call + result-unpacking + `markPerPhaseTempInstability`-gating logic.
+The two callers SHALL retain their respective input-adapter roles (live extracts from `ShotDataModel*`; history extracts from `QVariantMap` via `variantListToPoints`) but SHALL NOT contain duplicated `analyzeShot`-call + result-unpacking logic.
 
 The fast-path optimization from change `dedup-ai-advisor-history-path` (reading pre-computed `summaryLines` when present on `summarizeFromHistory`'s input) SHALL be preserved by passing the cached `AnalysisResult` to the helper when applicable; the helper's `cachedAnalysis.has_value()` branch handles the rest.
 
@@ -289,7 +278,7 @@ The fast-path optimization from change `dedup-ai-advisor-history-path` (reading 
 - **GIVEN** the same shot data presented to both `summarize(ShotDataModel*, ...)` and `summarizeFromHistory(QVariantMap)`
 - **WHEN** the two functions run
 - **THEN** both SHALL call `ShotSummarizer::runShotAnalysisAndPopulate` with equivalent inputs
-- **AND** the resulting `ShotSummary` SHALL be byte-equal across the two paths (same `summaryLines`, same `pourTruncatedDetected`, same per-phase `temperatureUnstable` flags)
+- **AND** the resulting `ShotSummary` SHALL be byte-equal across the two paths (same `summaryLines`, same `pourTruncatedDetected`)
 
 #### Scenario: Cached AnalysisResult fast-path is preserved through the helper
 
@@ -300,11 +289,10 @@ The fast-path optimization from change `dedup-ai-advisor-history-path` (reading 
 
 ### Requirement: `ShotSummarizer::summarize` (live shot path) SHALL have direct unit-test coverage
 
-The live-shot summary path `ShotSummarizer::summarize(const ShotDataModel*, const Profile*, const ShotMetadata&, double doseWeight, double finalWeight)` SHALL be exercised by at least three direct unit tests in `tst_shotsummarizer.cpp`, mirroring the canonical scenarios already covered for the saved-shot path:
+The live-shot summary path `ShotSummarizer::summarize(const ShotDataModel*, const Profile*, const ShotMetadata&, double doseWeight, double finalWeight)` SHALL be exercised by at least two direct unit tests in `tst_shotsummarizer.cpp`, mirroring the canonical scenarios already covered for the saved-shot path:
 
-1. **Puck-failure suppression cascade**: a shot whose pressure stays below `PRESSURE_FLOOR_BAR` produces `pourTruncatedDetected = true`, the `"Pour never pressurized"` warning line, the puck-failed verdict, and NO channeling / temp-drift lines.
-2. **Aborted-during-preinfusion gate**: a shot that died during preinfusion-start does NOT flag per-phase `temperatureUnstable`, even with a large measured temp deviation, because `reachedExtractionPhase` returns false.
-3. **Healthy shot baseline**: a clean shot produces non-empty observation lines, a verdict line, and `pourTruncatedDetected = false`.
+1. **Puck-failure suppression cascade**: a shot whose pressure stays below `PRESSURE_FLOOR_BAR` produces `pourTruncatedDetected = true`, the `"Pour never pressurized"` warning line, the puck-failed verdict, and NO channeling lines.
+2. **Healthy shot baseline**: a clean shot produces non-empty observation lines, a verdict line, and `pourTruncatedDetected = false`.
 
 The tests SHALL use a `MockShotDataModel` (or equivalent test double) that exposes the curve and phase-marker accessor methods `summarize()` reads. The mock SHALL NOT depend on the full `ShotDataModel` runtime (no signals, no `QObject`-machinery beyond what's needed to satisfy the function signature).
 
@@ -314,7 +302,7 @@ The tests SHALL use a `MockShotDataModel` (or equivalent test double) that expos
 - **WHEN** `summarize(mock, profile, metadata, 18.0, 36.0)` runs
 - **THEN** the resulting `ShotSummary::pourTruncatedDetected` SHALL be `true`
 - **AND** `summaryLines` SHALL contain the `"Pour never pressurized"` warning
-- **AND** SHALL NOT contain `"Sustained channeling"` or `"Temperature drifted"` lines
+- **AND** SHALL NOT contain `"Sustained channeling"` lines
 
 #### Scenario: Live and history paths produce equivalent summaries (optional)
 
@@ -334,9 +322,9 @@ The function SHALL set `GrindCheck::hasData = true` whenever EITHER arm could sp
 - `"notAnalyzable"` — `GrindCheck.hasData == false && GrindCheck.skipped == false`, AND the espresso shot's pour window was non-degenerate (`pourEndSec > pourStartSec`), AND the beverage type is not in the non-espresso skip list.
 - `"skipped"` — `GrindCheck.skipped == true` (non-espresso beverages or profiles carrying the `grind_check_skip` analysis flag).
 
-When the pourTruncated cascade is active, the field SHALL be omitted entirely (consistent with how the channeling, flow-trend, temp, and grind blocks are already suppressed in that cascade).
+When the pourTruncated cascade is active, the field SHALL be omitted entirely (consistent with how the channeling, flow-trend, and grind blocks are already suppressed in that cascade).
 
-The five quality-badge boolean projections in `src/history/shotbadgeprojection.h` SHALL NOT change. Specifically: `grindIssueDetected` SHALL still require `grindHasData && (grindChokedPuck || grindYieldOvershoot || |grindFlowDeltaMlPerSec| > FLOW_DEVIATION_THRESHOLD)`. A verified-clean result SHALL project `grindIssueDetected = false`. A yield-shortfall-only result (yield arm fired, flow arm gates didn't pass) SHALL project `grindIssueDetected = true` because `chokedPuck` is set when either choke sub-arm fires.
+The four quality-badge boolean projections in `src/history/shotbadgeprojection.h` SHALL NOT change. Specifically: `grindIssueDetected` SHALL still require `grindHasData && (grindChokedPuck || grindYieldOvershoot || |grindFlowDeltaMlPerSec| > FLOW_DEVIATION_THRESHOLD)`. A verified-clean result SHALL project `grindIssueDetected = false`. A yield-shortfall-only result (yield arm fired, flow arm gates didn't pass) SHALL project `grindIssueDetected = true` because `chokedPuck` is set when either choke sub-arm fires.
 
 #### Scenario: Verified-clean shot emits a positive signal
 
