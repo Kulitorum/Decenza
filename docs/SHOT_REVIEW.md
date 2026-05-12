@@ -83,7 +83,7 @@ take effect on existing shots without a manual re-analyze.
 
 ## 2. Detector internals
 
-All five detectors live in `src/ai/shotanalysis.{h,cpp}` as static methods on
+All four detectors live in `src/ai/shotanalysis.{h,cpp}` as static methods on
 `ShotAnalysis`. Tuning constants are defined at the top of the header so they
 can be tweaked in one place. The header is heavily commented — read it
 alongside this section.
@@ -380,7 +380,7 @@ Each line carries a `type`:
 | Type          | Dot color                     | Used for                                   |
 | ------------- | ----------------------------- | ------------------------------------------ |
 | `good`        | success (green)               | "Puck stable", happy-path observations     |
-| `caution`     | warning (orange)              | flow drift, temp drift, grind direction    |
+| `caution`     | warning (orange)              | flow drift, grind direction                |
 | `warning`     | error (red)                   | sustained channeling, choked puck, frame skip, pour truncated |
 | `observation` | text-secondary (neutral grey) | preinfusion drip mass / duration           |
 | `verdict`     | no dot, larger font           | always exactly one, last in the list       |
@@ -391,7 +391,7 @@ from the observation lines.
 ### Observations emitted
 
 `analyzeShot` computes `pourTruncated` first; when it fires, the
-channeling / flow-trend / temperature / grind blocks below all skip
+channeling / flow-trend / grind blocks below all skip
 emission entirely. The list collapses to a single warning + the
 puck-failed verdict. Order otherwise follows `analyzeShot`
 top-to-bottom:
@@ -439,10 +439,10 @@ the first match (more specific failures take precedence over generic
 puck-integrity advice):
 
 1. **Pour truncated** → "Don't tune off this shot — peak pressure never
-   built, so the other quality signals (channeling, grind direction,
-   temp) are unreliable. Check prep (dose, distribution, basket, grind)
-   and pull another." Dominates over channeling / grind / temperature
-   since the puck never built any resistance worth analyzing; leads with
+   built, so the other quality signals (channeling, grind direction)
+   are unreliable. Check prep (dose, distribution, basket, grind)
+   and pull another." Dominates over channeling / grind since the puck
+   never built any resistance worth analyzing; leads with
    the meta-action because the shot has no useful tuning signal.
 2. **Skip first frame** → "First profile step was skipped — power-cycle…"
    Pre-empts choked-puck because a frame-skip can synthesise extraction
@@ -462,7 +462,7 @@ puck-integrity advice):
    issues to watch." (The in-source comment phrases this as "if the
    only caution is a grind direction," but the implementation does not
    actually check for uniqueness — a directional grind delta wins over
-   a co-occurring temperature or flow-trend caution.)
+   a co-occurring flow-trend caution.)
 6. **Otherwise, grind not analyzable** → "Clean shot, but grind could not
    be evaluated for this profile shape." Fires when no warnings/cautions
    were emitted AND `grindCoverage == "notAnalyzable"`. Distinguishes

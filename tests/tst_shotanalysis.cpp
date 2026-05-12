@@ -1198,8 +1198,8 @@ private slots:
 
     // ---- Suppression cascade in analyzeShot ----
     //
-    // When pourTruncated fires, the channeling / flow-trend / temp-stability /
-    // grind blocks all read off curves the failed puck didn't produce, so
+    // When pourTruncated fires, the channeling / flow-trend / grind blocks
+    // all read off curves the failed puck didn't produce, so
     // their output is unreliable. The summary path suppresses those blocks
     // entirely and emits a single "Pour never pressurized" warning + the
     // "Don't tune off this shot" verdict instead. These tests lock in that
@@ -1575,9 +1575,8 @@ private slots:
     // (`shots_get_detail`) read these directly instead of re-deriving the
     // window from phase markers; the previous `ShotSummarizer::computePourWindow`
     // re-derivation is what let drift creep in (PR #944 deleted it).
-    // ShotSummarizer's per-phase temperature instability check iterates
-    // `summary.phases` directly and doesn't read these fields — only the
-    // `pourTruncatedDetected` cascade gate couples it to analyzeShot.
+    // MCP consumers read `pourStartSec` / `pourEndSec` directly off
+    // DetectorResults instead of re-deriving the window themselves.
     void analyzeShot_pourWindow_matchesPhaseBoundaries()
     {
         QList<HistoryPhaseMarker> phases{
@@ -1607,9 +1606,10 @@ private slots:
     // No-marker whole-shot fallback: when phases is empty but pressure data
     // is present, analyzeShot still runs but the boundary loop produces no
     // hits, so pourStart stays at 0 and pourEnd stays at the full shot
-    // duration. ShotSummarizer's per-phase temp gate sees this as "whole
-    // shot is the pour window" — same behavior as the deleted
-    // computePourWindow's `pourEnd = summary.totalDuration` default.
+    // duration — same behavior as the deleted computePourWindow's
+    // `pourEnd = summary.totalDuration` default. MCP consumers reading
+    // pourStartSec / pourEndSec from DetectorResults see the whole shot
+    // as the pour window on legacy / phase-marker-less shots.
     void analyzeShot_pourWindow_noMarkers_spansWholeShot()
     {
         const double duration = 30.0;
@@ -1721,7 +1721,7 @@ private slots:
     }
     // ---- Badge projection (decenza::deriveBadgesFromAnalysis) ----
     //
-    // The five boolean quality-badge columns are now a deterministic
+    // The four boolean quality-badge columns are now a deterministic
     // projection of ShotAnalysis::DetectorResults via the helper in
     // src/history/shotbadgeprojection.h. saveShot and loadShotRecordStatic
     // both call analyzeShot once and apply the projection — the cascade
