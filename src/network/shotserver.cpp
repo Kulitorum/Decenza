@@ -2680,6 +2680,8 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
     if (!socket) return;
     socket->flush();
     if (!socket) return;
+    // Arm the idle-close timer for HTTP keep-alive: drop the connection if no
+    // further request arrives within KEEPALIVE_TIMEOUT_S seconds.
     resetKeepAliveTimer(socket);
 }
 
@@ -2717,8 +2719,15 @@ void ShotServer::sendHtml(QTcpSocket* socket, const QString& html)
     sendResponse(socket, 200, "text/html; charset=utf-8", finalHtml.toUtf8());
 }
 
-void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString& contentType)
+void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QString& contentType)
 {
+    // waitForBytesWritten() below spins a local event loop, so unlike
+    // sendResponse the socket really can be destroyed mid-function via a
+    // deleteLater queued from onDisconnected. Hold a QPointer and re-check it
+    // after every operation that yields to the event loop.
+    QPointer<QTcpSocket> socket(rawSocket);
+    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         sendResponse(socket, 404, "text/plain", "File not found");
@@ -2740,9 +2749,10 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
         "\r\n"
     ).arg(contentType).arg(fileSize).arg(filename).toUtf8();
 
+    if (!socket) return;
     if (socket->write(headers) == -1) {
         qWarning() << "ShotServer::sendFile: Failed to write headers -" << socket->errorString();
-        socket->abort();
+        if (socket) socket->abort();
         return;
     }
 
@@ -2756,21 +2766,26 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
             success = false;
             break;
         }
+        if (!socket) return;
         if (socket->write(chunk) == -1) {
             qWarning() << "ShotServer::sendFile: Socket write failed -" << socket->errorString();
             success = false;
             break;
         }
+        if (!socket) return;
         if (!socket->waitForBytesWritten(5000)) {
-            qWarning() << "ShotServer::sendFile: Write timed out";
+            // Either a write timeout OR the socket was destroyed by a
+            // deleteLater fired from the nested event loop above.
+            if (socket) qWarning() << "ShotServer::sendFile: Write timed out";
             success = false;
             break;
         }
     }
 
+    if (!socket) return;
     if (success) {
         socket->flush();
-        socket->disconnectFromHost();
+        if (socket) socket->disconnectFromHost();
     } else {
         socket->abort();
     }
