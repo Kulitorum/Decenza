@@ -81,6 +81,6 @@
 
 ## 11. PR & archive
 
-- [ ] 11.1 Run `/pr-review-toolkit:review-pr` on the diff before opening the PR.
-- [ ] 11.2 Open the PR with `gh pr create`. Body references issue #1128 with `Closes #1128`.
-- [ ] 11.3 After merge, archive this OpenSpec change with `/openspec-archive-change remove-temperature-unstable-badge`.
+- [x] 11.1 Run `/pr-review-toolkit:review-pr` on the diff before opening the PR.
+- [x] 11.2 Open the PR with `gh pr create`. Body references issue #1128 with `Closes #1128`.
+- [x] 11.3 After merge, archive this OpenSpec change with `/openspec-archive-change remove-temperature-unstable-badge`.
