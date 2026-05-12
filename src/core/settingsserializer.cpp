@@ -286,8 +286,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["grinderSetting"] = settings->dye()->dyeGrinderSetting();
     dye["beanWeight"] = settings->dye()->dyeBeanWeight();
     dye["drinkWeight"] = settings->dye()->dyeDrinkWeight();
-    dye["drinkTds"] = settings->dye()->dyeDrinkTds();
-    dye["drinkEy"] = settings->dye()->dyeDrinkEy();
+    // drinkTds/drinkEy are session-scratch (not persisted), so skip backup/restore.
     dye["espressoEnjoyment"] = settings->dye()->dyeEspressoEnjoyment();
     dye["shotNotes"] = settings->dye()->dyeShotNotes();
     dye["barista"] = settings->dye()->dyeBarista();
@@ -706,8 +705,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (dye.contains("grinderSetting")) settings->dye()->setDyeGrinderSetting(dye["grinderSetting"].toString());
         if (dye.contains("beanWeight")) settings->dye()->setDyeBeanWeight(dye["beanWeight"].toDouble());
         if (dye.contains("drinkWeight")) settings->dye()->setDyeDrinkWeight(dye["drinkWeight"].toDouble());
-        if (dye.contains("drinkTds")) settings->dye()->setDyeDrinkTds(dye["drinkTds"].toDouble());
-        if (dye.contains("drinkEy")) settings->dye()->setDyeDrinkEy(dye["drinkEy"].toDouble());
+        // drinkTds/drinkEy are session-scratch (not persisted); ignore on restore.
         if (dye.contains("espressoEnjoyment")) settings->dye()->setDyeEspressoEnjoyment(dye["espressoEnjoyment"].toInt());
         // Shot notes: try new key first, fall back to old key
         if (dye.contains("shotNotes")) settings->dye()->setDyeShotNotes(dye["shotNotes"].toString());

@@ -2493,15 +2493,10 @@ void MainController::setRefractometer(DiFluidR2* refractometer) {
     m_refractometer = refractometer;
     if (!m_refractometer) return;
 
-    // When R2 sends a TDS reading, populate the DYE field.
-    // EY calculation is NOT done here — PostShotReviewPage QML is the single
-    // source of truth for EY when the page is active (it uses page-local
-    // editDoseWeight/editDrinkWeight which may differ from Settings).
-    connect(m_refractometer, &DiFluidR2::tdsChanged, this, [this](double tds) {
-        if (tds > 0 && m_settings) {
-            qDebug() << "[Refractometer] TDS received:" << tds << "- populating DYE field";
-            m_settings->dye()->setDyeDrinkTds(tds);
-        }
+    // Non-mutating log only. PostShotReviewPage owns context-gated capture; do
+    // not write to Settings here — device-initiated readings would leak forward.
+    connect(m_refractometer, &DiFluidR2::tdsChanged, this, [](double tds) {
+        qDebug() << "[Refractometer] tdsChanged" << tds;
     });
 }
 

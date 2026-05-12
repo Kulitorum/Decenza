@@ -213,23 +213,23 @@ void SettingsDye::setDyeDrinkWeight(double value) {
 }
 
 double SettingsDye::dyeDrinkTds() const {
-    return m_settings.value("dye/drinkTds", 0.0).toDouble();
+    return m_dyeDrinkTds;
 }
 
 void SettingsDye::setDyeDrinkTds(double value) {
-    if (!qFuzzyCompare(1.0 + dyeDrinkTds(), 1.0 + value)) {
-        m_settings.setValue("dye/drinkTds", value);
+    if (!qFuzzyCompare(1.0 + m_dyeDrinkTds, 1.0 + value)) {
+        m_dyeDrinkTds = value;
         emit dyeDrinkTdsChanged();
     }
 }
 
 double SettingsDye::dyeDrinkEy() const {
-    return m_settings.value("dye/drinkEy", 0.0).toDouble();
+    return m_dyeDrinkEy;
 }
 
 void SettingsDye::setDyeDrinkEy(double value) {
-    if (!qFuzzyCompare(1.0 + dyeDrinkEy(), 1.0 + value)) {
-        m_settings.setValue("dye/drinkEy", value);
+    if (!qFuzzyCompare(1.0 + m_dyeDrinkEy, 1.0 + value)) {
+        m_dyeDrinkEy = value;
         emit dyeDrinkEyChanged();
     }
 }

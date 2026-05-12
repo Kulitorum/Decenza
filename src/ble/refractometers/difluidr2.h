@@ -16,8 +16,9 @@ class ScaleBleTransport;
  * Protocol: header 0xDF 0xDF, func, cmd, datalen, data, additive checksum.
  * Service 0x00FF, characteristic 0xAA01.
  *
- * Emits tdsChanged when a TDS reading arrives. MainController connects this
- * to Settings.setDyeDrinkTds() for auto-populating the post-shot review page.
+ * Emits tdsChanged on every completed measurement, including device-initiated
+ * ones (physical button on the R2, idle polls). Consumers must gate by context
+ * and validate the value before persisting.
  */
 class DiFluidR2 : public QObject {
     Q_OBJECT

@@ -135,9 +135,10 @@ Page {
                 editDrinkWeight = editShotData.finalWeightG ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
-                if (editDrinkTds === 0)
+                if (editDrinkTds === 0) {
                     editDrinkTds = editShotData.drinkTdsPct ?? 0
-                editDrinkEy = editShotData.drinkEyPct ?? 0
+                    editDrinkEy = editShotData.drinkEyPct ?? 0
+                }
                 editEnjoyment = (editShotData.enjoymentSource === "inferred")
                     ? 0
                     : (editShotData.enjoyment0to100 ?? 0)
@@ -210,14 +211,25 @@ Page {
     property string editNotes: ""
     property string editBeverageType: "espresso"
 
-    // Auto-populate TDS from refractometer when a reading arrives
+    // Real espresso TDS is 5–22%; below 3.0% is a calibration or empty cuvette.
+    readonly property real kMinimumPlausibleTds: 3.0
+
+    // Gate by visibility so device-initiated R2 readings between shots don't
+    // land on whichever shot happens to be loaded.
     Connections {
         target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
+        enabled: postShotReviewPage.visible
         function onTdsChanged(tds) {
-            if (tds > 0 && isEditMode) {
-                editDrinkTds = tds
-                calculateEy()
+            if (!isEditMode) return
+            if (tds < postShotReviewPage.kMinimumPlausibleTds) {
+                console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
+                    "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
+                    "shotId=", editShotId,
+                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
+                return
             }
+            editDrinkTds = tds
+            calculateEy()
         }
     }
 

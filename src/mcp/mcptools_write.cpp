@@ -614,16 +614,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 addSetter([settings, v]() { settings->dye()->setDyeDrinkWeight(v); });
                 updated << "dyeDrinkWeight";
             }
-            if (args.contains("dyeDrinkTds")) {
-                double v = args["dyeDrinkTds"].toDouble();
-                addSetter([settings, v]() { settings->dye()->setDyeDrinkTds(v); });
-                updated << "dyeDrinkTds";
-            }
-            if (args.contains("dyeDrinkEy")) {
-                double v = args["dyeDrinkEy"].toDouble();
-                addSetter([settings, v]() { settings->dye()->setDyeDrinkEy(v); });
-                updated << "dyeDrinkEy";
-            }
+            // dyeDrinkTds/dyeDrinkEy are session-scratch fields (not persisted)
+            // — writing them via settings_set is a footgun, since the value
+            // gets snapshotted into whatever shot completes next. To patch
+            // a saved shot, use shots_update with drinkTds/drinkEy instead.
             if (args.contains("dyeEspressoEnjoyment")) {
                 int v = qBound(0, args["dyeEspressoEnjoyment"].toInt(), 100);
                 addSetter([settings, v]() { settings->dye()->setDyeEspressoEnjoyment(v); });

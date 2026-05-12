@@ -131,8 +131,13 @@ public:
     bool beansModified() const { return m_beansModified; }
 
     // Invalidate cached DYE values so the next getter re-reads from QSettings.
-    // Called by Settings::factoryReset() after wiping the store.
-    void invalidateCache() { m_dyeCacheInitialized = false; }
+    // Called by Settings::factoryReset() after wiping the store. Also zeros
+    // the session-scratch TDS/EY since they don't live in QSettings.
+    void invalidateCache() {
+        m_dyeCacheInitialized = false;
+        m_dyeDrinkTds = 0.0;
+        m_dyeDrinkEy = 0.0;
+    }
 
 signals:
     void dyeBeanBrandChanged();
@@ -173,4 +178,10 @@ private:
     mutable double m_dyeBeanWeightCache = 18.0;
     mutable double m_dyeDrinkWeightCache = 36.0;
     mutable bool m_dyeCacheInitialized = false;
+
+    // Per-shot refractometer values. Held in memory only, never persisted —
+    // a stale TDS from a previous app session has no business showing up on
+    // the next shot. The shot record is the source of truth post-save.
+    double m_dyeDrinkTds = 0.0;
+    double m_dyeDrinkEy = 0.0;
 };
