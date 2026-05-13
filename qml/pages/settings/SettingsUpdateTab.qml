@@ -15,9 +15,9 @@ Item {
     readonly property var fw: typeof MainController !== "undefined" && MainController
                               ? MainController.firmwareUpdater : null
 
-    // Refresh SAW state whenever the user comes back from another app
-    // (most likely: Android Settings → Display over other apps → Decenza).
-    // The diagnostic surface reads the cached value, so we re-query on resume.
+    // Re-check SAW permission whenever the user returns to Decenza from
+    // another app (most relevantly: the system "Display over other apps"
+    // settings screen we send them to via requestAutoRelaunchPermission()).
     Connections {
         target: Qt.application
         function onStateChanged(state) {
@@ -197,52 +197,79 @@ Item {
                     }
                 }
 
-                // Auto-relaunch diagnostic (Android only). Read-only — there is
-                // intentionally no in-app control for the SYSTEM_ALERT_WINDOW
-                // grant (the previous Switch was misleading because the grant
-                // can only be flipped in the Android system settings). The
-                // mechanism kicks in automatically once SAW is granted; this
-                // block just reports state.
-                ColumnLayout {
+                // Auto-relaunch after update toggle (Android only).
+                // Maps to SYSTEM_ALERT_WINDOW grant — when enabled, the
+                // UpdateRelaunchReceiver tries to bring the app back to the
+                // foreground after a self-update. See specs/android-update-relaunch.
+                RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
+                    spacing: Theme.scaled(8)
                     visible: MainController.updateChecker.autoRelaunchSupported
 
-                    Tr {
-                        key: "settings.update.autorelaunch.title"
-                        fallback: "Auto-reopen after update (diagnostic)"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(1)
+
+                        Tr {
+                            key: "settings.update.autorelaunch"
+                            fallback: "Auto-reopen after update"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(13)
+                        }
+
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.update.autorelaunchdesc"
+                            fallback: "Requires the “Display over other apps” permission. Tap to grant in Android Settings."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            visible: Settings.app.lastAutoRelaunchAt.length > 0
+                                  || MainController.updateChecker.currentLaunchWasAutoRelaunch
+                            text: {
+                                var lines = []
+                                if (MainController.updateChecker.currentLaunchWasAutoRelaunch) {
+                                    lines.push(TranslationManager.translate(
+                                        "settings.update.autorelaunch.thissession",
+                                        "This launch was auto-reopened after an update."))
+                                }
+                                if (Settings.app.lastAutoRelaunchAt.length > 0) {
+                                    lines.push(TranslationManager.translate(
+                                        "settings.update.autorelaunch.lastat",
+                                        "Last receiver fire: %1").arg(Settings.app.lastAutoRelaunchAt))
+                                    if (Settings.app.lastAutoRelaunchResult.length > 0) {
+                                        lines.push(Settings.app.lastAutoRelaunchResult)
+                                    }
+                                }
+                                return lines.join("\n")
+                            }
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            wrapMode: Text.WordWrap
+                        }
                     }
 
-                    Text {
-                        Layout.fillWidth: true
-                        text: {
-                            var lines = []
-                            var grantedLabel = MainController.updateChecker.autoRelaunchPermissionGranted
-                                ? TranslationManager.translate("common.granted", "granted")
-                                : TranslationManager.translate("common.notgranted", "not granted")
-                            lines.push(TranslationManager.translate(
-                                "settings.update.autorelaunch.sawState",
-                                "Display over other apps: %1").arg(grantedLabel))
-                            if (MainController.updateChecker.currentLaunchWasAutoRelaunch) {
-                                lines.push(TranslationManager.translate(
-                                    "settings.update.autorelaunch.thissession",
-                                    "This launch was auto-reopened after an update."))
-                            }
-                            if (Settings.app.lastAutoRelaunchAt.length > 0) {
-                                lines.push(TranslationManager.translate(
-                                    "settings.update.autorelaunch.lastat",
-                                    "Last receiver fire: %1").arg(Settings.app.lastAutoRelaunchAt))
-                            }
-                            if (Settings.app.lastAutoRelaunchResult.length > 0) {
-                                lines.push(Settings.app.lastAutoRelaunchResult)
-                            }
-                            return lines.join("\n")
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        id: autoRelaunchSwitch
+                        checked: MainController.updateChecker.autoRelaunchPermissionGranted
+                        accessibleName: TranslationManager.translate(
+                            "settings.update.autorelaunch", "Auto-reopen after update")
+
+                        // Tapping the switch on can't be a "toggle" — Android requires
+                        // routing the user to a system Settings screen to grant the
+                        // permission. Tapping off cannot be done programmatically
+                        // either (no API to revoke SAW). In both cases we open the
+                        // permission page; the visible state syncs on app resume.
+                        onClicked: {
+                            checked = MainController.updateChecker.autoRelaunchPermissionGranted
+                            MainController.updateChecker.requestAutoRelaunchPermission()
                         }
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.WordWrap
                     }
                 }
 

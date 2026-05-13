@@ -129,6 +129,62 @@ QString jniReadAutoRelaunchExtraFromActivityIntent()
     return hasIt ? QStringLiteral("true") : QString{};
 }
 
+// Launches Settings.ACTION_MANAGE_OVERLAY_PERMISSION scoped to this package.
+// startActivity (not startActivityForResult) — we don't need the result; the
+// user returning to the app triggers an onResume() in DecenzaActivity which
+// QML can hook to call refreshAutoRelaunchPermission().
+void jniLaunchManageOverlayPermission()
+{
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    if (!activity.isValid()) {
+        qWarning() << "UpdateChecker: no activity context for overlay permission request";
+        return;
+    }
+    QJniObject pkgName = activity.callObjectMethod(
+        "getPackageName", "()Ljava/lang/String;");
+    if (!pkgName.isValid()) {
+        qWarning() << "UpdateChecker: no package name for overlay permission request";
+        return;
+    }
+
+    // Build the "package:<applicationId>" URI via Uri.fromParts, which takes
+    // scheme + ssp as separate arguments. Empirically QJniObject::toString()
+    // on the package-name jstring returns empty on Qt 6.10 / Android 16, which
+    // collapsed our earlier Uri.parse("package:" + pkg) approach into an
+    // SSP-less "package:" — the Settings system then refused to resolve it
+    // (ActivityNotFoundException). fromParts sidesteps the QString round-trip
+    // by handing the jstring straight to Java.
+    QJniObject schemeJ = QJniObject::fromString(QStringLiteral("package"));
+    QJniObject uri = QJniObject::callStaticObjectMethod(
+        "android/net/Uri", "fromParts",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
+        schemeJ.object<jstring>(), pkgName.object<jstring>(), nullptr);
+    if (!uri.isValid()) {
+        qWarning() << "UpdateChecker: Uri.fromParts returned null";
+        return;
+    }
+
+    QJniObject actionJ = QJniObject::fromString(
+        QStringLiteral("android.settings.MANAGE_OVERLAY_PERMISSION"));
+    QJniObject intent("android/content/Intent",
+        "(Ljava/lang/String;Landroid/net/Uri;)V",
+        actionJ.object<jstring>(), uri.object());
+
+    // FLAG_ACTIVITY_NEW_TASK = 0x10000000.
+    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;",
+                            static_cast<jint>(0x10000000));
+
+    QJniEnvironment env;
+    activity.callMethod<void>("startActivity",
+        "(Landroid/content/Intent;)V", intent.object());
+    if (env.checkAndClearExceptions()) {
+        // Java exception was thrown and caught by JNI. The previous C++
+        // try/catch was a no-op for these — JNI exceptions don't propagate as
+        // C++ exceptions. checkAndClearExceptions() is the correct surface.
+        qWarning() << "UpdateChecker: startActivity for overlay permission "
+                      "threw a JNI exception (cleared)";
+    }
+}
 }  // namespace
 #endif
 
@@ -1214,6 +1270,16 @@ bool UpdateChecker::autoRelaunchPermissionGranted() const
     return m_autoRelaunchPermissionGranted;
 #else
     return false;
+#endif
+}
+
+void UpdateChecker::requestAutoRelaunchPermission()
+{
+#ifdef Q_OS_ANDROID
+    qInfo() << "UpdateChecker: launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
+    jniLaunchManageOverlayPermission();
+#else
+    qDebug() << "UpdateChecker: requestAutoRelaunchPermission() is a no-op on this platform";
 #endif
 }
 

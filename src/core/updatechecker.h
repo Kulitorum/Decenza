@@ -69,10 +69,14 @@ public:
     Q_INVOKABLE void downloadAndInstall();
     Q_INVOKABLE void dismissUpdate();
 
+    /// Opens Android Settings → "Display over other apps" → Decenza so the user
+    /// can grant SYSTEM_ALERT_WINDOW. No-op on non-Android. The grant cannot be
+    /// observed synchronously; after the user returns to the app, call
+    /// refreshAutoRelaunchPermission().
+    Q_INVOKABLE void requestAutoRelaunchPermission();
+
     /// Re-queries Settings.canDrawOverlays() and emits the change notification
-    /// if it differs from the cached value. Cheap to call repeatedly; bound
-    /// from QML on app-resume to keep the diagnostic surface accurate after
-    /// the user grants/revokes SAW via Android system Settings.
+    /// if it differs from the cached value. Cheap to call repeatedly.
     Q_INVOKABLE void refreshAutoRelaunchPermission();
 
 signals:
