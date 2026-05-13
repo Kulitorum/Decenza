@@ -15,11 +15,13 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QDateTime>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #include <QJniEnvironment>
 #include <QPointer>
+#include <QFile>
 #include <jni.h>
 #include <unistd.h>  // fsync
 #include <cerrno>    // errno, strerror
@@ -90,6 +92,88 @@ void registerInstallerNativeMethods()
     QJniObject::callStaticMethod<void>(
         "io/github/kulitorum/decenza_de1/ApkInstaller", "onNativeRegistered", "()V");
 }
+
+// ---- Auto-relaunch JNI helpers ---------------------------------------------
+
+// Matches UpdateRelaunchReceiver.EXTRA_AUTO_RELAUNCH.
+constexpr const char* kAutoRelaunchExtraName =
+    "io.github.kulitorum.decenza_de1.AUTO_RELAUNCH_AFTER_UPDATE";
+
+// Matches UpdateRelaunchReceiver.FLAG_FILENAME.
+constexpr const char* kAutoRelaunchFlagFilename = "auto_relaunch_fired.txt";
+
+bool jniCanDrawOverlays()
+{
+    QJniObject ctx = QNativeInterface::QAndroidApplication::context();
+    if (!ctx.isValid()) return false;
+    // Settings.canDrawOverlays(Context) returns true iff the user has granted
+    // SYSTEM_ALERT_WINDOW. Static method; safe to call repeatedly.
+    return QJniObject::callStaticMethod<jboolean>(
+        "android/provider/Settings",
+        "canDrawOverlays",
+        "(Landroid/content/Context;)Z",
+        ctx.object()) == JNI_TRUE;
+}
+
+QString jniReadAutoRelaunchExtraFromActivityIntent()
+{
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    if (!activity.isValid()) return {};
+    QJniObject intent = activity.callObjectMethod(
+        "getIntent", "()Landroid/content/Intent;");
+    if (!intent.isValid()) return {};
+    QJniObject keyJ = QJniObject::fromString(kAutoRelaunchExtraName);
+    jboolean hasIt = intent.callMethod<jboolean>(
+        "getBooleanExtra", "(Ljava/lang/String;Z)Z",
+        keyJ.object<jstring>(), JNI_FALSE);
+    return hasIt ? QStringLiteral("true") : QString{};
+}
+
+// Launches Settings.ACTION_MANAGE_OVERLAY_PERMISSION scoped to this package.
+// startActivity (not startActivityForResult) — we don't need the result; the
+// user returning to the app triggers an onResume() in DecenzaActivity which
+// QML can hook to call refreshAutoRelaunchPermission().
+void jniLaunchManageOverlayPermission()
+{
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    if (!activity.isValid()) {
+        qWarning() << "UpdateChecker: no activity context for overlay permission request";
+        return;
+    }
+    QJniObject pkgName = activity.callObjectMethod(
+        "getPackageName", "()Ljava/lang/String;");
+    if (!pkgName.isValid()) {
+        qWarning() << "UpdateChecker: no package name for overlay permission request";
+        return;
+    }
+
+    // Build "package:<applicationId>" URI.
+    QJniObject uriStringJ = QJniObject::fromString(
+        QStringLiteral("package:") + pkgName.toString());
+    QJniObject uri = QJniObject::callStaticObjectMethod(
+        "android/net/Uri", "parse",
+        "(Ljava/lang/String;)Landroid/net/Uri;",
+        uriStringJ.object<jstring>());
+
+    QJniObject actionJ = QJniObject::fromString(
+        QStringLiteral("android.settings.MANAGE_OVERLAY_PERMISSION"));
+    QJniObject intent("android/content/Intent",
+        "(Ljava/lang/String;Landroid/net/Uri;)V",
+        actionJ.object<jstring>(), uri.object());
+
+    // Add FLAG_ACTIVITY_NEW_TASK so this works even if called from a non-
+    // activity context (defensive — usually called from the activity).
+    // Intent.FLAG_ACTIVITY_NEW_TASK = 0x10000000.
+    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;",
+                            static_cast<jint>(0x10000000));
+
+    try {
+        activity.callMethod<void>("startActivity",
+            "(Landroid/content/Intent;)V", intent.object());
+    } catch (...) {
+        qWarning() << "UpdateChecker: startActivity for overlay permission threw";
+    }
+}
 }  // namespace
 #endif
 
@@ -103,6 +187,8 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
 #ifdef Q_OS_ANDROID
     registerInstallerNativeMethods();
     s_activeChecker = this;
+    readAutoRelaunchDiagnostic();
+    m_autoRelaunchPermissionGranted = jniCanDrawOverlays();
 #endif
     // Check every hour
     m_periodicTimer->setInterval(60 * 60 * 1000);  // 1 hour
@@ -1157,3 +1243,101 @@ void UpdateChecker::openReleasePage()
 {
     QDesktopServices::openUrl(QUrl(releasePageUrl()));
 }
+
+bool UpdateChecker::autoRelaunchSupported() const
+{
+#ifdef Q_OS_ANDROID
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool UpdateChecker::autoRelaunchPermissionGranted() const
+{
+#ifdef Q_OS_ANDROID
+    return m_autoRelaunchPermissionGranted;
+#else
+    return false;
+#endif
+}
+
+void UpdateChecker::requestAutoRelaunchPermission()
+{
+#ifdef Q_OS_ANDROID
+    qInfo() << "UpdateChecker: launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
+    jniLaunchManageOverlayPermission();
+#else
+    qDebug() << "UpdateChecker: requestAutoRelaunchPermission() is a no-op on this platform";
+#endif
+}
+
+void UpdateChecker::refreshAutoRelaunchPermission()
+{
+#ifdef Q_OS_ANDROID
+    bool was = m_autoRelaunchPermissionGranted;
+    m_autoRelaunchPermissionGranted = jniCanDrawOverlays();
+    if (was != m_autoRelaunchPermissionGranted) {
+        qInfo() << "UpdateChecker: SAW permission state changed:"
+                << was << "->" << m_autoRelaunchPermissionGranted;
+        emit autoRelaunchPermissionGrantedChanged();
+    }
+#endif
+}
+
+#ifdef Q_OS_ANDROID
+void UpdateChecker::readAutoRelaunchDiagnostic()
+{
+    // Two distinct signals:
+    //   1. Flag file written by UpdateRelaunchReceiver on every fire (records
+    //      that the receiver actually ran, regardless of whether BAL allowed
+    //      the activity launch). Read once, then delete.
+    //   2. Intent extra on the launching Activity (records whether THIS launch
+    //      came through the receiver's startActivity — only true if BAL did
+    //      NOT block it).
+
+    // (1) Flag file
+    QString flagPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                     + "/" + kAutoRelaunchFlagFilename;
+    QFile flag(flagPath);
+    if (flag.exists()) {
+        QString line;
+        if (flag.open(QIODevice::ReadOnly)) {
+            line = QString::fromUtf8(flag.readAll()).trimmed();
+            flag.close();
+        }
+        qInfo().noquote()
+            << "UpdateChecker: UpdateRelaunchReceiver fired on previous update:"
+            << line;
+
+        // Parse "<epoch-millis> result=<summary> saw=<bool>"
+        QString iso;
+        if (!line.isEmpty()) {
+            const qint64 epochMs = line.section(' ', 0, 0).toLongLong();
+            if (epochMs > 0) {
+                iso = QDateTime::fromMSecsSinceEpoch(epochMs).toString(Qt::ISODate);
+            }
+        }
+        if (m_settings && m_settings->app()) {
+            m_settings->app()->setLastAutoRelaunchAt(iso);
+            m_settings->app()->setLastAutoRelaunchResult(line);
+        }
+
+        // Delete so we don't re-report on next launch.
+        flag.remove();
+    } else {
+        qInfo() << "UpdateChecker: UpdateRelaunchReceiver did NOT fire (no flag file)"
+                << "— this is normal on cold start without a recent update";
+    }
+
+    // (2) Activity Intent extra
+    QString extra = jniReadAutoRelaunchExtraFromActivityIntent();
+    m_currentLaunchWasAutoRelaunch = !extra.isEmpty();
+    if (m_currentLaunchWasAutoRelaunch) {
+        qInfo() << "UpdateChecker: THIS launch was auto-relaunched after a self-update"
+                << "— SAW BAL bypass worked";
+    } else {
+        qInfo() << "UpdateChecker: THIS launch is a normal (manual) launch";
+    }
+}
+#endif
