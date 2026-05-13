@@ -15,7 +15,6 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QGuiApplication>
-#include <QDateTime>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -150,14 +149,19 @@ void jniLaunchManageOverlayPermission()
 
     // Uri.fromParts(scheme, ssp, fragment). Avoids QJniObject::toString()
     // on a Java String, which returns empty on Qt 6.10 / Android 16 and
-    // would collapse the URI to "package:" with no SSP.
+    // would collapse the URI to "package:" with no SSP. Fragment is passed
+    // as an explicit jstring(nullptr) rather than raw nullptr so Qt's
+    // variadic JNI marshalling has an unambiguous pointer type for the
+    // third jobject slot.
+    QJniEnvironment env;
     QJniObject schemeJ = QJniObject::fromString(QStringLiteral("package"));
     QJniObject uri = QJniObject::callStaticObjectMethod(
         "android/net/Uri", "fromParts",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
-        schemeJ.object<jstring>(), pkgName.object<jstring>(), nullptr);
-    if (!uri.isValid()) {
-        qWarning() << "UpdateChecker: Uri.fromParts returned null";
+        schemeJ.object<jstring>(), pkgName.object<jstring>(),
+        static_cast<jstring>(nullptr));
+    if (env.checkAndClearExceptions() || !uri.isValid()) {
+        qWarning() << "UpdateChecker: Uri.fromParts failed or returned null";
         return;
     }
 
@@ -166,10 +170,19 @@ void jniLaunchManageOverlayPermission()
     QJniObject intent("android/content/Intent",
         "(Ljava/lang/String;Landroid/net/Uri;)V",
         actionJ.object<jstring>(), uri.object());
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;",
-                            static_cast<jint>(0x10000000));  // FLAG_ACTIVITY_NEW_TASK
+    if (env.checkAndClearExceptions() || !intent.isValid()) {
+        qWarning() << "UpdateChecker: Intent constructor threw or returned null";
+        return;
+    }
 
-    QJniEnvironment env;
+    // FLAG_ACTIVITY_NEW_TASK = 0x10000000.
+    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;",
+                            static_cast<jint>(0x10000000));
+    if (env.checkAndClearExceptions()) {
+        qWarning() << "UpdateChecker: Intent.addFlags threw";
+        return;
+    }
+
     activity.callMethod<void>("startActivity",
         "(Landroid/content/Intent;)V", intent.object());
     if (env.checkAndClearExceptions()) {
@@ -1336,19 +1349,6 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
         qInfo().noquote()
             << "UpdateChecker: UpdateRelaunchReceiver fired on previous update:"
             << line;
-
-        // Parse "<epoch-millis> result=<summary> saw=<bool>"
-        QString iso;
-        if (!line.isEmpty()) {
-            const qint64 epochMs = line.section(' ', 0, 0).toLongLong();
-            if (epochMs > 0) {
-                iso = QDateTime::fromMSecsSinceEpoch(epochMs).toString(Qt::ISODate);
-            }
-        }
-        if (m_settings && m_settings->app()) {
-            m_settings->app()->setLastAutoRelaunchAt(iso);
-            m_settings->app()->setLastAutoRelaunchResult(line);
-        }
 
         // Delete so we don't re-report on next launch.
         flag.remove();
