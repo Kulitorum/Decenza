@@ -59,7 +59,7 @@
 
 - [x] 8.1 All new C++ code is in `#ifdef Q_OS_ANDROID` guards. `UpdateChecker::autoRelaunchSupported()` returns false on non-Android; `autoRelaunchPermissionGranted()` returns false; `requestAutoRelaunchPermission()` is a no-op with a debug log; `refreshAutoRelaunchPermission()` is a no-op.
 - [x] 8.2 The QML toggle+diagnostic block has `visible: MainController.updateChecker.autoRelaunchSupported` so it does not appear on iOS/Windows/macOS/Linux
-- [ ] 8.3 Confirm CMake build still succeeds for at least one non-Android target (macOS or Linux) without warnings — *deferred to Jeff; build locally via Qt Creator before pushing*
+- [x] 8.3 Confirm CMake build still succeeds for at least one non-Android target — macOS Debug build via Qt Creator MCP succeeded in 80s with 0 errors. The 2 warnings are pre-existing environmental dylib-version warnings (Homebrew OpenSSL 3 built for macOS 26, project targets 13) — not from this change.
 
 ## 9. Manual verification
 
