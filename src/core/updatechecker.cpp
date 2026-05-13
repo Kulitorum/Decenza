@@ -1249,13 +1249,8 @@ bool UpdateChecker::shouldShowAutoRelaunchPrompt() const
     if (!m_settings || !m_settings->app()) return false;
     return m_receiverFiredOnThisStartup
         && !m_currentLaunchWasAutoRelaunch
-        && !m_autoRelaunchPermissionGranted;
-    // TESTING ONLY — REVERT BEFORE MERGE:
-    // The persisted `autoRelaunchPromptShown` check is temporarily disabled
-    // so the prompt re-fires on every qualifying launch, letting Jeff
-    // empirically verify the new Java-side deeplink without having to
-    // factory-reset the QSettings key between test cycles.
-    //     && !m_settings->app()->autoRelaunchPromptShown();
+        && !m_autoRelaunchPermissionGranted
+        && !m_settings->app()->autoRelaunchPromptShown();
 #else
     return false;
 #endif
