@@ -105,21 +105,21 @@ void JsCanvasContext::reset()
     DrawCmd c{}; c.op = DrawCmd::Op::Reset; m_cmds.append(c);
 }
 
-int JsCanvasContext::newBrush(BrushSpec::Type type,
-                              float x0, float y0, float r0,
-                              float x1, float y1, float r1)
+qsizetype JsCanvasContext::newBrush(BrushSpec::Type type,
+                                    float x0, float y0, float r0,
+                                    float x1, float y1, float r1)
 {
     BrushSpec s;
     s.type = type;
     s.x0 = x0; s.y0 = y0; s.r0 = r0;
     s.x1 = x1; s.y1 = y1; s.r1 = r1;
     m_brushes.append(std::move(s));
-    return int(m_brushes.size()) - 1;
+    return m_brushes.size() - 1;
 }
 
 QObject *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, float y1)
 {
-    int id = newBrush(BrushSpec::Type::Linear, x0, y0, 0.0f, x1, y1, 0.0f);
+    const qsizetype id = newBrush(BrushSpec::Type::Linear, x0, y0, 0.0f, x1, y1, 0.0f);
     auto *g = new JsCanvasGradient(this, id);
     m_gradients.append(g);
     return g;
@@ -128,7 +128,7 @@ QObject *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, flo
 QObject *JsCanvasContext::createRadialGradient(float x0, float y0, float r0,
                                                float x1, float y1, float r1)
 {
-    int id = newBrush(BrushSpec::Type::Radial, x0, y0, r0, x1, y1, r1);
+    const qsizetype id = newBrush(BrushSpec::Type::Radial, x0, y0, r0, x1, y1, r1);
     auto *g = new JsCanvasGradient(this, id);
     m_gradients.append(g);
     return g;
@@ -188,7 +188,7 @@ void JsCanvasContext::resetForNextFrame()
 
 // ---------------- JsCanvasGradient ----------------
 
-JsCanvasGradient::JsCanvasGradient(JsCanvasContext *ctx, int brushId)
+JsCanvasGradient::JsCanvasGradient(JsCanvasContext *ctx, qsizetype brushId)
     : QObject(ctx), m_ctx(ctx), m_brushId(brushId)
 {
 }

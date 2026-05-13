@@ -160,10 +160,13 @@ QCanvasPainterItemRenderer *JsCanvasPainterItem::createItemRenderer() const
 void JsCanvasPainterItem::requestPaint()
 {
     // Run the QML onPaint handler synchronously on the main thread so it
-    // records into m_ctx, then schedule a render-thread sync+paint. Multiple
-    // calls per frame coalesce inside Qt's update mechanism — only the latest
-    // recording wins, which matches CupFillView's intent (it always redraws
-    // from scratch on every animation tick).
+    // records into m_ctx, then schedule a render-thread sync+paint. The
+    // resetForNextFrame() call below clears the prior recording, so multiple
+    // requestPaint() calls in the same frame each replace what came before;
+    // Qt's update() then coalesces the paint scheduling so only one
+    // synchronizeData()+paint() pair runs per vsync. The net effect: only the
+    // last recording before vsync survives, which matches CupFillView's intent
+    // (it always redraws from scratch on every animation tick).
     QElapsedTimer t;
     t.start();
     m_ctx.resetForNextFrame();

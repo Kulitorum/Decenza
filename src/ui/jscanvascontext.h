@@ -34,7 +34,7 @@ struct DrawCmd {
     quint8 lineCap;        // 0=butt 1=round 2=square (used by SetLineCap)
     quint8 anticlockwise;  // 0/1 (used by Arc)
     quint8 _pad;
-    int brushId;           // index into m_brushes (used by SetFill/StrokeBrush)
+    qsizetype brushId;     // index into m_brushes (used by SetFill/StrokeBrush)
     float a, b, c, d, e, f; // generic floats (coords / radii / angles)
     QRgb rgba;             // packed color (used by SetFill/StrokeColor)
 };
@@ -102,7 +102,7 @@ public:
     void setLineCap(const QString &cap);
     void setGlobalAlpha(float a);
 
-    // Buffer access for the renderer (called only on synchronize, main blocked)
+    // Buffer access for the renderer (called only on synchronizeData(), main blocked)
     QVector<DrawCmd> &cmds() { return m_cmds; }
     QVector<BrushSpec> &brushes() { return m_brushes; }
 
@@ -111,11 +111,11 @@ public:
     void resetForNextFrame();
 
     // Used by JsCanvasGradient::addColorStop to write back into the buffer.
-    BrushSpec &brushAt(int id) { return m_brushes[id]; }
+    BrushSpec &brushAt(qsizetype id) { return m_brushes[id]; }
 
 private:
     void setStyleStream(const QVariant &v, DrawCmd::Op colorOp, DrawCmd::Op brushOp);
-    int newBrush(BrushSpec::Type type, float x0, float y0, float r0, float x1, float y1, float r1);
+    qsizetype newBrush(BrushSpec::Type type, float x0, float y0, float r0, float x1, float y1, float r1);
 
     QVector<DrawCmd> m_cmds;
     QVector<BrushSpec> m_brushes;
@@ -128,15 +128,15 @@ class JsCanvasGradient : public QObject
     Q_OBJECT
 
 public:
-    JsCanvasGradient(JsCanvasContext *ctx, int brushId);
+    JsCanvasGradient(JsCanvasContext *ctx, qsizetype brushId);
 
     Q_INVOKABLE void addColorStop(float position, const QVariant &color);
 
-    int brushId() const { return m_brushId; }
+    qsizetype brushId() const { return m_brushId; }
 
 private:
     JsCanvasContext *m_ctx;
-    int m_brushId;
+    qsizetype m_brushId;
 };
 
 #endif // JSCANVASCONTEXT_H

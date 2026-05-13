@@ -273,7 +273,7 @@ This builds and archives but skips the upload step. You can download the IPA art
 
 - **Bundle ID**: `io.github.kulitorum.decenza` (Android uses `io.github.kulitorum.decenza_de1`)
 - **Team ID**: `HKHN2RK2P4`
-- **Minimum iOS**: 14.0 (set in CMakeLists.txt)
+- **Minimum iOS**: 17.0 (set in CMakeLists.txt)
 - **Qt Version**: 6.11.1
 - **Signing**: Manual signing with "iPhone Distribution" certificate
 - **Certificate Type**: iPhone Distribution (NOT Apple Distribution)
