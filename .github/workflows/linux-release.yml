@@ -70,7 +70,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.0'
+          version: '6.11.1'
           target: 'desktop'
           arch: 'linux_gcc_64'
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport qtimageformats qtcanvaspainter'

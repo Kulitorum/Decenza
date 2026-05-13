@@ -55,7 +55,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.0'
+          version: '6.11.1'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport qtimageformats qtcanvaspainter'
@@ -96,14 +96,14 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           variant: sccache
-          key: sccache-windows-x64-qt6.11.0-vs2026
+          key: sccache-windows-x64-qt6.11.1-vs2026
           max-size: 500M
 
       - name: Locate OpenSSL 3
         id: openssl
         shell: powershell
         run: |
-          # Qt 6.11.0 for Windows is built against the OpenSSL 3 ABI, so the installer
+          # Qt 6.11.1 for Windows is built against the OpenSSL 3 ABI, so the installer
           # must ship libssl-3-x64.dll + libcrypto-3-x64.dll. We previously installed
           # OpenSSL via `choco install openssl`, but:
           #   - Unpinned, Chocolatey will ship OpenSSL 4.x which has an incompatible ABI.
@@ -136,7 +136,7 @@ jobs:
           }
 
           if (-not $opensslBin) {
-            Write-Error "OpenSSL 3.x runtime not found in any canonical install path on this runner. The GitHub windows-latest image may have removed its bundled OpenSSL, or bumped it to 4.x (which is ABI-incompatible with Qt 6.11.0)."
+            Write-Error "OpenSSL 3.x runtime not found in any canonical install path on this runner. The GitHub windows-latest image may have removed its bundled OpenSSL, or bumped it to 4.x (which is ABI-incompatible with Qt 6.11.1)."
             exit 1
           }
 

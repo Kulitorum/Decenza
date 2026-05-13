@@ -62,7 +62,7 @@ jobs:
       - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.0'
+          version: '6.11.1'
           target: 'android'
           arch: 'android_arm64_v8a'
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'

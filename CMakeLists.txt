@@ -132,7 +132,7 @@ if(ANDROID)
 endif()
 
 if(IOS)
-    # Qt 6.11.0 was built for iOS 17.0
+    # Qt 6.11.1 was built for iOS 17.0
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
