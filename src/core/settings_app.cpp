@@ -454,6 +454,16 @@ void SettingsApp::setLastAutoRelaunchResult(const QString& summary) {
     emit lastAutoRelaunchResultChanged();
 }
 
+bool SettingsApp::autoRelaunchPromptShown() const {
+    return m_settings.value("updates/autoRelaunchPromptShown", false).toBool();
+}
+
+void SettingsApp::setAutoRelaunchPromptShown(bool shown) {
+    if (autoRelaunchPromptShown() == shown) return;
+    m_settings.setValue("updates/autoRelaunchPromptShown", shown);
+    emit autoRelaunchPromptShownChanged();
+}
+
 bool SettingsApp::firmwareNightlyChannel() const {
     return m_settings.value("firmware/nightlyChannel", false).toBool();
 }
