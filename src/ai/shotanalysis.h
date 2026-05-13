@@ -209,12 +209,16 @@ public:
     // the rapidly-decaying flow goal — producing a confident "too coarse"
     // verdict on a frame that has no flow target. Issue #1128.
     //
-    // The gate mirrors the channeling detector's stationarity check: only
-    // count a sample when flow_goal is approximately constant across the
-    // ±FLOW_GOAL_STATIONARY_HALF_SEC window around it. A flat target
-    // (Malabar 1.88 ml/s pin, lever flow preinfusion) passes; a fast
-    // monotonic decay (bloom command going 7.25 → 0 over a few seconds)
-    // fails at every interior point.
+    // The gate reuses the channeling detector's stationarity threshold
+    // values (WINDOW_HALF_SEC=0.75, WINDOW_STATIONARY_REL=0.15) but is
+    // structurally a strict subset — it only enforces "flow_goal is
+    // approximately constant across the ±half-window around the sample",
+    // omitting the channeling detector's separate convergence check
+    // (|actual − goal| / goal ≤ WINDOW_CONVERGED_REL) and using
+    // max(goal, FLOW_GOAL_MIN_AVG) as the denominator instead of `goal`
+    // directly. A flat target (Malabar 1.88 ml/s pin, lever flow
+    // preinfusion) passes; a fast monotonic decay (bloom command going
+    // 7.25 → 0 over a few seconds) fails at every interior point.
     static constexpr double FLOW_GOAL_STATIONARY_HALF_SEC = 0.75;
     static constexpr double FLOW_GOAL_STATIONARY_REL = 0.15;
 
