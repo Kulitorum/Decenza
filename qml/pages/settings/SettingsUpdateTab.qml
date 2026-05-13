@@ -15,6 +15,18 @@ Item {
     readonly property var fw: typeof MainController !== "undefined" && MainController
                               ? MainController.firmwareUpdater : null
 
+    // Refresh SAW state whenever the user comes back from another app
+    // (most likely: Android Settings → Display over other apps → Decenza).
+    // The diagnostic surface reads the cached value, so we re-query on resume.
+    Connections {
+        target: Qt.application
+        function onStateChanged(state) {
+            if (state === Qt.ApplicationActive
+                    && MainController.updateChecker.autoRelaunchSupported) {
+                MainController.updateChecker.refreshAutoRelaunchPermission()
+            }
+        }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -185,6 +197,54 @@ Item {
                     }
                 }
 
+                // Auto-relaunch diagnostic (Android only). Read-only — there is
+                // intentionally no in-app control for the SYSTEM_ALERT_WINDOW
+                // grant (the previous Switch was misleading because the grant
+                // can only be flipped in the Android system settings). The
+                // mechanism kicks in automatically once SAW is granted; this
+                // block just reports state.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+                    visible: MainController.updateChecker.autoRelaunchSupported
+
+                    Tr {
+                        key: "settings.update.autorelaunch.title"
+                        fallback: "Auto-reopen after update (diagnostic)"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(13)
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: {
+                            var lines = []
+                            var grantedLabel = MainController.updateChecker.autoRelaunchPermissionGranted
+                                ? TranslationManager.translate("common.granted", "granted")
+                                : TranslationManager.translate("common.notgranted", "not granted")
+                            lines.push(TranslationManager.translate(
+                                "settings.update.autorelaunch.sawState",
+                                "Display over other apps: %1").arg(grantedLabel))
+                            if (MainController.updateChecker.currentLaunchWasAutoRelaunch) {
+                                lines.push(TranslationManager.translate(
+                                    "settings.update.autorelaunch.thissession",
+                                    "This launch was auto-reopened after an update."))
+                            }
+                            if (Settings.app.lastAutoRelaunchAt.length > 0) {
+                                lines.push(TranslationManager.translate(
+                                    "settings.update.autorelaunch.lastat",
+                                    "Last receiver fire: %1").arg(Settings.app.lastAutoRelaunchAt))
+                            }
+                            if (Settings.app.lastAutoRelaunchResult.length > 0) {
+                                lines.push(Settings.app.lastAutoRelaunchResult)
+                            }
+                            return lines.join("\n")
+                        }
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
+                    }
+                }
 
                 // Divider
                 Rectangle {

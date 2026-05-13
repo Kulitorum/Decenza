@@ -37,14 +37,6 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(bool currentLaunchWasAutoRelaunch READ currentLaunchWasAutoRelaunch CONSTANT)
     Q_PROPERTY(bool autoRelaunchSupported READ autoRelaunchSupported CONSTANT)
 
-    // True at the teachable moment: this startup followed a self-update where
-    // the receiver fired but the activity launch was BAL-blocked because SAW
-    // wasn't granted, AND we haven't shown the one-time prompt yet. QML binds
-    // a Dialog to this. Either button on the Dialog calls
-    // dismissAutoRelaunchPrompt() which clears this for good.
-    Q_PROPERTY(bool shouldShowAutoRelaunchPrompt READ shouldShowAutoRelaunchPrompt
-               NOTIFY shouldShowAutoRelaunchPromptChanged)
-
 public:
     explicit UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~UpdateChecker();
@@ -71,7 +63,6 @@ public:
     bool autoRelaunchPermissionGranted() const;
     bool currentLaunchWasAutoRelaunch() const { return m_currentLaunchWasAutoRelaunch; }
     bool autoRelaunchSupported() const;
-    bool shouldShowAutoRelaunchPrompt() const;
 
     Q_INVOKABLE void checkForUpdates();
     Q_INVOKABLE void openReleasePage();
@@ -80,21 +71,9 @@ public:
 
     /// Re-queries Settings.canDrawOverlays() and emits the change notification
     /// if it differs from the cached value. Cheap to call repeatedly; bound
-    /// from QML on app-resume so shouldShowAutoRelaunchPrompt stays accurate
-    /// after the user returns from Android system Settings.
+    /// from QML on app-resume to keep the diagnostic surface accurate after
+    /// the user grants/revokes SAW via Android system Settings.
     Q_INVOKABLE void refreshAutoRelaunchPermission();
-
-    /// Opens Android Settings → "Display over other apps" (Samsung One UI:
-    /// "Appear on top") deeplinked to the Decenza package. No-op on
-    /// non-Android. Called by the one-time auto-relaunch prompt's "Open
-    /// Settings" button.
-    Q_INVOKABLE void requestAutoRelaunchPermission();
-
-    /// Marks the one-time prompt as shown so shouldShowAutoRelaunchPrompt
-    /// returns false from now on. Called by both the "Open Settings" and
-    /// "Not now" buttons of the prompt — either way, the user has been
-    /// asked, so we don't ask again.
-    Q_INVOKABLE void dismissAutoRelaunchPrompt();
 
 signals:
     void checkingChanged();
@@ -111,7 +90,6 @@ signals:
     void downloadReadyChanged();
     void canDownloadUpdateChanged();
     void autoRelaunchPermissionGrantedChanged();
-    void shouldShowAutoRelaunchPromptChanged();
 
     /// Emitted on the main thread immediately before installApk() invokes the
     /// Android PackageInstaller JNI dispatch. Listeners should synchronously
@@ -170,16 +148,9 @@ private:
     //   launching Activity's Intent extras, never mutated after that.
     // m_autoRelaunchPermissionGranted: cached result of Settings.canDrawOverlays();
     //   updated by refreshAutoRelaunchPermission().
-    // m_receiverFiredOnThisStartup: set in readAutoRelaunchDiagnostic() if the
-    //   diagnostic flag file was present this startup. Session-only signal —
-    //   distinguishes "receiver fired moments ago" from "lastAutoRelaunchAt
-    //   is a stale persisted timestamp from sessions past." Used by
-    //   shouldShowAutoRelaunchPrompt() to scope the one-time prompt to the
-    //   teachable moment.
-    // All default to false on non-Android platforms.
+    // Both default to false on non-Android platforms.
     bool m_currentLaunchWasAutoRelaunch = false;
     bool m_autoRelaunchPermissionGranted = false;
-    bool m_receiverFiredOnThisStartup = false;
 
 #ifdef Q_OS_ANDROID
     // Called from the constructor on Android. Reads the flag file written by

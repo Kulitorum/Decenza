@@ -40,16 +40,10 @@ class SettingsApp : public QObject {
 
     // Android auto-relaunch diagnostic state (Android only — values stay empty on
     // other platforms). Set by UpdateChecker on app startup after reading the
-    // diagnostic flag file written by UpdateRelaunchReceiver. Kept for logging
-    // / future surfacing even though no current QML surface displays them.
+    // diagnostic flag file written by UpdateRelaunchReceiver. Read by the
+    // diagnostic surface in Settings.
     Q_PROPERTY(QString lastAutoRelaunchAt READ lastAutoRelaunchAt NOTIFY lastAutoRelaunchAtChanged)
     Q_PROPERTY(QString lastAutoRelaunchResult READ lastAutoRelaunchResult NOTIFY lastAutoRelaunchResultChanged)
-
-    // One-time "enable Appear on top to auto-reopen after updates" prompt
-    // has been shown. Persists across app restarts; once true, the prompt
-    // is never re-shown. Matches the GPS/storage permission-prompt model:
-    // user is asked once at the teachable moment, no permanent in-app UI.
-    Q_PROPERTY(bool autoRelaunchPromptShown READ autoRelaunchPromptShown WRITE setAutoRelaunchPromptShown NOTIFY autoRelaunchPromptShownChanged)
 
     // DE1 firmware update channel. When false (default), firmware comes
     // from fast.decentespresso.com/download/sync/de1plus; when true,
@@ -139,8 +133,6 @@ public:
     void setLastAutoRelaunchAt(const QString& iso);
     QString lastAutoRelaunchResult() const;
     void setLastAutoRelaunchResult(const QString& summary);
-    bool autoRelaunchPromptShown() const;
-    void setAutoRelaunchPromptShown(bool shown);
 
     // Daily backup
     int dailyBackupHour() const;
@@ -187,7 +179,6 @@ signals:
     void lastKnownApkSizeBytesChanged();
     void lastAutoRelaunchAtChanged();
     void lastAutoRelaunchResultChanged();
-    void autoRelaunchPromptShownChanged();
     void firmwareNightlyChannelChanged();
     void dailyBackupHourChanged();
     void waterLevelDisplayUnitChanged();

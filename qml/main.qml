@@ -785,11 +785,6 @@ ApplicationWindow {
             if (!(PreviousCrashLog && PreviousCrashLog.length > 0)) {
                 maybeShowLinuxBleCapabilityDialog()
             }
-
-            // One-time prompt after a self-update where BAL blocked the
-            // auto-relaunch. Safe to call unconditionally — the function
-            // checks shouldShowAutoRelaunchPrompt and does nothing otherwise.
-            maybeShowAutoRelaunchPrompt()
         }
 
         // Initialize sleep countdowns (fresh app start, not auto-woken)
@@ -2517,98 +2512,10 @@ ApplicationWindow {
     Connections {
         target: Qt.application
         function onStateChanged(state) {
-            if (state !== Qt.ApplicationActive) return
-            if (storageSetupDialog.opened) {
+            if (state === Qt.ApplicationActive && storageSetupDialog.opened) {
                 // User returned from settings - check if permission was granted
                 ProfileStorage.checkPermissionAndNotify()
             }
-            if (MainController.updateChecker.autoRelaunchSupported) {
-                // User may have just granted/revoked SAW in Android Settings.
-                // Refresh so the auto-relaunch prompt (if open) updates its
-                // state and closes if the permission is now granted.
-                MainController.updateChecker.refreshAutoRelaunchPermission()
-            }
-        }
-    }
-
-    // One-time post-update prompt: if the receiver fired on this startup but
-    // SAW wasn't granted (BAL blocked the auto-relaunch), offer to enable it
-    // so next week's update reopens automatically. Same pattern as the GPS /
-    // storage permission prompts: surfaced at the teachable moment, no
-    // permanent in-app UI. Dismissed permanently after either button.
-    Dialog {
-        id: autoRelaunchPromptDialog
-        modal: true
-        dim: true
-        anchors.centerIn: parent
-        width: Theme.dialogWidth + 2 * padding
-        closePolicy: Dialog.NoAutoClose
-        padding: Theme.dialogPadding
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 2
-            border.color: Theme.primaryContrastColor
-        }
-
-        Tr { id: trAutoRelaunchTitle; key: "main.dialog.autorelaunch.title"; fallback: "Reopen Decenza automatically after updates?"; visible: false }
-
-        contentItem: Column {
-            spacing: Theme.spacingLarge
-
-            Text {
-                text: trAutoRelaunchTitle.text
-                font: Theme.subtitleFont
-                color: Theme.textColor
-                anchors.horizontalCenter: parent.horizontalCenter
-                wrapMode: Text.Wrap
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            Tr {
-                key: "main.dialog.autorelaunch.message"
-                fallback: "Decenza was updated, but Android didn’t bring the app back to the foreground. Grant the \"Display over other apps\" permission (Samsung calls this \"Appear on top\") and future updates will reopen Decenza automatically."
-                wrapMode: Text.Wrap
-                width: parent.width
-                font: Theme.bodyFont
-            }
-
-            Row {
-                spacing: Theme.spacingLarge
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                AccessibleButton {
-                    Tr { id: trAutoRelaunchNotNow; key: "common.button.notnow"; fallback: "Not now"; visible: false }
-                    Tr { id: trAutoRelaunchDismiss; key: "main.accessibility.dismissAutoRelaunch"; fallback: "Dismiss auto-reopen prompt"; visible: false }
-                    text: trAutoRelaunchNotNow.text
-                    accessibleName: trAutoRelaunchDismiss.text
-                    onClicked: {
-                        MainController.updateChecker.dismissAutoRelaunchPrompt()
-                        autoRelaunchPromptDialog.close()
-                    }
-                }
-
-                AccessibleButton {
-                    Tr { id: trAutoRelaunchOpen; key: "main.dialog.autorelaunch.openSettings"; fallback: "Open Settings"; visible: false }
-                    Tr { id: trAutoRelaunchOpenA11y; key: "main.accessibility.openAndroidSettings"; fallback: "Open Android Settings"; visible: false }
-                    text: trAutoRelaunchOpen.text
-                    accessibleName: trAutoRelaunchOpenA11y.text
-                    primary: true
-                    onClicked: {
-                        MainController.updateChecker.dismissAutoRelaunchPrompt()
-                        MainController.updateChecker.requestAutoRelaunchPermission()
-                        autoRelaunchPromptDialog.close()
-                    }
-                }
-            }
-        }
-    }
-
-    function maybeShowAutoRelaunchPrompt() {
-        if (MainController.updateChecker.shouldShowAutoRelaunchPrompt) {
-            autoRelaunchPromptDialog.open()
         }
     }
 

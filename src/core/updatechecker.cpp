@@ -129,55 +129,6 @@ QString jniReadAutoRelaunchExtraFromActivityIntent()
     return hasIt ? QStringLiteral("true") : QString{};
 }
 
-// Opens Android Settings → "Display over other apps" → Decenza (Samsung
-// One UI labels this "Appear on top"). The user toggles SAW there; we
-// can't toggle it ourselves. After the user returns to Decenza,
-// Qt.application.onStateChanged → refreshAutoRelaunchPermission() picks
-// up the new state.
-void jniLaunchManageOverlayPermission()
-{
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
-    if (!activity.isValid()) {
-        qWarning() << "UpdateChecker: no activity context for overlay permission request";
-        return;
-    }
-    QJniObject pkgName = activity.callObjectMethod(
-        "getPackageName", "()Ljava/lang/String;");
-    if (!pkgName.isValid()) {
-        qWarning() << "UpdateChecker: no package name for overlay permission request";
-        return;
-    }
-
-    // Uri.fromParts(scheme, ssp, fragment). Avoids QJniObject::toString()
-    // on a Java String, which returns empty on Qt 6.10 / Android 16 and
-    // would collapse the URI to "package:" with no SSP.
-    QJniObject schemeJ = QJniObject::fromString(QStringLiteral("package"));
-    QJniObject uri = QJniObject::callStaticObjectMethod(
-        "android/net/Uri", "fromParts",
-        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
-        schemeJ.object<jstring>(), pkgName.object<jstring>(), nullptr);
-    if (!uri.isValid()) {
-        qWarning() << "UpdateChecker: Uri.fromParts returned null";
-        return;
-    }
-
-    QJniObject actionJ = QJniObject::fromString(
-        QStringLiteral("android.settings.MANAGE_OVERLAY_PERMISSION"));
-    QJniObject intent("android/content/Intent",
-        "(Ljava/lang/String;Landroid/net/Uri;)V",
-        actionJ.object<jstring>(), uri.object());
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;",
-                            static_cast<jint>(0x10000000));  // FLAG_ACTIVITY_NEW_TASK
-
-    QJniEnvironment env;
-    activity.callMethod<void>("startActivity",
-        "(Landroid/content/Intent;)V", intent.object());
-    if (env.checkAndClearExceptions()) {
-        qWarning() << "UpdateChecker: startActivity for overlay permission "
-                      "threw a JNI exception (cleared)";
-    }
-}
-
 }  // namespace
 #endif
 
@@ -1266,19 +1217,6 @@ bool UpdateChecker::autoRelaunchPermissionGranted() const
 #endif
 }
 
-bool UpdateChecker::shouldShowAutoRelaunchPrompt() const
-{
-#ifdef Q_OS_ANDROID
-    if (!m_settings || !m_settings->app()) return false;
-    return m_receiverFiredOnThisStartup
-        && !m_currentLaunchWasAutoRelaunch
-        && !m_autoRelaunchPermissionGranted
-        && !m_settings->app()->autoRelaunchPromptShown();
-#else
-    return false;
-#endif
-}
-
 void UpdateChecker::refreshAutoRelaunchPermission()
 {
 #ifdef Q_OS_ANDROID
@@ -1288,27 +1226,8 @@ void UpdateChecker::refreshAutoRelaunchPermission()
         qInfo() << "UpdateChecker: SAW permission state changed:"
                 << was << "->" << m_autoRelaunchPermissionGranted;
         emit autoRelaunchPermissionGrantedChanged();
-        emit shouldShowAutoRelaunchPromptChanged();
     }
 #endif
-}
-
-void UpdateChecker::requestAutoRelaunchPermission()
-{
-#ifdef Q_OS_ANDROID
-    qInfo() << "UpdateChecker: launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
-    jniLaunchManageOverlayPermission();
-#else
-    qDebug() << "UpdateChecker: requestAutoRelaunchPermission() is a no-op on this platform";
-#endif
-}
-
-void UpdateChecker::dismissAutoRelaunchPrompt()
-{
-    if (!m_settings || !m_settings->app()) return;
-    if (m_settings->app()->autoRelaunchPromptShown()) return;
-    m_settings->app()->setAutoRelaunchPromptShown(true);
-    emit shouldShowAutoRelaunchPromptChanged();
 }
 
 #ifdef Q_OS_ANDROID
@@ -1327,7 +1246,6 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
                      + "/" + kAutoRelaunchFlagFilename;
     QFile flag(flagPath);
     if (flag.exists()) {
-        m_receiverFiredOnThisStartup = true;
         QString line;
         if (flag.open(QIODevice::ReadOnly)) {
             line = QString::fromUtf8(flag.readAll()).trimmed();
