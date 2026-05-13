@@ -18,8 +18,8 @@ public:
 
     Q_INVOKABLE void requestPaint();
 
-    // Accessed by the renderer during synchronize() while the main thread is
-    // blocked — safe to swap buffers directly.
+    // Accessed by the renderer during synchronizeData() while the main thread
+    // is blocked — safe to swap buffers directly.
     JsCanvasContext &ctx() { return m_ctx; }
 
 protected:

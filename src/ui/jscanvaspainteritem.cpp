@@ -65,7 +65,11 @@ void applyBrush(QCanvasPainter *p, const BrushSpec &s, bool fill)
 class JsCanvasPainterItemRenderer : public QCanvasPainterItemRenderer
 {
 public:
-    void synchronize(QCanvasPainterItem *item) override
+    // Qt 6.11.1 renamed the override hook from synchronize() to
+    // synchronizeData() (QTBUG-145406) — the old name is kept as a
+    // back-compat shim through 6.11.x but removed in 6.12. Use the new name
+    // so the override keeps running after the next minor bump.
+    void synchronizeData(QCanvasPainterItem *item) override
     {
         auto *self = static_cast<JsCanvasPainterItem*>(item);
         // Main thread is blocked here — safe to swap buffers directly.
