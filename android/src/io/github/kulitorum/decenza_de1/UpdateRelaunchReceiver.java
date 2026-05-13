@@ -56,7 +56,7 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
     /**
      * Diagnostic flag-file name (lives in {@code Context.getFilesDir()}).
      * Written on every receiver invocation; read and removed on the next
-     * Qt main startup by {@code UpdateChecker::readRelaunchFlag()}.
+     * Qt main startup by {@code UpdateChecker::readAutoRelaunchDiagnostic()}.
      */
     public static final String FLAG_FILENAME = "auto_relaunch_fired.txt";
 

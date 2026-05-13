@@ -785,6 +785,11 @@ ApplicationWindow {
             if (!(PreviousCrashLog && PreviousCrashLog.length > 0)) {
                 maybeShowLinuxBleCapabilityDialog()
             }
+
+            // One-time prompt after a self-update where BAL blocked the
+            // auto-relaunch. Safe to call unconditionally — the function
+            // checks shouldShowAutoRelaunchPrompt and does nothing otherwise.
+            maybeShowAutoRelaunchPrompt()
         }
 
         // Initialize sleep countdowns (fresh app start, not auto-woken)
@@ -2125,11 +2130,13 @@ ApplicationWindow {
             // Clear the crash log file
             MainController.clearCrashLog()
             maybeShowLinuxBleCapabilityDialog()
+            maybeShowAutoRelaunchPrompt()
         }
         onReported: {
             // Clear the crash log file after successful report
             MainController.clearCrashLog()
             maybeShowLinuxBleCapabilityDialog()
+            maybeShowAutoRelaunchPrompt()
         }
     }
 
@@ -2491,6 +2498,7 @@ ApplicationWindow {
                         ProfileStorage.skipSetup()
                         storageSetupDialog.close()
                         startBluetoothScan()
+                        maybeShowAutoRelaunchPrompt()
                     }
                 }
 
@@ -2512,11 +2520,121 @@ ApplicationWindow {
     Connections {
         target: Qt.application
         function onStateChanged(state) {
-            if (state === Qt.ApplicationActive && storageSetupDialog.opened) {
+            if (state !== Qt.ApplicationActive) return
+            if (storageSetupDialog.opened) {
                 // User returned from settings - check if permission was granted
                 ProfileStorage.checkPermissionAndNotify()
             }
+            if (MainController.updateChecker.autoRelaunchSupported) {
+                // User may have just granted/revoked SAW in Android Settings.
+                // Refresh so subsequent calls to shouldShowAutoRelaunchPrompt
+                // see the current state. The prompt dialog does not auto-close
+                // on permission grant — the dialog's "Open Settings" button
+                // closes it explicitly before sending the user out, so on
+                // return the dialog is already gone.
+                MainController.updateChecker.refreshAutoRelaunchPermission()
+            }
         }
+    }
+
+    // One-time post-update prompt: if the receiver fired on this startup but
+    // SAW wasn't granted (BAL blocked the auto-relaunch), offer to enable it
+    // so next week's update reopens automatically. Same pattern as the GPS /
+    // storage permission prompts: surfaced at the teachable moment, no
+    // permanent in-app UI. Dismissed permanently after either button.
+    Dialog {
+        id: autoRelaunchPromptDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        closePolicy: Dialog.NoAutoClose
+        padding: Theme.dialogPadding
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryContrastColor
+        }
+
+        Tr { id: trAutoRelaunchTitle; key: "main.dialog.autorelaunch.title"; fallback: "Reopen Decenza automatically after updates?"; visible: false }
+        Tr { id: trAutoRelaunchMessage; key: "main.dialog.autorelaunch.message"; fallback: "Decenza was updated, but Android didn’t bring the app back to the foreground. Grant the \"Display over other apps\" permission (Samsung calls this \"Appear on top\") and future updates will reopen Decenza automatically."; visible: false }
+
+        onOpened: {
+            // Park focus on the safe default ("Not now") so screen-reader
+            // navigation lands on dismiss rather than the action button.
+            // ACCESSIBILITY.md Rule 3: Component.onCompleted fires before
+            // the dialog is open and is unreliable for focus.
+            autoRelaunchNotNowButton.forceActiveFocus()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(
+                    trAutoRelaunchTitle.text + ". " + trAutoRelaunchMessage.text, true)
+            }
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+
+            Text {
+                text: trAutoRelaunchTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+                wrapMode: Text.Wrap
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                text: trAutoRelaunchMessage.text
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            Row {
+                spacing: Theme.spacingLarge
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                AccessibleButton {
+                    id: autoRelaunchNotNowButton
+                    Tr { id: trAutoRelaunchNotNow; key: "common.button.notnow"; fallback: "Not now"; visible: false }
+                    Tr { id: trAutoRelaunchDismiss; key: "main.accessibility.dismissAutoRelaunch"; fallback: "Dismiss auto-reopen prompt"; visible: false }
+                    text: trAutoRelaunchNotNow.text
+                    accessibleName: trAutoRelaunchDismiss.text
+                    onClicked: {
+                        MainController.updateChecker.dismissAutoRelaunchPrompt()
+                        autoRelaunchPromptDialog.close()
+                    }
+                }
+
+                AccessibleButton {
+                    Tr { id: trAutoRelaunchOpen; key: "main.dialog.autorelaunch.openSettings"; fallback: "Open Settings"; visible: false }
+                    Tr { id: trAutoRelaunchOpenA11y; key: "main.accessibility.openAndroidSettings"; fallback: "Open Android Settings"; visible: false }
+                    text: trAutoRelaunchOpen.text
+                    accessibleName: trAutoRelaunchOpenA11y.text
+                    primary: true
+                    onClicked: {
+                        MainController.updateChecker.dismissAutoRelaunchPrompt()
+                        MainController.updateChecker.requestAutoRelaunchPermission()
+                        autoRelaunchPromptDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    function maybeShowAutoRelaunchPrompt() {
+        if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return
+        // Defer until any pre-empting modals resolve themselves, so we don't
+        // stack on top of the crash report or storage setup dialog. Each of
+        // those dialogs calls maybeShowAutoRelaunchPrompt() in its close
+        // handler, so the prompt eventually shows.
+        if (PreviousCrashLog && PreviousCrashLog.length > 0) return
+        if (storageSetupDialog.opened) return
+        autoRelaunchPromptDialog.open()
     }
 
     // Handle permission result
@@ -2526,6 +2644,7 @@ ApplicationWindow {
             if (storageSetupDialog.opened) {
                 storageSetupDialog.close()
                 checkFirstRunRestore()
+                maybeShowAutoRelaunchPrompt()
             }
         }
     }

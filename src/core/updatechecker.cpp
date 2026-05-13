@@ -15,7 +15,6 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QGuiApplication>
-#include <QDateTime>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -129,10 +128,11 @@ QString jniReadAutoRelaunchExtraFromActivityIntent()
     return hasIt ? QStringLiteral("true") : QString{};
 }
 
-// Launches Settings.ACTION_MANAGE_OVERLAY_PERMISSION scoped to this package.
-// startActivity (not startActivityForResult) — we don't need the result; the
-// user returning to the app triggers an onResume() in DecenzaActivity which
-// QML can hook to call refreshAutoRelaunchPermission().
+// Opens Android Settings → "Display over other apps" → Decenza (Samsung
+// One UI labels this "Appear on top"). The user toggles SAW there; we
+// can't toggle it ourselves. After the user returns to Decenza,
+// Qt.application.onStateChanged → refreshAutoRelaunchPermission() picks
+// up the new state.
 void jniLaunchManageOverlayPermission()
 {
     QJniObject activity = QNativeInterface::QAndroidApplication::context();
@@ -147,33 +147,50 @@ void jniLaunchManageOverlayPermission()
         return;
     }
 
-    // Build "package:<applicationId>" URI.
-    QJniObject uriStringJ = QJniObject::fromString(
-        QStringLiteral("package:") + pkgName.toString());
+    // Uri.fromParts(scheme, ssp, fragment). Avoids QJniObject::toString()
+    // on a Java String, which returns empty on Qt 6.10 / Android 16 and
+    // would collapse the URI to "package:" with no SSP. Fragment is passed
+    // as an explicit jstring(nullptr) rather than raw nullptr so Qt's
+    // variadic JNI marshalling has an unambiguous pointer type for the
+    // third jobject slot.
+    QJniEnvironment env;
+    QJniObject schemeJ = QJniObject::fromString(QStringLiteral("package"));
     QJniObject uri = QJniObject::callStaticObjectMethod(
-        "android/net/Uri", "parse",
-        "(Ljava/lang/String;)Landroid/net/Uri;",
-        uriStringJ.object<jstring>());
+        "android/net/Uri", "fromParts",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
+        schemeJ.object<jstring>(), pkgName.object<jstring>(),
+        static_cast<jstring>(nullptr));
+    if (env.checkAndClearExceptions() || !uri.isValid()) {
+        qWarning() << "UpdateChecker: Uri.fromParts failed or returned null";
+        return;
+    }
 
     QJniObject actionJ = QJniObject::fromString(
         QStringLiteral("android.settings.MANAGE_OVERLAY_PERMISSION"));
     QJniObject intent("android/content/Intent",
         "(Ljava/lang/String;Landroid/net/Uri;)V",
         actionJ.object<jstring>(), uri.object());
+    if (env.checkAndClearExceptions() || !intent.isValid()) {
+        qWarning() << "UpdateChecker: Intent constructor threw or returned null";
+        return;
+    }
 
-    // Add FLAG_ACTIVITY_NEW_TASK so this works even if called from a non-
-    // activity context (defensive — usually called from the activity).
-    // Intent.FLAG_ACTIVITY_NEW_TASK = 0x10000000.
+    // FLAG_ACTIVITY_NEW_TASK = 0x10000000.
     intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;",
                             static_cast<jint>(0x10000000));
+    if (env.checkAndClearExceptions()) {
+        qWarning() << "UpdateChecker: Intent.addFlags threw";
+        return;
+    }
 
-    try {
-        activity.callMethod<void>("startActivity",
-            "(Landroid/content/Intent;)V", intent.object());
-    } catch (...) {
-        qWarning() << "UpdateChecker: startActivity for overlay permission threw";
+    activity.callMethod<void>("startActivity",
+        "(Landroid/content/Intent;)V", intent.object());
+    if (env.checkAndClearExceptions()) {
+        qWarning() << "UpdateChecker: startActivity for overlay permission "
+                      "threw a JNI exception (cleared)";
     }
 }
+
 }  // namespace
 #endif
 
@@ -1262,13 +1279,16 @@ bool UpdateChecker::autoRelaunchPermissionGranted() const
 #endif
 }
 
-void UpdateChecker::requestAutoRelaunchPermission()
+bool UpdateChecker::shouldShowAutoRelaunchPrompt() const
 {
 #ifdef Q_OS_ANDROID
-    qInfo() << "UpdateChecker: launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
-    jniLaunchManageOverlayPermission();
+    if (!m_settings || !m_settings->app()) return false;
+    return m_receiverFiredOnThisStartup
+        && !m_currentLaunchWasAutoRelaunch
+        && !m_autoRelaunchPermissionGranted
+        && !m_settings->app()->autoRelaunchPromptShown();
 #else
-    qDebug() << "UpdateChecker: requestAutoRelaunchPermission() is a no-op on this platform";
+    return false;
 #endif
 }
 
@@ -1281,8 +1301,27 @@ void UpdateChecker::refreshAutoRelaunchPermission()
         qInfo() << "UpdateChecker: SAW permission state changed:"
                 << was << "->" << m_autoRelaunchPermissionGranted;
         emit autoRelaunchPermissionGrantedChanged();
+        emit shouldShowAutoRelaunchPromptChanged();
     }
 #endif
+}
+
+void UpdateChecker::requestAutoRelaunchPermission()
+{
+#ifdef Q_OS_ANDROID
+    qInfo() << "UpdateChecker: launching ACTION_MANAGE_OVERLAY_PERMISSION for SAW grant";
+    jniLaunchManageOverlayPermission();
+#else
+    qDebug() << "UpdateChecker: requestAutoRelaunchPermission() is a no-op on this platform";
+#endif
+}
+
+void UpdateChecker::dismissAutoRelaunchPrompt()
+{
+    if (!m_settings || !m_settings->app()) return;
+    if (m_settings->app()->autoRelaunchPromptShown()) return;
+    m_settings->app()->setAutoRelaunchPromptShown(true);
+    emit shouldShowAutoRelaunchPromptChanged();
 }
 
 #ifdef Q_OS_ANDROID
@@ -1301,6 +1340,7 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
                      + "/" + kAutoRelaunchFlagFilename;
     QFile flag(flagPath);
     if (flag.exists()) {
+        m_receiverFiredOnThisStartup = true;
         QString line;
         if (flag.open(QIODevice::ReadOnly)) {
             line = QString::fromUtf8(flag.readAll()).trimmed();
@@ -1309,19 +1349,6 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
         qInfo().noquote()
             << "UpdateChecker: UpdateRelaunchReceiver fired on previous update:"
             << line;
-
-        // Parse "<epoch-millis> result=<summary> saw=<bool>"
-        QString iso;
-        if (!line.isEmpty()) {
-            const qint64 epochMs = line.section(' ', 0, 0).toLongLong();
-            if (epochMs > 0) {
-                iso = QDateTime::fromMSecsSinceEpoch(epochMs).toString(Qt::ISODate);
-            }
-        }
-        if (m_settings && m_settings->app()) {
-            m_settings->app()->setLastAutoRelaunchAt(iso);
-            m_settings->app()->setLastAutoRelaunchResult(line);
-        }
 
         // Delete so we don't re-report on next launch.
         flag.remove();

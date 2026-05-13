@@ -38,12 +38,13 @@ class SettingsApp : public QObject {
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
     Q_PROPERTY(qint64 lastKnownApkSizeBytes READ lastKnownApkSizeBytes WRITE setLastKnownApkSizeBytes NOTIFY lastKnownApkSizeBytesChanged)
 
-    // Android auto-relaunch diagnostic state (Android only — values stay empty on
-    // other platforms). Set by UpdateChecker on app startup after reading the
-    // diagnostic flag file written by UpdateRelaunchReceiver. Read by the
-    // diagnostic surface in Settings.
-    Q_PROPERTY(QString lastAutoRelaunchAt READ lastAutoRelaunchAt NOTIFY lastAutoRelaunchAtChanged)
-    Q_PROPERTY(QString lastAutoRelaunchResult READ lastAutoRelaunchResult NOTIFY lastAutoRelaunchResultChanged)
+    // One-time "enable Appear on top to auto-reopen after updates" prompt
+    // has been shown. Persists across app restarts; once true, the prompt
+    // is never re-shown. Matches the GPS/storage permission-prompt model:
+    // user is asked once at the teachable moment, no permanent in-app UI.
+    // READ-only on the Q_PROPERTY so QML cannot accidentally re-arm the
+    // prompt by writing false; UpdateChecker mutates via the C++ setter.
+    Q_PROPERTY(bool autoRelaunchPromptShown READ autoRelaunchPromptShown NOTIFY autoRelaunchPromptShownChanged)
 
     // DE1 firmware update channel. When false (default), firmware comes
     // from fast.decentespresso.com/download/sync/de1plus; when true,
@@ -128,11 +129,9 @@ public:
     qint64 lastKnownApkSizeBytes() const;
     void setLastKnownApkSizeBytes(qint64 size);
 
-    // Android auto-relaunch diagnostic state
-    QString lastAutoRelaunchAt() const;
-    void setLastAutoRelaunchAt(const QString& iso);
-    QString lastAutoRelaunchResult() const;
-    void setLastAutoRelaunchResult(const QString& summary);
+    // Android auto-relaunch one-time prompt sentinel
+    bool autoRelaunchPromptShown() const;
+    void setAutoRelaunchPromptShown(bool shown);
 
     // Daily backup
     int dailyBackupHour() const;
@@ -177,8 +176,7 @@ signals:
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
     void lastKnownApkSizeBytesChanged();
-    void lastAutoRelaunchAtChanged();
-    void lastAutoRelaunchResultChanged();
+    void autoRelaunchPromptShownChanged();
     void firmwareNightlyChannelChanged();
     void dailyBackupHourChanged();
     void waterLevelDisplayUnitChanged();

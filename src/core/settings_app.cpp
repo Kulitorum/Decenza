@@ -434,24 +434,14 @@ void SettingsApp::setLastKnownApkSizeBytes(qint64 size) {
     emit lastKnownApkSizeBytesChanged();
 }
 
-QString SettingsApp::lastAutoRelaunchAt() const {
-    return m_settings.value("updates/lastAutoRelaunchAt").toString();
+bool SettingsApp::autoRelaunchPromptShown() const {
+    return m_settings.value("updates/autoRelaunchPromptShown", false).toBool();
 }
 
-void SettingsApp::setLastAutoRelaunchAt(const QString& iso) {
-    if (lastAutoRelaunchAt() == iso) return;
-    m_settings.setValue("updates/lastAutoRelaunchAt", iso);
-    emit lastAutoRelaunchAtChanged();
-}
-
-QString SettingsApp::lastAutoRelaunchResult() const {
-    return m_settings.value("updates/lastAutoRelaunchResult").toString();
-}
-
-void SettingsApp::setLastAutoRelaunchResult(const QString& summary) {
-    if (lastAutoRelaunchResult() == summary) return;
-    m_settings.setValue("updates/lastAutoRelaunchResult", summary);
-    emit lastAutoRelaunchResultChanged();
+void SettingsApp::setAutoRelaunchPromptShown(bool shown) {
+    if (autoRelaunchPromptShown() == shown) return;
+    m_settings.setValue("updates/autoRelaunchPromptShown", shown);
+    emit autoRelaunchPromptShownChanged();
 }
 
 bool SettingsApp::firmwareNightlyChannel() const {
