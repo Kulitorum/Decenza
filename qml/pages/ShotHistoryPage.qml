@@ -147,8 +147,10 @@ Page {
 
     function buildFilter() {
         var filter = {}
-        if (searchField.text.length > 0) {
-            var searchText = searchField.text
+        // Read displayText (not text) so the in-progress IME preedit on Gboard/Samsung
+        // is included — matches the onDisplayTextChanged trigger that scheduled this run.
+        if (searchField.displayText.length > 0) {
+            var searchText = searchField.displayText
 
             // Parse numeric keyword filters from search text
             // Syntax: keyword:N (exact), keyword:N-M (range), keyword:N+ (min only)
