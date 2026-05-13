@@ -22,10 +22,10 @@
     },
     {
       "file": "puck_failure_short_gusher.json",
-      "description": "Extreme puck failure — 2.2s total, 0g yield. Extracted nothing because the machine bailed out immediately. shot_eval reports both pourTruncated and grindIssue at the detector level (they fire independently); the production storage path applies PR #922's suppression cascade so only the puckFailed badge appears in the UI.",
+      "description": "Extreme puck failure — 2.2 s total, 0 g yield. Extracted nothing because the machine bailed out immediately. pourTruncated catches it. Issue #1128 added a flow-goal stationarity gate to Arm 1 (skip samples whose flow goal isn't stable across ±FLOW_GOAL_STATIONARY_HALF_SEC) — on this fixture every flow-mode sample falls within the preheat-vs-extraction goal jump (4 → 8 ml/s) and fails the gate, so Arm 1 now correctly stays silent. Arm 1 firing on a 2.2 s extraction before was reading pump-ramp noise, not a grind signal. User-visible behavior is unchanged: analyzeShot's pourTruncated cascade already zeroed the grind block before storing badges, so the production grindIssueDetected column was always false for shots like this.",
       "expect": {
         "channeling": "None",
-        "grindIssue": true,
+        "grindIssue": false,
         "pourTruncated": true,
         "summaryVerdictContains": "Don't tune off this shot"
       }
@@ -126,6 +126,25 @@
       "description": "Gagné Adaptive Shot — multi-step adaptive profile with scan frames. Clean shot, detector must stay None (no confusion from the scan).",
       "expect": {
         "channeling": "None",
+        "pourTruncated": false
+      }
+    },
+    {
+      "file": "synthetic_puck_failure_gusher.json",
+      "description": "Synthetic regression guard for the pourTruncated → grindIssue cascade. Peak pressure clamped at 1.8 bar (below PRESSURE_FLOOR_BAR=2.5) so pourTruncated fires, AND 18 g → 50 g of 32 g target = ratio 1.5625 (above YIELD_OVERSHOOT_RATIO_MIN=1.20) so the yield arm of Arm 1 fires independently. Flow goal flat at 2.0 ml/s with actual matching, so the flow-vs-goal averaging stays at delta≈0 (passing the new FLOW_GOAL_STATIONARY gate cleanly) and contributes nothing to the verdict — the gusher signal comes entirely from the yield arm. Pressure never reaches CHOKED_PRESSURE_MIN_BAR=4.0 so Arm 2 (both flow and yield sub-arms) stays gated out. Flat curves keep dC/dt zero so channeling stays None. shot_eval sees both pourTruncated and grindIssue fire independently here; in the live UI, analyzeShot's pourTruncated cascade suppresses the grind block and only the red 'Puck failed' badge appears. If the cascade ever loses pourTruncated dominance, this fixture is what'll catch the regression.",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": true,
+        "pourTruncated": true,
+        "summaryVerdictContains": "Don't tune off this shot"
+      }
+    },
+    {
+      "file": "extractamundo_dos_dynamic_bloom_clean.json",
+      "description": "Issue #1128 — real-world Extractamundo Dos! shot 464 captured from the field. 15.7 g → 31.8 g in 27 s, user rated 90/100. Profile has a 'dynamic bloom' frame configured pump=flow with flow=0 and exit_pressure_under=2.2, so the firmware ramps the flow command from ~7 ml/s down to ~0 over ~6 s while pressure decays naturally from preinfusion. Without the FLOW_GOAL_STATIONARY gate, Arm 1's mode-aware trim left exactly 5 qualifying samples inside that decay window, mean(actual)−mean(goal) = +3.2 ml/s, and the badge fired 'Grind appears too coarse — try finer' on a 90-point shot. The stationarity gate (introduced in this PR) now correctly rejects every bloom-decay sample: the goal moves 4×/s during the decay, far beyond FLOW_GOAL_STATIONARY_REL. Locks in that the false positive can't return without somebody disabling the gate.",
+      "expect": {
+        "channeling": "None",
+        "grindIssue": false,
         "pourTruncated": false
       }
     }

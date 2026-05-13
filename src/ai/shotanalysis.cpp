@@ -417,10 +417,26 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
         double actualSum = 0, goalSum = 0;
         qsizetype count = 0;
         for (const auto& fp : flow) {
-            if (fp.x() < pourStart || fp.x() > pourEnd) continue;
-            if (!inFlowMode(fp.x())) continue;
-            double goal = findValueAtTime(flowGoal, fp.x());
+            const double t = fp.x();
+            if (t < pourStart || t > pourEnd) continue;
+            if (!inFlowMode(t)) continue;
+            const double goal = findValueAtTime(flowGoal, t);
             if (goal < FLOW_GOAL_MIN_AVG) continue;  // preinfusion sentinel / unset goal
+            // Stationarity gate: skip samples where flow_goal is changing
+            // rapidly across ±FLOW_GOAL_STATIONARY_HALF_SEC. Excludes
+            // dynamic-bloom decay frames (pump=flow with flow=0) whose
+            // "goal" series is a firmware-generated ramp-down, not a target
+            // the puck is supposed to track. See FLOW_GOAL_STATIONARY_REL
+            // for the motivating false-positive (issue #1128).
+            const double goalPast = findValueAtTime(
+                flowGoal, t - FLOW_GOAL_STATIONARY_HALF_SEC);
+            const double goalFut = findValueAtTime(
+                flowGoal, t + FLOW_GOAL_STATIONARY_HALF_SEC);
+            const double denom = std::max(goal, FLOW_GOAL_MIN_AVG);
+            if (std::abs(goalPast - goal) / denom > FLOW_GOAL_STATIONARY_REL
+                || std::abs(goalFut - goal) / denom > FLOW_GOAL_STATIONARY_REL) {
+                continue;
+            }
             actualSum += fp.y();
             goalSum += goal;
             ++count;
