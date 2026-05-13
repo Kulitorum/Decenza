@@ -1,8 +1,10 @@
 package io.github.kulitorum.decenza_de1;
 
+import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 import android.util.Log;
@@ -132,6 +134,38 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
             }
         } catch (IOException e) {
             Log.w(TAG, "failed to write " + FLAG_FILENAME + ": " + e);
+        }
+    }
+
+    /**
+     * Opens Android Settings → "Display over other apps" (Samsung One UI:
+     * "Appear on top") deeplinked to the Decenza package. Called by
+     * UpdateChecker via JNI when the user taps "Open Settings" in the
+     * post-update prompt.
+     *
+     * Implemented on the Java side rather than reaching into Java from C++
+     * because Qt 6.10's variadic JNI marshalling can't be relied on for the
+     * multi-jstring Uri.fromParts call — we observed the SSP being silently
+     * dropped, producing a "package:" URI with empty scheme-specific-part
+     * that Settings refused to resolve (ActivityNotFoundException). Doing
+     * everything in Java means we only have to JNI-call this single static
+     * method with one jobject argument, which Qt handles reliably.
+     */
+    public static void launchSawPermissionSettings(Activity activity) {
+        if (activity == null) {
+            Log.w(TAG, "launchSawPermissionSettings: null activity");
+            return;
+        }
+        try {
+            Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
+            Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION, uri);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity.startActivity(intent);
+            Log.i(TAG, "launchSawPermissionSettings: started for "
+                    + activity.getPackageName());
+        } catch (Throwable t) {
+            Log.w(TAG, "launchSawPermissionSettings failed: " + t);
         }
     }
 }
