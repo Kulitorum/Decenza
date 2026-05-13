@@ -129,13 +129,19 @@ QString jniReadAutoRelaunchExtraFromActivityIntent()
 }
 
 // Opens Android Settings → "Display over other apps" (Samsung One UI:
-// "Appear on top") deeplinked to the Decenza package. Delegates to a
-// static Java helper rather than building the Intent on the C++ side
-// because Qt 6.10's variadic JNI marshalling silently drops jstring
-// arguments to Uri.fromParts — empirically reproducible: the resulting
-// URI ends up "package:" with an empty SSP and Settings can't resolve
-// it (ActivityNotFoundException). Single-arg JNI calls work reliably,
-// so we keep the C++ side to one call and let Java build the URI.
+// "Appear on top") deeplinked to the Decenza package. There's no API
+// to grant SYSTEM_ALERT_WINDOW from the app itself — the user must
+// toggle it in Android Settings. We just route them there.
+//
+// Delegates to a static Java helper rather than building the Intent
+// on the C++ side because the prior C++ approach (Uri.fromParts via
+// QJniObject::callStaticObjectMethod with three jstring args) produced
+// a URI with empty SSP — "package:" with nothing after the colon —
+// that Settings refused to resolve (ActivityNotFoundException). Root
+// cause appears to be a marshalling issue in Qt 6.10's variadic JNI
+// path with multi-jstring args (symptom-confirmed; no minimal repro).
+// Single-arg JNI calls work reliably here, so we keep the C++ side
+// to one call and let Java build the URI.
 void jniLaunchManageOverlayPermission()
 {
     QJniObject activity = QNativeInterface::QAndroidApplication::context();

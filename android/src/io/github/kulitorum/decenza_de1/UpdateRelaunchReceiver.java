@@ -43,6 +43,11 @@ import java.io.IOException;
  * SYSTEM_ALERT_WINDOW so the receiver's process holds BAL exemption #13
  * directly (per the Android BAL exemption list), without trying to delegate
  * privilege through a PendingIntent across processes.
+ *
+ * Also provides {@link #launchSawPermissionSettings(Activity)} as a static
+ * utility called via JNI from C++ to open Android Settings deeplinked to
+ * this app's SAW page. This lives here (rather than on a separate helper
+ * class) because it's part of the same auto-relaunch story.
  */
 public class UpdateRelaunchReceiver extends BroadcastReceiver {
     private static final String TAG = "DecenzaAutoRelaunch";
@@ -139,17 +144,33 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
 
     /**
      * Opens Android Settings → "Display over other apps" (Samsung One UI:
-     * "Appear on top") deeplinked to the Decenza package. Called by
-     * UpdateChecker via JNI when the user taps "Open Settings" in the
-     * post-update prompt.
+     * "Appear on top") deeplinked to the Decenza package. There is no API
+     * to grant SYSTEM_ALERT_WINDOW from the app itself — the user must
+     * toggle it in Android Settings. We just route them there. Reachable
+     * from {@code UpdateChecker::requestAutoRelaunchPermission()} via JNI;
+     * presently triggered by the "Open Settings" button in the one-time
+     * post-update prompt, but the method is general.
      *
      * Implemented on the Java side rather than reaching into Java from C++
-     * because Qt 6.10's variadic JNI marshalling can't be relied on for the
-     * multi-jstring Uri.fromParts call — we observed the SSP being silently
-     * dropped, producing a "package:" URI with empty scheme-specific-part
-     * that Settings refused to resolve (ActivityNotFoundException). Doing
-     * everything in Java means we only have to JNI-call this single static
-     * method with one jobject argument, which Qt handles reliably.
+     * because the prior C++ approach (Uri.fromParts via JNI variadic call
+     * with three jstring args) produced a URI with empty SSP — root cause
+     * appears to be a Qt 6.10 variadic-JNI marshalling issue with multiple
+     * jstring args (symptom-confirmed: empty SSP; no minimal repro of the
+     * marshalling bug itself). Doing everything in Java means we only have
+     * to JNI-call this single static method with one jobject argument,
+     * which Qt handles reliably.
+     *
+     * Threading: invoked from the Qt main thread (not the Android UI
+     * thread). Activity-instance accessors used here ({@code getPackageName},
+     * {@code startActivity}) are documented as thread-safe; the call site
+     * matches the pattern already used by {@code ApkInstaller} elsewhere
+     * in this package.
+     *
+     * Behaviour: if {@code activity} is null, a warning is logged and no
+     * Intent is started. Any exception thrown by Settings (e.g. on an
+     * OEM ROM that has stripped MANAGE_OVERLAY_PERMISSION) is caught and
+     * logged; the caller has no way to detect the failure other than
+     * observing that the user never grants the permission.
      */
     public static void launchSawPermissionSettings(Activity activity) {
         if (activity == null) {
@@ -157,10 +178,13 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
             return;
         }
         try {
+            // Called from an Activity context — no FLAG_ACTIVITY_NEW_TASK
+            // needed. Forcing NEW_TASK has been observed to break the
+            // back-navigation return path on some OEMs (Settings ends up
+            // in a separate task and Back goes to home instead of Decenza).
             Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
             Intent intent = new Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION, uri);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity.startActivity(intent);
             Log.i(TAG, "launchSawPermissionSettings: started for "
                     + activity.getPackageName());
