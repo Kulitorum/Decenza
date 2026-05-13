@@ -37,6 +37,27 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- APK installation permission for remote updates -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!--
+        Special permission ("Display over other apps") used here as the
+        documented Background Activity Launch exemption (#13 in
+        https://developer.android.com/guide/components/activities/background-starts).
+        Lets UpdateRelaunchReceiver call startActivity() after a self-update
+        even though the new process has no visible window at that moment.
+
+        Required because prior empirical work on Samsung SM-X210 / Android 16
+        (commits a5a7ef6a / 0db30f00 / 208655c8 / 5e19c785, 2026-04-19) confirmed
+        that neither a plain MY_PACKAGE_REPLACED receiver nor a PendingIntent
+        with full setPendingIntent{Creator,}BackgroundActivityStartMode
+        opt-in can bypass BAL — the creator opt-in is silently dropped because
+        the receiver's process is in RECEIVER state with no foreground privilege
+        to delegate. SAW grants the receiver's own process BAL privileges
+        directly, which is the only remaining documented path.
+
+        Declared in manifest but NOT auto-granted (Android 6.0+); the user must
+        toggle the permission ON via Settings → Apps → Decenza → Display over
+        other apps. The app surfaces an opt-in prompt at runtime.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
@@ -119,6 +140,27 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!--
+            Auto-relaunch after a self-update. The receiver is fired in the
+            NEW process by the system on ACTION_MY_PACKAGE_REPLACED and tries
+            to launch the main activity. The startActivity() call is BAL-
+            blocked on modern Android UNLESS the user has granted
+            SYSTEM_ALERT_WINDOW (see uses-permission above). If permission
+            is not granted, the receiver still fires but startActivity()
+            silently fails — graceful degradation to pre-existing behavior.
+
+            Marked exported="false" because MY_PACKAGE_REPLACED is delivered
+            only to this app's own package; no third party should be able to
+            trigger this receiver.
+        -->
+        <receiver
+            android:name="io.github.kulitorum.decenza_de1.UpdateRelaunchReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />

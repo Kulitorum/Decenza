@@ -30,6 +30,13 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(bool latestIsBeta READ latestIsBeta NOTIFY latestIsBetaChanged)
     Q_PROPERTY(bool installing READ isInstalling NOTIFY installingChanged)
 
+    // Auto-relaunch after Android self-update. Always false / no-op on
+    // non-Android platforms. See specs/android-update-relaunch/spec.md.
+    Q_PROPERTY(bool autoRelaunchPermissionGranted READ autoRelaunchPermissionGranted
+               NOTIFY autoRelaunchPermissionGrantedChanged)
+    Q_PROPERTY(bool currentLaunchWasAutoRelaunch READ currentLaunchWasAutoRelaunch CONSTANT)
+    Q_PROPERTY(bool autoRelaunchSupported READ autoRelaunchSupported CONSTANT)
+
 public:
     explicit UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~UpdateChecker();
@@ -52,10 +59,25 @@ public:
     bool latestIsBeta() const { return m_latestIsBeta; }
     bool isInstalling() const { return m_installInFlight; }
 
+    // Always false on non-Android platforms.
+    bool autoRelaunchPermissionGranted() const;
+    bool currentLaunchWasAutoRelaunch() const { return m_currentLaunchWasAutoRelaunch; }
+    bool autoRelaunchSupported() const;
+
     Q_INVOKABLE void checkForUpdates();
     Q_INVOKABLE void openReleasePage();
     Q_INVOKABLE void downloadAndInstall();
     Q_INVOKABLE void dismissUpdate();
+
+    /// Opens Android Settings → "Display over other apps" → Decenza so the user
+    /// can grant SYSTEM_ALERT_WINDOW. No-op on non-Android. The grant cannot be
+    /// observed synchronously; after the user returns to the app, call
+    /// refreshAutoRelaunchPermission().
+    Q_INVOKABLE void requestAutoRelaunchPermission();
+
+    /// Re-queries Settings.canDrawOverlays() and emits the change notification
+    /// if it differs from the cached value. Cheap to call repeatedly.
+    Q_INVOKABLE void refreshAutoRelaunchPermission();
 
 signals:
     void checkingChanged();
@@ -71,6 +93,7 @@ signals:
     void latestIsBetaChanged();
     void downloadReadyChanged();
     void canDownloadUpdateChanged();
+    void autoRelaunchPermissionGrantedChanged();
 
     /// Emitted on the main thread immediately before installApk() invokes the
     /// Android PackageInstaller JNI dispatch. Listeners should synchronously
@@ -123,6 +146,24 @@ private:
     bool m_installInFlight = false;  // True between installApk() dispatch and terminal PackageInstaller status
     int m_contentLengthRetries = 0;  // Attempts so far waiting for a response with Content-Length
     bool m_contentLengthConfirmed = false;  // True once a response with Content-Length has been seen
+
+    // Auto-relaunch state.
+    // m_currentLaunchWasAutoRelaunch: set once in the constructor from the
+    //   launching Activity's Intent extras, never mutated after that.
+    // m_autoRelaunchPermissionGranted: cached result of Settings.canDrawOverlays();
+    //   updated by refreshAutoRelaunchPermission().
+    // Both default to false on non-Android platforms.
+    bool m_currentLaunchWasAutoRelaunch = false;
+    bool m_autoRelaunchPermissionGranted = false;
+
+#ifdef Q_OS_ANDROID
+    // Called from the constructor on Android. Reads the flag file written by
+    // UpdateRelaunchReceiver (if present), updates SettingsApp diagnostic state,
+    // then deletes the file. Reads the launching Activity's Intent extras to
+    // determine whether THIS launch came through the auto-relaunch path and
+    // sets m_currentLaunchWasAutoRelaunch accordingly.
+    void readAutoRelaunchDiagnostic();
+#endif
     // Generation counter lives at file scope in updatechecker.cpp so background
     // QFile::remove threads don't capture `this` (see s_downloadGeneration).
 

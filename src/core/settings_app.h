@@ -38,6 +38,13 @@ class SettingsApp : public QObject {
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
     Q_PROPERTY(qint64 lastKnownApkSizeBytes READ lastKnownApkSizeBytes WRITE setLastKnownApkSizeBytes NOTIFY lastKnownApkSizeBytesChanged)
 
+    // Android auto-relaunch diagnostic state (Android only — values stay empty on
+    // other platforms). Set by UpdateChecker on app startup after reading the
+    // diagnostic flag file written by UpdateRelaunchReceiver. Read by the
+    // diagnostic surface in Settings.
+    Q_PROPERTY(QString lastAutoRelaunchAt READ lastAutoRelaunchAt NOTIFY lastAutoRelaunchAtChanged)
+    Q_PROPERTY(QString lastAutoRelaunchResult READ lastAutoRelaunchResult NOTIFY lastAutoRelaunchResultChanged)
+
     // DE1 firmware update channel. When false (default), firmware comes
     // from fast.decentespresso.com/download/sync/de1plus; when true,
     // from .../de1nightly. Independent from betaUpdatesEnabled, which
@@ -121,6 +128,12 @@ public:
     qint64 lastKnownApkSizeBytes() const;
     void setLastKnownApkSizeBytes(qint64 size);
 
+    // Android auto-relaunch diagnostic state
+    QString lastAutoRelaunchAt() const;
+    void setLastAutoRelaunchAt(const QString& iso);
+    QString lastAutoRelaunchResult() const;
+    void setLastAutoRelaunchResult(const QString& summary);
+
     // Daily backup
     int dailyBackupHour() const;
     void setDailyBackupHour(int hour);
@@ -164,6 +177,8 @@ signals:
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
     void lastKnownApkSizeBytesChanged();
+    void lastAutoRelaunchAtChanged();
+    void lastAutoRelaunchResultChanged();
     void firmwareNightlyChannelChanged();
     void dailyBackupHourChanged();
     void waterLevelDisplayUnitChanged();
