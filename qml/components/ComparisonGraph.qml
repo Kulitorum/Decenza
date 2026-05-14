@@ -59,6 +59,10 @@ Item {
     // `graphsView` property (which defaults to `parent`) and resolves to null.
     readonly property alias graphsViewRef: graphsView
 
+    // Re-export the GraphsView's plot rect for parent pages that hit-test
+    // against it (e.g. the comparison page tap-to-inspect overlay).
+    readonly property rect plotArea: graphsView.plotArea
+
     // === Curve definitions driving the 3-shot × 10-curve Repeater ===
     //
     // Each curve names the model accessor key, the axisY holder to map against,

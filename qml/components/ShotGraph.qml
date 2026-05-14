@@ -16,6 +16,11 @@ Item {
     // `graphsView` property (which defaults to `parent`) and resolves to null.
     readonly property alias graphsViewRef: graphsView
 
+    // Re-export the GraphsView's plot rect for parent pages that hit-test
+    // against it (e.g. right-axis toggle overlays). Matches the legacy
+    // Qt Charts ChartView.plotArea API.
+    readonly property rect plotArea: graphsView.plotArea
+
     // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
     // QSettings' INI-backend strings ("true"/"false") to real booleans — plain
     // Settings.value() returns the raw QString which JavaScript treats as truthy,

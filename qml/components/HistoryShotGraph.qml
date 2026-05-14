@@ -15,6 +15,11 @@ Item {
     // `graphsView` property (which defaults to `parent`) and resolves to null.
     readonly property alias graphsViewRef: graphsView
 
+    // Re-export the GraphsView's plot rect so parent pages can hit-test against
+    // it (e.g. the tap-to-inspect overlays distinguishing crosshair taps from
+    // right-axis toggles). Matches the legacy Qt Charts ChartView.plotArea API.
+    readonly property rect plotArea: graphsView.plotArea
+
     // Controls for compact/widget rendering
     property bool showLabels: true
     property bool showPhaseLabels: true

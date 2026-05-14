@@ -20,6 +20,10 @@ Item {
     // `graphsView` property (which defaults to `parent`) and resolves to null.
     readonly property alias graphsViewRef: graphsView
 
+    // Re-export the GraphsView's plot rect for parent pages that hit-test
+    // against it. Matches the legacy Qt Charts ChartView.plotArea API.
+    readonly property rect plotArea: graphsView.plotArea
+
     // Properties
     property var frames: []
     property int selectedFrameIndex: -1
