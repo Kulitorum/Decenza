@@ -73,7 +73,8 @@ Item {
     // Axis is stored as a string key, not a direct id reference: this property
     // initialiser runs before GraphsView and its child ValueAxes are constructed,
     // so direct ids would resolve to null and the `var` binding wouldn't re-fire
-    // when the axes appear. The delegate resolves the key to a real axis below.
+    // when the axes appear. The delegate calls chart._axisFor(curveDef.axisKey)
+    // at bind time, by which point every axis id is valid.
     readonly property var _curves: [
         { key: "pressure",              axisKey: "pressure", color: Theme.pressureColor,             width: Theme.graphLineWidth,                 advanced: false, showFlag: "showPressure" },
         { key: "flow",                  axisKey: "pressure", color: Theme.flowColor,                 width: Theme.graphLineWidth,                 advanced: false, showFlag: "showFlow" },
@@ -385,6 +386,8 @@ Item {
         property real max: 12
     }
 
+    // Initial values only — _updateDCdtAxis() rewrites min/max from the actual
+    // data range every time shotsChanged fires.
     QtObject {
         id: dCdtAxis
         property real min: 0

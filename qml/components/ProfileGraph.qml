@@ -199,7 +199,7 @@ Item {
                 text: value.toFixed(0)
                 x: 0
                 y: index / 4 * rightAxisLabels.height - height / 2
-                font.pixelSize: Theme.scaled(12)
+                font: Theme.captionFont
                 color: Theme.temperatureColor
                 Accessible.ignored: true
             }
