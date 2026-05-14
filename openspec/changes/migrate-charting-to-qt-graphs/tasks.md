@@ -22,10 +22,15 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 ### P.3 Earliest checkpoint: Qt 6.11.1 release
 - [x] **Done 2026-05-13** — Qt 6.11.1 shipped 2026-05-12 and Decenza upgraded via the `upgrade-qt-6-11-1` change (archived 2026-05-13). Full gate-condition audit performed against the released 6.11.1 docs + the Qt Graphs 2D migration guide. Result captured in `proposal.md` under "Re-evaluation against the released 6.11.1": gates 1 + 3 + 4 satisfied; gate 2 (feature parity) remains formally open but the Stage 0 plan was always designed to build the missing bridges (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) in-tree. Pragmatic reading: gates effectively reduce to "Qt 6.11.x + bulk-replace + visualMin/Max" — all met.
 
-### P.4 Qt 6.12 monitoring (active until 6.12 GA, 2026-09-22)
+### P.4 Qt 6.12 monitoring (active until 6.12 GA, 2026-09-22) — runs alongside Stages 0 + 1
 - [ ] Watch `qt/qtgraphs.git` `dev` branch for landings up to feature freeze 2026-05-29. Two major items already landed: `QCanvasPainter` backend ([QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)) and declarative XYSeries data API (QTBUG-134005, QTBUG-141139). See `proposal.md` "Qt 6.12 Roadmap" section.
 - [ ] At each 6.12 beta (2026-06-11 / 2026-07-16 / 2026-08-18), re-check `dev` log for any new legend / auto-ranging / dashed-stroke / coord-mapping landings. None present as of 2026-05-13; do not plan around them appearing.
-- [ ] At 6.12 RC (2026-09-08) or GA (2026-09-22), make the start-now-vs-wait decision in `proposal.md` "Timing recommendation": either begin Stage 0 on 6.11.1 (and treat `useCanvasPainter: true` as a follow-up after 6.12) or wait for 6.12 GA and validate once against the long-term backend.
+- [ ] At 6.12 GA (2026-09-22): once Decenza upgrades to 6.12 (a separate `upgrade-qt-6-12` change), flip `useCanvasPainter: true` per `GraphsView` on every graph migrated so far and re-measure. One-line per file; no re-migration.
+
+### P.5 Decision after Stage 1 measurement (cheap-experiment gate)
+- [ ] **After Stage 1 (`FlowCalibrationPage`) ships and a real CPU/FPS measurement is recorded on the Decent tablet during a Flow Calibration pour**, decide whether to continue:
+  - If CPU usage / FPS shows a measurable win on the Quick Shapes backend → schedule Stages 2 + 3.
+  - If neutral or worse → pause Stages 2 + 3 until Qt 6.12 GA, flip the `QCanvasPainter` backend (`useCanvasPainter: true`) on the already-migrated graphs, re-measure. Stage 0 infrastructure + Stage 1 migration are not wasted — they carry forward unchanged.
 
 ## Stage 0 — Foundation
 
