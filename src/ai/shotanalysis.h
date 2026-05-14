@@ -216,9 +216,15 @@ public:
     // omitting the channeling detector's separate convergence check
     // (|actual − goal| / goal ≤ WINDOW_CONVERGED_REL) and using
     // max(goal, FLOW_GOAL_MIN_AVG) as the denominator instead of `goal`
-    // directly. A flat target (Malabar 1.88 ml/s pin, lever flow
-    // preinfusion) passes; a fast monotonic decay (bloom command going
-    // 7.25 → 0 over a few seconds) fails at every interior point.
+    // directly. The lookups also intentionally diverge: the channeling
+    // detector uses lookupOrNaN and drops out-of-bounds samples, while
+    // this gate uses findValueAtTime (clamping to first/last sample)
+    // because legitimate short puck-failure gushers have flat-goal
+    // signals where the half-window extends past the series start —
+    // see the trim-bypass test in tst_shotanalysis. A flat target
+    // (Malabar 1.88 ml/s pin, lever flow preinfusion) passes; a fast
+    // monotonic decay (bloom command going 7.25 → 0 over a few seconds)
+    // fails at every interior point.
     static constexpr double FLOW_GOAL_STATIONARY_HALF_SEC = 0.75;
     static constexpr double FLOW_GOAL_STATIONARY_REL = 0.15;
 

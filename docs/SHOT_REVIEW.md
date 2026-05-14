@@ -195,6 +195,15 @@ the principle "flow_goal must be roughly flat to be meaningful", but the
 channeling detector additionally requires that the actual curve has
 converged on the goal.
 
+The goal lookups intentionally use `findValueAtTime` (clamps out-of-bounds
+to first/last sample) rather than `lookupOrNaN` (returns NaN out-of-bounds).
+Extreme short puck-failure shots — flow-mode phases under ~1.5 s — have
+legitimate flat-goal signals (puck gushed against a steady flow goal)
+where the stationarity half-window extends past the series start. NaN-on-
+out-of-bounds would silence those genuine gushers; clamping to the real
+first/last value preserves them because the comparison is still against
+the actual stationary value, not a synthetic sentinel.
+
 Requires ≥ 5 qualifying samples to yield a result. The check fires when
 `|delta| > FLOW_DEVIATION_THRESHOLD` (0.4 mL/s); positive delta = coarse,
 negative = fine.

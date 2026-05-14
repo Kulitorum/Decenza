@@ -428,6 +428,15 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
             // "goal" series is a firmware-generated ramp-down, not a target
             // the puck is supposed to track. See FLOW_GOAL_STATIONARY_REL
             // for the motivating false-positive (issue #1128).
+            //
+            // Uses findValueAtTime (which clamps to first/last sample
+            // out-of-bounds) rather than lookupOrNaN: extreme short
+            // puck-failure shots (sub-second flow-mode phases) have legitimate
+            // flat-goal signals where the past/future half-window extends
+            // outside the series. NaN-skipping would silence those genuine
+            // gushers; clamping to the actual first/last value preserves the
+            // signal because the comparison is still against the real
+            // stationary value, not a sentinel.
             const double goalPast = findValueAtTime(
                 flowGoal, t - FLOW_GOAL_STATIONARY_HALF_SEC);
             const double goalFut = findValueAtTime(
