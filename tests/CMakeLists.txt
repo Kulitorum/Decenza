@@ -194,7 +194,7 @@ add_decenza_test(tst_shotanalysis
 # Qt::Quick + fastlinerenderer come in transitively via shotdatamodel.h —
 # summarizeFromHistory() doesn't touch ShotDataModel itself, but the
 # shotsummarizer.cpp translation unit links its symbols.
-find_package(Qt6 REQUIRED COMPONENTS Quick Charts)
+find_package(Qt6 REQUIRED COMPONENTS Quick Graphs)
 # Compile the AI resource files (profile knowledge, dial-in reference,
 # claude agent) into the test binary so ShotSummarizer's lazy loaders
 # find them silently. Without this, calls to shotAnalysisSystemPrompt()
@@ -218,7 +218,7 @@ add_decenza_test(tst_shotsummarizer
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_SHOTSUMMARIZER_AI_RESOURCES}
 )
-target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Charts)
+target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Graphs)
 target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_aimanager: canonical-source separation end-to-end (task 10.5) ---
@@ -253,7 +253,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_AIMANAGER_AI_RESOURCES}
 )
-target_link_libraries(tst_aimanager PRIVATE Qt6::Quick Qt6::Charts)
+target_link_libraries(tst_aimanager PRIVATE Qt6::Quick Qt6::Graphs)
 target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_shotcorpus: Qt Test wrapper around shot_eval --validate.
@@ -400,7 +400,7 @@ add_decenza_test(tst_dbmigration
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_dbmigration PRIVATE Qt6::Charts Qt6::Quick)
+target_link_libraries(tst_dbmigration PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_dialing_blocks: DB-backed coverage for the four shared
@@ -428,7 +428,7 @@ add_decenza_test(tst_dialing_blocks
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_DIALING_BLOCKS_AI_RESOURCES}
 )
-target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Charts Qt6::Quick)
+target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_shotrecord_cache: ShotRecord::cachedAnalysis dedup + fallback ---
@@ -443,7 +443,7 @@ add_decenza_test(tst_shotrecord_cache
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_shotrecord_cache PRIVATE Qt6::Charts Qt6::Quick)
+target_link_libraries(tst_shotrecord_cache PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_shotrecord_cache PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo) ---
@@ -480,7 +480,7 @@ add_decenza_test(tst_saw
 )
 
 # --- tst_settling: SAW settling trimSettlingData(), m_sawSettling flag, shot save ordering ---
-find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+find_package(Qt6 REQUIRED COMPONENTS Graphs Quick)
 add_decenza_test(tst_settling
     tst_settling.cpp
     mocks/MockScaleDevice.h
@@ -494,7 +494,7 @@ add_decenza_test(tst_settling
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
 )
-target_link_libraries(tst_settling PRIVATE Qt6::Charts Qt6::Quick)
+target_link_libraries(tst_settling PRIVATE Qt6::Graphs Qt6::Quick)
 
 # --- tst_sav: MachineState SAV tests ---
 add_decenza_test(tst_sav
@@ -518,7 +518,7 @@ set(MCP_MOC_HEADERS
 )
 
 # --- tst_profilemanager: ProfileManager lifecycle, signals, BLE, MCP resources, QML bindings ---
-find_package(Qt6 REQUIRED COMPONENTS Charts Quick Qml)
+find_package(Qt6 REQUIRED COMPONENTS Graphs Quick Qml)
 add_decenza_test(tst_profilemanager
     tst_profilemanager.cpp
     ${MCP_MOC_HEADERS}
@@ -534,7 +534,7 @@ add_decenza_test(tst_profilemanager
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick Qt6::Qml paho-mqtt3a-static)
+target_link_libraries(tst_profilemanager PRIVATE Qt6::Graphs Qt6::Quick Qt6::Qml paho-mqtt3a-static)
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
 # Add built-in profiles QRC so isBuiltInFilename() works in tests
@@ -546,7 +546,7 @@ target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 
 # --- tst_mcptools_profiles: Profile MCP tools, PR #561 BLE upload regression ---
-find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+find_package(Qt6 REQUIRED COMPONENTS Graphs Quick)
 add_decenza_test(tst_mcptools_profiles
     tst_mcptools_profiles.cpp
     ${MCP_MOC_HEADERS}
@@ -560,7 +560,7 @@ add_decenza_test(tst_mcptools_profiles
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
@@ -590,13 +590,13 @@ add_decenza_test(tst_mcptools_write
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_write PRIVATE Qt6::Charts Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_write PRIVATE Qt6::Graphs Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcpserver_session: Session management, ping, subscribe/unsubscribe ---
 # Uses real mcpserver.cpp but stubs out tool/resource registration functions
 # to avoid linking mcptools_*.cpp and their heavy transitive deps.
-find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+find_package(Qt6 REQUIRED COMPONENTS Graphs Quick)
 add_decenza_test(tst_mcpserver_session
     tst_mcpserver_session.cpp
     ${MCP_MOC_HEADERS}
@@ -619,14 +619,14 @@ add_decenza_test(tst_mcpserver_session
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcpserver_protocol: 2025-11-25 spec compliance (version negotiation,
 # MCP-Protocol-Version header validation, Origin allowlist, structuredContent,
 # resource_link extraction, title/icons/$schema). Stubs out tool/resource
 # registration like tst_mcpserver_session — same dependency footprint.
-find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+find_package(Qt6 REQUIRED COMPONENTS Graphs Quick)
 add_decenza_test(tst_mcpserver_protocol
     tst_mcpserver_protocol.cpp
     ${MCP_MOC_HEADERS}
@@ -649,7 +649,7 @@ add_decenza_test(tst_mcpserver_protocol
     ${SIMULATOR_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpserver_protocol PRIVATE Qt6::Charts Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcpserver_protocol PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
 
 # Compile the production qrc so :/icons/* paths resolve at runtime — the
@@ -681,4 +681,4 @@ add_decenza_test(tst_steamhealth
     ${CMAKE_SOURCE_DIR}/src/machine/steamhealthtracker.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
 )
-target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Charts)
+target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Graphs)

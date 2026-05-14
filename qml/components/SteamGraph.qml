@@ -1,14 +1,19 @@
 import QtQuick
-import QtCharts
+import QtGraphs
 import Decenza
-import "."  // For AccessibleMouseArea
+import "graphs"
 
-ChartView {
+// Outer Item wraps the GraphsView so the FastLineRenderer / dashed overlay
+// can render as siblings on top of the chart. GraphsView swallows scene-graph
+// children that aren't its own series/axes — overlays must be siblings, not
+// children, to draw above its plot-area background and grid.
+Item {
     id: chart
-    antialiasing: true
-    backgroundColor: "transparent"
-    plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
-    legend.visible: false
+
+    // Alias so DashedLineSeries delegates can reach the GraphsView without
+    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
+    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    readonly property alias graphsViewRef: graphsView
 
     // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
     // QSettings' INI-backed strings to real booleans; see Settings.h.
@@ -16,33 +21,48 @@ ChartView {
     property bool showFlow: Settings.boolValue("steamGraph/showFlow", true)
     property bool showTemperature: Settings.boolValue("steamGraph/showTemperature", true)
 
-    margins.top: Theme.scaled(10)
-    margins.bottom: 0
-    margins.left: Theme.scaled(40)
-    margins.right: Theme.scaled(55)
-
-    Component.onCompleted: {
-        SteamDataModel.registerFastSeries(pressureRenderer, flowRenderer, temperatureRenderer)
-        SteamDataModel.registerGoalSeries(flowGoalSeries)
-        recalcMax()
-    }
+    // Right-axis temperature range. Qt Graphs lacks a sanctioned dual-Y-axis path;
+    // temperature labels are drawn manually on the right margin, and FastLineRenderer
+    // maps coordinates against these scalars directly — no ValueAxis needed.
+    property real tempMin: 100
+    property real tempMax: 180
 
     // Auto-expanding time axis (same pattern as ShotGraph)
     property double minTime: 5.0
     property double paddingPixels: Theme.scaled(5)
     property double cachedPlotWidth: 1
     property double _lastAxisMax: 5.0
-    property bool _recalcInProgress: false  // Re-entry guard: axis changes trigger onPlotAreaChanged
+    property bool _recalcInProgress: false  // Re-entry guard: axis changes trigger plotArea updates
+
+    // Convenience pass-through for overlays that need the GraphsView's plot rect.
+    readonly property rect plotArea: graphsView.plotArea
+
+    Component.onCompleted: {
+        SteamDataModel.registerFastSeries(pressureRenderer, flowRenderer, temperatureRenderer)
+        recalcMax()
+    }
+
+    // Pick a tickInterval that keeps a 5 s warm-up through a 60 s+ steam session
+    // readable without leaving a dead zone past the rightmost tick.
+    function _niceTimeAxisStep(span) {
+        if (span <= 5)  return 1
+        if (span <= 10) return 2
+        if (span <= 30) return 5
+        return 10
+    }
 
     function recalcMax() {
         if (_recalcInProgress) return
         _recalcInProgress = true
+        // Track rawTime continuously (no snap-to-tick) so live data reaches the
+        // right edge — matches the Qt Charts feel.
         var raw = SteamDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
-        if (newMax !== _lastAxisMax) {
+        var step = _niceTimeAxisStep(newMax)
+        if (newMax !== _lastAxisMax || timeAxis.tickInterval !== step) {
             _lastAxisMax = newMax
             timeAxis.max = newMax
-            timeAxis.tickCount = Math.min(7, Math.max(3, Math.floor(newMax / 10) + 2))
+            timeAxis.tickInterval = step
         }
         _recalcInProgress = false
     }
@@ -52,17 +72,7 @@ ChartView {
         function onRawTimeChanged() { chart.recalcMax() }
     }
 
-    onPlotAreaChanged: {
-        var w = Math.max(1, chart.plotArea.width)
-        if (Math.abs(w - cachedPlotWidth) > 1) {
-            cachedPlotWidth = w
-            recalcMax()
-        }
-    }
-
     // Sync visibility toggles from Settings (e.g., changed on another page).
-    // Uses Settings.boolValue() to coerce the QSettings INI-backend strings —
-    // see Settings.h.
     Connections {
         target: Settings
         function onValueChanged(key) {
@@ -72,64 +82,68 @@ ChartView {
         }
     }
 
-    // Time axis (X)
-    ValueAxis {
-        id: timeAxis
-        min: 0
-        max: chart.minTime
-        tickCount: 3
-        labelFormat: "%.0f"
-        labelsColor: Theme.textSecondaryColor
-        gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-    }
+    GraphsView {
+        id: graphsView
+        anchors.fill: parent
+        // Reserve room on the right for the manual temperature labels; Qt Graphs
+        // doesn't have a sanctioned dual-Y-axis path here and won't carve out
+        // right-margin space the way Qt Charts' margins.right did.
+        anchors.rightMargin: Theme.scaled(55)
+        anchors.topMargin: Theme.scaled(10)
+        theme: DecenzaGraphsTheme {}
 
-    // Pressure/Flow axis (left Y) — steam pressure is typically 0–4 bar
-    ValueAxis {
-        id: pressureAxis
-        min: 0
-        max: 6
-        tickCount: 4
-        labelFormat: "%.0f"
-        labelsColor: Theme.textSecondaryColor
-        gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-        titleText: "bar / mL/s"
-        titleBrush: Theme.textSecondaryColor
-    }
-
-    // Temperature axis (right Y) — hidden; labels drawn manually
-    ValueAxis {
-        id: tempAxis
-        min: 100
-        max: 180
-        tickCount: 5
-        visible: false
-    }
-
-    // Flow goal (dashed line)
-    LineSeries {
-        id: flowGoalSeries
-        name: ""
-        color: Theme.flowGoalColor
-        width: Theme.scaled(2)
-        style: Qt.DashLine
         axisX: timeAxis
         axisY: pressureAxis
-        visible: chart.showFlow
+
+        onPlotAreaChanged: {
+            var w = Math.max(1, graphsView.plotArea.width)
+            if (Math.abs(w - chart.cachedPlotWidth) > 1) {
+                chart.cachedPlotWidth = w
+                chart.recalcMax()
+            }
+        }
+
+        // Time axis (X)
+        ValueAxis {
+            id: timeAxis
+            min: 0
+            max: chart.minTime
+            tickInterval: 10
+            subTickCount: 0
+            labelFormat: "%.0f"
+            titleText: "s"
+        }
+
+        // Pressure/Flow axis (left Y) — steam pressure is typically 0–4 bar.
+        // tickInterval 2 reproduces the original tickCount: 4 (labels at 0, 2, 4, 6).
+        ValueAxis {
+            id: pressureAxis
+            min: 0
+            max: 6
+            tickInterval: 2
+            subTickCount: 0
+            labelFormat: "%.0f"
+            titleText: "bar / mL/s"
+        }
     }
 
-    // Empty anchor series to keep tempAxis registered with ChartView
-    LineSeries {
-        name: ""
+    // Flow goal (dashed line) — bridge overlay; Qt Graphs LineSeries has no dash style.
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisYRight: tempAxis
+        axisY: pressureAxis
+        points: SteamDataModel.flowGoalPoints
+        strokeColor: Theme.flowGoalColor
+        strokeWidth: Theme.scaled(2)
+        visible: chart.showFlow
     }
 
     // === LIVE DATA — FastLineRenderer (pre-allocated VBO) ===
 
     FastLineRenderer {
         id: pressureRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.pressureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -139,8 +153,8 @@ ChartView {
 
     FastLineRenderer {
         id: flowRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.flowColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -150,19 +164,19 @@ ChartView {
 
     FastLineRenderer {
         id: temperatureRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.temperatureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
-        minY: tempAxis.min; maxY: tempAxis.max
+        minY: chart.tempMin; maxY: chart.tempMax
         visible: chart.showTemperature
     }
 
     // Time axis label — inside graph at bottom right
     Text {
-        x: chart.plotArea.x + chart.plotArea.width - width - Theme.spacingSmall
-        y: chart.plotArea.y + chart.plotArea.height - height - Theme.scaled(12)
+        x: graphsView.plotArea.x + graphsView.plotArea.width - width - Theme.spacingSmall
+        y: graphsView.plotArea.y + graphsView.plotArea.height - height - Theme.scaled(12)
         text: TranslationManager.translate("graph.axis.time", "Time (s)")
         color: Theme.textSecondaryColor
         font: Theme.captionFont
@@ -170,13 +184,13 @@ ChartView {
         Accessible.ignored: true
     }
 
-    // Manual right-axis labels for temperature
+    // Manual right-axis labels for temperature (Qt Graphs has no second Y axis here)
     Item {
         id: rightAxisLabels
-        x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)
-        y: chart.plotArea.y
+        x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
+        y: graphsView.plotArea.y
         width: chart.width - x
-        height: chart.plotArea.height
+        height: graphsView.plotArea.height
 
         Accessible.role: Accessible.StaticText
         Accessible.name: TranslationManager.translate("steamGraph.rightAxis", "Temperature axis")
@@ -186,7 +200,7 @@ ChartView {
             model: 5
             Text {
                 required property int index
-                property real value: tempAxis.max - index * (tempAxis.max - tempAxis.min) / 4
+                property real value: chart.tempMax - index * (chart.tempMax - chart.tempMin) / 4
                 text: value.toFixed(0)
                 x: 0
                 y: index / 4 * rightAxisLabels.height - height / 2
@@ -210,64 +224,26 @@ ChartView {
 
     // === TAPPABLE LEGEND ===
 
-    Row {
-        id: legendRow
-        x: chart.plotArea.x
-        y: chart.plotArea.y + Theme.scaled(4)
-        spacing: Theme.spacingMedium
+    CustomLegend {
+        id: legend
+        x: graphsView.plotArea.x
+        y: graphsView.plotArea.y + Theme.scaled(4)
+        width: implicitWidth
 
-        Repeater {
-            model: [
-                { label: TranslationManager.translate("steamGraph.legend.pressure", "Pressure"), color: Theme.pressureColor, key: "steamGraph/showPressure", shown: chart.showPressure },
-                { label: TranslationManager.translate("steamGraph.legend.flow", "Flow"), color: Theme.flowColor, key: "steamGraph/showFlow", shown: chart.showFlow },
-                { label: TranslationManager.translate("steamGraph.legend.temperature", "Temperature"), color: Theme.temperatureColor, key: "steamGraph/showTemperature", shown: chart.showTemperature }
-            ]
+        readonly property var _keys: ["steamGraph/showPressure", "steamGraph/showFlow", "steamGraph/showTemperature"]
 
-            delegate: Rectangle {
-                id: legendItem
-                width: legendItemRow.implicitWidth + Theme.spacingSmall * 2
-                height: legendItemRow.implicitHeight + Theme.scaled(4)
-                radius: Theme.scaled(4)
-                color: "transparent"
-                opacity: modelData.shown ? 1.0 : 0.4
+        entries: [
+            { label: TranslationManager.translate("steamGraph.legend.pressure", "Pressure"), color: Theme.pressureColor, active: chart.showPressure },
+            { label: TranslationManager.translate("steamGraph.legend.flow", "Flow"), color: Theme.flowColor, active: chart.showFlow },
+            { label: TranslationManager.translate("steamGraph.legend.temperature", "Temperature"), color: Theme.temperatureColor, active: chart.showTemperature }
+        ]
 
-                Accessible.ignored: true
-
-                Row {
-                    id: legendItemRow
-                    anchors.centerIn: parent
-                    spacing: Theme.scaled(4)
-
-                    Rectangle {
-                        width: Theme.scaled(12)
-                        height: Theme.scaled(3)
-                        radius: Theme.scaled(1)
-                        color: modelData.color
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Text {
-                        text: modelData.label
-                        color: Theme.textColor
-                        font: Theme.captionFont
-                        Accessible.ignored: true
-                    }
-                }
-
-                AccessibleMouseArea {
-                    anchors.fill: parent
-                    accessibleName: modelData.label + (modelData.shown ? "" : " " + TranslationManager.translate("common.hidden", "hidden"))
-                    accessibleItem: legendItem
-                    onAccessibleClicked: {
-                        var newVal = !modelData.shown
-                        Settings.setValue(modelData.key, newVal)
-                        // Direct update for immediate feedback
-                        if (modelData.key === "steamGraph/showPressure") chart.showPressure = newVal
-                        else if (modelData.key === "steamGraph/showFlow") chart.showFlow = newVal
-                        else if (modelData.key === "steamGraph/showTemperature") chart.showTemperature = newVal
-                    }
-                }
-            }
+        onEntryToggled: (index, nowActive) => {
+            Settings.setValue(_keys[index], nowActive)
+            // Direct update for immediate feedback
+            if (index === 0) chart.showPressure = nowActive
+            else if (index === 1) chart.showFlow = nowActive
+            else chart.showTemperature = nowActive
         }
     }
 }

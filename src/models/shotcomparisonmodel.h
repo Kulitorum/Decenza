@@ -62,26 +62,16 @@ public:
     Q_INVOKABLE void shiftWindowRight();
     Q_INVOKABLE void setWindowStart(int index);
 
-    // Bulk-populate LineSeries objects for one shot slot using C++ QXYSeries::replace().
-    // Out-of-range shotIdx clears all series.
-    Q_INVOKABLE void populateSeries(int shotIdx,
-                                    QObject* pSeries, QObject* fSeries,
-                                    QObject* tSeries, QObject* wSeries,
-                                    QObject* wfSeries, QObject* rSeries) const;
-
-    // Same as populateSeries but for the advanced curves (conductance, dC/dt,
-    // Darcy resistance, mix temp). Split into a separate method so Q_INVOKABLE
-    // signatures stay at a reasonable arg count.
-    Q_INVOKABLE void populateAdvancedSeries(int shotIdx,
-                                             QObject* cSeries, QObject* dcdtSeries,
-                                             QObject* drSeries, QObject* mtSeries) const;
-
     Q_INVOKABLE QVariantList getPressureData(int index) const;
     Q_INVOKABLE QVariantList getFlowData(int index) const;
     Q_INVOKABLE QVariantList getTemperatureData(int index) const;
     Q_INVOKABLE QVariantList getWeightData(int index) const;
     Q_INVOKABLE QVariantList getWeightFlowRateData(int index) const;
     Q_INVOKABLE QVariantList getResistanceData(int index) const;
+    Q_INVOKABLE QVariantList getConductanceData(int index) const;
+    Q_INVOKABLE QVariantList getConductanceDerivativeData(int index) const;
+    Q_INVOKABLE QVariantList getDarcyResistanceData(int index) const;
+    Q_INVOKABLE QVariantList getTemperatureMixData(int index) const;
     Q_INVOKABLE QVariantList getPhaseMarkers(int index) const;
 
     Q_INVOKABLE QVariantMap getShotInfo(int index) const;

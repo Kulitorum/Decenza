@@ -43,7 +43,8 @@ Item {
     // Stroke style.
     property color strokeColor: Theme.textColor
     property real strokeWidth: Theme.graphLineWidth
-    property var dashPattern: [4, 4]  // length pairs in stroke widths
+    property bool dashed: true
+    property var dashPattern: [4, 4]  // length pairs in stroke widths; ignored when dashed: false
 
     // The overlay fills the plot area of the parent GraphsView.
     readonly property var _plotArea: graphsView && graphsView.plotArea ? graphsView.plotArea : null
@@ -101,7 +102,7 @@ Item {
             strokeColor: root.strokeColor
             strokeWidth: root.strokeWidth
             fillColor: "transparent"
-            strokeStyle: ShapePath.DashLine
+            strokeStyle: root.dashed ? ShapePath.DashLine : ShapePath.SolidLine
             dashPattern: root.dashPattern
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin

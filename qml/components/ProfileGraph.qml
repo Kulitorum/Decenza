@@ -1,20 +1,24 @@
 import QtQuick
-import QtCharts
+import QtGraphs
 import Decenza
+import "graphs"
 
-ChartView {
+// Profile editor preview. Pressure / flow live on the GraphsView's native left
+// axis; temperature is overlaid as a solid DashedLineSeries against a QtObject
+// value holder because Qt Graphs has no sanctioned right-Y axis in this setup.
+//
+// Outer Item wraps the GraphsView so the temperature overlay, frame-region
+// rectangles, and the custom legend render as siblings — children of GraphsView
+// would be swallowed by its scene-graph paint.
+Item {
     id: chart
-    antialiasing: true
-    backgroundColor: Qt.darker(Theme.surfaceColor, 1.3)
-    plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
-    legend.visible: false
     Accessible.role: Accessible.Graphic
     Accessible.name: TranslationManager.translate("profileGraph.accessibleName", "Profile graph")
 
-    margins.top: 0
-    margins.bottom: Theme.scaled(32)
-    margins.left: 0
-    margins.right: 0
+    // Alias so DashedLineSeries delegates can reach the GraphsView without
+    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
+    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    readonly property alias graphsViewRef: graphsView
 
     // Properties
     property var frames: []
@@ -52,6 +56,10 @@ ChartView {
     // Using a plain property (not a binding) avoids QML binding-loop issues
     // with var arrays that can fail to re-evaluate on frames assignment.
     property var frameDurations: []
+
+    // Computed temperature points consumed by the right-axis overlay. updateCurves()
+    // assigns this in a single shot so the DashedLineSeries binding fires once.
+    property var _temperaturePoints: []
 
     function recomputeFrameDurations() {
         var durations = []
@@ -103,70 +111,67 @@ ChartView {
         return Math.max(total, 5)
     }
 
-    // Time axis (X)
-    ValueAxis {
-        id: timeAxis
-        min: 0
-        max: totalDuration * 1.1
-        tickCount: Math.min(10, Math.max(3, Math.floor(totalDuration / 5) + 1))
-        labelFormat: "%.0f"
-        labelsColor: Theme.textSecondaryColor
-        labelsFont.pixelSize: Theme.scaled(12)
-        gridLineColor: Qt.rgba(1, 1, 1, 0.1)
+    GraphsView {
+        id: graphsView
+        anchors.fill: parent
+        anchors.bottomMargin: Theme.scaled(32)  // room for the custom legend below
+        theme: DecenzaGraphsTheme {}
+
+        axisX: timeAxis
+        axisY: pressureAxis
+
+        // Time axis (X)
+        ValueAxis {
+            id: timeAxis
+            min: 0
+            max: chart.totalDuration * 1.1
+            tickInterval: Math.max(5, Math.ceil(chart.totalDuration / 5))
+            subTickCount: 0
+            labelFormat: "%.0f"
+        }
+
+        // Pressure/Flow axis (left Y)
+        ValueAxis {
+            id: pressureAxis
+            min: 0
+            max: 12
+            tickInterval: 3
+            subTickCount: 0
+            labelFormat: "%.0f"
+        }
+
+        // Pressure curve
+        LineSeries {
+            id: pressureSeries0
+            color: Theme.pressureGoalColor
+            width: Theme.graphLineWidth * 3
+        }
+
+        // Flow curve
+        LineSeries {
+            id: flowSeries0
+            color: Theme.flowGoalColor
+            width: Theme.graphLineWidth * 3
+        }
     }
 
-    // Pressure/Flow axis (left Y)
-    ValueAxis {
-        id: pressureAxis
-        min: 0
-        max: 12
-        tickCount: 5
-        labelFormat: "%.0f"
-        labelsColor: Theme.textSecondaryColor
-        labelsFont.pixelSize: Theme.scaled(12)
-        gridLineColor: Qt.rgba(1, 1, 1, 0.1)
-    }
-
-    // Temperature axis (right Y)
-    ValueAxis {
+    // Temperature axis holder — Qt Graphs has no axisYRight in this setup, so
+    // temperature is plotted as a DashedLineSeries against this min/max range.
+    QtObject {
         id: tempAxis
-        min: 80
-        max: 100
-        tickCount: 5
-        labelFormat: "%.0f"
-        labelsColor: Theme.temperatureColor
-        labelsFont.pixelSize: Theme.scaled(12)
-        gridLineColor: "transparent"
+        property real min: 80
+        property real max: 100
     }
 
-    // Pressure curve
-    LineSeries {
-        id: pressureSeries0
-        name: "Pressure"
-        color: Theme.pressureGoalColor
-        width: Theme.graphLineWidth * 3
+    // Temperature curve — solid stroke via the dashed-overlay bridge.
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: pressureAxis
-    }
-
-    // Flow curve
-    LineSeries {
-        id: flowSeries0
-        name: "Flow"
-        color: Theme.flowGoalColor
-        width: Theme.graphLineWidth * 3
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
-
-    // Temperature curve
-    LineSeries {
-        id: temperatureGoalSeries
-        name: "Temperature"
-        color: Theme.temperatureGoalColor
-        width: Theme.graphLineWidth * 2
-        axisX: timeAxis
-        axisYRight: tempAxis
+        axisY: tempAxis
+        points: chart._temperaturePoints
+        strokeColor: Theme.temperatureGoalColor
+        strokeWidth: Theme.graphLineWidth * 2
+        dashed: false
     }
 
     // Frame region overlays
@@ -176,7 +181,7 @@ ChartView {
 
         Repeater {
             id: frameRepeater
-            model: frames
+            model: chart.frames
 
             delegate: Item {
                 id: frameDelegate
@@ -187,35 +192,35 @@ ChartView {
 
                 Accessible.role: Accessible.ListItem
                 Accessible.name: (frame ? (frame.name || ("Frame " + (index + 1))) : "") +
-                                 (index === selectedFrameIndex ? ", selected" : "")
+                                 (index === chart.selectedFrameIndex ? ", selected" : "")
                 Accessible.focusable: true
                 Accessible.onPressAction: bgMouseArea.clicked(null)
                 property double frameStart: {
                     var start = 0
                     for (var i = 0; i < index; i++) {
-                        start += (frameDurations[i] || 0)
+                        start += (chart.frameDurations[i] || 0)
                     }
                     return start
                 }
-                property double frameDuration: frameDurations[index] || 0
+                property double frameDuration: chart.frameDurations[index] || 0
 
-                x: chart.plotArea.x + (frameStart / (totalDuration * 1.1)) * chart.plotArea.width
-                y: chart.plotArea.y
-                width: (frameDuration / (totalDuration * 1.1)) * chart.plotArea.width
-                height: chart.plotArea.height
+                x: graphsView.plotArea.x + (frameStart / (chart.totalDuration * 1.1)) * graphsView.plotArea.width
+                y: graphsView.plotArea.y
+                width: (frameDuration / (chart.totalDuration * 1.1)) * graphsView.plotArea.width
+                height: graphsView.plotArea.height
 
                 Rectangle {
                     anchors.fill: parent
                     color: {
-                        if (index === selectedFrameIndex) {
+                        if (index === chart.selectedFrameIndex) {
                             return Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.3)
                         }
                         return index % 2 === 0 ?
                             Qt.rgba(1, 1, 1, 0.05) :
                             Qt.rgba(1, 1, 1, 0.02)
                     }
-                    border.width: index === selectedFrameIndex ? Theme.scaled(2) : Theme.scaled(1)
-                    border.color: index === selectedFrameIndex ?
+                    border.width: index === chart.selectedFrameIndex ? Theme.scaled(2) : Theme.scaled(1)
+                    border.color: index === chart.selectedFrameIndex ?
                         Theme.accentColor : Qt.rgba(1, 1, 1, 0.2)
                 }
 
@@ -235,7 +240,7 @@ ChartView {
                         text: frame ? (frame.name || ("Frame " + (index + 1))) : ""
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
-                        font.bold: index === selectedFrameIndex
+                        font.bold: index === chart.selectedFrameIndex
                         rotation: -90
                         transformOrigin: Item.Center
                         opacity: 0.9
@@ -247,11 +252,11 @@ ChartView {
                         cursorShape: Qt.PointingHandCursor
                         Accessible.ignored: true
                         onClicked: {
-                            selectedFrameIndex = index
-                            frameSelected(index)
+                            chart.selectedFrameIndex = index
+                            chart.frameSelected(index)
                         }
                         onDoubleClicked: {
-                            frameDoubleClicked(index)
+                            chart.frameDoubleClicked(index)
                         }
                     }
                 }
@@ -262,11 +267,11 @@ ChartView {
                     z: -1
                     Accessible.ignored: true
                     onClicked: {
-                        selectedFrameIndex = index
-                        frameSelected(index)
+                        chart.selectedFrameIndex = index
+                        chart.frameSelected(index)
                     }
                     onDoubleClicked: {
-                        frameDoubleClicked(index)
+                        chart.frameDoubleClicked(index)
                     }
                 }
             }
@@ -280,9 +285,12 @@ ChartView {
     function updateCurves() {
         pressureSeries0.clear()
         flowSeries0.clear()
-        temperatureGoalSeries.clear()
+        var tempPts = []
 
-        if (frames.length === 0) return
+        if (frames.length === 0) {
+            _temperaturePoints = []
+            return
+        }
 
         var time = 0
         var currentPressure = 0
@@ -337,7 +345,7 @@ ChartView {
                     var pressPI = pEase * piExitP
                     pressureSeries0.append(tPI, pressPI)
                     flowSeries0.append(tPI, flowPI)
-                    temperatureGoalSeries.append(tPI, temp)
+                    tempPts.push({ x: tPI, y: temp })
                 }
                 currentPressure = piExitP
                 currentFlow = piFlow
@@ -370,7 +378,7 @@ ChartView {
                         var f = Math.max(rawFlow, residualFlow * simPresFrac[k])
                         pressureSeries0.append(t, p)
                         flowSeries0.append(t, f)
-                        temperatureGoalSeries.append(t, temp)
+                        tempPts.push({ x: t, y: temp })
                     }
                     currentPressure = targetP
                     currentFlow = residualFlow
@@ -394,15 +402,15 @@ ChartView {
                             var flowPt = residualFlow + (pPt / Math.max(1, targetP)) * residualFlow * 0.5
                             pressureSeries0.append(tPt, pPt)
                             flowSeries0.append(tPt, flowPt)
-                            temperatureGoalSeries.append(tPt, temp)
+                            tempPts.push({ x: tPt, y: temp })
                         }
                     } else {
                         pressureSeries0.append(startTime, startP)
                         pressureSeries0.append(endTime, targetP)
                         flowSeries0.append(startTime, residualFlow)
                         flowSeries0.append(endTime, residualFlow)
-                        temperatureGoalSeries.append(startTime, temp)
-                        temperatureGoalSeries.append(endTime, temp)
+                        tempPts.push({ x: startTime, y: temp })
+                        tempPts.push({ x: endTime, y: temp })
                     }
                     currentPressure = targetP
                     currentFlow = residualFlow
@@ -432,7 +440,7 @@ ChartView {
                         var ease2 = frac2 * frac2 * (3 - 2 * frac2)
                         pressureSeries0.append(tPt2, currentPressure + ease2 * (flowPressure - currentPressure))
                         flowSeries0.append(tPt2, currentFlow + ease2 * (effectiveFlow - currentFlow))
-                        temperatureGoalSeries.append(tPt2, temp)
+                        tempPts.push({ x: tPt2, y: temp })
                     }
                 } else {
                     // Fast: ramp with ease-in-out curve over ~4s (matching machine PID settling)
@@ -446,13 +454,13 @@ ChartView {
                         var easeR = fracR * fracR * (3 - 2 * fracR)
                         pressureSeries0.append(tR, currentPressure + easeR * (flowPressure - currentPressure))
                         flowSeries0.append(tR, currentFlow + easeR * (effectiveFlow - currentFlow))
-                        temperatureGoalSeries.append(tR, temp)
+                        tempPts.push({ x: tR, y: temp })
                     }
 
                     // Hold at target until end
                     pressureSeries0.append(endTime, flowPressure)
                     flowSeries0.append(endTime, effectiveFlow)
-                    temperatureGoalSeries.append(endTime, temp)
+                    tempPts.push({ x: endTime, y: temp })
                 }
 
                 currentPressure = flowPressure
@@ -461,6 +469,8 @@ ChartView {
 
             time = endTime
         }
+
+        _temperaturePoints = tempPts
     }
 
     onFramesChanged: { recomputeFrameDurations(); updateCurves() }

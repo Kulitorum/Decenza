@@ -1,11 +1,11 @@
 #pragma once
 
 #include <QObject>
-#include <QTimer>
-#include <QVector>
 #include <QPointF>
 #include <QPointer>
-#include <QtCharts/QLineSeries>
+#include <QTimer>
+#include <QVariantList>
+#include <QVector>
 
 class FastLineRenderer;
 
@@ -15,6 +15,7 @@ class SteamDataModel : public QObject {
     Q_PROPERTY(double maxTime READ maxTime NOTIFY maxTimeChanged)
     Q_PROPERTY(double rawTime READ rawTime NOTIFY rawTimeChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY rawTimeChanged)
+    Q_PROPERTY(QVariantList flowGoalPoints READ flowGoalPoints NOTIFY flowGoalPointsChanged)
 
 public:
     explicit SteamDataModel(QObject* parent = nullptr);
@@ -24,12 +25,13 @@ public:
     double rawTime() const { return m_rawTime; }
     int sampleCount() const { return static_cast<int>(m_pressurePoints.size()); }
 
+    // Goal-curve points exposed as Qt.point()-compatible variant list so
+    // DashedLineSeries can bind directly without a C++/QML series handshake.
+    QVariantList flowGoalPoints() const;
+
     // Register fast renderers for live data series (QSGGeometryNode, pre-allocated VBO)
     Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                          FastLineRenderer* temperature);
-
-    // Register flow goal LineSeries (infrequent updates)
-    Q_INVOKABLE void registerGoalSeries(QLineSeries* flowGoal);
 
     // Session summary accessors (used by SteamHealthTracker after steaming ends)
     // All skip the first 2 seconds of data (pressure is intentionally high at start)
@@ -54,6 +56,7 @@ signals:
     void cleared();
     void maxTimeChanged();
     void rawTimeChanged();
+    void flowGoalPointsChanged();
     void flushed();  // Emitted after 33ms timer flushes new data to renderers
 
 private slots:
@@ -76,8 +79,6 @@ private:
     qsizetype m_lastFlushedFlow = 0;
     qsizetype m_lastFlushedTemp = 0;
 
-    // Flow goal LineSeries (set once per session)
-    QPointer<QLineSeries> m_flowGoalSeries;
     bool m_flowGoalDirty = false;
 
     // Batched update timer (30fps)

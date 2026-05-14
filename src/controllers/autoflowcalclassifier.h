@@ -6,7 +6,7 @@
 /**
  * Minimal frame-transition record used as input to the auto-flow-cal
  * window classifier. Decoupled from `PhaseMarker` (which lives in
- * shotdatamodel.h and pulls in Qt Charts / Quick) so the classifier
+ * shotdatamodel.h and pulls in Qt Graphs / Quick) so the classifier
  * can be unit-tested without the full ShotDataModel stack.
  *
  * Callers in production code convert `PhaseMarker -> FrameTransition`

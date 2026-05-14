@@ -7,7 +7,6 @@
 #include "../core/dbutils.h"
 #include <QThread>
 #include <algorithm>
-#include <QtCharts/QXYSeries>
 
 // Shot colors: Green, Blue, Orange
 const QList<QColor> ShotComparisonModel::SHOT_COLORS = {
@@ -297,60 +296,6 @@ void ShotComparisonModel::calculateMaxValues()
     }
 }
 
-void ShotComparisonModel::populateSeries(int shotIdx,
-                                          QObject* pObj, QObject* fObj,
-                                          QObject* tObj, QObject* wObj,
-                                          QObject* wfObj, QObject* rObj) const
-{
-    auto clearSeries = [](QObject* obj) {
-        if (auto* s = qobject_cast<QXYSeries*>(obj)) s->clear();
-    };
-
-    if (shotIdx < 0 || shotIdx >= m_displayShots.size()) {
-        clearSeries(pObj); clearSeries(fObj); clearSeries(tObj);
-        clearSeries(wObj); clearSeries(wfObj); clearSeries(rObj);
-        return;
-    }
-
-    const auto& shot = m_displayShots[shotIdx];
-
-    if (auto* s = qobject_cast<QXYSeries*>(pObj))  s->replace(shot.pressure);
-    if (auto* s = qobject_cast<QXYSeries*>(fObj))  s->replace(shot.flow);
-    if (auto* s = qobject_cast<QXYSeries*>(tObj))  s->replace(shot.temperature);
-    if (auto* s = qobject_cast<QXYSeries*>(wfObj)) s->replace(shot.weightFlowRate);
-    if (auto* s = qobject_cast<QXYSeries*>(rObj))  s->replace(shot.resistance);
-
-    // Weight is scaled /5 to overlay on the pressure axis (0–50g → 0–10 bar range)
-    if (auto* s = qobject_cast<QXYSeries*>(wObj)) {
-        QList<QPointF> scaled;
-        scaled.reserve(shot.weight.size());
-        for (const auto& pt : shot.weight)
-            scaled.append(QPointF(pt.x(), pt.y() / 5.0));
-        s->replace(scaled);
-    }
-}
-
-void ShotComparisonModel::populateAdvancedSeries(int shotIdx,
-                                                  QObject* cObj, QObject* dcdtObj,
-                                                  QObject* drObj, QObject* mtObj) const
-{
-    auto clearSeries = [](QObject* obj) {
-        if (auto* s = qobject_cast<QXYSeries*>(obj)) s->clear();
-    };
-
-    if (shotIdx < 0 || shotIdx >= m_displayShots.size()) {
-        clearSeries(cObj); clearSeries(dcdtObj);
-        clearSeries(drObj); clearSeries(mtObj);
-        return;
-    }
-
-    const auto& shot = m_displayShots[shotIdx];
-    if (auto* s = qobject_cast<QXYSeries*>(cObj))    s->replace(shot.conductance);
-    if (auto* s = qobject_cast<QXYSeries*>(dcdtObj)) s->replace(shot.conductanceDerivative);
-    if (auto* s = qobject_cast<QXYSeries*>(drObj))   s->replace(shot.darcyResistance);
-    if (auto* s = qobject_cast<QXYSeries*>(mtObj))   s->replace(shot.temperatureMix);
-}
-
 QVariantList ShotComparisonModel::pointsToVariant(const QVector<QPointF>& points) const
 {
     QVariantList result;
@@ -397,6 +342,30 @@ QVariantList ShotComparisonModel::getResistanceData(int index) const
 {
     if (index < 0 || index >= m_displayShots.size()) return QVariantList();
     return pointsToVariant(m_displayShots[index].resistance);
+}
+
+QVariantList ShotComparisonModel::getConductanceData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].conductance);
+}
+
+QVariantList ShotComparisonModel::getConductanceDerivativeData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].conductanceDerivative);
+}
+
+QVariantList ShotComparisonModel::getDarcyResistanceData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].darcyResistance);
+}
+
+QVariantList ShotComparisonModel::getTemperatureMixData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].temperatureMix);
 }
 
 QVariantList ShotComparisonModel::getPhaseMarkers(int index) const

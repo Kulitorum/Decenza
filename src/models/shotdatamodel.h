@@ -1,12 +1,12 @@
 #pragma once
 
+#include <QList>
 #include <QObject>
-#include <QTimer>
-#include <QVector>
 #include <QPointF>
 #include <QPointer>
+#include <QTimer>
 #include <QVariantList>
-#include <QtCharts/QLineSeries>
+#include <QVector>
 
 class FastLineRenderer;
 
@@ -27,6 +27,11 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(double stopTime READ stopTime NOTIFY stopTimeChanged)
     Q_PROPERTY(double weightAtStop READ weightAtStop NOTIFY weightAtStopChanged)
     Q_PROPERTY(double finalWeight READ finalWeight NOTIFY finalWeightChanged)
+    // Goal curves exposed as Qt.point()-compatible variant lists so DashedLineSeries
+    // Repeaters can bind directly — replaces the QLineSeries handshake.
+    Q_PROPERTY(QVariantList pressureGoalSegments READ pressureGoalSegmentsVariant NOTIFY goalCurvesChanged)
+    Q_PROPERTY(QVariantList flowGoalSegments READ flowGoalSegmentsVariant NOTIFY goalCurvesChanged)
+    Q_PROPERTY(QVariantList temperatureGoalPoints READ temperatureGoalPointsVariant NOTIFY goalCurvesChanged)
 
 public:
     explicit ShotDataModel(QObject* parent = nullptr);
@@ -38,13 +43,9 @@ public:
     double weightAtStop() const { return m_weightAtStop; }
     double finalWeight() const;
     QVariantList phaseMarkersVariant() const;
-
-    // Register goal/marker chart series (LineSeries - infrequent updates)
-    Q_INVOKABLE void registerSeries(const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
-                                     QLineSeries* temperatureGoal,
-                                     QLineSeries* extractionMarker,
-                                     QLineSeries* stopMarker,
-                                     const QVariantList& frameMarkers);
+    QVariantList pressureGoalSegmentsVariant() const;
+    QVariantList flowGoalSegmentsVariant() const;
+    QVariantList temperatureGoalPointsVariant() const;
 
     // Register fast renderers for live data series (QSGGeometryNode - pre-allocated VBO)
     Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
@@ -102,6 +103,7 @@ signals:
     void stopTimeChanged();
     void weightAtStopChanged();
     void finalWeightChanged();
+    void goalCurvesChanged();
     void flushed();  // Emitted after 33ms timer flushes new data to renderers
 
 private slots:
@@ -148,22 +150,14 @@ private:
     qsizetype m_lastFlushedDarcyResistance = 0;
     qsizetype m_lastFlushedTemperatureMix = 0;
 
-    // Chart series for goals/markers (QPointer auto-nulls when QML destroys them)
-    QList<QPointer<QLineSeries>> m_pressureGoalSeriesList;  // One per segment
-    QList<QPointer<QLineSeries>> m_flowGoalSeriesList;      // One per segment
-    QPointer<QLineSeries> m_temperatureGoalSeries;
-    QPointer<QLineSeries> m_extractionMarkerSeries;
-    QPointer<QLineSeries> m_stopMarkerSeries;
-    QList<QPointer<QLineSeries>> m_frameMarkerSeries;
-
     // Batched update timer (30fps)
     QTimer* m_flushTimer = nullptr;
     bool m_dirty = false;
+    bool m_goalCurvesDirty = false;
 
     double m_maxTime = 5.0;
     double m_rawTime = 0.0;
     bool m_rawTimeDirty = false;  // Deferred: emit rawTimeChanged in onFlushTimerTick()
-    int m_frameMarkerIndex = 0;
     bool m_lastPumpModeIsFlow = false;  // Track for starting new goal segments
     bool m_hasPumpModeData = false;     // True after first sample with pump mode
     int m_currentPressureGoalSegment = 0;  // Current segment index
@@ -171,8 +165,6 @@ private:
 
     // Phase markers for QML labels
     QList<PhaseMarker> m_phaseMarkers;
-    QList<QPair<double, QString>> m_pendingMarkers;  // Pending vertical lines
-    double m_pendingStopTime = -1;  // Stop marker time (-1 = none)
     double m_stopTime = -1;          // Recorded stop time for accessibility
     double m_weightAtStop = 0.0;     // Weight when stop was triggered
 

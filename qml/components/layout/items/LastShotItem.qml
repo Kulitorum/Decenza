@@ -16,7 +16,9 @@ Item {
     // User-configurable properties (from settings popup)
     readonly property real shotScale: typeof modelData.shotScale === "number" ? modelData.shotScale : 1.0
     readonly property bool shotShowLabels: typeof modelData.shotShowLabels === "boolean" ? modelData.shotShowLabels : false
-    readonly property bool shotShowPhaseLabels: typeof modelData.shotShowPhaseLabels === "boolean" ? modelData.shotShowPhaseLabels : true
+    // Default off — the widget tile is too small for rotated phase-label text
+    // to read cleanly. Opt in via the widget settings popup.
+    readonly property bool shotShowPhaseLabels: typeof modelData.shotShowPhaseLabels === "boolean" ? modelData.shotShowPhaseLabels : false
 
     // Shot data cache
     property var shotData: ({})

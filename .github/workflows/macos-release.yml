@@ -56,7 +56,7 @@ jobs:
           version: '6.11.1'
           target: 'desktop'
           arch: 'clang_64'
-          modules: 'qtquick3d qtshadertools qtcharts qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebengine qtserialport qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebengine qtserialport qtimageformats qtcanvaspainter'
           cache: true
           cache-key-prefix: 'qt-macos-v2'
 

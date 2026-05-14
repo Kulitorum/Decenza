@@ -39,50 +39,6 @@ ShotDataModel::~ShotDataModel() {
     }
 }
 
-void ShotDataModel::registerSeries(const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
-                                    QLineSeries* temperatureGoal,
-                                    QLineSeries* extractionMarker,
-                                    QLineSeries* stopMarker,
-                                    const QVariantList& frameMarkers) {
-    m_temperatureGoalSeries = temperatureGoal;
-    m_extractionMarkerSeries = extractionMarker;
-    m_stopMarkerSeries = stopMarker;
-
-    // Register pressure goal segment series
-    m_pressureGoalSeriesList.clear();
-    for (const QVariant& v : pressureGoalSegments) {
-        if (auto* series = qobject_cast<QLineSeries*>(v.value<QObject*>())) {
-            m_pressureGoalSeriesList.append(series);
-        }
-    }
-
-    // Register flow goal segment series
-    m_flowGoalSeriesList.clear();
-    for (const QVariant& v : flowGoalSegments) {
-        if (auto* series = qobject_cast<QLineSeries*>(v.value<QObject*>())) {
-            m_flowGoalSeriesList.append(series);
-        }
-    }
-
-    m_frameMarkerSeries.clear();
-    for (const QVariant& v : frameMarkers) {
-        if (auto* series = qobject_cast<QLineSeries*>(v.value<QObject*>())) {
-            m_frameMarkerSeries.append(series);
-        }
-    }
-
-    qDebug() << "ShotDataModel: Registered goal/marker series";
-
-    // If we have existing goal/marker data, flush it
-    if (!m_pressureGoalSegments[0].isEmpty() || !m_pendingMarkers.isEmpty()) {
-        m_dirty = true;
-        onFlushTimerTick();
-    }
-
-    // Start the flush timer
-    m_flushTimer->start();
-}
-
 void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                         FastLineRenderer* temperature,
                                         FastLineRenderer* weight, FastLineRenderer* weightFlow,
@@ -141,6 +97,17 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
     }
 
     qDebug() << "ShotDataModel: Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
+
+    // Replay any goal-curve data we already accumulated so DashedLineSeries
+    // bindings see the current state immediately (e.g., returning to the
+    // espresso page after a shot completes).
+    if (!m_pressureGoalSegments.isEmpty() && !m_pressureGoalSegments[0].isEmpty()) {
+        m_goalCurvesDirty = true;
+        m_dirty = true;
+        onFlushTimerTick();
+    }
+
+    m_flushTimer->start();
 }
 
 void ShotDataModel::clear() {
@@ -162,7 +129,6 @@ void ShotDataModel::clear() {
     m_cumulativeWeightPoints.clear();
     m_weightFlowRatePoints.clear();
     m_weightFlowRateRawPoints.clear();
-    m_pendingMarkers.clear();
 
     // Reset goal segments - keep first segment with capacity
     m_pressureGoalSegments.clear();
@@ -192,27 +158,9 @@ void ShotDataModel::clear() {
     m_lastFlushedDarcyResistance = 0;
     m_lastFlushedTemperatureMix = 0;
 
-    // Clear goal/marker chart series
-    if (m_temperatureGoalSeries) m_temperatureGoalSeries->clear();
-    if (m_extractionMarkerSeries) m_extractionMarkerSeries->clear();
-    if (m_stopMarkerSeries) m_stopMarkerSeries->clear();
-    m_pendingStopTime = -1;
     m_stopTime = -1;
     m_weightAtStop = 0.0;
 
-    // Clear all goal segment series
-    for (const auto& series : m_pressureGoalSeriesList) {
-        if (series) series->clear();
-    }
-    for (const auto& series : m_flowGoalSeriesList) {
-        if (series) series->clear();
-    }
-
-    for (const auto& series : m_frameMarkerSeries) {
-        if (series) series->clear();
-    }
-
-    m_frameMarkerIndex = 0;
     m_phaseMarkers.clear();
     m_maxTime = 5.0;
     m_rawTime = 0.0;
@@ -222,9 +170,11 @@ void ShotDataModel::clear() {
     m_currentFlowGoalSegment = 0;
     m_dirty = false;
     m_rawTimeDirty = false;
+    m_goalCurvesDirty = false;
 
     emit cleared();
     emit phaseMarkersChanged();
+    emit goalCurvesChanged();
     emit maxTimeChanged();
     emit rawTimeChanged();
 
@@ -312,11 +262,14 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     // Add goal points to current segments
     if (pressureGoal > 0) {
         m_pressureGoalSegments[m_currentPressureGoalSegment].append(QPointF(time, pressureGoal));
+        m_goalCurvesDirty = true;
     }
     if (flowGoal > 0) {
         m_flowGoalSegments[m_currentFlowGoalSegment].append(QPointF(time, flowGoal));
+        m_goalCurvesDirty = true;
     }
     m_temperatureGoalPoints.append(QPointF(time, temperatureGoal));
+    m_goalCurvesDirty = true;
 
     // Update raw time - QML uses this to calculate axis max with pixel-based padding
     // Signal deferred to onFlushTimerTick() to avoid triggering chart axis recalc on every 5Hz sample
@@ -381,20 +334,16 @@ void ShotDataModel::addWeightSample(double time, double weight) {
 }
 
 void ShotDataModel::markExtractionStart(double time) {
-    m_pendingMarkers.append({time, "Start"});
-
     PhaseMarker marker;
     marker.time = time;
     marker.label = "Start";
     marker.frameNumber = 0;
     m_phaseMarkers.append(marker);
 
-    m_dirty = true;
     emit phaseMarkersChanged();
 }
 
 void ShotDataModel::markStopAt(double time) {
-    m_pendingStopTime = time;
     m_stopTime = time;
 
     // Find the weight at or just before the stop time
@@ -412,7 +361,6 @@ void ShotDataModel::markStopAt(double time) {
     marker.frameNumber = -1;
     m_phaseMarkers.append(marker);
 
-    m_dirty = true;
     emit phaseMarkersChanged();
     emit stopTimeChanged();
     emit weightAtStopChanged();
@@ -509,8 +457,6 @@ void ShotDataModel::trimSettlingData() {
 }
 
 void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameNumber, bool isFlowMode, const QString& transitionReason) {
-    m_pendingMarkers.append({time, label});
-
     PhaseMarker marker;
     marker.time = time;
     marker.label = label;
@@ -519,7 +465,6 @@ void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameN
     marker.transitionReason = transitionReason;
     m_phaseMarkers.append(marker);
 
-    m_dirty = true;
     emit phaseMarkersChanged();
 }
 
@@ -573,47 +518,12 @@ void ShotDataModel::onFlushTimerTick() {
         m_lastFlushedTemperatureMix = m_temperatureMixPoints.size();
     }
 
-    // Update goal curve LineSeries (infrequent updates, replace() is fine)
-    for (qsizetype i = 0; i < m_pressureGoalSegments.size() && i < m_pressureGoalSeriesList.size(); ++i) {
-        if (m_pressureGoalSeriesList[i] && !m_pressureGoalSegments[i].isEmpty()) {
-            m_pressureGoalSeriesList[i]->replace(m_pressureGoalSegments[i]);
-        }
-    }
-    for (qsizetype i = 0; i < m_flowGoalSegments.size() && i < m_flowGoalSeriesList.size(); ++i) {
-        if (m_flowGoalSeriesList[i] && !m_flowGoalSegments[i].isEmpty()) {
-            m_flowGoalSeriesList[i]->replace(m_flowGoalSegments[i]);
-        }
-    }
-    if (m_temperatureGoalSeries && !m_temperatureGoalPoints.isEmpty()) {
-        m_temperatureGoalSeries->replace(m_temperatureGoalPoints);
-    }
-
-    // Process pending vertical markers
-    for (const auto& marker : m_pendingMarkers) {
-        if (marker.second == "Start") {
-            if (m_extractionMarkerSeries) {
-                m_extractionMarkerSeries->append(marker.first, 0);
-                m_extractionMarkerSeries->append(marker.first, 12);
-            }
-        } else {
-            if (m_frameMarkerIndex < m_frameMarkerSeries.size()) {
-                const auto& series = m_frameMarkerSeries[m_frameMarkerIndex];
-                if (series) {
-                    series->append(marker.first, 0);
-                    series->append(marker.first, 12);
-                }
-                m_frameMarkerIndex++;
-            }
-        }
-    }
-    m_pendingMarkers.clear();
-
-    // Draw stop marker if pending
-    if (m_pendingStopTime >= 0 && m_stopMarkerSeries) {
-        m_stopMarkerSeries->clear();  // Clear any existing line
-        m_stopMarkerSeries->append(m_pendingStopTime, 0);
-        m_stopMarkerSeries->append(m_pendingStopTime, 12);
-        m_pendingStopTime = -1;  // Mark as drawn
+    // Goal-curve points republished as QML-bindable properties — DashedLineSeries
+    // Repeaters re-read pressureGoalSegments / flowGoalSegments / temperatureGoalPoints
+    // and the per-axis bridge overlays re-draw against the current axis range.
+    if (m_goalCurvesDirty) {
+        m_goalCurvesDirty = false;
+        emit goalCurvesChanged();
     }
 
     // Emit deferred rawTimeChanged (axis recalc) at flush rate instead of per-sample
@@ -662,4 +572,38 @@ QVector<QPointF> ShotDataModel::flowGoalData() const {
         combined.append(segment);
     }
     return combined;
+}
+
+// Variant-list accessors for QML — DashedLineSeries Repeaters bind to these.
+// Each segment becomes a JS array of Qt.point(x, y); the outer list is the segments.
+
+static QVariantList pointsToVariantList(const QVector<QPointF>& pts) {
+    QVariantList out;
+    out.reserve(pts.size());
+    for (const QPointF& p : pts) {
+        out.append(QVariant::fromValue(p));
+    }
+    return out;
+}
+
+QVariantList ShotDataModel::pressureGoalSegmentsVariant() const {
+    QVariantList out;
+    out.reserve(m_pressureGoalSegments.size());
+    for (const auto& segment : m_pressureGoalSegments) {
+        out.append(QVariant::fromValue(pointsToVariantList(segment)));
+    }
+    return out;
+}
+
+QVariantList ShotDataModel::flowGoalSegmentsVariant() const {
+    QVariantList out;
+    out.reserve(m_flowGoalSegments.size());
+    for (const auto& segment : m_flowGoalSegments) {
+        out.append(QVariant::fromValue(pointsToVariantList(segment)));
+    }
+    return out;
+}
+
+QVariantList ShotDataModel::temperatureGoalPointsVariant() const {
+    return pointsToVariantList(m_temperatureGoalPoints);
 }
