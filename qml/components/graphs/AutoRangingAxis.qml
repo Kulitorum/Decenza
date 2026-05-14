@@ -35,6 +35,11 @@ ValueAxis {
     property real fallbackMin: 0
     property real fallbackMax: 1
 
+    // When true and `tickInterval > 0`, snap the computed min/max to multiples
+    // of `tickInterval` so the topmost/bottommost tick lands exactly at the
+    // plot edge instead of leaving dead space past the last tick.
+    property bool snapToTickInterval: true
+
     function _recompute() {
         var lo = Number.POSITIVE_INFINITY
         var hi = Number.NEGATIVE_INFINITY
@@ -66,6 +71,14 @@ ValueAxis {
 
         var newMin = lo - pad
         var newMax = hi + pad
+
+        // Snap to tick-interval boundaries first so a subsequent clamp to
+        // minFloor / maxCeiling still wins.
+        if (snapToTickInterval && tickInterval > 0) {
+            newMin = Math.floor(newMin / tickInterval) * tickInterval
+            newMax = Math.ceil(newMax / tickInterval) * tickInterval
+        }
+
         if (minFloor !== null && newMin < minFloor) newMin = minFloor
         if (maxCeiling !== null && newMax > maxCeiling) newMax = maxCeiling
 
