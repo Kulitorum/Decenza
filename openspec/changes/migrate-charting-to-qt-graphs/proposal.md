@@ -1,8 +1,8 @@
 # Change: Migrate Charting from Qt Charts to Qt Graphs
 
-## Status: READY TO START — PENDING Qt 6.11.1 UPGRADE
+## Status: READY TO START — Qt 6.11.1 LANDED
 
-**Gates are clear.** QTBUG-142046 is closed and fixed in Qt 6.11.0 (released 2026-03-23) via new `visualMin`/`visualMax` read-only properties on `QValueAxis` and `QDateTimeAxis`. Decenza plans to upgrade to Qt 6.11.1 when it releases. Stage 0 can begin as soon as the upgrade lands.
+**Gates 1 + 4 are satisfied.** QTBUG-142046 is closed and fixed in Qt 6.11.0 (released 2026-03-23) via new `visualMin`/`visualMax` read-only properties on `QValueAxis` and `QDateTimeAxis`. Decenza upgraded to Qt 6.11.1 (released 2026-05-12) via the `upgrade-qt-6-11-1` change. Stage 0 can begin once the remaining gates (#2 feature-parity check, #3 bulk-update API confirmation) have been re-audited against the released 6.11.1 and the 0.2 spike runs.
 
 **Note on crosshair logic**: the fix is a new API (`visualMin`/`visualMax`) rather than a change to `min`/`max` behavior. `ShotGraph.qml`'s crosshair pixel↔data mapping must be updated to use `visualMin`/`visualMax` instead of `min`/`max`.
 
@@ -22,7 +22,7 @@ Stage 0 SHALL NOT begin until **all** of the following are true. Each condition 
 
 3. **`QXYSeries::replace(QList<QPointF>)` or equivalent bulk-update API** is officially supported in Qt Graphs and documented. Decenza's C++ data models (`ShotDataModel`, `SteamDataModel`, `ShotComparisonModel`) rely on this for efficient series population at ~5 Hz during live extraction; per-point `append()` is not performant enough.
 
-4. **Qt 6.11.1 is released and Decenza upgrades to it** (planned). Decenza will upgrade to Qt 6.11.1 when it releases; Stage 0 begins after the upgrade lands.
+4. ✅ **Qt 6.11.1 is released and Decenza upgrades to it** — **SATISFIED**. Qt 6.11.1 released 2026-05-12; Decenza upgraded via the `upgrade-qt-6-11-1` change (archived 2026-05-13).
 
 ### Re-evaluation cadence (until all gates pass)
 
@@ -39,18 +39,6 @@ This proposal's Stage 0 includes a technical spike (`tasks.md` §0.2) that valid
 **Staged migration** across five phases. Each phase is independently shippable; the app remains fully functional at every stage boundary, with no flag-day cutover.
 
 - **Stage 0 — Foundation**: Add `Qt6::Graphs` to the build alongside `Qt6::Charts` (both import paths coexist). Build reusable QML components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close the remaining feature gaps between Charts and Graphs.
-- **Stage 1 — Pilot**: Migrate `FlowCalibrationPage.qml` (smallest graph, ~40% chart code) as a proof of concept to validate the pattern end-to-end.
-- **Stage 2 — Steam graph**: Migrate `SteamGraph.qml` + `SteamDataModel` C++ backing (simpler than espresso graphs — fewer axes, no goal curves).
-- **Stage 3 — Espresso graphs**: Migrate the four espresso graph families (`ShotGraph`, `HistoryShotGraph`, `ComparisonGraph`, `ProfileGraph`) and their C++ backing (`ShotDataModel`, `ShotComparisonModel`).
-- **Stage 4 — Cleanup**: Remove `Qt6::Charts` from `CMakeLists.txt`, delete migration shim components, uninstall Qt Charts from dev machines, close the migration.
-
-**Intentionally out of scope**: visual redesign of any graph (migration is mechanical fidelity only), migration of `FastLineRenderer` (already bypasses Qt Charts — survives intact), migration of Canvas-based phase markers in `ComparisonGraph` (independent of Charts).
-
-## What Changes
-
-**Staged migration** across five phases. Each phase is independently shippable; the app remains fully functional at every stage boundary, with no flag-day cutover.
-
-- **Stage 0 — Foundation**: Add `Qt6::Graphs` to the build alongside `Qt6::Charts` (both import paths coexist). Build reusable QML components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close the feature gaps between Charts and Graphs.
 - **Stage 1 — Pilot**: Migrate `FlowCalibrationPage.qml` (smallest graph, ~40% chart code) as a proof of concept to validate the pattern end-to-end.
 - **Stage 2 — Steam graph**: Migrate `SteamGraph.qml` + `SteamDataModel` C++ backing (simpler than espresso graphs — fewer axes, no goal curves).
 - **Stage 3 — Espresso graphs**: Migrate the four espresso graph families (`ShotGraph`, `HistoryShotGraph`, `ComparisonGraph`, `ProfileGraph`) and their C++ backing (`ShotDataModel`, `ShotComparisonModel`).

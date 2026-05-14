@@ -20,7 +20,7 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [ ] If any gate condition flips from open → closed, update this file, then notify whoever owns the migration decision
 
 ### P.3 Earliest checkpoint: Qt 6.11.1 release
-- [ ] When Qt 6.11.1 ships, do a full gate-condition audit. If all four gates pass, write up findings and request approval to begin Stage 0. If gates remain open, document which ones and revise the "earliest re-evaluation" date in `proposal.md`
+- [ ] **Now actionable** — Qt 6.11.1 shipped 2026-05-12 and Decenza upgraded via the `upgrade-qt-6-11-1` change (archived 2026-05-13). Do the full gate-condition audit (re-check gates #2 feature-parity and #3 bulk-update API against the released 6.11.1 docs + the Qt Graphs 2D migration guide). If all four gates pass, write up findings and request approval to begin Stage 0. If gates remain open, document which ones and revise the "earliest re-evaluation" date in `proposal.md`.
 
 ## Stage 0 — Foundation
 
@@ -31,7 +31,7 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [ ] Add `Graphs` to the `find_package(Qt6 REQUIRED COMPONENTS ...)` list in `CMakeLists.txt`
 - [ ] Add `Qt6::Graphs` to `target_link_libraries(Decenza PRIVATE ...)`
 - [ ] Verify clean build on Windows, macOS, iOS, Android with both `Charts` and `Graphs` linked
-- [ ] Update `openspec/project.md` Tech Stack section to list `Graphs` alongside `Charts`
+- [ ] Update `openspec/config.yaml` Tech Stack section to list `Graphs` alongside `Charts`
 
 ### 0.2 Spike — verify gate conditions on real Decenza code
 - [ ] **Re-verify QTBUG-142046 is fixed**: write a 10-line QML reproducer that programmatically changes an axis range and reads it back. If the readback lies, halt Stage 0 and reopen Pre-Stage 0 monitoring.
@@ -145,7 +145,7 @@ Stage 3 is the largest. Split into sub-stages 3a–3d to keep PRs reviewable (on
 - [ ] Update `CLAUDE.md` graph/QML conventions section to mention the bridge components as canonical
 
 ### 4.3 Documentation and cleanup
-- [ ] Update `openspec/project.md` Tech Stack: remove `Charts`
+- [ ] Update `openspec/config.yaml` Tech Stack: remove `Charts`
 - [ ] Update `CLAUDE.md` if it mentions Qt Charts anywhere
 - [ ] Uninstall Qt Charts from dev machines' Qt installations
 - [ ] Uninstall Qt Data Visualization (unrelated to this migration but should be cleaned up at the same time — Decenza does not use it)
