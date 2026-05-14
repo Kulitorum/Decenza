@@ -21,27 +21,23 @@ GraphsTheme {
     colorScheme: GraphsTheme.ColorScheme.Dark
 
     // Outer GraphsView background — let the page background show through.
-    backgroundVisible: false
     backgroundColor: "transparent"
 
-    // Plot area background — matches the slightly-darker card style of Charts.
-    plotAreaBackgroundVisible: true
-    plotAreaBackgroundColor: Qt.darker(Theme.surfaceColor, 1.3)
+    // Plot area background — visibly darker than the page so the chart reads
+    // as a contained card the way Qt Charts' plotAreaColor did.
+    plotAreaBackgroundColor: Qt.darker(Theme.surfaceColor, 1.6)
 
-    // Grid lines — subtle, low-contrast over the plot area.
-    gridVisible: true
-    grid.mainColor: Qt.rgba(1, 1, 1, 0.1)
-    grid.subColor: Qt.rgba(1, 1, 1, 0.04)
+    // Grid lines — visible but low-contrast over the plot area.
+    grid.mainColor: Qt.rgba(1, 1, 1, 0.18)
+    grid.subColor: Qt.rgba(1, 1, 1, 0.08)
     grid.mainWidth: 1
     grid.subWidth: 1
 
-    // Axis lines.
-    axisX.mainColor: Qt.rgba(1, 1, 1, 0.2)
-    axisX.subColor: Qt.rgba(1, 1, 1, 0.1)
-    axisY.mainColor: Qt.rgba(1, 1, 1, 0.2)
-    axisY.subColor: Qt.rgba(1, 1, 1, 0.1)
+    // Axis spines — a touch brighter than grid lines.
+    axisX.mainColor: Qt.rgba(1, 1, 1, 0.28)
+    axisY.mainColor: Qt.rgba(1, 1, 1, 0.28)
 
-    // Labels and titles — secondary text colour from the app theme.
+    // Labels and titles.
     labelTextColor: Theme.textSecondaryColor
     axisXLabelFont: Theme.captionFont
     axisYLabelFont: Theme.captionFont
