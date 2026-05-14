@@ -174,3 +174,14 @@ At each stage PR before merge:
 - [ ] Live FPS meets or beats Stage 0 baseline (documented in PR)
 - [ ] No new Qt log warnings/errors introduced
 - [ ] Side-by-side screenshots attached for any graph touched in that stage
+
+## Items deferred to Qt 6.12 (see `charts-qt-6-12-polish`)
+
+The following visual / API gaps were found during Stage 1 (`FlowCalibrationPage`) and cannot be closed cleanly on Qt 6.11. They are captured in [`openspec/changes/charts-qt-6-12-polish/proposal.md`](../charts-qt-6-12-polish/proposal.md) and will land after Decenza upgrades to Qt 6.12 GA:
+
+1. X / Y axis tick-mark length — Qt 6.11 `GraphsLine` has no `tickLength`; current Stage 0 levers (`subWidth: 0`, `mainWidth: 1`) shorten but do not eliminate the protrusions.
+2. Leftmost X tick label alignment — the "0" label sits inboard of the Y axis spine; Qt 6.11 has no label-anchor property.
+3. `useCanvasPainter: true` flip on every migrated `GraphsView` (already tracked in Pre-Stage 0 §11; rolled up into the follow-up change for accountability).
+4. Declarative `XYSeries.data` adoption for static/computed series.
+5. `ValueAxis.labelPostFormat` adoption.
+6. Verification of Qt 6.12's multi-axis margin fix.
