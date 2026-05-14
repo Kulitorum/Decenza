@@ -80,7 +80,7 @@ Item {
                     Rectangle {
                         width: Theme.scaled(10)
                         height: Theme.scaled(10)
-                        radius: Theme.scaled(5)
+                        radius: Theme.scaled(1)
                         color: entryDelegate.entryColor
                         anchors.verticalCenter: parent.verticalCenter
                     }
