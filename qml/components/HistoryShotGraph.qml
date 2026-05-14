@@ -696,5 +696,11 @@ Item {
             y: rightAxisLabels.height / 2 - height / 2
             Accessible.ignored: true
         }
+
+        MouseArea {
+            id: axisToggleArea
+            anchors.fill: parent
+            onClicked: chart.toggleRightAxis()
+        }
     }
 }

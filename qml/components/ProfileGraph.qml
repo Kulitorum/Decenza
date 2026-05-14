@@ -115,6 +115,9 @@ Item {
         id: graphsView
         anchors.fill: parent
         anchors.bottomMargin: Theme.scaled(32)  // room for the custom legend below
+        // Reserve room on the right for the manual temperature labels; Qt Graphs
+        // has no axisYRight in this setup so we render them ourselves below.
+        anchors.rightMargin: Theme.scaled(28)
         theme: DecenzaGraphsTheme {}
 
         axisX: timeAxis
@@ -172,6 +175,31 @@ Item {
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.graphLineWidth * 2
         dashed: false
+    }
+
+    // Manual right-axis temperature labels — replaces what Qt Charts' axisYRight
+    // used to render automatically. Five evenly-spaced labels mirror the original
+    // tickCount: 5 on a 80-100 °C range.
+    Item {
+        id: rightAxisLabels
+        x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(2)
+        y: graphsView.plotArea.y
+        width: chart.width - x
+        height: graphsView.plotArea.height
+
+        Repeater {
+            model: 5
+            Text {
+                required property int index
+                property real value: tempAxis.max - index * (tempAxis.max - tempAxis.min) / 4
+                text: value.toFixed(0)
+                x: 0
+                y: index / 4 * rightAxisLabels.height - height / 2
+                font.pixelSize: Theme.scaled(12)
+                color: Theme.temperatureColor
+                Accessible.ignored: true
+            }
+        }
     }
 
     // Frame region overlays
