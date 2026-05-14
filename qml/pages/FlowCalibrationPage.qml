@@ -41,7 +41,7 @@ Page {
                 // Round up to a whole second so the rightmost tick (placed by
                 // tickInterval: 1) coincides with the right edge of the plot
                 // — no dead space past the last tick.
-                max: Math.max(5, Math.ceil(FlowCalibrationModel.maxTime + 1))
+                max: Math.max(5, Math.ceil((FlowCalibrationModel?.maxTime ?? 0) + 1))
                 tickInterval: 1
                 subTickCount: 0
                 labelFormat: "%.0f"
@@ -89,20 +89,22 @@ Page {
 
         BusyIndicator {
             Layout.alignment: Qt.AlignHCenter
-            running: FlowCalibrationModel.loading
-            visible: FlowCalibrationModel.loading
+            running: FlowCalibrationModel?.loading ?? false
+            visible: FlowCalibrationModel?.loading ?? false
             Accessible.ignored: true
         }
 
         // Error message (shown when no data)
         Text {
             Layout.fillWidth: true
-            text: FlowCalibrationModel.errorMessage
+            text: FlowCalibrationModel?.errorMessage ?? ""
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(14)
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            visible: !FlowCalibrationModel.hasData && FlowCalibrationModel.errorMessage.length > 0 && !FlowCalibrationModel.loading
+            visible: !(FlowCalibrationModel?.hasData ?? true)
+                     && (FlowCalibrationModel?.errorMessage?.length ?? 0) > 0
+                     && !(FlowCalibrationModel?.loading ?? false)
         }
 
         // Shot navigation row
@@ -113,16 +115,16 @@ Page {
             AccessibleButton {
                 accessibleName: TranslationManager.translate("flowCalibration.previousShot", "Previous shot")
                 text: "◀"
-                enabled: FlowCalibrationModel.hasPreviousShot && !FlowCalibrationModel.loading
+                enabled: (FlowCalibrationModel?.hasPreviousShot ?? false) && !(FlowCalibrationModel?.loading ?? false)
                 onClicked: FlowCalibrationModel.previousShot()
             }
 
             Text {
                 Layout.fillWidth: true
-                text: FlowCalibrationModel.hasData
+                text: (FlowCalibrationModel?.hasData ?? false)
                       ? TranslationManager.translate("flowCalibration.shotCounter", "Shot") + " "
-                        + (FlowCalibrationModel.currentShotIndex + 1) + "/" + FlowCalibrationModel.shotCount
-                        + "    " + FlowCalibrationModel.shotInfo
+                        + ((FlowCalibrationModel?.currentShotIndex ?? 0) + 1) + "/" + (FlowCalibrationModel?.shotCount ?? 0)
+                        + "    " + (FlowCalibrationModel?.shotInfo ?? "")
                       : TranslationManager.translate("flowCalibration.noData", "No shots available")
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(13)
@@ -133,7 +135,7 @@ Page {
             AccessibleButton {
                 accessibleName: TranslationManager.translate("flowCalibration.nextShot", "Next shot")
                 text: "▶"
-                enabled: FlowCalibrationModel.hasNextShot && !FlowCalibrationModel.loading
+                enabled: (FlowCalibrationModel?.hasNextShot ?? false) && !(FlowCalibrationModel?.loading ?? false)
                 onClicked: FlowCalibrationModel.nextShot()
             }
         }
@@ -163,7 +165,7 @@ Page {
                     }
 
                     Text {
-                        text: FlowCalibrationModel.multiplier.toFixed(2)
+                        text: (FlowCalibrationModel?.multiplier ?? 1.0).toFixed(2)
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(18)
                         font.bold: true
@@ -174,14 +176,14 @@ Page {
                     AccessibleButton {
                         text: "-0.01"
                         accessibleName: TranslationManager.translate("flowCalibration.decrease", "Decrease multiplier")
-                        enabled: FlowCalibrationModel.hasData && FlowCalibrationModel.multiplier > 0.36
+                        enabled: (FlowCalibrationModel?.hasData ?? false) && (FlowCalibrationModel?.multiplier ?? 0) > 0.36
                         onClicked: FlowCalibrationModel.multiplier = Math.max(0.35, FlowCalibrationModel.multiplier - 0.01)
                     }
 
                     AccessibleButton {
                         text: "+0.01"
                         accessibleName: TranslationManager.translate("flowCalibration.increase", "Increase multiplier")
-                        enabled: FlowCalibrationModel.hasData && FlowCalibrationModel.multiplier < 2.99
+                        enabled: (FlowCalibrationModel?.hasData ?? false) && (FlowCalibrationModel?.multiplier ?? 0) < 2.99
                         onClicked: FlowCalibrationModel.multiplier = Math.min(3.0, FlowCalibrationModel.multiplier + 0.01)
                     }
                 }
@@ -193,8 +195,8 @@ Page {
                     from: 0.35
                     to: 3.0
                     stepSize: 0.01
-                    value: FlowCalibrationModel.multiplier
-                    enabled: FlowCalibrationModel.hasData
+                    value: FlowCalibrationModel?.multiplier ?? 1.0
+                    enabled: FlowCalibrationModel?.hasData ?? false
                     onMoved: FlowCalibrationModel.multiplier = value
 
                     Accessible.role: Accessible.Slider
@@ -223,7 +225,7 @@ Page {
             AccessibleButton {
                 text: TranslationManager.translate("flowCalibration.reset", "Reset to 1.0")
                 accessibleName: TranslationManager.translate("flowCalibration.resetAccessible", "Reset multiplier to factory default")
-                enabled: FlowCalibrationModel.hasData
+                enabled: FlowCalibrationModel?.hasData ?? false
                 onClicked: FlowCalibrationModel.resetToFactory()
             }
 
@@ -233,7 +235,7 @@ Page {
                 text: TranslationManager.translate("flowCalibration.save", "Save")
                 accessibleName: TranslationManager.translate("flowCalibration.saveAccessible", "Save flow calibration to machine")
                 primary: true
-                enabled: FlowCalibrationModel.hasData
+                enabled: FlowCalibrationModel?.hasData ?? false
                 onClicked: {
                     FlowCalibrationModel.save()
                     pageStack.pop()
