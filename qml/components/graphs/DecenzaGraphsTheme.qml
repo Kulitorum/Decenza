@@ -33,9 +33,10 @@ GraphsTheme {
     grid.mainWidth: 1
     grid.subWidth: 1
 
-    // Axis spines — clearly visible solid lines along the left and bottom.
-    axisX.mainColor: Qt.rgba(1, 1, 1, 0.55)
-    axisY.mainColor: Qt.rgba(1, 1, 1, 0.55)
+    // Axis spines — clearly visible solid lines along the left and bottom,
+    // and noticeably more prominent than the grid (grid alpha ≈ 0.35).
+    axisX.mainColor: Qt.rgba(1, 1, 1, 0.85)
+    axisY.mainColor: Qt.rgba(1, 1, 1, 0.85)
 
     // Labels and titles.
     labelTextColor: Theme.textSecondaryColor

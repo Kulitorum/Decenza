@@ -38,7 +38,10 @@ Page {
             ValueAxis {
                 id: timeAxis
                 min: 0
-                max: Math.max(5, FlowCalibrationModel.maxTime + 2)
+                // Round up to a whole second so the rightmost tick (placed by
+                // tickInterval: 1) coincides with the right edge of the plot
+                // — no dead space past the last tick.
+                max: Math.max(5, Math.ceil(FlowCalibrationModel.maxTime + 1))
                 tickInterval: 1
                 subTickCount: 0
                 labelFormat: "%.0f"
