@@ -604,6 +604,79 @@ private slots:
                  true);
     }
 
+    // Issue #1128 — Extractamundo Dos!-style "dynamic bloom" frame
+    // configured pump=flow with flow=0 and exit_pressure_under. The frame
+    // is isFlowMode=true from the firmware's perspective, but its flow
+    // goal is a ramp-down command (firmware decays flow from preinfusion's
+    // high rate to ~0 to let the puck bleed pressure naturally), not a
+    // target the puck is supposed to track. Pre-PR-#1141, Arm 1 captured
+    // 5 samples inside that decay window and produced a confident +3.2
+    // ml/s "actual above goal" delta on a clean 90/100 shot. The
+    // stationarity gate (introduced in #1141) must reject every sample
+    // inside the rapidly-decaying goal window.
+    void flowVsGoal_dynamicBloomDecay_silencedByStationarityGate()
+    {
+        // 6 s flow-mode bloom phase + 6 s pressure-mode tail. The bloom
+        // frame's flow goal decays from 7.5 → 0.1 ml/s over the first
+        // 3 s (firmware ramp-down), then stays near zero. Actual flow
+        // mirrors a real bloom: starts high (~6 ml/s decaying with
+        // pressure), drops below goal in the tail.
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "DynamicBloom", 0, /*isFlowMode=*/true,
+                  /*tr=*/"pressure"),
+            phase(6.0, "Pour", 1, /*isFlowMode=*/false),
+            phase(12.0, "End", -1, /*isFlowMode=*/false),
+        };
+        // Goal ramps 7.5 → 0.1 over 0-3s, then flat 0.1 through the rest
+        // of the bloom — same shape as the firmware-emitted flow goal on
+        // a `flow=0` bloom command. Concat into one series.
+        QVector<QPointF> flowGoal;
+        flowGoal = concat(flowGoal, rampSeries(0.0, 3.0 - 0.1, 7.5, 0.1));
+        flowGoal = concat(flowGoal, flatSeries(3.0, 12.0, 0.1));
+        // Actual flow tracks a real bloom: decays from 7 → 0.5 ml/s over
+        // 0-3s alongside the goal (loosely), then stays low through the
+        // pressure-mode tail. Substantially above the goal in the early
+        // bloom — exactly the shape that fooled Arm 1 pre-fix.
+        QVector<QPointF> flow;
+        flow = concat(flow, rampSeries(0.0, 3.0 - 0.1, 7.0, 0.5));
+        flow = concat(flow, flatSeries(3.0, 12.0, 0.5));
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/12.0);
+        // Every bloom sample fails stationarity because the goal moves
+        // >15% across the ±0.75 s half-window; the pressure-mode tail is
+        // excluded by inFlowMode. Arm 1 ends with count=0, hasData=false.
+        QVERIFY2(!r.hasData,
+                 qPrintable(QString("expected Arm 1 silent, got hasData=true "
+                                     "sampleCount=%1 delta=%2")
+                                .arg(r.sampleCount).arg(r.delta)));
+        QCOMPARE(r.sampleCount, qsizetype(0));
+    }
+
+    // Counterpart to the dynamic-bloom test: a real flow-mode pour with a
+    // flat goal (e.g., Malabar 1.88 ml/s pin, lever flow preinfusion at a
+    // steady rate) must pass the stationarity gate cleanly. The gate's
+    // purpose is to reject rapidly-changing decays, not to drop legitimate
+    // flat targets. Pair with the bloom-decay test above to lock in both
+    // directions of the new gate's contract.
+    void flowVsGoal_flatGoal_passesStationarityGate()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(10.0, "End", -1, /*isFlowMode=*/false),
+        };
+        // Goal flat 1.88 ml/s, actual flat 1.0 ml/s — delta -0.88, a
+        // legitimate "too fine" reading that must NOT be silenced by the
+        // stationarity gate.
+        auto flow = flatSeries(0.0, 10.0, 1.0);
+        auto flowGoal = flatSeries(0.0, 10.0, 1.88);
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/10.0);
+        QVERIFY(r.hasData);
+        QVERIFY(r.delta < -ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
+    }
+
     // Filter beverage type also short-circuits.
     void flowVsGoal_filterBeverage_skips()
     {
