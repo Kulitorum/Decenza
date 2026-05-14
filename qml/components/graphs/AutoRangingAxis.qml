@@ -40,8 +40,10 @@ ValueAxis {
         var hi = Number.NEGATIVE_INFINITY
         var seen = false
 
-        for (var i = 0; i < series.length; ++i) {
-            var s = series[i]
+        var list = series
+        if (!list) return
+        for (var i = 0; i < list.length; ++i) {
+            var s = list[i]
             if (!s || !s.count) continue
             for (var j = 0; j < s.count; ++j) {
                 var p = s.at(j)
@@ -71,27 +73,37 @@ ValueAxis {
         root.max = newMax
     }
 
-    onSeriesChanged: _recompute()
-    Component.onCompleted: _recompute()
+    // Tracked series we've connected signal handlers on; managed by _rebind().
+    property var _bound: []
 
-    // Re-fit whenever any tracked series emits pointsReplaced/pointAdded.
-    Connections {
-        target: null
+    function _bindOne(s) {
+        if (!s) return
+        // ignoreUnknownSignals via try/catch — different series subclasses expose different signals.
+        try { s.pointAdded.connect(_recompute) } catch (e) {}
+        try { s.pointReplaced.connect(_recompute) } catch (e) {}
+        try { s.pointRemoved.connect(_recompute) } catch (e) {}
+        try { s.pointsReplaced.connect(_recompute) } catch (e) {}
     }
 
-    // Wire signal connections per-series with a Repeater-like Instantiator.
-    Instantiator {
-        model: root.series
-        delegate: QtObject {
-            required property var modelData
-            property var _conn: Connections {
-                target: modelData
-                ignoreUnknownSignals: true
-                function onPointAdded() { root._recompute() }
-                function onPointReplaced() { root._recompute() }
-                function onPointRemoved() { root._recompute() }
-                function onPointsReplaced() { root._recompute() }
-            }
+    function _unbindOne(s) {
+        if (!s) return
+        try { s.pointAdded.disconnect(_recompute) } catch (e) {}
+        try { s.pointReplaced.disconnect(_recompute) } catch (e) {}
+        try { s.pointRemoved.disconnect(_recompute) } catch (e) {}
+        try { s.pointsReplaced.disconnect(_recompute) } catch (e) {}
+    }
+
+    function _rebind() {
+        for (var i = 0; i < _bound.length; ++i) _unbindOne(_bound[i])
+        _bound = []
+        if (!series) return
+        for (var k = 0; k < series.length; ++k) {
+            _bindOne(series[k])
+            _bound.push(series[k])
         }
+        _recompute()
     }
+
+    onSeriesChanged: _rebind()
+    Component.onCompleted: _rebind()
 }

@@ -1,16 +1,15 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtCharts
+import QtGraphs
 import Decenza
 import "../components"
+import "../components/graphs"
 
 Page {
     id: calibrationPage
     objectName: "flowCalibrationPage"
     background: Rectangle { color: Theme.backgroundColor }
-
-    property double maxFlow: 6.0  // Dynamic Y-axis max, updated by loadData()
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("flowCalibration.title", "Flow Calibration")
@@ -25,45 +24,33 @@ Page {
         spacing: Theme.scaled(8)
 
         // Graph area
-        ChartView {
+        GraphsView {
             id: chart
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: Theme.scaled(200)
-            antialiasing: true
-            backgroundColor: "transparent"
-            plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
-            legend.visible: true
-            legend.labelColor: Theme.textSecondaryColor
-            legend.alignment: Qt.AlignBottom
 
-            margins.top: 0
-            margins.bottom: 0
-            margins.left: 0
-            margins.right: 0
+            axisX: timeAxis
+            axisY: valueAxis
 
             ValueAxis {
                 id: timeAxis
                 min: 0
                 max: Math.max(5, FlowCalibrationModel.maxTime + 2)
-                tickCount: 7
+                tickInterval: 1
                 labelFormat: "%.0f"
-                labelsColor: Theme.textSecondaryColor
-                gridLineColor: Qt.rgba(255, 255, 255, 0.1)
                 titleText: "s"
-                titleBrush: Theme.textSecondaryColor
             }
 
-            ValueAxis {
+            AutoRangingAxis {
                 id: valueAxis
-                min: 0
-                max: calibrationPage.maxFlow
-                tickCount: 5
+                series: [flowSeries, weightFlowSeries]
+                padding: 0.1
+                minFloor: 0
+                fallbackMax: 2.0
+                tickInterval: 0.5
                 labelFormat: "%.1f"
-                labelsColor: Theme.textSecondaryColor
-                gridLineColor: Qt.rgba(255, 255, 255, 0.1)
                 titleText: "mL/s  ·  g/s"
-                titleBrush: Theme.textSecondaryColor
             }
 
             LineSeries {
@@ -82,6 +69,18 @@ Page {
                 width: Theme.graphLineWidth
                 axisX: timeAxis
                 axisY: valueAxis
+            }
+        }
+
+        CustomLegend {
+            Layout.fillWidth: true
+            entries: [
+                { name: flowSeries.name,       color: Theme.flowColor,   visible: flowSeries.visible },
+                { name: weightFlowSeries.name, color: Theme.weightColor, visible: weightFlowSeries.visible }
+            ]
+            onEntryToggled: (index, nowVisible) => {
+                if (index === 0) flowSeries.visible = nowVisible
+                else             weightFlowSeries.visible = nowVisible
             }
         }
 
@@ -110,7 +109,7 @@ Page {
 
             AccessibleButton {
                 accessibleName: TranslationManager.translate("flowCalibration.previousShot", "Previous shot")
-                text: "\u25C0"
+                text: "◀"
                 enabled: FlowCalibrationModel.hasPreviousShot && !FlowCalibrationModel.loading
                 onClicked: FlowCalibrationModel.previousShot()
             }
@@ -130,7 +129,7 @@ Page {
 
             AccessibleButton {
                 accessibleName: TranslationManager.translate("flowCalibration.nextShot", "Next shot")
-                text: "\u25B6"
+                text: "▶"
                 enabled: FlowCalibrationModel.hasNextShot && !FlowCalibrationModel.loading
                 onClicked: FlowCalibrationModel.nextShot()
             }
@@ -252,21 +251,14 @@ Page {
         flowSeries.clear()
         weightFlowSeries.clear()
 
-        var peak = 0
-
         var fData = FlowCalibrationModel.flowData
         for (var i = 0; i < fData.length; i++) {
             flowSeries.append(fData[i].x, fData[i].y)
-            if (fData[i].y > peak) peak = fData[i].y
         }
 
         var wfData = FlowCalibrationModel.weightFlowData
         for (i = 0; i < wfData.length; i++) {
             weightFlowSeries.append(wfData[i].x, wfData[i].y)
-            if (wfData[i].y > peak) peak = wfData[i].y
         }
-
-        // Set Y-axis to peak rounded up to nearest 0.5, minimum 2.0
-        calibrationPage.maxFlow = Math.max(2.0, Math.ceil(peak * 2) / 2)
     }
 }

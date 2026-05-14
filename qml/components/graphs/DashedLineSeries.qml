@@ -65,37 +65,37 @@ Item {
         return [lo, hi]
     }
 
-    function _mapToPixels() {
+    // Read all dependent properties up-front so QML's dependency tracker
+    // re-runs this binding when any of them change.
+    readonly property var pixelPoints: {
+        var pts = points
+        var w = width
+        var h = height
+        var xRange = _axisRange(axisX,
+            axisX ? axisX.min : 0,
+            axisX ? axisX.max : 1)
+        var yRange = _axisRange(axisY,
+            axisY ? axisY.min : 0,
+            axisY ? axisY.max : 1)
+
+        if (!pts || pts.length === 0 || w <= 0 || h <= 0) return []
+        var xSpan = xRange[1] - xRange[0]
+        var ySpan = yRange[1] - yRange[0]
+        if (xSpan === 0 || ySpan === 0) return []
+
         var result = []
-        if (!points || points.length === 0) return result
-        var xr = _axisRange(axisX, 0, 1)
-        var yr = _axisRange(axisY, 0, 1)
-        var xSpan = xr[1] - xr[0]
-        var ySpan = yr[1] - yr[0]
-        if (xSpan === 0 || ySpan === 0) return result
-        for (var i = 0; i < points.length; ++i) {
-            var p = points[i]
-            var px = ((p.x - xr[0]) / xSpan) * width
-            var py = height - ((p.y - yr[0]) / ySpan) * height  // flip Y
+        for (var i = 0; i < pts.length; ++i) {
+            var p = pts[i]
+            var px = ((p.x - xRange[0]) / xSpan) * w
+            var py = h - ((p.y - yRange[0]) / ySpan) * h  // flip Y
             result.push(Qt.point(px, py))
         }
         return result
     }
 
     Shape {
-        id: shape
         anchors.fill: parent
         antialiasing: true
-
-        property var pixelPoints: root._mapToPixels()
-
-        // Recompute when inputs change.
-        property var _trigger: [root.points, root.width, root.height,
-                                 root.axisX ? root.axisX.min : null,
-                                 root.axisX ? root.axisX.max : null,
-                                 root.axisY ? root.axisY.min : null,
-                                 root.axisY ? root.axisY.max : null]
-        on_TriggerChanged: pixelPoints = root._mapToPixels()
 
         ShapePath {
             strokeColor: root.strokeColor
@@ -106,11 +106,11 @@ Item {
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
 
-            startX: shape.pixelPoints.length > 0 ? shape.pixelPoints[0].x : 0
-            startY: shape.pixelPoints.length > 0 ? shape.pixelPoints[0].y : 0
+            startX: root.pixelPoints.length > 0 ? root.pixelPoints[0].x : 0
+            startY: root.pixelPoints.length > 0 ? root.pixelPoints[0].y : 0
 
             PathPolyline {
-                path: shape.pixelPoints.length > 0 ? shape.pixelPoints : [Qt.point(0, 0)]
+                path: root.pixelPoints.length > 0 ? root.pixelPoints : [Qt.point(0, 0)]
             }
         }
     }
