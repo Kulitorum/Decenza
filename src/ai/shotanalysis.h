@@ -200,6 +200,34 @@ public:
     static constexpr double GRIND_PUMP_RAMP_SKIP_SEC = 0.5;
     static constexpr double GRIND_LIMITER_TAIL_SKIP_SEC = 1.5;
 
+    // Flow-goal stationarity gate for Arm 1. Profiles like Extractamundo Dos!
+    // use a "dynamic bloom" frame configured as `pump=flow, flow=0`, where the
+    // firmware ramps the flow command down to zero so the puck bleeds off
+    // preinfusion pressure naturally. The frame is technically pump=flow, so
+    // isFlowMode=true and Arm 1's per-phase trim leaves a short transient
+    // window where actual flow (decaying from preinfusion) sits well above
+    // the rapidly-decaying flow goal — producing a confident "too coarse"
+    // verdict on a frame that has no flow target. Issue #1128.
+    //
+    // The gate reuses the channeling detector's stationarity threshold
+    // values (WINDOW_HALF_SEC=0.75, WINDOW_STATIONARY_REL=0.15) but is
+    // structurally a strict subset — it only enforces "flow_goal is
+    // approximately constant across the ±half-window around the sample",
+    // omitting the channeling detector's separate convergence check
+    // (|actual − goal| / goal ≤ WINDOW_CONVERGED_REL) and using
+    // max(goal, FLOW_GOAL_MIN_AVG) as the denominator instead of `goal`
+    // directly. The lookups also intentionally diverge: the channeling
+    // detector uses lookupOrNaN and drops out-of-bounds samples, while
+    // this gate uses findValueAtTime (clamping to first/last sample)
+    // because legitimate short puck-failure gushers have flat-goal
+    // signals where the half-window extends past the series start —
+    // see the trim-bypass test in tst_shotanalysis. A flat target
+    // (Malabar 1.88 ml/s pin, lever flow preinfusion) passes; a fast
+    // monotonic decay (bloom command going 7.25 → 0 over a few seconds)
+    // fails at every interior point.
+    static constexpr double FLOW_GOAL_STATIONARY_HALF_SEC = 0.75;
+    static constexpr double FLOW_GOAL_STATIONARY_REL = 0.15;
+
     // Result of the grind direction check.
     struct GrindCheck {
         // (avg actual flow) - (avg goal flow) on the flow-vs-goal path. Positive

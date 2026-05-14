@@ -183,9 +183,39 @@ For each flow-mode phase, builds an inclusive time range:
 
 Within those ranges, average actual flow vs. flow goal across all samples
 where `goal ≥ FLOW_GOAL_MIN_AVG` (0.3 mL/s — gates out preinfusion sentinel
-goals). Requires ≥ 5 qualifying samples to yield a result. The check fires
-when `|delta| > FLOW_DEVIATION_THRESHOLD` (0.4 mL/s); positive delta = coarse,
+goals) AND `flow_goal` is approximately stationary across the sample (the
+**stationarity gate**: reject when `|goal(t ± FLOW_GOAL_STATIONARY_HALF_SEC)
+− goal(t)| / max(goal(t), FLOW_GOAL_MIN_AVG) > FLOW_GOAL_STATIONARY_REL`,
+with the half-window at 0.75 s and the threshold at 15 %). The stationarity
+gate uses the same numeric thresholds as `WINDOW_STATIONARY_REL` /
+`WINDOW_HALF_SEC` in the channeling detector but **omits** the convergence
+check (the channeling-detector's `|actual − goal| / goal ≤
+WINDOW_CONVERGED_REL` gate has no analog in Arm 1) — both detectors share
+the principle "flow_goal must be roughly flat to be meaningful", but the
+channeling detector additionally requires that the actual curve has
+converged on the goal.
+
+The goal lookups intentionally use `findValueAtTime` (clamps out-of-bounds
+to first/last sample) rather than `lookupOrNaN` (returns NaN out-of-bounds).
+Extreme short puck-failure shots — flow-mode phases under ~1.5 s — have
+legitimate flat-goal signals (puck gushed against a steady flow goal)
+where the stationarity half-window extends past the series start. NaN-on-
+out-of-bounds would silence those genuine gushers; clamping to the real
+first/last value preserves them because the comparison is still against
+the actual stationary value, not a synthetic sentinel.
+
+Requires ≥ 5 qualifying samples to yield a result. The check fires when
+`|delta| > FLOW_DEVIATION_THRESHOLD` (0.4 mL/s); positive delta = coarse,
 negative = fine.
+
+The stationarity gate was added in the issue #1128 fix (see §7) to silence
+a false positive on "dynamic bloom" frames configured `pump=flow, flow=0,
+exit_pressure_under` — frames where the firmware ramps the flow command
+down toward zero so the puck bleeds off preinfusion pressure naturally.
+The frame is `isFlowMode = true` from the firmware's perspective, but its
+flow goal is a ramp-down command rather than a target the puck should
+track. Flat targets (Malabar 1.88 mL/s pin, lever flow preinfusion) pass
+the gate cleanly; rapid monotonic decays fail at every interior sample.
 
 **Arm 2: choked-puck check** (pressure-mode only).
 
@@ -781,6 +811,24 @@ To add a fixture:
   `hasIntentionalTempStepping`, `avgTempDeviation`, and
   `reachedExtractionPhase` were removed. `shotBadgesUpdated` shrank
   from 6 to 5 args.
+- PR #1141 / Issue #1128 (grind half — same issue number, second
+  half of the report) — added the flow-goal stationarity gate to
+  Arm 1 of the grind detector (`FLOW_GOAL_STATIONARY_HALF_SEC = 0.75`,
+  `FLOW_GOAL_STATIONARY_REL = 0.15`, see §2.2). Fixes a false-positive
+  "Grind too coarse" badge on Extractamundo Dos!-style profiles whose
+  "dynamic bloom" frame is `pump=flow, flow=0, exit_pressure_under`:
+  the firmware ramps flow down to zero so the puck bleeds preinfusion
+  pressure naturally; the rapidly-decaying flow goal isn't a target
+  the puck should track, but Arm 1 used to average against it and
+  produce a confident `+3.2 mL/s` over-goal delta on shots the
+  reporter rated 90/100 and 94/100. The new gate rejects samples
+  whose flow_goal moves more than 15 % across ±0.75 s — naturally
+  excluding bloom-decay frames without changing flat-target behavior.
+  Added two regression fixtures: real shot 464 from the field
+  (`extractamundo_dos_dynamic_bloom_clean.json`) and a synthetic
+  puck-failure gusher that exercises the `pourTruncated` +
+  `yieldOvershoot` cascade interaction at the detector level
+  (`synthetic_puck_failure_gusher.json`).
 
 External resources that informed the diagnostic patterns:
 
