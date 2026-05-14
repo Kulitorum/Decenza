@@ -13,7 +13,7 @@
 //       graphsView: chart           // optional; defaults to parent
 //       axisX: timeAxis
 //       axisY: valueAxis
-//       points: FlowCalibrationModel.goalCurve   // [Qt.point(x, y), ...]
+//       points: shotModel.goalPoints   // [Qt.point(x, y), ...] from your data model
 //       strokeColor: Theme.flowGoalColor
 //       strokeWidth: Theme.graphLineWidth
 //       dashPattern: [4, 4]

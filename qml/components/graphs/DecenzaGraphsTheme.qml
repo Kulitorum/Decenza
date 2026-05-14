@@ -18,7 +18,10 @@ import QtGraphs
 import Decenza
 
 GraphsTheme {
-    colorScheme: GraphsTheme.ColorScheme.Dark
+    // Track the app's light/dark setting so Qt Graphs picks the right fallback
+    // colors for any property not explicitly overridden below.
+    colorScheme: Settings.theme.isDarkMode ? GraphsTheme.ColorScheme.Dark
+                                           : GraphsTheme.ColorScheme.Light
 
     // Outer GraphsView background — let the page background show through.
     backgroundColor: "transparent"

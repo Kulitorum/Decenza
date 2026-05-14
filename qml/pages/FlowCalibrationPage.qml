@@ -78,12 +78,12 @@ Page {
         CustomLegend {
             Layout.fillWidth: true
             entries: [
-                { name: flowSeries.name,       color: Theme.flowColor,   visible: flowSeries.visible },
-                { name: weightFlowSeries.name, color: Theme.weightColor, visible: weightFlowSeries.visible }
+                { label: flowSeries.name,       color: Theme.flowColor,   active: flowSeries.visible },
+                { label: weightFlowSeries.name, color: Theme.weightColor, active: weightFlowSeries.visible }
             ]
-            onEntryToggled: (index, nowVisible) => {
-                if (index === 0) flowSeries.visible = nowVisible
-                else             weightFlowSeries.visible = nowVisible
+            onEntryToggled: (index, nowActive) => {
+                if (index === 0) flowSeries.visible = nowActive
+                else             weightFlowSeries.visible = nowActive
             }
         }
 

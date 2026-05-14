@@ -2,18 +2,21 @@
 //
 // Qt Graphs has no built-in legend (unlike Qt Charts' `ChartView.legend`).
 // This is a themed horizontal legend with tap-to-toggle visibility, styled
-// via `Theme.qml`. Pass either a model of `{ name, color, visible }` entries
-// or bind series directly via `entries`.
+// via `Theme.qml`. Pass a model of `{ label, color, active }` entries.
+//
+// `label` (not `name`) and `active` (not `visible`) are used because `name`
+// and `visible` collide with QML's built-in properties when carried in a JS
+// model-data object (see docs/CLAUDE_MD/QML_GOTCHAS.md).
 //
 // Usage with a static model:
 //   CustomLegend {
 //       entries: [
-//           { name: "Flow",   color: Theme.flowColor,   visible: flowSeries.visible },
-//           { name: "Weight", color: Theme.weightColor, visible: weightSeries.visible }
+//           { label: "Flow",   color: Theme.flowColor,   active: flowSeries.visible },
+//           { label: "Weight", color: Theme.weightColor, active: weightSeries.visible }
 //       ]
-//       onEntryToggled: (index, nowVisible) => {
-//           if (index === 0) flowSeries.visible = nowVisible
-//           else             weightSeries.visible = nowVisible
+//       onEntryToggled: (index, nowActive) => {
+//           if (index === 0) flowSeries.visible = nowActive
+//           else             weightSeries.visible = nowActive
 //       }
 //   }
 //
@@ -26,14 +29,14 @@ import Decenza
 Item {
     id: legendRoot
 
-    // Array of { name: string, color: color, visible: bool } objects.
+    // Array of { label: string, color: color, active: bool } objects.
     property var entries: []
 
     // Whether tapping an entry should toggle its visibility.
     property bool toggleEnabled: true
 
     // Emitted when the user taps an entry; consumer applies the new state to the series.
-    signal entryToggled(int index, bool nowVisible)
+    signal entryToggled(int index, bool nowActive)
 
     implicitHeight: legendFlow.implicitHeight
     Layout.fillWidth: true
@@ -51,25 +54,25 @@ Item {
                 required property int index
                 required property var modelData
 
-                readonly property string entryName: modelData && modelData.name !== undefined ? modelData.name : ""
+                readonly property string entryLabel: modelData && modelData.label !== undefined ? modelData.label : ""
                 readonly property color entryColor: modelData && modelData.color !== undefined ? modelData.color : Theme.textColor
-                readonly property bool entryVisible: modelData && modelData.visible !== undefined ? modelData.visible : true
+                readonly property bool entryActive: modelData && modelData.active !== undefined ? modelData.active : true
 
                 width: entryRow.implicitWidth + Theme.spacingMedium
                 height: Math.max(Theme.scaled(32), entryRow.implicitHeight + Theme.scaled(12))
                 radius: Theme.scaled(4)
                 color: "transparent"
-                opacity: entryVisible ? 1.0 : 0.4
+                opacity: entryActive ? 1.0 : 0.4
 
                 Accessible.role: Accessible.CheckBox
-                Accessible.name: entryName
-                Accessible.checked: entryVisible
+                Accessible.name: entryLabel
+                Accessible.checked: entryActive
                 Accessible.focusable: true
                 Accessible.onPressAction: _toggle()
 
                 function _toggle() {
                     if (!legendRoot.toggleEnabled) return
-                    legendRoot.entryToggled(entryDelegate.index, !entryDelegate.entryVisible)
+                    legendRoot.entryToggled(entryDelegate.index, !entryDelegate.entryActive)
                 }
 
                 Row {
@@ -86,7 +89,7 @@ Item {
                     }
 
                     Text {
-                        text: entryDelegate.entryName
+                        text: entryDelegate.entryLabel
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                         anchors.verticalCenter: parent.verticalCenter
