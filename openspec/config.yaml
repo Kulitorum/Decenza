@@ -3,7 +3,7 @@ context: |
   communicating over BLE. It manages extraction profiles, steaming, hot water, flushing, scale
   integration, shot history, and visualizer.coffee upload.
 
-  Tech stack: C++17, Qt 6.10.3 (QML/Quick Controls 2 UI), CMake, SQLite, Eclipse Paho MQTT C.
+  Tech stack: C++17, Qt 6.11.1 (QML/Quick Controls 2 UI), CMake, SQLite, Eclipse Paho MQTT C.
   Platforms: Windows, macOS, Linux, Android (API 28+), iOS (17.0+).
   CI/CD: GitHub Actions (tag-push triggers builds; iOS uploads to App Store).
 

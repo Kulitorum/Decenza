@@ -1,0 +1,197 @@
+#include "jscanvaspainteritem.h"
+
+#include <QtCanvasPainter/qcanvaspainter.h>
+#include <QtCanvasPainter/qcanvaspainteritemrenderer.h>
+#include <QtCanvasPainter/qcanvaslineargradient.h>
+#include <QtCanvasPainter/qcanvasradialgradient.h>
+
+#include <QDebug>
+#include <QElapsedTimer>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
+
+namespace {
+
+// Recording is on the main thread; if it exceeds half a 30 fps frame
+// budget we're at risk of dropping a frame. Warn on outliers so field
+// reports include the signal.
+constexpr qint64 kSlowRecordThresholdNs = 16'000'000;  // 16 ms
+
+const char *graphicsApiName(QSGRendererInterface::GraphicsApi api)
+{
+    switch (api) {
+    case QSGRendererInterface::Software:    return "Software";
+    case QSGRendererInterface::OpenGL:      return "OpenGL";
+    case QSGRendererInterface::Direct3D11:  return "D3D11";
+    case QSGRendererInterface::Direct3D12:  return "D3D12";
+    case QSGRendererInterface::Vulkan:      return "Vulkan";
+    case QSGRendererInterface::Metal:       return "Metal";
+    case QSGRendererInterface::Null:        return "Null";
+    default:                                return "Unknown";
+    }
+}
+
+QCanvasPainter::LineCap toLineCap(quint8 v)
+{
+    switch (v) {
+    case 1: return QCanvasPainter::LineCap::Round;
+    case 2: return QCanvasPainter::LineCap::Square;
+    default: return QCanvasPainter::LineCap::Butt;
+    }
+}
+
+void applyBrush(QCanvasPainter *p, const BrushSpec &s, bool fill)
+{
+    if (s.type == BrushSpec::Type::Linear) {
+        QCanvasLinearGradient g(s.x0, s.y0, s.x1, s.y1);
+        g.setStops(s.stops);
+        if (fill) p->setFillStyle(g);
+        else      p->setStrokeStyle(g);
+    } else {
+        // Canvas-2D's createRadialGradient takes two circles (inner focal
+        // point and outer extent) but QCanvasRadialGradient is single-center
+        // with concentric radii. When the centers differ we use the inner
+        // circle's center as the gradient origin: in Canvas 2D the inner
+        // circle is the focal point where the start color is brightest, so
+        // anchoring the gradient there preserves the "lit-from-this-side"
+        // asymmetry the QML caller designed (e.g. CupFillView's crema).
+        QCanvasRadialGradient g(s.x0, s.y0, s.r1, s.r0);
+        g.setStops(s.stops);
+        if (fill) p->setFillStyle(g);
+        else      p->setStrokeStyle(g);
+    }
+}
+
+class JsCanvasPainterItemRenderer : public QCanvasPainterItemRenderer
+{
+public:
+    // Qt 6.11.1 renamed the override hook from synchronize() to
+    // synchronizeData() (QTBUG-145406) — the old name is kept as a
+    // back-compat shim through 6.11.x but removed in 6.12. Use the new name
+    // so the override keeps running after the next minor bump.
+    void synchronizeData(QCanvasPainterItem *item) override
+    {
+        auto *self = static_cast<JsCanvasPainterItem*>(item);
+        // Main thread is blocked here — safe to swap buffers directly.
+        m_cmds.swap(self->ctx().cmds());
+        m_brushes.swap(self->ctx().brushes());
+    }
+
+    void paint(QCanvasPainter *p) override
+    {
+        // Defensive: QCanvasPainter holds its state across frames. CupFillView's
+        // QML handlers always record a ctx.reset() as their first command (which
+        // is replayed below as DrawCmd::Op::Reset), so this reset is currently
+        // redundant. Keep it as defense-in-depth in case a future handler omits
+        // ctx.reset() — without it residual state from the previous frame would
+        // leak in.
+        p->reset();
+
+        for (const DrawCmd &c : std::as_const(m_cmds)) {
+            switch (c.op) {
+            case DrawCmd::Op::BeginPath: p->beginPath(); break;
+            case DrawCmd::Op::ClosePath: p->closePath(); break;
+            case DrawCmd::Op::MoveTo:    p->moveTo(c.a, c.b); break;
+            case DrawCmd::Op::LineTo:    p->lineTo(c.a, c.b); break;
+            case DrawCmd::Op::Arc:
+                p->arc(c.a, c.b, c.c, c.d, c.e,
+                       c.anticlockwise ? QCanvasPainter::PathWinding::CounterClockWise
+                                       : QCanvasPainter::PathWinding::ClockWise);
+                break;
+            case DrawCmd::Op::Ellipse: {
+                // QML-Canvas-style bounding box -> QCanvasPainter centers/radii.
+                const float rx = c.c * 0.5f;
+                const float ry = c.d * 0.5f;
+                p->ellipse(c.a + rx, c.b + ry, rx, ry);
+                break;
+            }
+            case DrawCmd::Op::Fill:        p->fill(); break;
+            case DrawCmd::Op::Stroke:      p->stroke(); break;
+            case DrawCmd::Op::FillRect:    p->fillRect(c.a, c.b, c.c, c.d); break;
+            case DrawCmd::Op::ClearRect:   p->clearRect(c.a, c.b, c.c, c.d); break;
+            case DrawCmd::Op::StrokeRect:  p->strokeRect(c.a, c.b, c.c, c.d); break;
+            case DrawCmd::Op::Save:        p->save(); break;
+            case DrawCmd::Op::Restore:     p->restore(); break;
+            case DrawCmd::Op::Reset:       p->reset(); break;
+            case DrawCmd::Op::SetFillColor:
+                p->setFillStyle(QColor::fromRgba(c.rgba));
+                break;
+            case DrawCmd::Op::SetStrokeColor:
+                p->setStrokeStyle(QColor::fromRgba(c.rgba));
+                break;
+            case DrawCmd::Op::SetFillBrush:
+                if (c.brushId >= 0 && c.brushId < m_brushes.size())
+                    applyBrush(p, m_brushes[c.brushId], /*fill=*/true);
+                break;
+            case DrawCmd::Op::SetStrokeBrush:
+                if (c.brushId >= 0 && c.brushId < m_brushes.size())
+                    applyBrush(p, m_brushes[c.brushId], /*fill=*/false);
+                break;
+            case DrawCmd::Op::SetLineWidth:   p->setLineWidth(c.a); break;
+            case DrawCmd::Op::SetLineCap:     p->setLineCap(toLineCap(c.lineCap)); break;
+            case DrawCmd::Op::SetGlobalAlpha: p->setGlobalAlpha(c.a); break;
+            }
+        }
+    }
+
+private:
+    QVector<DrawCmd> m_cmds;
+    QVector<BrushSpec> m_brushes;
+};
+
+} // namespace
+
+JsCanvasPainterItem::JsCanvasPainterItem(QQuickItem *parent)
+    : QCanvasPainterItem(parent)
+    , m_ctx(this)
+{
+    // QCanvasPainterItem defaults to opaque black — match the Canvas
+    // semantics CupFillView relies on (transparent canvas, premultiplied
+    // composited over the parent layer).
+    setFillColor(Qt::transparent);
+    setAlphaBlending(true);
+}
+
+QCanvasPainterItemRenderer *JsCanvasPainterItem::createItemRenderer() const
+{
+    return new JsCanvasPainterItemRenderer();
+}
+
+void JsCanvasPainterItem::requestPaint()
+{
+    // Run the QML onPaint handler synchronously on the main thread so it
+    // records into m_ctx, then schedule a render-thread sync+paint. The
+    // resetForNextFrame() call below clears the prior recording, so multiple
+    // requestPaint() calls in the same frame each replace what came before;
+    // Qt's update() then coalesces the paint scheduling so only one
+    // synchronizeData()+paint() pair runs per vsync. The net effect: only the
+    // last recording before vsync survives, which matches CupFillView's intent
+    // (it always redraws from scratch on every animation tick).
+    QElapsedTimer t;
+    t.start();
+    m_ctx.resetForNextFrame();
+    Q_EMIT paint(&m_ctx);
+    const qint64 elapsedNs = t.nsecsElapsed();
+    update();
+
+    // First requestPaint() with the item attached to a window: log the RHI
+    // backend so field reports identify which graphics path the device picked
+    // (Vulkan/Metal/GL). Runs on the main thread; the actual GPU paint comes
+    // later via update() → render-thread paint().
+    if (!m_loggedInit && window() && window()->rendererInterface()) {
+        const auto api = window()->rendererInterface()->graphicsApi();
+        qInfo().nospace().noquote()
+            << "[CupFill] JsCanvasPainterItem ready (name=" << objectName()
+            << " RHI=" << graphicsApiName(api) << ")";
+        m_loggedInit = true;
+    }
+
+    // Outlier-only warning: a recording pass over half a 30 fps frame budget
+    // means we're at risk of dropping frames. Stays silent in normal operation.
+    if (elapsedNs > kSlowRecordThresholdNs) {
+        qWarning().nospace().noquote()
+            << "[CupFill] slow record (" << objectName() << "): "
+            << QString::number(elapsedNs / 1e6, 'f', 2) << " ms cmds="
+            << m_ctx.cmds().size();
+    }
+}

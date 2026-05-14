@@ -8,7 +8,7 @@ MSVC environment variables (INCLUDE, LIB) are set permanently. Use Visual Studio
 
 **Configure Release:**
 ```bash
-rm -rf build/Release && mkdir -p build/Release && cd build/Release && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64"
+rm -rf build/Release && mkdir -p build/Release && cd build/Release && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.11.1/msvc2022_64"
 ```
 
 **Build Release (parallel):**
@@ -18,7 +18,7 @@ cd build/Release && unset CMAKE_BUILD_PARALLEL_LEVEL && MSYS_NO_PATHCONV=1 cmake
 
 **Configure Debug:**
 ```bash
-rm -rf build/Debug && mkdir -p build/Debug && cd build/Debug && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug
+rm -rf build/Debug && mkdir -p build/Debug && cd build/Debug && cmake ../.. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:/Qt/6.11.1/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug
 ```
 
 **Build Debug (parallel):**
@@ -46,19 +46,19 @@ find ~/Qt/Tools -name "ninja"
 
 **Configure iOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_6_10_3_for_iOS && mkdir -p build/Qt_6_10_3_for_iOS && cd build/Qt_6_10_3_for_iOS && /Users/mic/Qt/6.10.3/ios/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_6_11_1_for_iOS && mkdir -p build/Qt_6_11_1_for_iOS && cd build/Qt_6_11_1_for_iOS && /Users/mic/Qt/6.11.1/ios/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Configure macOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_6_10_3_for_macOS && mkdir -p build/Qt_6_10_3_for_macOS && cd build/Qt_6_10_3_for_macOS && /Users/mic/Qt/6.10.3/macos/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_6_11_1_for_macOS && mkdir -p build/Qt_6_11_1_for_macOS && cd build/Qt_6_11_1_for_macOS && /Users/mic/Qt/6.11.1/macos/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Open in Xcode:**
 ```bash
-open build/Qt_6_10_3_for_iOS/Decenza.xcodeproj
+open build/Qt_6_11_1_for_iOS/Decenza.xcodeproj
 # or
-open build/Qt_6_10_3_for_macOS/Decenza.xcodeproj
+open build/Qt_6_11_1_for_macOS/Decenza.xcodeproj
 ```
 
 Then in Xcode: Product → Archive for App Store submission.
@@ -73,7 +73,7 @@ Copy `installer/TEMPLATE_setupvars.iss` to `installer/setupvars.iss` and adjust 
 #define SourceDir "C:\CODE\de1-qt"
 #define AppBuildDir "C:\CODE\de1-qt\build\Desktop_Qt_6_10_1_MSVC2022_64bit-Release"
 #define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
-#define QtDir "C:\Qt\6.10.3\msvc2022_64"
+#define QtDir "C:\Qt\6.11.1\msvc2022_64"
 #define VcRedistDir "C:\Qt\vcredist"
 #define VcRedistFile "vc14.50.35719_VC_redist.x64.exe"
 ; Optional - not in TEMPLATE; add manually if OpenSSL is installed separately

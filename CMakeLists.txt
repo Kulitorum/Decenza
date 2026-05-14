@@ -74,6 +74,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Sql
     Positioning
     WebSockets
+    CanvasPainter
 )
 
 # SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
@@ -131,7 +132,7 @@ if(ANDROID)
 endif()
 
 if(IOS)
-    # Qt 6.10.3 was built for iOS 17.0
+    # Qt 6.11.1 was built for iOS 17.0
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
@@ -282,6 +283,8 @@ set(SOURCES
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
+    src/ui/jscanvaspainteritem.cpp
+    src/ui/jscanvascontext.cpp
     src/network/visualizeruploader.cpp
     src/network/visualizerimporter.cpp
     src/ai/aimanager.cpp
@@ -453,6 +456,8 @@ set(HEADERS
     src/screensaver/iosbrightness.h
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
+    src/ui/jscanvaspainteritem.h
+    src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
     src/ai/aimanager.h
@@ -554,6 +559,7 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Sql
     Qt6::Positioning
     Qt6::WebSockets
+    Qt6::CanvasPainter
 )
 
 # Link SerialPort only on desktop (not available on Android/iOS)
@@ -584,6 +590,19 @@ endif()
 if(WIN32)
     set(app_icon_resource_windows "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/decenza.ico")
     set_property(TARGET Decenza PROPERTY QT_WIN_RC_ICONS "${app_icon_resource_windows}")
+endif()
+
+# Qt 6.11 added a new required target property QT_ANDROID_COMPILE_SDK_VERSION
+# (the SDK platform used at BUILD time, separate from target SDK at runtime).
+# Without it, Qt Creator fails the APK packaging step with "Android build SDK
+# version is not defined". Compile SDK >= target SDK conventionally; use
+# android-35 here (Android 15) — installed by default by setup-android in CI
+# and on most local dev machines. Target SDK is the runtime-targeted API
+# level the AndroidManifest declares, controlled by ANDROID_TARGET_SDK_VERSION.
+if(ANDROID)
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_MIN_SDK_VERSION ${ANDROID_MIN_SDK_VERSION})
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_TARGET_SDK_VERSION ${ANDROID_TARGET_SDK_VERSION})
+    set_property(TARGET Decenza PROPERTY QT_ANDROID_COMPILE_SDK_VERSION "android-35")
 endif()
 
 # Optionally link Quick3D and add 3D screensaver sources
