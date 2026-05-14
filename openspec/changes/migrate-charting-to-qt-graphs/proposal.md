@@ -1,12 +1,12 @@
 # Change: Migrate Charting from Qt Charts to Qt Graphs
 
-## Status: READY TO START — Qt 6.11.1 LANDED (consider waiting for Qt 6.12)
+## Status: STAGE 0 + STAGE 1 RECOMMENDED NOW (accelerated path)
 
 **Gates 1, 3, 4 are satisfied.** QTBUG-142046 is closed and fixed in Qt 6.11.0 (released 2026-03-23) via new `visualMin`/`visualMax` read-only properties on `QValueAxis` and `QDateTimeAxis`. `QXYSeries::replace(QList<QPointF>)` is `Q_INVOKABLE` from QML in 6.11.1 with docs explicitly noting it is "much faster than replacing data points one by one." Decenza upgraded to Qt 6.11.1 (released 2026-05-12) via the `upgrade-qt-6-11-1` change.
 
 **Gate 2 is open but the gaps are known and the Stage 0 bridge plan presumes they exist** — see "Re-evaluation against the released 6.11.1" below.
 
-**Strategic timing consideration: Qt 6.12 lands a `QCanvasPainter` rendering backend for Graphs** (feature-flagged, ships 2026-09-22). This is the same RHI path Decenza adopted for `CupFillView`. Starting Stage 0 on 6.11.1 is safe — switching the backend later is a one-line per-`GraphsView` change (`useCanvasPainter: true`) — but waiting for 6.12 GA means a single round of visual/perf validation against the long-term backend. See "Qt 6.12 Roadmap" section below.
+**Recommendation (revised 2026-05-13): start Stage 0 + Stage 1 on 6.11.1 now, do not wait for Qt 6.12 GA.** The primary motivation is **older-tablet CPU headroom**. Qt Charts is software-rasterized via the Graphics View Framework — every chart pixel is drawn by CPU. Qt Graphs on today's Quick Shapes backend (6.11.1) does CPU-side path triangulation then submits triangle meshes to the GPU via RHI for actual rasterization — meaningfully less CPU than Charts on its own. The 6.12 `QCanvasPainter` backend pushes more work to the GPU still, but enabling it on already-migrated graphs is a one-line `useCanvasPainter: true` flip per `GraphsView`, not a re-migration. The bridge components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) are renderer-agnostic and outlive the backend choice. Stage 1 (`FlowCalibrationPage`) is the smallest graph in the app and is the cheap experiment that decides whether to charge ahead to Stages 2–3 or pause for 6.12 — see "Timing recommendation" in the Qt 6.12 Roadmap section.
 
 **Note on crosshair logic**: the fix is a new API (`visualMin`/`visualMax`) rather than a change to `min`/`max` behavior. `ShotGraph.qml`'s crosshair pixel↔data mapping must be updated to use `visualMin`/`visualMax` instead of `min`/`max`.
 
@@ -87,13 +87,31 @@ The four Stage 0 bridge components remain Decenza's responsibility:
 
 These are not on the 6.12 dev log; do not plan around them landing in 6.12.
 
-### Timing recommendation
+### Timing recommendation (revised 2026-05-13)
 
-If we start Stage 0 on 6.11.1 today, we land on the Quick Shapes backend. Switching to the `QCanvasPainter` backend after 6.12 ships is a per-`GraphsView` one-liner (`useCanvasPainter: true`) — not a re-migration. The Stage 0 bridges (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) are renderer-agnostic and would survive a backend switch.
+**Start Stage 0 + Stage 1 now on 6.11.1.** The cup-fill GPU migration that landed in `upgrade-qt-6-11-1` removed roughly 11 % of one core on the Decent tablet, but graph repainting is the larger remaining CPU cost on extraction-time UI — Qt Charts is fully software-rasterized. Today's Qt Graphs Quick Shapes backend already does GPU rasterization (CPU triangulates paths to meshes, GPU rasterizes via RHI); the 6.12 `QCanvasPainter` backend reduces the CPU prep further. Net: even pre-6.12 there is a real, measurable CPU win for slower tablets, and the 6.12 backend flip is a one-line follow-up per `GraphsView`.
 
-If we wait for Qt 6.12 GA (2026-09-22), we run visual/perf validation once against the long-term backend. ~4 calendar months of delay.
+**Why Stage 1 is the cheap experiment, not Stage 0:**
 
-There is no functional blocker either way. The decision is calendar-time vs. validation-rounds-cost.
+Stage 0 ships infrastructure only (`Qt6::Graphs` linked, three bridge components, no user-visible change). Stage 1 migrates `FlowCalibrationPage` (the smallest graph in the app, ~272 lines) — that is the first place a real before/after CPU/FPS measurement is possible. The decision tree at the end of Stage 1:
+
+- **If Stage 1 measurement shows measurable CPU drop on the Decent tablet** → continue immediately to Stages 2–3.
+- **If Stage 1 is neutral or worse** → pause, wait for 6.12 GA (2026-09-22), flip `useCanvasPainter: true`, re-measure. Stage 0 + 1 work is not wasted — the bridges are reusable and the migration pattern is validated.
+
+**Estimated cost of Stage 0 + Stage 1: 4–6 focused days, worst case ~1.5 weeks** if `GraphsView.plotArea` has edge cases during axis animation. Breakdown:
+
+- `AutoRangingAxis.qml` — ~50 lines, logic-only, ½ day.
+- `CustomLegend.qml` — ~100 lines themed via `Theme.qml` (will visually match the rest of the app better than Qt Charts' Widget-styled built-in legend), ~1 day.
+- `DashedLineSeries.qml` — ~150 lines; `ShapePath` overlay with data→pixel mapping via `GraphsView.plotArea`. Trickiest piece; 1–2 days. `FlowCalibrationPage` doesn't zoom, so any `plotArea` edge cases discovered here are bounded.
+- Stage 0 build wiring + 0.2 spike — ½–1 day.
+- Stage 1 `FlowCalibrationPage` migration + measurement — ~1 day, mostly mechanical (`ChartView` → `GraphsView`, swap axis/legend types, replace dashed goal-curve with the new overlay).
+
+**Visual risk areas (small):**
+
+- Axis label text moves from `QPainter::drawText` to `QQuickText` scene-graph rendering — usually sharper, but subtly different. On the tablet this typically reads as a slight improvement.
+- 1px-wide series at very thin widths may antialias differently between CPU and GPU. Goal curves (2px+) are unaffected.
+
+The bigger items (Stages 2–3, the espresso graph family) only get scheduled after the Stage 1 measurement is in hand. So the worst case for accelerating is: 4–6 days produces a real measurement and three reusable bridge components, then a defensible pause.
 
 ## What Changes
 
