@@ -67,6 +67,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     QuickControls2
     Bluetooth
     Charts
+    Graphs
     Svg
     Multimedia
     TextToSpeech
@@ -552,6 +553,7 @@ target_link_libraries(Decenza PRIVATE
     Qt6::QuickControls2
     Qt6::Bluetooth
     Qt6::Charts
+    Qt6::Graphs
     Qt6::Svg
     Qt6::Multimedia
     Qt6::TextToSpeech
@@ -693,6 +695,9 @@ set(QML_FILES
     qml/pages/settings/LayoutEditorZone.qml
     qml/pages/settings/AddLanguagePage.qml
     qml/pages/settings/StringBrowserPage.qml
+    qml/components/graphs/AutoRangingAxis.qml
+    qml/components/graphs/CustomLegend.qml
+    qml/components/graphs/DashedLineSeries.qml
     qml/components/ActionButton.qml
 	qml/components/BrewDialog.qml
     qml/components/CircularGauge.qml

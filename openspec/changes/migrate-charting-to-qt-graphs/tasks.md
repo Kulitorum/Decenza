@@ -38,10 +38,10 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 
 ### 0.1 Build system
 - [ ] Install Qt Graphs component via Qt Maintenance Tool (dev machines only at this stage)
-- [ ] Add `Graphs` to the `find_package(Qt6 REQUIRED COMPONENTS ...)` list in `CMakeLists.txt`
-- [ ] Add `Qt6::Graphs` to `target_link_libraries(Decenza PRIVATE ...)`
+- [x] Add `Graphs` to the `find_package(Qt6 REQUIRED COMPONENTS ...)` list in `CMakeLists.txt`
+- [x] Add `Qt6::Graphs` to `target_link_libraries(Decenza PRIVATE ...)`
 - [ ] Verify clean build on Windows, macOS, iOS, Android with both `Charts` and `Graphs` linked
-- [ ] Update `openspec/config.yaml` Tech Stack section to list `Graphs` alongside `Charts`
+- [x] Update `openspec/config.yaml` Tech Stack section to list `Graphs` alongside `Charts`
 
 ### 0.2 Spike — verify gate conditions on real Decenza code
 - [ ] **Re-verify QTBUG-142046 is fixed**: write a 10-line QML reproducer that uses `visualMin`/`visualMax` (the actual fix in 6.11.0 — see gate #1) and confirm the readback tracks zoom/pan correctly. If it lies, halt Stage 0 and reopen Pre-Stage 0 monitoring.
@@ -52,10 +52,10 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [ ] Decide rendering-backend strategy: if targeting 6.11.x, start on the Quick Shapes backend (today's only option) and treat the 6.12 `useCanvasPainter: true` switch as a follow-up. If waiting for 6.12, validate directly against `useCanvasPainter: true`. Document the choice and the corresponding `find_package` flags in `design.md`.
 
 ### 0.3 Bridge components
-- [ ] Create `qml/components/graphs/AutoRangingAxis.qml` — wraps `ValueAxis` with auto-range behavior from attached series; supports `padding`, `minFloor`, `maxCeiling`
-- [ ] Create `qml/components/graphs/CustomLegend.qml` — themed horizontal legend with tap-to-toggle visibility; driven by `{ name, color, visible }` model
-- [ ] Create `qml/components/graphs/DashedLineSeries.qml` — `ShapePath`-based dashed-stroke overlay aligned to `axisX`/`axisY`; data→pixel mapping via `GraphsView.plotArea`
-- [ ] Register each component in `CMakeLists.txt` `qt_add_qml_module` file list
+- [x] Create `qml/components/graphs/AutoRangingAxis.qml` — wraps `ValueAxis` with auto-range behavior from attached series; supports `padding`, `minFloor`, `maxCeiling`
+- [x] Create `qml/components/graphs/CustomLegend.qml` — themed horizontal legend with tap-to-toggle visibility; driven by `{ name, color, visible }` model
+- [x] Create `qml/components/graphs/DashedLineSeries.qml` — `ShapePath`-based dashed-stroke overlay aligned to `axisX`/`axisY`; data→pixel mapping via `GraphsView.plotArea`
+- [x] Register each component in `CMakeLists.txt` `qt_add_qml_module` file list
 
 ### 0.4 Performance baseline
 - [ ] Create `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md` documenting the measurement protocol
