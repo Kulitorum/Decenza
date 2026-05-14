@@ -28,8 +28,8 @@ GraphsTheme {
     plotAreaBackgroundColor: Qt.darker(Theme.surfaceColor, 1.6)
 
     // Grid lines — visible but low-contrast over the plot area.
-    grid.mainColor: Qt.rgba(1, 1, 1, 0.12)
-    grid.subColor: Qt.rgba(1, 1, 1, 0.05)
+    grid.mainColor: Qt.rgba(1, 1, 1, 0.06)
+    grid.subColor: Qt.rgba(1, 1, 1, 0.03)
     grid.mainWidth: 1
     grid.subWidth: 1
 
