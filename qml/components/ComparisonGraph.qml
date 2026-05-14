@@ -61,12 +61,11 @@ Item {
 
     // === Curve definitions driving the 3-shot × 10-curve Repeater ===
     //
-    // Each curve names its model accessor (Q_INVOKABLE QVariantList getter), the
-    // axisY holder to map against, its colour, stroke width, and the show-flag
-    // gating visibility. fnY is optional: if set, the y values from the model
-    // are transformed before the dashed overlay reads them (currently used for
-    // the /5 weight rescale that keeps weight in the same visual range as
-    // pressure, matching the legacy comparison view).
+    // Each curve names the model accessor key, the axisY holder to map against,
+    // its colour, stroke width, the show-flag gating visibility, and whether it
+    // is advanced-mode-only. Per-curve y-value transforms (currently just the
+    // /5 weight rescale) live in `_curvePoints()` as a key-dispatched branch.
+    //
     // Axis is stored as a string key, not a direct id reference: this property
     // initialiser runs before GraphsView and its child ValueAxes are constructed,
     // so direct ids would resolve to null and the `var` binding wouldn't re-fire
@@ -135,9 +134,12 @@ Item {
         return data
     }
 
-    // Bumps every time the comparison model's shot list changes — used as a
+    // Monotonic counter bumped on every shotsChanged emission — used as a
     // read-dependency in every points binding so they re-evaluate then.
-    readonly property int _dataVersion: comparisonModel ? comparisonModel.shotCount : 0
+    // Binding to comparisonModel.shotCount is insufficient because the window
+    // navigation (shiftWindowLeft/Right) often keeps the count constant while
+    // the underlying displayShots vector is replaced.
+    property int _dataVersion: 0
 
     // === Axis fitting (timeAxis stretches to maxTime + padding; dCdtAxis fits the data) ===
 
@@ -236,6 +238,7 @@ Item {
     }
 
     function _refreshAll() {
+        _dataVersion++       // invalidate all trace bindings
         _updateTimeAxis()
         _updateDCdtAxis()
         _rebuildPhaseData()
@@ -371,9 +374,11 @@ Item {
     QtObject {
         id: weightAxis
         property real min: 0
-        // Weight uses a 5× the pressure-axis baseline so 60g maps to the same
-        // visual height as 12 bar (matches the legacy /5 scaling on a 0–12 axis).
-        property real max: 60
+        // Weight points are pre-divided by 5 in _curvePoints() (so 60 g → 12),
+        // then mapped against this 0–12 axis so 60 g lands at the top — same
+        // visual height as 12 bar on the left axis. Matches the legacy
+        // weightAxis range in the Qt Charts comparison view.
+        property real max: 12
     }
 
     QtObject {

@@ -107,7 +107,8 @@ Item {
         // Clip to the later of maxTime (extraction duration) or the last phase-
         // marker time so any frame-transition marker landing just past duration
         // still renders. Pixel-based padding keeps markers off the right edge.
-        if (pressureData.length === 0) return
+        // No early return on empty pressureData — temperature- or weight-only
+        // rows (corrupt/partial) still get a sensible axis from maxTime alone.
         var markerMaxTime = 0
         for (var m = 0; m < phaseMarkers.length; m++) {
             if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
