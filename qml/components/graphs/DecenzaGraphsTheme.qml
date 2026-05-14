@@ -38,6 +38,12 @@ GraphsTheme {
     axisX.mainColor: Qt.rgba(1, 1, 1, 0.85)
     axisY.mainColor: Qt.rgba(1, 1, 1, 0.85)
 
+    // Suppress the sub-feature on axis spines — Qt Graphs draws long tick
+    // protrusions between the spine and the labels by default; Charts had
+    // either none or much shorter ones.
+    axisX.subWidth: 0
+    axisY.subWidth: 0
+
     // Labels and titles.
     labelTextColor: Theme.textSecondaryColor
     axisXLabelFont: Theme.captionFont
