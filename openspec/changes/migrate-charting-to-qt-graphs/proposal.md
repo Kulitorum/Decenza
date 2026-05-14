@@ -1,8 +1,12 @@
 # Change: Migrate Charting from Qt Charts to Qt Graphs
 
-## Status: READY TO START — PENDING Qt 6.11.1 UPGRADE
+## Status: READY TO START — Qt 6.11.1 LANDED (consider waiting for Qt 6.12)
 
-**Gates are clear.** QTBUG-142046 is closed and fixed in Qt 6.11.0 (released 2026-03-23) via new `visualMin`/`visualMax` read-only properties on `QValueAxis` and `QDateTimeAxis`. Decenza plans to upgrade to Qt 6.11.1 when it releases. Stage 0 can begin as soon as the upgrade lands.
+**Gates 1, 3, 4 are satisfied.** QTBUG-142046 is closed and fixed in Qt 6.11.0 (released 2026-03-23) via new `visualMin`/`visualMax` read-only properties on `QValueAxis` and `QDateTimeAxis`. `QXYSeries::replace(QList<QPointF>)` is `Q_INVOKABLE` from QML in 6.11.1 with docs explicitly noting it is "much faster than replacing data points one by one." Decenza upgraded to Qt 6.11.1 (released 2026-05-12) via the `upgrade-qt-6-11-1` change.
+
+**Gate 2 is open but the gaps are known and the Stage 0 bridge plan presumes they exist** — see "Re-evaluation against the released 6.11.1" below.
+
+**Strategic timing consideration: Qt 6.12 lands a `QCanvasPainter` rendering backend for Graphs** (feature-flagged, ships 2026-09-22). This is the same RHI path Decenza adopted for `CupFillView`. Starting Stage 0 on 6.11.1 is safe — switching the backend later is a one-line per-`GraphsView` change (`useCanvasPainter: true`) — but waiting for 6.12 GA means a single round of visual/perf validation against the long-term backend. See "Qt 6.12 Roadmap" section below.
 
 **Note on crosshair logic**: the fix is a new API (`visualMin`/`visualMax`) rather than a change to `min`/`max` behavior. `ShotGraph.qml`'s crosshair pixel↔data mapping must be updated to use `visualMin`/`visualMax` instead of `min`/`max`.
 
@@ -22,35 +26,80 @@ Stage 0 SHALL NOT begin until **all** of the following are true. Each condition 
 
 3. **`QXYSeries::replace(QList<QPointF>)` or equivalent bulk-update API** is officially supported in Qt Graphs and documented. Decenza's C++ data models (`ShotDataModel`, `SteamDataModel`, `ShotComparisonModel`) rely on this for efficient series population at ~5 Hz during live extraction; per-point `append()` is not performant enough.
 
-4. **Qt 6.11.1 is released and Decenza upgrades to it** (planned). Decenza will upgrade to Qt 6.11.1 when it releases; Stage 0 begins after the upgrade lands.
+4. ✅ **Qt 6.11.1 is released and Decenza upgrades to it** — **SATISFIED**. Qt 6.11.1 released 2026-05-12; Decenza upgraded via the `upgrade-qt-6-11-1` change (archived 2026-05-13).
 
-### Re-evaluation cadence (until all gates pass)
+### Re-evaluation against the released 6.11.1 (2026-05-13)
 
-- Check Qt release notes at every Qt minor release (`6.11.0`, `6.11.1`, `6.12.0`, ...): search for "Graphs", "QTBUG-142046", and any mention of the missing features.
+The 6.11.1 audit of [the Qt Graphs 2D migration guide](https://doc.qt.io/qt-6.11/qtgraphs-migration-guide-2d.html) confirms the "Features missing in Qt Graphs" list still includes:
+
+- **Titles and legends** — explicitly listed
+- **Axis auto-ranging** — implicit: the guide's migration examples state verbatim "*Graphs don't calculate a visible range for axes. You should define the visible range explicitly*"
+- **Dashed/dotted line strokes** — not called out in the guide but not documented as supported either
+- **Pixel↔data coordinate mapping** — not called out; `GraphsView.plotArea` continues to be the only documented hook
+
+Qt has not published sanctioned bridge patterns for legends or auto-ranging. Gate 2 as originally written is therefore **not** met. However, Stage 0 of this proposal was always designed to **build** those bridges in-tree (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) because the proposal-authors did not assume Qt would ship them upstream. The gate language is stricter than the implementation strategy needs.
+
+**Pragmatic reading:** the four gates effectively reduce to "Qt 6.11.x + bulk-replace + visualMin/Max" — all satisfied. The Stage 0 bridges remain Decenza's responsibility regardless of when the migration starts.
+
+### Re-evaluation cadence (between now and Qt 6.12 GA)
+
+- Check Qt release notes at every Qt minor release: search for "Graphs", "QTBUG-142046", and any mention of the missing features.
 - Skim the Qt forum Graphs category monthly for new gap reports or workaround patterns.
+- Monitor the Qt 6.12 dev branch through the 2026-05-29 feature freeze — `qt/qtgraphs.git` on `dev` is the source of truth for what 6.12 actually ships.
 - If Qt 7 gets an announced release date with a Charts-removal timeline, escalate priority even if gates aren't fully met.
 
 ### If gates pass but new blockers emerge
 
 This proposal's Stage 0 includes a technical spike (`tasks.md` §0.2) that validates the gates on the actual Decenza codebase before any user-visible work begins. If the spike reveals new blockers (e.g., the bulk `replace()` API exists but has a performance regression at our data rates), those blockers go into a new "Gate Conditions" update to this proposal, and Stage 0 pauses until they clear too.
 
+## Qt 6.12 Roadmap (informational — release 2026-09-22)
+
+Feature freeze 2026-05-29; what's currently on `qt/qtgraphs.git` `dev` is essentially what 6.12 will ship. Two landings change the cost-benefit:
+
+### 1. `QCanvasPainter` rendering backend for Qt Graphs — [QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)
+
+qtgraphs commit `03e677e1` adds a second renderer that draws via `QCanvasPainter` — the same module Decenza adopted for `CupFillView` in the `upgrade-qt-6-11-1` change. Selected via two CMake feature flags:
+- `high_performance_backend` → enables the `QCanvasPainter` path
+- `high_quality_backend` → enables the existing Quick Shapes path (today's only path)
+
+Both flags can be on; a new `useCanvasPainter` property on `GraphsView` chooses at runtime. **Off by default in 6.12.** If Decenza migrates after 6.12 ships, our graph rendering can use the exact same RHI path as the cup-fill — Metal / D3D12 / Vulkan / OpenGL — with one rendering stack across the most expensive UI surfaces.
+
+### 2. Declarative XYSeries data API — [QTBUG-134005](https://qt-project.atlassian.net/browse/QTBUG-134005), [QTBUG-141139](https://qt-project.atlassian.net/browse/QTBUG-141139)
+
+qtgraphs commit `2e6e74c9` adds a declarative `data` property on `XYSeries` (and subclasses like `LineSeries`, `ScatterSeries`). QML can populate point arrays without round-tripping through `Q_INVOKABLE` C++ calls. Decenza's data models will continue to use the C++ `replace()` path for live ~5 Hz updates, but static/computed series (goal curves, profile-editor previews) can be wired up declaratively.
+
+### 3. Minor wins in 6.12
+
+- `labelPostFormat` on `(Log)ValueAxis` — axis-label format string (e.g. `"%.1f bar"`). Replaces bespoke `labelFormat` callback plumbing.
+- Multi-axis margin fix — "Count unique axes when more than one series shares the X and/or Y axis". Decenza always shares axes across pressure/flow/temperature/weight series; this corrects current margin miscalculation.
+- "Fix crash when axis is deleted" — stability.
+
+### What 6.12 does NOT add
+
+The four Stage 0 bridge components remain Decenza's responsibility:
+
+| Gap | Status on dev (16 days from feature freeze) |
+|---|---|
+| Built-in legend | Still missing |
+| Axis auto-ranging | Still missing — `min`/`max` still required explicitly |
+| Dashed/dotted line strokes | No sanctioned API |
+| Pixel↔data coordinate mapping | `GraphsView.plotArea` remains the only hook |
+
+These are not on the 6.12 dev log; do not plan around them landing in 6.12.
+
+### Timing recommendation
+
+If we start Stage 0 on 6.11.1 today, we land on the Quick Shapes backend. Switching to the `QCanvasPainter` backend after 6.12 ships is a per-`GraphsView` one-liner (`useCanvasPainter: true`) — not a re-migration. The Stage 0 bridges (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) are renderer-agnostic and would survive a backend switch.
+
+If we wait for Qt 6.12 GA (2026-09-22), we run visual/perf validation once against the long-term backend. ~4 calendar months of delay.
+
+There is no functional blocker either way. The decision is calendar-time vs. validation-rounds-cost.
+
 ## What Changes
 
 **Staged migration** across five phases. Each phase is independently shippable; the app remains fully functional at every stage boundary, with no flag-day cutover.
 
 - **Stage 0 — Foundation**: Add `Qt6::Graphs` to the build alongside `Qt6::Charts` (both import paths coexist). Build reusable QML components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close the remaining feature gaps between Charts and Graphs.
-- **Stage 1 — Pilot**: Migrate `FlowCalibrationPage.qml` (smallest graph, ~40% chart code) as a proof of concept to validate the pattern end-to-end.
-- **Stage 2 — Steam graph**: Migrate `SteamGraph.qml` + `SteamDataModel` C++ backing (simpler than espresso graphs — fewer axes, no goal curves).
-- **Stage 3 — Espresso graphs**: Migrate the four espresso graph families (`ShotGraph`, `HistoryShotGraph`, `ComparisonGraph`, `ProfileGraph`) and their C++ backing (`ShotDataModel`, `ShotComparisonModel`).
-- **Stage 4 — Cleanup**: Remove `Qt6::Charts` from `CMakeLists.txt`, delete migration shim components, uninstall Qt Charts from dev machines, close the migration.
-
-**Intentionally out of scope**: visual redesign of any graph (migration is mechanical fidelity only), migration of `FastLineRenderer` (already bypasses Qt Charts — survives intact), migration of Canvas-based phase markers in `ComparisonGraph` (independent of Charts).
-
-## What Changes
-
-**Staged migration** across five phases. Each phase is independently shippable; the app remains fully functional at every stage boundary, with no flag-day cutover.
-
-- **Stage 0 — Foundation**: Add `Qt6::Graphs` to the build alongside `Qt6::Charts` (both import paths coexist). Build reusable QML components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close the feature gaps between Charts and Graphs.
 - **Stage 1 — Pilot**: Migrate `FlowCalibrationPage.qml` (smallest graph, ~40% chart code) as a proof of concept to validate the pattern end-to-end.
 - **Stage 2 — Steam graph**: Migrate `SteamGraph.qml` + `SteamDataModel` C++ backing (simpler than espresso graphs — fewer axes, no goal curves).
 - **Stage 3 — Espresso graphs**: Migrate the four espresso graph families (`ShotGraph`, `HistoryShotGraph`, `ComparisonGraph`, `ProfileGraph`) and their C++ backing (`ShotDataModel`, `ShotComparisonModel`).

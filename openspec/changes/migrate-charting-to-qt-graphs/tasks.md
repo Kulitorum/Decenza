@@ -20,7 +20,12 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [ ] If any gate condition flips from open → closed, update this file, then notify whoever owns the migration decision
 
 ### P.3 Earliest checkpoint: Qt 6.11.1 release
-- [ ] When Qt 6.11.1 ships, do a full gate-condition audit. If all four gates pass, write up findings and request approval to begin Stage 0. If gates remain open, document which ones and revise the "earliest re-evaluation" date in `proposal.md`
+- [x] **Done 2026-05-13** — Qt 6.11.1 shipped 2026-05-12 and Decenza upgraded via the `upgrade-qt-6-11-1` change (archived 2026-05-13). Full gate-condition audit performed against the released 6.11.1 docs + the Qt Graphs 2D migration guide. Result captured in `proposal.md` under "Re-evaluation against the released 6.11.1": gates 1 + 3 + 4 satisfied; gate 2 (feature parity) remains formally open but the Stage 0 plan was always designed to build the missing bridges (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) in-tree. Pragmatic reading: gates effectively reduce to "Qt 6.11.x + bulk-replace + visualMin/Max" — all met.
+
+### P.4 Qt 6.12 monitoring (active until 6.12 GA, 2026-09-22)
+- [ ] Watch `qt/qtgraphs.git` `dev` branch for landings up to feature freeze 2026-05-29. Two major items already landed: `QCanvasPainter` backend ([QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)) and declarative XYSeries data API (QTBUG-134005, QTBUG-141139). See `proposal.md` "Qt 6.12 Roadmap" section.
+- [ ] At each 6.12 beta (2026-06-11 / 2026-07-16 / 2026-08-18), re-check `dev` log for any new legend / auto-ranging / dashed-stroke / coord-mapping landings. None present as of 2026-05-13; do not plan around them appearing.
+- [ ] At 6.12 RC (2026-09-08) or GA (2026-09-22), make the start-now-vs-wait decision in `proposal.md` "Timing recommendation": either begin Stage 0 on 6.11.1 (and treat `useCanvasPainter: true` as a follow-up after 6.12) or wait for 6.12 GA and validate once against the long-term backend.
 
 ## Stage 0 — Foundation
 
@@ -31,14 +36,15 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [ ] Add `Graphs` to the `find_package(Qt6 REQUIRED COMPONENTS ...)` list in `CMakeLists.txt`
 - [ ] Add `Qt6::Graphs` to `target_link_libraries(Decenza PRIVATE ...)`
 - [ ] Verify clean build on Windows, macOS, iOS, Android with both `Charts` and `Graphs` linked
-- [ ] Update `openspec/project.md` Tech Stack section to list `Graphs` alongside `Charts`
+- [ ] Update `openspec/config.yaml` Tech Stack section to list `Graphs` alongside `Charts`
 
 ### 0.2 Spike — verify gate conditions on real Decenza code
-- [ ] **Re-verify QTBUG-142046 is fixed**: write a 10-line QML reproducer that programmatically changes an axis range and reads it back. If the readback lies, halt Stage 0 and reopen Pre-Stage 0 monitoring.
-- [ ] Confirm the released Qt version's `XYSeries::replace()` signature and data format; document in `design.md`. If QML `LineSeries.replace()` is still not exposed as a slot, prototype the 30-line `SeriesUpdater` bridge described in `design.md` §Upstream Dependencies.
-- [ ] Verify `GraphsView.plotArea` / margin properties are sufficient for crosshair pixel↔data mapping; if not, file a Qt upstream bug and document workaround
-- [ ] Test `GraphsView` clipping behavior with overlays drawn outside the plot area
-- [ ] Decide `GraphsTheme` integration strategy with Decenza's `Theme.qml` singleton
+- [ ] **Re-verify QTBUG-142046 is fixed**: write a 10-line QML reproducer that uses `visualMin`/`visualMax` (the actual fix in 6.11.0 — see gate #1) and confirm the readback tracks zoom/pan correctly. If it lies, halt Stage 0 and reopen Pre-Stage 0 monitoring.
+- [ ] Confirm `QXYSeries::replace(QList<QPointF>)` from C++ and via QML invocation (it is `Q_INVOKABLE` in 6.11.1). Document the signature and any performance characteristics in `design.md`. If QML LineSeries' new declarative `data` property (added on dev for 6.12) is acceptable for static/computed series, document the decision in `design.md`.
+- [ ] Verify `GraphsView.plotArea` / margin properties are sufficient for crosshair pixel↔data mapping; if not, file a Qt upstream bug and document workaround.
+- [ ] Test `GraphsView` clipping behavior with overlays drawn outside the plot area.
+- [ ] Decide `GraphsTheme` integration strategy with Decenza's `Theme.qml` singleton.
+- [ ] Decide rendering-backend strategy: if targeting 6.11.x, start on the Quick Shapes backend (today's only option) and treat the 6.12 `useCanvasPainter: true` switch as a follow-up. If waiting for 6.12, validate directly against `useCanvasPainter: true`. Document the choice and the corresponding `find_package` flags in `design.md`.
 
 ### 0.3 Bridge components
 - [ ] Create `qml/components/graphs/AutoRangingAxis.qml` — wraps `ValueAxis` with auto-range behavior from attached series; supports `padding`, `minFloor`, `maxCeiling`
@@ -145,7 +151,7 @@ Stage 3 is the largest. Split into sub-stages 3a–3d to keep PRs reviewable (on
 - [ ] Update `CLAUDE.md` graph/QML conventions section to mention the bridge components as canonical
 
 ### 4.3 Documentation and cleanup
-- [ ] Update `openspec/project.md` Tech Stack: remove `Charts`
+- [ ] Update `openspec/config.yaml` Tech Stack: remove `Charts`
 - [ ] Update `CLAUDE.md` if it mentions Qt Charts anywhere
 - [ ] Uninstall Qt Charts from dev machines' Qt installations
 - [ ] Uninstall Qt Data Visualization (unrelated to this migration but should be cleaned up at the same time — Decenza does not use it)
