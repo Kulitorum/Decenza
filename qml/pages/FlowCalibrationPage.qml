@@ -30,6 +30,8 @@ Page {
             Layout.fillHeight: true
             Layout.minimumHeight: Theme.scaled(200)
 
+            theme: DecenzaGraphsTheme {}
+
             axisX: timeAxis
             axisY: valueAxis
 
@@ -38,6 +40,7 @@ Page {
                 min: 0
                 max: Math.max(5, FlowCalibrationModel.maxTime + 2)
                 tickInterval: 1
+                subTickCount: 0
                 labelFormat: "%.0f"
                 titleText: "s"
             }
@@ -45,10 +48,11 @@ Page {
             AutoRangingAxis {
                 id: valueAxis
                 series: [flowSeries, weightFlowSeries]
-                padding: 0.1
+                padding: 0.05
                 minFloor: 0
                 fallbackMax: 2.0
-                tickInterval: 0.5
+                tickInterval: 2
+                subTickCount: 0
                 labelFormat: "%.1f"
                 titleText: "mL/s  ·  g/s"
             }
