@@ -582,12 +582,6 @@ Item {
                 color: isStart ? Theme.accentColor : Qt.rgba(255, 255, 255, 0.8)
                 rotation: -90
                 transformOrigin: Item.TopLeft
-                // Constrain natural width to the plot height (minus padding) so
-                // rotated text never extends past the plot area; elide handles
-                // long labels in small tiles. Full-page graphs have enough room
-                // that no truncation occurs.
-                width: Math.max(Theme.scaled(20), graphsView.plotArea.height - Theme.scaled(12))
-                elide: Text.ElideRight
                 x: Theme.scaled(3)
                 y: Theme.scaled(6) + width
 
