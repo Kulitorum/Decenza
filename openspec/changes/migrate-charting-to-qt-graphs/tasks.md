@@ -74,12 +74,12 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 ## Stage 1 — Pilot: `FlowCalibrationPage.qml`
 
 ### 1.1 Migrate QML
-- [ ] Replace `import QtCharts` with `import QtGraphs` in `qml/pages/FlowCalibrationPage.qml`
-- [ ] Replace `ChartView` with `GraphsView`
-- [ ] Replace built-in `ValueAxis` usages with `AutoRangingAxis` (or explicit `min`/`max` where appropriate)
-- [ ] Replace dashed goal-curve `LineSeries` with `DashedLineSeries` overlay
-- [ ] Replace `.legend` references with `CustomLegend` instance
-- [ ] Hook plot-area geometry to any overlay that used `plotArea`
+- [x] Replace `import QtCharts` with `import QtGraphs` in `qml/pages/FlowCalibrationPage.qml`
+- [x] Replace `ChartView` with `GraphsView`
+- [x] Replace built-in `ValueAxis` usages with `AutoRangingAxis` (or explicit `min`/`max` where appropriate)
+- [ ] Replace dashed goal-curve `LineSeries` with `DashedLineSeries` overlay *(N/A — FlowCalibrationPage has no dashed curve; DashedLineSeries exercised in Stage 2)*
+- [x] Replace `.legend` references with `CustomLegend` instance
+- [ ] Hook plot-area geometry to any overlay that used `plotArea` *(N/A — page has no overlay)*
 
 ### 1.2 Validate
 - [ ] Side-by-side screenshot comparison with pre-migration state (Windows, macOS, Android)
