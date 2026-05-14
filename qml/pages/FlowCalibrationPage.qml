@@ -62,8 +62,6 @@ Page {
                 name: TranslationManager.translate("flowCalibration.flow", "Flow (calibrated)")
                 color: Theme.flowColor
                 width: Theme.graphLineWidth
-                axisX: timeAxis
-                axisY: valueAxis
             }
 
             LineSeries {
@@ -71,8 +69,6 @@ Page {
                 name: TranslationManager.translate("flowCalibration.weightFlow", "Weight flow")
                 color: Theme.weightColor
                 width: Theme.graphLineWidth
-                axisX: timeAxis
-                axisY: valueAxis
             }
         }
 
