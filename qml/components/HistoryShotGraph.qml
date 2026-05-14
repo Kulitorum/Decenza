@@ -1,20 +1,31 @@
 import QtQuick
-import QtCharts
+import QtGraphs
 import Decenza
+import "graphs"
 
-ChartView {
+// Outer Item wraps the GraphsView so dashed overlays, right-axis-mapped traces,
+// inspect crosshair, marker labels, and the right-axis label column render as
+// siblings on top of the chart. GraphsView's scene-graph paints over any direct
+// QQuickItem children — overlays must be siblings, not children.
+Item {
     id: chart
-    antialiasing: true
-    backgroundColor: "transparent"
-    plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
-    legend.visible: false
+
+    // Alias so DashedLineSeries delegates can reach the GraphsView without
+    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
+    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    readonly property alias graphsViewRef: graphsView
+
+    // Re-export the GraphsView's plot rect so parent pages can hit-test against
+    // it (e.g. the tap-to-inspect overlays distinguishing crosshair taps from
+    // right-axis toggles). Matches the legacy Qt Charts ChartView.plotArea API.
+    readonly property rect plotArea: graphsView.plotArea
 
     // Controls for compact/widget rendering
     property bool showLabels: true
     property bool showPhaseLabels: true
 
-    // Persisted visibility toggles (tappable legend). Using Settings.boolValue()
-    // coerces QSettings' INI-backed strings to real booleans; see Settings.h.
+    // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
+    // QSettings' INI-backed strings to real booleans; see Settings.h.
     property bool showPressure: Settings.boolValue("graph/showPressure", true)
     property bool showFlow: Settings.boolValue("graph/showFlow", true)
     property bool showTemperature: Settings.boolValue("graph/showTemperature", true)
@@ -42,11 +53,6 @@ ChartView {
     property real inspectPixelX: 0
     property var inspectValues: ({})
 
-    margins.top: 0
-    margins.bottom: 0
-    margins.left: 0
-    margins.right: chart.showLabels ? Theme.scaled(35) : 0
-
     // Data to display (set from parent)
     property var pressureData: []
     property var flowData: []
@@ -64,79 +70,64 @@ ChartView {
     property var phaseMarkers: []
     property double maxTime: 60
 
-    // Load data into series
-    function loadData() {
-        pressureSeries.clear()
-        flowSeries.clear()
-        temperatureSeries.clear()
-        weightSeries.clear()
-        weightFlowRateSeries.clear()
-        resistanceSeries.clear()
-
-        for (var i = 0; i < pressureData.length; i++) {
-            pressureSeries.append(pressureData[i].x, pressureData[i].y)
-        }
-        for (i = 0; i < flowData.length; i++) {
-            flowSeries.append(flowData[i].x, flowData[i].y)
-        }
-        for (i = 0; i < temperatureData.length; i++) {
-            temperatureSeries.append(temperatureData[i].x, temperatureData[i].y)
-        }
-        for (i = 0; i < weightData.length; i++) {
-            weightSeries.append(weightData[i].x, weightData[i].y)
-        }
-        for (i = 0; i < weightFlowRateData.length; i++) {
-            weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y)
-        }
-        for (i = 0; i < resistanceData.length; i++) {
-            resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
-        }
-        conductanceSeries.clear()
-        for (i = 0; i < conductanceData.length; i++) {
-            conductanceSeries.append(conductanceData[i].x, conductanceData[i].y)
-        }
-        darcyResistanceSeries.clear()
-        for (i = 0; i < darcyResistanceData.length; i++) {
-            darcyResistanceSeries.append(darcyResistanceData[i].x, darcyResistanceData[i].y)
-        }
-        conductanceDerivativeSeries.clear()
-        for (i = 0; i < conductanceDerivativeData.length; i++) {
-            conductanceDerivativeSeries.append(conductanceDerivativeData[i].x, conductanceDerivativeData[i].y)
-        }
-        temperatureMixSeries.clear()
-        for (i = 0; i < temperatureMixData.length; i++) {
-            temperatureMixSeries.append(temperatureMixData[i].x, temperatureMixData[i].y)
-        }
-
-        // Update time axis. Clip to the later of maxTime (extraction duration)
-        // or the last phase-marker time so any frame-transition marker that
-        // lands just past duration still renders. Post-End samples (scale
-        // dribble etc.) are still clipped, matching the live graph. Small
-        // pixel-based padding keeps markers off the right edge.
-        if (pressureData.length > 0) {
-            var markerMaxTime = 0
-            for (var m = 0; m < phaseMarkers.length; m++) {
-                if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
-            }
-            var axisEnd = Math.max(maxTime, markerMaxTime)
-            var plotWidth = Math.max(1, chart.plotArea.width)
-            var paddingPx = Theme.scaled(5)
-            var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
-            timeAxis.max = Math.max(5, axisEnd * scale)
-        }
+    // === Reload pipeline ===
+    // Qt.callLater coalesces sequential property reassignments from the parent
+    // (pressureData, flowData, weightData…) so loadData() runs once with a
+    // consistent snapshot rather than N times with mixed old/new arrays.
+    function doReload() {
+        dismissInspect()
+        loadMainSeries()
+        updateTimeAxis()
+        // Goal-segment arrays + right-axis-mapped traces bind directly to QML
+        // properties — no imperative load step needed.
     }
 
-    // Use Qt.callLater to coalesce reloads when multiple properties change at once.
-    // When parent reassigns shotData, QML re-evaluates each binding (pressureData,
-    // flowData, weightData, etc.) sequentially — not atomically. Without callLater,
-    // the first property change would trigger loadData() while other properties still
-    // hold stale values from the previous shot, causing a mix of old/new data.
-    // Qt.callLater deduplicates: N calls before execution → 1 actual invocation.
-    function doReload() { dismissInspect(); loadData(); loadMarkers(); loadGoalData() }
+    // Load only the main-axis Qt Graphs LineSeries (pressure, flow, weight-flow,
+    // resistance, conductance, darcy). Right-axis-mapped traces (temperature,
+    // mix temp, weight, dC/dt) are rendered as DashedLineSeries overlays whose
+    // `points` property binds straight to the data arrays.
+    function loadMainSeries() {
+        pressureSeries.clear()
+        flowSeries.clear()
+        weightFlowRateSeries.clear()
+        resistanceSeries.clear()
+        conductanceSeries.clear()
+        darcyResistanceSeries.clear()
+
+        for (var i = 0; i < pressureData.length; i++)
+            pressureSeries.append(pressureData[i].x, pressureData[i].y)
+        for (i = 0; i < flowData.length; i++)
+            flowSeries.append(flowData[i].x, flowData[i].y)
+        for (i = 0; i < weightFlowRateData.length; i++)
+            weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y)
+        for (i = 0; i < resistanceData.length; i++)
+            resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
+        for (i = 0; i < conductanceData.length; i++)
+            conductanceSeries.append(conductanceData[i].x, conductanceData[i].y)
+        for (i = 0; i < darcyResistanceData.length; i++)
+            darcyResistanceSeries.append(darcyResistanceData[i].x, darcyResistanceData[i].y)
+    }
+
+    function updateTimeAxis() {
+        // Clip to the later of maxTime (extraction duration) or the last phase-
+        // marker time so any frame-transition marker landing just past duration
+        // still renders. Pixel-based padding keeps markers off the right edge.
+        // No early return on empty pressureData — temperature- or weight-only
+        // rows (corrupt/partial) still get a sensible axis from maxTime alone.
+        var markerMaxTime = 0
+        for (var m = 0; m < phaseMarkers.length; m++) {
+            if (phaseMarkers[m].time > markerMaxTime) markerMaxTime = phaseMarkers[m].time
+        }
+        var axisEnd = Math.max(maxTime, markerMaxTime)
+        var plotWidth = Math.max(1, graphsView.plotArea.width)
+        var paddingPx = Theme.scaled(5)
+        var scale = plotWidth / Math.max(1, plotWidth - paddingPx)
+        timeAxis.max = Math.max(5, axisEnd * scale)
+    }
 
     // Split a goal data array into segments at time gaps (pump mode transitions).
     // During recording, goal=0 samples are skipped, creating natural time gaps
-    // between segments. Normal sample interval is ~0.2s; gaps > 0.5s indicate
+    // between segments. Normal sample interval is ~0.2 s; gaps > 0.5 s indicate
     // a mode switch boundary.
     function segmentGoalData(data, maxSegments) {
         if (!data || data.length === 0) return []
@@ -151,86 +142,27 @@ ChartView {
         return segments
     }
 
-    // Load goal/target lines into their LineSeries
-    function loadGoalData() {
-        // Clear all goal series
-        for (var i = 0; i < _pressureGoalLines.length; i++)
-            _pressureGoalLines[i].clear()
-        for (i = 0; i < _flowGoalLines.length; i++)
-            _flowGoalLines[i].clear()
-        temperatureGoalSeries.clear()
+    // Computed goal segments — bound by the dashed-overlay Repeaters below.
+    readonly property var pressureGoalSegments: segmentGoalData(pressureGoalData, 5)
+    readonly property var flowGoalSegments: segmentGoalData(flowGoalData, 5)
 
-        // Segment and load pressure goal
-        var pSegs = segmentGoalData(pressureGoalData, 5)
-        for (i = 0; i < pSegs.length && i < _pressureGoalLines.length; i++) {
-            for (var j = 0; j < pSegs[i].length; j++)
-                _pressureGoalLines[i].append(pSegs[i][j].x, pSegs[i][j].y)
-        }
+    // === Inspect: pixel → data, value lookup, accessibility ===
 
-        // Segment and load flow goal
-        var fSegs = segmentGoalData(flowGoalData, 5)
-        for (i = 0; i < fSegs.length && i < _flowGoalLines.length; i++) {
-            for (j = 0; j < fSegs[i].length; j++)
-                _flowGoalLines[i].append(fSegs[i][j].x, fSegs[i][j].y)
-        }
-
-        // Temperature goal is continuous across all modes — no segmentation
-        for (i = 0; i < temperatureGoalData.length; i++)
-            temperatureGoalSeries.append(temperatureGoalData[i].x, temperatureGoalData[i].y)
+    function _timeAtPixel(pixelX) {
+        var plot = graphsView.plotArea
+        if (!plot || plot.width <= 0) return -1
+        return timeAxis.min + (pixelX - plot.x) / plot.width * (timeAxis.max - timeAxis.min)
     }
 
-    // Inspect at a pixel position: show crosshair + tooltip, announce for TTS
-    function inspectAtPosition(pixelX, pixelY) {
-        var dataPoint = chart.mapToValue(Qt.point(pixelX, pixelY), pressureSeries)
-        var time = dataPoint.x
-        if (time < 0 || time > timeAxis.max) return
-
-        inspectTime = time
-        // Calculate pixel X from time (clamped to plot area)
-        inspectPixelX = chart.plotArea.x + (time / timeAxis.max) * chart.plotArea.width
-
-        // Compute values for every curve — regardless of visibility — so the
-        // inspect bar can react live when the user toggles curves on/off without
-        // re-tapping the graph. GraphInspectBar filters by the current show*
-        // flags at display time.
-        var vals = {}
-        var curves = [
-            { key: "pressure", name: "Pressure", series: pressureSeries, unit: "bar" },
-            { key: "flow", name: "Flow", series: flowSeries, unit: "mL/s" },
-            { key: "temperature", name: "Temp", series: temperatureSeries, unit: "\u00B0C" },
-            { key: "mixTemp", name: "Mix temp", series: temperatureMixSeries, unit: "\u00B0C" },
-            { key: "weight", name: "Weight", series: weightSeries, unit: "g" },
-            { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s" },
-            { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "" },
-            { key: "darcyResistance", name: "Darcy R", series: darcyResistanceSeries, unit: "" },
-            { key: "conductance", name: "Conductance", series: conductanceSeries, unit: "" },
-            { key: "dCdt", name: "dC/dt", series: conductanceDerivativeSeries, unit: "" }
-        ]
-
-        for (var i = 0; i < curves.length; i++) {
-            var v = findValueAtTime(curves[i].series, time)
-            if (v !== null) {
-                vals[curves[i].key] = { name: curves[i].name, value: v, unit: curves[i].unit }
-            }
-        }
-
-        inspectValues = vals
-        inspecting = true
-        announceAtPosition(pixelX, pixelY)
-    }
-
-    // Dismiss the inspect crosshair/tooltip
-    function dismissInspect() {
-        inspecting = false
-    }
-
-    // Find the Y value in a LineSeries closest to the given time
-    function findValueAtTime(series, time) {
-        if (series.count === 0) return null
-        var closest = series.at(0)
+    // Find the y value in a data array closest to the given time.
+    // Reads from data arrays (not series) so right-axis-mapped traces — which are
+    // no longer Qt Graphs series — are queryable the same way as main-axis traces.
+    function findValueAtTime(data, time) {
+        if (!data || data.length === 0) return null
+        var closest = data[0]
         var minDist = Math.abs(closest.x - time)
-        for (var i = 1; i < series.count; i++) {
-            var p = series.at(i)
+        for (var i = 1; i < data.length; i++) {
+            var p = data[i]
             var dist = Math.abs(p.x - time)
             if (dist < minDist) {
                 closest = p
@@ -242,8 +174,49 @@ ChartView {
         return minDist < 1.0 ? closest.y : null
     }
 
+    function inspectAtPosition(pixelX, pixelY) {
+        var time = _timeAtPixel(pixelX)
+        if (time < 0 || time > timeAxis.max) return
+
+        inspectTime = time
+        inspectPixelX = graphsView.plotArea.x + (time / timeAxis.max) * graphsView.plotArea.width
+
+        // Compute values for every curve — regardless of visibility — so the
+        // inspect bar can react live when the user toggles curves on/off without
+        // re-tapping the graph. GraphInspectBar filters by the current show*
+        // flags at display time.
+        var vals = {}
+        var curves = [
+            { key: "pressure", name: "Pressure", data: pressureData, unit: "bar" },
+            { key: "flow", name: "Flow", data: flowData, unit: "mL/s" },
+            { key: "temperature", name: "Temp", data: temperatureData, unit: "°C" },
+            { key: "mixTemp", name: "Mix temp", data: temperatureMixData, unit: "°C" },
+            { key: "weight", name: "Weight", data: weightData, unit: "g" },
+            { key: "weightFlow", name: "Weight flow", data: weightFlowRateData, unit: "g/s" },
+            { key: "resistance", name: "Resistance", data: resistanceData, unit: "" },
+            { key: "darcyResistance", name: "Darcy R", data: darcyResistanceData, unit: "" },
+            { key: "conductance", name: "Conductance", data: conductanceData, unit: "" },
+            { key: "dCdt", name: "dC/dt", data: conductanceDerivativeData, unit: "" }
+        ]
+
+        for (var i = 0; i < curves.length; i++) {
+            var v = findValueAtTime(curves[i].data, time)
+            if (v !== null) {
+                vals[curves[i].key] = { name: curves[i].name, value: v, unit: curves[i].unit }
+            }
+        }
+
+        inspectValues = vals
+        inspecting = true
+        announceAtPosition(pixelX, pixelY)
+    }
+
+    function dismissInspect() {
+        inspecting = false
+    }
+
     // Return the phase label active at the given time, or empty string if none.
-    // Skips "Start"/"End" sentinels — they are structural markers, not user-facing phases.
+    // Skips "Start"/"End" sentinels — they are structural, not user-facing.
     function getPhaseAtTime(time) {
         var label = ""
         for (var i = 0; i < phaseMarkers.length; i++) {
@@ -258,29 +231,27 @@ ChartView {
         return label
     }
 
-    // Announce curve values at a pixel position (called on tap)
     function announceAtPosition(pixelX, pixelY) {
-        var dataPoint = chart.mapToValue(Qt.point(pixelX, pixelY), pressureSeries)
-        var time = dataPoint.x
+        var time = _timeAtPixel(pixelX)
         if (time < 0 || time > timeAxis.max) return
 
         var curves = [
-            { name: "Pressure", series: pressureSeries, show: showPressure, unit: "bar" },
-            { name: "Flow", series: flowSeries, show: showFlow, unit: "mL/s" },
-            { name: "Temp", series: temperatureSeries, show: showTemperature, unit: "°C" },
-            { name: "Mix temp", series: temperatureMixSeries, show: showTemperatureMix && advancedMode, unit: "°C" },
-            { name: "Weight", series: weightSeries, show: showWeight, unit: "g" },
-            { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow, unit: "g/s" },
-            { name: "Resistance", series: resistanceSeries, show: showResistance && advancedMode, unit: "" },
-            { name: "Darcy R", series: darcyResistanceSeries, show: showDarcyResistance && advancedMode, unit: "" },
-            { name: "Conductance", series: conductanceSeries, show: showConductance && advancedMode, unit: "" },
-            { name: "dC/dt", series: conductanceDerivativeSeries, show: showConductanceDerivative && advancedMode, unit: "" }
+            { name: "Pressure", data: pressureData, show: showPressure, unit: "bar" },
+            { name: "Flow", data: flowData, show: showFlow, unit: "mL/s" },
+            { name: "Temp", data: temperatureData, show: showTemperature, unit: "°C" },
+            { name: "Mix temp", data: temperatureMixData, show: showTemperatureMix && advancedMode, unit: "°C" },
+            { name: "Weight", data: weightData, show: showWeight, unit: "g" },
+            { name: "Weight flow", data: weightFlowRateData, show: showWeightFlow, unit: "g/s" },
+            { name: "Resistance", data: resistanceData, show: showResistance && advancedMode, unit: "" },
+            { name: "Darcy R", data: darcyResistanceData, show: showDarcyResistance && advancedMode, unit: "" },
+            { name: "Conductance", data: conductanceData, show: showConductance && advancedMode, unit: "" },
+            { name: "dC/dt", data: conductanceDerivativeData, show: showConductanceDerivative && advancedMode, unit: "" }
         ]
 
         var parts = []
         for (var i = 0; i < curves.length; i++) {
             if (!curves[i].show) continue
-            var v = findValueAtTime(curves[i].series, time)
+            var v = findValueAtTime(curves[i].data, time)
             if (v !== null) {
                 var entry = curves[i].name + " " + v.toFixed(1)
                 if (curves[i].unit !== "") entry += " " + curves[i].unit
@@ -299,30 +270,15 @@ ChartView {
 
     onPressureDataChanged: Qt.callLater(doReload)
     onFlowDataChanged: Qt.callLater(doReload)
-    onTemperatureDataChanged: Qt.callLater(doReload)
-    onWeightDataChanged: Qt.callLater(doReload)
     onWeightFlowRateDataChanged: Qt.callLater(doReload)
     onResistanceDataChanged: Qt.callLater(doReload)
-    onPressureGoalDataChanged: Qt.callLater(doReload)
-    onFlowGoalDataChanged: Qt.callLater(doReload)
-    onTemperatureGoalDataChanged: Qt.callLater(doReload)
+    onConductanceDataChanged: Qt.callLater(doReload)
+    onDarcyResistanceDataChanged: Qt.callLater(doReload)
     onPhaseMarkersChanged: Qt.callLater(doReload)
     Component.onCompleted: doReload()
 
-    // Time axis
-    ValueAxis {
-        id: timeAxis
-        min: 0
-        max: 60
-        tickCount: 7
-        labelFormat: "%.0f"
-        labelsVisible: chart.showLabels
-        labelsColor: Theme.textSecondaryColor
-        gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-    }
-
     // Dynamic max for pressure/flow axis based on all data (ignores visibility
-    // toggles so the graph doesn't jump when toggling curves on/off)
+    // toggles so the graph doesn't jump when toggling curves on/off).
     property double pressureAxisMax: {
         var maxVal = 0
         for (var i = 0; i < pressureData.length; i++) {
@@ -340,10 +296,9 @@ ChartView {
         for (i = 0; i < flowGoalData.length; i++) {
             if (flowGoalData[i].y > maxVal) maxVal = flowGoalData[i].y
         }
-        // Resistance excluded from axis scaling — values are clamped at source
-        // and clip at the axis boundary, matching the live graph behavior
+        // Resistance excluded — values are clamped at source and clip at the
+        // axis boundary, matching the live graph behaviour.
         if (maxVal < 0.1) return 12  // fallback when no data
-        // Round up to nice tick-friendly value
         var padded = maxVal * 1.15
         if (padded <= 2) return 2
         if (padded <= 4) return 4
@@ -355,274 +310,245 @@ ChartView {
         return Math.ceil(padded / 5) * 5
     }
 
-    // Pressure/Flow axis (left Y)
-    ValueAxis {
-        id: pressureAxis
-        min: 0
-        max: pressureAxisMax
-        tickCount: 5
-        labelFormat: "%.0f"
-        labelsVisible: chart.showLabels
-        labelsColor: Theme.textSecondaryColor
-        gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-        titleText: chart.showLabels ? "bar / mL/s" : ""
-        titleBrush: Theme.textSecondaryColor
-    }
+    // === HIDDEN RIGHT-AXIS HOLDERS ===
+    // Plain QtObjects (not Qt Graphs ValueAxis) — Qt Graphs has no sanctioned
+    // dual-Y-axis path here. DashedLineSeries reads `min`/`max` for its data→
+    // pixel mapping, so a value-holder QObject is enough.
 
-    // Two hidden right axes — used only for correct series mapping (no labels)
-    property double maxWeight: {
-        var max = 0
-        for (var i = 0; i < weightData.length; i++) {
-            if (weightData[i].y > max) max = weightData[i].y
-        }
-        return Math.max(10, max * 1.1)
-    }
-
-    ValueAxis {
+    QtObject {
         id: tempAxis
-        visible: false
-        min: 40
-        max: 100
+        property real min: 40
+        property real max: 100
     }
 
-    ValueAxis {
+    QtObject {
         id: weightAxis
-        visible: false
-        min: 0
-        max: maxWeight
-    }
-
-    // Hidden axis for dC/dt so it doesn't distort the pressure/flow axis.
-    // Range is dynamic: max snaps up from the data peak; min extends below
-    // zero only when the data actually dips negative. Exact values are read
-    // via the inspect crosshair, not axis labels.
-    property double dCdtAxisMax: {
-        var maxVal = 0
-        for (var i = 0; i < conductanceDerivativeData.length; i++) {
-            if (conductanceDerivativeData[i].y > maxVal) maxVal = conductanceDerivativeData[i].y
+        property real min: 0
+        property real max: {
+            var maxW = 0
+            for (var i = 0; i < weightData.length; i++) {
+                if (weightData[i].y > maxW) maxW = weightData[i].y
+            }
+            return Math.max(10, maxW * 1.1)
         }
-        var padded = maxVal * 1.15
-        if (padded <= 2) return 2
-        if (padded <= 3) return 3
-        if (padded <= 5) return 5
-        if (padded <= 8) return 8
-        if (padded <= 10) return 10
-        return Math.ceil(padded / 5) * 5
     }
 
-    property double dCdtAxisMin: {
-        var minVal = 0
-        for (var i = 0; i < conductanceDerivativeData.length; i++) {
-            if (conductanceDerivativeData[i].y < minVal) minVal = conductanceDerivativeData[i].y
-        }
-        return minVal < 0 ? -Math.abs(minVal) * 1.15 : 0
-    }
-
-    ValueAxis {
+    QtObject {
         id: dCdtAxis
-        visible: false
-        min: dCdtAxisMin
-        max: dCdtAxisMax
+        property real min: {
+            var minV = 0
+            for (var i = 0; i < conductanceDerivativeData.length; i++) {
+                if (conductanceDerivativeData[i].y < minV) minV = conductanceDerivativeData[i].y
+            }
+            return minV < 0 ? -Math.abs(minV) * 1.15 : 0
+        }
+        property real max: {
+            var maxV = 0
+            for (var i = 0; i < conductanceDerivativeData.length; i++) {
+                if (conductanceDerivativeData[i].y > maxV) maxV = conductanceDerivativeData[i].y
+            }
+            var padded = maxV * 1.15
+            if (padded <= 2) return 2
+            if (padded <= 3) return 3
+            if (padded <= 5) return 5
+            if (padded <= 8) return 8
+            if (padded <= 10) return 10
+            return Math.ceil(padded / 5) * 5
+        }
     }
 
-    // === EXTRACTION START / STOP MARKERS (styled differently from frame markers) ===
+    GraphsView {
+        id: graphsView
+        anchors.fill: parent
+        anchors.rightMargin: chart.showLabels ? Theme.scaled(35) : 0
+        theme: DecenzaGraphsTheme {}
 
-    LineSeries {
-        id: extractionStartMarker
-        name: ""
-        color: Theme.accentColor
-        width: Theme.scaled(2)
-        style: Qt.DashDotLine
         axisX: timeAxis
         axisY: pressureAxis
+
+        onPlotAreaChanged: chart.updateTimeAxis()
+
+        ValueAxis {
+            id: timeAxis
+            min: 0
+            max: 60
+            tickInterval: 10
+            subTickCount: 0
+            labelFormat: "%.0f"
+            visible: chart.showLabels
+        }
+
+        ValueAxis {
+            id: pressureAxis
+            min: 0
+            max: chart.pressureAxisMax
+            tickInterval: Math.max(1, Math.round(chart.pressureAxisMax / 4))
+            subTickCount: 0
+            labelFormat: "%.0f"
+            visible: chart.showLabels
+            titleText: chart.showLabels ? "bar / mL/s" : ""
+        }
+
+        // === MAIN-AXIS DATA LINES (Qt Graphs native series) ===
+
+        LineSeries {
+            id: pressureSeries
+            color: Theme.pressureColor
+            width: Theme.scaled(3)
+            visible: chart.showPressure
+        }
+
+        LineSeries {
+            id: flowSeries
+            color: Theme.flowColor
+            width: Theme.scaled(3)
+            visible: chart.showFlow
+        }
+
+        LineSeries {
+            id: weightFlowRateSeries
+            color: Theme.weightFlowColor
+            width: Theme.scaled(2)
+            visible: chart.showWeightFlow
+        }
+
+        LineSeries {
+            id: resistanceSeries
+            color: Theme.resistanceColor
+            width: Theme.scaled(2)
+            visible: chart.showResistance && chart.advancedMode
+        }
+
+        LineSeries {
+            id: conductanceSeries
+            color: Theme.conductanceColor
+            width: Theme.scaled(2)
+            visible: chart.showConductance && chart.advancedMode
+        }
+
+        LineSeries {
+            id: darcyResistanceSeries
+            color: Theme.darcyResistanceColor
+            width: Theme.scaled(2)
+            visible: chart.showDarcyResistance && chart.advancedMode
+        }
     }
 
-    // === GOAL LINES (dashed) — segments for clean breaks at pump mode transitions ===
+    // === RIGHT-AXIS DATA LINES (DashedLineSeries with solid stroke) ===
+    // Qt Graphs has no axisYRight for these in our setup, so they render as
+    // bridge overlays mapped against their own min/max value holders.
 
-    // Pressure goal segments (up to 5 for mode switches)
-    LineSeries { id: pressureGoal1; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal2; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal3; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal4; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal5; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-
-    property var _pressureGoalLines: [pressureGoal1, pressureGoal2, pressureGoal3, pressureGoal4, pressureGoal5]
-
-    // Flow goal segments (up to 5 for mode switches)
-    LineSeries { id: flowGoal1; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal2; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal3; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal4; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal5; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-
-    property var _flowGoalLines: [flowGoal1, flowGoal2, flowGoal3, flowGoal4, flowGoal5]
-
-    // Temperature goal (single line — continuous across all modes)
-    LineSeries {
-        id: temperatureGoalSeries
-        name: ""
-        color: Theme.temperatureGoalColor
-        width: Theme.scaled(2)
-        style: Qt.DashLine
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisYRight: tempAxis
+        axisY: tempAxis
+        points: chart.temperatureData
+        strokeColor: Theme.temperatureColor
+        strokeWidth: Theme.scaled(3)
+        dashed: false
         visible: chart.showTemperature
     }
 
-    // === ACTUAL DATA LINES ===
-
-    // Pressure line
-    LineSeries {
-        id: pressureSeries
-        name: "Pressure"
-        color: Theme.pressureColor
-        width: Theme.scaled(3)
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showPressure
-    }
-
-    // Flow line
-    LineSeries {
-        id: flowSeries
-        name: "Flow"
-        color: Theme.flowColor
-        width: Theme.scaled(3)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showFlow
-    }
-
-    // Temperature line
-    LineSeries {
-        id: temperatureSeries
-        name: "Temperature"
-        color: Theme.temperatureColor
-        width: Theme.scaled(3)
-        axisX: timeAxis
-        axisYRight: tempAxis
-        visible: chart.showTemperature
-    }
-
-    // Weight line
-    LineSeries {
-        id: weightSeries
-        name: "Weight"
-        color: Theme.weightColor
-        width: Theme.scaled(3)
-        axisX: timeAxis
-        axisYRight: weightAxis
-        visible: chart.showWeight
-    }
-
-    // Weight flow rate (delta) line - shows g/s from scale
-    LineSeries {
-        id: weightFlowRateSeries
-        name: "Weight Flow"
-        color: Theme.weightFlowColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showWeightFlow
-    }
-
-    // Puck resistance line (P/F)
-    LineSeries {
-        id: resistanceSeries
-        name: "Resistance"
-        color: Theme.resistanceColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showResistance && chart.advancedMode
-    }
-
-    LineSeries {
-        id: conductanceSeries
-        name: "Conductance"
-        color: Theme.conductanceColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showConductance && chart.advancedMode
-    }
-
-    LineSeries {
-        id: darcyResistanceSeries
-        name: "Darcy Resistance"
-        color: Theme.darcyResistanceColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showDarcyResistance && chart.advancedMode
-    }
-
-    LineSeries {
-        id: conductanceDerivativeSeries
-        name: "dC/dt"
-        color: Theme.conductanceDerivativeColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisYRight: dCdtAxis
-        visible: chart.showConductanceDerivative && chart.advancedMode
-    }
-
-    LineSeries {
-        id: temperatureMixSeries
-        name: "Mix Temp"
-        color: Theme.temperatureMixColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisYRight: tempAxis
+        axisY: tempAxis
+        points: chart.temperatureMixData
+        strokeColor: Theme.temperatureMixColor
+        strokeWidth: Theme.scaled(2)
+        dashed: false
         visible: chart.showTemperatureMix && chart.advancedMode
     }
 
-    // Phase marker vertical lines (up to 10 markers)
-    LineSeries { id: markerLine1; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine2; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine3; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine4; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine5; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine6; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine7; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine8; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine9; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: markerLine10; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        axisY: weightAxis
+        points: chart.weightData
+        strokeColor: Theme.weightColor
+        strokeWidth: Theme.scaled(3)
+        dashed: false
+        visible: chart.showWeight
+    }
 
-    property var _markerLines: [markerLine1, markerLine2, markerLine3, markerLine4, markerLine5,
-                                markerLine6, markerLine7, markerLine8, markerLine9, markerLine10]
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        axisY: dCdtAxis
+        points: chart.conductanceDerivativeData
+        strokeColor: Theme.conductanceDerivativeColor
+        strokeWidth: Theme.scaled(2)
+        dashed: false
+        visible: chart.showConductanceDerivative && chart.advancedMode
+    }
 
-    function loadMarkers() {
-        // Clear all marker lines
-        for (var i = 0; i < _markerLines.length; i++) {
-            _markerLines[i].clear()
+    // === DASHED GOAL CURVES ===
+
+    Repeater {
+        model: chart.pressureGoalSegments
+        delegate: DashedLineSeries {
+            required property var modelData
+            graphsView: chart.graphsViewRef
+            axisX: timeAxis
+            axisY: pressureAxis
+            points: modelData
+            strokeColor: Theme.pressureGoalColor
+            strokeWidth: Theme.scaled(2)
+            visible: chart.showPressure
         }
-        extractionStartMarker.clear()
+    }
 
-        // Draw vertical lines for each phase marker. "End" markers are skipped
-        // — they were only added on SAW-triggered stops, so their presence was
-        // inconsistent. The last frame-transition marker already signals the
-        // end of extraction.
-        var markerIdx = 0
-        for (var m = 0; m < phaseMarkers.length; m++) {
-            var marker = phaseMarkers[m]
-            if (marker.label === "End") continue
-            var t = marker.time
-            if (marker.label === "Start") {
-                extractionStartMarker.append(t, 0)
-                extractionStartMarker.append(t, 100)
-            } else if (markerIdx < _markerLines.length) {
-                _markerLines[markerIdx].append(t, 0)
-                _markerLines[markerIdx].append(t, 100)
-                markerIdx++
-            }
+    Repeater {
+        model: chart.flowGoalSegments
+        delegate: DashedLineSeries {
+            required property var modelData
+            graphsView: chart.graphsViewRef
+            axisX: timeAxis
+            axisY: pressureAxis
+            points: modelData
+            strokeColor: Theme.flowGoalColor
+            strokeWidth: Theme.scaled(2)
+            visible: chart.showFlow
+        }
+    }
+
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        axisY: tempAxis
+        points: chart.temperatureGoalData
+        strokeColor: Theme.temperatureGoalColor
+        strokeWidth: Theme.scaled(2)
+        visible: chart.showTemperature
+    }
+
+    // === VERTICAL PHASE / FRAME MARKER LINES ===
+
+    Repeater {
+        model: chart.phaseMarkers
+        delegate: DashedLineSeries {
+            required property var modelData
+            readonly property string markerLabel: modelData.label
+            readonly property bool isStart: markerLabel === "Start"
+            readonly property bool isEnd: markerLabel === "End"
+
+            graphsView: chart.graphsViewRef
+            axisX: timeAxis
+            axisY: pressureAxis
+            points: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 100)]
+            strokeColor: isStart ? Theme.accentColor : Theme.frameMarkerColor
+            strokeWidth: isStart ? Theme.scaled(2) : Theme.scaled(1)
+            dashPattern: isStart ? [4, 2, 1, 2] : [1, 3]
+            // "End" markers were inconsistently emitted in older history rows; the
+            // last frame-transition marker already signals end of extraction.
+            visible: !isEnd
         }
     }
 
     // Phase marker labels
     Repeater {
         id: markerLabels
-        model: phaseMarkers
+        model: chart.phaseMarkers
 
         delegate: Item {
             id: markerDelegate
@@ -633,9 +559,9 @@ ChartView {
             property string transitionReason: modelData.transitionReason || ""
             property bool isStart: modelData.label === "Start"
 
-            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
-            y: chart.plotArea.y
-            height: chart.plotArea.height
+            x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
+            y: graphsView.plotArea.y
+            height: graphsView.plotArea.height
             visible: markerTime <= timeAxis.max && markerTime >= 0 && chart.showPhaseLabels
                      && markerLabel !== "End"
 
@@ -673,7 +599,7 @@ ChartView {
     // Pump mode indicator bars at bottom of chart
     Repeater {
         id: pumpModeIndicators
-        model: phaseMarkers
+        model: chart.phaseMarkers
 
         delegate: Rectangle {
             required property int index
@@ -681,15 +607,15 @@ ChartView {
             property double markerTime: modelData.time
             property bool isFlowMode: modelData.isFlowMode || false
             property double nextTime: {
-                if (index < phaseMarkers.length - 1) {
-                    return phaseMarkers[index + 1].time
+                if (index < chart.phaseMarkers.length - 1) {
+                    return chart.phaseMarkers[index + 1].time
                 }
-                return maxTime
+                return chart.maxTime
             }
 
-            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
-            y: chart.plotArea.y + chart.plotArea.height - Theme.scaled(4)
-            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * chart.plotArea.width)
+            x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
+            y: graphsView.plotArea.y + graphsView.plotArea.height - Theme.scaled(4)
+            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * graphsView.plotArea.width)
             height: Theme.scaled(4)
             color: isFlowMode ? Theme.flowColor : Theme.pressureColor
             opacity: 0.8
@@ -700,12 +626,13 @@ ChartView {
 
     // Time axis label - inside graph at bottom right
     Text {
-        x: chart.plotArea.x + chart.plotArea.width - width - Theme.spacingSmall
-        y: chart.plotArea.y + chart.plotArea.height - height - Theme.scaled(12)
+        x: graphsView.plotArea.x + graphsView.plotArea.width - width - Theme.spacingSmall
+        y: graphsView.plotArea.y + graphsView.plotArea.height - height - Theme.scaled(12)
         text: TranslationManager.translate("graph.timeAxis", "Time (s)")
         color: Theme.textSecondaryColor
         font: Theme.captionFont
         opacity: 0.7
+        visible: chart.showLabels
         Accessible.ignored: true
     }
 
@@ -714,22 +641,23 @@ ChartView {
         id: crosshairLine
         visible: chart.inspecting
         x: chart.inspectPixelX - width / 2
-        y: chart.plotArea.y
+        y: graphsView.plotArea.y
         width: Theme.scaled(1)
-        height: chart.plotArea.height
+        height: graphsView.plotArea.height
         color: Theme.textColor
         opacity: 0.6
         Accessible.ignored: true
     }
 
-    // Manual right-axis labels (fixed position — no layout shift when swapping)
+    // Manual right-axis labels (fixed position — no layout shift when swapping
+    // between weight and temperature scales).
     Item {
         id: rightAxisLabels
         visible: chart.showLabels
-        x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)
-        y: chart.plotArea.y
+        x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
+        y: graphsView.plotArea.y
         width: chart.width - x
-        height: chart.plotArea.height
+        height: graphsView.plotArea.height
 
         Accessible.role: Accessible.Button
         Accessible.name: chart.showWeightAxis ? TranslationManager.translate("graph.rightAxisWeight", "Right axis: Weight. Tap for Temperature")
@@ -739,7 +667,6 @@ ChartView {
 
         property color labelColor: chart.showWeightAxis ? Theme.weightColor : Theme.temperatureColor
 
-        // Tick labels
         Repeater {
             model: 5
             Text {
@@ -758,7 +685,6 @@ ChartView {
             }
         }
 
-        // Axis title (rotated, centered vertically — mirrors the left axis title)
         Text {
             text: chart.showWeightAxis ? "g" : "°C"
             font: Theme.captionFont
@@ -769,6 +695,11 @@ ChartView {
             y: rightAxisLabels.height / 2 - height / 2
             Accessible.ignored: true
         }
-    }
 
+        MouseArea {
+            id: axisToggleArea
+            anchors.fill: parent
+            onClicked: chart.toggleRightAxis()
+        }
+    }
 }

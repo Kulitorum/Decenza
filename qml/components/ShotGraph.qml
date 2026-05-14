@@ -1,14 +1,25 @@
 import QtQuick
-import QtCharts
+import QtGraphs
 import Decenza
 import "."  // For AccessibleMouseArea
+import "graphs"
 
-ChartView {
+// Outer Item wraps GraphsView so all overlays — FastLineRenderer traces, dashed
+// goal curves, phase-marker vertical lines, manual right-axis labels — render as
+// siblings on top of the chart. GraphsView's scene-graph paints over any direct
+// QQuickItem children, so overlays must be siblings, not children.
+Item {
     id: chart
-    antialiasing: true
-    backgroundColor: "transparent"
-    plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
-    legend.visible: false
+
+    // Alias so DashedLineSeries delegates can reach the GraphsView without
+    // writing `graphsView: graphsView` — that RHS shadows the delegate's own
+    // `graphsView` property (which defaults to `parent`) and resolves to null.
+    readonly property alias graphsViewRef: graphsView
+
+    // Re-export the GraphsView's plot rect for parent pages that hit-test
+    // against it (e.g. right-axis toggle overlays). Matches the legacy
+    // Qt Charts ChartView.plotArea API.
+    readonly property rect plotArea: graphsView.plotArea
 
     // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
     // QSettings' INI-backend strings ("true"/"false") to real booleans — plain
@@ -34,51 +45,35 @@ ChartView {
         Settings.setValue("graph/showWeightAxis", showWeightAxis)
     }
 
-    margins.top: Theme.scaled(10)
-    margins.bottom: 0
-    margins.left: Theme.scaled(40)
-    margins.right: Theme.scaled(55)
-
-    // Register goal/marker LineSeries with C++ model (infrequent updates, replace() is fine)
-    Component.onCompleted: {
-        ShotDataModel.registerSeries(
-            [pressureGoal1, pressureGoal2, pressureGoal3, pressureGoal4, pressureGoal5],
-            [flowGoal1, flowGoal2, flowGoal3, flowGoal4, flowGoal5],
-            temperatureGoalSeries,
-            extractionStartMarker, stopMarker,
-            [frameMarker1, frameMarker2, frameMarker3, frameMarker4, frameMarker5,
-             frameMarker6, frameMarker7, frameMarker8, frameMarker9, frameMarker10]
-        )
-        // Register fast renderers (QSGGeometryNode, pre-allocated VBO - no rebuilds)
-        ShotDataModel.registerFastSeries(
-            pressureRenderer, flowRenderer, temperatureRenderer,
-            weightRenderer, weightFlowRenderer, resistanceRenderer,
-            conductanceRenderer, darcyResistanceRenderer, temperatureMixRenderer
-        )
-        recalcMax()
-    }
-
-    // Calculate axis max: data fills frame with exactly 5 scaled pixels padding at right
-    // Solve: max = rawTime + paddingPixels * (max / plotWidth)
-    // => max = rawTime * plotWidth / (plotWidth - paddingPixels)
-    //
-    // timeAxis.max and tickCount are set imperatively in recalcMax() to avoid a
-    // binding loop: max → ChartView relayout → plotArea → cachedPlotWidth → recalcMax → max.
-    // Qt detects the circular dependency chain even when guards prevent infinite recursion,
-    // so we break it by removing all declarative bindings on timeAxis properties.
+    // Auto-expanding time axis. timeAxis.max is set imperatively by recalcMax() to
+    // avoid the binding-loop chain max → relayout → plotArea → cachedPlotWidth → recalcMax.
     property double minTime: 5.0
     property double paddingPixels: Theme.scaled(5)
     property double cachedPlotWidth: 1
-    property double _lastAxisMax: 5.0  // Internal change-detection cache — do NOT bind to this (causes binding loop)
+    property double _lastAxisMax: 5.0
+
+    // Pick a tickInterval that keeps the axis readable across the whole shot-length
+    // range (5 s warm-up through a 60 s+ long pour) without leaving a huge dead
+    // zone past the last tick. Mirrors the dynamic tickCount logic from Qt Charts.
+    function _niceTimeAxisStep(span) {
+        if (span <= 5)  return 1
+        if (span <= 10) return 2
+        if (span <= 30) return 5
+        return 10
+    }
 
     function recalcMax() {
+        // Track rawTime continuously (no snap-to-tick) so live data always reaches
+        // the right edge — matches the Qt Charts feel. Ticks land at multiples of
+        // tickInterval; the rightmost one may sit short of the plot edge during the
+        // shot, which is fine.
         var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
-        if (newMax !== _lastAxisMax) {
+        var step = _niceTimeAxisStep(newMax)
+        if (newMax !== _lastAxisMax || timeAxis.tickInterval !== step) {
             _lastAxisMax = newMax
-            // Assign imperatively — see block comment above for binding loop explanation
             timeAxis.max = newMax
-            timeAxis.tickCount = Math.min(7, Math.max(3, Math.floor(newMax / 10) + 2))
+            timeAxis.tickInterval = step
         }
     }
 
@@ -87,145 +82,155 @@ ChartView {
         function onRawTimeChanged() { chart.recalcMax() }
     }
 
-    onPlotAreaChanged: {
-        var w = Math.max(1, chart.plotArea.width)
-        if (Math.abs(w - cachedPlotWidth) > 1) {
-            cachedPlotWidth = w
-            recalcMax()
+    Component.onCompleted: {
+        ShotDataModel.registerFastSeries(
+            pressureRenderer, flowRenderer, temperatureRenderer,
+            weightRenderer, weightFlowRenderer, resistanceRenderer,
+            conductanceRenderer, darcyResistanceRenderer, temperatureMixRenderer
+        )
+        recalcMax()
+    }
+
+    GraphsView {
+        id: graphsView
+        anchors.fill: parent
+        // Reserve room on the right for the manual temperature/weight labels and
+        // on top for the legend. Qt Graphs doesn't carve out a right margin the
+        // way Qt Charts' margins.right did.
+        anchors.rightMargin: Theme.scaled(55)
+        anchors.topMargin: Theme.scaled(10)
+        theme: DecenzaGraphsTheme {}
+
+        axisX: timeAxis
+        axisY: pressureAxis
+
+        onPlotAreaChanged: {
+            var w = Math.max(1, graphsView.plotArea.width)
+            if (Math.abs(w - chart.cachedPlotWidth) > 1) {
+                chart.cachedPlotWidth = w
+                chart.recalcMax()
+            }
+        }
+
+        // Time axis (X). max is set imperatively by recalcMax() — declarative binding
+        // forms a feedback loop with the plotArea-driven recalc.
+        ValueAxis {
+            id: timeAxis
+            min: 0
+            max: chart.minTime
+            tickInterval: 10
+            subTickCount: 0
+            labelFormat: "%.0f"
+        }
+
+        // Pressure/Flow axis (left Y).
+        // tickInterval 3 reproduces the original tickCount: 5 (labels at 0, 3, 6, 9, 12).
+        ValueAxis {
+            id: pressureAxis
+            min: 0
+            max: 12
+            tickInterval: 3
+            subTickCount: 0
+            labelFormat: "%.0f"
+            titleText: "bar / mL·g/s"
         }
     }
 
-    // Time axis - fills frame, expands only when data pushes against right edge
-    ValueAxis {
-        id: timeAxis
-        min: 0
-        // max and tickCount are set imperatively by recalcMax() to avoid binding loop
-        max: minTime
-        tickCount: 3
-        labelFormat: "%.0f"
-        labelsColor: Theme.textSecondaryColor
-        gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-        // Title moved inside graph to save vertical space
-
-        // Animation disabled: causes visible lag and curves extending past plot area
-        // Behavior on max {
-        //     NumberAnimation { duration: 100; easing.type: Easing.Linear }
-        // }
-    }
-
-    // Pressure/Flow axis (left Y)
-    ValueAxis {
-        id: pressureAxis
-        min: 0
-        max: 12
-        tickCount: 5
-        labelFormat: "%.0f"
-        labelsColor: Theme.textSecondaryColor
-        gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-        titleText: "bar / mL·g/s"
-        titleBrush: Theme.textSecondaryColor
-    }
-
-    // Temperature axis (right Y) - hidden; labels provided by rightAxisLabels
-    ValueAxis {
+    // === HIDDEN RIGHT-AXIS HOLDERS ===
+    // QtObject value holders that DashedLineSeries / FastLineRenderer can read for
+    // coordinate mapping. Qt Graphs has no sanctioned dual-Y-axis path here.
+    QtObject {
         id: tempAxis
-        min: 40
-        max: 100
-        tickCount: 5
-        visible: false
+        property real min: 40
+        property real max: 100
     }
 
-    // Weight axis (right Y) - hidden; labels provided by rightAxisLabels
-    ValueAxis {
+    QtObject {
         id: weightAxis
-        min: 0
+        property real min: 0
         // Live shots may bump SAW past the configured target (#792 +10g button), so
         // take the larger of profile target and current MachineState target. Each
         // source uses an explicit > 0 check because targetWeight == 0 means SAW
         // disabled, and JS `||` would conflate that with "no data".
-        max: Math.max(10, Math.max(
+        property real max: Math.max(10, Math.max(
             ProfileManager.targetWeight > 0 ? ProfileManager.targetWeight : 0,
             MachineState.targetWeight > 0 ? MachineState.targetWeight : 0,
             36) * 1.1)
-        tickCount: 5
-        visible: false
     }
 
-    // === PHASE MARKER LINES ===
+    // === DASHED GOAL CURVES (bridge overlays) ===
 
-    LineSeries {
-        id: extractionStartMarker
-        name: ""
-        color: Theme.accentColor
-        width: Theme.scaled(2)
-        style: Qt.DashDotLine
-        axisX: timeAxis
-        axisY: pressureAxis
+    // Pressure goal segments
+    Repeater {
+        model: ShotDataModel.pressureGoalSegments
+        delegate: DashedLineSeries {
+            required property var modelData
+            graphsView: chart.graphsViewRef
+            axisX: timeAxis
+            axisY: pressureAxis
+            points: modelData
+            strokeColor: Theme.pressureGoalColor
+            strokeWidth: Theme.scaled(2)
+            visible: chart.showPressure
+        }
     }
 
-    LineSeries {
-        id: stopMarker
-        name: ""
-        color: Theme.stopMarkerColor
-        width: Theme.scaled(2)
-        style: Qt.DashDotLine
-        axisX: timeAxis
-        axisY: pressureAxis
+    // Flow goal segments
+    Repeater {
+        model: ShotDataModel.flowGoalSegments
+        delegate: DashedLineSeries {
+            required property var modelData
+            graphsView: chart.graphsViewRef
+            axisX: timeAxis
+            axisY: pressureAxis
+            points: modelData
+            strokeColor: Theme.flowGoalColor
+            strokeWidth: Theme.scaled(2)
+            visible: chart.showFlow
+        }
     }
 
-    LineSeries { id: frameMarker1; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker2; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker3; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker4; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker5; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker6; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker7; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker8; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker9; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: frameMarker10; name: ""; color: Theme.frameMarkerColor; width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
-
-    // === GOAL LINES (dashed) - Multiple segments for clean breaks ===
-
-    // Pressure goal segments (up to 5 segments for mode switches)
-    LineSeries { id: pressureGoal1; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal2; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal3; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal4; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-    LineSeries { id: pressureGoal5; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
-
-    // Flow goal segments (up to 5 segments for mode switches)
-    LineSeries { id: flowGoal1; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal2; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal3; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal4; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-    LineSeries { id: flowGoal5; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
-
-    LineSeries {
-        id: temperatureGoalSeries
-        name: "T Goal"
-        color: Theme.temperatureGoalColor
-        width: Theme.scaled(2)
-        style: Qt.DashLine
+    // Temperature goal — mapped to the right tempAxis.
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
         axisX: timeAxis
-        axisYRight: tempAxis
+        axisY: tempAxis
+        points: ShotDataModel.temperatureGoalPoints
+        strokeColor: Theme.temperatureGoalColor
+        strokeWidth: Theme.scaled(2)
         visible: chart.showTemperature
     }
 
-    // Empty anchor series to keep the weight axis registered with ChartView
-    // (required for weightAxis min/max properties to update correctly)
-    LineSeries {
-        name: ""
-        axisX: timeAxis
-        axisYRight: weightAxis
+    // === VERTICAL PHASE / FRAME MARKER LINES ===
+
+    Repeater {
+        model: ShotDataModel.phaseMarkers
+        delegate: DashedLineSeries {
+            required property var modelData
+            readonly property string markerLabel: modelData.label
+            readonly property bool isStart: markerLabel === "Start"
+            readonly property bool isEnd: markerLabel === "End"
+
+            graphsView: chart.graphsViewRef
+            axisX: timeAxis
+            axisY: pressureAxis
+            points: [Qt.point(modelData.time, 0), Qt.point(modelData.time, 12)]
+            strokeColor: isStart ? Theme.accentColor
+                                 : (isEnd ? Theme.stopMarkerColor : Theme.frameMarkerColor)
+            strokeWidth: (isStart || isEnd) ? Theme.scaled(2) : Theme.scaled(1)
+            // DashDot for phase markers, Dot for inter-frame markers — closest equivalents
+            // to Qt Charts' Qt.DashDotLine / Qt.DotLine on a ShapePath dash pattern.
+            dashPattern: (isStart || isEnd) ? [4, 2, 1, 2] : [1, 3]
+        }
     }
 
     // === ACTUAL LINES (solid) - FastLineRenderer with pre-allocated VBO ===
-    // These render outside Qt Charts via QSGGeometryNode for zero-copy GPU updates
+    // These render outside Qt Graphs via QSGGeometryNode for zero-copy GPU updates.
 
     FastLineRenderer {
         id: pressureRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.pressureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -235,8 +240,8 @@ ChartView {
 
     FastLineRenderer {
         id: flowRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.flowColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -246,8 +251,8 @@ ChartView {
 
     FastLineRenderer {
         id: temperatureRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.temperatureColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -257,8 +262,8 @@ ChartView {
 
     FastLineRenderer {
         id: weightFlowRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.weightFlowColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -268,8 +273,8 @@ ChartView {
 
     FastLineRenderer {
         id: resistanceRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.resistanceColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -279,8 +284,8 @@ ChartView {
 
     FastLineRenderer {
         id: conductanceRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.conductanceColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -290,8 +295,8 @@ ChartView {
 
     FastLineRenderer {
         id: darcyResistanceRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.darcyResistanceColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -301,8 +306,8 @@ ChartView {
 
     FastLineRenderer {
         id: temperatureMixRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.temperatureMixColor
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -312,8 +317,8 @@ ChartView {
 
     FastLineRenderer {
         id: weightRenderer
-        x: chart.plotArea.x; y: chart.plotArea.y
-        width: chart.plotArea.width; height: chart.plotArea.height
+        x: graphsView.plotArea.x; y: graphsView.plotArea.y
+        width: graphsView.plotArea.width; height: graphsView.plotArea.height
         color: Theme.weightColor
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
@@ -321,7 +326,7 @@ ChartView {
         visible: chart.showWeight
     }
 
-    // Frame marker labels
+    // Frame marker labels (rotated text)
     Repeater {
         id: markerLabels
         model: ShotDataModel.phaseMarkers
@@ -336,10 +341,9 @@ ChartView {
             property bool isStart: modelData.label === "Start"
             property bool isEnd: modelData.label === "End"
 
-            // Calculate position using timeAxis.max for consistent scaling with smooth scroll
-            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
-            y: chart.plotArea.y
-            height: chart.plotArea.height
+            x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
+            y: graphsView.plotArea.y
+            height: graphsView.plotArea.height
             visible: markerTime <= timeAxis.max && markerTime >= 0
 
             Text {
@@ -362,7 +366,6 @@ ChartView {
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(4)
                 y: Theme.scaled(8) + width
-                // Decorative - accessibility handled by tap area below
                 Accessible.ignored: true
 
                 Rectangle {
@@ -416,14 +419,12 @@ ChartView {
                 if (index < markers.length - 1) {
                     return markers[index + 1].time
                 }
-                // For the last marker, extend to the current data position
                 return Math.min(ShotDataModel.rawTime, timeAxis.max)
             }
 
-            // Position and size based on marker time range
-            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
-            y: chart.plotArea.y + chart.plotArea.height - Theme.scaled(4)
-            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * chart.plotArea.width)
+            x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
+            y: graphsView.plotArea.y + graphsView.plotArea.height - Theme.scaled(4)
+            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * graphsView.plotArea.width)
             height: Theme.scaled(4)
             color: isFlowMode ? Theme.flowColor : Theme.pressureColor
             opacity: 0.8
@@ -433,8 +434,8 @@ ChartView {
 
     // Time axis label - inside graph at bottom right
     Text {
-        x: chart.plotArea.x + chart.plotArea.width - width - Theme.spacingSmall
-        y: chart.plotArea.y + chart.plotArea.height - height - Theme.scaled(12)
+        x: graphsView.plotArea.x + graphsView.plotArea.width - width - Theme.spacingSmall
+        y: graphsView.plotArea.y + graphsView.plotArea.height - height - Theme.scaled(12)
         text: TranslationManager.translate("graph.axis.time", "Time (s)")
         color: Theme.textSecondaryColor
         font: Theme.captionFont
@@ -442,14 +443,14 @@ ChartView {
         Accessible.ignored: true
     }
 
-    // Manual right-axis labels — built-in Qt Charts axes cause layout shift
-    // (plotArea resizes when axis visibility toggles), so we draw labels at a fixed position
+    // Manual right-axis labels — toggling visibility on Qt Graphs ValueAxis would
+    // resize the plot area, so we draw labels at a fixed position instead.
     Item {
         id: rightAxisLabels
-        x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)
-        y: chart.plotArea.y
+        x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(4)
+        y: graphsView.plotArea.y
         width: chart.width - x
-        height: chart.plotArea.height
+        height: graphsView.plotArea.height
 
         Accessible.role: Accessible.Button
         Accessible.name: chart.showWeightAxis ? TranslationManager.translate("graph.rightAxisWeight", "Right axis: Weight. Tap for Temperature")
@@ -459,7 +460,7 @@ ChartView {
 
         property color labelColor: chart.showWeightAxis ? Theme.weightColor : Theme.temperatureColor
 
-        // Tick labels — count must match tickCount on tempAxis/weightAxis
+        // Tick labels — five evenly spaced labels mirror the original tickCount: 5.
         Repeater {
             model: 5
             Text {

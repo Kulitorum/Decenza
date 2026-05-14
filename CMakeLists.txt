@@ -66,7 +66,6 @@ find_package(Qt6 REQUIRED COMPONENTS
     Quick
     QuickControls2
     Bluetooth
-    Charts
     Graphs
     Svg
     Multimedia
@@ -552,7 +551,6 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Bluetooth
-    Qt6::Charts
     Qt6::Graphs
     Qt6::Svg
     Qt6::Multimedia

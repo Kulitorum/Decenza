@@ -5,18 +5,27 @@
 // overlay aligned to a parent `GraphsView`'s plot area, mapping data-space
 // points (matching the attached `axisX` / `axisY`) into pixel space.
 //
-// Place this *inside* a `GraphsView` (so `plotArea` is reachable as
-// `plotArea` on the parent) or pass an explicit `graphsView` reference.
+// Standard placement is as a SIBLING of `GraphsView` inside an outer wrapper
+// Item, with `graphsView` set explicitly via the chart's `graphsViewRef`
+// alias. Children of `GraphsView` are painted over by its own scene-graph
+// pass and don't show up. Inside-the-GraphsView placement still works if no
+// overlap with axis grids/labels is needed — `graphsView` then defaults to
+// `parent`.
 //
-// Usage:
-//   DashedLineSeries {
-//       graphsView: chart           // optional; defaults to parent
-//       axisX: timeAxis
-//       axisY: valueAxis
-//       points: shotModel.goalPoints   // [Qt.point(x, y), ...] from your data model
-//       strokeColor: Theme.flowGoalColor
-//       strokeWidth: Theme.graphLineWidth
-//       dashPattern: [4, 4]
+// Usage (sibling pattern, used by every Decenza chart in this codebase):
+//   Item {
+//       id: chart
+//       readonly property alias graphsViewRef: graphsView
+//       GraphsView { id: graphsView; axisX: timeAxis; axisY: valueAxis; ... }
+//       DashedLineSeries {
+//           graphsView: chart.graphsViewRef
+//           axisX: timeAxis
+//           axisY: valueAxis
+//           points: shotModel.goalPoints   // [Qt.point(x, y), ...]
+//           strokeColor: Theme.flowGoalColor
+//           strokeWidth: Theme.graphLineWidth
+//           dashPattern: [4, 4]
+//       }
 //   }
 //
 // Replaces: Qt Charts `LineSeries { style: Qt.DashLine }`.
@@ -43,7 +52,8 @@ Item {
     // Stroke style.
     property color strokeColor: Theme.textColor
     property real strokeWidth: Theme.graphLineWidth
-    property var dashPattern: [4, 4]  // length pairs in stroke widths
+    property bool dashed: true
+    property var dashPattern: [4, 4]  // length pairs in stroke widths; ignored when dashed: false
 
     // The overlay fills the plot area of the parent GraphsView.
     readonly property var _plotArea: graphsView && graphsView.plotArea ? graphsView.plotArea : null
@@ -101,7 +111,7 @@ Item {
             strokeColor: root.strokeColor
             strokeWidth: root.strokeWidth
             fillColor: "transparent"
-            strokeStyle: ShapePath.DashLine
+            strokeStyle: root.dashed ? ShapePath.DashLine : ShapePath.SolidLine
             dashPattern: root.dashPattern
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin

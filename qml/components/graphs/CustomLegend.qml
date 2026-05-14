@@ -38,6 +38,7 @@ Item {
     // Emitted when the user taps an entry; consumer applies the new state to the series.
     signal entryToggled(int index, bool nowActive)
 
+    implicitWidth: legendFlow.implicitWidth
     implicitHeight: legendFlow.implicitHeight
     Layout.fillWidth: true
 

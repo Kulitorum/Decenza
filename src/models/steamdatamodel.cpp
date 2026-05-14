@@ -23,6 +23,15 @@ SteamDataModel::~SteamDataModel() {
     }
 }
 
+QVariantList SteamDataModel::flowGoalPoints() const {
+    QVariantList list;
+    list.reserve(m_flowGoalPoints.size());
+    for (const QPointF& p : m_flowGoalPoints) {
+        list.append(QVariant::fromValue(p));
+    }
+    return list;
+}
+
 void SteamDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                           FastLineRenderer* temperature) {
     m_fastPressure = pressure;
@@ -48,15 +57,6 @@ void SteamDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRend
     m_flushTimer->start();
 }
 
-void SteamDataModel::registerGoalSeries(QLineSeries* flowGoal) {
-    m_flowGoalSeries = flowGoal;
-
-    // Flush any existing goal data
-    if (m_flowGoalSeries && !m_flowGoalPoints.isEmpty()) {
-        m_flowGoalSeries->replace(m_flowGoalPoints);
-    }
-}
-
 void SteamDataModel::clear() {
     m_flushTimer->stop();
 
@@ -72,7 +72,6 @@ void SteamDataModel::clear() {
     m_lastFlushedFlow = 0;
     m_lastFlushedTemp = 0;
 
-    if (m_flowGoalSeries) m_flowGoalSeries->clear();
     m_flowGoalDirty = false;
 
     m_maxTime = 5.0;
@@ -83,6 +82,7 @@ void SteamDataModel::clear() {
     emit cleared();
     emit maxTimeChanged();
     emit rawTimeChanged();
+    emit flowGoalPointsChanged();
 
     m_flushTimer->start();
 }
@@ -126,10 +126,10 @@ void SteamDataModel::onFlushTimerTick() {
         m_lastFlushedTemp = m_temperaturePoints.size();
     }
 
-    // Update flow goal LineSeries
-    if (m_flowGoalDirty && m_flowGoalSeries && !m_flowGoalPoints.isEmpty()) {
-        m_flowGoalSeries->replace(m_flowGoalPoints);
+    // Goal points republished as a QML-bindable property — no series handshake needed.
+    if (m_flowGoalDirty) {
         m_flowGoalDirty = false;
+        emit flowGoalPointsChanged();
     }
 
     // Emit time change (deferred to flush tick to avoid per-sample signals)
