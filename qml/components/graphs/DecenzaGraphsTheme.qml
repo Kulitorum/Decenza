@@ -38,9 +38,12 @@ GraphsTheme {
     axisX.mainColor: Qt.rgba(1, 1, 1, 0.85)
     axisY.mainColor: Qt.rgba(1, 1, 1, 0.85)
 
-    // Suppress the sub-feature on axis spines — Qt Graphs draws long tick
-    // protrusions between the spine and the labels by default; Charts had
-    // either none or much shorter ones.
+    // Thin axis spines + suppress the sub-feature. Qt 6.11 GraphsTheme has no
+    // tickLength property; reducing mainWidth and zeroing subWidth is the
+    // closest lever to dampen the long tick protrusions Qt Graphs draws by
+    // default between the spine and the labels.
+    axisX.mainWidth: 1
+    axisY.mainWidth: 1
     axisX.subWidth: 0
     axisY.subWidth: 0
 
