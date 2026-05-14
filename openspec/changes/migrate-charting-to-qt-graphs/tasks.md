@@ -38,10 +38,10 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 
 ### 0.1 Build system
 - [ ] Install Qt Graphs component via Qt Maintenance Tool (dev machines only at this stage)
-- [ ] Add `Graphs` to the `find_package(Qt6 REQUIRED COMPONENTS ...)` list in `CMakeLists.txt`
-- [ ] Add `Qt6::Graphs` to `target_link_libraries(Decenza PRIVATE ...)`
+- [x] Add `Graphs` to the `find_package(Qt6 REQUIRED COMPONENTS ...)` list in `CMakeLists.txt`
+- [x] Add `Qt6::Graphs` to `target_link_libraries(Decenza PRIVATE ...)`
 - [ ] Verify clean build on Windows, macOS, iOS, Android with both `Charts` and `Graphs` linked
-- [ ] Update `openspec/config.yaml` Tech Stack section to list `Graphs` alongside `Charts`
+- [x] Update `openspec/config.yaml` Tech Stack section to list `Graphs` alongside `Charts`
 
 ### 0.2 Spike — verify gate conditions on real Decenza code
 - [ ] **Re-verify QTBUG-142046 is fixed**: write a 10-line QML reproducer that uses `visualMin`/`visualMax` (the actual fix in 6.11.0 — see gate #1) and confirm the readback tracks zoom/pan correctly. If it lies, halt Stage 0 and reopen Pre-Stage 0 monitoring.
@@ -52,10 +52,10 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [ ] Decide rendering-backend strategy: if targeting 6.11.x, start on the Quick Shapes backend (today's only option) and treat the 6.12 `useCanvasPainter: true` switch as a follow-up. If waiting for 6.12, validate directly against `useCanvasPainter: true`. Document the choice and the corresponding `find_package` flags in `design.md`.
 
 ### 0.3 Bridge components
-- [ ] Create `qml/components/graphs/AutoRangingAxis.qml` — wraps `ValueAxis` with auto-range behavior from attached series; supports `padding`, `minFloor`, `maxCeiling`
-- [ ] Create `qml/components/graphs/CustomLegend.qml` — themed horizontal legend with tap-to-toggle visibility; driven by `{ name, color, visible }` model
-- [ ] Create `qml/components/graphs/DashedLineSeries.qml` — `ShapePath`-based dashed-stroke overlay aligned to `axisX`/`axisY`; data→pixel mapping via `GraphsView.plotArea`
-- [ ] Register each component in `CMakeLists.txt` `qt_add_qml_module` file list
+- [x] Create `qml/components/graphs/AutoRangingAxis.qml` — wraps `ValueAxis` with auto-range behavior from attached series; supports `padding`, `minFloor`, `maxCeiling`
+- [x] Create `qml/components/graphs/CustomLegend.qml` — themed horizontal legend with tap-to-toggle visibility; driven by `{ name, color, visible }` model
+- [x] Create `qml/components/graphs/DashedLineSeries.qml` — `ShapePath`-based dashed-stroke overlay aligned to `axisX`/`axisY`; data→pixel mapping via `GraphsView.plotArea`
+- [x] Register each component in `CMakeLists.txt` `qt_add_qml_module` file list
 
 ### 0.4 Performance baseline
 - [ ] Create `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md` documenting the measurement protocol
@@ -74,12 +74,12 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 ## Stage 1 — Pilot: `FlowCalibrationPage.qml`
 
 ### 1.1 Migrate QML
-- [ ] Replace `import QtCharts` with `import QtGraphs` in `qml/pages/FlowCalibrationPage.qml`
-- [ ] Replace `ChartView` with `GraphsView`
-- [ ] Replace built-in `ValueAxis` usages with `AutoRangingAxis` (or explicit `min`/`max` where appropriate)
-- [ ] Replace dashed goal-curve `LineSeries` with `DashedLineSeries` overlay
-- [ ] Replace `.legend` references with `CustomLegend` instance
-- [ ] Hook plot-area geometry to any overlay that used `plotArea`
+- [x] Replace `import QtCharts` with `import QtGraphs` in `qml/pages/FlowCalibrationPage.qml`
+- [x] Replace `ChartView` with `GraphsView`
+- [x] Replace built-in `ValueAxis` usages with `AutoRangingAxis` (or explicit `min`/`max` where appropriate)
+- [ ] Replace dashed goal-curve `LineSeries` with `DashedLineSeries` overlay *(N/A — FlowCalibrationPage has no dashed curve; DashedLineSeries exercised in Stage 2)*
+- [x] Replace `.legend` references with `CustomLegend` instance
+- [ ] Hook plot-area geometry to any overlay that used `plotArea` *(N/A — page has no overlay)*
 
 ### 1.2 Validate
 - [ ] Side-by-side screenshot comparison with pre-migration state (Windows, macOS, Android)
@@ -174,3 +174,14 @@ At each stage PR before merge:
 - [ ] Live FPS meets or beats Stage 0 baseline (documented in PR)
 - [ ] No new Qt log warnings/errors introduced
 - [ ] Side-by-side screenshots attached for any graph touched in that stage
+
+## Items deferred to Qt 6.12 (see `charts-qt-6-12-polish`)
+
+The following visual / API gaps were found during Stage 1 (`FlowCalibrationPage`) and cannot be closed cleanly on Qt 6.11. They are captured in [`openspec/changes/charts-qt-6-12-polish/proposal.md`](../charts-qt-6-12-polish/proposal.md) and will land after Decenza upgrades to Qt 6.12 GA:
+
+1. X / Y axis tick-mark length — Qt 6.11 `GraphsLine` has no `tickLength`; current Stage 0 levers (`subWidth: 0`, `mainWidth: 1`) shorten but do not eliminate the protrusions.
+2. Leftmost X tick label alignment — the "0" label sits inboard of the Y axis spine; Qt 6.11 has no label-anchor property.
+3. `useCanvasPainter: true` flip on every migrated `GraphsView` (already tracked in Pre-Stage 0 §11; rolled up into the follow-up change for accountability).
+4. Declarative `XYSeries.data` adoption for static/computed series.
+5. `ValueAxis.labelPostFormat` adoption.
+6. Verification of Qt 6.12's multi-axis margin fix.
