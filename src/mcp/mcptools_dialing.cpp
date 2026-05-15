@@ -213,10 +213,23 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // --- Profile knowledge ---
                     // Default: ship only the current profile's KB section
                     // (~1 KB). The full system prompt + reference tables +
-                    // profile catalog (~18 KB total) is opt-in via
+                    // cross-profile catalog (~18 KB total) is opt-in via
                     // includeFullKnowledge — useful at session start, but
                     // redundant on later turns of a multi-call dial-in
                     // conversation. See #987.
+                    //
+                    // #1164 finding #1: this gate used to leak. The lite
+                    // branch unconditionally appended the cross-profile
+                    // catalog + UGS tables + families/discipline framing for
+                    // espresso (~17 KB), so every call shipped nearly the
+                    // full payload regardless of includeFullKnowledge —
+                    // contradicting this tool's own documented contract and
+                    // dominating per-call token cost. That bulk is STABLE
+                    // reference content: the AI fetches it ONCE via
+                    // includeFullKnowledge, after which it lives in the
+                    // external client's cached conversation prefix and never
+                    // needs resending. The lite branch now keeps only a
+                    // compact guardrail (see below).
                     QString profileTitle = sd.profileName;
                     QString bevType = sd.beverageType.isEmpty() ? QStringLiteral("espresso") : sd.beverageType;
                     // Extract the editor type from the embedded profile JSON
@@ -238,51 +251,34 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         if (profileKnowledge.isEmpty())
                             profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
 
-                        // Espresso-only: cross-cutting reference content and
-                        // anti-hallucination framing (profile families +
-                        // other-profile parameter discipline). Mirrors what
-                        // shotAnalysisSystemPrompt() injects in full-knowledge
-                        // mode; omitted for filter/pour-over as the content is
-                        // espresso-centric.
+                        // Compact guardrail only (espresso-only — the full
+                        // catalog is espresso-centric, so filter/pour-over
+                        // never received it). This replaces the ~17 KB
+                        // cross-profile reference that used to be appended
+                        // here unconditionally (#1164 finding #1). It steers
+                        // the AI away from hallucinating other-profile
+                        // setpoints before it has pulled the full reference,
+                        // and tells it exactly how to get that reference once.
                         if (bevType.toLower() != "filter" && bevType.toLower() != "pourover") {
-                            const QString crossProfile = ShotSummarizer::crossProfileReferenceContent();
-                            if (!crossProfile.isEmpty()) {
-                                if (!profileKnowledge.isEmpty())
-                                    profileKnowledge += QStringLiteral("\n\n");
-                                profileKnowledge += crossProfile;
-                            }
-
+                            if (!profileKnowledge.isEmpty())
+                                profileKnowledge += QStringLiteral("\n\n");
                             profileKnowledge += QStringLiteral(
-                                "\n\n## Profile families\n\n"
-                                "Each profile carries a `[family: <name>]` tag. Profiles in the same\n"
-                                "family implement the same underlying extraction mechanic. Recommending\n"
-                                "a within-family switch (e.g., D-Flow → LRv2 — both `lever-decline`) is\n"
-                                "USUALLY a parameter tweak in disguise: the user could achieve the same\n"
-                                "outcome by adjusting temperature, dose, or grind on their current\n"
-                                "profile. Within-family switches are only meaningful when the\n"
-                                "alternative encodes a constraint the user CANNOT replicate by tweaking\n"
-                                "the current profile (e.g., `80's Espresso` is `lever-decline` like\n"
-                                "D-Flow, but bakes in a low-temperature regime — 82°C declining to\n"
-                                "72°C — that's hard to replicate by editing D-Flow's frame temps).\n\n"
-                                "When you recommend a profile switch, name the family of the current\n"
-                                "and proposed profile and explain what the family change buys the user.\n"
-                                "If both are the same family, EITHER explain the specific constraint the\n"
-                                "alternative bakes in, OR drop the recommendation and suggest a parameter\n"
-                                "tweak on the current profile instead.\n\n"
-                                "## Other-profile parameter discipline\n\n"
-                                "You have full recipe data (frame setpoints, temperatures, pressures,\n"
-                                "durations) ONLY for the current shot's profile in `result.profile.recipe`.\n"
-                                "For every other profile, you have ONLY what is in your training data —\n"
-                                "which may be outdated or incorrect. DO NOT quote specific numeric\n"
-                                "setpoints (e.g., \"Londinium runs 89-90°C\", \"E61 peaks at 9 bar\")\n"
-                                "of profiles other than the current one — inventing them is hallucination.\n\n"
-                                "When recommending a different profile, describe the difference\n"
-                                "qualitatively — \"lower temperature regime\", \"higher peak pressure\",\n"
-                                "\"shorter total duration\", \"flow-controlled instead of pressure-\n"
-                                "controlled\" — and let the user pull a reference shot on that profile to\n"
-                                "see its actual numbers. If the user explicitly asks for setpoints of a\n"
-                                "non-current profile, say you don't have its recipe and offer to discuss\n"
-                                "tradeoffs in qualitative terms.\n");
+                                "## Cross-profile reference omitted\n\n"
+                                "Only THIS profile's KB entry is included here, to keep the\n"
+                                "per-call payload small. For cross-profile grind ordering (UGS\n"
+                                "tables), profile-family guidance, and the full dial-in system\n"
+                                "prompt, call dialing_get_context ONCE with\n"
+                                "`includeFullKnowledge: true` at the start of the conversation.\n"
+                                "That content is stable, so one fetch is enough — it stays in\n"
+                                "context for the rest of the conversation and does not need\n"
+                                "re-requesting on later turns.\n\n"
+                                "Until you have pulled it: you have full recipe data ONLY for\n"
+                                "the current shot's profile (`result.profile.recipe`). DO NOT\n"
+                                "quote specific numeric setpoints (temperatures, pressures,\n"
+                                "durations) for any OTHER profile from memory — that is\n"
+                                "hallucination. Describe cross-profile differences\n"
+                                "qualitatively and let the user pull a reference shot on the\n"
+                                "other profile to see its actual numbers.\n");
                         }
                     }
                     if (!profileKnowledge.isEmpty())

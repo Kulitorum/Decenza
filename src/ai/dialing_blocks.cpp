@@ -47,6 +47,32 @@ QJsonObject changeFromPrev(const ShotProjection& prev, const ShotProjection& cur
     return DialingHelpers::buildShotChangeDiff(toDiffInputs(prev), toDiffInputs(curr));
 }
 
+// Effective stop-at-weight target for a shot: the stored value when set,
+// else parsed from the embedded profile JSON. The parse branch only runs
+// for shots imported from external formats (de1app / visualizer.coffee)
+// where the importer left targetWeight at 0; that cohort is the riskiest
+// for malformed input, so log parse failures rather than swallow them.
+// Returns 0 when neither source yields a positive target. Single source
+// of truth so the dialInSessions hoist decision (#1164 finding #3) and
+// the per-shot emission cannot disagree.
+double effectiveTargetWeightG(const ShotProjection& shot)
+{
+    if (shot.targetWeightG > 0)
+        return shot.targetWeightG;
+    if (shot.profileJson.isEmpty())
+        return 0.0;
+    QJsonParseError err{};
+    QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8(), &err).object();
+    if (err.error != QJsonParseError::NoError) {
+        qWarning() << "effectiveTargetWeightG: profileJson parse failed for shot" << shot.id
+                   << ":" << err.errorString();
+        return 0.0;
+    }
+    QJsonValue tw = profileObj["target_weight"];
+    double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
+    return twVal > 0 ? twVal : 0.0;
+}
+
 // Per-shot serializer for dialInSessions. Identity overrides come from
 // the per-session `hoistSessionContext` output; per-shot entries emit
 // the five identity fields only when they differ from the session
@@ -57,16 +83,17 @@ QJsonObject shotToJson(const ShotProjection& shot,
     QJsonObject h;
     h["id"] = shot.id;
     h["timestamp"] = shot.timestampIso;
-    h["profileName"] = shot.profileName;
     h["doseG"] = shot.doseWeightG;
     h["yieldG"] = shot.finalWeightG;
     h["durationSec"] = shot.durationSec;
-    // Issue #1158: `pourControl` is NOT emitted here. It is a
-    // profile-family property, so buildDialInSessionsBlock hoists it to
-    // the session `context` when every shot in the session shares it
-    // (the common case → zero per-shot repetition) and only falls back
-    // to a per-shot field when a session genuinely mixes flow/pressure
-    // variants. Same dedup discipline as the grinder/bean identity
+    // #1158 (`pourControl`) and #1164 finding #3 (`profileName`,
+    // `targetWeightG`, `temperatureOverrideC`): these are NOT emitted here.
+    // A dial-in session is almost always one profile at one target weight
+    // and temperature, so repeating them on every shot is pure bloat.
+    // buildDialInSessionsBlock hoists each to the session `context` when
+    // every shot in the session shares it (the common case → zero per-shot
+    // repetition) and emits a per-shot field only when a session genuinely
+    // mixes the value. Same dedup discipline as the grinder/bean identity
     // hoist above.
     h["enjoyment0to100"] = shot.enjoyment0to100 > 0
         ? QJsonValue(shot.enjoyment0to100)
@@ -83,29 +110,6 @@ QJsonObject shotToJson(const ShotProjection& shot,
     if (!override.beanType.isEmpty())
         h["beanType"] = override.beanType;
     h["notes"] = shot.espressoNotes;
-    if (shot.temperatureOverrideC > 0)
-        h["temperatureOverrideC"] = shot.temperatureOverrideC;
-
-    if (shot.targetWeightG > 0) {
-        h["targetWeightG"] = shot.targetWeightG;
-    } else if (!shot.profileJson.isEmpty()) {
-        // Defensive parse: this branch only runs for shots imported from
-        // external formats (de1app / visualizer.coffee) where the importer
-        // left targetWeight at 0. Their profileJson is the riskiest cohort
-        // for malformed input, so log parse failures rather than swallow
-        // them — `targetWeightG` will simply be omitted from this shot.
-        QJsonParseError err{};
-        QJsonObject profileObj = QJsonDocument::fromJson(shot.profileJson.toUtf8(), &err).object();
-        if (err.error != QJsonParseError::NoError) {
-            qWarning() << "shotToJson: profileJson parse failed for shot" << shot.id
-                       << ":" << err.errorString();
-        } else {
-            QJsonValue tw = profileObj["target_weight"];
-            double twVal = tw.isString() ? tw.toString().toDouble() : tw.toDouble();
-            if (twVal > 0)
-                h["targetWeightG"] = twVal;
-        }
-    }
     return h;
 }
 
@@ -173,11 +177,48 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             && std::all_of(pourControls.cbegin(), pourControls.cend(),
                            [&](const QString& p){ return p == pourControls.first(); });
 
+        // #1164 finding #3: same hoist discipline for profileName /
+        // targetWeightG / temperatureOverrideC. A dial-in session is almost
+        // always one profile at one target weight and temperature, so these
+        // repeated identically on every shot. Hoist to session context when
+        // uniform; emit per-shot only when a session genuinely mixes them.
+        // "" / 0 means "not set" and breaks uniformity, so we never hoist a
+        // value that doesn't apply to every shot in the session.
+        QStringList profileNames;
+        QList<double> targetWeights;
+        QList<double> tempOverrides;
+        profileNames.reserve(ordered.size());
+        targetWeights.reserve(ordered.size());
+        tempOverrides.reserve(ordered.size());
+        for (const ShotProjection& s : ordered) {
+            profileNames.append(s.profileName);
+            targetWeights.append(effectiveTargetWeightG(s));
+            tempOverrides.append(s.temperatureOverrideC);
+        }
+        const bool profileNameUniform =
+            !profileNames.first().isEmpty()
+            && std::all_of(profileNames.cbegin(), profileNames.cend(),
+                           [&](const QString& p){ return p == profileNames.first(); });
+        const bool targetWeightUniform =
+            targetWeights.first() > 0
+            && std::all_of(targetWeights.cbegin(), targetWeights.cend(),
+                           [&](double w){ return w == targetWeights.first(); });
+        const bool tempOverrideUniform =
+            tempOverrides.first() > 0
+            && std::all_of(tempOverrides.cbegin(), tempOverrides.cend(),
+                           [&](double t){ return t == tempOverrides.first(); });
+
         QJsonArray sessionShots;
         for (qsizetype i = 0; i < ordered.size(); ++i) {
             QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i]);
             if (!pourControlUniform && !pourControls[i].isEmpty())
                 h["pourControl"] = pourControls[i];
+            if (!profileNameUniform && !profileNames[i].isEmpty())
+                h["profileName"] = profileNames[i];
+            if (!targetWeightUniform && targetWeights[i] > 0)
+                h["targetWeightG"] = targetWeights[i];
+            if (!tempOverrideUniform && tempOverrides[i] > 0)
+                h["temperatureOverrideC"] = tempOverrides[i];
             if (i > 0) {
                 QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i]);
                 h["changeFromPrev"] = diff.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(diff);
@@ -202,6 +243,14 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
         // whole session instead of repeating it on every shot.
         if (pourControlUniform)
             contextObj["pourControl"] = pourControls.first();
+        // #1164 finding #3: hoisted profile / target weight / temperature
+        // override — one field per session instead of one per shot.
+        if (profileNameUniform)
+            contextObj["profileName"] = profileNames.first();
+        if (targetWeightUniform)
+            contextObj["targetWeightG"] = targetWeights.first();
+        if (tempOverrideUniform)
+            contextObj["temperatureOverrideC"] = tempOverrides.first();
 
         QJsonObject sessionObj;
         sessionObj["sessionStart"] = ordered.first().timestampIso;

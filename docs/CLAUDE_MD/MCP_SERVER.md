@@ -243,6 +243,12 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 
 The later `dialing_get_grinder_calibration` split (#1164) does **not** reverse this consolidation: the cross-profile RGS table is not part of "the context the client almost always needs together" — it is a large, stable table that is only relevant during a profile-switch discussion. Keeping it out of the always-on bundle and fetching it once on demand is a payload-cost decision, not a re-split of the shot/history/knowledge bundle.
 
+**Payload-cost discipline (#1164):** the principle is *cache by not resending*. On the MCP path Decenza cannot attach `cache_control` (the external client owns the Anthropic call), so the only lever is "emit stable content once, never resend a different copy" — once it is in the conversation, the external client's prompt cache covers it for free. Three cuts implement this:
+
+1. **`includeFullKnowledge` is now actually gated** (#1164 finding #1). The lite branch of `dialing_get_context` used to append the full cross-profile reference catalog + UGS tables + families/discipline framing (~17 KB) unconditionally for espresso, contradicting the tool's documented contract and dominating per-call token cost. The default now ships only the current profile's KB entry (~1 KB) plus a compact guardrail that tells the AI to fetch the full reference **once** via `includeFullKnowledge: true` at session start (stable → stays in context, no re-request) and not to quote other-profile setpoints from memory until it has. The in-app advisor path is unaffected — it carries the full system prompt in a `cache_control`-wrapped system block (`aiprovider.cpp`), so it is already cache-optimal.
+2. **Grinder calibration → on-demand tool** (#1164 finding #2, above).
+3. **`dialInSessions` session-context hoisting extended** (#1164 finding #3). `profileName`, `targetWeightG`, and `temperatureOverrideC` now follow the same hoist discipline as grinder/bean identity and `pourControl` (#1158): when every shot in a session shares the value it is emitted once on `session.context`; a per-shot field appears only when a session genuinely mixes the value. A dial-in session is almost always one profile at one target weight and temperature, so this removes near-total per-shot repetition.
+
 **How the dial-in flow works via MCP:**
 
 1. User pulls a shot → AI gets notified via SSE (`decenza://shots/recent` resource update)
