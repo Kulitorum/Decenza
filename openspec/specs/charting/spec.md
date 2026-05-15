@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Decenza renders live and historical espresso/steam graphs (pressure, flow, temperature, weight, dC/dt) through Qt Graphs on a GPU-backed RHI path. The capability covers the rendering backend, axis ranging, legend, dashed overlays, pixel↔data coordinate mapping for crosshair/inspect, performance targets on the Decent tablet (Samsung SM-X210), and the project-owned bridge components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close feature gaps between Qt Charts (the prior backend) and Qt Graphs.
+Decenza renders live and historical espresso/steam graphs (pressure, flow, temperature, weight, dC/dt) through Qt Graphs on a GPU-backed RHI path. The capability covers the rendering backend, axis ranging, legend, dashed overlays, pixel↔data coordinate mapping for crosshair/inspect, performance targets on the Decent tablet (Samsung SM-X210), the `FastLineRenderer` direct scene-graph path used for high-frequency (~5 Hz) live traces, and the project-owned bridge components (`AutoRangingAxis`, `CustomLegend`, `DashedLineSeries`) that close feature gaps between Qt Graphs and the predecessor Qt Charts backend.
 
 ## Requirements
 
