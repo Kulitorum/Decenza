@@ -13,8 +13,13 @@
 
 AccessibilityManager::AccessibilityManager(QObject *parent)
     : QObject(parent)
-    , m_settings("Decenza", "DE1")
+    // Primary store, matching every settings_*.cpp domain class. Was
+    // QSettings("Decenza","DE1") — an isolated third store that broke
+    // accessibility backup/restore and survived factory reset. Existing
+    // values are carried over by migrateLegacyStore().
+    , m_settings("DecentEspresso", "DE1Qt")
 {
+    migrateLegacyStore();
     loadSettings();
     initTts();
     if (m_enabled && m_tickEnabled)
@@ -24,10 +29,10 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
 #ifdef DECENZA_TESTING
 AccessibilityManager::AccessibilityManager(TestSkipAudioInit, QObject *parent)
     : QObject(parent)
-    , m_settings("Decenza", "DE1")
+    , m_settings("DecentEspresso", "DE1Qt")
 {
-    // Deliberately skip loadSettings() so tests don't inherit whatever the
-    // dev machine has persisted in QSettings("Decenza", "DE1"). Member
+    // Deliberately skip migrateLegacyStore()/loadSettings() so tests
+    // don't inherit whatever the dev machine has persisted. Member
     // defaults from the header (m_enabled=false, m_ttsEnabled=true, etc.)
     // give a deterministic starting state. Skip initTts() / initTickSound()
     // for the same reason — tests override the dispatch virtuals.
@@ -70,6 +75,44 @@ void AccessibilityManager::shutdown()
             m_tickSounds[i] = nullptr;
         }
     }
+}
+
+void AccessibilityManager::migrateLegacyStore()
+{
+    // One-time: carry accessibility/* from the old isolated
+    // QSettings("Decenza","DE1") store into the primary store. Guarded
+    // so it runs once; copy-if-absent so a re-run (or a user who
+    // already changed a setting post-migration) never clobbers newer
+    // primary values. The legacy store is intentionally left intact
+    // (harmless; supports clean downgrade).
+    constexpr const char* kMigratedFlag = "accessibility/_migratedFromLegacyV1";
+    if (m_settings.value(kMigratedFlag, false).toBool())
+        return;
+
+    static const char* kKeys[] = {
+        "accessibility/enabled",
+        "accessibility/ttsEnabled",
+        "accessibility/tickEnabled",
+        "accessibility/tickSoundIndex",
+        "accessibility/tickVolume",
+        "accessibility/extractionAnnouncementsEnabled",
+        "accessibility/extractionAnnouncementInterval",
+        "accessibility/extractionAnnouncementMode",
+    };
+
+    QSettings legacy(QStringLiteral("Decenza"), QStringLiteral("DE1"));
+    int copied = 0;
+    for (const char* key : kKeys) {
+        if (legacy.contains(QLatin1String(key))
+            && !m_settings.contains(QLatin1String(key))) {
+            m_settings.setValue(QLatin1String(key), legacy.value(QLatin1String(key)));
+            ++copied;
+        }
+    }
+    m_settings.setValue(kMigratedFlag, true);
+    m_settings.sync();
+    qDebug() << "AccessibilityManager: migrated" << copied
+             << "legacy accessibility setting(s) into the primary store";
 }
 
 void AccessibilityManager::loadSettings()

@@ -635,7 +635,13 @@ private slots:
         });
 
         // Set the configured default rating that migration 16 reads.
-        QSettings appSettings;
+        // Must use the SAME scope production reads — the app's Settings
+        // owns QSettings("DecentEspresso","DE1Qt"). A bare QSettings()
+        // here is exactly the scope-mismatch bug this regression-tests:
+        // it passed before the production fix only because production
+        // also (wrongly) used a bare QSettings.
+        QSettings appSettings(QStringLiteral("DecentEspresso"),
+                              QStringLiteral("DE1Qt"));
         const QVariant prior = appSettings.value("shot/defaultRating");
         const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
         appSettings.setValue("shot/defaultRating", 50);

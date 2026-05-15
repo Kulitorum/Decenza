@@ -119,6 +119,11 @@ protected:
 private:
     void loadSettings();
     void saveSettings();
+    // One-time copy of accessibility/* keys from the legacy
+    // QSettings("Decenza","DE1") store into the primary
+    // QSettings("DecentEspresso","DE1Qt") store every other settings
+    // domain uses. Guarded + idempotent. See accessibilitymanager.cpp.
+    void migrateLegacyStore();
     // Internal setter. Externally setEnabled() always announces; toggleEnabled()
     // calls this with announce=false to avoid double-speak (it then issues a
     // single Assertive announcement itself).

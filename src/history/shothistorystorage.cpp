@@ -815,9 +815,15 @@ bool ShotHistoryStorage::runMigrations()
                 return false;
             }
 
-            // Read user's configured default rating up-front. QSettings is
-            // thread-safe and the key is stable across app versions.
-            QSettings appSettings;
+            // Read user's configured default rating up-front. MUST use
+            // the same QSettings scope the app's Settings object owns
+            // (settings.cpp: QSettings("DecentEspresso","DE1Qt")). A
+            // bare QSettings() resolves to org/app "DecentEspresso"/
+            // "Decenza" (main.cpp setApplicationName) — a DIFFERENT,
+            // empty store — which would silently return the 75 fallback
+            // and no-op the reset for every user whose default ≠ 75.
+            QSettings appSettings(QStringLiteral("DecentEspresso"),
+                                  QStringLiteral("DE1Qt"));
             const int defaultRating = appSettings.value(
                 QStringLiteral("shot/defaultRating"), 75).toInt();
 

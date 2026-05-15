@@ -220,7 +220,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             || visualizerId != m_migration16InFlightVisualizerId)
             return;
 
-        QSettings s;
+        // Must match the app's settings scope (Settings owns
+        // QSettings("DecentEspresso","DE1Qt")); a bare QSettings()
+        // resolves to a different, empty store (main.cpp sets
+        // applicationName "Decenza"). Same fix applies to every
+        // QSettings construction in this file's reconciliation /
+        // pending-sync code.
+        QSettings s(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
         QJsonArray pending = QJsonDocument::fromJson(
             s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
         for (qsizetype i = 0; i < pending.size(); ++i) {
@@ -2581,7 +2587,7 @@ bool MainController::isSawSettling() const {
 
 void MainController::processPendingVisualizerRatingSync()
 {
-    QSettings s;
+    QSettings s(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
     if (!s.contains(QStringLiteral("migration16/pendingVisualizerSync")))
         return;
 
@@ -2602,7 +2608,7 @@ void MainController::dispatchNextPendingVisualizerSync()
     if (!m_migration16InFlightVisualizerId.isEmpty()) return;
     if (!m_visualizer || !m_shotHistory) return;
 
-    QSettings s;
+    QSettings s(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
     const QByteArray raw = s.value(
         QStringLiteral("migration16/pendingVisualizerSync")).toByteArray();
     if (raw.isEmpty()) return;
@@ -2650,7 +2656,7 @@ void MainController::dispatchNextPendingVisualizerSync()
         if (!shot.isValid()) {
             qWarning() << "MainController: migration16 sync — shot" << shotId << "no longer exists; dropping";
             // Pop the bad entry and continue.
-            QSettings ss;
+            QSettings ss(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
             QJsonArray remain = QJsonDocument::fromJson(
                 ss.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
             if (!remain.isEmpty()) remain.removeFirst();
@@ -2674,7 +2680,7 @@ void MainController::processVisualizerReconciliation()
 {
     if (!m_visualizer || !m_shotHistory) return;
 
-    QSettings s;
+    QSettings s(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
     if (s.value(QStringLiteral("visualizerBackfill/doneV1"), false).toBool())
         return;  // already reconciled on this device
 
@@ -2719,7 +2725,7 @@ void MainController::processVisualizerReconciliation()
             return;
         }
         // Genuinely completed pass — safe to set the run-once flag.
-        QSettings ss;
+        QSettings ss(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
         ss.setValue(QStringLiteral("visualizerBackfill/doneV1"), true);
         ss.sync();
 
