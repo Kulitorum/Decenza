@@ -245,6 +245,15 @@ private:
     // and retries on next app boot.
     void processPendingVisualizerRatingSync();
     void dispatchNextPendingVisualizerSync();
+
+    // One-time Visualizer reconciliation backfill (OpenSpec
+    // persist-visualizer-id-in-controller). Run-once via QSettings
+    // visualizerBackfill/doneV1. Lists the user's Visualizer shots,
+    // relinks orphaned local rows by timestamp, then pushes the
+    // now-authoritative local rating to each linked cloud shot by
+    // appending to the same serial drain queue used above. Skips
+    // without setting the flag when credentials are absent.
+    void processVisualizerReconciliation();
     // Tracks the visualizerId of the migration16 PATCH currently in
     // flight. Empty string when no migration16 sync is active. Compared
     // against the visualizerId argument on updateSuccess / uploadFailed

@@ -133,9 +133,10 @@ Page {
     Connections {
         target: MainController.visualizer
         function onUploadSuccess(shotId, url) {
-            if (shotDetailPage.shotId > 0) {
-                MainController.shotHistory.requestUpdateVisualizerInfo(shotDetailPage.shotId, shotId, url)
-            }
+            // Visualizer-id persistence is owned by MainController
+            // (uploadSucceededForShot → requestUpdateVisualizerInfo),
+            // not this page. UI refresh still arrives via the
+            // visualizerInfoUpdated handler.
         }
         function onUpdateSuccess(visualizerId) {
             if (shotDetailPage.shotId > 0) {
