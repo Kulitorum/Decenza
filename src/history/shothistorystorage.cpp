@@ -740,10 +740,13 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 13;
     }
 
-    // Migration 14: enjoyment_source column was introduced here. The
-    // column has been dropped by migration 16 (rolling back the Layer 3
-    // inferred auto-rating experiment) — this step now runs only on
-    // legacy v13 DBs so migration 16 has a consistent column to drop.
+    // Migration 14: enjoyment_source column was introduced here. Layer 3
+    // (the inferred auto-rating experiment that owned this column) was
+    // rolled back in migration 16 below, which drops it. This step is
+    // kept rather than fast-forwarded so legacy v13 DBs still pass
+    // through the same back-fill (`enjoyment_source = 'user'` for rated
+    // rows) that migration 16 later reads to build the back-sync list.
+    // Migration 16 is independently safe via its hasColumn() guard.
     if (currentVersion < 14) {
         qDebug() << "ShotHistoryStorage: Running migration to version 14 (enjoyment_source)";
 

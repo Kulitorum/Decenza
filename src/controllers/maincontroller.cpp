@@ -50,6 +50,7 @@
 #include <QVariantMap>
 #include <QRandomGenerator>
 #include <algorithm>
+#include <memory>
 #include <QCoreApplication>
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -196,7 +197,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         QSettings s;
         QJsonArray pending = QJsonDocument::fromJson(
             s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
-        for (int i = 0; i < pending.size(); ++i) {
+        for (qsizetype i = 0; i < pending.size(); ++i) {
             if (pending[i].toObject().value("visualizerId").toString() == visualizerId) {
                 pending.removeAt(i);
                 break;
@@ -2585,16 +2586,20 @@ void MainController::dispatchNextPendingVisualizerSync()
     m_migration16InFlightVisualizerId = visualizerId;
 
     // Load the (now-corrected) shot off the background thread and
-    // dispatch the PATCH from the callback. Connection is single-shot:
-    // we only react to the matching shotId so other shotReady listeners
-    // are unaffected.
+    // dispatch the PATCH from the callback. shotReady fires for every
+    // shot load app-wide, so we filter on shotId and disconnect once
+    // we've handled the matching one. The Connection handle is held in
+    // a shared_ptr captured by the lambda so it self-destructs whether
+    // the lambda is invoked (explicit disconnect below) or the context
+    // object dies first (Qt auto-disconnects on `this`, then the lambda
+    // copy in Qt's connection store gets cleaned up). Pre-shared_ptr
+    // this used a raw `new` that leaked on context destruction.
     QPointer<MainController> self(this);
-    auto* conn = new QMetaObject::Connection;
+    auto conn = std::make_shared<QMetaObject::Connection>();
     *conn = connect(m_shotHistory, &ShotHistoryStorage::shotReady, this,
         [self, conn, shotId, visualizerId](qint64 readyId, const ShotProjection& shot) {
         if (!self || readyId != shotId) return;
         QObject::disconnect(*conn);
-        delete conn;
         if (!shot.isValid()) {
             qWarning() << "MainController: migration16 sync — shot" << shotId << "no longer exists; dropping";
             // Pop the bad entry and continue.

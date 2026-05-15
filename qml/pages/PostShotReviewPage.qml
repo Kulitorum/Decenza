@@ -1386,10 +1386,6 @@ Page {
                             "drinkTdsPct": editDrinkTds,
                             "drinkEyPct": editDrinkEy,
                             "espressoNotes": editNotes,
-                            // Always include enjoyment so it overrides the base shot value.
-                            // editEnjoyment is initialized to 0 for inferred shots, which
-                            // keeps the inferred rating from leaking to Visualizer (the
-                            // serializer skips enjoyment0to100 == 0).
                             "enjoyment0to100": editEnjoyment
                         }
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
