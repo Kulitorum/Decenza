@@ -127,9 +127,11 @@ public:
         int  legacyKeyCount = 0;      // total keys in the legacy store
     };
     // Pure, store-injected migration: copy-if-absent accessibility/*
-    // from `legacy` into `primary`, guarded + idempotent, deferring
-    // (without stamping the guard) when the legacy read provably fails.
-    // Stores passed by ref so tests need not touch real QSettings.
+    // from `legacy` into `primary`, guarded + idempotent. Copies happen
+    // BEFORE the status check, so on a provable legacy read failure it
+    // keeps whatever parsed but does NOT stamp the guard (a later run
+    // retries; copy-if-absent makes the re-copy safe). Stores passed by
+    // ref so tests need not touch real QSettings.
     static LegacyMigrationOutcome migrateAccessibilityLegacyStore(
         QSettings& primary, QSettings& legacy);
 

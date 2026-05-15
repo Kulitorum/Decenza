@@ -120,11 +120,15 @@ AccessibilityManager::migrateAccessibilityLegacyStore(QSettings& primary,
 
     if (legacyStatus != QSettings::NoError) {
         // The legacy read provably failed (corrupt INI / access error).
-        // Do NOT burn the one-shot guard on a read we know failed —
-        // retry next launch instead of permanently losing a user's
-        // accessibility settings to a transient unreadable store.
-        // (NativeFormat on Windows/macOS can't always prove failure;
-        // legacyKeyCount is the best available signal there.)
+        // Whatever keys parsed were already copied above (copy-if-absent
+        // makes re-copying on the retry safe); we just don't stamp the
+        // one-shot guard on a read we know failed — retry next launch
+        // instead of permanently losing a user's accessibility settings
+        // to a transient unreadable store. (NativeFormat on Windows/
+        // macOS can't always prove failure: there status() returns
+        // NoError despite a real failure and the guard IS stamped below;
+        // legacyKeyCount is logged purely as a post-hoc breadcrumb, not
+        // a mitigation.)
         out.deferredOnError = true;
         return out;
     }

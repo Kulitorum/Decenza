@@ -374,6 +374,12 @@ private slots:
             f.close();
         }
         QSettings legacy(legacyPath, QSettings::IniFormat);
+        legacy.sync();
+        // Fixture sanity: if a future Qt tolerates this input, fail
+        // loudly ("fixture no longer corrupt") rather than silently
+        // exercising the wrong path.
+        QVERIFY2(legacy.status() != QSettings::NoError,
+                 "corrupt-INI fixture must actually trip QSettings status");
         QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
 
         auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
@@ -390,6 +396,52 @@ private slots:
         QVERIFY(r2.guardStamped);
         QCOMPARE(r2.copied, 1);
         QCOMPARE(primary.value("accessibility/ttsEnabled").toBool(), false);
+    }
+
+    // NOTE on the copy-before-status ordering invariant (production
+    // copies keys, THEN checks status, so a partially-parseable legacy
+    // hands forward whatever parsed while still deferring the guard):
+    // this cannot be black-box forced here. Qt 6.11's IniFormat parser
+    // is all-or-nothing for our fixtures — it either parses fully
+    // (status NoError) or fails wholesale exposing zero keys (see
+    // _defersWithoutStampingGuardOnUnreadableLegacy, where copied==0 on
+    // FormatError). There is no reliable cross-version way to produce
+    // "FormatError + some keys parsed", so a fixture-based test for the
+    // ordering would be flaky. The invariant is preserved structurally
+    // (copy loop precedes the status gate in migrateAccessibilityLegacyStore)
+    // and its observable contract — deferred read does NOT stamp the
+    // guard, and a later readable run completes — IS deterministically
+    // covered by _defersWithoutStampingGuardOnUnreadableLegacy.
+
+    // The restore handler stamps accessibility/_migratedFromLegacyV1 on
+    // ANY successful restore (even a backup with no accessibility block)
+    // so a restored profile is authoritative. Pin that this actually
+    // suppresses a later legacy merge — the data-loss scenario the
+    // unconditional stamp exists to prevent.
+    void legacyMigration_restoreStampedGuardSuppressesLaterLegacyMerge() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
+        // Simulate what handleBackupRestore does on any successful
+        // restore (including a no-accessibility-block backup): only the
+        // guard is stamped, no accessibility values present.
+        primary.setValue("accessibility/_migratedFromLegacyV1", true);
+        primary.sync();
+
+        // This device still has a populated legacy store.
+        QSettings legacy(dir.filePath("legacy.ini"), QSettings::IniFormat);
+        legacy.setValue("accessibility/enabled", true);
+        legacy.setValue("accessibility/tickVolume", 99);
+        legacy.sync();
+
+        auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
+
+        QVERIFY2(r.alreadyDone, "restored profile is authoritative — migration is a no-op");
+        QCOMPARE(r.copied, 0);
+        QVERIFY2(!primary.contains("accessibility/enabled"),
+                 "stale legacy must NOT bleed over a restored profile");
+        QVERIFY2(!primary.contains("accessibility/tickVolume"),
+                 "stale legacy must NOT bleed over a restored profile");
     }
 };
 

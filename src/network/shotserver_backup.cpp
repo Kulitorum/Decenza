@@ -1051,9 +1051,9 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                         if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
                         if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
                     }
-                    // Stamp the migration guard on ANY successful restore
-                    // (even a backup with no accessibility block): a
-                    // restored profile is authoritative, so
+                    // Whenever extra_settings.json is restored (even with
+                    // no accessibility block), stamp the migration guard:
+                    // a restored profile is authoritative, so
                     // AccessibilityManager::migrateLegacyStore must not
                     // later merge this device's stale legacy store over it.
                     accessStore.setValue("accessibility/_migratedFromLegacyV1", true);
