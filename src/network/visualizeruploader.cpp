@@ -245,18 +245,19 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     // Field-pointer accessors give compile-time safety on the projection side;
     // the API field strings are visualizer.coffee's external schema (snake_case)
     // and intentionally distinct from the projection's field names.
+    //
+    // This is a PATCH — we always send the current local value so a
+    // local clear (TDS reset to 0, enjoyment cleared, etc.) propagates
+    // to Visualizer. Skipping zero/empty would mean a user could lower
+    // a field locally and never have the cloud copy catch up. Required
+    // by migration 16's back-sync for issue #1150 users whose default
+    // rating is 0, and a sensible default for any user-initiated clear.
     QJsonObject shotObj;
     auto setStr = [&](const QString& apiField, QString ShotProjection::*field) {
-        const QString& s = shotData.*field;
-        if (!s.isEmpty()) shotObj[apiField] = s;
+        shotObj[apiField] = shotData.*field;
     };
     auto setDouble = [&](const QString& apiField, double ShotProjection::*field) {
-        const double v = shotData.*field;
-        if (v > 0) shotObj[apiField] = v;
-    };
-    auto setInt = [&](const QString& apiField, int ShotProjection::*field) {
-        const int v = shotData.*field;
-        if (v > 0) shotObj[apiField] = v;
+        shotObj[apiField] = shotData.*field;
     };
 
     setStr("bean_brand", &ShotProjection::beanBrand);
@@ -266,14 +267,12 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setDouble("bean_weight", &ShotProjection::doseWeightG);
     setDouble("drink_weight", &ShotProjection::finalWeightG);
     // Combine brand + model for visualizer (no separate brand field in API)
-    {
-        QString combined = (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed();
-        if (!combined.isEmpty()) shotObj["grinder_model"] = combined;
-    }
+    shotObj["grinder_model"] =
+        (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed();
     setStr("grinder_setting", &ShotProjection::grinderSetting);
     setDouble("drink_tds", &ShotProjection::drinkTdsPct);
     setDouble("drink_ey", &ShotProjection::drinkEyPct);
-    setInt("espresso_enjoyment", &ShotProjection::enjoyment0to100);
+    shotObj["espresso_enjoyment"] = shotData.enjoyment0to100;
     setStr("espresso_notes", &ShotProjection::espressoNotes);
     setStr("barista", &ShotProjection::barista);
     setStr("profile_title", &ShotProjection::profileName);

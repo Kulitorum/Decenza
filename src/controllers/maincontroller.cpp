@@ -186,13 +186,16 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     processPendingVisualizerRatingSync();
     connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
             [this](const QString& visualizerId) {
-        if (!m_migration16SyncInFlight) return;
+        // Only react when this matches the migration16 PATCH we issued;
+        // other concurrent updates (e.g., user-initiated edits from
+        // PostShotReviewPage) must not pop our queue entries.
+        if (m_migration16InFlightVisualizerId.isEmpty()
+            || visualizerId != m_migration16InFlightVisualizerId)
+            return;
+
         QSettings s;
         QJsonArray pending = QJsonDocument::fromJson(
             s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
-        // Drop the in-flight entry. There may be more than one with the
-        // same visualizerId in theory (duplicate uploads); remove the
-        // first match only.
         for (int i = 0; i < pending.size(); ++i) {
             if (pending[i].toObject().value("visualizerId").toString() == visualizerId) {
                 pending.removeAt(i);
@@ -204,15 +207,19 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         else
             s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
                        QJsonDocument(pending).toJson(QJsonDocument::Compact));
-        m_migration16SyncInFlight = false;
+        m_migration16InFlightVisualizerId.clear();
         dispatchNextPendingVisualizerSync();
     });
     connect(m_visualizer, &VisualizerUploader::uploadFailed, this,
             [this](const QString& /*error*/) {
-        if (!m_migration16SyncInFlight) return;
-        // Leave the entry in the pending list — retry on next boot.
-        // Abort the drain so we don't hammer the API.
-        m_migration16SyncInFlight = false;
+        // VisualizerUploader::uploadFailed carries no shot-id correlation, so
+        // we can't tell whether the failure was ours or someone else's. The
+        // safe rule: if a migration16 PATCH is in flight, assume it failed
+        // (the same upload session can't error AND succeed on the network
+        // layer), leave the entry in the pending list, and abort the drain.
+        // A spurious abort just means the queue picks up on next boot.
+        if (m_migration16InFlightVisualizerId.isEmpty()) return;
+        m_migration16InFlightVisualizerId.clear();
     });
 
     // Create shot importer for importing .shot files from DE1 app
@@ -2544,7 +2551,7 @@ void MainController::processPendingVisualizerRatingSync()
 
 void MainController::dispatchNextPendingVisualizerSync()
 {
-    if (m_migration16SyncInFlight) return;
+    if (!m_migration16InFlightVisualizerId.isEmpty()) return;
     if (!m_visualizer || !m_shotHistory) return;
 
     QSettings s;
@@ -2575,7 +2582,7 @@ void MainController::dispatchNextPendingVisualizerSync()
         return;
     }
 
-    m_migration16SyncInFlight = true;
+    m_migration16InFlightVisualizerId = visualizerId;
 
     // Load the (now-corrected) shot off the background thread and
     // dispatch the PATCH from the callback. Connection is single-shot:
@@ -2600,7 +2607,7 @@ void MainController::dispatchNextPendingVisualizerSync()
             else
                 ss.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
                             QJsonDocument(remain).toJson(QJsonDocument::Compact));
-            self->m_migration16SyncInFlight = false;
+            self->m_migration16InFlightVisualizerId.clear();
             self->dispatchNextPendingVisualizerSync();
             return;
         }

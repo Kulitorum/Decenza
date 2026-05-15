@@ -245,10 +245,13 @@ private:
     // and retries on next app boot.
     void processPendingVisualizerRatingSync();
     void dispatchNextPendingVisualizerSync();
-    // True once a PATCH from the migration16 drain is in flight, so we
-    // don't dispatch a second one until updateSuccess / uploadFailed
-    // resolves the first.
-    bool m_migration16SyncInFlight = false;
+    // Tracks the visualizerId of the migration16 PATCH currently in
+    // flight. Empty string when no migration16 sync is active. Compared
+    // against the visualizerId argument on updateSuccess / uploadFailed
+    // so other concurrent PATCHes (e.g., from PostShotReviewPage's
+    // metadata save) don't pop migration16 entries off the queue or
+    // stall the drain. See PR #1155 review note 2.
+    QString m_migration16InFlightVisualizerId;
 
     ProfileManager* m_profileManager = nullptr;
 
