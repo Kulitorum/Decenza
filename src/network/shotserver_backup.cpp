@@ -1036,23 +1036,32 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
 
                 // Accessibility → PRIMARY store (where AccessibilityManager
                 // reads it). Writing to the bare/secondary `settings`
-                // would be a silent no-op. Stamp the migration guard so
-                // AccessibilityManager::migrateLegacyStore doesn't later
-                // overwrite a freshly restored value from the legacy store.
-                // (only write keys present, to avoid clobbering defaults)
-                if (extra.contains("accessibility")) {
+                // would be a silent no-op. (only write keys present, to
+                // avoid clobbering defaults)
+                {
                     QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
-                    QJsonObject a = extra["accessibility"].toObject();
-                    if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
-                    if (a.contains("ttsEnabled")) accessStore.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
-                    if (a.contains("tickEnabled")) accessStore.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
-                    if (a.contains("tickSoundIndex")) accessStore.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
-                    if (a.contains("tickVolume")) accessStore.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
-                    if (a.contains("extractionAnnouncementsEnabled")) accessStore.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
-                    if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
-                    if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+                    if (extra.contains("accessibility")) {
+                        QJsonObject a = extra["accessibility"].toObject();
+                        if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
+                        if (a.contains("ttsEnabled")) accessStore.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
+                        if (a.contains("tickEnabled")) accessStore.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
+                        if (a.contains("tickSoundIndex")) accessStore.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
+                        if (a.contains("tickVolume")) accessStore.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
+                        if (a.contains("extractionAnnouncementsEnabled")) accessStore.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
+                        if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
+                        if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+                    }
+                    // Stamp the migration guard on ANY successful restore
+                    // (even a backup with no accessibility block): a
+                    // restored profile is authoritative, so
+                    // AccessibilityManager::migrateLegacyStore must not
+                    // later merge this device's stale legacy store over it.
                     accessStore.setValue("accessibility/_migratedFromLegacyV1", true);
                     accessStore.sync();
+                    if (accessStore.status() != QSettings::NoError) {
+                        qWarning() << "ShotServer: accessibility restore sync failed (status="
+                                   << accessStore.status() << ") — settings may not persist";
+                    }
                 }
 
                 // Language

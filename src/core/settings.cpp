@@ -569,6 +569,16 @@ void Settings::factoryReset()
     defaultSettings.clear();
     defaultSettings.sync();
 
+    // 2b. Clear the legacy AccessibilityManager store. Accessibility now
+    // lives in the primary store (cleared above), but its one-time
+    // migrateLegacyStore() guard is in the primary store too — so after
+    // a factory reset that guard is gone and the next launch would
+    // resurrect old accessibility settings from this legacy store.
+    // Wipe it so factory reset actually resets accessibility.
+    QSettings legacyAccessibility(QStringLiteral("Decenza"), QStringLiteral("DE1"));
+    legacyAccessibility.clear();
+    legacyAccessibility.sync();
+
     // 3. Delete all data directories under AppDataLocation
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QStringList dataDirs = {

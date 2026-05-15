@@ -101,6 +101,10 @@ void AccessibilityManager::migrateLegacyStore()
     };
 
     QSettings legacy(QStringLiteral("Decenza"), QStringLiteral("DE1"));
+    legacy.sync();  // force a read so status() is meaningful below
+    const QSettings::Status legacyStatus = legacy.status();
+    const int legacyKeyCount = static_cast<int>(legacy.allKeys().size());
+
     int copied = 0;
     for (const char* key : kKeys) {
         if (legacy.contains(QLatin1String(key))
@@ -109,10 +113,27 @@ void AccessibilityManager::migrateLegacyStore()
             ++copied;
         }
     }
+
+    if (legacyStatus != QSettings::NoError) {
+        // The legacy read provably failed (corrupt INI / access error).
+        // Do NOT burn the one-shot guard on a read we know failed —
+        // retry next launch instead of permanently losing a user's
+        // accessibility settings to a transient unreadable store.
+        // (NativeFormat on Windows/macOS can't always prove failure;
+        // logging legacyKeyCount is the best available signal there.)
+        qWarning() << "AccessibilityManager: legacy store unreadable (status="
+                   << legacyStatus << ") — deferring migration, guard NOT set";
+        return;
+    }
+
     m_settings.setValue(kMigratedFlag, true);
     m_settings.sync();
-    qDebug() << "AccessibilityManager: migrated" << copied
-             << "legacy accessibility setting(s) into the primary store";
+    // qInfo (not qDebug) + legacy key count so a support log can tell
+    // "nothing to migrate" (legacyKeyCount==0) apart from "all already
+    // present" (copied==0 && legacyKeyCount>0) — an irreversible
+    // one-time migration deserves a durable, unambiguous breadcrumb.
+    qInfo() << "AccessibilityManager: migrated" << copied << "of"
+            << legacyKeyCount << "legacy accessibility key(s) into the primary store";
 }
 
 void AccessibilityManager::loadSettings()
