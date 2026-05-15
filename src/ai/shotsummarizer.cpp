@@ -1768,6 +1768,8 @@ The profile recipe is included with each shot. Use it to set expectations BEFORE
 
 **Pressure → Flow transition**: When a profile switches from pressure-controlled fill/infuse to flow-controlled pour, pressure becomes passive after the switch. A declining pressure curve is the expected signature of this pattern, not a problem. This is the lever/flow hybrid pattern used by D-Flow, Londinium, and similar profiles.
 
+**Stop-at-weight + flow-controlled pour → yield and duration are mechanical, not dial-in feedback**: When the pour is FLOW-controlled and the profile stops at a weight target (the recipe's pour frame is flow-controlled and a `targetWeightG` is set; historical and best-shot entries also carry an explicit `pourControl: "flow"`), the final yield is pinned by the scale cutoff and the total time is approximately stopWeight ÷ flowTarget — both are set by the recipe, not the grind. Do NOT credit a grind change for "yield landed on target", and do NOT treat a shorter or longer duration as a dial-in or quality signal for these shots. Grind only moves yield/time here in the extremes: a puck so fine it chokes and never reaches the flow target, or so coarse it gushes with almost no resistance. Judge these shots by the pressure the puck developed at the target flow, taste, TDS/EY, and channeling instead.
+
 **Exit conditions**: Frames with exit conditions (e.g., "exit:p>3.0") advance when the condition is met. Short phase durations (1-2s) after exit conditions are normal — the machine transitions quickly.
 
 ## How to Read the Data

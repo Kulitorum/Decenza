@@ -61,6 +61,14 @@ QJsonObject shotToJson(const ShotProjection& shot,
     h["doseG"] = shot.doseWeightG;
     h["yieldG"] = shot.finalWeightG;
     h["durationSec"] = shot.durationSec;
+    // Issue #1158: control-mode provenance so the LLM doesn't read
+    // yieldG / durationSec as dial-in feedback on stop-at-weight +
+    // flow-controlled shots. Paired with `targetWeightG` (added below
+    // when set) this lets shotAnalysisSystemPrompt()'s stop-at-weight
+    // rule fire.
+    const QString pourControl = DialingBlocks::pourControlFromPhases(shot.phases);
+    if (!pourControl.isEmpty())
+        h["pourControl"] = pourControl;
     h["enjoyment0to100"] = shot.enjoyment0to100 > 0
         ? QJsonValue(shot.enjoyment0to100)
         : QJsonValue(QJsonValue::Null);
@@ -231,6 +239,15 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     b["doseG"] = best.doseWeightG;
     b["yieldG"] = best.finalWeightG;
     b["durationSec"] = best.durationSec;
+    // Issue #1158: same control-mode + stop-at-weight provenance as the
+    // dialInSessions entries, so the LLM applies the recipe rule when
+    // anchoring on the best shot instead of treating its yield/duration
+    // as a dial-in target.
+    const QString bestPourControl = DialingBlocks::pourControlFromPhases(best.phases);
+    if (!bestPourControl.isEmpty())
+        b["pourControl"] = bestPourControl;
+    if (best.targetWeightG > 0)
+        b["targetWeightG"] = best.targetWeightG;
     b["grinderSetting"] = best.grinderSetting;
     b["grinderModel"] = best.grinderModel;
     b["beanBrand"] = best.beanBrand;

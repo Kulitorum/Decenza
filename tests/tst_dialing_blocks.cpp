@@ -1328,6 +1328,47 @@ private slots:
             QCOMPARE(a, b);
         });
     }
+
+    // -------------------------------------------------------------------
+    // pourControlFromPhases (issue #1158) — pure derivation, no DB.
+    // The final phase marker is the pour frame; its isFlowMode decides
+    // the reported control mode. No markers → "" so the field stays
+    // sparse. A trailing marker missing isFlowMode is skipped so the
+    // pour frame still wins.
+    // -------------------------------------------------------------------
+    void pourControlFromPhases_derivesFromLastUsablePhase()
+    {
+        auto phase = [](const QString& label, QVariant isFlowMode) {
+            QVariantMap m;
+            m["label"] = label;
+            if (isFlowMode.isValid()) m["isFlowMode"] = isFlowMode;
+            return QVariant(m);
+        };
+
+        // No phase markers (de1app / visualizer import) → omitted.
+        QCOMPARE(DialingBlocks::pourControlFromPhases({}), QString());
+
+        // Flow-controlled pour (D-Flow family): last phase isFlowMode=true.
+        const QVariantList dflow = {
+            phase("Filling", false), phase("Infusing", false),
+            phase("Pouring", true)
+        };
+        QCOMPARE(DialingBlocks::pourControlFromPhases(dflow), QStringLiteral("flow"));
+
+        // Pressure-controlled pour (classic 9-bar): last phase false.
+        const QVariantList ninebar = {
+            phase("Preinfusion", false), phase("Pour", false)
+        };
+        QCOMPARE(DialingBlocks::pourControlFromPhases(ninebar), QStringLiteral("pressure"));
+
+        // Trailing marker without isFlowMode is skipped; the real pour
+        // frame (flow) still determines the result.
+        const QVariantList trailingUnknown = {
+            phase("Fill", false), phase("Pour", true), phase("Ending", QVariant())
+        };
+        QCOMPARE(DialingBlocks::pourControlFromPhases(trailingUnknown),
+                 QStringLiteral("flow"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TstDialingBlocks)

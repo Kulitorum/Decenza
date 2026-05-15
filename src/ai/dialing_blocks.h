@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QtGlobal>
 
 class QSqlDatabase;
@@ -41,6 +43,37 @@ namespace DialingBlocks {
 // from years ago runs on different beans, possibly worn burrs, and the
 // parameters don't transfer.
 constexpr qint64 kBestRecentShotWindowDays = 90;
+
+// Issue #1158: derive the pour's control mode from a shot's phase
+// markers (`ShotProjection::phases` — a QVariantList of QVariantMaps
+// each carrying an `isFlowMode` bool). The final phase marker is the
+// pour/ending frame in every shipped Decent profile family, so its
+// `isFlowMode` reports whether the pour tracked a FLOW target (D-Flow /
+// Londinium / lever-hybrid) or a PRESSURE target. Returns "flow" /
+// "pressure", or "" when the shot has no usable phase markers (shots
+// imported from de1app / visualizer.coffee) so the caller keeps the
+// field sparse like the rest of the per-shot envelope.
+//
+// This is the structured signal that lets the LLM apply the
+// stop-at-weight rule in ShotSummarizer::shotAnalysisSystemPrompt(): a
+// flow-controlled pour that stops at a weight target pins yield and
+// makes duration ≈ stopWeight ÷ flowTarget, so neither is grind
+// feedback. Without it the model only sees yieldG / durationSec on
+// historical shots and reads them as dial-in outcomes (issue #1147).
+//
+// Defined inline (same rationale as buildCurrentBeanBlock) so test
+// binaries can exercise the derivation without linking the DB-dependent
+// block builders.
+inline QString pourControlFromPhases(const QVariantList& phases)
+{
+    for (auto it = phases.crbegin(); it != phases.crend(); ++it) {
+        const QVariantMap m = it->toMap();
+        if (!m.contains(QStringLiteral("isFlowMode"))) continue;
+        return m.value(QStringLiteral("isFlowMode")).toBool()
+            ? QStringLiteral("flow") : QStringLiteral("pressure");
+    }
+    return QString();
+}
 
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
