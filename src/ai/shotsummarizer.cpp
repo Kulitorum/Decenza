@@ -536,27 +536,12 @@ static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
     QJsonObject profile;
     profile["title"] = summary.profileTitle;
     if (!summary.profileNotes.isEmpty()) profile["intent"] = summary.profileNotes;
-    if (!summary.profileRecipe.isEmpty()) {
-        QString recipe = summary.profileRecipe;
-        // Issue #1158: the frame durations rendered above are maximums.
-        // Under stop-at-weight the shot is truncated when the scale
-        // hits the target — typically long before those frame times
-        // elapse (e.g. a "Pouring (127s)" frame that really runs ~25s).
-        // State that explicitly here so the model doesn't read the
-        // frame ceiling as the intended shot length, and pair it with
-        // the stop-at-weight rule in shotAnalysisSystemPrompt(). Gated
-        // on a target being set; phrased conditionally so it stays
-        // correct even if the target is a volume/timer fallback.
-        if (summary.targetWeight > 0) {
-            recipe += QStringLiteral(
-                "\nStop-at-weight: if a target weight is set (see "
-                "targetWeightG), the shot ends when the scale reaches it "
-                "— usually well before the frame durations above "
-                "elapse — so the actual shot time and final yield "
-                "follow the weight cutoff, not the frame timers.\n");
-        }
-        profile["recipe"] = recipe;
-    }
+    // Issue #1158: append the stop-at-weight clarification via the
+    // shared helper so this (advisor) path and dialing_get_context's
+    // MCP profile block render the recipe identically.
+    if (!summary.profileRecipe.isEmpty())
+        profile["recipe"] = DialingBlocks::withStopAtWeightNote(
+            summary.profileRecipe, summary.targetWeight);
     if (summary.targetWeight > 0) profile["targetWeightG"] = summary.targetWeight;
     if (summary.targetTemperatureC > 0) profile["targetTemperatureC"] = summary.targetTemperatureC;
     if (summary.recommendedDoseG > 0) profile["recommendedDoseG"] = summary.recommendedDoseG;

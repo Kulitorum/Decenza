@@ -318,7 +318,12 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         if (!sd.profileNotes.isEmpty())
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
-                            const QString recipe = Profile::describeFramesFromJson(sd.profileJson);
+                            // Issue #1158: shared helper appends the
+                            // stop-at-weight note so this MCP recipe
+                            // matches the in-app advisor's exactly.
+                            const QString recipe = DialingBlocks::withStopAtWeightNote(
+                                Profile::describeFramesFromJson(sd.profileJson),
+                                profileManager->profileTargetWeight());
                             if (!recipe.isEmpty())
                                 profileInfo["recipe"] = recipe;
                         }

@@ -103,6 +103,33 @@ inline QString pourControlFromProfileJson(const QString& profileJson)
         ? QStringLiteral("flow") : QStringLiteral("pressure");
 }
 
+// Issue #1158: append the stop-at-weight clarification to a rendered
+// recipe string. The frame durations in the recipe are maximums; under
+// stop-at-weight the shot truncates when the scale hits the target,
+// typically long before those frame times elapse (e.g. a
+// "Pouring (127s)" frame that really runs ~25s). Stating this inline,
+// next to the frames where the misread happens, stops the model
+// reading the frame ceiling as the intended shot length (issue #1147,
+// "the concern is duration — you're pulling in 32–34s").
+//
+// Both recipe-assembly sites call this — `dialing_get_context`'s
+// profile block (mcptools_dialing.cpp) and the in-app advisor's
+// ShotSummarizer::buildCurrentProfileBlock — so the MCP and advisor
+// surfaces cannot drift. No-op when the recipe is empty or no target
+// weight is set; phrased conditionally so it stays correct even if
+// targetWeightG is a volume/timer fallback rather than a real SAW
+// target.
+inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
+{
+    if (recipe.isEmpty() || targetWeightG <= 0) return recipe;
+    recipe += QStringLiteral(
+        "\nStop-at-weight: if a target weight is set (see targetWeightG), "
+        "the shot ends when the scale reaches it — usually well before "
+        "the frame durations above elapse — so the actual shot time and "
+        "final yield follow the weight cutoff, not the frame timers.\n");
+    return recipe;
+}
+
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
 // QJsonArray; the array is empty when the profile has no prior shots.
