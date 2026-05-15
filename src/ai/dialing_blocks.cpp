@@ -110,6 +110,17 @@ QJsonObject shotToJson(const ShotProjection& shot,
     if (!override.beanType.isEmpty())
         h["beanType"] = override.beanType;
     h["notes"] = shot.espressoNotes;
+    // #1161: why the shot ended. stoppedBy varies shot-to-shot (a session
+    // can mix a SAW shot and a manually-aborted one), so it is NOT hoisted
+    // — emit per-shot. Omit the common "profileEnd"/"" (no signal: the AI
+    // falls back to yield-vs-targetWeightG there) to keep the payload lean
+    // (#1164 discipline). Emit the meaningful ones so the AI knows whether
+    // the yield was pinned ("weight"/"volume") or user-chosen and NOT
+    // dial-in diagnostic ("manual").
+    if (shot.stoppedBy == QStringLiteral("manual")
+        || shot.stoppedBy == QStringLiteral("weight")
+        || shot.stoppedBy == QStringLiteral("volume"))
+        h["stoppedBy"] = shot.stoppedBy;
     return h;
 }
 
@@ -318,6 +329,13 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         b["pourControl"] = bestPourControl;
     if (best.targetWeightG > 0)
         b["targetWeightG"] = best.targetWeightG;
+    // #1161: surface why the anchor shot ended (same sparse-emit rule as
+    // shotToJson). A "manual" best shot's yield is user-chosen, so the AI
+    // should not treat it as a yield target to reproduce.
+    if (best.stoppedBy == QStringLiteral("manual")
+        || best.stoppedBy == QStringLiteral("weight")
+        || best.stoppedBy == QStringLiteral("volume"))
+        b["stoppedBy"] = best.stoppedBy;
     b["grinderSetting"] = best.grinderSetting;
     b["grinderModel"] = best.grinderModel;
     b["beanBrand"] = best.beanBrand;

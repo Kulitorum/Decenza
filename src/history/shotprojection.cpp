@@ -36,6 +36,7 @@ QVariantMap ShotProjection::toVariantMap() const
     m["debugLog"] = debugLog;
     m["temperatureOverrideC"] = temperatureOverrideC;
     m["targetWeightG"] = targetWeightG;
+    m["stoppedBy"] = stoppedBy;
     m["profileJson"] = profileJson;
     m["profileKbId"] = profileKbId;
 
@@ -105,6 +106,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.debugLog = m.value("debugLog").toString();
     p.temperatureOverrideC = m.value("temperatureOverrideC").toDouble();
     p.targetWeightG = m.value("targetWeightG").toDouble();
+    p.stoppedBy = m.value("stoppedBy").toString();
     p.profileJson = m.value("profileJson").toString();
     p.profileKbId = m.value("profileKbId").toString();
 

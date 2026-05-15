@@ -82,6 +82,11 @@ public:
     // Tare the scale (call from MainController when first user frame starts)
     Q_INVOKABLE void tareScale();
 
+    // #1161: true iff stop-at-volume (SAV) ended the current/just-ended
+    // shot. Set in checkStopAtVolume, reset at the next espresso cycle
+    // start (updatePhase) — so it is valid to read at shot-end.
+    bool wasVolumeStopped() const { return m_stopAtVolumeTriggered; }
+
 signals:
     void phaseChanged();
     void shotTimeChanged();

@@ -1657,7 +1657,22 @@ void MainController::softStopSteam() {
     qDebug() << "Soft stop steam: sent 1-second timeout to trigger natural stop";
 }
 
+void MainController::reportShotStopReason(const QString& reason) {
+    // #1161: QML pushes its resolved stopReason here whenever it changes
+    // (single onStopReasonChanged handler covering all stop entry points).
+    // We only store it — the actual stop command is still issued by the
+    // existing QML/device path, unchanged. onShotEnded() maps this to the
+    // persisted stoppedBy, with SAW/SAV C++ state taking precedence.
+    m_pendingStopReason = reason;
+}
+
 void MainController::onEspressoCycleStarted() {
+    // #1161: clear the prior shot's QML-reported stop reason at cycle
+    // start so it can't bleed into this shot's stoppedBy. (QML also resets
+    // its own stopReason to "" on shotStarted; this is belt-and-suspenders
+    // and independent of QML/C++ signal ordering.)
+    m_pendingStopReason.clear();
+
     // Safety check: abort shot if user has a saved scale but it's not connected,
     // AND the current profile actually uses weight (stop-at-weight or frame exit weights).
     // This prevents running a shot without weight tracking when the user expects it.
@@ -1994,11 +2009,34 @@ void MainController::onShotEnded() {
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
+            // #1161: classify why the shot ended so the dial-in advisor
+            // can discount yield/duration on manually-stopped shots (their
+            // yield is user-chosen, not an extraction outcome). Precedence:
+            // a weight cutoff (SAW) and a volume cutoff (SAV) are C++
+            // ground truth and win even if QML's overlay said otherwise.
+            // Otherwise fall back to QML's resolved stopReason: "manual" is
+            // a deliberate user stop; "machine"/""/anything else means the
+            // profile ran its course OR the DE1's own button (the BLE
+            // protocol cannot distinguish those) → "profileEnd". The
+            // consumer treats a sub-target "profileEnd" like "manual",
+            // covering the DE1-hardware-button case.
+            QString stoppedBy;
+            if (m_timingController && m_timingController->wasSawTriggered())
+                stoppedBy = QStringLiteral("weight");
+            else if (m_machineState && m_machineState->wasVolumeStopped())
+                stoppedBy = QStringLiteral("volume");
+            else if (m_pendingStopReason == QStringLiteral("manual"))
+                stoppedBy = QStringLiteral("manual");
+            else if (m_pendingStopReason == QStringLiteral("weight"))
+                stoppedBy = QStringLiteral("weight");
+            else
+                stoppedBy = QStringLiteral("profileEnd");
+
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 duration, finalWeight, doseWeight,
                 metadata, debugLog,
-                shotTemperatureOverride, shotTargetWeight);
+                shotTemperatureOverride, shotTargetWeight, stoppedBy);
         }
     } else {
         qWarning() << "[metadata] Could not save shot - history not ready!";

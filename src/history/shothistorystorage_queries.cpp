@@ -517,7 +517,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
         SELECT id, timestamp, profile_name, duration_seconds, final_weight, dose_weight,
                bean_brand, bean_type, roast_level, grinder_brand, grinder_model,
                grinder_burrs, grinder_setting, drink_tds, drink_ey, enjoyment,
-               espresso_notes, roast_date, temperature_override, yield_override, profile_json, beverage_type
+               espresso_notes, roast_date, temperature_override, yield_override, profile_json, beverage_type,
+               stopped_by
         FROM shots
         WHERE profile_kb_id = ?
     )");
@@ -563,6 +564,7 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["targetWeightG"] = query.value("yield_override").toDouble();
             shot["profileJson"] = query.value("profile_json").toString();
             shot["beverageType"] = query.value("beverage_type").toString();
+            shot["stoppedBy"] = query.value("stopped_by").toString();
 
             // ISO 8601 with timezone for API/AI consumption (CLAUDE.md convention).
             // Written into ShotProjection::timestampIso so it does not collide with

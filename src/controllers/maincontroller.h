@@ -161,6 +161,14 @@ public slots:
     // Turn off steam heater (sends 0 C)
     Q_INVOKABLE void turnOffSteamHeater();
 
+    // #1161: QML already resolves an authoritative stop reason for its
+    // overlay ("manual" | "weight" | "machine" | "") across every stop
+    // entry point. It pushes that here via a single onStopReasonChanged
+    // handler so the saved shot can record why it ended and the dial-in
+    // advisor can discount the arbitrary yield of manually-stopped shots.
+    // C++ SAW/SAV state is ground truth and overrides this at save time.
+    Q_INVOKABLE void reportShotStopReason(const QString& reason);
+
     void onEspressoCycleStarted();
     void onShotEnded();
     void onScaleWeightChanged(double weight);  // Called by scale weight updates
@@ -314,6 +322,7 @@ private:
     double m_lastPressure = 0;       // Last sample pressure (for transition reason inference)
     double m_lastFlow = 0;           // Last sample flow (for transition reason inference)
     bool m_tareDone = false;  // Track if we've tared for this shot
+    QString m_pendingStopReason;  // #1161: QML-reported stop reason for the in-flight shot
 
     QString m_currentFrameName;  // For accessibility announcements
 

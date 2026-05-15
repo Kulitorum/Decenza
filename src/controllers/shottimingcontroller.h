@@ -65,6 +65,11 @@ public:
     // Transition reason tracking
     bool wasWeightExit(int frameNumber) const { return m_weightExitFrames.contains(frameNumber); }
 
+    // #1161: true iff stop-at-weight (SAW) ended this shot. Set in
+    // onSawTriggered, cleared in startShot/onSettlingComplete — valid to
+    // read from endShot()/onShotEnded() (before the next cycle starts).
+    bool wasSawTriggered() const { return m_sawTriggeredThisShot; }
+
     // Data ingestion
     void onShotSample(const ShotSample& sample, double pressureGoal, double flowGoal,
                       double tempGoal, int frameNumber, bool isFlowMode);

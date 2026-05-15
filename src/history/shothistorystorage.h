@@ -46,7 +46,8 @@ public:
                     const ShotMetadata& metadata,
                     const QString& debugLog,
                     double temperatureOverride,
-                    double targetWeight);
+                    double targetWeight,
+                    const QString& stoppedBy = QString());  // #1161
 
     // Async: runs update on background thread, emits visualizerInfoUpdated()
     Q_INVOKABLE void requestUpdateVisualizerInfo(qint64 shotId,

@@ -63,6 +63,9 @@ struct ShotRow {
     // .temperature_override. 0 by default so existing fixtures are
     // unaffected (the field stays absent / hoist-neutral, as before).
     double temperatureOverride = 0.0;
+    // #1161: why the shot ended → shots.stopped_by. "" by default so
+    // existing fixtures are unaffected (sparse-omitted from the blocks).
+    QString stoppedBy;
 };
 
 // Run work with a scoped raw SQLite connection on `path`. Same pattern
@@ -91,14 +94,14 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             bean_brand, bean_type, roast_level,
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
             enjoyment, espresso_notes, profile_kb_id,
-            profile_json, yield_override, temperature_override
+            profile_json, yield_override, temperature_override, stopped_by
         ) VALUES (
             :uuid, :timestamp, :profile_name, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_level,
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
             :enjoyment, :espresso_notes, :profile_kb_id,
-            :profile_json, :yield_override, :temperature_override
+            :profile_json, :yield_override, :temperature_override, :stopped_by
         )
     )"));
     q.bindValue(":uuid", r.uuid);
@@ -121,6 +124,7 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     q.bindValue(":profile_json", r.profileJson);
     q.bindValue(":yield_override", r.targetWeight);
     q.bindValue(":temperature_override", r.temperatureOverride);
+    q.bindValue(":stopped_by", r.stoppedBy);
     if (!q.exec ()) {
         qWarning() << "insertShot failed:" << q.lastError().text();
         return -1;
@@ -1655,6 +1659,88 @@ private slots:
             QCOMPARE(best_.value(QStringLiteral("pourControl")).toString(),
                      QStringLiteral("flow"));
             QCOMPARE(best_.value(QStringLiteral("targetWeightG")).toDouble(), 36.0);
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // #1161: stoppedBy is surfaced sparsely. "manual"/"weight"/"volume"
+    // are emitted per-shot (and on bestRecentShot); "profileEnd" and ""
+    // are omitted so the AI falls back to yield-vs-target there.
+    // -------------------------------------------------------------------
+    void dialInSessions_and_bestRecentShot_surfaceStoppedBySparsely()
+    {
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("sb"), [&](QSqlDatabase& db) {
+            // One session, three shots with different stop reasons.
+            ShotRow base;
+            base.profileName = QStringLiteral("D-Flow / Q");
+            base.profileKbId = QStringLiteral("kb-dfq");
+            base.grinderModel = QStringLiteral("Zero");
+            base.grinderSetting = QStringLiteral("5");
+
+            ShotRow manual = base;
+            manual.uuid = QStringLiteral("sb-manual");
+            manual.timestamp = now - 3000;
+            manual.stoppedBy = QStringLiteral("manual");
+            QVERIFY(insertShot(db, manual) > 0);
+
+            ShotRow profileEnd = base;
+            profileEnd.uuid = QStringLiteral("sb-pe");
+            profileEnd.timestamp = now - 2700;
+            profileEnd.stoppedBy = QStringLiteral("profileEnd");
+            QVERIFY(insertShot(db, profileEnd) > 0);
+
+            ShotRow weight = base;
+            weight.uuid = QStringLiteral("sb-weight");
+            weight.timestamp = now - 2400;
+            weight.stoppedBy = QStringLiteral("weight");
+            QVERIFY(insertShot(db, weight) > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10);
+            QCOMPARE(sessions.size(), 1);
+            const QJsonArray shots = sessions.at(0).toObject()
+                .value(QStringLiteral("shots")).toArray();
+            QCOMPARE(shots.size(), 3);
+
+            int sawManual = 0, sawWeight = 0, sawProfileEndKey = 0;
+            for (const auto& v : shots) {
+                const QJsonObject s = v.toObject();
+                if (!s.contains(QStringLiteral("stoppedBy"))) { ++sawProfileEndKey; continue; }
+                const QString sb = s.value(QStringLiteral("stoppedBy")).toString();
+                if (sb == QStringLiteral("manual")) ++sawManual;
+                if (sb == QStringLiteral("weight")) ++sawWeight;
+            }
+            QCOMPARE(sawManual, 1);
+            QCOMPARE(sawWeight, 1);
+            QVERIFY2(sawProfileEndKey == 1,
+                     "profileEnd must be omitted (no stoppedBy key)");
+
+            // bestRecentShot: a manually-stopped rated anchor surfaces it.
+            ShotRow bestManual = base;
+            bestManual.uuid = QStringLiteral("sb-best");
+            bestManual.timestamp = now - 5 * kSecPerDay;
+            bestManual.enjoyment = 90;
+            bestManual.stoppedBy = QStringLiteral("manual");
+            const qint64 bestId = insertShot(db, bestManual);
+            QVERIFY(bestId > 0);
+
+            ShotRow cur = base;
+            cur.uuid = QStringLiteral("sb-cur");
+            cur.timestamp = now - kSecPerDay;
+            const qint64 curId = insertShot(db, cur);
+            QVERIFY(curId > 0);
+            const ShotProjection curProj = projectionForShot(db, curId);
+            QVERIFY(curProj.isValid());
+
+            const QJsonObject best_ = DialingBlocks::buildBestRecentShotBlock(
+                db, QStringLiteral("kb-dfq"), curId, curProj);
+            QVERIFY(!best_.isEmpty());
+            QCOMPARE(best_.value(QStringLiteral("id")).toVariant().toLongLong(), bestId);
+            QCOMPARE(best_.value(QStringLiteral("stoppedBy")).toString(),
+                     QStringLiteral("manual"));
         });
     }
 };

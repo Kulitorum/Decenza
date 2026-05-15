@@ -58,6 +58,7 @@ class ShotProjection {
     Q_PROPERTY(QString debugLog MEMBER debugLog)
     Q_PROPERTY(double temperatureOverrideC MEMBER temperatureOverrideC)
     Q_PROPERTY(double targetWeightG MEMBER targetWeightG)
+    Q_PROPERTY(QString stoppedBy MEMBER stoppedBy)
     Q_PROPERTY(QString profileJson MEMBER profileJson)
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
 
@@ -123,6 +124,7 @@ public:
     QString debugLog;
     double temperatureOverrideC = 0.0;
     double targetWeightG = 0.0;
+    QString stoppedBy;  // #1161: "weight"|"volume"|"manual"|"profileEnd"|""
     QString profileJson;
     QString profileKbId;
 
