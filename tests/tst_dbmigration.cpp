@@ -3,10 +3,12 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QTemporaryDir>
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QRegularExpression>
+#include <QSettings>
 
 #include "history/shothistorystorage.h"
 
@@ -164,7 +166,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 15);
+            QCOMPARE(getSchemaVersion(db), 16);
         });
     }
 
@@ -228,7 +230,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 15);
+            QCOMPARE(getSchemaVersion(db), 16);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -342,7 +344,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 15);
+            QCOMPARE(getSchemaVersion(db), 16);
         });
     }
 
@@ -356,7 +358,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 15);
+            QCOMPARE(getSchemaVersion(db), 16);
         });
     }
 
@@ -376,7 +378,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 15);
+            QCOMPARE(getSchemaVersion(db), 16);
         });
     }
 
@@ -399,7 +401,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 15);
+            QCOMPARE(getSchemaVersion(db), 16);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
@@ -544,16 +546,13 @@ private slots:
         });
     }
 
-    // Migration 14: enjoyment_source column added. Idempotency check —
-    // running ShotHistoryStorage::initialize twice on the same DB does
-    // not re-apply the ALTER (which would fail with a duplicate-column
-    // error) and the schema_version reaches the latest version (currently
-    // 15, post the temperature_unstable drop). The back-fill logic
-    // (UPDATE shots SET enjoyment_source = 'user' WHERE enjoyment > 0)
-    // is exercised in production; constructing a partial v13 schema
-    // here would force an unrealistic state through ShotHistoryStorage's
-    // distinct-cache prewarm path.
-    void v14_idempotentReapply()
+    // Migration 16: drop enjoyment_source column. Layer 3's inferred
+    // auto-rating was rolled back as a failed experiment — migration 14
+    // added the column, migration 16 drops it after resetting any
+    // inferred rows to the user's configured default rating. Idempotency
+    // check: running ShotHistoryStorage::initialize twice on the same DB
+    // ends at schema_version 16 and the column is GONE on both passes.
+    void v16_columnIsDropped()
     {
         const QString path = freshDbPath();
         {
@@ -565,19 +564,138 @@ private slots:
             initAndClose(path, s2);
         }
 
-        bool hasColumn = false;
+        bool hasEnjoymentSource = false;
         int versionFound = 0;
-        withRawDb(path, "v14_idem", [&](QSqlDatabase& db) {
+        withRawDb(path, "v16_idem", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             if (q.next()) versionFound = q.value(0).toInt();
             QVERIFY(q.exec("PRAGMA table_info(shots)"));
             while (q.next()) {
-                if (q.value(1).toString() == "enjoyment_source") { hasColumn = true; break; }
+                if (q.value(1).toString() == "enjoyment_source") {
+                    hasEnjoymentSource = true;
+                    break;
+                }
             }
         });
-        QCOMPARE(versionFound, 15);
-        QVERIFY2(hasColumn, "enjoyment_source column survives idempotent re-initialize");
+        QCOMPARE(versionFound, 16);
+        QVERIFY2(!hasEnjoymentSource,
+                 "enjoyment_source column must be absent after migration 16");
+    }
+
+    // Migration 16 contract: rows with enjoyment_source = 'inferred'
+    // have their enjoyment reset to the user's configured default
+    // rating (QSettings shot/defaultRating). Rows uploaded to
+    // Visualizer (visualizer_id non-empty) are stashed in the pending
+    // sync list for MainController to re-PATCH after boot.
+    void v16_resetsInferredAndDropsColumn()
+    {
+        const QString path = freshDbPath();
+
+        // First init creates the current schema (column already absent).
+        // Re-add the column with v14 semantics, insert representative
+        // rows, then rewind schema_version to 15 so the next init runs
+        // migration 16 in isolation.
+        {
+            ShotHistoryStorage s1;
+            initAndClose(path, s1);
+        }
+
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        withRawDb(path, "v16_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN enjoyment_source TEXT NOT NULL DEFAULT 'none'"));
+
+            // (u1) inferred + visualizer-uploaded — must be reset AND queued
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                      "enjoyment, enjoyment_source, visualizer_id) "
+                      "VALUES (?, ?, 'P', 30, 75, 'inferred', 'V1')");
+            q.addBindValue("u1"); q.addBindValue(now - 3600);
+            QVERIFY(q.exec());
+            // (u2) inferred + not uploaded — reset but not queued
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                      "enjoyment, enjoyment_source, visualizer_id) "
+                      "VALUES (?, ?, 'P', 30, 75, 'inferred', NULL)");
+            q.addBindValue("u2"); q.addBindValue(now - 7200);
+            QVERIFY(q.exec());
+            // (u3) user-rated — untouched
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                      "enjoyment, enjoyment_source, visualizer_id) "
+                      "VALUES (?, ?, 'P', 30, 90, 'user', 'V2')");
+            q.addBindValue("u3"); q.addBindValue(now - 10800);
+            QVERIFY(q.exec());
+            // (u4) unrated — untouched
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                      "enjoyment, enjoyment_source, visualizer_id) "
+                      "VALUES (?, ?, 'P', 30, 0, 'none', NULL)");
+            q.addBindValue("u4"); q.addBindValue(now - 14400);
+            QVERIFY(q.exec());
+
+            QVERIFY(q.exec("UPDATE schema_version SET version = 15"));
+        });
+
+        // Set the configured default rating that migration 16 reads.
+        QSettings appSettings;
+        const QVariant prior = appSettings.value("shot/defaultRating");
+        const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
+        appSettings.setValue("shot/defaultRating", 50);
+        appSettings.remove("migration16/pendingVisualizerSync");
+
+        // Run migration 16.
+        {
+            ShotHistoryStorage s2;
+            initAndClose(path, s2);
+        }
+
+        bool columnGone = true;
+        int versionFound = 0;
+        int enjoy1 = -1, enjoy2 = -1, enjoy3 = -1, enjoy4 = -1;
+        withRawDb(path, "v16_verify", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT version FROM schema_version"));
+            if (q.next()) versionFound = q.value(0).toInt();
+
+            QVERIFY(q.exec("PRAGMA table_info(shots)"));
+            while (q.next()) {
+                if (q.value(1).toString() == "enjoyment_source") {
+                    columnGone = false;
+                    break;
+                }
+            }
+
+            QVERIFY(q.exec("SELECT uuid, enjoyment FROM shots ORDER BY uuid"));
+            while (q.next()) {
+                const QString u = q.value(0).toString();
+                const int e = q.value(1).toInt();
+                if      (u == "u1") enjoy1 = e;
+                else if (u == "u2") enjoy2 = e;
+                else if (u == "u3") enjoy3 = e;
+                else if (u == "u4") enjoy4 = e;
+            }
+        });
+
+        QCOMPARE(versionFound, 16);
+        QVERIFY2(columnGone, "enjoyment_source column must be dropped");
+        QCOMPARE(enjoy1, 50);
+        QCOMPARE(enjoy2, 50);
+        QCOMPARE(enjoy3, 90);
+        QCOMPARE(enjoy4, 0);
+
+        // Visualizer back-sync queue: exactly one entry (V1 — V2 belongs to
+        // a user-rated row that we never auto-stamped, so it's not queued).
+        const QByteArray pendingJson = appSettings.value(
+            "migration16/pendingVisualizerSync").toByteArray();
+        const QJsonArray pending = QJsonDocument::fromJson(pendingJson).array();
+        QCOMPARE(pending.size(), 1);
+        QCOMPARE(pending.first().toObject().value("visualizerId").toString(),
+                 QStringLiteral("V1"));
+
+        // Restore QSettings so we don't leak test state.
+        if (prior.isValid()) appSettings.setValue("shot/defaultRating", prior);
+        else appSettings.remove("shot/defaultRating");
+        if (priorPending.isValid())
+            appSettings.setValue("migration16/pendingVisualizerSync", priorPending);
+        else appSettings.remove("migration16/pendingVisualizerSync");
     }
 };
 

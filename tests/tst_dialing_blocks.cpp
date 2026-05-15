@@ -839,44 +839,34 @@ private slots:
     // intentionally avoids the AI module to stay focused on the SQL block
     // builders.
     // -----------------------------------------------------------------
-    // bestRecentShot.confidence (issue #1055 Layer 3)
+    // bestRecentShot — user-rated only (Layer 3 inferred fallback removed)
     // -----------------------------------------------------------------
 
-    static qint64 insertShotWithSource(QSqlDatabase& db,
-                                       const QString& uuid, qint64 ts,
-                                       const QString& kbId, int enjoyment,
-                                       const QString& source)
-    {
-        const qint64 id = insertShot(db, ShotRow{
-            .uuid = uuid, .timestamp = ts,
-            .profileName = QStringLiteral("P"), .profileKbId = kbId,
-            .duration = 30, .finalWeight = 36, .doseWeight = 18,
-            .grinderSetting = QStringLiteral("4.0"),
-            .enjoyment = enjoyment
-        });
-        if (id <= 0) return -1;
-        // Patch enjoyment_source on the just-inserted row. The insert
-        // helper doesn't know about the new column, and migration 14
-        // back-fills 'user' for enjoyment > 0 rows by default — so this
-        // test override is needed only to label rows as 'inferred'.
-        QSqlQuery up(db);
-        up.prepare("UPDATE shots SET enjoyment_source = ? WHERE id = ?");
-        up.addBindValue(source);
-        up.addBindValue(id);
-        up.exec ();
-        return id;
-    }
-
-    void bestRecentShot_prefersUserOverInferredEvenWhenInferredScoresHigher()
+    void bestRecentShot_highestUserRatedWins()
     {
         const QString dbPath = freshDbPath();
         initAndClose(dbPath);
         const qint64 now = QDateTime::currentSecsSinceEpoch();
 
-        withRawDb(dbPath, "best_user_pref", [&](QSqlDatabase& db) {
-            insertShotWithSource(db, "user70", now - 24*3600, "kb", 70, "user");
-            insertShotWithSource(db, "infer85", now - 12*3600, "kb", 85, "inferred");
-            const qint64 currentId = insertShotWithSource(db, "current", now - 3600, "kb", 0, "none");
+        withRawDb(dbPath, "best_user_only", [&](QSqlDatabase& db) {
+            insertShot(db, ShotRow{
+                .uuid = "user70", .timestamp = now - 24*3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "4.0", .enjoyment = 70
+            });
+            insertShot(db, ShotRow{
+                .uuid = "user85", .timestamp = now - 12*3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "4.0", .enjoyment = 85
+            });
+            const qint64 currentId = insertShot(db, ShotRow{
+                .uuid = "current", .timestamp = now - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "4.0", .enjoyment = 0
+            });
 
             ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, currentId);
             const ShotProjection cur = ShotHistoryStorage::convertShotRecord(rec);
@@ -884,30 +874,10 @@ private slots:
             const QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
                 db, "kb", currentId, cur);
             QVERIFY(!best.isEmpty());
-            QCOMPARE(best.value("enjoyment0to100").toInt(), 70);
-            QCOMPARE(best.value("confidence").toString(), QStringLiteral("user_rated"));
-        });
-    }
-
-    void bestRecentShot_inferredFallbackWhenNoUserRated()
-    {
-        const QString dbPath = freshDbPath();
-        initAndClose(dbPath);
-        const qint64 now = QDateTime::currentSecsSinceEpoch();
-
-        withRawDb(dbPath, "best_inferred_fallback", [&](QSqlDatabase& db) {
-            insertShotWithSource(db, "infer75", now - 24*3600, "kb", 75, "inferred");
-            insertShotWithSource(db, "infer80", now - 12*3600, "kb", 80, "inferred");
-            const qint64 currentId = insertShotWithSource(db, "current", now - 3600, "kb", 0, "none");
-
-            ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, currentId);
-            const ShotProjection cur = ShotHistoryStorage::convertShotRecord(rec);
-
-            const QJsonObject best = DialingBlocks::buildBestRecentShotBlock(
-                db, "kb", currentId, cur);
-            QVERIFY(!best.isEmpty());
-            QCOMPARE(best.value("enjoyment0to100").toInt(), 80);
-            QCOMPARE(best.value("confidence").toString(), QStringLiteral("inferred"));
+            QCOMPARE(best.value("enjoyment0to100").toInt(), 85);
+            // Layer 3 removed: bestRecentShot no longer carries `confidence`.
+            QVERIFY2(!best.contains("confidence"),
+                     "bestRecentShot must not carry the removed `confidence` field");
         });
     }
 
@@ -919,8 +889,18 @@ private slots:
 
         withRawDb(dbPath, "best_empty", [&](QSqlDatabase& db) {
             // Only unrated rows in the window — block must be omitted.
-            insertShotWithSource(db, "u-cur", now - 3600, "kb", 0, "none");
-            const qint64 currentId = insertShotWithSource(db, "current", now - 60, "kb", 0, "none");
+            insertShot(db, ShotRow{
+                .uuid = "u-cur", .timestamp = now - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "4.0", .enjoyment = 0
+            });
+            const qint64 currentId = insertShot(db, ShotRow{
+                .uuid = "current", .timestamp = now - 60,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "4.0", .enjoyment = 0
+            });
             ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, currentId);
             const ShotProjection cur = ShotHistoryStorage::convertShotRecord(rec);
 

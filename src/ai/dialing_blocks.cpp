@@ -64,10 +64,6 @@ QJsonObject shotToJson(const ShotProjection& shot,
     h["enjoyment0to100"] = shot.enjoyment0to100 > 0
         ? QJsonValue(shot.enjoyment0to100)
         : QJsonValue(QJsonValue::Null);
-    // Issue #1055 Layer 3: per-shot enjoymentSource only when "inferred"
-    // — sparse so the LLM only sees the field when it carries meaning.
-    if (shot.enjoymentSource == QStringLiteral("inferred"))
-        h["enjoymentSource"] = QStringLiteral("inferred");
     h["grinderSetting"] = shot.grinderSetting;
     if (!override.grinderBrand.isEmpty())
         h["grinderBrand"] = override.grinderBrand;
@@ -202,17 +198,15 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         QDateTime::currentSecsSinceEpoch()
         - kBestRecentShotWindowDays * 24 * 3600;
     QSqlQuery bestQ(db);
-    // Issue #1055 Layer 3: prefer user-rated candidates over inferred
-    // ones regardless of score. The CASE expression sorts user-rated
-    // rows before inferred rows; within each tier, highest enjoyment
-    // wins, then most recent. The existing enjoyment > 0 gate keeps
-    // 'none'-source rows out (they have enjoyment == 0 by construction).
+    // Highest user-rated shot in the 90-day window for this profile.
+    // Falls back to nothing when the user has no rated shots — the
+    // elicitation paths (QuickRatingRow, conversational capture) keep
+    // this pool populated.
     bestQ.prepare(
-        "SELECT id, enjoyment_source FROM shots "
+        "SELECT id FROM shots "
         "WHERE profile_kb_id = ? AND enjoyment > 0 "
         "AND id != ? AND timestamp >= ? "
-        "ORDER BY CASE WHEN enjoyment_source = 'user' THEN 0 ELSE 1 END, "
-        "         enjoyment DESC, timestamp DESC LIMIT 1");
+        "ORDER BY enjoyment DESC, timestamp DESC LIMIT 1");
     bestQ.addBindValue(profileKbId);
     bestQ.addBindValue(resolvedShotId);
     bestQ.addBindValue(windowFloorSec);
@@ -226,7 +220,6 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     if (!bestQ.next()) return QJsonObject();   // no rated shot in window — documented omission
 
     const qint64 bestId = bestQ.value(0).toLongLong();
-    const QString bestEnjoymentSource = bestQ.value(1).toString();
     ShotRecord bestRecord = ShotHistoryStorage::loadShotRecordStatic(db, bestId);
     const ShotProjection best = ShotHistoryStorage::convertShotRecord(bestRecord);
     if (!best.isValid()) return QJsonObject();
@@ -253,15 +246,6 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     if (!diff.isEmpty())
         b["changeFromBest"] = diff;
 
-    // Issue #1055 Layer 3: surface the rating provenance so the LLM
-    // knows whether to anchor on this shot ("user_rated") or treat it
-    // as a hint requiring user confirmation ("inferred"). The query's
-    // CASE-based ORDER BY guarantees user-rated wins when both tiers
-    // have candidates, so seeing "inferred" here means no user-rated
-    // shot exists in the 90-day window for this profile.
-    b["confidence"] = bestEnjoymentSource == QStringLiteral("user")
-        ? QStringLiteral("user_rated")
-        : QStringLiteral("inferred");
     return b;
 }
 

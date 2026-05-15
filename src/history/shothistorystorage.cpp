@@ -20,6 +20,7 @@
 #include <QRegularExpression>
 #include <QLocale>
 #include <QDebug>
+#include <QSettings>
 #include <QThread>
 #include <algorithm>
 #include <cmath>
@@ -739,12 +740,10 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 13;
     }
 
-    // Migration 14: enjoyment_source column. Tracks whether
-    // enjoyment0to100 came from the user (manual editor, QuickRatingRow,
-    // conversational reply) or was inferred by the post-shot detector
-    // pipeline. Lets bestRecentShot prefer user-rated candidates and
-    // lets the system prompt teach the LLM to treat inferred ratings
-    // as hints rather than ground truth (issue #1055 Layer 3).
+    // Migration 14: enjoyment_source column was introduced here. The
+    // column has been dropped by migration 16 (rolling back the Layer 3
+    // inferred auto-rating experiment) — this step now runs only on
+    // legacy v13 DBs so migration 16 has a consistent column to drop.
     if (currentVersion < 14) {
         qDebug() << "ShotHistoryStorage: Running migration to version 14 (enjoyment_source)";
 
@@ -789,6 +788,109 @@ bool ShotHistoryStorage::runMigrations()
         query.exec("DELETE FROM schema_version");
         query.exec("INSERT INTO schema_version (version) VALUES (15)");
         currentVersion = 15;
+    }
+
+    // Migration 16: drop enjoyment_source column. Layer 3 of the
+    // shot-rating-capture change auto-stamped clean unrated shots with
+    // enjoyment=75 and enjoymentSource="inferred", but the inferred
+    // signal added no value over the LLM's existing detector observations
+    // and silently overwrote the user's configured "Default Shot Rating"
+    // (issue #1150). The column is dropped here. Before dropping:
+    //   1) Stash the (shotId, visualizerId) pairs of inferred rows that
+    //      were uploaded to Visualizer in a QSettings pending list so
+    //      MainController can re-PATCH them with the corrected rating.
+    //   2) Reset every inferred row's enjoyment to the user's configured
+    //      default rating (QSettings shot/defaultRating, fallback 75 —
+    //      matching SettingsVisualizer::defaultShotRating).
+    if (currentVersion < 16) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 16 (drop enjoyment_source)";
+
+        if (hasColumn("shots", "enjoyment_source")) {
+            if (!m_db.transaction()) {
+                qWarning() << "ShotHistoryStorage: migration 16 transaction begin failed:"
+                           << m_db.lastError().text();
+                return false;
+            }
+
+            // Read user's configured default rating up-front. QSettings is
+            // thread-safe and the key is stable across app versions.
+            QSettings appSettings;
+            const int defaultRating = appSettings.value(
+                QStringLiteral("shot/defaultRating"), 75).toInt();
+
+            // 1) Collect inferred rows that were uploaded to Visualizer so
+            //    the cloud copy can be corrected after boot. Append to any
+            //    existing pending list (preserves entries from a prior
+            //    failed sync run).
+            {
+                QSqlQuery pendingQ(m_db);
+                if (!pendingQ.exec("SELECT id, visualizer_id FROM shots "
+                                   "WHERE enjoyment_source = 'inferred' "
+                                   "AND visualizer_id IS NOT NULL "
+                                   "AND visualizer_id != ''")) {
+                    qWarning() << "ShotHistoryStorage: migration 16 SELECT failed:"
+                               << pendingQ.lastError().text();
+                    m_db.rollback();
+                    return false;
+                }
+                QJsonArray pending;
+                {
+                    const QByteArray existingJson = appSettings.value(
+                        QStringLiteral("migration16/pendingVisualizerSync")).toByteArray();
+                    if (!existingJson.isEmpty())
+                        pending = QJsonDocument::fromJson(existingJson).array();
+                }
+                while (pendingQ.next()) {
+                    QJsonObject entry;
+                    entry["shotId"] = pendingQ.value(0).toLongLong();
+                    entry["visualizerId"] = pendingQ.value(1).toString();
+                    pending.append(entry);
+                }
+                if (!pending.isEmpty()) {
+                    appSettings.setValue(
+                        QStringLiteral("migration16/pendingVisualizerSync"),
+                        QJsonDocument(pending).toJson(QJsonDocument::Compact));
+                }
+            }
+
+            // 2) Reset enjoyment on inferred rows to the user's default.
+            {
+                QSqlQuery resetQ(m_db);
+                resetQ.prepare("UPDATE shots SET enjoyment = :rating "
+                               "WHERE enjoyment_source = 'inferred'");
+                resetQ.bindValue(":rating", defaultRating);
+                if (!resetQ.exec()) {
+                    qWarning() << "ShotHistoryStorage: migration 16 UPDATE failed:"
+                               << resetQ.lastError().text();
+                    m_db.rollback();
+                    return false;
+                }
+            }
+
+            // 3) Drop the column. SQLite >= 3.35 (required since v15).
+            if (!query.exec("ALTER TABLE shots DROP COLUMN enjoyment_source")) {
+                qWarning() << "ShotHistoryStorage: migration 16 DROP COLUMN failed:"
+                           << query.lastError().text();
+                m_db.rollback();
+                return false;
+            }
+
+            query.exec("DELETE FROM schema_version");
+            query.exec("INSERT INTO schema_version (version) VALUES (16)");
+
+            if (!m_db.commit()) {
+                qWarning() << "ShotHistoryStorage: migration 16 commit failed:"
+                           << m_db.lastError().text();
+                m_db.rollback();
+                return false;
+            }
+        } else {
+            // Column already absent (fresh DB or a previously-completed
+            // migration 16). Just record the schema version.
+            query.exec("DELETE FROM schema_version");
+            query.exec("INSERT INTO schema_version (version) VALUES (16)");
+        }
+        currentVersion = 16;
     }
 
     m_schemaVersion = currentVersion;
@@ -991,55 +1093,6 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             data.targetWeight, data.finalWeight,
             inputs.frameCount);
         decenza::applyBadgesToTarget(data, analysis.detectors);
-
-        // Issue #1055 Layer 3: inferred-good auto-rating. All five
-        // gates from the spec must pass before the unrated shot earns
-        // a provisional enjoyment of 75 with source "inferred":
-        //   1. verdictCategory == "clean"
-        //   2. channelingSeverity == "none"
-        //   3. grindDirection == "onTarget"
-        //   4. yield within 0.5g of the saved targetWeight (when set)
-        //      — proxy for the spec's ratio-within-0.1 gate, since
-        //      targetWeight is what the user wired in profile setup
-        //   5. duration in [15s, 60s] — sanity bound around typical
-        //      espresso pulls; serves as the bounded fallback the spec
-        //      calls for when no profile median is available. The
-        //      profile-median version is deferred (would require a DB
-        //      query inside saveShot's hot path).
-        // The bestRecentShot block can then anchor on the shot until
-        // the user provides their own rating (which flips enjoymentSource
-        // back to "user" via updateShotMetadataStatic). The system
-        // prompt teaches the LLM to treat inferred ratings as a hint
-        // requiring user confirmation.
-        if (data.espressoEnjoyment <= 0) {
-            const auto& d = analysis.detectors;
-            const bool detectorsClean =
-                d.verdictCategory == QStringLiteral("clean")
-                && d.channelingSeverity == QStringLiteral("none")
-                && d.grindDirection == QStringLiteral("onTarget");
-            // Yield gate: skip when no targetWeight is recorded (legacy
-            // shots, or profiles without a target). When recorded,
-            // require the actual yield within 0.5g.
-            const bool yieldOk = data.targetWeight <= 0
-                || std::abs(data.finalWeight - data.targetWeight) <= 0.5;
-            // Duration gate: bounded sanity check.
-            const bool durationOk = data.duration >= 15.0 && data.duration <= 60.0;
-
-            if (detectorsClean && yieldOk && durationOk) {
-                constexpr int kInferredScore = 75;
-                data.espressoEnjoyment = kInferredScore;
-                data.enjoymentSource = QStringLiteral("inferred");
-                qDebug() << "ShotHistoryStorage: inferred-good auto-rating —"
-                         << "shot saved with enjoyment" << kInferredScore
-                         << "(clean+onTarget+no-channeling+yield+duration)";
-            }
-        } else if (data.enjoymentSource.isEmpty() ||
-                   data.enjoymentSource == QStringLiteral("none")) {
-            // The save path carries an explicit user-set enjoyment;
-            // record the source as "user" so future filtering / queries
-            // can distinguish from inferred ratings.
-            data.enjoymentSource = QStringLiteral("user");
-        }
     }
 
     // Compress sample data on main thread (reads QObject data vectors)
@@ -1130,7 +1183,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
                     channeling_detected, grind_issue_detected,
-                    skip_first_frame_detected, pour_truncated_detected, enjoyment_source
+                    skip_first_frame_detected, pour_truncated_detected
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1140,7 +1193,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
                     :channeling_detected, :grind_issue_detected,
-                    :skip_first_frame_detected, :pour_truncated_detected, :enjoyment_source
+                    :skip_first_frame_detected, :pour_truncated_detected
                 )
             )");
 
@@ -1175,14 +1228,6 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
             query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
             query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
-            // Issue #1055 Layer 3: enjoymentSource defaults to "user"
-            // when the save path carries an explicit enjoyment value
-            // (manual save flow), and to "inferred" / "none" otherwise
-            // depending on whether the inferred-good evaluator fired.
-            // The caller (saveShot pre-write hook) is responsible for
-            // setting data.enjoymentSource appropriately.
-            query.bindValue(":enjoyment_source",
-                data.enjoymentSource.isEmpty() ? QStringLiteral("none") : data.enjoymentSource);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1499,7 +1544,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
                channeling_detected, grind_issue_detected,
-               skip_first_frame_detected, pour_truncated_detected, enjoyment_source
+               skip_first_frame_detected, pour_truncated_detected
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1546,8 +1591,6 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.grindIssueDetected = query.value(31).toInt() != 0;
     record.skipFirstFrameDetected = query.value(32).toInt() != 0;
     record.pourTruncatedDetected = query.value(33).toInt() != 0;
-    record.enjoymentSource = query.value(34).toString();
-    if (record.enjoymentSource.isEmpty()) record.enjoymentSource = QStringLiteral("none");
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -1819,26 +1862,12 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         {"doseWeight",      "dose_weight"},
         {"finalWeight",     "final_weight"},
         {"beverageType",    "beverage_type"},
-        {"enjoymentSource", "enjoyment_source"},  // issue #1055 Layer 3
     };
 
-    // Issue #1055 Layer 3: when the caller writes `enjoyment` without
-    // an explicit `enjoymentSource`, default the source to "user" — but
-    // only for non-zero scores. 0 always means unrated regardless of who
-    // wrote it; stamping it "user" would hide the QuickRatingRow and
-    // mislead the AI into treating the shot as deliberately rated bad.
-    QVariantMap effective = metadata;
-    if (effective.contains(QStringLiteral("enjoyment")) &&
-        !effective.contains(QStringLiteral("enjoymentSource"))) {
-        const int score = effective.value(QStringLiteral("enjoyment")).toInt();
-        effective.insert(QStringLiteral("enjoymentSource"),
-                         score > 0 ? QStringLiteral("user") : QStringLiteral("none"));
-    }
-
-    // Build SET clause from only the keys present in the (effective) metadata.
+    // Build SET clause from only the keys present in the metadata.
     QStringList setClauses;
     for (const auto& [metaKey, dbCol] : fieldMap) {
-        if (effective.contains(metaKey))
+        if (metadata.contains(metaKey))
             setClauses << QString("%1 = :%1").arg(dbCol);
     }
 
@@ -1857,10 +1886,10 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         return false;
     }
 
-    // Bind only the columns present in the (effective) metadata.
+    // Bind only the columns present in the metadata.
     for (const auto& [metaKey, dbCol] : fieldMap) {
-        if (effective.contains(metaKey))
-            query.bindValue(QString(":%1").arg(dbCol), effective.value(metaKey));
+        if (metadata.contains(metaKey))
+            query.bindValue(QString(":%1").arg(dbCol), metadata.value(metaKey));
     }
     query.bindValue(":id", shotId);
 
@@ -2311,9 +2340,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override, profile_kb_id,
                         channeling_detected, grind_issue_detected,
-                        skip_first_frame_detected, pour_truncated_detected,
-                        enjoyment_source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skip_first_frame_detected, pour_truncated_detected)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2355,8 +2383,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue((sf.isValid() && !sf.isNull()) ? sf : QVariant(0));
                 QVariant pt = srcShots.value("pour_truncated_detected");
                 insert.addBindValue((pt.isValid() && !pt.isNull()) ? pt : QVariant(0));
-                QVariant es = srcShots.value("enjoyment_source");
-                insert.addBindValue((es.isValid() && !es.isNull()) ? es : QVariant(QString("none")));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
