@@ -33,7 +33,7 @@ Decenza will upgrade to Qt 6.12 in a separate `upgrade-qt-6-12` change after 6.1
 
 ### 3. Switch each migrated `GraphsView` to the `QCanvasPainter` backend
 
-Per Pre-Stage 0 task §11 in `migrate-charting-to-qt-graphs/tasks.md`. Qt 6.12 lands a second rendering backend ([QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)) selected via `useCanvasPainter: true`. Off by default in 6.12.
+Per Pre-Stage 0 task §11 in `../archive/2026-05-15-migrate-charting-to-qt-graphs/tasks.md`. Qt 6.12 lands a second rendering backend ([QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)) selected via `useCanvasPainter: true`. Off by default in 6.12.
 
 **Files to flip**:
 - `qml/pages/FlowCalibrationPage.qml`
@@ -64,7 +64,7 @@ Qt 6.12 adds a `labelPostFormat` property (e.g. `"%.1f bar"`) on `ValueAxis` / `
 
 ### 6. Multi-axis margin fix
 
-Qt 6.12 fixes a `GraphsView` margin miscalculation when multiple series share the X and/or Y axis ([qt/qtgraphs commit on dev branch, see migrate-charting proposal §6.12 roadmap](../migrate-charting-to-qt-graphs/proposal.md#qt-612-roadmap)). Decenza always shares axes across pressure/flow/temperature/weight series in the espresso graphs. Verify visual change after the upgrade — pre-migration screenshots may shift slightly.
+Qt 6.12 fixes a `GraphsView` margin miscalculation when multiple series share the X and/or Y axis ([qt/qtgraphs commit on dev branch, see migrate-charting proposal §"Qt 6.12 Roadmap"](../archive/2026-05-15-migrate-charting-to-qt-graphs/proposal.md)). Decenza always shares axes across pressure/flow/temperature/weight series in the espresso graphs. Verify visual change after the upgrade — pre-migration screenshots may shift slightly.
 
 ## What Changes
 

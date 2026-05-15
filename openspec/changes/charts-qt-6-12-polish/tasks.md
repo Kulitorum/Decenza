@@ -4,6 +4,14 @@
 
 Each numbered section is a candidate PR. Items can ship independently; only the precondition above is shared.
 
+## 0. Pre-Qt 6.12 GA monitoring (active until 2026-09-22)
+
+Moved from `migrate-charting-to-qt-graphs` Pre-Stage 0 §P.4 when that change archived. These items run before the precondition above is met.
+
+- [ ] Watch `qt/qtgraphs.git` `dev` branch for landings up to feature freeze 2026-05-29. Two major items already landed: `QCanvasPainter` backend ([QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)) and declarative XYSeries data API (QTBUG-134005, QTBUG-141139).
+- [ ] At each 6.12 beta (2026-06-11 / 2026-07-16 / 2026-08-18), re-check `dev` log for any new legend / auto-ranging / dashed-stroke / coord-mapping landings. None present as of 2026-05-13; do not plan around them appearing.
+- [ ] If a new property or API lands that closes an item in §1–§6 below, annotate that section's checklist with the property name before 6.12 GA so the polish PRs can pick it up immediately.
+
 ## 1. Re-check tick-mark length API
 
 - [ ] Open Qt 6.12 GA docs for `GraphsTheme` and `GraphsLine` ([qt-project.org doc.qt.io/qt-6.12/qml-qtgraphs-graphstheme.html](https://doc.qt.io/qt-6.12/qml-qtgraphs-graphstheme.html) once GA)
