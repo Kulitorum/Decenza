@@ -4,6 +4,7 @@
 #include "aiconversation.h"   // HistoricalAssistantTurn — input to buildRecentAdviceBlock
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
@@ -41,6 +42,101 @@ namespace DialingBlocks {
 // from years ago runs on different beans, possibly worn burrs, and the
 // parameters don't transfer.
 constexpr qint64 kBestRecentShotWindowDays = 90;
+
+// Issue #1158: derive the pour's control mode from the profile recipe.
+// The profile JSON's `steps` array holds the frames; the dominant
+// extraction frame (the one with the largest `seconds`) is the pour,
+// and its `pump` field ("flow" / "pressure") is what the user targets
+// during it. We read this from the recipe — NOT the runtime phase
+// markers — because the markers are recorded frame transitions
+// (merged/truncated at runtime) and do not reliably identify the flow
+// pour: an earlier phase-marker heuristic returned "pressure" for a
+// flow-controlled D-Flow / Q pour (issue #1147 follow-up). profileJson
+// is available on every path that emits a shot — the dialInSessions
+// loader (`loadRecentShotsByKbIdStatic` selects `profile_json`) and the
+// full bestRecentShot load both carry it.
+//
+// Returns "flow" / "pressure", or "" when profileJson is empty,
+// unparseable, has no steps, or the chosen frame has no `pump` (de1app
+// / visualizer imports may lack a usable recipe) so callers keep the
+// field sparse like the rest of the per-shot envelope. Sparse-omit is
+// deliberate: a confidently-wrong value is worse than an absent one.
+//
+// This is the structured signal that lets the LLM apply the
+// stop-at-weight rule in ShotSummarizer::shotAnalysisSystemPrompt(): a
+// flow-controlled pour that stops at a weight target pins yield and
+// makes duration ≈ stopWeight ÷ flowTarget, so neither is grind
+// feedback. Without it the model only sees yieldG / durationSec on
+// historical shots and reads them as dial-in outcomes (issue #1147).
+//
+// Defined inline (same rationale as buildCurrentBeanBlock) so test
+// binaries can exercise the derivation without linking the DB-dependent
+// block builders.
+inline QString pourControlFromProfileJson(const QString& profileJson)
+{
+    if (profileJson.isEmpty()) return QString();
+    QJsonParseError err{};
+    const QJsonObject obj =
+        QJsonDocument::fromJson(profileJson.toUtf8(), &err).object();
+    if (err.error != QJsonParseError::NoError) return QString();
+    const QJsonArray steps = obj.value(QStringLiteral("steps")).toArray();
+    if (steps.isEmpty()) return QString();
+
+    // Pick the longest frame — the dominant extraction (pour) frame —
+    // rather than the last frame, so a short trailing decline/ending
+    // frame can't flip the classification.
+    QString pump;
+    double maxSeconds = -1.0;
+    for (const QJsonValue& sv : steps) {
+        const QJsonObject step = sv.toObject();
+        const QJsonValue secVal = step.value(QStringLiteral("seconds"));
+        const double sec = secVal.isString()
+            ? secVal.toString().toDouble()
+            : secVal.toDouble();
+        if (sec > maxSeconds) {
+            maxSeconds = sec;
+            pump = step.value(QStringLiteral("pump")).toString();
+        }
+    }
+    if (pump.isEmpty()) return QString();
+    return pump == QStringLiteral("flow")
+        ? QStringLiteral("flow") : QStringLiteral("pressure");
+}
+
+// Issue #1158: append the stop-at-weight clarification to a rendered
+// recipe string. The frame durations in the recipe are maximums; under
+// stop-at-weight the shot truncates when the scale hits the target,
+// typically long before those frame times elapse (e.g. a
+// "Pouring (127s)" frame that really runs ~25s). Stating this inline,
+// next to the frames where the misread happens, stops the model
+// reading the frame ceiling as the intended shot length (issue #1147,
+// "the concern is duration — you're pulling in 32–34s").
+//
+// Both *structured profile-block* recipe-assembly sites call this —
+// `dialing_get_context`'s profile block (mcptools_dialing.cpp) and the
+// in-app advisor's ShotSummarizer::buildCurrentProfileBlock — so those
+// two surfaces cannot drift. NOTE: this does not cover every place a
+// recipe is rendered: the prose multi-shot *history* blocks
+// (AIManager / ShotSummarizer history context) call
+// `Profile::describeFramesFromJson` directly without this note. That is
+// intentional — those blocks explicitly tell the model not to comment
+// on frame-level recipe detail, so the stop-at-weight clarification is
+// only needed where the recipe is presented as the current shot's spec.
+// No-op when the recipe is empty or no target weight is set; phrased
+// conditionally so it stays correct even if targetWeightG is a
+// volume/timer fallback rather than a real SAW target. Callers must
+// pass the target weight from the SAME source as the recipe string
+// (the analyzed shot), or the two structured surfaces will diverge.
+inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
+{
+    if (recipe.isEmpty() || targetWeightG <= 0) return recipe;
+    recipe += QStringLiteral(
+        "\nStop-at-weight: if a target weight is set (see targetWeightG), "
+        "the shot ends when the scale reaches it — usually well before "
+        "the frame durations above elapse — so the actual shot time and "
+        "final yield follow the weight cutoff, not the frame timers.\n");
+    return recipe;
+}
 
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped

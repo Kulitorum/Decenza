@@ -318,7 +318,24 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         if (!sd.profileNotes.isEmpty())
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
-                            const QString recipe = Profile::describeFramesFromJson(sd.profileJson);
+                            // Issue #1158: shared helper appends the
+                            // stop-at-weight note so this MCP recipe
+                            // matches the in-app advisor's exactly. Gate
+                            // it on the SHOT's stored target weight
+                            // (`sd.targetWeightG`) — the same source the
+                            // recipe text comes from (`sd.profileJson`)
+                            // and the same source the advisor uses
+                            // (`summary.targetWeight`). Using the
+                            // current profile's target here instead
+                            // would re-introduce MCP/advisor drift for
+                            // historical shots whose profile differs
+                            // from the loaded one. The emitted
+                            // `targetWeightG` field below stays
+                            // current-profile per the documented
+                            // shot-vs-targets asymmetry.
+                            const QString recipe = DialingBlocks::withStopAtWeightNote(
+                                Profile::describeFramesFromJson(sd.profileJson),
+                                sd.targetWeightG);
                             if (!recipe.isEmpty())
                                 profileInfo["recipe"] = recipe;
                         }

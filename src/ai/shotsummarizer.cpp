@@ -536,7 +536,12 @@ static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
     QJsonObject profile;
     profile["title"] = summary.profileTitle;
     if (!summary.profileNotes.isEmpty()) profile["intent"] = summary.profileNotes;
-    if (!summary.profileRecipe.isEmpty()) profile["recipe"] = summary.profileRecipe;
+    // Issue #1158: append the stop-at-weight clarification via the
+    // shared helper so this (advisor) path and dialing_get_context's
+    // MCP profile block render the recipe identically.
+    if (!summary.profileRecipe.isEmpty())
+        profile["recipe"] = DialingBlocks::withStopAtWeightNote(
+            summary.profileRecipe, summary.targetWeight);
     if (summary.targetWeight > 0) profile["targetWeightG"] = summary.targetWeight;
     if (summary.targetTemperatureC > 0) profile["targetTemperatureC"] = summary.targetTemperatureC;
     if (summary.recommendedDoseG > 0) profile["recommendedDoseG"] = summary.recommendedDoseG;
@@ -1767,6 +1772,8 @@ The profile recipe is included with each shot. Use it to set expectations BEFORE
 **Flow-controlled pour with pressure limiter**: When a pour frame controls FLOW (e.g., 1.8 ml/s) with a high pressure limiter (e.g., 10 bar), pressure will peak based on puck resistance and decline as the puck erodes. The limiter is a safety ceiling, not a goal. Pressure anywhere from 4 bar to the limiter is normal. The peak depends on grind — do not assume a specific peak unless the profile notes state one.
 
 **Pressure → Flow transition**: When a profile switches from pressure-controlled fill/infuse to flow-controlled pour, pressure becomes passive after the switch. A declining pressure curve is the expected signature of this pattern, not a problem. This is the lever/flow hybrid pattern used by D-Flow, Londinium, and similar profiles.
+
+**Stop-at-weight + flow-controlled pour → yield and duration are mechanical, not dial-in feedback**: When the pour is FLOW-controlled and the profile stops at a weight target (the recipe's pour frame is flow-controlled and a `targetWeightG` is set; for dial-in history this is the explicit `pourControl: "flow"` on the session `context`, or on the individual shot when a session mixes variants, and on `bestRecentShot`), the final yield is pinned by the scale cutoff and the total time is approximately stopWeight ÷ flowTarget — both are set by the recipe, not the grind. Do NOT credit a grind change for "yield landed on target", and do NOT treat a shorter or longer duration as a dial-in or quality signal for these shots. Grind only moves yield/time here in the extremes: a puck so fine it chokes and never reaches the flow target, or so coarse it gushes with almost no resistance. Judge these shots by the pressure the puck developed at the target flow, taste, TDS/EY, and channeling instead.
 
 **Exit conditions**: Frames with exit conditions (e.g., "exit:p>3.0") advance when the condition is met. Short phase durations (1-2s) after exit conditions are normal — the machine transitions quickly.
 
