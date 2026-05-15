@@ -139,9 +139,7 @@ Page {
                     editDrinkTds = editShotData.drinkTdsPct ?? 0
                     editDrinkEy = editShotData.drinkEyPct ?? 0
                 }
-                editEnjoyment = (editShotData.enjoymentSource === "inferred")
-                    ? 0
-                    : (editShotData.enjoyment0to100 ?? 0)
+                editEnjoyment = editShotData.enjoyment0to100 ?? 0
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
@@ -269,7 +267,7 @@ Page {
         editDrinkWeight !== (editShotData.finalWeightG ?? 0) ||
         editDrinkTds !== (editShotData.drinkTdsPct ?? 0) ||
         editDrinkEy !== (editShotData.drinkEyPct ?? 0) ||
-        editEnjoyment !== ((editShotData.enjoymentSource === "inferred") ? 0 : (editShotData.enjoyment0to100 ?? 0)) ||
+        editEnjoyment !== (editShotData.enjoyment0to100 ?? 0) ||
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso")
     )
@@ -295,10 +293,7 @@ Page {
             "espressoNotes": editNotes,
             "beverageType": editBeverageType
         }
-        // Don't write inferred enjoyment back to DB — it's AI-only data.
-        // Include enjoyment only when the user has explicitly set a value.
-        if (editShotData.enjoymentSource !== "inferred" || editEnjoyment > 0)
-            metadata["enjoyment"] = editEnjoyment
+        metadata["enjoyment"] = editEnjoyment
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         // Sync sticky metadata back to Settings (bean/grinder info) for the next shot.
@@ -701,14 +696,11 @@ Page {
 
             // Rating (moved to top, right after graph)
             // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
-            // rating row, visible when the shot has no user rating.
-            // Inferred scores (enjoymentSource="inferred") are internal AI
-            // signals and are never shown to the user, so inferred shots
-            // show the row too. The precision slider is the fine-tuning surface.
+            // rating row, visible when the user hasn't rated this shot
+            // yet. The precision slider below is the fine-tuning surface.
             QuickRatingRow {
                 Layout.fillWidth: true
-                visible: postShotReviewPage.isEditMode &&
-                         (editShotData.enjoymentSource ?? "none") !== "user"
+                visible: postShotReviewPage.isEditMode && editEnjoyment === 0
                 onRateClicked: function(score) {
                     editEnjoyment = score
                     postShotReviewPage.saveEditedShot()
@@ -1394,10 +1386,6 @@ Page {
                             "drinkTdsPct": editDrinkTds,
                             "drinkEyPct": editDrinkEy,
                             "espressoNotes": editNotes,
-                            // Always include enjoyment so it overrides the base shot value.
-                            // editEnjoyment is initialized to 0 for inferred shots, which
-                            // keeps the inferred rating from leaking to Visualizer (the
-                            // serializer skips enjoyment0to100 == 0).
                             "enjoyment0to100": editEnjoyment
                         }
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(

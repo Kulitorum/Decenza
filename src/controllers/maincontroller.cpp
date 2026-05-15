@@ -42,12 +42,15 @@
 #include <QPointer>
 #include <tuple>
 #include <QDateTime>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QVariantMap>
 #include <QRandomGenerator>
 #include <algorithm>
+#include <memory>
 #include <QCoreApplication>
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -175,6 +178,50 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_shotHistory = new ShotHistoryStorage(this);
     m_shotHistory->initialize();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
+
+    // Migration 16 ran inside initialize() above. If it found inferred
+    // shots that were uploaded to Visualizer, it queued them in
+    // QSettings under migration16/pendingVisualizerSync. Drain that
+    // list now — guarded internally on credentials being available;
+    // failed entries persist for the next boot.
+    processPendingVisualizerRatingSync();
+    connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
+            [this](const QString& visualizerId) {
+        // Only react when this matches the migration16 PATCH we issued;
+        // other concurrent updates (e.g., user-initiated edits from
+        // PostShotReviewPage) must not pop our queue entries.
+        if (m_migration16InFlightVisualizerId.isEmpty()
+            || visualizerId != m_migration16InFlightVisualizerId)
+            return;
+
+        QSettings s;
+        QJsonArray pending = QJsonDocument::fromJson(
+            s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
+        for (qsizetype i = 0; i < pending.size(); ++i) {
+            if (pending[i].toObject().value("visualizerId").toString() == visualizerId) {
+                pending.removeAt(i);
+                break;
+            }
+        }
+        if (pending.isEmpty())
+            s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
+        else
+            s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
+                       QJsonDocument(pending).toJson(QJsonDocument::Compact));
+        m_migration16InFlightVisualizerId.clear();
+        dispatchNextPendingVisualizerSync();
+    });
+    connect(m_visualizer, &VisualizerUploader::uploadFailed, this,
+            [this](const QString& /*error*/) {
+        // VisualizerUploader::uploadFailed carries no shot-id correlation, so
+        // we can't tell whether the failure was ours or someone else's. The
+        // safe rule: if a migration16 PATCH is in flight, assume it failed
+        // (the same upload session can't error AND succeed on the network
+        // layer), leave the entry in the pending list, and abort the drain.
+        // A spurious abort just means the queue picks up on next boot.
+        if (m_migration16InFlightVisualizerId.isEmpty()) return;
+        m_migration16InFlightVisualizerId.clear();
+    });
 
     // Create shot importer for importing .shot files from DE1 app
     m_shotImporter = new ShotImporter(m_shotHistory, this);
@@ -2483,6 +2530,97 @@ void MainController::onScaleWeightChanged(double weight) {
 
 bool MainController::isSawSettling() const {
     return m_timingController ? m_timingController->isSawSettling() : false;
+}
+
+void MainController::processPendingVisualizerRatingSync()
+{
+    QSettings s;
+    if (!s.contains(QStringLiteral("migration16/pendingVisualizerSync")))
+        return;
+
+    // Visualizer needs credentials to PATCH. If absent, leave the list
+    // for a future boot where the user has configured an account.
+    const QString user = s.value(QStringLiteral("visualizer/username")).toString();
+    const QString pass = s.value(QStringLiteral("visualizer/password")).toString();
+    if (user.isEmpty() || pass.isEmpty()) {
+        qDebug() << "MainController: migration16 pending Visualizer sync skipped (no credentials)";
+        return;
+    }
+
+    dispatchNextPendingVisualizerSync();
+}
+
+void MainController::dispatchNextPendingVisualizerSync()
+{
+    if (!m_migration16InFlightVisualizerId.isEmpty()) return;
+    if (!m_visualizer || !m_shotHistory) return;
+
+    QSettings s;
+    const QByteArray raw = s.value(
+        QStringLiteral("migration16/pendingVisualizerSync")).toByteArray();
+    if (raw.isEmpty()) return;
+
+    const QJsonArray pending = QJsonDocument::fromJson(raw).array();
+    if (pending.isEmpty()) {
+        s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
+        return;
+    }
+
+    const QJsonObject entry = pending.first().toObject();
+    const qint64 shotId = entry.value("shotId").toVariant().toLongLong();
+    const QString visualizerId = entry.value("visualizerId").toString();
+    if (shotId <= 0 || visualizerId.isEmpty()) {
+        // Malformed entry — drop and try the next one. Re-write the list
+        // without the bad entry and recurse.
+        QJsonArray rest = pending;
+        rest.removeFirst();
+        if (rest.isEmpty())
+            s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
+        else
+            s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
+                       QJsonDocument(rest).toJson(QJsonDocument::Compact));
+        dispatchNextPendingVisualizerSync();
+        return;
+    }
+
+    m_migration16InFlightVisualizerId = visualizerId;
+
+    // Load the (now-corrected) shot off the background thread and
+    // dispatch the PATCH from the callback. shotReady fires for every
+    // shot load app-wide, so we filter on shotId and disconnect once
+    // we've handled the matching one. The Connection handle is held in
+    // a shared_ptr captured by the lambda so it self-destructs whether
+    // the lambda is invoked (explicit disconnect below) or the context
+    // object dies first (Qt auto-disconnects on `this`, then the lambda
+    // copy in Qt's connection store gets cleaned up). Pre-shared_ptr
+    // this used a raw `new` that leaked on context destruction.
+    QPointer<MainController> self(this);
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = connect(m_shotHistory, &ShotHistoryStorage::shotReady, this,
+        [self, conn, shotId, visualizerId](qint64 readyId, const ShotProjection& shot) {
+        if (!self || readyId != shotId) return;
+        QObject::disconnect(*conn);
+        if (!shot.isValid()) {
+            qWarning() << "MainController: migration16 sync — shot" << shotId << "no longer exists; dropping";
+            // Pop the bad entry and continue.
+            QSettings ss;
+            QJsonArray remain = QJsonDocument::fromJson(
+                ss.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
+            if (!remain.isEmpty()) remain.removeFirst();
+            if (remain.isEmpty())
+                ss.remove(QStringLiteral("migration16/pendingVisualizerSync"));
+            else
+                ss.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
+                            QJsonDocument(remain).toJson(QJsonDocument::Compact));
+            self->m_migration16InFlightVisualizerId.clear();
+            self->dispatchNextPendingVisualizerSync();
+            return;
+        }
+        qDebug() << "MainController: migration16 sync — re-PATCHing visualizerId" << visualizerId
+                 << "with corrected enjoyment" << shot.enjoyment0to100;
+        self->m_visualizer->updateShotOnVisualizer(visualizerId, shot);
+    });
+    m_shotHistory->requestShot(shotId);
 }
 
 void MainController::setRefractometer(DiFluidR2* refractometer) {

@@ -6,7 +6,7 @@ import Decenza
 // QuickRatingRow — issue #1055 Layer 2.
 //
 // Low-friction one-tap rating row shown above the metadata fold on the
-// post-shot review page for unrated shots (enjoymentSource != "user").
+// post-shot review page for unrated shots (enjoyment == 0).
 // Three icon buttons map to scores 80 / 60 / 40 (good / okay / bad).
 // Tapping persists the score immediately via saveEditedShot.
 //

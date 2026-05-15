@@ -237,6 +237,22 @@ private:
     // `reason` is a caller tag that flows into the [ShotSettings] BLE log.
     void sendMachineSettings(const QString& reason = QString());
 
+    // Drain the migration16 pending list, re-PATCHing each affected
+    // shot's rating to Visualizer so the cloud copy matches the local
+    // corrected value. Serial: pops one entry, dispatches the PATCH,
+    // resumes from the VisualizerUploader::updateSuccess signal. On
+    // failure (no creds, network error) the entry remains in the list
+    // and retries on next app boot.
+    void processPendingVisualizerRatingSync();
+    void dispatchNextPendingVisualizerSync();
+    // Tracks the visualizerId of the migration16 PATCH currently in
+    // flight. Empty string when no migration16 sync is active. Compared
+    // against the visualizerId argument on updateSuccess / uploadFailed
+    // so other concurrent PATCHes (e.g., from PostShotReviewPage's
+    // metadata save) don't pop migration16 entries off the queue or
+    // stall the drain. See PR #1155 review note 2.
+    QString m_migration16InFlightVisualizerId;
+
     ProfileManager* m_profileManager = nullptr;
 
     QNetworkAccessManager* m_networkManager = nullptr;

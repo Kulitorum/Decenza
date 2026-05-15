@@ -110,7 +110,7 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                 withTempDb(dbPath, "mcp_res_recent", [&](QSqlDatabase& db) {
                     QSqlQuery query(db);
                     if (query.exec("SELECT id, timestamp, profile_name, dose_weight, final_weight, "
-                                   "duration_seconds, enjoyment, enjoyment_source, "
+                                   "duration_seconds, enjoyment, "
                                    "bean_brand, bean_type "
                                    "FROM shots ORDER BY timestamp DESC LIMIT 10")) {
                         while (query.next()) {
@@ -124,9 +124,6 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                             shot["durationSec"] = query.value("duration_seconds").toDouble();
                             const int enjoyment = query.value("enjoyment").toInt();
                             shot["enjoyment0to100"] = enjoyment > 0 ? QJsonValue(enjoyment) : QJsonValue(QJsonValue::Null);
-                            QString src = query.value("enjoyment_source").toString();
-                            if (src.isEmpty()) src = QStringLiteral("none");
-                            shot["enjoymentSource"] = src;
                             shot["beanBrand"] = query.value("bean_brand").toString();
                             shot["beanType"] = query.value("bean_type").toString();
                             shots.append(shot);
