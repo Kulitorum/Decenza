@@ -246,18 +246,22 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     // the API field strings are visualizer.coffee's external schema (snake_case)
     // and intentionally distinct from the projection's field names.
     //
-    // This is a PATCH — we always send the current local value so a
-    // local clear (TDS reset to 0, enjoyment cleared, etc.) propagates
-    // to Visualizer. Skipping zero/empty would mean a user could lower
-    // a field locally and never have the cloud copy catch up. Required
-    // by migration 16's back-sync for issue #1150 users whose default
-    // rating is 0, and a sensible default for any user-initiated clear.
+    // This is a PATCH and we always emit every editable field — the
+    // Visualizer API marks them `nullable: true`, so we use JSON null
+    // to clear a value the user has unset locally (TDS reset, rating
+    // cleared, etc.). Sending literal 0 / "" would set the field to a
+    // *value* of zero/empty-string rather than clearing it, which on
+    // visualizer.coffee renders as e.g. "Rating: 0/100" instead of
+    // "Unrated". Required by migration 16's back-sync for issue #1150
+    // users whose default rating is 0.
     QJsonObject shotObj;
     auto setStr = [&](const QString& apiField, QString ShotProjection::*field) {
-        shotObj[apiField] = shotData.*field;
+        const QString& s = shotData.*field;
+        shotObj[apiField] = s.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(s);
     };
     auto setDouble = [&](const QString& apiField, double ShotProjection::*field) {
-        shotObj[apiField] = shotData.*field;
+        const double v = shotData.*field;
+        shotObj[apiField] = v > 0 ? QJsonValue(v) : QJsonValue(QJsonValue::Null);
     };
 
     setStr("bean_brand", &ShotProjection::beanBrand);
@@ -267,12 +271,18 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setDouble("bean_weight", &ShotProjection::doseWeightG);
     setDouble("drink_weight", &ShotProjection::finalWeightG);
     // Combine brand + model for visualizer (no separate brand field in API)
-    shotObj["grinder_model"] =
-        (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed();
+    {
+        const QString combined =
+            (shotData.grinderBrand.trimmed() + " " + shotData.grinderModel.trimmed()).trimmed();
+        shotObj["grinder_model"] =
+            combined.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(combined);
+    }
     setStr("grinder_setting", &ShotProjection::grinderSetting);
     setDouble("drink_tds", &ShotProjection::drinkTdsPct);
     setDouble("drink_ey", &ShotProjection::drinkEyPct);
-    shotObj["espresso_enjoyment"] = shotData.enjoyment0to100;
+    shotObj["espresso_enjoyment"] = shotData.enjoyment0to100 > 0
+        ? QJsonValue(shotData.enjoyment0to100)
+        : QJsonValue(QJsonValue::Null);
     setStr("espresso_notes", &ShotProjection::espressoNotes);
     setStr("barista", &ShotProjection::barista);
     setStr("profile_title", &ShotProjection::profileName);
