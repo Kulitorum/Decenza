@@ -1179,7 +1179,17 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "`outcomeInPredictedRange` for a curve-shape signal, and ask the user\n"
         "about taste. `recentAdvice` is the LLM's own track record on this\n"
         "profile — read it as feedback on your prior calls and self-correct\n"
-        "mid-session rather than restarting analysis from scratch.\n");
+        "mid-session rather than restarting analysis from scratch.\n\n"
+        "**Referring to shots when you reply to the user**: cite shots by\n"
+        "their LOCAL DATE AND TIME — the handle the user sees in Shot\n"
+        "History — and NEVER by the numeric `id`. The `id` is an internal\n"
+        "database key with no user-facing counterpart anywhere in the app; a\n"
+        "user told to look at \"shot 5188\" cannot find it. Every shot in\n"
+        "`dialInSessions`, `bestRecentShot`, and `shots_list` carries a local\n"
+        "ISO `timestamp` — render it the way a person reads a clock (\"your\n"
+        "May 10, 9:04 AM shot\"), not as raw ISO or an id. Use the `id` only\n"
+        "as an opaque argument to other tools, never in prose addressed to\n"
+        "the user.\n");
 
     // Conversational metadata corrections (capability shot-metadata-capture).
     // When the user volunteers a bean-field correction mid-conversation
@@ -1799,7 +1809,7 @@ If no tasting feedback is provided, analyze curves and extraction metrics, but n
 Before recommending a grinder change with any magnitude (clicks, microns, "to setting X", "half a step"), follow this procedure:
 
 1. **Check available shot history.** Always start with the `dialInSessions` block in this prompt — recent dial-in shots for the current bean + grinder. **If you have shot-history tools** (MCP clients have `shots_list` filtered by `profileName` and roast level), call them for broader history beyond `dialInSessions`. The in-app advisor has no tools — only what is already in the prompt is available to it.
-2. **If a reference shot exists**: anchor the recommendation to it. Cite the specific historical setting and the shot it came from ("you pulled this profile at grinder setting 7 on shot 882 — start there").
+2. **If a reference shot exists**: anchor the recommendation to it. Cite the specific historical setting and identify the shot by its local date and time — the handle the user sees in Shot History — never by the numeric id ("you pulled this profile at grinder setting 7 on your May 10, 9:04 AM shot — start there").
 3. **If no reference shot exists** after exhausting available history sources: stay directional only. This is the correct response, not a degraded fallback. Use phrases like "a touch coarser", "noticeably finer", "significantly coarser". Never assign a number, click count, or grinder-step delta when you have no historical anchor.
 
 UGS distances in the Cross-Profile Grind Ordering section are **relative-scale comparisons between profiles**, not grinder-click translations. Do not convert a UGS distance into grinder steps, microns, or letter-coded positions under any circumstance — that conversion requires per-user two-anchor calibration that the user has not performed. UGS values are also not visible on the user's grinder dial.

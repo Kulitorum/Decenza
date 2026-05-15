@@ -688,6 +688,25 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     result["protocolVersion"] = negotiatedVersion;
     result["capabilities"] = serverCapabilities;
     result["serverInfo"] = serverInfo;
+
+    // MCP `instructions`: server-level guidance the client retains for the
+    // whole session and typically folds into its system prompt. #1162: an
+    // external AI kept citing the internal numeric shot id ("shot 5188"),
+    // which the user cannot find anywhere — Shot History and every
+    // user-facing surface key shots by date/time. State the rule once here
+    // so it reaches every MCP client regardless of which tools/args it uses
+    // and without re-bloating per-call payloads (the full system prompt is
+    // opt-in via dialing_get_context includeFullKnowledge, so it cannot be
+    // relied on as the only carrier of this rule).
+    result["instructions"] = QStringLiteral(
+        "When you refer to one of the user's espresso shots in a reply, "
+        "identify it by its local date and time — the handle shown in the "
+        "app's Shot History — for example \"your May 10, 9:04 AM shot\". "
+        "Never cite the numeric shot `id`: it is an internal database key "
+        "with no user-facing counterpart, and a user told to look at "
+        "\"shot 5188\" cannot find it anywhere. Shot payloads carry a local "
+        "ISO `timestamp`; render it the way a person reads a clock. Use the "
+        "numeric `id` only as an opaque argument to other tools.");
     return result;
 }
 
