@@ -54,6 +54,11 @@ struct ShotRow {
     QString grinderSetting;
     int enjoyment = 0;
     QString espressoNotes;
+    // Issue #1158: profile recipe snapshot + SAW target. Empty/0 by
+    // default so existing fixtures are unaffected (pourControl /
+    // targetWeightG simply stay absent, exactly as before this PR).
+    QString profileJson;
+    double targetWeight = 0.0;  // → shots.yield_override
 };
 
 // Run work with a scoped raw SQLite connection on `path`. Same pattern
@@ -81,13 +86,15 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_level,
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
-            enjoyment, espresso_notes, profile_kb_id
+            enjoyment, espresso_notes, profile_kb_id,
+            profile_json, yield_override
         ) VALUES (
             :uuid, :timestamp, :profile_name, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_level,
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
-            :enjoyment, :espresso_notes, :profile_kb_id
+            :enjoyment, :espresso_notes, :profile_kb_id,
+            :profile_json, :yield_override
         )
     )"));
     q.bindValue(":uuid", r.uuid);
@@ -107,6 +114,8 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     q.bindValue(":enjoyment", r.enjoyment);
     q.bindValue(":espresso_notes", r.espressoNotes);
     q.bindValue(":profile_kb_id", r.profileKbId.isEmpty() ? QVariant() : r.profileKbId);
+    q.bindValue(":profile_json", r.profileJson);
+    q.bindValue(":yield_override", r.targetWeight);
     if (!q.exec ()) {
         qWarning() << "insertShot failed:" << q.lastError().text();
         return -1;
@@ -1379,6 +1388,162 @@ private slots:
             "{\"name\":\"Pour\",\"pump\":\"flow\",\"seconds\":\"127\"}]}");
         QCOMPARE(DialingBlocks::pourControlFromProfileJson(stringSeconds),
                  QStringLiteral("flow"));
+    }
+
+    // -------------------------------------------------------------------
+    // withStopAtWeightNote (issue #1158) — pure, no DB. No-op on empty
+    // recipe or non-positive target; appends exactly one note otherwise,
+    // preserving the original recipe prefix.
+    // -------------------------------------------------------------------
+    void withStopAtWeightNote_appendsNoteOnlyWhenWeightAndRecipePresent()
+    {
+        // Empty recipe → unchanged regardless of weight.
+        QCOMPARE(DialingBlocks::withStopAtWeightNote(QString(), 36.0), QString());
+
+        const QString recipe =
+            QStringLiteral("## Profile Recipe (1 frames)\n1. Pouring FLOW\n");
+        // Non-positive target → recipe untouched (no note).
+        QCOMPARE(DialingBlocks::withStopAtWeightNote(recipe, 0.0), recipe);
+        QCOMPARE(DialingBlocks::withStopAtWeightNote(recipe, -1.0), recipe);
+
+        // Recipe + positive target → exactly one note appended after the
+        // original recipe text.
+        const QString out = DialingBlocks::withStopAtWeightNote(recipe, 36.0);
+        QVERIFY(out.startsWith(recipe));
+        QVERIFY(out.contains(QStringLiteral("Stop-at-weight:")));
+        QVERIFY(out.contains(QStringLiteral("weight cutoff")));
+        QCOMPARE(out.count(QStringLiteral("Stop-at-weight:")), 1);
+    }
+
+    // -------------------------------------------------------------------
+    // dialInSessions pourControl (issue #1158) — DB-level. A uniform
+    // session hoists pourControl to context with no per-shot field; a
+    // session that mixes flow/pressure variants emits it per-shot and
+    // omits the context value. (Previously only the pure derivation was
+    // covered; the hoist/per-shot wiring was dark.)
+    // -------------------------------------------------------------------
+    void dialInSessions_hoistsPourControlWhenUniform_elsePerShot()
+    {
+        const QString kFlow = QStringLiteral(
+            "{\"steps\":[{\"name\":\"Filling\",\"pump\":\"pressure\",\"seconds\":25},"
+            "{\"name\":\"Pouring\",\"pump\":\"flow\",\"seconds\":127}]}");
+        const QString kPressure = QStringLiteral(
+            "{\"steps\":[{\"name\":\"Preinfusion\",\"pump\":\"flow\",\"seconds\":10},"
+            "{\"name\":\"Pour\",\"pump\":\"pressure\",\"seconds\":40}]}");
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        // Uniform-flow session → hoisted.
+        const QString pathU = freshDbPath();
+        initAndClose(pathU);
+        withRawDb(pathU, QStringLiteral("pc_uniform"), [&](QSqlDatabase& db) {
+            ShotRow a1;
+            a1.uuid = QStringLiteral("pc-a1");
+            a1.profileName = QStringLiteral("D-Flow / Q");
+            a1.profileKbId = QStringLiteral("kb-dfq");
+            a1.timestamp = now - 4000;
+            a1.grinderModel = QStringLiteral("Zero");
+            a1.grinderSetting = QStringLiteral("5");
+            a1.profileJson = kFlow;
+            QVERIFY(insertShot(db, a1) > 0);
+            ShotRow a2 = a1;
+            a2.uuid = QStringLiteral("pc-a2");
+            a2.timestamp = now - 3700;
+            QVERIFY(insertShot(db, a2) > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10);
+            QCOMPARE(sessions.size(), 1);
+            const QJsonObject session = sessions.at(0).toObject();
+            QCOMPARE(session.value(QStringLiteral("context")).toObject()
+                         .value(QStringLiteral("pourControl")).toString(),
+                     QStringLiteral("flow"));
+            const QJsonArray shots = session.value(QStringLiteral("shots")).toArray();
+            QCOMPARE(shots.size(), 2);
+            for (const auto& s : shots)
+                QVERIFY(!s.toObject().contains(QStringLiteral("pourControl")));
+        });
+
+        // Mixed flow/pressure session → per-shot, not hoisted.
+        const QString pathM = freshDbPath();
+        initAndClose(pathM);
+        withRawDb(pathM, QStringLiteral("pc_mixed"), [&](QSqlDatabase& db) {
+            ShotRow m1;
+            m1.uuid = QStringLiteral("pc-m1");
+            m1.profileName = QStringLiteral("D-Flow / Q");
+            m1.profileKbId = QStringLiteral("kb-dfq");
+            m1.timestamp = now - 4000;
+            m1.grinderModel = QStringLiteral("Zero");
+            m1.grinderSetting = QStringLiteral("5");
+            m1.profileJson = kFlow;
+            QVERIFY(insertShot(db, m1) > 0);
+            ShotRow m2 = m1;
+            m2.uuid = QStringLiteral("pc-m2");
+            m2.timestamp = now - 3700;
+            m2.profileJson = kPressure;
+            QVERIFY(insertShot(db, m2) > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-dfq"), -1, 10);
+            QCOMPARE(sessions.size(), 1);
+            const QJsonObject session = sessions.at(0).toObject();
+            QVERIFY(!session.value(QStringLiteral("context")).toObject()
+                         .contains(QStringLiteral("pourControl")));
+            const QJsonArray shots = session.value(QStringLiteral("shots")).toArray();
+            QCOMPARE(shots.size(), 2);
+            bool sawFlow = false, sawPressure = false;
+            for (const auto& s : shots) {
+                const QString pc = s.toObject()
+                                       .value(QStringLiteral("pourControl")).toString();
+                if (pc == QStringLiteral("flow")) sawFlow = true;
+                if (pc == QStringLiteral("pressure")) sawPressure = true;
+            }
+            QVERIFY(sawFlow);
+            QVERIFY(sawPressure);
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // bestRecentShot pourControl + targetWeightG (issue #1158) — DB-level.
+    // -------------------------------------------------------------------
+    void bestRecentShot_emitsPourControlAndTargetWeightFromRecipe()
+    {
+        const QString kFlow = QStringLiteral(
+            "{\"steps\":[{\"name\":\"Filling\",\"pump\":\"pressure\",\"seconds\":25},"
+            "{\"name\":\"Pouring\",\"pump\":\"flow\",\"seconds\":127}]}");
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("pc_best"), [&](QSqlDatabase& db) {
+            ShotRow best;
+            best.uuid = QStringLiteral("pc-best");
+            best.profileName = QStringLiteral("D-Flow / Q");
+            best.profileKbId = QStringLiteral("kb-dfq");
+            best.timestamp = now - 7 * kSecPerDay;
+            best.grinderModel = QStringLiteral("Zero");
+            best.grinderSetting = QStringLiteral("5");
+            best.enjoyment = 85;
+            best.profileJson = kFlow;
+            best.targetWeight = 36.0;
+            const qint64 bestId = insertShot(db, best);
+            QVERIFY(bestId > 0);
+
+            ShotRow current = best;
+            current.uuid = QStringLiteral("pc-cur");
+            current.timestamp = now - kSecPerDay;
+            current.enjoyment = 0;
+            const qint64 currentId = insertShot(db, current);
+            QVERIFY(currentId > 0);
+            const ShotProjection currentProj = projectionForShot(db, currentId);
+            QVERIFY(currentProj.isValid());
+
+            const QJsonObject best_ = DialingBlocks::buildBestRecentShotBlock(
+                db, QStringLiteral("kb-dfq"), currentId, currentProj);
+            QVERIFY(!best_.isEmpty());
+            QCOMPARE(best_.value(QStringLiteral("id")).toVariant().toLongLong(), bestId);
+            QCOMPARE(best_.value(QStringLiteral("pourControl")).toString(),
+                     QStringLiteral("flow"));
+            QCOMPARE(best_.value(QStringLiteral("targetWeightG")).toDouble(), 36.0);
+        });
     }
 };
 

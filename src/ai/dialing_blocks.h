@@ -112,13 +112,21 @@ inline QString pourControlFromProfileJson(const QString& profileJson)
 // reading the frame ceiling as the intended shot length (issue #1147,
 // "the concern is duration — you're pulling in 32–34s").
 //
-// Both recipe-assembly sites call this — `dialing_get_context`'s
-// profile block (mcptools_dialing.cpp) and the in-app advisor's
-// ShotSummarizer::buildCurrentProfileBlock — so the MCP and advisor
-// surfaces cannot drift. No-op when the recipe is empty or no target
-// weight is set; phrased conditionally so it stays correct even if
-// targetWeightG is a volume/timer fallback rather than a real SAW
-// target.
+// Both *structured profile-block* recipe-assembly sites call this —
+// `dialing_get_context`'s profile block (mcptools_dialing.cpp) and the
+// in-app advisor's ShotSummarizer::buildCurrentProfileBlock — so those
+// two surfaces cannot drift. NOTE: this does not cover every place a
+// recipe is rendered: the prose multi-shot *history* blocks
+// (AIManager / ShotSummarizer history context) call
+// `Profile::describeFramesFromJson` directly without this note. That is
+// intentional — those blocks explicitly tell the model not to comment
+// on frame-level recipe detail, so the stop-at-weight clarification is
+// only needed where the recipe is presented as the current shot's spec.
+// No-op when the recipe is empty or no target weight is set; phrased
+// conditionally so it stays correct even if targetWeightG is a
+// volume/timer fallback rather than a real SAW target. Callers must
+// pass the target weight from the SAME source as the recipe string
+// (the analyzed shot), or the two structured surfaces will diverge.
 inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
 {
     if (recipe.isEmpty() || targetWeightG <= 0) return recipe;
