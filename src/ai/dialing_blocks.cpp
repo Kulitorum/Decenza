@@ -61,14 +61,13 @@ QJsonObject shotToJson(const ShotProjection& shot,
     h["doseG"] = shot.doseWeightG;
     h["yieldG"] = shot.finalWeightG;
     h["durationSec"] = shot.durationSec;
-    // Issue #1158: control-mode provenance so the LLM doesn't read
-    // yieldG / durationSec as dial-in feedback on stop-at-weight +
-    // flow-controlled shots. Paired with `targetWeightG` (added below
-    // when set) this lets shotAnalysisSystemPrompt()'s stop-at-weight
-    // rule fire.
-    const QString pourControl = DialingBlocks::pourControlFromProfileJson(shot.profileJson);
-    if (!pourControl.isEmpty())
-        h["pourControl"] = pourControl;
+    // Issue #1158: `pourControl` is NOT emitted here. It is a
+    // profile-family property, so buildDialInSessionsBlock hoists it to
+    // the session `context` when every shot in the session shares it
+    // (the common case → zero per-shot repetition) and only falls back
+    // to a per-shot field when a session genuinely mixes flow/pressure
+    // variants. Same dedup discipline as the grinder/bean identity
+    // hoist above.
     h["enjoyment0to100"] = shot.enjoyment0to100 > 0
         ? QJsonValue(shot.enjoyment0to100)
         : QJsonValue(QJsonValue::Null);
@@ -158,9 +157,27 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
         const DialingHelpers::HoistedSession hoisted =
             DialingHelpers::hoistSessionContext(identities);
 
+        // Issue #1158: pour control mode per shot, from each shot's own
+        // recipe. Hoist to session context when uniform (the common
+        // case — a session is usually one profile), emit per-shot only
+        // when a session mixes flow/pressure variants of the same kbId
+        // family (e.g. D-Flow/Q vs Damian's LM Leva). "" (no usable
+        // recipe) breaks uniformity so we never assert a value we
+        // didn't derive.
+        QStringList pourControls;
+        pourControls.reserve(ordered.size());
+        for (const ShotProjection& s : ordered)
+            pourControls.append(pourControlFromProfileJson(s.profileJson));
+        const bool pourControlUniform =
+            !pourControls.first().isEmpty()
+            && std::all_of(pourControls.cbegin(), pourControls.cend(),
+                           [&](const QString& p){ return p == pourControls.first(); });
+
         QJsonArray sessionShots;
         for (qsizetype i = 0; i < ordered.size(); ++i) {
             QJsonObject h = shotToJson(ordered[i], hoisted.perShotOverrides[i]);
+            if (!pourControlUniform && !pourControls[i].isEmpty())
+                h["pourControl"] = pourControls[i];
             if (i > 0) {
                 QJsonObject diff = changeFromPrev(ordered[i-1], ordered[i]);
                 h["changeFromPrev"] = diff.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(diff);
@@ -181,6 +198,10 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             contextObj["beanBrand"] = hoisted.context.beanBrand;
         if (!hoisted.context.beanType.isEmpty())
             contextObj["beanType"] = hoisted.context.beanType;
+        // Issue #1158: hoisted pour control mode — one field for the
+        // whole session instead of repeating it on every shot.
+        if (pourControlUniform)
+            contextObj["pourControl"] = pourControls.first();
 
         QJsonObject sessionObj;
         sessionObj["sessionStart"] = ordered.first().timestampIso;

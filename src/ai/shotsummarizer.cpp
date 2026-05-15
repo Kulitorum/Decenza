@@ -536,7 +536,27 @@ static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
     QJsonObject profile;
     profile["title"] = summary.profileTitle;
     if (!summary.profileNotes.isEmpty()) profile["intent"] = summary.profileNotes;
-    if (!summary.profileRecipe.isEmpty()) profile["recipe"] = summary.profileRecipe;
+    if (!summary.profileRecipe.isEmpty()) {
+        QString recipe = summary.profileRecipe;
+        // Issue #1158: the frame durations rendered above are maximums.
+        // Under stop-at-weight the shot is truncated when the scale
+        // hits the target — typically long before those frame times
+        // elapse (e.g. a "Pouring (127s)" frame that really runs ~25s).
+        // State that explicitly here so the model doesn't read the
+        // frame ceiling as the intended shot length, and pair it with
+        // the stop-at-weight rule in shotAnalysisSystemPrompt(). Gated
+        // on a target being set; phrased conditionally so it stays
+        // correct even if the target is a volume/timer fallback.
+        if (summary.targetWeight > 0) {
+            recipe += QStringLiteral(
+                "\nStop-at-weight: if a target weight is set (see "
+                "targetWeightG), the shot ends when the scale reaches it "
+                "— usually well before the frame durations above "
+                "elapse — so the actual shot time and final yield "
+                "follow the weight cutoff, not the frame timers.\n");
+        }
+        profile["recipe"] = recipe;
+    }
     if (summary.targetWeight > 0) profile["targetWeightG"] = summary.targetWeight;
     if (summary.targetTemperatureC > 0) profile["targetTemperatureC"] = summary.targetTemperatureC;
     if (summary.recommendedDoseG > 0) profile["recommendedDoseG"] = summary.recommendedDoseG;
@@ -1768,7 +1788,7 @@ The profile recipe is included with each shot. Use it to set expectations BEFORE
 
 **Pressure → Flow transition**: When a profile switches from pressure-controlled fill/infuse to flow-controlled pour, pressure becomes passive after the switch. A declining pressure curve is the expected signature of this pattern, not a problem. This is the lever/flow hybrid pattern used by D-Flow, Londinium, and similar profiles.
 
-**Stop-at-weight + flow-controlled pour → yield and duration are mechanical, not dial-in feedback**: When the pour is FLOW-controlled and the profile stops at a weight target (the recipe's pour frame is flow-controlled and a `targetWeightG` is set; historical and best-shot entries also carry an explicit `pourControl: "flow"`), the final yield is pinned by the scale cutoff and the total time is approximately stopWeight ÷ flowTarget — both are set by the recipe, not the grind. Do NOT credit a grind change for "yield landed on target", and do NOT treat a shorter or longer duration as a dial-in or quality signal for these shots. Grind only moves yield/time here in the extremes: a puck so fine it chokes and never reaches the flow target, or so coarse it gushes with almost no resistance. Judge these shots by the pressure the puck developed at the target flow, taste, TDS/EY, and channeling instead.
+**Stop-at-weight + flow-controlled pour → yield and duration are mechanical, not dial-in feedback**: When the pour is FLOW-controlled and the profile stops at a weight target (the recipe's pour frame is flow-controlled and a `targetWeightG` is set; for dial-in history this is the explicit `pourControl: "flow"` on the session `context`, or on the individual shot when a session mixes variants, and on `bestRecentShot`), the final yield is pinned by the scale cutoff and the total time is approximately stopWeight ÷ flowTarget — both are set by the recipe, not the grind. Do NOT credit a grind change for "yield landed on target", and do NOT treat a shorter or longer duration as a dial-in or quality signal for these shots. Grind only moves yield/time here in the extremes: a puck so fine it chokes and never reaches the flow target, or so coarse it gushes with almost no resistance. Judge these shots by the pressure the puck developed at the target flow, taste, TDS/EY, and channeling instead.
 
 **Exit conditions**: Frames with exit conditions (e.g., "exit:p>3.0") advance when the condition is met. Short phase durations (1-2s) after exit conditions are normal — the machine transitions quickly.
 
