@@ -1,3 +1,27 @@
+// visualizer.coffee REST client.
+//
+// Authoritative API reference:   https://apidocs.visualizer.coffee
+//   Spec source:                 OpenAPI 3.1 (current version 1.8.2).
+//   Public endpoints used:       POST /api/shots/upload       (initial upload)
+//                                PATCH /api/shots/{id}        (update metadata)
+//
+// Schema conventions worth knowing before editing the JSON builders:
+//   - Every editable scalar field is `nullable: true`. Use JSON `null`
+//     to clear a value on PATCH; sending literal 0 / "" sets the field
+//     to that *value* (e.g. `espresso_enjoyment: 0` displays as "Rated
+//     0/100", not "Unrated"). The cupping scores (fragrance/aroma/etc.)
+//     are integer 0-15 — 0 is a real score, confirming this convention.
+//   - `bean_weight`, `drink_weight`, `drink_tds`, `drink_ey` are typed
+//     `string` in the API schema, not number. Rails coerces, but the
+//     contract is string + nullable.
+//   - POST (create): omitting a field == leaving it unset on the new
+//     resource. The CREATE-path builders here use skip-on-zero/empty,
+//     which is the conventional Rails strong-params behavior.
+//   - PATCH (update): omitting == "don't change"; `null` == "clear";
+//     value == "set". `updateShotOnVisualizer` emits every editable
+//     field explicitly (null for unset) so the cloud copy mirrors
+//     local state — including local clears. Issue #1150 / migration 16.
+
 #include "visualizeruploader.h"
 #include "../models/shotdatamodel.h"
 #include "../core/settings.h"
