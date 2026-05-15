@@ -4,11 +4,10 @@
 #include "aiconversation.h"   // HistoricalAssistantTurn — input to buildRecentAdviceBlock
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
-#include <QVariantList>
-#include <QVariantMap>
 #include <QtGlobal>
 
 class QSqlDatabase;
@@ -44,15 +43,24 @@ namespace DialingBlocks {
 // parameters don't transfer.
 constexpr qint64 kBestRecentShotWindowDays = 90;
 
-// Issue #1158: derive the pour's control mode from a shot's phase
-// markers (`ShotProjection::phases` — a QVariantList of QVariantMaps
-// each carrying an `isFlowMode` bool). The final phase marker is the
-// pour/ending frame in every shipped Decent profile family, so its
-// `isFlowMode` reports whether the pour tracked a FLOW target (D-Flow /
-// Londinium / lever-hybrid) or a PRESSURE target. Returns "flow" /
-// "pressure", or "" when the shot has no usable phase markers (shots
-// imported from de1app / visualizer.coffee) so the caller keeps the
-// field sparse like the rest of the per-shot envelope.
+// Issue #1158: derive the pour's control mode from the profile recipe.
+// The profile JSON's `steps` array holds the frames; the dominant
+// extraction frame (the one with the largest `seconds`) is the pour,
+// and its `pump` field ("flow" / "pressure") is what the user targets
+// during it. We read this from the recipe — NOT the runtime phase
+// markers — because the markers are recorded frame transitions
+// (merged/truncated at runtime) and do not reliably identify the flow
+// pour: an earlier phase-marker heuristic returned "pressure" for a
+// flow-controlled D-Flow / Q pour (issue #1147 follow-up). profileJson
+// is available on every path that emits a shot — the dialInSessions
+// loader (`loadRecentShotsByKbIdStatic` selects `profile_json`) and the
+// full bestRecentShot load both carry it.
+//
+// Returns "flow" / "pressure", or "" when profileJson is empty,
+// unparseable, has no steps, or the chosen frame has no `pump` (de1app
+// / visualizer imports may lack a usable recipe) so callers keep the
+// field sparse like the rest of the per-shot envelope. Sparse-omit is
+// deliberate: a confidently-wrong value is worse than an absent one.
 //
 // This is the structured signal that lets the LLM apply the
 // stop-at-weight rule in ShotSummarizer::shotAnalysisSystemPrompt(): a
@@ -64,15 +72,35 @@ constexpr qint64 kBestRecentShotWindowDays = 90;
 // Defined inline (same rationale as buildCurrentBeanBlock) so test
 // binaries can exercise the derivation without linking the DB-dependent
 // block builders.
-inline QString pourControlFromPhases(const QVariantList& phases)
+inline QString pourControlFromProfileJson(const QString& profileJson)
 {
-    for (auto it = phases.crbegin(); it != phases.crend(); ++it) {
-        const QVariantMap m = it->toMap();
-        if (!m.contains(QStringLiteral("isFlowMode"))) continue;
-        return m.value(QStringLiteral("isFlowMode")).toBool()
-            ? QStringLiteral("flow") : QStringLiteral("pressure");
+    if (profileJson.isEmpty()) return QString();
+    QJsonParseError err{};
+    const QJsonObject obj =
+        QJsonDocument::fromJson(profileJson.toUtf8(), &err).object();
+    if (err.error != QJsonParseError::NoError) return QString();
+    const QJsonArray steps = obj.value(QStringLiteral("steps")).toArray();
+    if (steps.isEmpty()) return QString();
+
+    // Pick the longest frame — the dominant extraction (pour) frame —
+    // rather than the last frame, so a short trailing decline/ending
+    // frame can't flip the classification.
+    QString pump;
+    double maxSeconds = -1.0;
+    for (const QJsonValue& sv : steps) {
+        const QJsonObject step = sv.toObject();
+        const QJsonValue secVal = step.value(QStringLiteral("seconds"));
+        const double sec = secVal.isString()
+            ? secVal.toString().toDouble()
+            : secVal.toDouble();
+        if (sec > maxSeconds) {
+            maxSeconds = sec;
+            pump = step.value(QStringLiteral("pump")).toString();
+        }
     }
-    return QString();
+    if (pump.isEmpty()) return QString();
+    return pump == QStringLiteral("flow")
+        ? QStringLiteral("flow") : QStringLiteral("pressure");
 }
 
 // Dial-in history grouped into sessions (runs of shots on the same

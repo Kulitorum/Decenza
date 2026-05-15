@@ -1330,43 +1330,54 @@ private slots:
     }
 
     // -------------------------------------------------------------------
-    // pourControlFromPhases (issue #1158) — pure derivation, no DB.
-    // The final phase marker is the pour frame; its isFlowMode decides
-    // the reported control mode. No markers → "" so the field stays
-    // sparse. A trailing marker missing isFlowMode is skipped so the
-    // pour frame still wins.
+    // pourControlFromProfileJson (issue #1158) — pure derivation, no DB.
+    // Reads the profile recipe (`steps`), picks the longest frame (the
+    // pour), and reports its `pump`. Empty / malformed / step-less JSON
+    // → "" so the field stays sparse (a confidently-wrong value is
+    // worse than an absent one — that was the v1 phase-marker bug). A
+    // short trailing decline frame must not flip the classification.
     // -------------------------------------------------------------------
-    void pourControlFromPhases_derivesFromLastUsablePhase()
+    void pourControlFromProfileJson_derivesFromLongestFrame()
     {
-        auto phase = [](const QString& label, QVariant isFlowMode) {
-            QVariantMap m;
-            m["label"] = label;
-            if (isFlowMode.isValid()) m["isFlowMode"] = isFlowMode;
-            return QVariant(m);
-        };
+        // Empty / malformed / no steps → omitted.
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(QString()), QString());
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(QStringLiteral("{not json")), QString());
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(QStringLiteral("{\"steps\":[]}")), QString());
 
-        // No phase markers (de1app / visualizer import) → omitted.
-        QCOMPARE(DialingBlocks::pourControlFromPhases({}), QString());
+        // D-Flow / Q shape: Filling(25s,P) Infusing(1s,P) Pouring(127s,FLOW)
+        // — the long pour is flow-controlled. This is the exact #1147
+        // shot whose v1 phase-marker derivation wrongly said "pressure".
+        const QString dflowQ = QStringLiteral(
+            "{\"steps\":["
+            "{\"name\":\"Filling\",\"pump\":\"pressure\",\"seconds\":25},"
+            "{\"name\":\"Infusing\",\"pump\":\"pressure\",\"seconds\":1},"
+            "{\"name\":\"Pouring\",\"pump\":\"flow\",\"seconds\":127}]}");
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(dflowQ), QStringLiteral("flow"));
 
-        // Flow-controlled pour (D-Flow family): last phase isFlowMode=true.
-        const QVariantList dflow = {
-            phase("Filling", false), phase("Infusing", false),
-            phase("Pouring", true)
-        };
-        QCOMPARE(DialingBlocks::pourControlFromPhases(dflow), QStringLiteral("flow"));
+        // Classic pressure pour: preinfusion(flow,short) then long
+        // pressure pour.
+        const QString ninebar = QStringLiteral(
+            "{\"steps\":["
+            "{\"name\":\"Preinfusion\",\"pump\":\"flow\",\"seconds\":10},"
+            "{\"name\":\"Pour\",\"pump\":\"pressure\",\"seconds\":40}]}");
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(ninebar), QStringLiteral("pressure"));
 
-        // Pressure-controlled pour (classic 9-bar): last phase false.
-        const QVariantList ninebar = {
-            phase("Preinfusion", false), phase("Pour", false)
-        };
-        QCOMPARE(DialingBlocks::pourControlFromPhases(ninebar), QStringLiteral("pressure"));
+        // A short trailing pressure "decline" frame must NOT flip a
+        // long flow pour to "pressure".
+        const QString flowWithTail = QStringLiteral(
+            "{\"steps\":["
+            "{\"name\":\"Fill\",\"pump\":\"pressure\",\"seconds\":20},"
+            "{\"name\":\"Pour\",\"pump\":\"flow\",\"seconds\":110},"
+            "{\"name\":\"Decline\",\"pump\":\"pressure\",\"seconds\":3}]}");
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(flowWithTail),
+                 QStringLiteral("flow"));
 
-        // Trailing marker without isFlowMode is skipped; the real pour
-        // frame (flow) still determines the result.
-        const QVariantList trailingUnknown = {
-            phase("Fill", false), phase("Pour", true), phase("Ending", QVariant())
-        };
-        QCOMPARE(DialingBlocks::pourControlFromPhases(trailingUnknown),
+        // `seconds` as a string (de1app Tcl-origin JSON) still parses.
+        const QString stringSeconds = QStringLiteral(
+            "{\"steps\":["
+            "{\"name\":\"Fill\",\"pump\":\"pressure\",\"seconds\":\"25\"},"
+            "{\"name\":\"Pour\",\"pump\":\"flow\",\"seconds\":\"127\"}]}");
+        QCOMPARE(DialingBlocks::pourControlFromProfileJson(stringSeconds),
                  QStringLiteral("flow"));
     }
 };

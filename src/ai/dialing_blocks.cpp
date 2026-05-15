@@ -66,7 +66,7 @@ QJsonObject shotToJson(const ShotProjection& shot,
     // flow-controlled shots. Paired with `targetWeightG` (added below
     // when set) this lets shotAnalysisSystemPrompt()'s stop-at-weight
     // rule fire.
-    const QString pourControl = DialingBlocks::pourControlFromPhases(shot.phases);
+    const QString pourControl = DialingBlocks::pourControlFromProfileJson(shot.profileJson);
     if (!pourControl.isEmpty())
         h["pourControl"] = pourControl;
     h["enjoyment0to100"] = shot.enjoyment0to100 > 0
@@ -243,7 +243,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     // dialInSessions entries, so the LLM applies the recipe rule when
     // anchoring on the best shot instead of treating its yield/duration
     // as a dial-in target.
-    const QString bestPourControl = DialingBlocks::pourControlFromPhases(best.phases);
+    const QString bestPourControl = DialingBlocks::pourControlFromProfileJson(best.profileJson);
     if (!bestPourControl.isEmpty())
         b["pourControl"] = bestPourControl;
     if (best.targetWeightG > 0)
