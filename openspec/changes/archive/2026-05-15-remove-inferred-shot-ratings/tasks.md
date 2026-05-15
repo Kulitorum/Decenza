@@ -73,7 +73,7 @@
 
 ## 8. Release / wrap-up
 
-- [ ] 8.1 Commit the change with conventional-commit message `fix: remove inferred-good shot auto-rating (#1150)` and open a PR.
-- [ ] 8.2 Reference issue #1150 in the PR body so it auto-closes on merge.
+- [x] 8.1 Commit the change with conventional-commit message `fix: remove inferred-good shot auto-rating (#1150)` and open a PR.
+- [x] 8.2 Reference issue #1150 in the PR body so it auto-closes on merge.
 - [ ] 8.3 Update the release notes (when next version cuts) with a user-visible line: "Fixed: shots saved with the user's configured Default Shot Rating again, no longer overwritten by the auto-rating heuristic (issue #1150). Existing affected shots are reset on first launch and re-synced to Visualizer."
-- [ ] 8.4 After merge, archive this OpenSpec change via the `openspec-archive-change` flow.
+- [x] 8.4 After merge, archive this OpenSpec change via the `openspec-archive-change` flow.
