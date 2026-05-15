@@ -37,13 +37,13 @@
 ## 6. Manual verification (device)
 
 - [ ] 6.1 On the affected tablet, with a build containing this change: confirm a fresh shot pulled with the post-shot review page disabled gets `visualizer_id` recorded (re-query via `shots_get_detail`).
-- [ ] 6.2 Confirm the reconciliation relinks the known orphans (DB shots ~901–923) to their cloud copies, and that their stranded `espresso_enjoyment=75` on visualizer.coffee is corrected to unrated (the user's `defaultShotRating` is 0). Spot-check shot 923 ↔ `e81fcb49-f9d1-4f7c-aaf1-bf07c19f2f26`.
+- [x] 6.2 Confirm the reconciliation relinks the known orphans (DB shots ~901–923) to their cloud copies, and that their stranded `espresso_enjoyment=75` on visualizer.coffee is corrected to unrated (the user's `defaultShotRating` is 0). Spot-check shot 923 ↔ `e81fcb49-f9d1-4f7c-aaf1-bf07c19f2f26`.
 - [ ] 6.3 Reboot the app; confirm the reconciliation does not run again (run-once flag honored, no Visualizer list call in the debug log).
 
 ## 7. Release / wrap-up
 
-- [ ] 7.1 Commit (`fix: persist Visualizer shot id from controller + one-time reconciliation backfill`), open PR referencing this OpenSpec change and the writeback root cause (shot 923 / `e81fcb49`).
-- [ ] 7.2 Run the automated PR review (`/pr-review-toolkit:review-pr`) between open-PR and merge.
-- [ ] 7.3 Squash-merge + delete branch (`/merge-pr`).
-- [ ] 7.4 Archive this OpenSpec change after merge.
-- [ ] 7.5 Sequencing note for the release: ship this BEFORE relying on the migration-16 inferred-rating back-sync on-device — reconciliation (Component B) is the authoritative repair for the orphaned cohort and is order-independent, but landing it first means the device update that carries #1155's migration also carries the relink/​self-correct so the stranded 75s are actually fixed.
+- [x] 7.1 Commit (`fix: persist Visualizer shot id from controller + one-time reconciliation backfill`), open PR referencing this OpenSpec change and the writeback root cause (shot 923 / `e81fcb49`).
+- [x] 7.2 Run the automated PR review (`/pr-review-toolkit:review-pr`) between open-PR and merge.
+- [x] 7.3 Squash-merge + delete branch (`/merge-pr`).
+- [x] 7.4 Archive this OpenSpec change after merge.
+- [x] 7.5 Sequencing note for the release: ship this BEFORE relying on the migration-16 inferred-rating back-sync on-device — reconciliation (Component B) is the authoritative repair for the orphaned cohort and is order-independent, but landing it first means the device update that carries #1155's migration also carries the relink/​self-correct so the stranded 75s are actually fixed.
