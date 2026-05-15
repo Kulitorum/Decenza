@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QSettings>
+#include <QTemporaryDir>
+#include <QFile>
 
 #include "core/accessibilitymanager.h"
 
@@ -64,18 +66,20 @@ void setup(FakeAccessibilityManager& mgr, bool enabled, bool ttsEnabled, bool sc
 
 }
 
-// AccessibilityManager uses QSettings("Decenza", "DE1") — the two-string ctor
-// hardcodes NativeFormat per Qt docs, so setDefaultFormat()/setPath() can't
-// redirect it (NSUserDefaults / Windows registry / Linux native conf are
-// unaffected). Instead we follow the tst_settings pattern: snapshot the real
-// store's accessibility keys in init() and restore them in cleanup() so the
+// AccessibilityManager now uses the PRIMARY store
+// QSettings("DecentEspresso", "DE1Qt") like every other settings domain
+// (it was an isolated QSettings("Decenza","DE1") — see
+// accessibilitymanager.cpp). The two-string ctor hardcodes NativeFormat
+// per Qt docs, so setDefaultFormat()/setPath() can't redirect it.
+// Instead we follow the tst_settings pattern: snapshot the real store's
+// accessibility keys in init() and restore them in cleanup() so the
 // developer's settings round-trip even when assertions fail mid-test.
 
 class tst_AccessibilityAnnouncements : public QObject {
     Q_OBJECT
 
 private:
-    QSettings m_realSettings{QStringLiteral("Decenza"), QStringLiteral("DE1")};
+    QSettings m_realSettings{QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt")};
     QVariant m_origEnabled;
     QVariant m_origTtsEnabled;
     QVariant m_origTickEnabled;
@@ -278,6 +282,114 @@ private slots:
         QCOMPARE(mgr.platformCalls.size(), 0);
         QCOMPARE(mgr.ttsCalls.size(), 1);
         QCOMPARE(mgr.ttsCalls[0].text, QStringLiteral("Battery 85 percent"));
+    }
+
+    // ---- migrateAccessibilityLegacyStore (one-time legacy carry-over) ----
+    // Store-injected pure static → tested with temp INI QSettings, zero
+    // real-store pollution. Guards an irreversible one-time migration.
+
+    void legacyMigration_copiesAbsentKeysAndStampsGuard() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QSettings legacy(dir.filePath("legacy.ini"), QSettings::IniFormat);
+        QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
+        legacy.setValue("accessibility/enabled", true);
+        legacy.setValue("accessibility/tickVolume", 42);
+        legacy.setValue("accessibility/extractionAnnouncementMode", "milestones_only");
+        legacy.sync();
+
+        auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
+
+        QVERIFY(!r.alreadyDone);
+        QVERIFY(!r.deferredOnError);
+        QVERIFY(r.guardStamped);
+        QCOMPARE(r.copied, 3);
+        QCOMPARE(r.legacyKeyCount, 3);
+        QCOMPARE(primary.value("accessibility/enabled").toBool(), true);
+        QCOMPARE(primary.value("accessibility/tickVolume").toInt(), 42);
+        QCOMPARE(primary.value("accessibility/extractionAnnouncementMode").toString(),
+                 QStringLiteral("milestones_only"));
+        QVERIFY(primary.value("accessibility/_migratedFromLegacyV1").toBool());
+    }
+
+    void legacyMigration_idempotentWhenGuardSet() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QSettings legacy(dir.filePath("legacy.ini"), QSettings::IniFormat);
+        QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
+        legacy.setValue("accessibility/enabled", true);
+        legacy.sync();
+        primary.setValue("accessibility/_migratedFromLegacyV1", true);
+        primary.sync();
+
+        auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
+
+        QVERIFY(r.alreadyDone);
+        QCOMPARE(r.copied, 0);
+        // legacy value must NOT have been pulled in (guard already set)
+        QVERIFY(!primary.contains("accessibility/enabled"));
+    }
+
+    void legacyMigration_copyIfAbsentNeverClobbersPrimary() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QSettings legacy(dir.filePath("legacy.ini"), QSettings::IniFormat);
+        QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
+        legacy.setValue("accessibility/enabled", false);   // stale legacy
+        legacy.setValue("accessibility/tickVolume", 10);
+        legacy.sync();
+        primary.setValue("accessibility/enabled", true);   // newer primary
+        primary.sync();
+
+        auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
+
+        QVERIFY(r.guardStamped);
+        QCOMPARE(r.copied, 1);                              // only tickVolume
+        QCOMPARE(primary.value("accessibility/enabled").toBool(), true);  // preserved
+        QCOMPARE(primary.value("accessibility/tickVolume").toInt(), 10);
+    }
+
+    void legacyMigration_emptyLegacyStillStampsGuard() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QSettings legacy(dir.filePath("legacy.ini"), QSettings::IniFormat);
+        QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
+
+        auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
+
+        QVERIFY(r.guardStamped);          // one-time: don't rescan forever
+        QCOMPARE(r.copied, 0);
+        QCOMPARE(r.legacyKeyCount, 0);    // distinguishes "nothing" from "all present"
+    }
+
+    void legacyMigration_defersWithoutStampingGuardOnUnreadableLegacy() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString legacyPath = dir.filePath("legacy.ini");
+        // Corrupt INI → QSettings(IniFormat).status() == FormatError.
+        {
+            QFile f(legacyPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[General\nthis is : not = valid ][[[ ini \x00\x01\x02");
+            f.close();
+        }
+        QSettings legacy(legacyPath, QSettings::IniFormat);
+        QSettings primary(dir.filePath("primary.ini"), QSettings::IniFormat);
+
+        auto r = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacy);
+
+        QVERIFY2(r.deferredOnError, "corrupt legacy must defer");
+        QVERIFY2(!r.guardStamped, "must NOT burn the one-shot guard on a failed read");
+        QVERIFY(!primary.value("accessibility/_migratedFromLegacyV1").toBool());
+
+        // A subsequent launch with a now-readable legacy completes.
+        QSettings legacyOk(dir.filePath("legacy_ok.ini"), QSettings::IniFormat);
+        legacyOk.setValue("accessibility/ttsEnabled", false);
+        legacyOk.sync();
+        auto r2 = AccessibilityManager::migrateAccessibilityLegacyStore(primary, legacyOk);
+        QVERIFY(r2.guardStamped);
+        QCOMPARE(r2.copied, 1);
+        QCOMPARE(primary.value("accessibility/ttsEnabled").toBool(), false);
     }
 };
 

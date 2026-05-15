@@ -116,13 +116,29 @@ protected:
     // accessibility is being turned off.
     void routeAnnouncement(const QString& text, bool interrupt);
 
+public:
+    // Result of the one-time legacy-store carry-over. Public so the
+    // pure static below is unit-testable.
+    struct LegacyMigrationOutcome {
+        bool alreadyDone = false;     // guard already set — no-op
+        bool deferredOnError = false; // legacy read failed; guard NOT set
+        bool guardStamped = false;    // completed; guard now set
+        int  copied = 0;              // keys copied (absent in primary)
+        int  legacyKeyCount = 0;      // total keys in the legacy store
+    };
+    // Pure, store-injected migration: copy-if-absent accessibility/*
+    // from `legacy` into `primary`, guarded + idempotent, deferring
+    // (without stamping the guard) when the legacy read provably fails.
+    // Stores passed by ref so tests need not touch real QSettings.
+    static LegacyMigrationOutcome migrateAccessibilityLegacyStore(
+        QSettings& primary, QSettings& legacy);
+
 private:
     void loadSettings();
     void saveSettings();
-    // One-time copy of accessibility/* keys from the legacy
-    // QSettings("Decenza","DE1") store into the primary
-    // QSettings("DecentEspresso","DE1Qt") store every other settings
-    // domain uses. Guarded + idempotent. See accessibilitymanager.cpp.
+    // Constructs the real legacy QSettings("Decenza","DE1") and
+    // delegates to migrateAccessibilityLegacyStore(m_settings, …),
+    // logging the outcome. Called once from the normal ctor.
     void migrateLegacyStore();
     // Internal setter. Externally setEnabled() always announces; toggleEnabled()
     // calls this with announce=false to avoid double-speak (it then issues a

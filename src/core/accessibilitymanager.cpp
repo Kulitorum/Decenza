@@ -77,17 +77,21 @@ void AccessibilityManager::shutdown()
     }
 }
 
-void AccessibilityManager::migrateLegacyStore()
+// Pure, store-injected so it is unit-testable without touching the
+// machine's real QSettings (caller passes the stores by reference).
+// Matches the static-helper testability pattern used elsewhere
+// (e.g. ShotHistoryStorage::reconcileVisualizerLinksStatic).
+AccessibilityManager::LegacyMigrationOutcome
+AccessibilityManager::migrateAccessibilityLegacyStore(QSettings& primary,
+                                                      QSettings& legacy)
 {
-    // One-time: carry accessibility/* from the old isolated
-    // QSettings("Decenza","DE1") store into the primary store. Guarded
-    // so it runs once; copy-if-absent so a re-run (or a user who
-    // already changed a setting post-migration) never clobbers newer
-    // primary values. The legacy store is intentionally left intact
-    // (harmless; supports clean downgrade).
+    LegacyMigrationOutcome out;
+
     constexpr const char* kMigratedFlag = "accessibility/_migratedFromLegacyV1";
-    if (m_settings.value(kMigratedFlag, false).toBool())
-        return;
+    if (primary.value(kMigratedFlag, false).toBool()) {
+        out.alreadyDone = true;
+        return out;
+    }
 
     static const char* kKeys[] = {
         "accessibility/enabled",
@@ -100,17 +104,17 @@ void AccessibilityManager::migrateLegacyStore()
         "accessibility/extractionAnnouncementMode",
     };
 
-    QSettings legacy(QStringLiteral("Decenza"), QStringLiteral("DE1"));
     legacy.sync();  // force a read so status() is meaningful below
     const QSettings::Status legacyStatus = legacy.status();
-    const int legacyKeyCount = static_cast<int>(legacy.allKeys().size());
+    out.legacyKeyCount = static_cast<int>(legacy.allKeys().size());
 
-    int copied = 0;
+    // copy-if-absent: never clobber a newer primary value (a re-run, or
+    // a user who already changed a setting post-migration).
     for (const char* key : kKeys) {
         if (legacy.contains(QLatin1String(key))
-            && !m_settings.contains(QLatin1String(key))) {
-            m_settings.setValue(QLatin1String(key), legacy.value(QLatin1String(key)));
-            ++copied;
+            && !primary.contains(QLatin1String(key))) {
+            primary.setValue(QLatin1String(key), legacy.value(QLatin1String(key)));
+            ++out.copied;
         }
     }
 
@@ -120,20 +124,40 @@ void AccessibilityManager::migrateLegacyStore()
         // retry next launch instead of permanently losing a user's
         // accessibility settings to a transient unreadable store.
         // (NativeFormat on Windows/macOS can't always prove failure;
-        // logging legacyKeyCount is the best available signal there.)
-        qWarning() << "AccessibilityManager: legacy store unreadable (status="
-                   << legacyStatus << ") — deferring migration, guard NOT set";
-        return;
+        // legacyKeyCount is the best available signal there.)
+        out.deferredOnError = true;
+        return out;
     }
 
-    m_settings.setValue(kMigratedFlag, true);
-    m_settings.sync();
+    primary.setValue(kMigratedFlag, true);
+    primary.sync();
+    out.guardStamped = true;
+    return out;
+}
+
+void AccessibilityManager::migrateLegacyStore()
+{
+    // One-time: carry accessibility/* from the old isolated
+    // QSettings("Decenza","DE1") store into the primary store. The
+    // legacy store is intentionally left intact (harmless; supports
+    // clean downgrade — factoryReset() wipes it explicitly).
+    QSettings legacy(QStringLiteral("Decenza"), QStringLiteral("DE1"));
+    const LegacyMigrationOutcome r =
+        migrateAccessibilityLegacyStore(m_settings, legacy);
+
+    if (r.alreadyDone)
+        return;
+    if (r.deferredOnError) {
+        qWarning() << "AccessibilityManager: legacy store unreadable —"
+                      " deferring migration, guard NOT set";
+        return;
+    }
     // qInfo (not qDebug) + legacy key count so a support log can tell
     // "nothing to migrate" (legacyKeyCount==0) apart from "all already
     // present" (copied==0 && legacyKeyCount>0) — an irreversible
     // one-time migration deserves a durable, unambiguous breadcrumb.
-    qInfo() << "AccessibilityManager: migrated" << copied << "of"
-            << legacyKeyCount << "legacy accessibility key(s) into the primary store";
+    qInfo() << "AccessibilityManager: migrated" << r.copied << "of"
+            << r.legacyKeyCount << "legacy accessibility key(s) into the primary store";
 }
 
 void AccessibilityManager::loadSettings()
