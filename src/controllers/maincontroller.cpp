@@ -2708,10 +2708,17 @@ void MainController::processVisualizerReconciliation()
     }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
     connect(m_shotHistory, &ShotHistoryStorage::visualizerLinksReconciled, this,
-            [this](const QVariantList& linked) {
-        // The reconcile pass completed (only emitted after the DB helper
-        // ran, which only runs after a successful fetch) — safe to set
-        // the run-once flag now.
+            [this](bool ok, const QVariantList& linked) {
+        if (!ok) {
+            // DB open / SQL failure — NOT a completed pass. Leave the
+            // run-once flag unset so it retries on the next boot rather
+            // than permanently skipping the backfill after one transient
+            // hiccup (e.g. DB momentarily locked at boot).
+            qWarning() << "MainController: Visualizer reconciliation did not "
+                          "complete (DB error) — will retry next boot";
+            return;
+        }
+        // Genuinely completed pass — safe to set the run-once flag.
         QSettings ss;
         ss.setValue(QStringLiteral("visualizerBackfill/doneV1"), true);
         ss.sync();

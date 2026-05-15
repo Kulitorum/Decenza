@@ -140,12 +140,16 @@ public:
     // Links empty-visualizer_id rows whose timestamp is >= windowStartEpoch
     // to a cloud shot whose clockEpoch is within tolerance, strict 1:1
     // (no reuse of an id already on a row or consumed this pass;
-    // ambiguous => skip). Writes visualizer_id/url on matches and
-    // returns the linked {shotId,visualizerId} maps. Synchronous and
-    // thread-agnostic so it is unit-testable via a raw connection.
-    static QVariantList reconcileVisualizerLinksStatic(QSqlDatabase& db,
-                                                       const QVariantList& cloudShots,
-                                                       qint64 windowStartEpoch);
+    // ambiguous => skip). Appends linked {shotId,visualizerId} maps to
+    // outLinked. Returns false on a SQL failure (seed SELECT, row
+    // SELECT) so the caller can distinguish "DB error, retry later"
+    // from "completed, 0 matched" — the run-once flag must only be set
+    // on a genuinely completed pass. Synchronous and thread-agnostic so
+    // it is unit-testable via a raw connection.
+    static bool reconcileVisualizerLinksStatic(QSqlDatabase& db,
+                                               const QVariantList& cloudShots,
+                                               qint64 windowStartEpoch,
+                                               QVariantList& outLinked);
 
     // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
@@ -257,10 +261,13 @@ signals:
     void autoFavoriteGroupDetailsReady(const QVariantMap& details);
     void backupFinished(bool success, const QString& resultPath);
     void visualizerInfoUpdated(qint64 shotId, bool success);
-    // Emitted after requestReconcileVisualizerLinks completes. `linked`
-    // is a QVariantList of {shotId:qint64, visualizerId:QString} maps
-    // for the rows that were just linked (empty if none matched).
-    void visualizerLinksReconciled(const QVariantList& linked);
+    // Emitted after requestReconcileVisualizerLinks finishes. `ok` is
+    // false if the DB could not be opened or a SQL step failed — the
+    // caller MUST NOT treat that as a completed pass (do not set the
+    // run-once flag; retry next boot). `linked` is a QVariantList of
+    // {shotId:qint64, visualizerId:QString} maps for rows just linked
+    // (empty if ok and none matched).
+    void visualizerLinksReconciled(bool ok, const QVariantList& linked);
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
     void grinderFieldsUpdated(int updatedCount);

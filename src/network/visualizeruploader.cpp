@@ -476,7 +476,9 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 
     // Clear the per-upload id on every terminal outcome (success,
     // no-id, or failure) so a subsequent upload can't inherit a stale
-    // correlation. Uploads are strictly serial (m_uploading guard).
+    // correlation. Safe because callers never overlap uploads (see the
+    // m_uploadingDbShotId note in the header) — m_uploading is UI-only,
+    // not a concurrency guard.
     m_uploadingDbShotId = 0;
     reply->deleteLater();
 }
@@ -515,10 +517,15 @@ void VisualizerUploader::fetchShotListSince(qint64 windowStartEpoch)
 void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
                                            QVariantList accumulated)
 {
-    // GET /api/shots?page=N&items=100 — authenticated => own shots,
-    // sorted newest-first by start time (OpenAPI 1.8.2). Response:
-    // { data: [{id, clock, updated_at}], paging: {count,page,limit,pages} }.
-    // Defensive ceiling so a huge library / unexpected sort can't loop.
+    // GET /api/shots?page=N&items=100 — authenticated => own shots.
+    // Response shape { data: [{id, clock, updated_at}], paging:
+    // {count,page,limit,pages} } is confirmed against OpenAPI 1.8.2;
+    // the default sort is ASSUMED newest-first by start time (not
+    // spec-pinned). The wholePageOlder early-stop relies on that
+    // assumption only as an optimisation — if the sort differs it just
+    // stops paging early; the kMaxPages ceiling still bounds the loop
+    // and turns a ceiling hit into a fail-safe retry (below), and all
+    // in-window matches on fetched pages are still accumulated.
     constexpr int kMaxPages = 50;          // 50 * 100 = 5000 shots hard cap
     constexpr int kItemsPerPage = 100;
 
@@ -535,11 +542,15 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, page, windowStartEpoch, accumulated]() mutable {
+        // Capture everything off `reply` BEFORE deleteLater() — reading
+        // it afterwards is fragile and would make the one diagnostic on
+        // the only failure surface unreliable.
         if (reply->error() != QNetworkReply::NoError) {
             const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const QString errStr = reply->errorString();
             reply->deleteLater();
             emit shotListFailed(QString("Shot list fetch failed (HTTP %1): %2")
-                                .arg(sc).arg(reply->errorString()));
+                                .arg(sc).arg(errStr));
             return;
         }
         const QByteArray body = reply->readAll();
@@ -548,12 +559,24 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
         QJsonParseError perr{};
         const QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
         if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
-            emit shotListFailed("Shot list response parse error");
+            emit shotListFailed(QStringLiteral("Shot list response parse error: %1")
+                                .arg(perr.errorString()));
             return;
         }
         const QJsonObject root = doc.object();
+        // A valid list response MUST carry a `paging` object with a
+        // numeric `pages`. A 200 lacking it is almost certainly an
+        // auth/error envelope (e.g. expired session returning {}), NOT
+        // a legitimately empty library — treating it as success would
+        // permanently burn the run-once flag. Fail safe instead.
+        const QJsonValue pagingVal = root.value("paging");
+        if (!pagingVal.isObject() || !pagingVal.toObject().value("pages").isDouble()) {
+            emit shotListFailed(QStringLiteral(
+                "Shot list response missing paging metadata (likely auth/error envelope)"));
+            return;
+        }
         const QJsonArray data = root.value("data").toArray();
-        const QJsonObject paging = root.value("paging").toObject();
+        const QJsonObject paging = pagingVal.toObject();
         const int totalPages = paging.value("pages").toInt(page);
 
         qint64 minClockThisPage = std::numeric_limits<qint64>::max();
@@ -571,10 +594,23 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
             accumulated.append(m);
         }
 
-        // Stop when: paging exhausted, hit the defensive ceiling, or
-        // (relying on newest-first sort) this whole page is already
-        // older than the window — nothing older can be in-window.
-        const bool pagedOut = page >= totalPages || page >= kMaxPages;
+        // Hitting the defensive page ceiling without reaching the real
+        // end is an ABNORMAL exit (oversized library, or the assumed
+        // newest-first sort was violated so wholePageOlder never fired).
+        // Emitting a truncated list as "success" would permanently mark
+        // the backfill done with missing shots. Fail safe so it retries.
+        if (page >= kMaxPages && page < totalPages) {
+            emit shotListFailed(QStringLiteral(
+                "Shot list exceeded page ceiling (%1) before end (%2 pages) — "
+                "backfill incomplete, will retry next boot")
+                .arg(kMaxPages).arg(totalPages));
+            return;
+        }
+
+        // Stop when: paging exhausted, or (relying on newest-first sort)
+        // this whole page is already older than the window — nothing
+        // older can be in-window.
+        const bool pagedOut = page >= totalPages;
         const bool wholePageOlder =
             !data.isEmpty() && minClockThisPage < windowStartEpoch;
         if (pagedOut || wholePageOlder) {

@@ -1321,25 +1321,30 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 }
 
-QVariantList ShotHistoryStorage::reconcileVisualizerLinksStatic(
-    QSqlDatabase& db, const QVariantList& cloudShots, qint64 windowStartEpoch)
+bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
+    QSqlDatabase& db, const QVariantList& cloudShots, qint64 windowStartEpoch,
+    QVariantList& outLinked)
 {
     // Match local shots.timestamp to a Visualizer shot's clock within
     // this tolerance (rounding only — Decenza uploads the shot epoch
     // verbatim as `clock`).
     constexpr qint64 kReconcileToleranceSec = 2;
 
-    QVariantList linked;
-
     // Visualizer ids already attached to any local row must never be
-    // reused. Seed the consumed-set from them.
+    // reused. Seed the consumed-set from them. A failure here is NOT
+    // ignorable: proceeding with an empty set would disable the
+    // duplicate-link guard, so treat it as a hard failure (caller
+    // retries next boot rather than burning the run-once flag).
     QSet<QString> usedIds;
     {
         QSqlQuery q(db);
-        if (q.exec("SELECT visualizer_id FROM shots "
-                   "WHERE visualizer_id IS NOT NULL AND visualizer_id != ''")) {
-            while (q.next()) usedIds.insert(q.value(0).toString());
+        if (!q.exec("SELECT visualizer_id FROM shots "
+                    "WHERE visualizer_id IS NOT NULL AND visualizer_id != ''")) {
+            qWarning() << "ShotHistoryStorage: reconcile usedIds seed SELECT failed:"
+                       << q.lastError().text();
+            return false;
         }
+        while (q.next()) usedIds.insert(q.value(0).toString());
     }
 
     QSqlQuery sel(db);
@@ -1350,7 +1355,7 @@ QVariantList ShotHistoryStorage::reconcileVisualizerLinksStatic(
     if (!sel.exec()) {
         qWarning() << "ShotHistoryStorage: reconcile SELECT failed:"
                    << sel.lastError().text();
-        return linked;
+        return false;
     }
 
     struct LocalRow { qint64 id; qint64 ts; };
@@ -1395,18 +1400,18 @@ QVariantList ShotHistoryStorage::reconcileVisualizerLinksStatic(
         QVariantMap m;
         m["shotId"] = r.id;
         m["visualizerId"] = matchId;
-        linked.append(m);
+        outLinked.append(m);
         qDebug() << "ShotHistoryStorage: reconcile linked shot" << r.id
                  << "->" << matchId;
     }
-    return linked;
+    return true;
 }
 
 void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& cloudShots,
                                                          qint64 windowStartEpoch)
 {
     if (!m_ready) {
-        emit visualizerLinksReconciled(QVariantList());
+        emit visualizerLinksReconciled(false, QVariantList());
         return;
     }
 
@@ -1414,16 +1419,22 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, cloudShots, windowStartEpoch, destroyed]() {
         QVariantList linked;
-        withTempDb(dbPath, "shs_vizrecon", [&](QSqlDatabase& db) {
-            linked = reconcileVisualizerLinksStatic(db, cloudShots, windowStartEpoch);
+        bool staticOk = false;
+        const bool opened = withTempDb(dbPath, "shs_vizrecon", [&](QSqlDatabase& db) {
+            staticOk = reconcileVisualizerLinksStatic(db, cloudShots, windowStartEpoch, linked);
         });
+        // ok only when the DB opened AND every SQL step succeeded.
+        // Otherwise the caller must NOT advance the run-once flag.
+        const bool ok = opened && staticOk;
+        if (!opened)
+            qWarning() << "ShotHistoryStorage: reconcile could not open DB — will retry next boot";
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, linked, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, ok, linked, destroyed]() {
             if (*destroyed) return;
-            qDebug() << "ShotHistoryStorage: reconcile linked" << linked.size()
-                     << "shot(s) to Visualizer";
-            emit visualizerLinksReconciled(linked);
+            qDebug() << "ShotHistoryStorage: reconcile" << (ok ? "completed" : "FAILED")
+                     << "— linked" << linked.size() << "shot(s)";
+            emit visualizerLinksReconciled(ok, linked);
         }, Qt::QueuedConnection);
     });
     thread->start();

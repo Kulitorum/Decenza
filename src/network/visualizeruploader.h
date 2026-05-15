@@ -154,9 +154,14 @@ private:
     QString m_lastUploadStatus;
     QString m_lastShotUrl;
     // The local shots.id the in-flight upload is for; emitted with
-    // uploadSucceededForShot. Uploads are strictly serial (m_uploading
-    // guards), so a single member suffices. Reset after each terminal
-    // outcome.
+    // uploadSucceededForShot. A single member suffices because callers
+    // (MainController shot-end, manual re-upload, history re-upload) are
+    // mutually exclusive in practice and never issue overlapping
+    // uploads. NOTE: m_uploading is a UI state flag, NOT a concurrency
+    // guard — nothing rejects a second uploadShot() while one is in
+    // flight. Do not add a concurrent upload caller without revisiting
+    // this correlation (it would mis-attribute the returned id).
+    // Reset after each terminal outcome.
     qint64 m_uploadingDbShotId = 0;
 
     static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
