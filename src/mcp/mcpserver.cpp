@@ -688,6 +688,36 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     result["protocolVersion"] = negotiatedVersion;
     result["capabilities"] = serverCapabilities;
     result["serverInfo"] = serverInfo;
+
+    // MCP `instructions`: server-level guidance the client retains for the
+    // whole session and typically folds into its system prompt. #1162: an
+    // external AI kept citing the internal numeric shot id ("shot 5188"),
+    // which the user cannot find anywhere — Shot History and every
+    // user-facing surface key shots by date/time. State the rule once here
+    // so it reaches MCP clients that never call ai_advisor_invoke (which
+    // always carries the full system prompt) and never request
+    // dialing_get_context with includeFullKnowledge (opt-in since #1164):
+    // for those clients this handshake string is the only carrier of the
+    // rule, and it costs nothing per call.
+    //
+    // The `instructions` field was introduced in MCP revision 2025-03-26
+    // and is absent from the 2024-11-05 InitializeResult. Gate it on the
+    // negotiated version so strict 2024-11-05 clients don't reject the
+    // response — the same discipline buildToolCallResponse() applies to
+    // structuredContent / resource_link.
+    if (negotiatedVersion >= QStringLiteral("2025-03-26")) {
+        result["instructions"] = QStringLiteral(
+            "When you refer to one of the user's espresso shots in a reply, "
+            "identify it by its local date and time — the handle shown in the "
+            "app's Shot History — for example \"your May 10, 9:04 AM shot\". "
+            "Never cite the numeric shot `id`: it is an internal database key "
+            "with no user-facing counterpart, and a user told to look at "
+            "\"shot 5188\" cannot find it anywhere. Shots appear in "
+            "dialing_get_context (dialInSessions, bestRecentShot) and "
+            "shots_list, each carrying a local ISO `timestamp` — render it "
+            "the way a person reads a clock. Use the numeric `id` only as an "
+            "opaque argument to other tools.");
+    }
     return result;
 }
 
