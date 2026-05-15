@@ -194,6 +194,46 @@ private slots:
         QCOMPARE(got, expected);
     }
 
+    // The server-level `instructions` field (#1162) was introduced in MCP
+    // revision 2025-03-26. It must be present once the negotiated version is
+    // >= 2025-03-26 and absent for strict 2024-11-05 clients, which reject
+    // initialize responses carrying unknown fields (same gating discipline
+    // as structuredContent / resource_link in buildToolCallResponse).
+    void initializeInstructionsGatedByVersion_data()
+    {
+        QTest::addColumn<QString>("requested");
+        QTest::addColumn<bool>("expectInstructions");
+        QTest::newRow("current")  << "2025-11-25" << true;
+        QTest::newRow("prior")    << "2025-06-18" << true;
+        QTest::newRow("twoBack")  << "2025-03-26" << true;   // revision that introduced `instructions`
+        QTest::newRow("legacy")   << "2024-11-05" << false;  // pre-2025-03-26 → field omitted
+        QTest::newRow("ancient")  << "2023-01-01" << true;   // unsupported → negotiates 2025-11-25
+    }
+
+    void initializeInstructionsGatedByVersion()
+    {
+        QFETCH(QString, requested);
+        QFETCH(bool, expectInstructions);
+
+        McpServer server;
+        QJsonObject params{
+            {"protocolVersion", requested},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "tst"}, {"version", "1"}}}};
+        auto resp = sendHttp(server, "POST", rpcBody("initialize", params));
+
+        QCOMPARE(resp.statusCode, 200);
+        const QJsonObject result = resp.jsonBody["result"].toObject();
+        QCOMPARE(result.contains("instructions"), expectInstructions);
+        if (expectInstructions) {
+            const QString instr = result["instructions"].toString();
+            QVERIFY2(!instr.isEmpty(),
+                     "instructions must be a non-empty string when emitted");
+            QVERIFY2(instr.contains(QStringLiteral("date and time")),
+                     "instructions must carry the shot date/time citation rule (#1162)");
+        }
+    }
+
     // ─── MCP-Protocol-Version request header validation ────────────────────
 
     void protocolVersionHeaderMismatchReturns400()
