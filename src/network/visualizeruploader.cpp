@@ -33,7 +33,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QJsonParseError>
+#include <QUrl>
 #include <QHttpMultiPart>
+#include <limits>
+#include <algorithm>
 #include <QDateTime>
 #include <QDebug>
 #include <QUuid>
@@ -128,7 +132,8 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
                                      double doseWeight,
                                      const ShotMetadata& metadata,
                                      const QString& debugLog,
-                                     qint64 shotEpoch)
+                                     qint64 shotEpoch,
+                                     qint64 dbShotId)
 {
     if (!shotData) {
         emit uploadFailed("No shot data available");
@@ -139,6 +144,7 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
     if (!validateUpload(beverageType, duration))
         return;
 
+    m_uploadingDbShotId = dbShotId;
     QByteArray jsonData = buildShotJson(shotData, profile, finalWeight, doseWeight, metadata, debugLog, shotEpoch);
     sendUpload(jsonData);
 }
@@ -162,6 +168,7 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
     if (!validateUpload(beverageType, shotData.durationSec))
         return;
 
+    m_uploadingDbShotId = shotData.id;
     QByteArray jsonData = buildHistoryShotJson(shotData);
     sendUpload(jsonData);
 }
@@ -434,7 +441,12 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit lastShotUrlChanged();
             emit lastUploadStatusChanged();
             emit uploadSuccess(shotId, m_lastShotUrl);
-            qDebug() << "Visualizer: Upload successful, ID:" << shotId;
+            // Authoritative C++ writeback path: carry the originating
+            // local shots.id so MainController can persist the link
+            // regardless of which (if any) UI page is alive.
+            emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
+            qDebug() << "Visualizer: Upload successful, ID:" << shotId
+                     << "for local shot" << m_uploadingDbShotId;
         } else {
             m_lastUploadStatus = "Upload completed (no ID returned)";
             emit lastUploadStatusChanged();
@@ -462,6 +474,10 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
         qDebug() << "Visualizer: Upload failed -" << errorMsg << "Response:" << response;
     }
 
+    // Clear the per-upload id on every terminal outcome (success,
+    // no-id, or failure) so a subsequent upload can't inherit a stale
+    // correlation. Uploads are strictly serial (m_uploading guard).
+    m_uploadingDbShotId = 0;
     reply->deleteLater();
 }
 
@@ -483,6 +499,90 @@ void VisualizerUploader::onTestFinished(QNetworkReply* reply)
     }
 
     reply->deleteLater();
+}
+
+void VisualizerUploader::fetchShotListSince(qint64 windowStartEpoch)
+{
+    const QString username = m_settings->value("visualizer/username", "").toString();
+    const QString password = m_settings->value("visualizer/password", "").toString();
+    if (username.isEmpty() || password.isEmpty()) {
+        emit shotListFailed("Visualizer credentials not configured");
+        return;
+    }
+    fetchShotListPage(1, windowStartEpoch, QVariantList());
+}
+
+void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
+                                           QVariantList accumulated)
+{
+    // GET /api/shots?page=N&items=100 — authenticated => own shots,
+    // sorted newest-first by start time (OpenAPI 1.8.2). Response:
+    // { data: [{id, clock, updated_at}], paging: {count,page,limit,pages} }.
+    // Defensive ceiling so a huge library / unexpected sort can't loop.
+    constexpr int kMaxPages = 50;          // 50 * 100 = 5000 shots hard cap
+    constexpr int kItemsPerPage = 100;
+
+    QUrl url("https://visualizer.coffee/api/shots");
+    QString q = QString("page=%1&items=%2").arg(page).arg(kItemsPerPage);
+    url.setQuery(q);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", authHeader().toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, page, windowStartEpoch, accumulated]() mutable {
+        if (reply->error() != QNetworkReply::NoError) {
+            const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            reply->deleteLater();
+            emit shotListFailed(QString("Shot list fetch failed (HTTP %1): %2")
+                                .arg(sc).arg(reply->errorString()));
+            return;
+        }
+        const QByteArray body = reply->readAll();
+        reply->deleteLater();
+
+        QJsonParseError perr{};
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
+        if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+            emit shotListFailed("Shot list response parse error");
+            return;
+        }
+        const QJsonObject root = doc.object();
+        const QJsonArray data = root.value("data").toArray();
+        const QJsonObject paging = root.value("paging").toObject();
+        const int totalPages = paging.value("pages").toInt(page);
+
+        qint64 minClockThisPage = std::numeric_limits<qint64>::max();
+        for (const QJsonValue& v : data) {
+            const QJsonObject s = v.toObject();
+            const QString id = s.value("id").toString();
+            const qint64 clock = s.value("clock").toVariant().toLongLong();
+            if (id.isEmpty() || clock <= 0) continue;
+            minClockThisPage = std::min(minClockThisPage, clock);
+            if (clock < windowStartEpoch) continue;   // outside window — skip
+            QVariantMap m;
+            m["visualizerId"] = id;
+            m["url"] = QString(VISUALIZER_SHOT_URL) + id;
+            m["clockEpoch"] = clock;
+            accumulated.append(m);
+        }
+
+        // Stop when: paging exhausted, hit the defensive ceiling, or
+        // (relying on newest-first sort) this whole page is already
+        // older than the window — nothing older can be in-window.
+        const bool pagedOut = page >= totalPages || page >= kMaxPages;
+        const bool wholePageOlder =
+            !data.isEmpty() && minClockThisPage < windowStartEpoch;
+        if (pagedOut || wholePageOlder) {
+            emit shotListFetched(accumulated);
+            return;
+        }
+        fetchShotListPage(page + 1, windowStartEpoch, accumulated);
+    });
 }
 
 QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,

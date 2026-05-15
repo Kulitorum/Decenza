@@ -697,6 +697,99 @@ private slots:
             appSettings.setValue("migration16/pendingVisualizerSync", priorPending);
         else appSettings.remove("migration16/pendingVisualizerSync");
     }
+
+    // OpenSpec persist-visualizer-id-in-controller: the reconciliation
+    // matcher links empty-visualizer_id rows to cloud shots by start
+    // time (±2s), strict 1:1, never reusing an id already on a row,
+    // skipping ambiguous and out-of-window rows; and is idempotent.
+    void reconcileVisualizerLinks_matchingContract()
+    {
+        const QString path = freshDbPath();
+        {
+            ShotHistoryStorage s;
+            initAndClose(path, s);
+        }
+
+        auto insertShot = [](QSqlDatabase& db, const QString& uuid, qint64 ts,
+                             const QString& vizId) -> qint64 {
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, "
+                      "duration_seconds, visualizer_id) "
+                      "VALUES (?, ?, 'P', 30, ?)");
+            q.addBindValue(uuid);
+            q.addBindValue(ts);
+            q.addBindValue(vizId);
+            if (!q.exec()) {
+                qWarning() << "insertShot failed:" << q.lastError().text();
+                return -1;
+            }
+            return q.lastInsertId().toLongLong();
+        };
+
+        const qint64 windowStart = 900;
+        qint64 idA = 0, idB = 0, idC = 0, idD = 0, idE = 0;
+        withRawDb(path, "recon_seed", [&](QSqlDatabase& db) {
+            idA = insertShot(db, "A", 1000, QString());         // in-window, empty
+            idB = insertShot(db, "B", 2000, "V-EXIST");         // already linked
+            idC = insertShot(db, "C", 500,  QString());         // before window
+            idD = insertShot(db, "D", 3000, QString());         // ambiguous (two cloud @ ~3000)
+            idE = insertShot(db, "E", 4000, QString());         // only candidate id already used
+        });
+        QVERIFY(idA > 0 && idB > 0 && idC > 0 && idD > 0 && idE > 0);
+
+        // Cloud list. clockEpoch within 2s of A's 1000 → link.
+        // V-EXIST is already on row B → must never be reused (E).
+        // Two cloud shots within tol of D's 3000 → ambiguous → skip.
+        auto cloud = [](const QString& id, qint64 clk) {
+            QVariantMap m;
+            m["visualizerId"] = id;
+            m["url"] = "https://visualizer.coffee/shots/" + id;
+            m["clockEpoch"] = clk;
+            return QVariant(m);
+        };
+        QVariantList cloudShots{
+            cloud("V-A", 1001),       // matches A (Δ1s)
+            cloud("V-EXIST", 4000),   // would match E but id already on B
+            cloud("V-D1", 3000),      // \_ both within tol of D → ambiguous
+            cloud("V-D2", 3001),      // /
+            cloud("V-C", 500),        // matches C by time but C is out of window
+        };
+
+        QVariantList linked;
+        withRawDb(path, "recon_run", [&](QSqlDatabase& db) {
+            linked = ShotHistoryStorage::reconcileVisualizerLinksStatic(
+                db, cloudShots, windowStart);
+        });
+
+        QCOMPARE(linked.size(), 1);
+        QCOMPARE(linked.first().toMap().value("shotId").toLongLong(), idA);
+        QCOMPARE(linked.first().toMap().value("visualizerId").toString(),
+                 QStringLiteral("V-A"));
+
+        // Verify persisted state + non-targets untouched.
+        withRawDb(path, "recon_verify", [&](QSqlDatabase& db) {
+            auto vizId = [&](qint64 id) {
+                QSqlQuery q(db);
+                q.prepare("SELECT COALESCE(visualizer_id,'') FROM shots WHERE id = ?");
+                q.addBindValue(id);
+                q.exec(); q.next();
+                return q.value(0).toString();
+            };
+            QCOMPARE(vizId(idA), QStringLiteral("V-A"));
+            QCOMPARE(vizId(idB), QStringLiteral("V-EXIST"));  // unchanged
+            QCOMPARE(vizId(idC), QString());                  // out of window
+            QCOMPARE(vizId(idD), QString());                  // ambiguous
+            QCOMPARE(vizId(idE), QString());                  // id already used
+        });
+
+        // Idempotent: A now has an id, nothing left to link.
+        QVariantList second;
+        withRawDb(path, "recon_again", [&](QSqlDatabase& db) {
+            second = ShotHistoryStorage::reconcileVisualizerLinksStatic(
+                db, cloudShots, windowStart);
+        });
+        QVERIFY2(second.isEmpty(), "re-run must be a no-op");
+    }
 };
 
 QTEST_MAIN(tst_DbMigration)

@@ -53,6 +53,18 @@ public:
                                                   const QString& visualizerId,
                                                   const QString& visualizerUrl);
 
+    // One-time reconciliation backfill (OpenSpec persist-visualizer-id-in-controller).
+    // `cloudShots` is the user's Visualizer shot list (each map:
+    // {visualizerId, url, clockEpoch}). On a background thread, links
+    // local rows whose visualizer_id is empty and whose timestamp is
+    // >= windowStartEpoch to a cloud shot whose clock is within
+    // kReconcileToleranceSec, strict 1:1 (no reuse of an id already on
+    // a row or already consumed this pass; ambiguous => skip). Emits
+    // visualizerLinksReconciled() with the linked {shotId,visualizerId}
+    // pairs so the caller can push the now-authoritative local rating.
+    Q_INVOKABLE void requestReconcileVisualizerLinks(const QVariantList& cloudShots,
+                                                     qint64 windowStartEpoch);
+
     // Async: runs SQL on a background thread and emits shotsFilteredReady()
     Q_INVOKABLE void requestShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
 
@@ -123,6 +135,17 @@ public:
     // Thread-safe metadata update: caller provides their own connection.
     // Safe to call from any thread (does not use m_db). Returns true on success.
     static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata);
+
+    // Pure reconciliation matcher (caller provides the connection).
+    // Links empty-visualizer_id rows whose timestamp is >= windowStartEpoch
+    // to a cloud shot whose clockEpoch is within tolerance, strict 1:1
+    // (no reuse of an id already on a row or consumed this pass;
+    // ambiguous => skip). Writes visualizer_id/url on matches and
+    // returns the linked {shotId,visualizerId} maps. Synchronous and
+    // thread-agnostic so it is unit-testable via a raw connection.
+    static QVariantList reconcileVisualizerLinksStatic(QSqlDatabase& db,
+                                                       const QVariantList& cloudShots,
+                                                       qint64 windowStartEpoch);
 
     // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
@@ -234,6 +257,10 @@ signals:
     void autoFavoriteGroupDetailsReady(const QVariantMap& details);
     void backupFinished(bool success, const QString& resultPath);
     void visualizerInfoUpdated(qint64 shotId, bool success);
+    // Emitted after requestReconcileVisualizerLinks completes. `linked`
+    // is a QVariantList of {shotId:qint64, visualizerId:QString} maps
+    // for the rows that were just linked (empty if none matched).
+    void visualizerLinksReconciled(const QVariantList& linked);
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
     void grinderFieldsUpdated(int updatedCount);

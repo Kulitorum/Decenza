@@ -48,7 +48,12 @@ public:
 
     void setDevice(DE1Device* device) { m_device = device; }
 
-    // Upload shot data to visualizer.coffee
+    // Upload shot data to visualizer.coffee.
+    // `dbShotId` is the local shots.id this upload is for, so a successful
+    // upload can persist its returned Visualizer id to the right row from
+    // C++ (MainController) without depending on any UI page. Live shots
+    // are saved on a separate async path, so the caller passes the id it
+    // captured from shotSaved.
     Q_INVOKABLE void uploadShot(ShotDataModel* shotData,
                                  const Profile* profile,
                                  double duration,
@@ -56,7 +61,8 @@ public:
                                  double doseWeight = 0,
                                  const ShotMetadata& metadata = ShotMetadata(),
                                  const QString& debugLog = QString(),
-                                 qint64 shotEpoch = 0);
+                                 qint64 shotEpoch = 0,
+                                 qint64 dbShotId = 0);
 
     // Upload a shot from history (takes the typed projection from
     // ShotHistoryStorage::convertShotRecord).
@@ -84,6 +90,14 @@ public:
     // Test connection with current credentials
     Q_INVOKABLE void testConnection();
 
+    // One-time reconciliation support: fetch the user's shot list
+    // (GET /api/shots, paged) for shots whose start time (clock) is at
+    // or after windowStartEpoch. Emits shotListFetched with a
+    // QVariantList of {visualizerId, url, clockEpoch} maps, or
+    // shotListFailed on any HTTP/parse error (fail safe — caller does
+    // not advance its run-once flag on failure).
+    void fetchShotListSince(qint64 windowStartEpoch);
+
     // Build a visualizer-compatible JSON payload from a ShotProjection.
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
     static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
@@ -93,9 +107,17 @@ signals:
     void lastUploadStatusChanged();
     void lastShotUrlChanged();
     void uploadSuccess(const QString& shotId, const QString& url);
+    // Like uploadSuccess but carries the originating local shots.id so
+    // MainController can persist the link without a UI page. dbShotId is
+    // 0 when the upload had no associated local row (should not happen
+    // on the normal paths).
+    void uploadSucceededForShot(qint64 dbShotId, const QString& visualizerId, const QString& url);
     void updateSuccess(const QString& visualizerId);
     void uploadFailed(const QString& error);
     void connectionTestResult(bool success, const QString& message);
+    // Reconciliation list fetch results.
+    void shotListFetched(const QVariantList& shots);
+    void shotListFailed(const QString& error);
 
 private slots:
     void onUploadFinished(QNetworkReply* reply);
@@ -120,12 +142,22 @@ private:
     bool validateUpload(const QString& beverageType, double duration);
     void sendUpload(const QByteArray& jsonData);
 
+    // Paged reconciliation fetch: accumulates results across pages,
+    // recurses until older than m_reconcileWindowStartEpoch or paging
+    // exhausted, then emits shotListFetched once.
+    void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
+
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
     DE1Device* m_device = nullptr;
     bool m_uploading = false;
     QString m_lastUploadStatus;
     QString m_lastShotUrl;
+    // The local shots.id the in-flight upload is for; emitted with
+    // uploadSucceededForShot. Uploads are strictly serial (m_uploading
+    // guards), so a single member suffices. Reset after each terminal
+    // outcome.
+    qint64 m_uploadingDbShotId = 0;
 
     static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
     static constexpr const char* VISUALIZER_SHOTS_API_URL = "https://visualizer.coffee/api/shots/";

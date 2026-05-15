@@ -330,12 +330,12 @@ Page {
             }
         }
         function onUploadSuccess(shotId, url) {
+            // Persistence of the Visualizer id is owned by MainController
+            // (VisualizerUploader::uploadSucceededForShot →
+            // requestUpdateVisualizerInfo), independent of this page. The
+            // page only clears any prior error; the row reload still
+            // arrives via onVisualizerInfoUpdated.
             uploadError = ""
-            // Update the shot history with visualizer info (async);
-            // reload triggered by onVisualizerInfoUpdated handler above
-            if (editShotId > 0) {
-                MainController.shotHistory.requestUpdateVisualizerInfo(editShotId, shotId, url)
-            }
         }
         function onUpdateSuccess(visualizerId) {
             uploadError = ""

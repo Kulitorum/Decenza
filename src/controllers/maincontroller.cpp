@@ -179,12 +179,38 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_shotHistory->initialize();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
 
+    // Authoritative C++ writeback: a successful Visualizer upload
+    // persists its returned id to the originating local shot row here,
+    // independent of any UI page. (Previously only a transient
+    // PostShotReviewPage/ShotDetailPage handler did this, so uploads
+    // silently went unrecorded when the review page was disabled,
+    // auto-closed, or navigated away before the ~1s round-trip — see
+    // OpenSpec change persist-visualizer-id-in-controller.)
+    connect(m_visualizer, &VisualizerUploader::uploadSucceededForShot, this,
+            [this](qint64 dbShotId, const QString& visualizerId, const QString& url) {
+        if (dbShotId <= 0 || visualizerId.isEmpty()) {
+            qWarning() << "MainController: upload succeeded but no local shot id"
+                          " to link (dbShotId=" << dbShotId << ")";
+            return;
+        }
+        if (m_shotHistory && m_shotHistory->isReady())
+            m_shotHistory->requestUpdateVisualizerInfo(dbShotId, visualizerId, url);
+    });
+
     // Migration 16 ran inside initialize() above. If it found inferred
     // shots that were uploaded to Visualizer, it queued them in
     // QSettings under migration16/pendingVisualizerSync. Drain that
     // list now — guarded internally on credentials being available;
     // failed entries persist for the next boot.
     processPendingVisualizerRatingSync();
+
+    // One-time reconciliation: relink shots that were uploaded before
+    // the authoritative C++ writeback existed (the orphaned cohort),
+    // then push their now-correct local rating to the cloud. Order-
+    // independent of the migration16 drain above — see OpenSpec change
+    // persist-visualizer-id-in-controller.
+    processVisualizerReconciliation();
+
     connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
             [this](const QString& visualizerId) {
         // Only react when this matches the migration16 PATCH we issued;
@@ -1897,7 +1923,9 @@ void MainController::onShotEnded() {
             QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
-            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime, showPostShot](qint64 shotId) {
+            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
+                    [this, finalWeight, shotDateTime, showPostShot,
+                     duration, doseWeight, metadata, debugLog](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {
@@ -1906,6 +1934,22 @@ void MainController::onShotEnded() {
                     // Store shot ID for post-shot review page (so it can edit the saved shot)
                     m_lastSavedShotId = shotId;
                     emit lastSavedShotIdChanged();
+
+                    // Auto-upload here (not before save) so we know the
+                    // local shots.id and can pass it to the uploader.
+                    // VisualizerUploader emits uploadSucceededForShot with
+                    // this id, and MainController persists the link from
+                    // C++ — independent of any UI page being alive. A
+                    // shot that failed to save has no row to link, so we
+                    // intentionally do NOT auto-upload it (avoids the
+                    // orphaned-upload bug this change exists to fix).
+                    if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
+                        qDebug() << "  -> Auto-uploading to visualizer for shot" << shotId;
+                        m_visualizer->uploadShot(
+                            m_shotDataModel, m_profileManager->currentProfilePtr(),
+                            duration, finalWeight, doseWeight, metadata, debugLog,
+                            m_pendingShotEpoch, shotId);
+                    }
 
                     // Set shot date/time for display on metadata page
                     m_settings->dye()->setDyeShotDateTime(shotDateTime);
@@ -1975,11 +2019,10 @@ void MainController::onShotEnded() {
              << "Final P:" << QString::number(finalPressure, 'f', 2) << "bar"
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
-    // Auto-upload if enabled (do this first, before showing metadata page)
-    if (m_settings->visualizer()->visualizerAutoUpload() && m_visualizer) {
-        qDebug() << "  -> Auto-uploading to visualizer";
-        m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(), duration, finalWeight, doseWeight, metadata, debugLog, m_pendingShotEpoch);
-    }
+    // Auto-upload is dispatched from the shotSaved callback above (once
+    // the local shots.id is known) so the returned Visualizer id can be
+    // persisted to the right row from C++. Do NOT auto-upload here —
+    // before save the id is unknown and the upload would orphan.
 
     // Store pending shot data for later upload (user can re-upload with updated metadata)
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
@@ -2043,9 +2086,13 @@ void MainController::uploadPendingShot() {
              << "Duration:" << m_pendingShotDuration << "s"
              << "Bean:" << metadata.beanBrand << metadata.beanType;
 
+    // Manual re-upload of the just-finished shot: by now the shot is
+    // saved and m_lastSavedShotId holds its row id, so the link is
+    // persisted from C++ via uploadSucceededForShot.
     m_visualizer->uploadShot(m_shotDataModel, m_profileManager->currentProfilePtr(),
                              m_pendingShotDuration, m_pendingShotFinalWeight,
-                             m_pendingShotDoseWeight, metadata, m_pendingDebugLog, m_pendingShotEpoch);
+                             m_pendingShotDoseWeight, metadata, m_pendingDebugLog,
+                             m_pendingShotEpoch, m_lastSavedShotId);
 
     m_hasPendingShot = false;
     m_pendingDebugLog.clear();
@@ -2621,6 +2668,84 @@ void MainController::dispatchNextPendingVisualizerSync()
         self->m_visualizer->updateShotOnVisualizer(visualizerId, shot);
     });
     m_shotHistory->requestShot(shotId);
+}
+
+void MainController::processVisualizerReconciliation()
+{
+    if (!m_visualizer || !m_shotHistory) return;
+
+    QSettings s;
+    if (s.value(QStringLiteral("visualizerBackfill/doneV1"), false).toBool())
+        return;  // already reconciled on this device
+
+    const QString user = s.value(QStringLiteral("visualizer/username")).toString();
+    const QString pass = s.value(QStringLiteral("visualizer/password")).toString();
+    if (user.isEmpty() || pass.isEmpty()) {
+        // No credentials: skip WITHOUT setting the run-once flag so it
+        // retries on a later boot once an account is configured.
+        qDebug() << "MainController: Visualizer reconciliation skipped (no credentials)";
+        return;
+    }
+
+    // Bounded window. Widening this later requires bumping the run-once
+    // key to doneV2 (this device already has doneV1 set after one pass).
+    constexpr qint64 kReconcileWindowDays = 60;
+    const qint64 windowStartEpoch =
+        QDateTime::currentSecsSinceEpoch() - kReconcileWindowDays * 24 * 3600;
+
+    // Fetch → reconcile → self-correct, each a single-shot hop.
+    connect(m_visualizer, &VisualizerUploader::shotListFailed, this,
+            [](const QString& err) {
+        // Fail safe: do NOT set the run-once flag — retried next boot.
+        qWarning() << "MainController: Visualizer reconciliation list fetch failed:"
+                   << err << "(will retry next boot)";
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    connect(m_visualizer, &VisualizerUploader::shotListFetched, this,
+            [this, windowStartEpoch](const QVariantList& cloudShots) {
+        if (m_shotHistory && m_shotHistory->isReady())
+            m_shotHistory->requestReconcileVisualizerLinks(cloudShots, windowStartEpoch);
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    connect(m_shotHistory, &ShotHistoryStorage::visualizerLinksReconciled, this,
+            [this](const QVariantList& linked) {
+        // The reconcile pass completed (only emitted after the DB helper
+        // ran, which only runs after a successful fetch) — safe to set
+        // the run-once flag now.
+        QSettings ss;
+        ss.setValue(QStringLiteral("visualizerBackfill/doneV1"), true);
+        ss.sync();
+
+        if (linked.isEmpty()) {
+            qDebug() << "MainController: Visualizer reconciliation — nothing to relink";
+            return;
+        }
+        // Push the now-authoritative local rating to each freshly
+        // linked cloud shot by appending to the same serial drain queue
+        // the migration16 sync uses (load shot → PATCH local rating;
+        // a cleared rating goes up as JSON null). Unconditional per
+        // linked row — the list API doesn't return the cloud rating and
+        // the PATCH is idempotent over this bounded set.
+        QJsonArray queue = QJsonDocument::fromJson(
+            ss.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
+        for (const QVariant& v : linked) {
+            const QVariantMap m = v.toMap();
+            QJsonObject e;
+            e["shotId"] = m.value("shotId").toLongLong();
+            e["visualizerId"] = m.value("visualizerId").toString();
+            queue.append(e);
+        }
+        ss.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
+                    QJsonDocument(queue).toJson(QJsonDocument::Compact));
+        ss.sync();
+        qDebug() << "MainController: Visualizer reconciliation linked"
+                 << linked.size() << "shot(s); queued for rating push";
+        dispatchNextPendingVisualizerSync();
+    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+    qDebug() << "MainController: starting one-time Visualizer reconciliation (window"
+             << kReconcileWindowDays << "days)";
+    m_visualizer->fetchShotListSince(windowStartEpoch);
 }
 
 void MainController::setRefractometer(DiFluidR2* refractometer) {
