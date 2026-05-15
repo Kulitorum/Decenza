@@ -59,6 +59,10 @@ struct ShotRow {
     // targetWeightG simply stay absent, exactly as before this PR).
     QString profileJson;
     double targetWeight = 0.0;  // → shots.yield_override
+    // #1164 finding #3: per-shot temperature override → shots
+    // .temperature_override. 0 by default so existing fixtures are
+    // unaffected (the field stays absent / hoist-neutral, as before).
+    double temperatureOverride = 0.0;
 };
 
 // Run work with a scoped raw SQLite connection on `path`. Same pattern
@@ -87,14 +91,14 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             bean_brand, bean_type, roast_level,
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
             enjoyment, espresso_notes, profile_kb_id,
-            profile_json, yield_override
+            profile_json, yield_override, temperature_override
         ) VALUES (
             :uuid, :timestamp, :profile_name, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_level,
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
             :enjoyment, :espresso_notes, :profile_kb_id,
-            :profile_json, :yield_override
+            :profile_json, :yield_override, :temperature_override
         )
     )"));
     q.bindValue(":uuid", r.uuid);
@@ -116,6 +120,7 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     q.bindValue(":profile_kb_id", r.profileKbId.isEmpty() ? QVariant() : r.profileKbId);
     q.bindValue(":profile_json", r.profileJson);
     q.bindValue(":yield_override", r.targetWeight);
+    q.bindValue(":temperature_override", r.temperatureOverride);
     if (!q.exec ()) {
         qWarning() << "insertShot failed:" << q.lastError().text();
         return -1;
@@ -1499,6 +1504,113 @@ private slots:
             }
             QVERIFY(sawFlow);
             QVERIFY(sawPressure);
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // dialInSessions profileName / targetWeightG / temperatureOverrideC
+    // hoisting (issue #1164 finding #3) — DB-level. Same dedup discipline
+    // as pourControl: hoist to session context when uniform across the
+    // session, emit per-shot only when the session mixes the value.
+    // -------------------------------------------------------------------
+    void dialInSessions_hoistsProfileTargetTempWhenUniform_elsePerShot()
+    {
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        // Uniform session: same profile, target weight, and temp override
+        // on both shots → all three hoist to context, absent per-shot.
+        const QString pathU = freshDbPath();
+        initAndClose(pathU);
+        withRawDb(pathU, QStringLiteral("ptt_uniform"), [&](QSqlDatabase& db) {
+            ShotRow a1;
+            a1.uuid = QStringLiteral("ptt-a1");
+            a1.profileName = QStringLiteral("D-Flow / Q");
+            a1.profileKbId = QStringLiteral("kb-dfq");
+            a1.timestamp = now - 4000;
+            a1.grinderModel = QStringLiteral("Zero");
+            a1.grinderSetting = QStringLiteral("5");
+            a1.targetWeight = 36.0;
+            a1.temperatureOverride = 84.0;
+            QVERIFY(insertShot(db, a1) > 0);
+            ShotRow a2 = a1;
+            a2.uuid = QStringLiteral("ptt-a2");
+            a2.timestamp = now - 3700;
+            a2.grinderSetting = QStringLiteral("5.5");
+            QVERIFY(insertShot(db, a2) > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10);
+            QCOMPARE(sessions.size(), 1);
+            const QJsonObject ctx = sessions.at(0).toObject()
+                .value(QStringLiteral("context")).toObject();
+            QCOMPARE(ctx.value(QStringLiteral("profileName")).toString(),
+                     QStringLiteral("D-Flow / Q"));
+            QCOMPARE(ctx.value(QStringLiteral("targetWeightG")).toDouble(), 36.0);
+            QCOMPARE(ctx.value(QStringLiteral("temperatureOverrideC")).toDouble(), 84.0);
+            const QJsonArray shots = sessions.at(0).toObject()
+                .value(QStringLiteral("shots")).toArray();
+            QCOMPARE(shots.size(), 2);
+            for (const auto& s : shots) {
+                const QJsonObject sh = s.toObject();
+                QVERIFY2(!sh.contains(QStringLiteral("profileName")),
+                         "uniform profileName must hoist to context");
+                QVERIFY2(!sh.contains(QStringLiteral("targetWeightG")),
+                         "uniform targetWeightG must hoist to context");
+                QVERIFY2(!sh.contains(QStringLiteral("temperatureOverrideC")),
+                         "uniform temperatureOverrideC must hoist to context");
+            }
+        });
+
+        // Mixed session: the two shots differ in all three fields → none
+        // hoisted, each emitted per-shot. They share kbId + timestamps so
+        // they still group into one session.
+        const QString pathM = freshDbPath();
+        initAndClose(pathM);
+        withRawDb(pathM, QStringLiteral("ptt_mixed"), [&](QSqlDatabase& db) {
+            ShotRow m1;
+            m1.uuid = QStringLiteral("ptt-m1");
+            m1.profileName = QStringLiteral("D-Flow / Q");
+            m1.profileKbId = QStringLiteral("kb-dfq");
+            m1.timestamp = now - 4000;
+            m1.grinderModel = QStringLiteral("Zero");
+            m1.grinderSetting = QStringLiteral("5");
+            m1.targetWeight = 36.0;
+            m1.temperatureOverride = 84.0;
+            QVERIFY(insertShot(db, m1) > 0);
+            ShotRow m2 = m1;
+            m2.uuid = QStringLiteral("ptt-m2");
+            m2.timestamp = now - 3700;
+            m2.profileName = QStringLiteral("Damian's LM Leva");
+            m2.targetWeight = 42.0;
+            m2.temperatureOverride = 89.0;
+            QVERIFY(insertShot(db, m2) > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-dfq"), -1, 10);
+            QCOMPARE(sessions.size(), 1);
+            const QJsonObject ctx = sessions.at(0).toObject()
+                .value(QStringLiteral("context")).toObject();
+            QVERIFY(!ctx.contains(QStringLiteral("profileName")));
+            QVERIFY(!ctx.contains(QStringLiteral("targetWeightG")));
+            QVERIFY(!ctx.contains(QStringLiteral("temperatureOverrideC")));
+            const QJsonArray shots = sessions.at(0).toObject()
+                .value(QStringLiteral("shots")).toArray();
+            QCOMPARE(shots.size(), 2);
+            QSet<QString> profiles;
+            QList<double> weights;
+            QList<double> temps;
+            for (const auto& s : shots) {
+                const QJsonObject sh = s.toObject();
+                profiles.insert(sh.value(QStringLiteral("profileName")).toString());
+                weights.append(sh.value(QStringLiteral("targetWeightG")).toDouble());
+                temps.append(sh.value(QStringLiteral("temperatureOverrideC")).toDouble());
+            }
+            QVERIFY(profiles.contains(QStringLiteral("D-Flow / Q")));
+            QVERIFY(profiles.contains(QStringLiteral("Damian's LM Leva")));
+            QVERIFY(weights.contains(36.0));
+            QVERIFY(weights.contains(42.0));
+            QVERIFY(temps.contains(84.0));
+            QVERIFY(temps.contains(89.0));
         });
     }
 

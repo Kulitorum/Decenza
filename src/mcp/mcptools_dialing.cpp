@@ -31,7 +31,6 @@ struct DialingDbResult {
     QJsonArray dialInSessions;
     QJsonObject grinderContext;
     QJsonObject bestRecentShot;      // Empty when no rated shot exists on this profile
-    QJsonObject grinderCalibration;  // Empty when preconditions not met
 };
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
@@ -62,7 +61,11 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
         "but redundant on later turns). "
         "Grinder settings are shown as the user entered them — may be numbers, letters, click counts, or "
         "grinder-specific notation like Eureka multi-turn (1+4 = 1 rotation + position 4). The "
-        "grinderContext block shows the range and step size observed in the user's own shot history.",
+        "grinderContext block shows the range and step size observed in the user's own shot history. "
+        "For cross-profile grind translation — the recommended grinder setting for a profile OTHER than "
+        "the current shot's, e.g. when the user is considering a profile switch — call "
+        "dialing_get_grinder_calibration. That table is intentionally not included here: it is a stable "
+        "property of the grinder, so fetching it once on demand keeps multi-turn dial-in lean.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -118,12 +121,24 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     dbResult.shotData = ShotHistoryStorage::convertShotRecord(record);
                     dbResult.profileKbId = record.profileKbId;
 
-                    // The four DB-backed dialing-context blocks are produced
-                    // by shared helpers in dialing_blocks. Both
+                    // The DB-backed dialing-context blocks are produced by
+                    // shared helpers in dialing_blocks. Both
                     // dialing_get_context and the in-app advisor's
                     // user-prompt enrichment path call the same builders so
                     // the two surfaces cannot drift. See openspec
                     // add-dialing-blocks-to-advisor.
+                    //
+                    // Cross-profile grinder calibration is deliberately NOT
+                    // built here (#1164). It is a ~33-row table that is a
+                    // stable physical property of the grinder+burrs pair and
+                    // is only relevant when the user is weighing a profile
+                    // switch — shipping it on every conversational turn
+                    // bloated multi-turn dial-in. It now lives in the
+                    // on-demand dialing_get_grinder_calibration tool, which
+                    // calls the same buildGrinderCalibrationBlock helper. The
+                    // one-shot in-app advisor and ai_advisor_invoke still
+                    // build it inline because they have no follow-up
+                    // tool-call channel.
                     dbResult.dialInSessions = DialingBlocks::buildDialInSessionsBlock(
                         db, dbResult.profileKbId, resolvedShotId, historyLimit);
                     dbResult.bestRecentShot = DialingBlocks::buildBestRecentShotBlock(
@@ -131,9 +146,6 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     dbResult.grinderContext = DialingBlocks::buildGrinderContextBlock(
                         db, dbResult.shotData.grinderModel,
                         dbResult.shotData.beverageType, dbResult.shotData.beanBrand);
-                    dbResult.grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
-                        db, dbResult.shotData.grinderModel, dbResult.shotData.grinderBurrs,
-                        dbResult.shotData.beverageType, resolvedShotId);
                 });
 
                 // --- Deliver results to main thread for final assembly ---
@@ -157,8 +169,6 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         result["bestRecentShot"] = dbResult.bestRecentShot;
                     if (!dbResult.grinderContext.isEmpty())
                         result["grinderContext"] = dbResult.grinderContext;
-                    if (!dbResult.grinderCalibration.isEmpty())
-                        result["grinderCalibration"] = dbResult.grinderCalibration;
 
                     // --- Resolved shot reference (used by tasting + bean blocks below) ---
                     // Note: result["shot"] is intentionally NOT emitted (see openspec
@@ -203,10 +213,23 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // --- Profile knowledge ---
                     // Default: ship only the current profile's KB section
                     // (~1 KB). The full system prompt + reference tables +
-                    // profile catalog (~18 KB total) is opt-in via
+                    // cross-profile catalog (~18 KB total) is opt-in via
                     // includeFullKnowledge — useful at session start, but
                     // redundant on later turns of a multi-call dial-in
                     // conversation. See #987.
+                    //
+                    // #1164 finding #1: this gate used to leak. The lite
+                    // branch unconditionally appended the cross-profile
+                    // catalog + UGS tables + families/discipline framing for
+                    // espresso (~17 KB), so every call shipped nearly the
+                    // full payload regardless of includeFullKnowledge —
+                    // contradicting this tool's own documented contract and
+                    // dominating per-call token cost. That bulk is STABLE
+                    // reference content: the AI fetches it ONCE via
+                    // includeFullKnowledge, after which it lives in the
+                    // external client's cached conversation prefix and never
+                    // needs resending. The lite branch now keeps only a
+                    // compact guardrail (see below).
                     QString profileTitle = sd.profileName;
                     QString bevType = sd.beverageType.isEmpty() ? QStringLiteral("espresso") : sd.beverageType;
                     // Extract the editor type from the embedded profile JSON
@@ -228,51 +251,34 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         if (profileKnowledge.isEmpty())
                             profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
 
-                        // Espresso-only: cross-cutting reference content and
-                        // anti-hallucination framing (profile families +
-                        // other-profile parameter discipline). Mirrors what
-                        // shotAnalysisSystemPrompt() injects in full-knowledge
-                        // mode; omitted for filter/pour-over as the content is
-                        // espresso-centric.
+                        // Compact guardrail only (espresso-only — the full
+                        // catalog is espresso-centric, so filter/pour-over
+                        // never received it). This replaces the ~17 KB
+                        // cross-profile reference that used to be appended
+                        // here unconditionally (#1164 finding #1). It steers
+                        // the AI away from hallucinating other-profile
+                        // setpoints before it has pulled the full reference,
+                        // and tells it exactly how to get that reference once.
                         if (bevType.toLower() != "filter" && bevType.toLower() != "pourover") {
-                            const QString crossProfile = ShotSummarizer::crossProfileReferenceContent();
-                            if (!crossProfile.isEmpty()) {
-                                if (!profileKnowledge.isEmpty())
-                                    profileKnowledge += QStringLiteral("\n\n");
-                                profileKnowledge += crossProfile;
-                            }
-
+                            if (!profileKnowledge.isEmpty())
+                                profileKnowledge += QStringLiteral("\n\n");
                             profileKnowledge += QStringLiteral(
-                                "\n\n## Profile families\n\n"
-                                "Each profile carries a `[family: <name>]` tag. Profiles in the same\n"
-                                "family implement the same underlying extraction mechanic. Recommending\n"
-                                "a within-family switch (e.g., D-Flow → LRv2 — both `lever-decline`) is\n"
-                                "USUALLY a parameter tweak in disguise: the user could achieve the same\n"
-                                "outcome by adjusting temperature, dose, or grind on their current\n"
-                                "profile. Within-family switches are only meaningful when the\n"
-                                "alternative encodes a constraint the user CANNOT replicate by tweaking\n"
-                                "the current profile (e.g., `80's Espresso` is `lever-decline` like\n"
-                                "D-Flow, but bakes in a low-temperature regime — 82°C declining to\n"
-                                "72°C — that's hard to replicate by editing D-Flow's frame temps).\n\n"
-                                "When you recommend a profile switch, name the family of the current\n"
-                                "and proposed profile and explain what the family change buys the user.\n"
-                                "If both are the same family, EITHER explain the specific constraint the\n"
-                                "alternative bakes in, OR drop the recommendation and suggest a parameter\n"
-                                "tweak on the current profile instead.\n\n"
-                                "## Other-profile parameter discipline\n\n"
-                                "You have full recipe data (frame setpoints, temperatures, pressures,\n"
-                                "durations) ONLY for the current shot's profile in `result.profile.recipe`.\n"
-                                "For every other profile, you have ONLY what is in your training data —\n"
-                                "which may be outdated or incorrect. DO NOT quote specific numeric\n"
-                                "setpoints (e.g., \"Londinium runs 89-90°C\", \"E61 peaks at 9 bar\")\n"
-                                "of profiles other than the current one — inventing them is hallucination.\n\n"
-                                "When recommending a different profile, describe the difference\n"
-                                "qualitatively — \"lower temperature regime\", \"higher peak pressure\",\n"
-                                "\"shorter total duration\", \"flow-controlled instead of pressure-\n"
-                                "controlled\" — and let the user pull a reference shot on that profile to\n"
-                                "see its actual numbers. If the user explicitly asks for setpoints of a\n"
-                                "non-current profile, say you don't have its recipe and offer to discuss\n"
-                                "tradeoffs in qualitative terms.\n");
+                                "## Cross-profile reference omitted\n\n"
+                                "Only THIS profile's KB entry is included here, to keep the\n"
+                                "per-call payload small. For cross-profile grind ordering (UGS\n"
+                                "tables), profile-family guidance, and the full dial-in system\n"
+                                "prompt, call dialing_get_context ONCE with\n"
+                                "`includeFullKnowledge: true` at the start of the conversation.\n"
+                                "That content is stable, so one fetch is enough — it stays in\n"
+                                "context for the rest of the conversation and does not need\n"
+                                "re-requesting on later turns.\n\n"
+                                "Until you have pulled it: you have full recipe data ONLY for\n"
+                                "the current shot's profile (`result.profile.recipe`). DO NOT\n"
+                                "quote specific numeric setpoints (temperatures, pressures,\n"
+                                "durations) for any OTHER profile from memory — that is\n"
+                                "hallucination. Describe cross-profile differences\n"
+                                "qualitatively and let the user pull a reference shot on the\n"
+                                "other profile to see its actual numbers.\n");
                         }
                     }
                     if (!profileKnowledge.isEmpty())
@@ -361,6 +367,123 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // embedded in the profileKnowledge system prompt (shared with in-app AI),
                     // so they are no longer sent as separate fields here.
 
+                    respond(result);
+                }, Qt::QueuedConnection);
+            });
+
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "read");
+
+    // dialing_get_grinder_calibration
+    //
+    // Split out of dialing_get_context (#1164). The cross-profile grinder
+    // calibration table is ~33 rows and is only relevant when the user is
+    // weighing a profile switch or asks "what grind for profile X?". It is a
+    // stable physical property of the grinder+burrs pair, so the AI fetches
+    // it once on demand here instead of re-receiving it on every
+    // conversational dialing_get_context turn. The one-shot in-app advisor
+    // and ai_advisor_invoke still build the same block inline via
+    // DialingBlocks::buildGrinderCalibrationBlock — they have no follow-up
+    // tool-call channel, so they need it in the initial payload. All three
+    // surfaces share the one builder, so they cannot drift.
+    registry->registerAsyncTool(
+        "dialing_get_grinder_calibration",
+        "Cross-profile grinder calibration for the user's grinder + burrs: the "
+        "recommended grinder setting (rgs) for every known espresso profile, "
+        "anchored on the profiles the user has actually pulled. Returns "
+        "fineAnchor / coarseAnchor (the two history profiles the conversion is "
+        "pinned to), conversionKey (grinder-setting units per UGS unit), "
+        "calibratedUgsRange, and a profiles[] array — each entry has the "
+        "profile's ugs, rgs, and source: history = median measured from the "
+        "user's own shots, derived = interpolated within the calibrated range, "
+        "extrapolated = projected outside it (lower confidence). "
+        "Call this ONLY when the user asks about switching profiles or wants a "
+        "grind setting for a profile other than the current shot's. It is "
+        "intentionally omitted from dialing_get_context to keep multi-turn "
+        "dial-in lean, and is a stable property of the grinder so one fetch "
+        "per conversation is enough. Espresso only; unavailable until the user "
+        "has pulled at least two KB-known profiles on this exact grinder + "
+        "burrs with numeric grind settings spanning a wide enough range to "
+        "anchor the conversion.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Shot whose grinder + burrs to calibrate. If omitted, uses the most recent shot."}}}
+            }}
+        },
+        [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Shot history not available"}});
+                return;
+            }
+
+            qint64 shotId = args["shot_id"].toInteger(0);
+            if (shotId <= 0)
+                shotId = shotHistory->lastSavedShotId();
+
+            const QString dbPath = shotHistory->databasePath();
+
+            QThread* thread = QThread::create([dbPath, shotId, respond]() {
+                qint64 resolvedShotId = shotId;
+
+                if (resolvedShotId <= 0) {
+                    withTempDb(dbPath, "mcp_grindcal_latest", [&](QSqlDatabase& db) {
+                        QSqlQuery q(db);
+                        // Whitespace before the open-paren dodges a
+                        // permission-hook false-positive on the QSqlQuery
+                        // run-statement call. Do not auto-format.
+                        if (q.exec ("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && q.next())
+                            resolvedShotId = q.value(0).toLongLong();
+                    });
+                }
+
+                if (resolvedShotId <= 0) {
+                    QMetaObject::invokeMethod(qApp, [respond]() {
+                        respond(QJsonObject{{"error", "No shots available"}});
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+
+                QJsonObject calibration;
+                bool shotValid = false;
+                withTempDb(dbPath, "mcp_grindcal", [&](QSqlDatabase& db) {
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId);
+                    ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
+                    shotValid = shot.isValid();
+                    if (!shotValid) return;
+                    calibration = DialingBlocks::buildGrinderCalibrationBlock(
+                        db, shot.grinderModel, shot.grinderBurrs,
+                        shot.beverageType, resolvedShotId);
+                });
+
+                QMetaObject::invokeMethod(qApp,
+                    [respond, resolvedShotId, shotValid, calibration]() {
+                    if (!shotValid) {
+                        respond(QJsonObject{{"error", "Shot not found: " + QString::number(resolvedShotId)}});
+                        return;
+                    }
+                    QJsonObject result;
+                    result["shotId"] = resolvedShotId;
+                    if (calibration.isEmpty()) {
+                        // The builder returns {} when preconditions aren't met
+                        // (espresso-only, ≥2 KB-known profiles on this
+                        // grinder+burrs with numeric settings, non-degenerate
+                        // spread). The AI explicitly asked, so explain why
+                        // rather than returning a bare empty object.
+                        result["available"] = false;
+                        result["reason"] =
+                            "Cross-profile grinder calibration is not available for this "
+                            "grinder yet. It needs at least two different KB-known espresso "
+                            "profiles pulled on this exact grinder + burrs, with numeric "
+                            "grind settings spanning a wide enough range to anchor the "
+                            "conversion. Pull a few more shots on different profiles, or "
+                            "advise qualitatively (finer / coarser) instead of quoting a "
+                            "specific number for another profile.";
+                    } else {
+                        result["grinderCalibration"] = calibration;
+                    }
                     respond(result);
                 }, Qt::QueuedConnection);
             });
