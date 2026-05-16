@@ -1820,6 +1820,44 @@ private slots:
                 .contains(QStringLiteral("flow_trend_ok")));
     }
 
+    // split-dflow-la-pavoni-kb-section: completes the #1160 per-profile
+    // split for the profile #1160 deferred. D-Flow / La Pavoni must
+    // resolve to its own section (84°C / 6–9 bar dial-in), NOT inherit
+    // the base ## D-Flow (default, 0.5, 88°C) section.
+    void dflowLaPavoniVariant_distinctPosition()
+    {
+        const QString kbBase =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / default"),
+                                               QStringLiteral("dflow"));
+        const QString kbLP =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / La Pavoni"),
+                                               QStringLiteral("dflow"));
+        const QString kbQ =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / Q"),
+                                               QStringLiteral("dflow"));
+        QVERIFY(!kbBase.isEmpty());
+        QVERIFY(!kbLP.isEmpty());
+        QVERIFY(!kbQ.isEmpty());
+
+        // La Pavoni resolves to its own canonical name, distinct from base
+        // D-Flow / default (it no longer aliases the base section) and from
+        // the Q variant (it is its own section).
+        QVERIFY(ShotSummarizer::canonicalNameForKbId(kbLP)
+                != ShotSummarizer::canonicalNameForKbId(kbBase));
+        QVERIFY(ShotSummarizer::canonicalNameForKbId(kbLP)
+                != ShotSummarizer::canonicalNameForKbId(kbQ));
+
+        // Strictly coarser than base, and inferred (same lower-pressure +
+        // 84°C-fill mechanism the Q variant documents).
+        QVERIFY(ShotSummarizer::ugsForKbId(kbLP)
+                > ShotSummarizer::ugsForKbId(kbBase));
+        QVERIFY(ShotSummarizer::ugsInferredForKbId(kbLP));
+
+        // Shared lever-decline behavioral suppression preserved.
+        QVERIFY(ShotSummarizer::getAnalysisFlags(kbLP)
+                .contains(QStringLiteral("flow_trend_ok")));
+    }
+
     // -------------------------------------------------------------------
     // correct-dflow-aflow-editor-profile-docs: regression guard for the
     // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
@@ -1902,22 +1940,23 @@ private slots:
             if (ln.startsWith(QStringLiteral("## "))) ++headingCount;
             if (ln.startsWith(QStringLiteral("Also matches:"))) ++alsoMatchesCount;
         }
-        QVERIFY2(headingCount == 42,
+        QVERIFY2(headingCount == 43,
                  qPrintable(QStringLiteral("KB '## ' heading count is %1, "
-                     "expected 42 — these counts are load-bearing for #1160 "
+                     "expected 43 — these counts are load-bearing for #1160 "
                      "profile_kb_id resolution. If a KB section was "
                      "added/removed intentionally, update this expected "
                      "count AND re-verify #1160 grind-equivalence.")
                      .arg(headingCount)));
-        QVERIFY2(alsoMatchesCount == 27,
+        QVERIFY2(alsoMatchesCount == 28,
                  qPrintable(QStringLiteral("KB 'Also matches:' line count is "
-                     "%1, expected 27 — alias lines drive profile_kb_id "
+                     "%1, expected 28 — alias lines drive profile_kb_id "
                      "resolution (decision D1). If changed intentionally, "
                      "update this count AND re-verify #1160 resolution.")
                      .arg(alsoMatchesCount)));
         for (const QString& header : {
                  QStringLiteral("\n## D-Flow\n"),
                  QStringLiteral("\n## D-Flow Q variant\n"),
+                 QStringLiteral("\n## D-Flow La Pavoni variant\n"),
                  QStringLiteral("\n## Damian's LRv2 / LRv3\n"),
                  QStringLiteral("\n## A-Flow\n") }) {
             QVERIFY2(kb.contains(header),
@@ -1925,10 +1964,16 @@ private slots:
                          "changed/missing: ") + header.trimmed()));
         }
         QVERIFY2(kb.contains(QStringLiteral(
-                     "Also matches: \"D-Flow / default\", \"D-Flow / La Pavoni\", "
+                     "Also matches: \"D-Flow / default\", "
                      "\"Damian's D-Flow\", \"Damian's LM Leva\"")),
                  "D-Flow Also-matches alias line changed (breaks #1160 "
                  "profile_kb_id resolution)");
+        // split-dflow-la-pavoni-kb-section: La Pavoni resolves via its own
+        // section's alias line, not the base ## D-Flow section.
+        QVERIFY2(kb.contains(QStringLiteral(
+                     "Also matches: \"D-Flow / La Pavoni\"")),
+                 "D-Flow La Pavoni variant Also-matches alias line "
+                 "changed/missing (breaks La Pavoni profile_kb_id resolution)");
     }
 };
 
