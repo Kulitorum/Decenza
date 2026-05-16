@@ -253,6 +253,8 @@ Page {
                             grindIssueDetected: shotData.grindIssueDetected ?? false
                             skipFirstFrameDetected: shotData.skipFirstFrameDetected ?? false
                             pourTruncatedDetected: shotData.pourTruncatedDetected ?? false
+                            verdictCategory: (shotData && shotData.detectorResults)
+                                ? (shotData.detectorResults.verdictCategory ?? "") : ""
                             onSummaryRequested: detailAnalysisDialog.open()
                         }
 

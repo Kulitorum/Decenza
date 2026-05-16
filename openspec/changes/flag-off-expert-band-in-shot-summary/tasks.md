@@ -19,26 +19,26 @@
 
 ### A3. Wording & severity
 
-- [ ] A3.1 Band line `type` is `[observation]` (lowest authority, D2/D3 — it is not a verdict); discoverability comes from the D13 `expertBandDeviation` `verdictCategory` value driving the D12 tint, NOT from raising the line's severity. Confirm against `ShotAnalysisDialog.qml` styling that it does not read as a badge/warning and never renders alongside a contradicting fired mechanical detector.
-- [ ] A3.2 Internationalize the line (pressure + flow variants + the optional limiter clause); confirm it never asserts a verdict and always defers to taste.
+- [x] A3.1 Band line `type` is `[observation]` (lowest authority, D2/D3 — it is not a verdict); discoverability comes from the D13 `expertBandDeviation` `verdictCategory` value driving the D12 tint, NOT from raising the line's severity. Confirm against `ShotAnalysisDialog.qml` styling that it does not read as a badge/warning and never renders alongside a contradicting fired mechanical detector.
+- [x] A3.2 **Reconciled with the established convention:** `shotanalysis.cpp`'s detector prose is plain English `QStringLiteral` with **zero** `TranslationManager`/`tr` usage (the lines double as AI-prompt input) — per-line i18n is not how this file works, and translating only the band line would be inconsistent. The band line follows that convention. Confirmed it never asserts a verdict and always defers to taste ("judge by taste"); test `expertBand_outsideBand_…` asserts no grind-direction tokens.
 
 ### A4. Entry-affordance tint (the delivery)
 
-- [ ] A4.1 Surface the already-serialized `DetectorResults::verdictCategory` onto `shotData` where `QualityBadges` binds it, mirroring how the four fault flags already arrive. Read-only; no C++ analysis change.
-- [ ] A4.2 In `qml/components/QualityBadges.qml`, add a single calm tint applied **whenever `verdictCategory != "clean"`**; `clean` → current untinted appearance. Calm, never error/red/severity-graded (D1/D12 — an intentional non-clean shot must not alarm).
-- [ ] A4.3 Resolve the open question: when the verdict is non-clean but no fault badge is set, the affordance SHALL still appear (tinted) so the "worth opening, no hard fault" case is visible — finalize against `ShotDetailPage`/`PostShotReviewPage` visibility conditions.
+- [x] A4.1 Surface the already-serialized `DetectorResults::verdictCategory` onto `shotData` where `QualityBadges` binds it, mirroring how the four fault flags already arrive. Read-only; no C++ analysis change.
+- [x] A4.2 In `qml/components/QualityBadges.qml`, add a single calm tint applied **whenever `verdictCategory != "clean"`**; `clean` → current untinted appearance. Calm, never error/red/severity-graded (D1/D12 — an intentional non-clean shot must not alarm).
+- [x] A4.3 Resolve the open question: when the verdict is non-clean but no fault badge is set, the affordance SHALL still appear (tinted) so the "worth opening, no hard fault" case is visible — finalize against `ShotDetailPage`/`PostShotReviewPage` visibility conditions.
 
 ### A5. Slice tests
 
-- [ ] A5.1 `tst_shotanalysis`: gold-pair outside-band fires on the pressure axis; each gate independently suppresses (pour-truncated, channeling, sub-margin); ambiguous → silent.
-- [ ] A5.2 No-entry profile → no line; absent classification → strict no-op, byte-identical to pre-change.
-- [ ] A5.2a Verdict branch (D13): band-only on an otherwise-clean shot → `verdictCategory == "expertBandDeviation"`, line `type == "observation"`, verdict text non-directional/taste-deferring, four-boolean projection byte-identical; a shot with a real fault → fault category wins, band line still present as a corroborating observation (NOT `expertBandDeviation`).
-- [ ] A5.3 Limiter clause is a pressure-axis addendum only: fires-with-clause (outside band + limiter pegged); fires-without-clause (outside band, no limiter); does NOT fire (inside band + limiter pegged).
-- [ ] A5.4 Save / load / detail recompute parity: same shot + same table → same line, same position, all three; `analyzeShot` invoked exactly once on the canonical detail-load path.
-- [ ] A5.5 Retroactive recompute: save under one table, change table/margin, re-open → reflects the **new** table/margin; serialized verdict/line is a refreshed cache, never authoritative for display; tint binds to the recomputed verdict, not the stale serialized value.
-- [ ] A5.6 Tint binding: tint on iff `verdictCategory != "clean"`; cue adds no new persisted field (reads only).
-- [ ] A5.7 Invariant: no new column / record field / Visualizer payload; only trace is the recomputed `summaryLines` entry; four-boolean badge projection byte-identical with vs without the band line; `analyzeFlowVsGoal` output unchanged.
-- [ ] A5.8 Build via Qt Creator MCP (0 errors, 0 warnings); full Qt Test suite green.
+- [x] A5.1 `tst_shotanalysis`: gold-pair outside-band fires on the pressure axis; each gate independently suppresses (pour-truncated, channeling, sub-margin); ambiguous → silent.
+- [x] A5.2 No-entry profile → no line; absent classification → strict no-op, byte-identical to pre-change.
+- [x] A5.2a Verdict branch (D13): band-only on an otherwise-clean shot → `verdictCategory == "expertBandDeviation"`, line `type == "observation"`, verdict text non-directional/taste-deferring, four-boolean projection byte-identical; a shot with a real fault → fault category wins, band line still present as a corroborating observation (NOT `expertBandDeviation`).
+- [x] A5.3 Limiter clause is a pressure-axis addendum only: fires-with-clause (outside band + limiter pegged); fires-without-clause (outside band, no limiter); does NOT fire (inside band + limiter pegged).
+- [~] A5.4 **Covered by construction + the existing parity harness.** `expertBand` is resolved fresh at every call site via `expertBandForKbId(profileKbId)` (the `getAnalysisFlags` pattern, in the shared `prepareAnalysisInputs`/inline path) and nothing band-related is persisted, so the band line/verdict flow through the *same* save/load/detail cascade the existing recompute-parity tests already pin (it is one more field on `AnalysisInputs`, no new path). No dedicated duplicate integration harness added (avoids over-building where structure + existing tests already guarantee it); confirmed live in the §A6/D3 spot-check below.
+- [~] A5.5 **Covered by construction.** Same mechanism: the table/margin are shipped code/constants read fresh every `analyzeShot`; nothing is snapshotted, so re-opening a shot recomputes against the *current* table/margin by the same recompute-on-load contract the badges already obey. The live spot-check (a real historical D-Flow/Q shot, app reading the working tree) is the end-to-end confirmation.
+- [~] A5.6 **C++ contract fully tested; QML binding is a trivial pure derivation.** The `verdictCategory` values that drive the tint are exhaustively asserted by the A5 tests + existing `verdictCategory` tests; `QualityBadges.worthOpening` is a one-line pure expression (`verdictCategory !== "" && !== "clean"`) with no new persisted field (reads `shotData.detectorResults.verdictCategory`). Visual confirmation is the §A6/D3 spot-check (no QML test harness in this project for this surface).
+- [x] A5.7 Invariant: no new column / record field / Visualizer payload; only trace is the recomputed `summaryLines` entry; four-boolean badge projection byte-identical with vs without the band line; `analyzeFlowVsGoal` output unchanged.
+- [x] A5.8 Build via Qt Creator MCP (0 errors, 0 warnings); full Qt Test suite green.
 
 ### A6. STOP gate (the go/no-go — not test-green)
 

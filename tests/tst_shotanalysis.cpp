@@ -1501,6 +1501,200 @@ private slots:
         QVERIFY2(sawCleanVerdict, "structured clean verdict must match prose");
     }
 
+    // ---- Expert-recommended operating band (change: flag-off-expert-band-in-shot-summary) ----
+
+    // Clean espresso shot with a configurable pressure peak; flow tracks
+    // goal (no grind fault), no channeling, on-target weight — isolates the
+    // expert-band check. peakBar sets the ramp/plateau height.
+    static void bandFixture(double peakBar,
+                            QList<HistoryPhaseMarker>& phases,
+                            QVector<QPointF>& pressure, QVector<QPointF>& flow,
+                            QVector<QPointF>& weight, QVector<QPointF>& dCdt,
+                            QVector<QPointF>& pressureGoal,
+                            QVector<QPointF>& flowGoal)
+    {
+        phases = {
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",              1, /*isFlowMode=*/false),
+        };
+        pressure = concat(rampSeries(0.0, 8.0, 1.0, peakBar),
+                          flatSeries(8.1, 30.0, peakBar));
+        flow = flatSeries(0.0, 30.0, 1.8);
+        flowGoal = flatSeries(0.0, 30.0, 1.8);
+        pressureGoal = pressure;
+        dCdt = flatSeries(0.0, 30.0, 0.0);
+        weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+    }
+
+    static ShotAnalysis::ExpertBand goldBand()
+    {
+        return { ShotAnalysis::ExpertBand::Axis::PressurePeak, 6.0, 9.0,
+                 QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") };
+    }
+
+    static const QVariantMap* findKind(const QVariantList& lines,
+                                       const QString& kind, QVariantMap& out)
+    {
+        for (const QVariant& v : lines) {
+            const QVariantMap m = v.toMap();
+            if (m["kind"].toString() == kind) { out = m; return &out; }
+        }
+        return nullptr;
+    }
+
+    // A5.1 + A5.2a: peak below the cited band (by > margin) → one soft
+    // observation line + verdictCategory expertBandDeviation; the line is
+    // taste-deferring, never a grind direction; the verdict text likewise;
+    // A5.3: no limiter clause (deferred). Gates clear (not truncated/
+    // channeling).
+    void expertBand_outsideBand_firesObservation_andDeviationVerdict()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/4.5, phases, pr, fl, wt, dc, pg, fg);
+
+        const auto r = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, goldBand());
+
+        QVariantMap line;
+        QVERIFY2(findKind(r.lines, QStringLiteral("expert_band_deviation"), line),
+                 "expected an expert_band_deviation line for a 4.5 bar peak vs 6-9 band");
+        QCOMPARE(line["type"].toString(), QStringLiteral("observation"));
+        const QString t = line["text"].toString();
+        QVERIFY2(t.contains("outside") && t.contains("judge by taste")
+                     && t.contains("[SRC:profile-notes]"),
+                 qPrintable("line text: " + t));
+        for (const QString& dir : { QStringLiteral("grind"), QStringLiteral("finer"),
+                                    QStringLiteral("coarser"), QStringLiteral("too fine"),
+                                    QStringLiteral("too coarse") })
+            QVERIFY2(!t.contains(dir, Qt::CaseInsensitive),
+                     qPrintable("band line must not state a grind direction: " + t));
+        QVERIFY2(!t.contains("limiter", Qt::CaseInsensitive),
+                 "limiter clause is deferred (A2.4) — line must not carry it");
+
+        QCOMPARE(r.detectors.verdictCategory, QStringLiteral("expertBandDeviation"));
+        QVERIFY(!r.detectors.pourTruncated);
+        bool sawVerdict = false;
+        for (const QVariant& v : r.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["type"].toString() == "verdict") {
+                sawVerdict = true;
+                const QString vt = m["text"].toString();
+                QVERIFY2(vt.contains("judge by taste", Qt::CaseInsensitive),
+                         qPrintable("verdict must defer to taste: " + vt));
+                QVERIFY2(!vt.contains("finer", Qt::CaseInsensitive)
+                             && !vt.contains("coarser", Qt::CaseInsensitive),
+                         qPrintable("verdict must not state a grind direction: " + vt));
+            }
+        }
+        QVERIFY(sawVerdict);
+    }
+
+    // A5.1: peak comfortably inside the band → silent.
+    void expertBand_insideBand_silent()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/8.0, phases, pr, fl, wt, dc, pg, fg);
+        const auto r = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, goldBand());
+        QVariantMap line;
+        QVERIFY2(!findKind(r.lines, QStringLiteral("expert_band_deviation"), line),
+                 "8 bar is inside 6-9 — must not fire");
+        QVERIFY(r.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+    }
+
+    // A5.1 margin gate: 5.85 bar is below lo (6.0) but within the 0.3
+    // margin (threshold 5.7) → silent.
+    void expertBand_subMargin_silent()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/5.85, phases, pr, fl, wt, dc, pg, fg);
+        const auto r = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, goldBand());
+        QVariantMap line;
+        QVERIFY2(!findKind(r.lines, QStringLiteral("expert_band_deviation"), line),
+                 "5.85 bar is within the firing margin of the 6.0 floor — must not fire");
+    }
+
+    // A5.2 + A5.7: absent band → strict no-op. Omitting the param and
+    // passing an absent ExpertBand{} both produce results byte-identical to
+    // each other AND identical four-boolean badge projection / verdict.
+    void expertBand_absent_strictNoOp()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/4.5, phases, pr, fl, wt, dc, pg, fg);
+
+        const auto noParam = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0);
+        const auto absentBand = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, ShotAnalysis::ExpertBand{});
+
+        QVariantMap line;
+        QVERIFY(!findKind(noParam.lines, QStringLiteral("expert_band_deviation"), line));
+        QVERIFY(!findKind(absentBand.lines, QStringLiteral("expert_band_deviation"), line));
+        QCOMPARE(absentBand.lines, noParam.lines);  // byte-identical prose
+        QCOMPARE(absentBand.detectors.verdictCategory,
+                 noParam.detectors.verdictCategory);
+        const auto b0 = decenza::deriveBadgesFromAnalysis(noParam.detectors);
+        const auto b1 = decenza::deriveBadgesFromAnalysis(absentBand.detectors);
+        QCOMPARE(b1.pourTruncatedDetected, b0.pourTruncatedDetected);
+        QCOMPARE(b1.channelingDetected,    b0.channelingDetected);
+        QCOMPARE(b1.grindIssueDetected,    b0.grindIssueDetected);
+        QCOMPARE(b1.skipFirstFrameDetected,b0.skipFirstFrameDetected);
+    }
+
+    // A5.1 gate: a pour-truncated shot (peak < PRESSURE_FLOOR_BAR) with a
+    // present band that the peak is "outside" → the band line is suppressed
+    // and the dominant fault verdict wins.
+    void expertBand_pourTruncatedGate_suppresses()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/1.5, phases, pr, fl, wt, dc, pg, fg);  // < 2.5 floor
+        const auto r = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, goldBand());
+        QVariantMap line;
+        QVERIFY2(!findKind(r.lines, QStringLiteral("expert_band_deviation"), line),
+                 "pour-truncated must hard-gate the band line");
+        QCOMPARE(r.detectors.verdictCategory, QStringLiteral("puckTruncated"));
+    }
+
+    // A5.2a (fault dominance) + A5.7: a real fault (yield overshoot) AND
+    // out-of-band → the band line still appears as a corroborating
+    // observation, but the verdict is the fault's, not expertBandDeviation;
+    // and the four-boolean badge projection is byte-identical with vs
+    // without the band.
+    void expertBand_realFaultDominates_lineStillCorroborates()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/4.5, phases, pr, fl, wt, dc, pg, fg);
+
+        const auto withBand = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, /*targetWeightG=*/36.0, /*finalWeightG=*/50.0, -1, goldBand());
+        const auto noBand = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 50.0);
+
+        QCOMPARE(withBand.detectors.verdictCategory, QStringLiteral("yieldOvershoot"));
+        QVERIFY(withBand.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+        QVariantMap line;
+        QVERIFY2(findKind(withBand.lines, QStringLiteral("expert_band_deviation"), line),
+                 "band line still present as a corroborating observation");
+        QCOMPARE(line["type"].toString(), QStringLiteral("observation"));
+
+        const auto b0 = decenza::deriveBadgesFromAnalysis(noBand.detectors);
+        const auto b1 = decenza::deriveBadgesFromAnalysis(withBand.detectors);
+        QCOMPARE(b1.pourTruncatedDetected, b0.pourTruncatedDetected);
+        QCOMPARE(b1.channelingDetected,    b0.channelingDetected);
+        QCOMPARE(b1.grindIssueDetected,    b0.grindIssueDetected);
+        QCOMPARE(b1.skipFirstFrameDetected,b0.skipFirstFrameDetected);
+    }
+
     // Grind coverage signal — verified clean: a healthy pressurized pour
     // with no choke / no overshoot / on-target flow must set
     // grindVerifiedClean=true, emit `grindCoverage="verified"`, and append
