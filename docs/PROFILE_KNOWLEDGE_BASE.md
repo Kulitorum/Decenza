@@ -187,46 +187,71 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 
 ## Profile Details
 
-### D-Flow
+### D-Flow (profile editor)
 
-- **UGS**: 0.5 (canonical) `[SRC:ugs-chart]` — **base D-Flow only.** Pressure-distinct variants sit elsewhere and must NOT be treated as grind-equivalent: D-Flow/Q (6 bar) ≈ UGS ~1.0 (inferred, coarser); Damian's LRv2/LRv3 ≈ UGS 0 (finer, = Londinium/LRv3). See "Damian's D-Flow Family" and the inferred-positions table. In the shipped KB these are separate sections (`## D-Flow`, `## D-Flow Q variant`, `## Damian's LRv2 / LRv3`).
-- **Category**: Lever/Flow hybrid `[SRC:medium]`
-- **How it works**: Combines pressure and flow control; pressurized pre-infusion followed by flow-controlled pour. Adapts to grind coarseness. Fast fill, pressurized soak at ~3 bar until scale reads target dripping weight (default 4g), then pressure rise with flow limit. `[SRC:medium]` `[SRC:medium-video]`
-- **Key advantage**: Ability to "heal" uneven puck preparation — the long pressurized soak under pressure repairs uneven puck distribution, producing linear extraction even when prep was poor `[SRC:medium]` `[SRC:medium-video]`
-- **Adjustable variables**: Dose weight, pre-infusion temperature, infusion pressure, extraction pressure `[SRC:dflow-blog]`
-- **Default flow rate**: 1.7 ml/s pour `[SRC:medium]` (community typical range: 2.0-2.7 ml/s `[SRC:adaptive-adastra]`)
-- **Default pressure limit**: 8.5 bar maximum during extraction `[SRC:medium-video]`
-- **Adaptive behavior**: Simplifies three profiles into one — if ground too fine, behaves like flat 8.5 bar E61; if dialed in correctly, behaves like Londinium (pressure then flow takeover); if too coarse, behaves like Gentle & Sweet (flow-limited, lower pressure) `[SRC:medium-video]`
-- **Pre-infusion**: Weight-based trigger (default 4g dripping) rather than time-based; requires a scale. Longer soak than Londinium possible because weight-triggered. `[SRC:medium-video]`
-- **Pressure curve**: Pressure rises after dripping target met; if flow exceeds 1.7 ml/s, flow control kicks in and pressure allowed to decline. Linear extraction line on flow chart indicates good extraction. `[SRC:medium-video]`
-- **Stopping strategy**: Stopping at the pressure elbow (where extraction stalls and pressure decline slows) is a winning strategy for flow-profiled shots `[SRC:medium-video]`
-- **Flavor**: With medium roast, concentrated mango, dried fruit, chocolate undertones. Floral/rose notes possible with medium-light beans. Tremendous aftertaste length. `[SRC:medium-video]`
-- **Roast suitability**:
-  - Light: Good — lower infusion pressure to 0 bar and increase dripping time for light roasts `[SRC:medium-video]`
-  - Medium: Excellent — brings out floral/fruity notes (mango) while retaining chocolate undertones `[SRC:medium]` `[SRC:medium-video]`
-  - Dark: Good `[SRC:medium]`
-- **Best for**: Versatile, all roast levels; users who want forgiving puck prep. One of the three profiles most cited by users who "always make good espresso" (alongside Extractamundo Dos and Adaptive). `[SRC:medium]` `[SRC:medium-video]`
-- **D-Flow / La Pavoni variant**: Created by Damian running D-Flow and a real La Pavoni lever machine side by side. Uses an 18g VST basket; the parameters are tuned specifically for milk drinks. Part of the D-Flow family — shares the same pressurized soak → flow-controlled pour approach but mimics the La Pavoni's pressure curve and timing. `[SRC:bc-la-pavoni]`
+> **D-Flow is a Recipe Editor *type* (`dflow`), not a profile.** It is identified by the `D-Flow/` title prefix; the profile is the name *past* the `/`. Each built-in D-Flow profile below has its own parameters and its own dial-in target — they are NOT grind-equivalent and a grinder setting must not be transferred 1:1 between them.
 
-### A-Flow
+- **Editor author**: Damian Brakel (diy.brakel.com.au) `[SRC:profile-notes]` `[SRC:dflow-blog]`
+- **Frame structure the editor generates**: fast fill → pressurized soak at the set infuse pressure, moved on by scale weight (dripping target) → pressure rise → flow-controlled pour with a per-profile pressure limit → lever-style pressure decline. `[SRC:medium]` `[SRC:medium-video]` `[SRC:de1app-dflow]`
+- **Adjustable variables**: dose weight, pre-infusion temperature, infusion pressure, extraction (pour) pressure, pour flow `[SRC:dflow-blog]`
+- **Editor-level structural prior**: pressure peaks then **declines like a lever** during the pour — this declining shape is intentional for every D-Flow-editor profile, not a fault. `[SRC:medium-video]`
+- **Editor-level clamp (suppression, not a fault)**: the pour is flow-driven with a per-profile **pressure limit**; pressure sitting flat at *that profile's own limit* is by-design editor behavior ("doesn't matter if you grind too fine or too coarse, pressure won't go over the max — you still get the same shot"). There is no special "capped variant"; every D-Flow profile is clamped at its own limit. `[SRC:dflow-author-video]` `[SRC:de1app-dflow]`
+- **Key advantage**: the long pressurized soak "heals" uneven puck prep, producing linear extraction even when prep was poor `[SRC:medium]` `[SRC:medium-video]`
+- **Stopping strategy**: stopping at the pressure elbow (where extraction stalls and pressure decline slows) is a winning strategy for these flow-profiled shots `[SRC:medium-video]`
+- **Built-in D-Flow-editor profiles**: `D-Flow / default`, `D-Flow / La Pavoni`, `D-Flow / Q` (below). Damian's spun-out standalone profiles — `Damian's LM Leva / LRv2 / LRv3 / Q` — are *also* built with the D-Flow editor; see **Damian's D-Flow-editor Profiles**.
 
+#### D-Flow / default
+
+- **Profile notes (verbatim)**: *"A simple to use profiling system By Damian Brakel. D-Flow's Default profile is provided as an example profile for you to get started in creating your own."* `[SRC:profile-notes]`
+- **Role**: starter/example profile — it deliberately ships **without** a stated grind/pressure target (it is the template you adapt). Do not attribute the "6–9 bar peak" goal to this profile.
+- **Stock parameters** (de1app `D_Flow/code.tcl`): fill 3.0 bar, fill-exit 1.5 bar, infuse 60 s, pour flow 1.7 mL/s, **pour pressure limit 8.5 bar**, weight 50 g `[SRC:de1app-dflow]`
+- **UGS**: 0.5 (canonical) `[SRC:ugs-chart]`
+- **Roast suitability**: versatile across roasts; for light roasts lower infusion pressure toward 0 bar and lengthen the dripping/soak `[SRC:medium-video]`
+
+#### D-Flow / La Pavoni
+
+- **Profile notes (verbatim)**: *"Damian created this profile to simulate the results from his La Pavoni machine which he profiled side by side with a Slayer V3 for same taste in cup. The goal is to grind for a pressure peak between 6 and 9 bar."* `[SRC:profile-notes]`
+- **Stated dial-in target**: pressure **peak between 6 and 9 bar** → *too coarse* if the peak never reaches ~6 bar, *too fine* if it exceeds ~9 bar (its 9.0 bar editor limit sits at the top of the target band). `[SRC:profile-notes]`
+- **Stock parameters**: fill 1.2 bar, fill-exit 1.2 bar, infuse 60 s, pour flow 2.4 mL/s, **pour pressure limit 9.0 bar**, weight 46 g `[SRC:de1app-dflow]`
+- **Setup**: 18 g VST basket; parameters tuned for milk drinks; mimics the La Pavoni's pressure curve/timing vs a Slayer V3 reference `[SRC:bc-la-pavoni]`
+
+#### D-Flow / Q
+
+- **Profile notes (verbatim)**: *"This is the profile Damian currently uses for every day coffee. Grind 10um coarser than other profiles, more berry flavours from 'Xtraction Blend' than Slayer V3 or La Marzocco KB90, same creaminess. The goal is to grind for a pressure peak between 6 and 9 bar."* `[SRC:profile-notes]`
+- **Stated dial-in target**: pressure **peak between 6 and 9 bar** → *too coarse* if the peak never reaches ~6 bar, *too fine* if it exceeds ~9 bar. The editor pressure limit is **10.0 bar**, *above* the 9 bar target, so a >9 bar peak is a genuine too-fine signal unconfounded by the clamp. `[SRC:profile-notes]` `[SRC:de1app-dflow]`
+- **Stock parameters**: fill 6.0 bar, fill-exit 3.0 bar, infuse 1 s, pour flow 1.8 mL/s, **pour pressure limit 10.0 bar**, weight 36 g `[SRC:de1app-dflow]`
+- **UGS**: ~1.0 (inferred — 6-bar approach, coarser than `D-Flow / default`; do not transfer a default-D-Flow grinder setting 1:1) `[SRC:ugs-chart]`
+- **Note**: also shipped as a spun-out standalone profile **Damian's Q** (medium-light optimized) — see Damian's D-Flow-editor Profiles. `[SRC:profile-notes]`
+
+### A-Flow (profile editor)
+
+> **A-Flow is a Recipe Editor *type* (`aflow`), not a profile.** Identified by the `A-Flow/` title prefix; the profile is the name *past* the `/`. Each built-in profile below has its own roast targeting.
+
+- **Editor author**: Janek (Jan-Erling Johnsen) — source repo <https://github.com/Jan3kJ/A_Flow> `[SRC:aflow-repo]`
+- **What it is**: "a profile editor based on D-Flow; a mix of D-Flow and Adaptive (for medium roasts) plus some adaptations." Pressure intentionally ramps **up** to the pour pressure then (optionally) declines, before switching to flow extraction — vs D-Flow which starts high and declines. Works with all grinder types incl. conical. `[SRC:aflow-repo]` `[SRC:bc-aflow]`
+- **Frame structure (9 frames)**: Pre Fill → Fill (8 mL/s to ~3 bar) → Infuse (pressurized soak ~3 bar, moved on by weight; infuse params unchanged from D-Flow) → optional 2nd Fill → Pause → Pressure Up (ramp to pour pressure) → Pressure Decline (to 1 bar; disabled by `Ramp down` off) → Flow Start → Flow Extraction (flat, or ramped via `Flow up`). `[SRC:aflow-repo]` `[SRC:de1app-dflow]`
+- **Key options** `[SRC:aflow-repo]` `[SRC:bc-aflow]`:
+  - **Pour time** — primary flavor dial: longer → more chocolatey body; shorter → more caramel/bright-fruity.
+  - **Ramp down** — adds the pressure-decline phase before flow extraction (lever-like arc); also raises the pressure-up move-on flow threshold to 2× pour flow.
+  - **Flow up** — ramps extraction flow upward rather than flat (progressive intensity).
+  - **Second fill** — extra fill before the ramp for better puck saturation.
+- **Editor-level dial-in guidance** (from the A-Flow repo) `[SRC:aflow-repo]`:
+  1. Grind fine enough to reach a **pressure peak between 6 and 9 bar** at extraction.
+  2. Infusion step: **20–30 s** for light/medium, **10–20 s** for dark — *a much longer infusion step means the grind is probably too fine* (an editor-level too-fine signal).
+  3. Pour flow by roast: light → higher flow; dark → lower flow.
+  4. Target weight by taste: decrease if too bitter, increase if too sour.
+  5. Toggle `Flow up`; adjust temperature (up for sweetness/intensity, down for cleaner flavors / to avoid burnt notes).
 - **UGS**: 1.5 (canonical) `[SRC:ugs-chart]`
-- **Creator**: Janek (Jan-Erling Johnsen) `[SRC:bc-aflow]`
-- **Category**: Pressure-ramp into flow extraction `[SRC:bc-aflow]`
-- **How it works**: Created as a mix of D-Flow and Adaptive. Fill and optional infuse/soak, then pressure ramps UP to target (~9–10 bar), then switches to flow-controlled extraction with a pressure limiter. The defining difference from D-Flow: pressure intentionally RISES before extraction rather than starting high and declining. Works with all grinder types including conical. `[SRC:bc-aflow]`
-- **Variants**: A-Flow / medium (default starting point), A-Flow / dark (optimized for dark roasts), A-Flow / very dark (ramp-down enabled for darkest beans), A-Flow / like D-Flow (long 60s infuse, resembles D-Flow behavior) `[SRC:bc-aflow]`
-- **Key options** `[SRC:bc-aflow]`:
-  - **Pour time**: Controls flavor character — longer pour time → more chocolatey body; shorter pour time → more caramel and bright/fruity notes. This is the primary flavor-tuning dial.
-  - **Ramp down** (rampDownEnabled): Splits the ramp phase into pressure-rise followed by pressure-decline before switching to flow extraction. Mimics lever-like pressure arc.
-  - **Flow up** (flowExtractionUp): Ramps extraction flow smoothly upward rather than holding flat. Adds progressive intensity.
-  - **Second fill** (secondFillEnabled): Adds an extra water fill before the pressure ramp — useful for better puck saturation.
-- **Grind**: Medium-fine, similar to D-Flow. Compatible with all grinder types. `[SRC:bc-aflow]`
-- **Dial-in**: Start with A-Flow medium. Adjust grind to hit the target pressure curve during extraction. Use Pour time to tune the flavor balance between chocolate and caramel/fruit. `[SRC:bc-aflow]`
-- **Roast suitability**:
-  - Medium: Good (A-Flow medium) `[SRC:bc-aflow]`
-  - Dark: Excellent (A-Flow dark / very dark) `[SRC:bc-aflow]`
-  - All roasts: Compatible `[SRC:bc-aflow]`
-- **Best for**: Users who want a flexible lever-inspired profile that works with any grinder; daily driver with tunable flavor character
+
+#### Built-in A-Flow-editor profiles
+
+All ship with the generic note *"A-Flow: an alternative profile for D-Flow"* `[SRC:profile-notes]`; pick by bean roast and apply the editor-level guidance above. `[SRC:aflow-repo]`
+
+- **A-Flow / default-light** — light roasts; longer infusion (20–30 s), higher pour flow.
+- **A-Flow / default-medium** — recommended starting point for medium roasts. `[SRC:aflow-repo]`
+- **A-Flow / default-dark** — dark roasts; shorter infusion (10–20 s), lower pour flow.
+- **A-Flow / default-very-dark** — darkest beans; `Ramp down` enabled.
+- **A-Flow / default-like-dflow** — long (~60 s) infuse so it behaves like a D-Flow shot. `[SRC:bc-aflow]`
 
 ### Adaptive v2
 
@@ -356,16 +381,18 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
   - Light: Struggles — light roasts don't have the viscosity to survive the pressurized soak; water pours through and produces sour shot `[SRC:medium]` `[SRC:medium-video]`
 - **Best for**: Darker roasts seeking full body and smoothness; quality dark beans where you want maximum extraction `[SRC:dark]` `[SRC:dark-video]`
 
-### Damian's D-Flow Family (LM Leva, LRv2, LRv3, Q)
+### Damian's D-Flow-editor Profiles (LM Leva, LRv2, LRv3, Q)
 
-- **UGS (per variant — these are NOT grind-equivalent)**: LM Leva ≈ 0.5 (≈ base D-Flow, ~8-bar); LRv2 & LRv3 ≈ 0 (canonical Londinium/LRv3 — finer than base D-Flow); Q ≈ ~1.0 (inferred — 6-bar approach, coarser than base D-Flow). Do NOT transfer a grinder setting 1:1 between these variants. `[SRC:ugs-chart]`
+> These are **profiles built with the D-Flow editor** by Damian (diy.brakel.com.au) and spun out as their own standalone built-in profiles — they are *not* "variants of a D-Flow profile" (D-Flow is an editor, see above). Each has its own pressure target so each wants a different grind; do NOT transfer a grinder setting 1:1 between them.
 
-All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants sharing the same pressurized soak core, but their pressure targets differ so the grind each wants differs — in the shipped KB they are split across `## D-Flow` (LM Leva), `## D-Flow Q variant` (Q), and `## Damian's LRv2 / LRv3`. `[SRC:community-index]`
+- **UGS (per profile — NOT grind-equivalent)**: LM Leva ≈ 0.5 (≈ `D-Flow / default`, ~8-bar); LRv2 & LRv3 ≈ 0 (canonical Londinium/LRv3 — finer); Q ≈ ~1.0 (inferred — 6-bar approach, coarser). `[SRC:ugs-chart]`
+- In the shipped KB (`resources/ai/profile_knowledge.md`) these resolve to separate sections so the AI keys guidance per profile. `[SRC:community-index]`
 
 #### Damian's LM Leva
 
+- **Profile notes (verbatim)**: *"Damian wrote this profile to mimic a shot Gabor Laczko recorded on a La Marzocco Leva machine using his Smart Espresso Profiler. He feels that this is a great profile for non milk drinks, it highlights flavours in a smooth balanced way, with a more creamy body than the thicker chocolatey body of the LRv2 profile. By Damian Brakel"* `[SRC:profile-notes]`
 - **Creator**: Damian `[SRC:community-index]`
-- **How it works**: Based on a Smart Espresso Profiler recording of a real La Marzocco Leva machine shot, recreated as a DE1 pressure profile. `[SRC:community-index]`
+- **How it works**: mimics a Gabor-Laczko La Marzocco Leva shot (recorded on a Smart Espresso Profiler), recreated as a DE1 pressure profile via the D-Flow editor. `[SRC:profile-notes]` `[SRC:community-index]`
 - **Temperature**: 88–89°C `[SRC:profile-notes]`
 - **Dose**: 18g → ~42g (1:2.3) `[SRC:profile-notes]`
 - **Flavor**: Creamy body, smooth balance, gentle flavor highlight. Best as a straight shot — flavors can get lost in milk. Comparable to Slayer-style in character. `[SRC:community-index]`
@@ -374,8 +401,9 @@ All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants shar
 
 #### Damian's LRv2
 
+- **Profile notes (verbatim)**: *"This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 2nd edition. By Damian Brakel"* `[SRC:profile-notes]`
 - **Creator**: Damian `[SRC:community-index]`
-- **How it works**: Londinium R simulation with tweaks for coarser grind and faster pour. If the puck erodes too fast, the profile switches from pressure control to flow control at 2.5 ml/s to prevent gushing. `[SRC:community-index]`
+- **How it works**: Londinium R simulation (D-Flow editor) with tweaks for coarser grind and faster pour; added steps assist less-than-ideal puck prep. If the puck erodes too fast, switches from pressure to flow control at ~2.5 ml/s to prevent gushing. `[SRC:profile-notes]` `[SRC:community-index]`
 - **Temperature**: 89°C `[SRC:profile-notes]`
 - **Dose**: 18g → 36g (1:2) `[SRC:profile-notes]`
 - **Stop at weight**: 32g (profile default) `[SRC:community-index]`
@@ -383,20 +411,22 @@ All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants shar
 - **Safety step**: Flow-control fallback prevents gushing when puck erodes quickly; may cause a pressure drop mid-shot. `[SRC:community-index]`
 - **Best for**: Milk-based drinks; dark roasts; users who want lever character with a coarser grind than Londinium `[SRC:community-index]`
 
-#### Damian's LRv3 / Londonium (in-profile variant)
+#### Damian's LRv3
 
+- **Profile notes (verbatim)**: *"This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 3rd edition. By Damian Brakel"* `[SRC:profile-notes]`
 - **Creator**: Damian `[SRC:community-index]`
-- **How it works**: Pure lever decline with a 9 bar hold step added after pressure rise — waits until flow exceeds 1.9 ml/s before starting the decline. More sustained peak pressure phase than LRv2 for richer body. NO flow-control fallback — always pressure-controlled. `[SRC:community-index]` `[SRC:profile-notes]`
+- **How it works**: pure lever decline with a 9 bar hold step after pressure rise — waits until flow exceeds ~1.9 ml/s before declining. More sustained peak phase than LRv2 for richer body. NO flow-control fallback — always pressure-controlled (3rd edition). `[SRC:community-index]` `[SRC:profile-notes]`
+- **Note**: distinct from the standalone built-in `Londinium` profile — this is the D-Flow-editor recreation with different fill/infuse behavior. `[SRC:profile-notes]`
 - **Temperature**: 90°C `[SRC:profile-notes]`
 - **Dose**: 18g → 36g (1:2) `[SRC:profile-notes]`
 - **vs LRv2**: Richer body vs LRv2; preferred when dialed in well (LRv2 is more forgiving of puck variability due to its flow fallback). `[SRC:community-index]`
-- **Note**: The standalone built-in "Londonium" profile is a separate entry — this LRv3 variant shares the naming but is the D-Flow version with different fill/infuse behavior. `[SRC:profile-notes]`
 - **Best for**: Well-dialed puck prep; dark and medium-dark roasts; lever machine fans who want the most LR-accurate behavior `[SRC:community-index]`
 
 #### Damian's Q
 
+- **Profile notes (verbatim)**: *"A very popular profile made with D-Flow, spun out as its own profile. Optimized for medium-light beans. By Damian Brakel"* `[SRC:profile-notes]` (this is the standalone spin-out of `D-Flow / Q`; the same "grind for a pressure peak between 6 and 9 bar" goal applies — see `D-Flow / Q`)
 - **Creator**: Damian `[SRC:profile-notes]`
-- **How it works**: D-Flow variant with a 84°C fill temperature and 6 bar pressure approach, optimized for medium-light beans. The low fill temperature reduces bitterness during puck saturation. `[SRC:profile-notes]`
+- **How it works**: profile built with the D-Flow editor, with an 84°C fill temperature and 6 bar pressure approach, optimized for medium-light beans. The low fill temperature reduces bitterness during puck saturation. `[SRC:profile-notes]`
 - **Temperature**: 84°C fill → 94°C rise target (high setpoint drives hot water gradually into basket; actual extraction temperature ~86–90°C) `[SRC:profile-notes]`
 - **Dose**: 18–19g → ~34g `[SRC:profile-notes]`
 - **Flavor**: Bright and vibrant in milk (contrast with LRv2's thick chocolate). Good for medium-light beans where standard temperatures produce bitterness. `[SRC:profile-notes]`
@@ -1134,3 +1164,6 @@ Broad title and keyword search completed. Zero relevant threads or mentions foun
 | `decent-guide` | Your First Decent Espresso — official Decent dial-in guide for Adaptive v2 and Londinium | https://decentespresso.com/first_decent_espresso |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
 | `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 16 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
+| `aflow-repo` | A-Flow profile editor source repository — Janek (Jan-Erling Johnsen / Jan3kJ): README editor description, frame structure, key options, and the editor-level dial-in guidance | https://github.com/Jan3kJ/A_Flow |
+| `dflow-author-video` | "Damian's D-Flow Profile" — Decent Espresso livestream (Damian, the D-Flow editor author, + John Buckman); de-duplicated transcript at `docs/dflow_damian_profile_transcript.txt` | https://www.youtube.com/watch?v=3Ib63xBNrzw |
+| `de1app-dflow` | de1app `D_Flow/code.tcl` stock D-Flow profile parameters (fill/infuse/pour/pressure-limit/weight per built-in profile); mirrored in `docs/CLAUDE_MD/RECIPE_PROFILES.md` | *(de1app source: `C:\code\de1app` / `~/Development/GitHub/de1app`)* |
