@@ -10,6 +10,7 @@
 #include <limits>
 
 #include "../history/shotprojection.h"
+#include "shotanalysis.h"  // ShotAnalysis::ExpertBand — expertBandForKbId return type (D14)
 
 class ShotDataModel;
 class Profile;
@@ -268,47 +269,32 @@ public:
     };
     static QList<KbUgsEntry> allKbUgsEntries();
 
-    // Expert-recommended operating band (change: flag-off-expert-band-in-
-    // shot-summary). A small static citation-bound table mapping a
-    // profile's *canonical KB-section identity* (canonicalNameForKbId —
-    // the same dedup-by-name precedent as allKbUgsEntries/ugsForKbId, D14)
-    // to the operating band an expert source recommends for that profile,
-    // on the axis the source states. NOT parsed from profile_knowledge.md
-    // (deliberately seam-free — no Expected*: grammar); the table is
-    // shipped code, resolved fresh every call so corrections retroactively
-    // apply (recompute-on-load contract). Keyed by canonical identity so
-    // alias twins that share a KB section (D-Flow / Q ≡ Damian's Q →
-    // "D-Flow Q variant") collapse to one entry while distinctly-sectioned
-    // profiles (D-Flow / La Pavoni → "D-Flow La Pavoni variant", its own
-    // section post-#1175; D-Flow / default → "D-Flow", no entry) stay
-    // distinct, with zero special-case logic.
+    // Resolve the cited expert-recommended operating band for a profile
+    // by its normalized KB key (the value call sites already pass to
+    // getAnalysisFlags/ugsForKbId). Returns `ShotAnalysis::ExpertBand`
+    // (the input type is owned by the lower ShotAnalysis layer so
+    // analyzeShot can consume it without depending on ShotSummarizer; D14).
+    //
+    // A small static citation-bound table maps a profile's *canonical
+    // KB-section identity* (canonicalNameForKbId — the dedup-by-name
+    // precedent as allKbUgsEntries/ugsForKbId) to the band an expert
+    // source recommends, on the axis the source states. NOT parsed from
+    // profile_knowledge.md (deliberately seam-free — no Expected*:
+    // grammar); the table is shipped code, resolved fresh every call so
+    // corrections retroactively apply (recompute-on-load contract).
+    // Canonical keying collapses alias twins that share a KB section
+    // (D-Flow / Q ≡ Damian's Q → "D-Flow Q variant") to one entry while
+    // distinctly-sectioned profiles (D-Flow / La Pavoni → "D-Flow La
+    // Pavoni variant", its own section post-#1175; D-Flow / default →
+    // "D-Flow", no entry) stay distinct, zero special-case logic.
     //
     // Self-classifying rule: a profile gets a band iff a cited source
     // states a recommended pressure-peak OR extraction-flow band for it
     // (grading authoritative in capture-dialin-coaching-guidance design
-    // D9/D10/D10b). No cited band → no entry → absent (the check no-ops).
-    // Absence is intentional and never completed with a fabricated band.
-    struct ExpertBand {
-        enum class Axis { None, PressurePeak, ExtractionFlow };
-        // None == absent (no cited band for this profile → check no-ops).
-        Axis    axis = Axis::None;
-        // Inclusive band on the axis: bar for PressurePeak, ml/s for
-        // ExtractionFlow. lo==hi is a degenerate point band and is allowed
-        // (some sources state a single target, e.g. "reach ~4.5 ml/s" is
-        // modelled as a one-sided floor — see seed comments).
-        double  lo = 0.0;
-        double  hi = 0.0;
-        // Verbatim provenance tag and confidence marker, carried so the
-        // line/teaching can cite the source. e.g. "[SRC:profile-notes]".
-        QString src;
-        QString confidence;
-        bool isPresent() const { return axis != Axis::None; }
-    };
-    // Resolve the cited expert band for a profile by its normalized KB
-    // key (the value call sites already pass to getAnalysisFlags/
-    // ugsForKbId). Empty key or no cited band → an absent ExpertBand
-    // (isPresent()==false). Mirrors ugsForKbId's shape exactly.
-    static ExpertBand expertBandForKbId(const QString& kbId);
+    // D9/D10/D10b). No cited band → absent (check no-ops). Absence is
+    // intentional and never completed with a fabricated band. Empty key
+    // or no cited band → an absent band (isPresent()==false).
+    static ShotAnalysis::ExpertBand expertBandForKbId(const QString& kbId);
 
 private:
     // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting

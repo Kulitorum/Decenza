@@ -10,12 +10,12 @@
 
 ### A2. Detector branch in the one-place cascade
 
-- [ ] A2.1 Add the static lookup + a single comparison branch inside `ShotAnalysis::analyzeShot` (no second pass, no orchestrator). Resolve profile → entry; none → **strict no-op**, result byte-identical to pre-change.
-- [ ] A2.2 Read the observed value from values the cascade already computes — peak pressure (pour-truncated path) for `pressure-peak`, extraction flow (existing `analyzeFlowVsGoal` result) for `extraction-flow`. Do **not** modify `analyzeFlowVsGoal` or any existing detector.
-- [ ] A2.3 Fire one `summaryLines` entry only when the observed value is outside the cited band by the configurable margin AND the hard AND-gate passes (NOT pour-truncated, NOT channeling-fired, bean freshness NOT unknown/very-fresh). Wording: observational, taste-deferring, names observed value + cited band, **no grind direction**.
-- [ ] A2.4 Pressure-axis only: if the shot also pegged the machine pressure limiter, append the corroborating clause. A limiter touch with the peak inside the band MUST NOT fire; the line MUST be able to fire with no limiter present.
-- [ ] A2.5 Recompute-on-load contract: only profile identity is persisted; table/margin/gate resolved fresh every compute; serialized `verdictCategory`/line is a non-authoritative cache the recompute refreshes.
-- [ ] A2.6 Verdict branch (D13): add a dedicated cascade branch setting `verdictCategory = "expertBandDeviation"` when the band line fired, ordered **below** every pour-truncated/skip-first-frame/yield-overshoot/choked-puck/`hasWarning`/`hasCaution` verdict and **above** `cleanGrindNotAnalyzable`/`clean`. Non-directional, taste-deferring verdict-line text. The band line's own `type` stays `observation` (do NOT raise to caution/warning to force the verdict).
+- [x] A2.1 Add the static lookup + a single comparison branch inside `ShotAnalysis::analyzeShot` (no second pass, no orchestrator). Resolve profile → entry; none → **strict no-op**, result byte-identical to pre-change.
+- [x] A2.2 Read the observed value from values the cascade already computes — peak pressure (pour-truncated path) for `pressure-peak`, extraction flow (existing `analyzeFlowVsGoal` result) for `extraction-flow`. Do **not** modify `analyzeFlowVsGoal` or any existing detector.
+- [x] A2.3 Fire one `summaryLines` entry only when the observed value is outside the cited band by the configurable margin AND the hard AND-gate passes (NOT pour-truncated, NOT channeling-fired). Bean freshness is **out of scope** (D8): `analyzeShot` is the deterministic curve cascade and has no freshness input; freshness suppression remains the advisor-prose layer's job, unchanged. Wording: observational, taste-deferring, names observed value + cited band, **no grind direction**.
+- [~] A2.4 **Deferred (optional, spec "MAY"; same root cause as the D8 freshness scoping).** The corroborating limiter clause needs the resolved profile's flow-frame pressure-limit value to detect "pegged the limiter"; `analyzeShot` is the deterministic curve cascade and has **no profile-limiter input** (and a curve-only heuristic for "pegged" would be the kind of fragile guess CLAUDE.md forbids). The spec marks the clause optional ("MAY append"), so omitting it in Phase A is spec-compliant: the band line fires correctly **without** the clause; "a limiter touch with the peak inside the band MUST NOT fire" holds because the line is gated purely on the band, not the limiter. Threading the profile limiter value (a small caller-resolved input, like `analysisFlags`/`expertBand`) is a clean later-phase addition; recorded in D1 as deferred. The line MUST (and does) fire with no limiter present.
+- [x] A2.5 Recompute-on-load contract: only profile identity is persisted; table/margin/gate resolved fresh every compute; serialized `verdictCategory`/line is a non-authoritative cache the recompute refreshes.
+- [x] A2.6 Verdict branch (D13): add a dedicated cascade branch setting `verdictCategory = "expertBandDeviation"` when the band line fired, ordered **below** every pour-truncated/skip-first-frame/yield-overshoot/choked-puck/`hasWarning`/`hasCaution` verdict and **above** `cleanGrindNotAnalyzable`/`clean`. Non-directional, taste-deferring verdict-line text. The band line's own `type` stays `observation` (do NOT raise to caution/warning to force the verdict).
 
 ### A3. Wording & severity
 
@@ -30,7 +30,7 @@
 
 ### A5. Slice tests
 
-- [ ] A5.1 `tst_shotanalysis`: gold-pair outside-band fires on the pressure axis; each gate independently suppresses (pour-truncated, channeling, freshness, sub-margin); ambiguous → silent.
+- [ ] A5.1 `tst_shotanalysis`: gold-pair outside-band fires on the pressure axis; each gate independently suppresses (pour-truncated, channeling, sub-margin); ambiguous → silent.
 - [ ] A5.2 No-entry profile → no line; absent classification → strict no-op, byte-identical to pre-change.
 - [ ] A5.2a Verdict branch (D13): band-only on an otherwise-clean shot → `verdictCategory == "expertBandDeviation"`, line `type == "observation"`, verdict text non-directional/taste-deferring, four-boolean projection byte-identical; a shot with a real fault → fault category wins, band line still present as a corroborating observation (NOT `expertBandDeviation`).
 - [ ] A5.3 Limiter clause is a pressure-axis addendum only: fires-with-clause (outside band + limiter pegged); fires-without-clause (outside band, no limiter); does NOT fire (inside band + limiter pegged).

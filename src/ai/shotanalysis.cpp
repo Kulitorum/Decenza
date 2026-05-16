@@ -700,7 +700,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     double firstFrameConfiguredSeconds,
     double targetWeightG,
     double finalWeightG,
-    int expectedFrameCount)
+    int expectedFrameCount,
+    const ExpertBand& expertBand)
 {
     AnalysisResult result;
     QVariantList& lines = result.lines;
@@ -1031,6 +1032,80 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         lines.append(line);
     }
 
+    // --- Expert-recommended operating band (change: flag-off-expert-band-in-shot-summary) ---
+    // Soft, observational, taste-deferring: the shot's peak pressure /
+    // extraction flow ran outside the band an expert source recommends for
+    // this profile (axis + band cited per profile, resolved by canonical
+    // KB-section identity). Absent band → strict no-op (byte-identical).
+    // Hard-gated against the curve-knowable confounders (pour-truncated,
+    // channeling); bean freshness is out of scope here (D8 — analyzeShot
+    // has no freshness input; that gate stays the advisor-prose layer's
+    // job). Never states a grind direction (band-vs-actual is confounded —
+    // D3/#1155). Touches no badge (D11); a dedicated verdictCategory
+    // (`expertBandDeviation`) is set in the verdict cascade below.
+    bool expertBandFired = false;
+    if (expertBand.isPresent() && !pourTruncated) {
+        const bool channelingFired =
+            d.channelingChecked
+            && d.channelingSeverity != QStringLiteral("none");
+        if (!channelingFired) {
+            double observed = std::numeric_limits<double>::quiet_NaN();
+            QString axisLabel, unit;
+            if (expertBand.axis == ExpertBand::Axis::PressurePeak) {
+                // Peak pressure across the pour window (the pour-truncated
+                // path only populates peakPressureBar when it fires, so
+                // compute it here independently over the same window).
+                double pk = 0.0;
+                for (const auto& pt : pressure) {
+                    if (pt.x() < pourStart) continue;
+                    if (pt.x() > pourEnd) break;
+                    if (pt.y() > pk) pk = pt.y();
+                }
+                observed = pk;
+                axisLabel = QStringLiteral("peak pressure");
+                unit = QStringLiteral("bar");
+            } else if (expertBand.axis == ExpertBand::Axis::ExtractionFlow) {
+                // Peak flow across the pour window. No extraction-flow band
+                // is seeded in Phase A — reachable only once a flow band
+                // ships in a later phase; defined here so the per-axis
+                // contract is complete.
+                double pf = 0.0;
+                for (const auto& fp : flow) {
+                    if (fp.x() < pourStart) continue;
+                    if (fp.x() > pourEnd) break;
+                    if (fp.y() > pf) pf = fp.y();
+                }
+                observed = pf;
+                axisLabel = QStringLiteral("extraction flow");
+                unit = QStringLiteral("ml/s");
+            }
+            const double margin =
+                (expertBand.axis == ExpertBand::Axis::PressurePeak)
+                    ? EXPERT_BAND_PRESSURE_MARGIN_BAR
+                    : EXPERT_BAND_FLOW_MARGIN_MLPS;
+            const bool outside =
+                !std::isnan(observed)
+                && (observed < expertBand.lo - margin
+                    || observed > expertBand.hi + margin);
+            if (outside) {
+                expertBandFired = true;
+                QVariantMap line;
+                line["text"] = QStringLiteral(
+                    "This shot's %1 was %2 %3, outside the %4–%5 band "
+                    "experts recommend for this profile %6 — judge by taste")
+                    .arg(axisLabel)
+                    .arg(observed, 0, 'f', 1)
+                    .arg(unit)
+                    .arg(expertBand.lo, 0, 'f', 1)
+                    .arg(expertBand.hi, 0, 'f', 1)
+                    .arg(expertBand.src);
+                line["type"] = QStringLiteral("observation");
+                line["kind"] = QStringLiteral("expert_band_deviation");
+                lines.append(line);
+            }
+        }
+    }
+
     // --- Verdict ---
     bool hasWarning = false, hasCaution = false;
     for (const auto& lineVar : lines) {
@@ -1119,6 +1194,18 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
             d.verdictCategory = QStringLiteral("minorIssues");
             verdict["text"] = QStringLiteral("Verdict: Decent shot with minor issues to watch.");
         }
+    } else if (expertBandFired) {
+        // D13: an observation-only band finding doesn't move verdictCategory
+        // off "clean" via the hasWarning/hasCaution path (the line type is
+        // deliberately "observation"), so a dedicated category surfaces the
+        // D12 tint without raising the line's authority. Ordered BELOW every
+        // real-fault / hasWarning / hasCaution verdict (a true fault always
+        // dominates; the band line then stays a corroborating summary line)
+        // and ABOVE cleanGrindNotAnalyzable/clean. Non-directional and
+        // taste-deferring — never a grind verdict (D3/#1155).
+        d.verdictCategory = QStringLiteral("expertBandDeviation");
+        verdict["text"] = QStringLiteral("Verdict: Ran outside this "
+            "profile's expert-recommended band — judge by taste.");
     } else if (d.grindCoverage == QStringLiteral("notAnalyzable")) {
         // No warnings, no cautions, but the grind detector silently bailed
         // on this profile shape — the cascade has been claiming "Puck held
@@ -1148,12 +1235,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              double firstFrameConfiguredSeconds,
                                              double targetWeightG,
                                              double finalWeightG,
-                                             int expectedFrameCount)
+                                             int expectedFrameCount,
+                                             const ExpertBand& expertBand)
 {
     return analyzeShot(pressure, flow, weight,
                        conductanceDerivative, phases, beverageType, duration,
                        pressureGoal, flowGoal, analysisFlags,
                        firstFrameConfiguredSeconds, targetWeightG, finalWeightG,
-                       expectedFrameCount)
+                       expectedFrameCount, expertBand)
         .lines;
 }

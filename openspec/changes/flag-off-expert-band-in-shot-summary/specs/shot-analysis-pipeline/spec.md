@@ -24,7 +24,7 @@
 
 ### Requirement: An out-of-band shot SHALL emit one soft, observational, taste-deferring summary line
 
-When the observed value on the entry's axis is outside the cited band by the configured margin AND the hard AND-gate passes, `analyzeShot` SHALL append exactly one `summaryLines` entry of `type` **`observation`** (lowest authority) that names the observed value and the cited band and defers to taste. The line SHALL NOT state or imply a grind direction (band-vs-actual is a confounded signal; a directional verdict here is the #1155 failure). The hard AND-gate SHALL suppress the line when the cascade already fired pour-truncated or channeling, or bean freshness is unknown/very-fresh; anything ambiguous SHALL be silent. This guidance SHALL reach the in-app Shot Summary and (incidentally, identically) the AI advisor via the existing `summaryLines` path; no separate copy is authored and the advisor is not required.
+When the observed value on the entry's axis is outside the cited band by the configured margin AND the hard AND-gate passes, `analyzeShot` SHALL append exactly one `summaryLines` entry of `type` **`observation`** (lowest authority) that names the observed value and the cited band and defers to taste. The line SHALL NOT state or imply a grind direction (band-vs-actual is a confounded signal; a directional verdict here is the #1155 failure). The hard AND-gate SHALL suppress the line when the cascade already fired pour-truncated or channeling; anything ambiguous SHALL be silent. (Bean freshness is out of scope for the deterministic emitter — `analyzeShot` has no freshness input; freshness suppression remains the advisor-prose layer's responsibility, unchanged. D8.) This guidance SHALL reach the in-app Shot Summary and (incidentally, identically) the AI advisor via the existing `summaryLines` path; no separate copy is authored and the advisor is not required.
 
 When the line fires AND no higher-severity verdict applies, `analyzeShot` SHALL set `verdictCategory` to the dedicated value **`expertBandDeviation`** — a value distinct from `clean` and from every fault category. This branch SHALL be ordered in the verdict cascade **below** every pour-truncated / skip-first-frame / yield-overshoot / choked-puck / `hasWarning` / `hasCaution` verdict (a real fault always dominates; the band line then remains only a corroborating summary line) and **above** `cleanGrindNotAnalyzable` and `clean` (a band-only, otherwise-clean shot resolves to `expertBandDeviation`). The accompanying verdict-line text SHALL be non-directional and taste-deferring (e.g. "Ran outside this profile's expert-recommended band — judge by taste"). The band line's own `summaryLines` `type` SHALL remain `observation`; it SHALL NOT be raised to `caution`/`warning` to achieve the verdict change.
 
@@ -44,13 +44,13 @@ When the line fires AND no higher-severity verdict applies, `analyzeShot` SHALL 
 
 #### Scenario: Outside the cited band, gate clear → one taste-deferring line
 
-- **WHEN** the observed value on the cited axis is outside the band by the margin AND pour-truncated/channeling did not fire AND bean freshness is known
+- **WHEN** the observed value on the cited axis is outside the band by the margin AND pour-truncated/channeling did not fire
 - **THEN** exactly one `summaryLines` entry SHALL be appended, naming the observed value and the cited band and deferring to taste
 - **AND** it SHALL NOT assert or imply "grind coarser/finer"
 
 #### Scenario: Gate blocks the line
 
-- **WHEN** the observed value is outside the band BUT the cascade already fired pour-truncated or channeling, or bean freshness is unknown/very-fresh
+- **WHEN** the observed value is outside the band BUT the cascade already fired pour-truncated or channeling
 - **THEN** no expert-band line SHALL be produced
 
 #### Scenario: Inside the band → silent

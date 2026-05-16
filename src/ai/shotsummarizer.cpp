@@ -176,7 +176,7 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
         summary.beverageType, summary.totalDuration,
         pressureGoal, flowGoal, analysisFlags,
         firstFrameSeconds, targetWeightG, summary.finalWeight,
-        frameCount);
+        frameCount, expertBandForKbId(summary.profileKbId));
     summary.summaryLines = analysis.lines;
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
 }
@@ -1715,8 +1715,9 @@ QString ShotSummarizer::canonicalNameForKbId(const QString& kbId)
     return s_profileKnowledge.value(kbId).name;
 }
 
-ShotSummarizer::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
+ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
 {
+    using ExpertBand = ShotAnalysis::ExpertBand;
     using Axis = ExpertBand::Axis;
     // Citation-bound table keyed by *canonical KB-section identity*
     // (pk.name), seeded ONLY where capture-dialin-coaching-guidance design

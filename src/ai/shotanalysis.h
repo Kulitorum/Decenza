@@ -8,6 +8,28 @@
 
 struct HistoryPhaseMarker;
 
+// Expert-recommended operating band for the resolved profile (change:
+// flag-off-expert-band-in-shot-summary). Input contract owned by the
+// ShotAnalysis layer (the lower layer) so analyzeShot can consume it
+// without depending on ShotSummarizer; the citation-bound table +
+// canonical-identity resolver live in ShotSummarizer::expertBandForKbId,
+// which returns this type. Resolved fresh by callers every analyzeShot
+// call (recompute-on-load: nothing band-related is persisted on the
+// shot). Absent (axis==None) → the expert-band check is a strict no-op
+// and the AnalysisResult is byte-identical to pre-change. Defined at
+// file scope (not nested in ShotAnalysis) so a `= {}` default argument
+// on analyzeShot/generateSummary is well-formed; ShotAnalysis exposes a
+// `using ExpertBand = ::ExpertBand;` alias for existing call sites.
+struct ExpertBand {
+    enum class Axis { None, PressurePeak, ExtractionFlow };
+    Axis    axis = Axis::None;   // None == absent
+    double  lo = 0.0;            // inclusive band: bar (PressurePeak) / ml/s (ExtractionFlow)
+    double  hi = 0.0;
+    QString src;                 // verbatim provenance, e.g. "[SRC:profile-notes]"
+    QString confidence;          // e.g. "high"
+    bool isPresent() const { return axis != Axis::None; }
+};
+
 // Shared shot quality analysis helpers.
 // Used by ShotSummarizer (AI prompts), ShotHistoryStorage (save-time flags),
 // and ShotAnalysisDialog.qml (user-facing summary via Q_INVOKABLE).
@@ -199,6 +221,15 @@ public:
     //     limiting pressure, so the trailing flow undershoot is by design.
     static constexpr double GRIND_PUMP_RAMP_SKIP_SEC = 0.5;
     static constexpr double GRIND_LIMITER_TAIL_SKIP_SEC = 1.5;
+
+    // Expert-band firing margin (change: flag-off-expert-band-in-shot-
+    // summary). The observed value must be outside the cited band by at
+    // least this margin before the soft observation fires — biases to
+    // silence on a no-dialogue surface (D8). Named, not inlined, so the
+    // A6 shadow-validation run can tune it to a conservative recorded
+    // value before the line is enabled. Per-axis units: bar / ml/s.
+    static constexpr double EXPERT_BAND_PRESSURE_MARGIN_BAR = 0.3;
+    static constexpr double EXPERT_BAND_FLOW_MARGIN_MLPS = 0.3;
 
     // Flow-goal stationarity gate for Arm 1. Profiles like Extractamundo Dos!
     // use a "dynamic bloom" frame configured as `pump=flow, flow=0`, where the
@@ -518,6 +549,12 @@ public:
     // (see DetectorResults). Sharing one return value guarantees both
     // outputs describe the same evaluation — no chance for them to
     // drift across consumers.
+    // ExpertBand lives at file scope (above) — it must not be a member of
+    // this class, because a `= {}` default argument that aggregate-inits
+    // its NSDMIs cannot appear within the enclosing class definition. This
+    // alias keeps every existing `ShotAnalysis::ExpertBand` reference valid.
+    using ExpertBand = ::ExpertBand;
+
     struct AnalysisResult {
         QVariantList lines;
         DetectorResults detectors;
@@ -542,7 +579,8 @@ public:
                                        double firstFrameConfiguredSeconds = -1.0,
                                        double targetWeightG = 0.0,
                                        double finalWeightG = 0.0,
-                                       int expectedFrameCount = -1);
+                                       int expectedFrameCount = -1,
+                                       const ExpertBand& expertBand = {});
 
     // Backwards-compatible thin wrapper — equivalent to
     // analyzeShot(...).lines. Existing callers (in-app dialog, AI advisor
@@ -560,5 +598,6 @@ public:
                                          double firstFrameConfiguredSeconds = -1.0,
                                          double targetWeightG = 0.0,
                                          double finalWeightG = 0.0,
-                                         int expectedFrameCount = -1);
+                                         int expectedFrameCount = -1,
+                                         const ExpertBand& expertBand = {});
 };

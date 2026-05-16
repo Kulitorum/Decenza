@@ -125,7 +125,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
                 record.pressureGoal, record.flowGoal,
                 inputs.analysisFlags, inputs.firstFrameSeconds,
                 record.targetWeight, record.summary.finalWeight,
-                inputs.frameCount);
+                inputs.frameCount, inputs.expertBand);
             analysisPtr = &analysisOwned;
         }
         const ShotAnalysis::AnalysisResult& analysis = *analysisPtr;

@@ -32,6 +32,7 @@ AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
 {
     AnalysisInputs inputs;
     inputs.analysisFlags = ShotSummarizer::getAnalysisFlags(profileKbId);
+    inputs.expertBand = ShotSummarizer::expertBandForKbId(profileKbId);
     const ProfileFrameInfo frameInfo = profileFrameInfoFromJson(profileJson);
     inputs.firstFrameSeconds = frameInfo.firstFrameSeconds;
     inputs.frameCount = frameInfo.frameCount;

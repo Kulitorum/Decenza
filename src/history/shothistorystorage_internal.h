@@ -8,6 +8,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "../ai/shotanalysis.h"  // ShotAnalysis::ExpertBand
+
 namespace decenza::storage::detail {
 
 // Parsed metadata about the configured frames in a profile JSON blob.
@@ -36,6 +38,7 @@ struct AnalysisInputs {
     QStringList analysisFlags;
     double firstFrameSeconds = -1.0;
     int frameCount = -1;
+    ShotAnalysis::ExpertBand expertBand;  // cited per-profile band (D14); absent → no-op
 };
 
 AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
