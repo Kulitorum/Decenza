@@ -151,7 +151,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, "
                                   "grinder_setting, grinder_model, "
-                                  "espresso_notes, bean_brand, bean_type, yield_override, profile_json "
+                                  "espresso_notes, bean_brand, bean_type, yield_override, profile_json, "
+                                  "stopped_by "
                                   "FROM shots WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
 
@@ -219,6 +220,16 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             shot["notes"] = query.value("espresso_notes").toString();
                             shot["beanBrand"] = query.value("bean_brand").toString();
                             shot["beanType"] = query.value("bean_type").toString();
+                            // #1161: why the shot ended. Sparse-emit the
+                            // meaningful values; omit "profileEnd"/"" (the
+                            // AI falls back to yield-vs-targetWeightG).
+                            {
+                                const QString sb = query.value("stopped_by").toString();
+                                if (sb == QStringLiteral("manual")
+                                    || sb == QStringLiteral("weight")
+                                    || sb == QStringLiteral("volume"))
+                                    shot["stoppedBy"] = sb;
+                            }
                             // Use the saved target weight (from yield_override column) if set,
                             // else fall back to the profile snapshot's target_weight.
                             double targetWeight = query.value("yield_override").toDouble();

@@ -166,7 +166,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 16);
+            QCOMPARE(getSchemaVersion(db), 17);
         });
     }
 
@@ -191,6 +191,7 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
             QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
             QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
+            QVERIFY(hasColumn(db, "shots", "stopped_by"));  // migration 17 (#1161)
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -230,7 +231,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 16);
+            QCOMPARE(getSchemaVersion(db), 17);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -244,6 +245,7 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
             QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
             QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
+            QVERIFY(hasColumn(db, "shots", "stopped_by"));  // migration 17 (#1161)
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -344,7 +346,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 16);
+            QCOMPARE(getSchemaVersion(db), 17);
         });
     }
 
@@ -358,7 +360,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 16);
+            QCOMPARE(getSchemaVersion(db), 17);
         });
     }
 
@@ -378,7 +380,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 16);
+            QCOMPARE(getSchemaVersion(db), 17);
         });
     }
 
@@ -401,7 +403,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 16);
+            QCOMPARE(getSchemaVersion(db), 17);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
@@ -551,7 +553,7 @@ private slots:
     // added the column, migration 16 drops it after resetting any
     // inferred rows to the user's configured default rating. Idempotency
     // check: running ShotHistoryStorage::initialize twice on the same DB
-    // ends at schema_version 16 and the column is GONE on both passes.
+    // ends at the current schema_version and the column is GONE on both passes.
     void v16_columnIsDropped()
     {
         const QString path = freshDbPath();
@@ -578,7 +580,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 16);
+        QCOMPARE(versionFound, 17);
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -680,7 +682,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 16);
+        QCOMPARE(versionFound, 17);
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         QCOMPARE(enjoy1, 50);
         QCOMPARE(enjoy2, 50);

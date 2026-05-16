@@ -36,6 +36,18 @@ QVariantMap ShotProjection::toVariantMap() const
     m["debugLog"] = debugLog;
     m["temperatureOverrideC"] = temperatureOverrideC;
     m["targetWeightG"] = targetWeightG;
+    // #1161: sparse-emit, matching dialing_blocks / mcptools_shots and the
+    // documented MCP contract ("omitted" when the profile ran to
+    // completion / unknown). shots_get_detail serializes through here, so
+    // an unconditional emit would surface "profileEnd"/"" and contradict
+    // the system-prompt rule that absence signals completion. The
+    // profileEnd→"" collapse on a toVariantMap/fromVariantMap round-trip
+    // is harmless: consumers treat both as "not a weight/volume/manual
+    // cutoff" and fall back to yield-vs-target.
+    if (stoppedBy == QStringLiteral("manual")
+        || stoppedBy == QStringLiteral("weight")
+        || stoppedBy == QStringLiteral("volume"))
+        m["stoppedBy"] = stoppedBy;
     m["profileJson"] = profileJson;
     m["profileKbId"] = profileKbId;
 
@@ -105,6 +117,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.debugLog = m.value("debugLog").toString();
     p.temperatureOverrideC = m.value("temperatureOverrideC").toDouble();
     p.targetWeightG = m.value("targetWeightG").toDouble();
+    p.stoppedBy = m.value("stoppedBy").toString();
     p.profileJson = m.value("profileJson").toString();
     p.profileKbId = m.value("profileKbId").toString();
 

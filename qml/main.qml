@@ -1975,6 +1975,15 @@ ApplicationWindow {
     property bool stopOverlayVisible: false
     property bool wasEspressoOperation: false  // Track if the operation that just ended was espresso
 
+    // #1161: forward the resolved stop reason to the controller so the
+    // saved shot records why it ended (manually-stopped shots have
+    // arbitrary yield and must not drive dial-in advice). This single
+    // handler covers every existing stop entry point that sets stopReason.
+    onStopReasonChanged: {
+        if (typeof MainController !== "undefined")
+            MainController.reportShotStopReason(stopReason)
+    }
+
     function getStopReasonText() {
         switch (stopReason) {
             case "manual": return "Stopped manually"

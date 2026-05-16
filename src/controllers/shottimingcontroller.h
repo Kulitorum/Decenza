@@ -65,6 +65,18 @@ public:
     // Transition reason tracking
     bool wasWeightExit(int frameNumber) const { return m_weightExitFrames.contains(frameNumber); }
 
+    // #1161: true iff stop-at-weight (SAW) ended this shot. Backed by
+    // m_stopAtWeightTriggered (set in onSawTriggered, reset ONLY in
+    // startShot) — NOT m_sawTriggeredThisShot, which onSettlingComplete /
+    // the cup-removal path / the settling-cancel branch all clear *before*
+    // emitting shotProcessingReady, so it is already false by the time the
+    // synchronous onShotEnded save reads it. m_stopAtWeightTriggered is
+    // reset at startShot() line ~97, which runs AFTER the settling-cancel
+    // emit (line ~83) that saves the prior shot, so it remains valid for
+    // every onShotEnded save path (normal settle, back-to-back, cup
+    // removal).
+    bool wasSawTriggered() const { return m_stopAtWeightTriggered; }
+
     // Data ingestion
     void onShotSample(const ShotSample& sample, double pressureGoal, double flowGoal,
                       double tempGoal, int frameNumber, bool isFlowMode);

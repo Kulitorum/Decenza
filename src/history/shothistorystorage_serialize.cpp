@@ -72,6 +72,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.debugLog = record.debugLog;
     p.temperatureOverrideC = record.temperatureOverride;
     p.targetWeightG = record.targetWeight;
+    p.stoppedBy = record.stoppedBy;
     p.profileJson = record.profileJson;
     p.profileKbId = record.profileKbId;
 

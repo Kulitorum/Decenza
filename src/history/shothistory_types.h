@@ -93,6 +93,17 @@ struct ShotRecord {
     double temperatureOverride = 0.0;
     double targetWeight = 0.0;
 
+    // Why the shot ended (#1161). One of: "weight" (stop-at-weight / SAW),
+    // "volume" (stop-at-volume / SAV), "manual" (user tapped Stop in the
+    // app), "profileEnd" (profile ran its course OR the DE1's own button —
+    // the BLE protocol does not distinguish these), or "" (unknown:
+    // pre-migration-17 shots, imported shots, fake/dev shots). Persisted in
+    // the `shots.stopped_by` column. A "manual" stop — or any non-"weight"/
+    // non-"volume" stop whose finalWeight fell well short of targetWeight —
+    // means the yield was user-chosen, not an extraction outcome, so it is
+    // not dial-in diagnostic.
+    QString stoppedBy;
+
     // Profile snapshot
     QString profileJson;
 
@@ -193,6 +204,11 @@ struct ShotSaveData {
     double doseWeight = 0;
     double temperatureOverride = 0;
     double targetWeight = 0;
+
+    // Why the shot ended (#1161): "weight" | "volume" | "manual" |
+    // "profileEnd" | "" (unknown). Classified in MainController::onShotEnded
+    // from SAW/SAV state + the user-stop flag. See ShotRecord::stoppedBy.
+    QString stoppedBy;
 
     // Metadata
     QString beanBrand;

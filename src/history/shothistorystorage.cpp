@@ -902,6 +902,31 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 16;
     }
 
+    // Migration 17: stopped_by column (#1161). Records why the shot ended
+    // ("weight"/"volume"/"manual"/"profileEnd"/""). Additive TEXT column,
+    // default '' — pre-migration rows read back as "" (unknown), which the
+    // dial-in consumer treats conservatively. Backward-safe: old code that
+    // never SELECTs the column is unaffected. Whitespace before the
+    // open-paren dodges the QSqlQuery permission-hook false-positive, as
+    // elsewhere in the codebase. Do not auto-format.
+    if (currentVersion < 17) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 17 (stopped_by)";
+
+        // No NOT NULL: callers (incl. the dev/fake-shot path and any shot
+        // whose reason is unknown) bind a null QString, which SQLite stores
+        // as NULL. Reads use value().toString() → "" for NULL, so unknown
+        // collapses to "" everywhere. SQLite does NOT rewrite existing rows
+        // on ADD COLUMN — pre-migration rows keep no stored value and a
+        // SELECT returns the DEFAULT '' for them virtually (so reads are
+        // "" without any physical back-fill).
+        if (!hasColumn("shots", "stopped_by"))
+            query.exec ("ALTER TABLE shots ADD COLUMN stopped_by TEXT DEFAULT ''");
+
+        query.exec ("DELETE FROM schema_version");
+        query.exec ("INSERT INTO schema_version (version) VALUES (17)");
+        currentVersion = 17;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -1013,7 +1038,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                                      const ShotMetadata& metadata,
                                      const QString& debugLog,
                                      double temperatureOverride,
-                                     double targetWeight)
+                                     double targetWeight,
+                                     const QString& stoppedBy)
 {
     if (!m_ready || m_backupInProgress || !shotData) {
         qWarning() << "ShotHistoryStorage: Cannot save shot - not ready, backup in progress, or no data";
@@ -1033,6 +1059,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.doseWeight = doseWeight;
     data.temperatureOverride = temperatureOverride;
     data.targetWeight = targetWeight;
+    data.stoppedBy = stoppedBy;
     data.beanBrand = metadata.beanBrand;
     data.beanType = metadata.beanType;
     data.roastDate = metadata.roastDate;
@@ -1192,7 +1219,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
                     channeling_detected, grind_issue_detected,
-                    skip_first_frame_detected, pour_truncated_detected
+                    skip_first_frame_detected, pour_truncated_detected,
+                    stopped_by
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1202,7 +1230,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
                     :channeling_detected, :grind_issue_detected,
-                    :skip_first_frame_detected, :pour_truncated_detected
+                    :skip_first_frame_detected, :pour_truncated_detected,
+                    :stopped_by
                 )
             )");
 
@@ -1237,6 +1266,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":grind_issue_detected", data.grindIssueDetected ? 1 : 0);
             query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
             query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
+            query.bindValue(":stopped_by", data.stoppedBy);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1673,7 +1703,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type, profile_kb_id,
                channeling_detected, grind_issue_detected,
-               skip_first_frame_detected, pour_truncated_detected
+               skip_first_frame_detected, pour_truncated_detected,
+               stopped_by
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1720,6 +1751,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.grindIssueDetected = query.value(31).toInt() != 0;
     record.skipFirstFrameDetected = query.value(32).toInt() != 0;
     record.pourTruncatedDetected = query.value(33).toInt() != 0;
+    record.stoppedBy = query.value(34).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
