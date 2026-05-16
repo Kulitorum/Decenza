@@ -27,7 +27,7 @@ UGS is a **relative scale**, not a unit of grinder adjustment. Mapping UGS dista
 | -0.5 | Blooming Allongé | Ultra-light Nordic-style filter roasts. |
 | 0 | **Cremina** | Fine anchor. Max puck resistance, high-temp long-contact extraction. |
 | 0 | Londinium / LRv3 | Same fine grind as Cremina for pressurized pre-infusion soak. |
-| 0.5 | D-Flow (base) | Fast fill, pressurized soak, nuanced pressure rise. Base D-Flow only — D-Flow/Q (6 bar) and Damian's LRv2/LRv3 sit at different positions; see the inferred table. |
+| 0.5 | D-Flow / default | Fast fill, pressurized soak, nuanced pressure rise. The D-Flow / default profile only — D-Flow / Q (6 bar) is a different D-Flow-editor profile, and Damian's LRv2/LRv3 are separate standalone lever profiles (same author, not D-Flow-editor output); all sit at different grind positions, see the inferred table. |
 | 0.75 | Best Overall Pressure | Rise to ~8.6 bar, declining to ~6 bar. |
 | 0.75 | Default | Standard espresso starting point. |
 | 1.25 | Adaptive v2 | Slightly coarser to favor flow-driven clarity. |
@@ -48,10 +48,10 @@ These positions are **not** from the UGS calculator. They are reasoned estimates
 
 | UGS (est.) | Profile | Rationale |
 |------------|---------|-----------|
-| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than base D-Flow on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow. |
-| ~1.0 | D-Flow / Q (Damian's Q) | 6-bar approach + 84°C fill. The lower pressure wants a coarser grind than base D-Flow (~0.5 UGS coarser); the low fill temp pulls slightly back finer. Net: noticeably coarser than base D-Flow — do NOT transfer a base-D-Flow grind anchor 1:1. |
-| ~0 | Damian's LRv2, Damian's LRv3 | Pure Londinium-R lever sims — same fine grind as Londinium/LRv3 (UGS 0), finer than base D-Flow. LRv2 trends slightly coarser than LRv3. |
-| ~0.5 | Damian's LM Leva | La Marzocco Leva recreation, ~8-bar peak — same grind window as base D-Flow. |
+| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than D-Flow / default on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow / default. |
+| ~1.0 | D-Flow / Q (Damian's Q) | 6-bar approach + 84°C fill. The lower pressure wants a coarser grind than D-Flow / default (~0.5 UGS coarser); the low fill temp pulls slightly back finer. Net: noticeably coarser than D-Flow / default — do NOT transfer a D-Flow / default grind anchor 1:1. |
+| ~0 | Damian's LRv2, Damian's LRv3 | Pure Londinium-R lever sims — same fine grind as Londinium/LRv3 (UGS 0), finer than D-Flow / default. LRv2 trends slightly coarser than LRv3. |
+| ~0.5 | Damian's LM Leva | La Marzocco Leva recreation, ~8-bar peak — same grind window as D-Flow / default. |
 | ~1.25 | Classic Italian / Gentler 8.4 Bar / Italian Australian | Constant-pressure family, behaves like Flat 9 Bar. |
 | ~5–7 | Hendon Turbo, TurboBloom, Nu Skool, Pour Over Basket | High-flow turbo/filter territory. |
 
@@ -71,35 +71,35 @@ When the user changes the **roast** of their bean while staying on the same prof
 2. **When the user transitions between roasts on the same profile**, state the direction the roast change implies, then ground it in their actual shot history by calling `shots_list` filtered by `profileName`. The user's own past pulls on similar roast levels are a stronger anchor than this ordering.
 3. **Concrete grinder numbers come from shot history, not from this table.** When recommending magnitude, either cite a specific reference shot from `shots_list` ("you pulled this profile at grinder setting 7 on a similar bean") or stay qualitative ("a touch coarser", "noticeably coarser"). Never recommend "X UGS coarser" as a grinder-click instruction.
 
-**Same named family ≠ same grind when the pressure target differs.** Profiles that share a family name are NOT grind-equivalent if their pressure targets differ. Never transfer a grinder setting 1:1 across a pressure-target change. Concretely: base D-Flow peaks ~9 bar (UGS 0.5) but D-Flow/Q uses a 6 bar approach (UGS ~1.0) — switching base D-Flow → D-Flow/Q needs a *coarser* grind even though both are "D-Flow"; Damian's LRv2/LRv3 are *finer* (UGS 0) than base D-Flow. Surface the direction; do not treat the family as one position.
+**Same editor / family name ≠ same grind when the pressure target differs.** Profiles that share an editor type or family name are NOT grind-equivalent if their pressure targets differ. Never transfer a grinder setting 1:1 across a pressure-target change. Concretely: D-Flow / default peaks ~9 bar (UGS 0.5) but D-Flow / Q uses a 6 bar approach (UGS ~1.0) — switching D-Flow / default → D-Flow / Q needs a *coarser* grind even though both are built with the D-Flow editor; Damian's LRv2/LRv3 are *finer* (UGS 0) than D-Flow / default. Surface the direction; do not treat profiles built with the same editor as one grind position.
 
 Source: Universal Grind Setting calculator and chart (Mark Renowden, https://videoblurb.com/UGS/) — see GitHub issue #500. Profiles not in the chart are inferred from the qualitative relationships in the per-profile sections below.
 
 ## D-Flow
-UGS: 0.5
+UGS: 0.5 (this is the shared grind center for the D-Flow-editor profiles this section covers — "D-Flow / default", "D-Flow / La Pavoni"; there is no "D-Flow" profile, D-Flow is the editor. "D-Flow / Q" is split to the "D-Flow Q variant" section at a coarser ~1.0; "Damian's LRv2/LRv3" to their own section at 0)
 Also matches: "D-Flow / default", "D-Flow / La Pavoni", "Damian's D-Flow", "Damian's LM Leva"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 Family: lever-decline
-How it works: Pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks (~8–9 bar) then gradually declines — intentional lever-style behavior. Can heal uneven puck prep. This is the shared core of the whole D-Flow / Damian family; the pressure-target and fill-temperature differences that change the grind a variant wants are split into the separate "D-Flow Q variant" and "Damian's LRv2 / LRv3" sections.
-Variants in this section: "D-Flow / default" is the starter profile. "D-Flow / La Pavoni" emulates a La Pavoni lever — created by Damian running D-Flow and a real La Pavoni side by side; uses 18g VST basket; tuned for milk drinks. "Damian's LM Leva" is a pressure-profile recreation of a real La Marzocco Leva recording.
+How it works: Pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks (~8–9 bar) then gradually declines — intentional lever-style behavior. Can heal uneven puck prep. D-Flow is a Recipe Editor *type*, not a profile. **Only a profile whose title starts with "D-Flow/" was created with the D-Flow editor** (the profile is the name past the "/", e.g. "D-Flow / default", "D-Flow / Q"). This pressurized-soak → flow-pour structure, the lever-style pressure decline, and the per-profile pressure-limit clamp are editor-level behavior shared by every "D-Flow/"-titled profile. "D-Flow / Q" uses a distinct pressure target and fill temperature and is covered in the separate "D-Flow Q variant" section. The other profiles this section also matches by alias — "Damian's LM Leva", "Damian's D-Flow", and (in their own section) "Damian's LRv2"/"Damian's LRv3" — are standalone profiles by the same author (Damian Brakel), each a distinct profile, NOT D-Flow-editor output; they are grouped with D-Flow only for shared lever-decline behavior.
+Profiles in this section: "D-Flow / default" is the starter/example D-Flow-editor profile. "D-Flow / La Pavoni" (D-Flow-editor) emulates a La Pavoni lever — created by Damian running D-Flow / default and a real La Pavoni side by side; uses 18g VST basket; tuned for milk drinks. "Damian's LM Leva" is a standalone profile by Damian (not D-Flow-editor output) — a pressure-profile recreation of a real La Marzocco Leva recording.
 Expected curves: Pressure peaks ~8–9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
 Damian's LM Leva: Created by recording a real La Marzocco Leva machine shot on a Smart Espresso Profiler and reverse-engineering it. Low 2.2 bar pre-infusion then rise to 8 bar then decline. Temperature 88–89°C. Dose 18g → 42g (1:2.3). Flavor: creamy body, smooth balance, highlights flavors in a gentle way — best as a straight shot. Less suited to milk drinks (flavors can get lost). Portafilter must be fully preheated — cold portafilter causes temperature crash and loss of mouthfeel.
-Temperature: D-Flow / default uses an 88°C fill. (D-Flow/Q and Damian's Q use a lower 84°C fill with a 94°C rise setpoint — see the "D-Flow Q variant" section.) DO NOT flag a large gap between a high temperature setpoint and a lower actual basket temperature as a problem — the high setpoint just drives the heater pump; the coffee never reaches it. It is by design.
+Temperature: D-Flow / default uses an 88°C fill. (D-Flow / Q and Damian's Q use a lower 84°C fill with a 94°C rise setpoint — see the "D-Flow Q variant" section.) DO NOT flag a large gap between a high temperature setpoint and a lower actual basket temperature as a problem — the high setpoint just drives the heater pump; the coffee never reaches it. It is by design.
 Flow calibration: If actual flow is consistently below target (e.g. 1.8 target but only 1.5 actual), the flow sensor may be over-reading by ~20%. Reducing the calibration value will show more pressure for the same grind.
 Grind: Medium-fine. Grind determines curve shape: finer grinds produce constant-pressure extraction, coarser grinds produce declining pressure (lever-like). Both are valid.
 Roast: All roasts. Excellent for medium (floral/fruity + chocolate). Good for light and dark.
 DO NOT flag declining pressure as a problem — it is intentional lever-style behavior.
-DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across all D-Flow / Damian variants.
+DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across every "D-Flow/"-titled profile and the same-author standalone lever profiles that share this soak shape (e.g. Damian's LRv2/LRv3).
 
 ## D-Flow Q variant
-UGS: ~1.0 (inferred — 6 bar approach pulls coarser than base D-Flow; 84°C fill pulls slightly back finer; not on the UGS chart)
+UGS: ~1.0 (inferred — 6 bar approach pulls coarser than D-Flow / default; 84°C fill pulls slightly back finer; not on the UGS chart)
 Also matches: "D-Flow / Q", "Damian's Q"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 Family: lever-decline
-How it works: A D-Flow variant with an 84°C fill temperature and a 6 bar pressure approach, optimized for medium-light beans. Shares the D-Flow core (pressurized soak → flow-controlled pour, declining pressure) — see the "D-Flow" section for the shared behavior and the DO NOT flag list, all of which apply here too.
-Why the grind differs from base D-Flow: the lower 6 bar target wants a coarser grind than base D-Flow's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser than base D-Flow — do NOT transfer a base-D-Flow grinder setting 1:1 to this variant.
+How it works: This section covers "D-Flow / Q" (created with the D-Flow editor) and "Damian's Q" (a *related* profile by the same author, Damian Brakel — based on / similar to "D-Flow / Q" but built with the **Advanced** editor, not the D-Flow editor; its title is not "D-Flow/"-prefixed). Both use an 84°C fill temperature and a 6 bar pressure approach, optimized for medium-light beans, and produce the same lever-decline shape (pressurized soak → flow-controlled pour, declining pressure) — see the "D-Flow" section for that shared behavior and the DO NOT flag list, all of which apply here too.
+Why the grind differs from D-Flow / default: the lower 6 bar target wants a coarser grind than D-Flow / default's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser than D-Flow / default — do NOT transfer a D-Flow / default grinder setting 1:1 to this profile.
 Damian's Q: Produces brightness in milk (contrast with LRv2's thick chocolate). Dose 18–19g → 34g. The 84°C fill temperature is INTENTIONAL — low fill temp controls bitterness during saturation.
 Expected curves: Pressure approaches ~6 bar (not ~9). Declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL and INTENTIONAL.
 DO NOT flag the large gap between the 94°C rise setpoint and the ~86–90°C actual basket temperature as a problem — the coffee never reaches 94°C; the high setpoint just drives the heater pump. It is by design.
@@ -110,10 +110,10 @@ Also matches: "Damian's LRv2", "Damian's LRv3"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 Family: lever-decline
-How it works: Pure lever-style Londinium R simulations. Share the D-Flow core (pressurized soak → flow-controlled pour) — see the "D-Flow" section for the shared behavior and the DO NOT flag list, all of which apply here too. Finer grind requirement than base D-Flow: these sit at the same fine grind as Londinium / Cremina (UGS 0), not at base D-Flow's 0.5.
+How it works: Standalone lever-style Londinium R simulations by Damian Brakel. **NOT created with the D-Flow editor** (their titles do not start with "D-Flow/"), and **distinct profiles from each other** (LRv2 ≠ LRv3). They independently produce the same lever-decline shape (pressurized soak → flow-controlled pour, declining pressure) as "D-Flow/"-titled profiles, so the "D-Flow" section's DO NOT-flag list applies to them behaviorally too. Finer grind requirement than D-Flow / default: these sit at the same fine grind as Londinium / Cremina (UGS 0), not at D-Flow / default's 0.5.
 Damian's LRv2: Londinium R simulation with several tweaks for coarser grind and faster pour. If the puck erodes too fast during extraction, switches from pressure to flow control at 2.5 ml/s (prevents gushing). Temperature 89°C. Dose 18g → 36g (1:2). Flavor: "milkshake with extra syrup," rich body, thick, chocolatey — great for milk drinks and dark roasts.
 Damian's LRv3: Pure lever decline with an added 9 bar hold step after pressure rise — waits until flow exceeds 1.9 ml/s before starting the decline. More sustained peak pressure phase gives richer body vs LRv2. Temperature 90°C. Does NOT switch to flow control — preferred when dialed in well. Dose 18g → 36g. (Damian informally calls LRv3 "Londonium"; the standalone Londinium profile has its own section.)
-Temperature: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than standard D-Flow variants due to different fill/soak behavior.
+Temperature: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than D-Flow / default due to different fill/soak behavior.
 Expected curves: Pressure rises then declines (lever decline); LRv3 holds ~9 bar before starting the decline. Flow stays near target. Declining pressure is NORMAL and INTENTIONAL.
 DO NOT flag the flow safety step switching to flow control (LRv2) or the 9-bar hold (LRv3) as problems — both are intentional profile behaviors.
 
@@ -122,16 +122,16 @@ UGS: 1.5
 Creator: Janek (Jan-Erling Johnsen)
 Category: Pressure-ramp into flow extraction
 Family: pressure-ramp-flow
-How it works: Created by Janek as a mix of D-Flow and Adaptive. Fill and optional infuse/soak, then pressure ramps UP to target (typically 9-10 bar), followed by optional pressure decline, then switches to flow-controlled extraction with a pressure limiter. The key difference from D-Flow: pressure intentionally RISES before extraction rather than starting high and declining. Works with all grinder types including conical.
-Variants: "A-Flow / medium" is the default starting point. "A-Flow / dark" optimized for dark roasts. "A-Flow / very dark" uses ramp-down for darkest beans. "A-Flow / like D-Flow" has a long 60s infuse and resembles D-Flow behavior.
+How it works: A-Flow is a Recipe Editor *type*, not a profile. **Only a profile whose title starts with "A-Flow/" was created with the A-Flow editor** (the profile is the name past the "/", e.g. "A-Flow / default-medium"). Created by Janek as a mix of the D-Flow and Adaptive editors. Fill and optional infuse/soak, then pressure ramps UP to target (typically 9-10 bar), followed by optional pressure decline, then switches to flow-controlled extraction with a pressure limiter. The key difference from the D-Flow editor: pressure intentionally RISES before extraction rather than starting high and declining. Works with all grinder types including conical.
+Shipped profiles: "A-Flow / default-medium" is the default starting point. "A-Flow / default-light" targets light roasts. "A-Flow / default-dark" is optimized for dark roasts. "A-Flow / default-very-dark" uses ramp-down for the darkest beans. "A-Flow / default-like-dflow" has a long infuse and resembles D-Flow-editor behavior. These are distinct profiles built with the A-Flow editor, each roast-targeted — not "variants" of one A-Flow profile.
 Expected curves: Pressure ramps up to 9-10 bar during the ramp phase, may decline briefly, then flow takes over for extraction. Flow during extraction is typically ~2 ml/s with pressure capped by the limiter. The pressure ramp-up is INTENTIONAL — this is not overpressure.
 Options: rampDownEnabled splits the ramp time between pressure-up and pressure-decline phases (pressure rises, then declines, then flow takes over). flowExtractionUp ramps extraction flow smoothly upward (vs flat). secondFillEnabled adds an extra water fill before the pressure ramp.
 Flavor dial-in: Pour time controls the flavor character — a longer pour time produces more chocolatey body; a shorter pour time produces more caramel and brighter notes.
-Dial-in: Start with A-Flow medium. Adjust grind to achieve target pressure curve; adjust Pour time to tune flavor character.
+Dial-in: Start with "A-Flow / default-medium". Adjust grind to achieve target pressure curve; adjust Pour time to tune flavor character.
 Grind: Medium-fine, similar to D-Flow. Compatible with all grinder types including conical.
-Roast: All roasts. Variants optimized for medium through very dark.
+Roast: All roasts. Shipped profiles target light through very dark.
 AnalysisFlags: flow_trend_ok
-DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise to 9-10 bar before flow extraction is how this profile works.
+DO NOT flag the pressure ramp-up phase as overpressure — the intentional rise to 9-10 bar before flow extraction is how the A-Flow editor works.
 
 ## Adaptive v2
 UGS: 1.25

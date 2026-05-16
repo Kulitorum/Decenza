@@ -1819,6 +1819,117 @@ private slots:
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbLrv2)
                 .contains(QStringLiteral("flow_trend_ok")));
     }
+
+    // -------------------------------------------------------------------
+    // correct-dflow-aflow-editor-profile-docs: regression guard for the
+    // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
+    // allow-list*, NOT a full referential-integrity check: (a) none of the
+    // four KNOWN stale fictitious A-Flow names, and every real shipped
+    // built-in title present (the asserted title set is the authoritative
+    // list from resources/profiles/*.json — a brand-new fictitious name
+    // would still pass; that gap is accepted for a doc guard); (b) no
+    // reintroduction of the exact profile-implying "base D-Flow / variant /
+    // family" framings this change removed (paraphrases are not caught —
+    // the guard prevents *this* drift back, it does not prove the prose
+    // teaches the right model); (c) the #1160 load-bearing section headers
+    // + D-Flow Also-matches alias line byte-stable, with exact heading /
+    // alias-line counts (drift-check from decision D1 — these counts gate
+    // profile_kb_id resolution; if a legitimate KB section is added, update
+    // the expected count here AND re-verify #1160 resolution).
+    // -------------------------------------------------------------------
+    void shippedKb_editorModelAndRealProfileNames_guard()
+    {
+        QFile f(QStringLiteral(":/ai/profile_knowledge.md"));
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "shipped KB resource :/ai/profile_knowledge.md not found "
+                 "(ai.qrc must be linked)");
+        const QString kb = QString::fromUtf8(f.readAll());
+        f.close();
+        QVERIFY(!kb.isEmpty());
+
+        // (a) Stale, fictitious A-Flow names must be gone. None of these is
+        // a substring of a real built-in title (e.g. "A-Flow / dark" is NOT
+        // a substring of "A-Flow / default-dark"), so plain contains() is
+        // a safe exact check.
+        for (const QString& stale : {
+                 QStringLiteral("A-Flow / medium"),
+                 QStringLiteral("A-Flow / dark"),
+                 QStringLiteral("A-Flow / very dark"),
+                 QStringLiteral("A-Flow / like D-Flow") }) {
+            QVERIFY2(!kb.contains(stale),
+                     qPrintable(QStringLiteral("shipped KB still references "
+                         "stale non-existent A-Flow profile name: ") + stale));
+        }
+
+        // (b) Every real shipped built-in D-Flow/A-Flow title must be
+        // present (the authoritative set from resources/profiles/*.json).
+        for (const QString& real : {
+                 QStringLiteral("D-Flow / default"),
+                 QStringLiteral("D-Flow / La Pavoni"),
+                 QStringLiteral("D-Flow / Q"),
+                 QStringLiteral("A-Flow / default-light"),
+                 QStringLiteral("A-Flow / default-medium"),
+                 QStringLiteral("A-Flow / default-dark"),
+                 QStringLiteral("A-Flow / default-very-dark"),
+                 QStringLiteral("A-Flow / default-like-dflow") }) {
+            QVERIFY2(kb.contains(real),
+                     qPrintable(QStringLiteral("shipped KB is missing real "
+                         "built-in profile title: ") + real));
+        }
+
+        // (c) Profile-implying wrong-model phrasing must not return. These
+        // are the exact framings this change removed; "D-Flow"/"A-Flow"
+        // unqualified mean the editor type, never a profile.
+        for (const QString& bad : {
+                 QStringLiteral("base D-Flow"),
+                 QStringLiteral("D-Flow (base)"),
+                 QStringLiteral("D-Flow / Damian family"),
+                 QStringLiteral("D-Flow variant"),
+                 QStringLiteral("A-Flow variant"),
+                 QStringLiteral("standard D-Flow variant") }) {
+            QVERIFY2(!kb.contains(bad, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("shipped KB reintroduced "
+                         "profile-implying D-Flow/A-Flow framing: ") + bad));
+        }
+
+        // (d) Drift-check (decision D1): the #1160 split mechanics depend on
+        // these exact headers + the D-Flow Also-matches alias line. Counts
+        // and the load-bearing lines must be byte-stable.
+        const QStringList lines = kb.split(QLatin1Char('\n'));
+        int headingCount = 0;
+        int alsoMatchesCount = 0;
+        for (const QString& ln : lines) {
+            if (ln.startsWith(QStringLiteral("## "))) ++headingCount;
+            if (ln.startsWith(QStringLiteral("Also matches:"))) ++alsoMatchesCount;
+        }
+        QVERIFY2(headingCount == 42,
+                 qPrintable(QStringLiteral("KB '## ' heading count is %1, "
+                     "expected 42 — these counts are load-bearing for #1160 "
+                     "profile_kb_id resolution. If a KB section was "
+                     "added/removed intentionally, update this expected "
+                     "count AND re-verify #1160 grind-equivalence.")
+                     .arg(headingCount)));
+        QVERIFY2(alsoMatchesCount == 27,
+                 qPrintable(QStringLiteral("KB 'Also matches:' line count is "
+                     "%1, expected 27 — alias lines drive profile_kb_id "
+                     "resolution (decision D1). If changed intentionally, "
+                     "update this count AND re-verify #1160 resolution.")
+                     .arg(alsoMatchesCount)));
+        for (const QString& header : {
+                 QStringLiteral("\n## D-Flow\n"),
+                 QStringLiteral("\n## D-Flow Q variant\n"),
+                 QStringLiteral("\n## Damian's LRv2 / LRv3\n"),
+                 QStringLiteral("\n## A-Flow\n") }) {
+            QVERIFY2(kb.contains(header),
+                     qPrintable(QStringLiteral("load-bearing KB header "
+                         "changed/missing: ") + header.trimmed()));
+        }
+        QVERIFY2(kb.contains(QStringLiteral(
+                     "Also matches: \"D-Flow / default\", \"D-Flow / La Pavoni\", "
+                     "\"Damian's D-Flow\", \"Damian's LM Leva\"")),
+                 "D-Flow Also-matches alias line changed (breaks #1160 "
+                 "profile_kb_id resolution)");
+    }
 };
 
 QTEST_GUILESS_MAIN(TstDialingBlocks)
