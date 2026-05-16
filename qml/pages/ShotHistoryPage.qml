@@ -29,6 +29,12 @@ Page {
     property int filteredTotalCount: 0
     property bool _waitingForShotLoad: false
 
+    // First activation does a full reset-to-top load. Subsequent activations
+    // (returning from a pushed child page like Shot Detail) re-query the same
+    // window and restore the scroll position instead of jumping to the top.
+    property bool _initialized: false
+    property real _pendingRestoreContentY: -1
+
     // Wait for async loadShotWithMetadata to complete before popping
     Connections {
         target: MainController
@@ -71,21 +77,29 @@ Page {
 
     StackView.onActivated: {
         root.currentPageTitle = TranslationManager.translate("shothistory.title", "Shot History")
-        if (initialFilter) {
-            // Populate search field with filter terms so user can edit/save
-            var parts = []
-            if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
-            if (initialFilter.beanType) parts.push(initialFilter.beanType)
-            if (initialFilter.profileName) parts.push(initialFilter.profileName)
-            if (initialFilter.grinderBrand) parts.push(initialFilter.grinderBrand)
-            if (initialFilter.grinderModel) parts.push(initialFilter.grinderModel)
-            if (initialFilter.grinderSetting) parts.push(initialFilter.grinderSetting)
-            _populatingSearch = true
-            searchField.text = parts.join(" ")
-            searchField.lastTriggeredText = searchField.text.trim()
-            _populatingSearch = false
+        if (!_initialized) {
+            _initialized = true
+            if (initialFilter) {
+                // Populate search field with filter terms so user can edit/save
+                var parts = []
+                if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
+                if (initialFilter.beanType) parts.push(initialFilter.beanType)
+                if (initialFilter.profileName) parts.push(initialFilter.profileName)
+                if (initialFilter.grinderBrand) parts.push(initialFilter.grinderBrand)
+                if (initialFilter.grinderModel) parts.push(initialFilter.grinderModel)
+                if (initialFilter.grinderSetting) parts.push(initialFilter.grinderSetting)
+                _populatingSearch = true
+                searchField.text = parts.join(" ")
+                searchField.lastTriggeredText = searchField.text.trim()
+                _populatingSearch = false
+            }
+            loadShots()
+        } else {
+            // Returning from a pushed child page (Shot Detail, comparison,
+            // post-shot review): re-query the same window so edited ratings or
+            // badges stay fresh, then restore where the user was scrolled.
+            reloadPreservingScroll()
         }
-        loadShots()
     }
 
     function loadShots() {
@@ -96,6 +110,20 @@ Page {
         shotListView.contentY = 0
         var filter = buildFilter()
         MainController.shotHistory.requestShotsFiltered(filter, 0, pageSize)
+    }
+
+    // Refresh the list without losing the user's place. Re-queries every row
+    // that was already loaded (not just the first page) so the model isn't
+    // truncated, then restores contentY once the rows are laid out.
+    function reloadPreservingScroll() {
+        loadMoreTimer.stop()
+        isLoadingMore = false
+        currentOffset = 0
+        hasMoreShots = true
+        _pendingRestoreContentY = shotListView.contentY
+        var windowSize = Math.max(shotListModel.count, pageSize)
+        var filter = buildFilter()
+        MainController.shotHistory.requestShotsFiltered(filter, 0, windowSize)
     }
 
     function loadMoreShots() {
@@ -140,6 +168,16 @@ Page {
                 }
                 currentOffset = results.length
                 hasMoreShots = results.length >= pageSize
+                if (_pendingRestoreContentY >= 0) {
+                    var targetY = _pendingRestoreContentY
+                    _pendingRestoreContentY = -1
+                    // Defer until the ListView has re-laid-out the refreshed
+                    // model so contentHeight is final before we clamp/restore.
+                    Qt.callLater(function() {
+                        var maxY = Math.max(0, shotListView.contentHeight - shotListView.height)
+                        shotListView.contentY = Math.min(targetY, maxY)
+                    })
+                }
             }
             filteredTotalCount = totalCount
         }
