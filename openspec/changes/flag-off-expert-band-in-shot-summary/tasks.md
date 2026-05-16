@@ -4,8 +4,8 @@
 
 ### A1. Citation-graded axis+band table — gold pair only
 
-- [ ] A1.1 Build the static table mechanism: per profile → `axis` ∈ {`pressure-peak`,`extraction-flow`} → band → `[SRC:...]` → confidence, keyed by profile title with the existing `Also matches:` resolution; absent profile → **no entry** (intentional, never a fabricated band/axis).
-- [ ] A1.2 Seed **only the gold pair**, verbatim from `capture-dialin-coaching-guidance` design D9/D10/D10b (authoritative — do NOT re-derive/re-fetch): **D-Flow / Q ≡ Damian's Q** and **D-Flow / La Pavoni** — pressure 6–9 bar, `[SRC:profile-notes]`. The twin (`D-Flow / Q`, `Damian's Q`) resolves to one entry via `Also matches:` with zero duplication. Nothing else seeded in Phase A.
+- [ ] A1.1 Build the static table mechanism: per profile → `axis` ∈ {`pressure-peak`,`extraction-flow`} → band → `[SRC:...]` → confidence, **keyed by canonical KB-section identity** (`ShotSummarizer::canonicalNameForKbId(profileKbId)`, the `ugsForKbId`/`allKbUgsEntries` dedup-by-name precedent — D14); absent/uncited section → **no entry** (intentional, never a fabricated band/axis).
+- [ ] A1.2 Seed **only the gold pair**, verbatim from `capture-dialin-coaching-guidance` design D9/D10/D10b (authoritative — do NOT re-derive/re-fetch): **D-Flow / Q ≡ Damian's Q** and **D-Flow / La Pavoni** — pressure 6–9 bar, `[SRC:profile-notes]`. KB prerequisite **#1175 merged** (La Pavoni split into `## D-Flow La Pavoni variant`), so canonical keying yields exactly: Q & Damian's Q → one entry (`## D-Flow Q variant`, structural zero-duplication); La Pavoni → its own entry (`## D-Flow La Pavoni variant`); D-Flow/default → no entry (`## D-Flow`). Nothing else seeded in Phase A.
 - [ ] A1.3 Document the self-classifying rule next to the table (a profile qualifies iff a cited source states a recommended pressure-peak or extraction-flow band; profile-`notes`-stated bands auto-qualify) so Phase B/C and future levers extend it by adding a cited row, no code change.
 
 ### A2. Detector branch in the one-place cascade

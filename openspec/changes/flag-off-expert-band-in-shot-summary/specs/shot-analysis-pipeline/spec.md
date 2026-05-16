@@ -2,13 +2,14 @@
 
 ### Requirement: A profile-aware expert-band check SHALL run within the single analyzeShot cascade
 
-`ShotAnalysis::analyzeShot` SHALL run, as part of the single cascade (no second pass, no separate orchestrator), a profile-aware check that compares the shot against a citation-bound per-profile expert-recommended operating band. Each band entry SHALL carry an **axis** (`pressure-peak` or `extraction-flow`), a **band**, a `[SRC:...]` provenance tag, and a confidence marker, all taken verbatim from a cited source (the grading in `capture-dialin-coaching-guidance` design D9/D10/D10b is authoritative; no value is invented). Entries SHALL be keyed by profile title using the existing `Also matches:` resolution so aliased twins resolve to one entry. The observed value SHALL be read from values the cascade already computes — peak pressure for `pressure-peak`, extraction flow for `extraction-flow` — and `analyzeFlowVsGoal` (the profile's *commanded*-flow check) SHALL be left unmodified.
+`ShotAnalysis::analyzeShot` SHALL run, as part of the single cascade (no second pass, no separate orchestrator), a profile-aware check that compares the shot against a citation-bound per-profile expert-recommended operating band. Each band entry SHALL carry an **axis** (`pressure-peak` or `extraction-flow`), a **band**, a `[SRC:...]` provenance tag, and a confidence marker, all taken verbatim from a cited source (the grading in `capture-dialin-coaching-guidance` design D9/D10/D10b is authoritative; no value is invented). Entries SHALL be keyed by **canonical KB-section identity** (`ShotSummarizer::canonicalNameForKbId(profileKbId)`, the existing `ugsForKbId`/`allKbUgsEntries` dedup-by-name precedent), so multiple titles that share one KB section resolve to one entry and distinctly-sectioned profiles resolve to distinct entries. The observed value SHALL be read from values the cascade already computes — peak pressure for `pressure-peak`, extraction flow for `extraction-flow` — and `analyzeFlowVsGoal` (the profile's *commanded*-flow check) SHALL be left unmodified.
 
 #### Scenario: A profile with a cited pressure band exposes the check on the pressure axis
 
 - **WHEN** `analyzeShot` resolves a profile whose cited entry is `pressure-peak` 6–9 bar (e.g. D-Flow / Q, `[SRC:profile-notes]`)
 - **THEN** the check SHALL compare the shot's peak pressure to 6–9 bar
-- **AND** the entry SHALL also resolve for that profile's aliased twin (Damian's Q) via `Also matches:` without a duplicate entry
+- **AND** `Damian's Q` (which shares the `## D-Flow Q variant` KB section) SHALL resolve to the same single entry by canonical-section identity, with no duplicate row
+- **AND** `D-Flow / La Pavoni` (its own `## D-Flow La Pavoni variant` section, post-#1175) SHALL resolve to its own distinct entry, and `D-Flow / default` (`## D-Flow`, no cited band) SHALL resolve to no entry
 
 #### Scenario: A profile with a cited flow band exposes the check on the flow axis
 
