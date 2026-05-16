@@ -1846,6 +1846,15 @@ private slots:
                 != ShotSummarizer::canonicalNameForKbId(kbBase));
         QVERIFY(ShotSummarizer::canonicalNameForKbId(kbLP)
                 != ShotSummarizer::canonicalNameForKbId(kbQ));
+        // Pin the positive resolution target absolutely: a future KB edit
+        // that renamed/merged the section but kept it distinct from base
+        // and Q would leave the relative checks above green while still
+        // violating the "resolves to its own section" spec invariant.
+        // Also defeats the bare-"d-flow" fuzzy-fallback confound (the base
+        // section's title-split emits a bare "d-flow" key that would
+        // prefix-match "d-flow / la pavoni" if the direct alias regressed).
+        QCOMPARE(ShotSummarizer::canonicalNameForKbId(kbLP),
+                 QStringLiteral("D-Flow La Pavoni variant"));
 
         // Strictly coarser than base, and inferred (same lower-pressure +
         // 84°C-fill mechanism the Q variant documents).
