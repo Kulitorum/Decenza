@@ -20,7 +20,7 @@ Each entry begins with a `##` heading. The title becomes the primary lookup key 
 ## Filter 2.0
 ```
 
-**Important:** If the title contains ` / ` (space-slash-space), the parser splits it and registers **each part** as a separate key. Use this deliberately for compound names (e.g. `## Traditional / Spring Lever Machine` registers both "traditional" and "spring lever machine"). Avoid it when one part would collide with another section's key — for example, `## D-Flow / default` would register "default" as a key and collide with `## Default`. In those cases, move the disambiguating part to `Also matches:` instead.
+**Important:** If the title contains ` / ` (space-slash-space), the parser splits it and registers **each split part, lowercased verbatim**, as a separate key — a prefix on the left of the slash is NOT redistributed to the right part. Use this deliberately only when every split part is itself a meaningful, collision-free key (e.g. `## Traditional / Spring Lever Machine` registers "traditional" and "spring lever machine"). It is a footgun otherwise: `## Damian's LRv2 / LRv3` registers "damian's lrv2" and the bare token **"lrv3"** (NOT "damian's lrv3"), and `## D-Flow / Q` would register "d-flow" (colliding with the base `## D-Flow` section). In those cases, give the section an explicit `Also matches:` line so resolution is by a real exact key instead of a fuzzy substring fallback: the `## Damian's LRv2 / LRv3` section carries `Also matches: "Damian's LRv2", "Damian's LRv3"`, and the 6-bar variant section is titled `## D-Flow Q variant` (no slash) with `Also matches: "D-Flow / Q", "Damian's Q"`.
 
 ### Also matches:
 
@@ -124,7 +124,7 @@ UGS is a **relative scale**, not a unit of grinder adjustment. Mapping UGS dista
 | -0.5 | Blooming Allongé | Ultra-light Nordic-style filter roasts. |
 | 0 | **Cremina** | Fine anchor. Max puck resistance, high-temp long-contact extraction. |
 | 0 | Londinium / LRv3 | Same fine grind as Cremina for pressurized pre-infusion soak. |
-| 0.5 | D-Flow | Fast fill, pressurized soak, nuanced pressure rise. |
+| 0.5 | D-Flow (base) | Fast fill, pressurized soak, nuanced pressure rise. Base D-Flow only — D-Flow/Q (6 bar) and Damian's LRv2/LRv3 sit at different positions; see the inferred table. |
 | 0.75 | Best Overall Pressure | Rise to ~8.6 bar, declining to ~6 bar. |
 | 0.75 | Default | Standard espresso starting point. |
 | 1.25 | Adaptive v2 | Slightly coarser to favor flow-driven clarity. |
@@ -145,8 +145,10 @@ These positions are **not** from the UGS calculator. They are reasoned estimates
 
 | UGS (est.) | Profile | Rationale |
 |------------|---------|-----------|
-| ~0.25 | **80's Espresso** | Lever-decline mechanic but with an unusual low-temperature regime (82°C declining to 72°C). The low extraction temperature reduces solubility, requiring a finer grind than the temperature-normal lever group to compensate. Observed in user shot history to pull significantly finer than D-Flow on the same bean. `[SRC:dark-video]` characterizes 80's as "slightly coarser than the lever group" — placing it just above Cremina/Londinium at UGS 0 but below D-Flow at UGS 0.5. |
-| ~0–0.5 | Damian's LRv2, LRv3, LM Leva, Q | Londinium / D-Flow adjacent; treat as the same family. |
+| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than base D-Flow on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow. |
+| ~1.0 | D-Flow / Q (Damian's Q) | 6-bar approach + 84°C fill. The lower pressure wants a coarser grind than base D-Flow (~0.5 UGS coarser); the low fill temp pulls slightly back finer. Net: noticeably coarser than base D-Flow — do NOT transfer a base-D-Flow grind anchor 1:1. |
+| ~0 | Damian's LRv2, Damian's LRv3 | Pure Londinium-R lever sims — same fine grind as Londinium/LRv3 (UGS 0), finer than base D-Flow. LRv2 trends slightly coarser than LRv3. |
+| ~0.5 | Damian's LM Leva | La Marzocco Leva recreation, ~8-bar peak — same grind window as base D-Flow. |
 | ~1.25 | Classic Italian / Gentler 8.4 Bar / Italian Australian | Constant-pressure family, behaves like Flat 9 Bar. `[SRC:bc-classic-italian]` |
 | ~5–7 | Hendon Turbo, TurboBloom, Nu Skool, Pour Over Basket | High-flow turbo/filter territory. |
 
@@ -187,7 +189,7 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 
 ### D-Flow
 
-- **UGS**: 0.5 (canonical) `[SRC:ugs-chart]`
+- **UGS**: 0.5 (canonical) `[SRC:ugs-chart]` — **base D-Flow only.** Pressure-distinct variants sit elsewhere and must NOT be treated as grind-equivalent: D-Flow/Q (6 bar) ≈ UGS ~1.0 (inferred, coarser); Damian's LRv2/LRv3 ≈ UGS 0 (finer, = Londinium/LRv3). See "Damian's D-Flow Family" and the inferred-positions table. In the shipped KB these are separate sections (`## D-Flow`, `## D-Flow Q variant`, `## Damian's LRv2 / LRv3`).
 - **Category**: Lever/Flow hybrid `[SRC:medium]`
 - **How it works**: Combines pressure and flow control; pressurized pre-infusion followed by flow-controlled pour. Adapts to grind coarseness. Fast fill, pressurized soak at ~3 bar until scale reads target dripping weight (default 4g), then pressure rise with flow limit. `[SRC:medium]` `[SRC:medium-video]`
 - **Key advantage**: Ability to "heal" uneven puck preparation — the long pressurized soak under pressure repairs uneven puck distribution, producing linear extraction even when prep was poor `[SRC:medium]` `[SRC:medium-video]`
@@ -356,9 +358,9 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 
 ### Damian's D-Flow Family (LM Leva, LRv2, LRv3, Q)
 
-- **UGS**: ~0–0.5 (inferred — Londinium / D-Flow adjacent; LRv3 is at canonical 0)
+- **UGS (per variant — these are NOT grind-equivalent)**: LM Leva ≈ 0.5 (≈ base D-Flow, ~8-bar); LRv2 & LRv3 ≈ 0 (canonical Londinium/LRv3 — finer than base D-Flow); Q ≈ ~1.0 (inferred — 6-bar approach, coarser than base D-Flow). Do NOT transfer a grinder setting 1:1 between these variants. `[SRC:ugs-chart]`
 
-All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants sharing the same pressurized soak core. `[SRC:community-index]`
+All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants sharing the same pressurized soak core, but their pressure targets differ so the grind each wants differs — in the shipped KB they are split across `## D-Flow` (LM Leva), `## D-Flow Q variant` (Q), and `## Damian's LRv2 / LRv3`. `[SRC:community-index]`
 
 #### Damian's LM Leva
 
@@ -464,7 +466,7 @@ All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants shar
 
 ### 80's Espresso
 
-- **UGS**: ~0.25 (inferred — finer than D-Flow due to 82°C→72°C low-temp regime; see Cross-Profile Grind Ordering)
+- **UGS**: ~-0.5 (inferred — extreme 82°C→72°C low-temp regime requires a much finer grind than any temperature-normal lever profile; ~3–4 steps finer than base D-Flow; see Cross-Profile Grind Ordering)
 - **Category**: Lever/Pressure `[SRC:dark]` `[SRC:dark-video]`
 - **How it works**: Lever profile at LOW temperature. No pre-infusion — maximum water flow fills the puck, puck compresses, then flows out with declining pressure. Named "80's" because temperature starts at 80C and declines toward 70C. `[SRC:dark-video]`
 - **Temperature**: 80C declining to ~70C — at least 8C cooler than normal espresso, 15C less than traditional machines (95-96C). The low temperature is the key innovation: dark tar flavors are extracted less at lower temperatures. `[SRC:dark-video]`
