@@ -19,4 +19,4 @@
 
 - [x] 4.1 `openspec validate split-dflow-la-pavoni-kb-section` → valid.
 - [x] 4.2 Built via Qt Creator MCP (0 errors, 0 warnings); full Qt Test suite green — **2076 passed, 0 failed, 0 skipped, 0 warnings**.
-- [ ] 4.3 Live spot-check via `dialing_get_context` on a real `D-Flow / La Pavoni` shot — **not performed this session** (decenza MCP unreachable; no known La Pavoni shots on this machine). Deterministic resolution is fully covered by the §3 regression tests; optional confirmation if a La Pavoni shot is pulled later.
+- [x] 4.3 Live spot-check via `dialing_get_context` on a real `D-Flow / La Pavoni` shot (id 387, 2025-07-23 9:04 AM; 122 such shots exist) **confirmed end-to-end**: `profileKnowledge` now resolves to the new `## D-Flow La Pavoni variant` section (UGS ~1.0 inferred, 84°C fill, verbatim 6–9 bar goal, de1app params) — NOT the old base `## D-Flow` default framing. `profile.recipe` (Filling 1.2 bar/84°C, Pouring FLOW 2.4 ml/s lim:9.0 bar) corroborates the section's cited de1app numbers.
