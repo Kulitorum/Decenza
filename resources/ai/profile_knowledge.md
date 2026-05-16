@@ -76,7 +76,7 @@ When the user changes the **roast** of their bean while staying on the same prof
 Source: Universal Grind Setting calculator and chart (Mark Renowden, https://videoblurb.com/UGS/) — see GitHub issue #500. Profiles not in the chart are inferred from the qualitative relationships in the per-profile sections below.
 
 ## D-Flow
-UGS: 0.5
+UGS: 0.5 (this is the shared grind center for the D-Flow-editor profiles this section covers — "D-Flow / default", "D-Flow / La Pavoni"; there is no "D-Flow" profile, D-Flow is the editor. "D-Flow / Q" is split to the "D-Flow Q variant" section at a coarser ~1.0; "Damian's LRv2/LRv3" to their own section at 0)
 Also matches: "D-Flow / default", "D-Flow / La Pavoni", "Damian's D-Flow", "Damian's LM Leva"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
