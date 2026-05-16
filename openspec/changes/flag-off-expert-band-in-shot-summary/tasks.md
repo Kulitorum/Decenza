@@ -15,10 +15,11 @@
 - [ ] A2.3 Fire one `summaryLines` entry only when the observed value is outside the cited band by the configurable margin AND the hard AND-gate passes (NOT pour-truncated, NOT channeling-fired, bean freshness NOT unknown/very-fresh). Wording: observational, taste-deferring, names observed value + cited band, **no grind direction**.
 - [ ] A2.4 Pressure-axis only: if the shot also pegged the machine pressure limiter, append the corroborating clause. A limiter touch with the peak inside the band MUST NOT fire; the line MUST be able to fire with no limiter present.
 - [ ] A2.5 Recompute-on-load contract: only profile identity is persisted; table/margin/gate resolved fresh every compute; serialized `verdictCategory`/line is a non-authoritative cache the recompute refreshes.
+- [ ] A2.6 Verdict branch (D13): add a dedicated cascade branch setting `verdictCategory = "expertBandDeviation"` when the band line fired, ordered **below** every pour-truncated/skip-first-frame/yield-overshoot/choked-puck/`hasWarning`/`hasCaution` verdict and **above** `cleanGrindNotAnalyzable`/`clean`. Non-directional, taste-deferring verdict-line text. The band line's own `type` stays `observation` (do NOT raise to caution/warning to force the verdict).
 
 ### A3. Wording & severity
 
-- [ ] A3.1 Finalize the `summaryLines` `type` against `ShotAnalysisDialog.qml` styling (lean `[observation]`); confirm it does not read as a badge/warning and never renders alongside a contradicting fired mechanical detector.
+- [ ] A3.1 Band line `type` is `[observation]` (lowest authority, D2/D3 — it is not a verdict); discoverability comes from the D13 `expertBandDeviation` `verdictCategory` value driving the D12 tint, NOT from raising the line's severity. Confirm against `ShotAnalysisDialog.qml` styling that it does not read as a badge/warning and never renders alongside a contradicting fired mechanical detector.
 - [ ] A3.2 Internationalize the line (pressure + flow variants + the optional limiter clause); confirm it never asserts a verdict and always defers to taste.
 
 ### A4. Entry-affordance tint (the delivery)
@@ -31,6 +32,7 @@
 
 - [ ] A5.1 `tst_shotanalysis`: gold-pair outside-band fires on the pressure axis; each gate independently suppresses (pour-truncated, channeling, freshness, sub-margin); ambiguous → silent.
 - [ ] A5.2 No-entry profile → no line; absent classification → strict no-op, byte-identical to pre-change.
+- [ ] A5.2a Verdict branch (D13): band-only on an otherwise-clean shot → `verdictCategory == "expertBandDeviation"`, line `type == "observation"`, verdict text non-directional/taste-deferring, four-boolean projection byte-identical; a shot with a real fault → fault category wins, band line still present as a corroborating observation (NOT `expertBandDeviation`).
 - [ ] A5.3 Limiter clause is a pressure-axis addendum only: fires-with-clause (outside band + limiter pegged); fires-without-clause (outside band, no limiter); does NOT fire (inside band + limiter pegged).
 - [ ] A5.4 Save / load / detail recompute parity: same shot + same table → same line, same position, all three; `analyzeShot` invoked exactly once on the canonical detail-load path.
 - [ ] A5.5 Retroactive recompute: save under one table, change table/margin, re-open → reflects the **new** table/margin; serialized verdict/line is a refreshed cache, never authoritative for display; tint binds to the recomputed verdict, not the stale serialized value.

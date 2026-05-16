@@ -23,7 +23,23 @@
 
 ### Requirement: An out-of-band shot SHALL emit one soft, observational, taste-deferring summary line
 
-When the observed value on the entry's axis is outside the cited band by the configured margin AND the hard AND-gate passes, `analyzeShot` SHALL append exactly one low-authority `summaryLines` entry that names the observed value and the cited band and defers to taste. The line SHALL NOT state or imply a grind direction (band-vs-actual is a confounded signal; a directional verdict here is the #1155 failure). The hard AND-gate SHALL suppress the line when the cascade already fired pour-truncated or channeling, or bean freshness is unknown/very-fresh; anything ambiguous SHALL be silent. This guidance SHALL reach the in-app Shot Summary and (incidentally, identically) the AI advisor via the existing `summaryLines` path; no separate copy is authored and the advisor is not required.
+When the observed value on the entry's axis is outside the cited band by the configured margin AND the hard AND-gate passes, `analyzeShot` SHALL append exactly one `summaryLines` entry of `type` **`observation`** (lowest authority) that names the observed value and the cited band and defers to taste. The line SHALL NOT state or imply a grind direction (band-vs-actual is a confounded signal; a directional verdict here is the #1155 failure). The hard AND-gate SHALL suppress the line when the cascade already fired pour-truncated or channeling, or bean freshness is unknown/very-fresh; anything ambiguous SHALL be silent. This guidance SHALL reach the in-app Shot Summary and (incidentally, identically) the AI advisor via the existing `summaryLines` path; no separate copy is authored and the advisor is not required.
+
+When the line fires AND no higher-severity verdict applies, `analyzeShot` SHALL set `verdictCategory` to the dedicated value **`expertBandDeviation`** — a value distinct from `clean` and from every fault category. This branch SHALL be ordered in the verdict cascade **below** every pour-truncated / skip-first-frame / yield-overshoot / choked-puck / `hasWarning` / `hasCaution` verdict (a real fault always dominates; the band line then remains only a corroborating summary line) and **above** `cleanGrindNotAnalyzable` and `clean` (a band-only, otherwise-clean shot resolves to `expertBandDeviation`). The accompanying verdict-line text SHALL be non-directional and taste-deferring (e.g. "Ran outside this profile's expert-recommended band — judge by taste"). The band line's own `summaryLines` `type` SHALL remain `observation`; it SHALL NOT be raised to `caution`/`warning` to achieve the verdict change.
+
+#### Scenario: Band-only on an otherwise-clean shot → expertBandDeviation, observation line, tint on
+
+- **WHEN** the only finding is an out-of-band value (no pour-truncated/channeling/grind fault, gate clear)
+- **THEN** the appended `summaryLines` entry SHALL have `type` `observation`
+- **AND** `verdictCategory` SHALL be `expertBandDeviation` (not `clean`, not `cleanGrindNotAnalyzable`)
+- **AND** the verdict-line text SHALL be non-directional and taste-deferring
+- **AND** the four-boolean badge projection (`deriveBadgesFromAnalysis`) SHALL be byte-identical to the same shot computed without the band line
+
+#### Scenario: A real fault dominates; the band finding does not change the verdict
+
+- **WHEN** the shot is outside the cited band AND a higher-severity detector fired (pour-truncated, channeling, choked-puck, yield-overshoot, or a `hasWarning`/`hasCaution` verdict)
+- **THEN** `verdictCategory` SHALL be the higher-severity fault's category, NOT `expertBandDeviation`
+- **AND** the band line SHALL still appear as a corroborating `observation` `summaryLines` entry
 
 #### Scenario: Outside the cited band, gate clear → one taste-deferring line
 
@@ -62,7 +78,7 @@ On the `pressure-peak` axis, when an out-of-band shot also pegged the machine's 
 
 ### Requirement: The expert-band signal SHALL NOT influence any badge
 
-The expert-band check SHALL contribute only to `summaryLines`. It SHALL NOT set, clear, or otherwise influence the grind badge or any other badge, and SHALL NOT alter `decenza::deriveBadgesFromAnalysis`. The four-boolean badge projection SHALL remain driven solely by the existing intrinsic detectors. No confidence/quality/trust score SHALL be synthesized, and nothing SHALL be written to the shot record, any database column, or visualizer.coffee.
+The expert-band check SHALL contribute only to `summaryLines` and the `verdictCategory` value `expertBandDeviation`. It SHALL NOT set, clear, or otherwise influence the grind badge or any other badge, and SHALL NOT alter `decenza::deriveBadgesFromAnalysis`. `verdictCategory` is **not** one of the four badge booleans, so introducing the `expertBandDeviation` value SHALL leave the four-boolean badge projection byte-identical; that projection SHALL remain driven solely by the existing intrinsic detectors. No confidence/quality/trust score SHALL be synthesized, and nothing SHALL be written to the shot record, any database column, or visualizer.coffee.
 
 #### Scenario: Four-badge projection is byte-identical with and without the band line
 
