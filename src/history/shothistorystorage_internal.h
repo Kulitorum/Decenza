@@ -20,6 +20,11 @@ namespace decenza::storage::detail {
 struct ProfileFrameInfo {
     int frameCount = -1;
     double firstFrameSeconds = -1.0;
+    // For a *fresh* expert-band kbId re-resolution against the current KB
+    // (the persisted profileKbId can be stale for shots saved before a KB
+    // reorganization — #1160/#1175). Same parse as frameCount.
+    QString profileTitle;
+    QString editorType;
 };
 
 ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson);

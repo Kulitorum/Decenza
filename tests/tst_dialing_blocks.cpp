@@ -1867,6 +1867,55 @@ private slots:
                 .contains(QStringLiteral("flow_trend_ok")));
     }
 
+    // flag-off-expert-band-in-shot-summary: a shot saved before the
+    // #1160/#1175 KB splits can carry a STALE persisted profileKbId
+    // (real case: shot 819 — profileName "D-Flow / Q" but stored
+    // "d-flow / default"). prepareAnalysisInputs must NOT key the band
+    // off that stale value; it re-resolves canonical identity from the
+    // title via computeProfileKbId against the CURRENT KB (D7/D14).
+    // This pins the mechanism the fix depends on: keying off the stale
+    // stored kbId loses the band; the fresh title resolution recovers it.
+    void expertBand_staleKbId_freshTitleResolutionRecoversBand()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+
+        // The stale stored value the buggy path used → no band (this is
+        // exactly why shot 819 wrongly read "Clean shot").
+        const ExpertBand stale =
+            ShotSummarizer::expertBandForKbId(QStringLiteral("d-flow / default"));
+        QVERIFY2(!stale.isPresent(),
+                 "stale 'd-flow / default' kbId resolves to the band-less "
+                 "base section — keying off it loses the band (the bug)");
+
+        // The fix: fresh re-resolution from the real title against the
+        // current KB → the gold band.
+        const QString freshKb = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("D-Flow / Q"), QStringLiteral("dflow"));
+        const ExpertBand fresh = ShotSummarizer::expertBandForKbId(freshKb);
+        QVERIFY2(fresh.isPresent(),
+                 "fresh title resolution must recover the D-Flow/Q band");
+        QCOMPARE(fresh.axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(fresh.lo, 6.0);
+        QCOMPARE(fresh.hi, 9.0);
+
+        // Twin collapses to the same canonical entry.
+        const ExpertBand twin = ShotSummarizer::expertBandForKbId(
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's Q"),
+                                               QStringLiteral("dflow")));
+        QVERIFY(twin.isPresent());
+        QCOMPARE(twin.lo, fresh.lo);
+        QCOMPARE(twin.hi, fresh.hi);
+
+        // Inverse: a genuinely band-less profile stays absent — the fresh
+        // resolution governs in both directions, never fabricates a band.
+        const ExpertBand none = ShotSummarizer::expertBandForKbId(
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / default"),
+                                               QStringLiteral("dflow")));
+        QVERIFY2(!none.isPresent(),
+                 "D-Flow / default has no cited band — absent by fresh "
+                 "resolution too");
+    }
+
     // -------------------------------------------------------------------
     // correct-dflow-aflow-editor-profile-docs: regression guard for the
     // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
