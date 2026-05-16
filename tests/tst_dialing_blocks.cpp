@@ -1821,13 +1821,21 @@ private slots:
     }
 
     // -------------------------------------------------------------------
-    // correct-dflow-aflow-editor-profile-docs: the shipped KB the LLM
-    // ingests must (a) reference only real built-in D-Flow/A-Flow profile
-    // titles — never the stale fictitious A-Flow names; (b) not reintroduce
-    // profile-implying "base D-Flow / variant / family" framing (D-Flow and
-    // A-Flow are editor *types*, the profile is the name past the "/"); and
-    // (c) keep the #1160 load-bearing section headers + Also-matches alias
-    // lines byte-stable (the drift-check from decision D1).
+    // correct-dflow-aflow-editor-profile-docs: regression guard for the
+    // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
+    // allow-list*, NOT a full referential-integrity check: (a) none of the
+    // four KNOWN stale fictitious A-Flow names, and every real shipped
+    // built-in title present (the asserted title set is the authoritative
+    // list from resources/profiles/*.json — a brand-new fictitious name
+    // would still pass; that gap is accepted for a doc guard); (b) no
+    // reintroduction of the exact profile-implying "base D-Flow / variant /
+    // family" framings this change removed (paraphrases are not caught —
+    // the guard prevents *this* drift back, it does not prove the prose
+    // teaches the right model); (c) the #1160 load-bearing section headers
+    // + D-Flow Also-matches alias line byte-stable, with exact heading /
+    // alias-line counts (drift-check from decision D1 — these counts gate
+    // profile_kb_id resolution; if a legitimate KB section is added, update
+    // the expected count here AND re-verify #1160 resolution).
     // -------------------------------------------------------------------
     void shippedKb_editorModelAndRealProfileNames_guard()
     {
@@ -1894,8 +1902,19 @@ private slots:
             if (ln.startsWith(QStringLiteral("## "))) ++headingCount;
             if (ln.startsWith(QStringLiteral("Also matches:"))) ++alsoMatchesCount;
         }
-        QCOMPARE(headingCount, 42);
-        QCOMPARE(alsoMatchesCount, 27);
+        QVERIFY2(headingCount == 42,
+                 qPrintable(QStringLiteral("KB '## ' heading count is %1, "
+                     "expected 42 — these counts are load-bearing for #1160 "
+                     "profile_kb_id resolution. If a KB section was "
+                     "added/removed intentionally, update this expected "
+                     "count AND re-verify #1160 grind-equivalence.")
+                     .arg(headingCount)));
+        QVERIFY2(alsoMatchesCount == 27,
+                 qPrintable(QStringLiteral("KB 'Also matches:' line count is "
+                     "%1, expected 27 — alias lines drive profile_kb_id "
+                     "resolution (decision D1). If changed intentionally, "
+                     "update this count AND re-verify #1160 resolution.")
+                     .arg(alsoMatchesCount)));
         for (const QString& header : {
                  QStringLiteral("\n## D-Flow\n"),
                  QStringLiteral("\n## D-Flow Q variant\n"),

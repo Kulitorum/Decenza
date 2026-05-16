@@ -221,7 +221,7 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 - **Stated dial-in target**: pressure **peak between 6 and 9 bar** → *too coarse* if the peak never reaches ~6 bar, *too fine* if it exceeds ~9 bar. The editor pressure limit is **10.0 bar**, *above* the 9 bar target, so a >9 bar peak is a genuine too-fine signal unconfounded by the clamp. `[SRC:profile-notes]` `[SRC:de1app-dflow]`
 - **Stock parameters**: fill 6.0 bar, fill-exit 3.0 bar, infuse 1 s, pour flow 1.8 mL/s, **pour pressure limit 10.0 bar**, weight 36 g `[SRC:de1app-dflow]`
 - **UGS**: ~1.0 (inferred — 6-bar approach, coarser than `D-Flow / default`; do not transfer a default-D-Flow grinder setting 1:1) `[SRC:ugs-chart]`
-- **Note**: also shipped as a spun-out standalone profile **Damian's Q** (medium-light optimized) — see Damian's Standalone Profiles. `[SRC:profile-notes]`
+- **Note**: a *related* standalone profile **Damian's Q** (medium-light optimized; built with the Advanced editor, based on this profile — not D-Flow-editor output) is also shipped — see Damian's Standalone Profiles. `[SRC:profile-notes]`
 
 ### A-Flow (profile editor)
 
