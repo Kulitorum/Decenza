@@ -1715,6 +1715,38 @@ QString ShotSummarizer::canonicalNameForKbId(const QString& kbId)
     return s_profileKnowledge.value(kbId).name;
 }
 
+ShotSummarizer::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
+{
+    using Axis = ExpertBand::Axis;
+    // Citation-bound table keyed by *canonical KB-section identity*
+    // (pk.name), seeded ONLY where capture-dialin-coaching-guidance design
+    // D9/D10/D10b grades a cited band. Phase A (change: flag-off-expert-
+    // band-in-shot-summary) seeds only the gold pair; Phases B/C add rows.
+    // A canonical name with no row → absent (the check no-ops). Never
+    // fabricate a row to "complete" a profile — absence is intentional.
+    static const QHash<QString, ExpertBand> kBands = {
+        // D-Flow / Q ≡ Damian's Q both alias `## D-Flow Q variant`, so
+        // both resolve to this one canonical entry (structural zero-dup).
+        // Profile-notes verbatim: "grind for a pressure peak between 6 and
+        // 9 bar". Editor pressure limit 10.0 > 9 → both sides unconfounded.
+        { QStringLiteral("D-Flow Q variant"),
+          { Axis::PressurePeak, 6.0, 9.0,
+            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") } },
+        // D-Flow / La Pavoni — its own `## D-Flow La Pavoni variant`
+        // section (split out by #1175). Same profile-notes verbatim 6–9
+        // bar goal. (Editor limit 9.0 == band ceiling is the firmware
+        // limiter, only ever a corroborating clause — D1 — never the band.)
+        { QStringLiteral("D-Flow La Pavoni variant"),
+          { Axis::PressurePeak, 6.0, 9.0,
+            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") } },
+    };
+    if (kbId.isEmpty()) return {};
+    loadProfileKnowledge();
+    const QString canonical = s_profileKnowledge.value(kbId).name;
+    if (canonical.isEmpty()) return {};
+    return kBands.value(canonical);  // default-constructed (absent) when uncited
+}
+
 QList<ShotSummarizer::KbUgsEntry> ShotSummarizer::allKbUgsEntries()
 {
     loadProfileKnowledge();
