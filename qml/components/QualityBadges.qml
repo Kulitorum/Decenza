@@ -254,14 +254,16 @@ Item {
                     layer.smooth: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: Theme.textSecondaryColor
+                        colorizationColor: root.worthOpening
+                            ? Theme.primaryColor : Theme.textSecondaryColor
                     }
                 }
                 Text {
                     id: summaryLabel
                     text: TranslationManager.translate("badges.shotSummary", "Shot Summary")
                     font: Theme.captionFont
-                    color: Theme.textSecondaryColor
+                    color: root.worthOpening
+                        ? Theme.primaryColor : Theme.textSecondaryColor
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }
