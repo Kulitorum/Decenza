@@ -1819,6 +1819,98 @@ private slots:
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbLrv2)
                 .contains(QStringLiteral("flow_trend_ok")));
     }
+
+    // -------------------------------------------------------------------
+    // correct-dflow-aflow-editor-profile-docs: the shipped KB the LLM
+    // ingests must (a) reference only real built-in D-Flow/A-Flow profile
+    // titles — never the stale fictitious A-Flow names; (b) not reintroduce
+    // profile-implying "base D-Flow / variant / family" framing (D-Flow and
+    // A-Flow are editor *types*, the profile is the name past the "/"); and
+    // (c) keep the #1160 load-bearing section headers + Also-matches alias
+    // lines byte-stable (the drift-check from decision D1).
+    // -------------------------------------------------------------------
+    void shippedKb_editorModelAndRealProfileNames_guard()
+    {
+        QFile f(QStringLiteral(":/ai/profile_knowledge.md"));
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "shipped KB resource :/ai/profile_knowledge.md not found "
+                 "(ai.qrc must be linked)");
+        const QString kb = QString::fromUtf8(f.readAll());
+        f.close();
+        QVERIFY(!kb.isEmpty());
+
+        // (a) Stale, fictitious A-Flow names must be gone. None of these is
+        // a substring of a real built-in title (e.g. "A-Flow / dark" is NOT
+        // a substring of "A-Flow / default-dark"), so plain contains() is
+        // a safe exact check.
+        for (const QString& stale : {
+                 QStringLiteral("A-Flow / medium"),
+                 QStringLiteral("A-Flow / dark"),
+                 QStringLiteral("A-Flow / very dark"),
+                 QStringLiteral("A-Flow / like D-Flow") }) {
+            QVERIFY2(!kb.contains(stale),
+                     qPrintable(QStringLiteral("shipped KB still references "
+                         "stale non-existent A-Flow profile name: ") + stale));
+        }
+
+        // (b) Every real shipped built-in D-Flow/A-Flow title must be
+        // present (the authoritative set from resources/profiles/*.json).
+        for (const QString& real : {
+                 QStringLiteral("D-Flow / default"),
+                 QStringLiteral("D-Flow / La Pavoni"),
+                 QStringLiteral("D-Flow / Q"),
+                 QStringLiteral("A-Flow / default-light"),
+                 QStringLiteral("A-Flow / default-medium"),
+                 QStringLiteral("A-Flow / default-dark"),
+                 QStringLiteral("A-Flow / default-very-dark"),
+                 QStringLiteral("A-Flow / default-like-dflow") }) {
+            QVERIFY2(kb.contains(real),
+                     qPrintable(QStringLiteral("shipped KB is missing real "
+                         "built-in profile title: ") + real));
+        }
+
+        // (c) Profile-implying wrong-model phrasing must not return. These
+        // are the exact framings this change removed; "D-Flow"/"A-Flow"
+        // unqualified mean the editor type, never a profile.
+        for (const QString& bad : {
+                 QStringLiteral("base D-Flow"),
+                 QStringLiteral("D-Flow (base)"),
+                 QStringLiteral("D-Flow / Damian family"),
+                 QStringLiteral("D-Flow variant"),
+                 QStringLiteral("A-Flow variant"),
+                 QStringLiteral("standard D-Flow variant") }) {
+            QVERIFY2(!kb.contains(bad, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("shipped KB reintroduced "
+                         "profile-implying D-Flow/A-Flow framing: ") + bad));
+        }
+
+        // (d) Drift-check (decision D1): the #1160 split mechanics depend on
+        // these exact headers + the D-Flow Also-matches alias line. Counts
+        // and the load-bearing lines must be byte-stable.
+        const QStringList lines = kb.split(QLatin1Char('\n'));
+        int headingCount = 0;
+        int alsoMatchesCount = 0;
+        for (const QString& ln : lines) {
+            if (ln.startsWith(QStringLiteral("## "))) ++headingCount;
+            if (ln.startsWith(QStringLiteral("Also matches:"))) ++alsoMatchesCount;
+        }
+        QCOMPARE(headingCount, 42);
+        QCOMPARE(alsoMatchesCount, 27);
+        for (const QString& header : {
+                 QStringLiteral("\n## D-Flow\n"),
+                 QStringLiteral("\n## D-Flow Q variant\n"),
+                 QStringLiteral("\n## Damian's LRv2 / LRv3\n"),
+                 QStringLiteral("\n## A-Flow\n") }) {
+            QVERIFY2(kb.contains(header),
+                     qPrintable(QStringLiteral("load-bearing KB header "
+                         "changed/missing: ") + header.trimmed()));
+        }
+        QVERIFY2(kb.contains(QStringLiteral(
+                     "Also matches: \"D-Flow / default\", \"D-Flow / La Pavoni\", "
+                     "\"Damian's D-Flow\", \"Damian's LM Leva\"")),
+                 "D-Flow Also-matches alias line changed (breaks #1160 "
+                 "profile_kb_id resolution)");
+    }
 };
 
 QTEST_GUILESS_MAIN(TstDialingBlocks)

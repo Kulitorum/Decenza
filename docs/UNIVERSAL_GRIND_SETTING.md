@@ -240,8 +240,8 @@ appropriate profiles before grind adjustment is even needed.
 
 ### Coverage
 
-All 93 built-in profiles match a KB section — the sections cover complete families (the D-Flow
-family's 7 Damian variants are split across 3 pressure-distinct sections — `D-Flow`,
+All 93 built-in profiles match a KB section — the sections cover complete families (the 7
+Damian profiles built with the D-Flow editor are split across 3 pressure-distinct sections — `D-Flow`,
 `D-Flow Q variant`, `Damian's LRv2 / LRv3` — so cross-profile grind transfer is no longer
 treated as identical across them; Pour Over Basket covers 6 profiles, Tea covers 16 profiles,
 etc.). All built-in profiles match by exact title/alias, then title prefix/fuzzy

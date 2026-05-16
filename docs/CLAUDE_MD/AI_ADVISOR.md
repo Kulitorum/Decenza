@@ -261,7 +261,7 @@ The D-Flow fix was possible because Damian published detailed explanations. Most
 
 | Profile | Quality | What's missing |
 |---------|---------|----------------|
-| **D-Flow** | Strong | Fixed March 2026. Author-sourced. April 2026: fill temps verified per-variant against JSON frames, Damian's LRv2/LRv3 temps documented. |
+| **D-Flow** | Strong | Fixed March 2026. Author-sourced. April 2026: fill temps verified per-profile against JSON frames, Damian's LRv2/LRv3 temps documented. |
 | **A-Flow** | Medium | No author (Janek) design philosophy. Does A-Flow use temperature stepping? Are the 9-10 bar pressure numbers from Janek or our guess? No expected pressure range from author. |
 | **Adaptive v2** | Good | Has Gagné's Coffee ad Astra post. April 2026: pressure corrected to ~9 bar (8.8 bar exit, 9.5 bar extraction limiter) from JSON frames. |
 | **Blooming Espresso** | Good | Has Rao's guidance. April 2026: added temperature line (97.5→90→92°C), corrected fill flow to 4 ml/s, added extraction limiter detail. |
