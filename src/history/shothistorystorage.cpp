@@ -915,7 +915,10 @@ bool ShotHistoryStorage::runMigrations()
         // No NOT NULL: callers (incl. the dev/fake-shot path and any shot
         // whose reason is unknown) bind a null QString, which SQLite stores
         // as NULL. Reads use value().toString() → "" for NULL, so unknown
-        // collapses to "" everywhere. DEFAULT '' back-fills existing rows.
+        // collapses to "" everywhere. SQLite does NOT rewrite existing rows
+        // on ADD COLUMN — pre-migration rows keep no stored value and a
+        // SELECT returns the DEFAULT '' for them virtually (so reads are
+        // "" without any physical back-fill).
         if (!hasColumn("shots", "stopped_by"))
             query.exec ("ALTER TABLE shots ADD COLUMN stopped_by TEXT DEFAULT ''");
 

@@ -263,6 +263,49 @@ private slots:
         QVERIFY(!tc.isSawSettling());
         QCOMPARE(spy.count(), 1);  // Previous shot's shotProcessingReady emitted
     }
+
+    // ===== #1161: wasSawTriggered() must survive settling =====
+
+    void wasSawTriggeredStaysTrueAfterSettling_1161() {
+        // Regression: MainController::onShotEnded classifies stoppedBy from
+        // wasSawTriggered() via the shotProcessingReady emitted by
+        // onSettlingComplete's scope guard. onSettlingComplete clears
+        // m_sawTriggeredThisShot up front, so wasSawTriggered() must be
+        // backed by m_stopAtWeightTriggered (reset only in startShot) —
+        // otherwise every stop-at-weight shot is misclassified "profileEnd".
+        DE1Device device;
+        ShotTimingController tc(&device);
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        QVERIFY(tc.wasSawTriggered());
+        tc.m_sawSettling = true;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Scale disconnected"));
+        tc.onSettlingComplete();  // clears m_sawTriggeredThisShot internally
+        QVERIFY2(tc.wasSawTriggered(),
+                 "#1161: SAW must still read true after settling — "
+                 "onShotEnded classifies the shot at this point");
+    }
+
+    void wasSawTriggeredTrueWhenSettlingCancelled_1161() {
+        // Regression (back-to-back dial-in): starting a new shot mid-settle
+        // saves the PRIOR shot via shotProcessingReady emitted from inside
+        // startShot(). At that instant wasSawTriggered() must still be true
+        // so the prior SAW shot is classified "weight", not "profileEnd".
+        DE1Device device;
+        ShotTimingController tc(&device);
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+        bool sawAtEmit = false;
+        QObject::connect(&tc, &ShotTimingController::shotProcessingReady,
+                         [&tc, &sawAtEmit]() { sawAtEmit = tc.wasSawTriggered(); });
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cancelling settling"));
+        tc.startShot();  // cancels settling, emits shotProcessingReady for prior shot
+        QVERIFY2(sawAtEmit,
+                 "#1161: prior SAW shot must still read wasSawTriggered()==true "
+                 "when saved during settling-cancel");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_Settling)

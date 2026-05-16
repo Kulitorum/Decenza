@@ -2011,15 +2011,20 @@ void MainController::onShotEnded() {
 
             // #1161: classify why the shot ended so the dial-in advisor
             // can discount yield/duration on manually-stopped shots (their
-            // yield is user-chosen, not an extraction outcome). Precedence:
-            // a weight cutoff (SAW) and a volume cutoff (SAV) are C++
-            // ground truth and win even if QML's overlay said otherwise.
-            // Otherwise fall back to QML's resolved stopReason: "manual" is
-            // a deliberate user stop; "machine"/""/anything else means the
-            // profile ran its course OR the DE1's own button (the BLE
-            // protocol cannot distinguish those) → "profileEnd". The
-            // consumer treats a sub-target "profileEnd" like "manual",
-            // covering the DE1-hardware-button case.
+            // yield is user-chosen, not an extraction outcome). Precedence,
+            // in order:
+            //   1. SAW (wasSawTriggered, backed by m_stopAtWeightTriggered)
+            //      — C++ ground truth, survives settling, wins outright.
+            //   2. SAV (wasVolumeStopped) — C++ ground truth.
+            //   3. QML stopReason "manual" — a deliberate user stop.
+            //   4. QML stopReason "weight" — defensive fallback for a
+            //      weight stop the C++ SAW flag did not capture (e.g. a
+            //      QML-side weight signal without onSawTriggered); normally
+            //      branch 1 already handled it.
+            //   5. else → "profileEnd": profile ran its course OR the DE1's
+            //      own hardware button (the BLE protocol cannot distinguish
+            //      those). The consumer treats a sub-target "profileEnd"
+            //      like "manual", covering the DE1-button case.
             QString stoppedBy;
             if (m_timingController && m_timingController->wasSawTriggered())
                 stoppedBy = QStringLiteral("weight");

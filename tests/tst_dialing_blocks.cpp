@@ -1698,23 +1698,31 @@ private slots:
             weight.stoppedBy = QStringLiteral("weight");
             QVERIFY(insertShot(db, weight) > 0);
 
+            ShotRow volume = base;
+            volume.uuid = QStringLiteral("sb-volume");
+            volume.timestamp = now - 2100;
+            volume.stoppedBy = QStringLiteral("volume");
+            QVERIFY(insertShot(db, volume) > 0);
+
             const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
                 db, QStringLiteral("kb-dfq"), /*resolvedShotId=*/-1, /*historyLimit=*/10);
             QCOMPARE(sessions.size(), 1);
             const QJsonArray shots = sessions.at(0).toObject()
                 .value(QStringLiteral("shots")).toArray();
-            QCOMPARE(shots.size(), 3);
+            QCOMPARE(shots.size(), 4);
 
-            int sawManual = 0, sawWeight = 0, sawProfileEndKey = 0;
+            int sawManual = 0, sawWeight = 0, sawVolume = 0, sawProfileEndKey = 0;
             for (const auto& v : shots) {
                 const QJsonObject s = v.toObject();
                 if (!s.contains(QStringLiteral("stoppedBy"))) { ++sawProfileEndKey; continue; }
                 const QString sb = s.value(QStringLiteral("stoppedBy")).toString();
                 if (sb == QStringLiteral("manual")) ++sawManual;
                 if (sb == QStringLiteral("weight")) ++sawWeight;
+                if (sb == QStringLiteral("volume")) ++sawVolume;
             }
             QCOMPARE(sawManual, 1);
             QCOMPARE(sawWeight, 1);
+            QCOMPARE(sawVolume, 1);
             QVERIFY2(sawProfileEndKey == 1,
                      "profileEnd must be omitted (no stoppedBy key)");
 

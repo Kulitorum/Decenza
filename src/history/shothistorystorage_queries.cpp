@@ -564,7 +564,15 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["targetWeightG"] = query.value("yield_override").toDouble();
             shot["profileJson"] = query.value("profile_json").toString();
             shot["beverageType"] = query.value("beverage_type").toString();
-            shot["stoppedBy"] = query.value("stopped_by").toString();
+            // #1161: sparse-emit (see ShotProjection::toVariantMap) so a
+            // future consumer of this map can't surface "profileEnd"/"".
+            {
+                const QString sb = query.value("stopped_by").toString();
+                if (sb == QStringLiteral("manual")
+                    || sb == QStringLiteral("weight")
+                    || sb == QStringLiteral("volume"))
+                    shot["stoppedBy"] = sb;
+            }
 
             // ISO 8601 with timezone for API/AI consumption (CLAUDE.md convention).
             // Written into ShotProjection::timestampIso so it does not collide with

@@ -83,8 +83,11 @@ public:
     Q_INVOKABLE void tareScale();
 
     // #1161: true iff stop-at-volume (SAV) ended the current/just-ended
-    // shot. Set in checkStopAtVolume, reset at the next espresso cycle
-    // start (updatePhase) — so it is valid to read at shot-end.
+    // shot. Set in checkStopAtVolume; reset by updatePhase at the START OF
+    // EXTRACTION of the next shot (the EspressoPreheating→Preinfusion
+    // transition), NOT at EspressoPreheating entry where the
+    // espressoCycleStarted signal fires. So it remains valid both at
+    // shot-end and when read from onEspressoCycleStarted.
     bool wasVolumeStopped() const { return m_stopAtVolumeTriggered; }
 
 signals:
