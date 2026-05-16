@@ -1806,6 +1806,12 @@ private slots:
         const QString kbLrv2 =
             ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's LRv2"),
                                                QStringLiteral("dflow"));
+        QVERIFY(!kbLrv2.isEmpty());
+        // #1160 review: LRv2 and LRv3 must resolve to the SAME section via
+        // real Also-matches keys, not a fragile length>=4 fuzzy-substring
+        // fallback on the bare "lrv3" title-split token.
+        QCOMPARE(ShotSummarizer::canonicalNameForKbId(kbLrv3),
+                 ShotSummarizer::canonicalNameForKbId(kbLrv2));
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbBase)
                 .contains(QStringLiteral("flow_trend_ok")));
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbQ)

@@ -20,7 +20,7 @@ Each entry begins with a `##` heading. The title becomes the primary lookup key 
 ## Filter 2.0
 ```
 
-**Important:** If the title contains ` / ` (space-slash-space), the parser splits it and registers **each part** as a separate key. Use this deliberately for compound names (e.g. `## Traditional / Spring Lever Machine` registers both "traditional" and "spring lever machine", and `## Damian's LRv2 / LRv3` registers both "damian's lrv2" and "damian's lrv3"). Avoid it when one part would collide with another section's key — e.g. `## D-Flow / default` would register "default" and collide with `## Default`, and `## D-Flow / Q` would register "d-flow" and collide with the base `## D-Flow` section (this is why the 6-bar variant section is titled `## D-Flow Q variant`, with `Also matches: "D-Flow / Q", "Damian's Q"`). In those cases, move the disambiguating part to `Also matches:` instead.
+**Important:** If the title contains ` / ` (space-slash-space), the parser splits it and registers **each split part, lowercased verbatim**, as a separate key — a prefix on the left of the slash is NOT redistributed to the right part. Use this deliberately only when every split part is itself a meaningful, collision-free key (e.g. `## Traditional / Spring Lever Machine` registers "traditional" and "spring lever machine"). It is a footgun otherwise: `## Damian's LRv2 / LRv3` registers "damian's lrv2" and the bare token **"lrv3"** (NOT "damian's lrv3"), and `## D-Flow / Q` would register "d-flow" (colliding with the base `## D-Flow` section). In those cases, give the section an explicit `Also matches:` line so resolution is by a real exact key instead of a fuzzy substring fallback: the `## Damian's LRv2 / LRv3` section carries `Also matches: "Damian's LRv2", "Damian's LRv3"`, and the 6-bar variant section is titled `## D-Flow Q variant` (no slash) with `Also matches: "D-Flow / Q", "Damian's Q"`.
 
 ### Also matches:
 
@@ -145,7 +145,7 @@ These positions are **not** from the UGS calculator. They are reasoned estimates
 
 | UGS (est.) | Profile | Rationale |
 |------------|---------|-----------|
-| ~0.25 | **80's Espresso** | Lever-decline mechanic but with an unusual low-temperature regime (82°C declining to 72°C). The low extraction temperature reduces solubility, requiring a finer grind than the temperature-normal lever group to compensate. Observed in user shot history to pull significantly finer than base D-Flow on the same bean. `[SRC:dark-video]` characterizes 80's as "slightly coarser than the lever group" — placing it just above Cremina/Londinium at UGS 0 but below base D-Flow at UGS 0.5. |
+| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than base D-Flow on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow. |
 | ~1.0 | D-Flow / Q (Damian's Q) | 6-bar approach + 84°C fill. The lower pressure wants a coarser grind than base D-Flow (~0.5 UGS coarser); the low fill temp pulls slightly back finer. Net: noticeably coarser than base D-Flow — do NOT transfer a base-D-Flow grind anchor 1:1. |
 | ~0 | Damian's LRv2, Damian's LRv3 | Pure Londinium-R lever sims — same fine grind as Londinium/LRv3 (UGS 0), finer than base D-Flow. LRv2 trends slightly coarser than LRv3. |
 | ~0.5 | Damian's LM Leva | La Marzocco Leva recreation, ~8-bar peak — same grind window as base D-Flow. |
@@ -466,7 +466,7 @@ All four profiles are by Damian (diy.brakel.com.au) and are D-Flow variants shar
 
 ### 80's Espresso
 
-- **UGS**: ~0.25 (inferred — finer than D-Flow due to 82°C→72°C low-temp regime; see Cross-Profile Grind Ordering)
+- **UGS**: ~-0.5 (inferred — extreme 82°C→72°C low-temp regime requires a much finer grind than any temperature-normal lever profile; ~3–4 steps finer than base D-Flow; see Cross-Profile Grind Ordering)
 - **Category**: Lever/Pressure `[SRC:dark]` `[SRC:dark-video]`
 - **How it works**: Lever profile at LOW temperature. No pre-infusion — maximum water flow fills the puck, puck compresses, then flows out with declining pressure. Named "80's" because temperature starts at 80C and declines toward 70C. `[SRC:dark-video]`
 - **Temperature**: 80C declining to ~70C — at least 8C cooler than normal espresso, 15C less than traditional machines (95-96C). The low temperature is the key innovation: dark tar flavors are extracted less at lower temperatures. `[SRC:dark-video]`

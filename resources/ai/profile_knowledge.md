@@ -106,6 +106,7 @@ DO NOT flag the large gap between the 94°C rise setpoint and the ~86–90°C ac
 
 ## Damian's LRv2 / LRv3
 UGS: 0 (Londinium / LRv3 chart position; LRv2 trends slightly coarser than LRv3)
+Also matches: "Damian's LRv2", "Damian's LRv3"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 Family: lever-decline
