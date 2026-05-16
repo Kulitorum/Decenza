@@ -1751,6 +1751,68 @@ private slots:
                      QStringLiteral("manual"));
         });
     }
+
+    // -------------------------------------------------------------------
+    // #1160: the D-Flow umbrella section is split so pressure-distinct
+    // variants resolve to distinct UGS positions and canonical names,
+    // instead of all collapsing to one UGS 0.5 / "D-Flow". Asserts the
+    // content contract from the correct-dflow-variant-ugs spec.
+    // -------------------------------------------------------------------
+    void dflowVariantUgs_distinctPositions_1160()
+    {
+        const QString kbBase =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / default"),
+                                               QStringLiteral("dflow"));
+        const QString kbQ =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / Q"),
+                                               QStringLiteral("dflow"));
+        const QString kbDamianQ =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's Q"),
+                                               QStringLiteral("dflow"));
+        const QString kbLrv3 =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's LRv3"),
+                                               QStringLiteral("dflow"));
+        QVERIFY(!kbBase.isEmpty());
+        QVERIFY(!kbQ.isEmpty());
+        QVERIFY(!kbDamianQ.isEmpty());
+        QVERIFY(!kbLrv3.isEmpty());
+
+        const double ugsBase = ShotSummarizer::ugsForKbId(kbBase);
+        const double ugsQ    = ShotSummarizer::ugsForKbId(kbQ);
+        const double ugsLrv3 = ShotSummarizer::ugsForKbId(kbLrv3);
+
+        // Base D-Flow keeps the chart-authoritative canonical 0.5.
+        QVERIFY(qFuzzyCompare(ugsBase, 0.5));
+        QVERIFY(!ShotSummarizer::ugsInferredForKbId(kbBase));
+
+        // D-Flow/Q resolves strictly coarser than base, and is inferred,
+        // with a canonical name distinct from base D-Flow.
+        QVERIFY(ugsQ > ugsBase);
+        QVERIFY(ShotSummarizer::ugsInferredForKbId(kbQ));
+        QVERIFY(ShotSummarizer::canonicalNameForKbId(kbQ)
+                != ShotSummarizer::canonicalNameForKbId(kbBase));
+
+        // "Damian's Q" resolves to the same position as D-Flow/Q.
+        QCOMPARE(ShotSummarizer::canonicalNameForKbId(kbDamianQ),
+                 ShotSummarizer::canonicalNameForKbId(kbQ));
+        QVERIFY(qFuzzyCompare(ShotSummarizer::ugsForKbId(kbDamianQ), ugsQ));
+
+        // Damian's LRv3 == canonical Londinium/LRv3 position (0),
+        // strictly finer than base D-Flow.
+        QVERIFY(qFuzzyIsNull(ugsLrv3));
+        QVERIFY(ugsLrv3 < ugsBase);
+
+        // Shared behavioral suppression preserved on every variant.
+        const QString kbLrv2 =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's LRv2"),
+                                               QStringLiteral("dflow"));
+        QVERIFY(ShotSummarizer::getAnalysisFlags(kbBase)
+                .contains(QStringLiteral("flow_trend_ok")));
+        QVERIFY(ShotSummarizer::getAnalysisFlags(kbQ)
+                .contains(QStringLiteral("flow_trend_ok")));
+        QVERIFY(ShotSummarizer::getAnalysisFlags(kbLrv2)
+                .contains(QStringLiteral("flow_trend_ok")));
+    }
 };
 
 QTEST_GUILESS_MAIN(TstDialingBlocks)

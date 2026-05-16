@@ -240,9 +240,11 @@ appropriate profiles before grind adjustment is even needed.
 
 ### Coverage
 
-All 93 built-in profiles match a KB section — the 39 sections cover complete families (D-Flow
-covers 7 Damian variants, Pour Over Basket covers 6 profiles, Tea covers 16 profiles, etc.).
-all built-in profiles match by title prefix/fuzzy
+All 93 built-in profiles match a KB section — the sections cover complete families (the D-Flow
+family's 7 Damian variants are split across 3 pressure-distinct sections — `D-Flow`,
+`D-Flow Q variant`, `Damian's LRv2 / LRv3` — so cross-profile grind transfer is no longer
+treated as identical across them; Pour Over Basket covers 6 profiles, Tea covers 16 profiles,
+etc.). All built-in profiles match by exact title/alias, then title prefix/fuzzy
 matching. Three community profiles (Nu Skool, Idan's Strega Plus, Hendon Turbo variants) have
 KB entries but are not shipped as built-ins — entries are ready for when users load them.
 

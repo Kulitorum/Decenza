@@ -27,7 +27,7 @@ UGS is a **relative scale**, not a unit of grinder adjustment. Mapping UGS dista
 | -0.5 | Blooming Allongé | Ultra-light Nordic-style filter roasts. |
 | 0 | **Cremina** | Fine anchor. Max puck resistance, high-temp long-contact extraction. |
 | 0 | Londinium / LRv3 | Same fine grind as Cremina for pressurized pre-infusion soak. |
-| 0.5 | D-Flow | Fast fill, pressurized soak, nuanced pressure rise. |
+| 0.5 | D-Flow (base) | Fast fill, pressurized soak, nuanced pressure rise. Base D-Flow only — D-Flow/Q (6 bar) and Damian's LRv2/LRv3 sit at different positions; see the inferred table. |
 | 0.75 | Best Overall Pressure | Rise to ~8.6 bar, declining to ~6 bar. |
 | 0.75 | Default | Standard espresso starting point. |
 | 1.25 | Adaptive v2 | Slightly coarser to favor flow-driven clarity. |
@@ -48,8 +48,10 @@ These positions are **not** from the UGS calculator. They are reasoned estimates
 
 | UGS (est.) | Profile | Rationale |
 |------------|---------|-----------|
-| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than D-Flow / Q on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow. |
-| ~0–0.5 | Damian's LRv2, LRv3, LM Leva, Q | Londinium / D-Flow adjacent; treat as the same family. |
+| ~-0.5 | **80's Espresso** | Lever-decline mechanic with an extreme low-temperature regime (82°C declining to 72°C). The very low extraction temperature dramatically reduces solubility, requiring a much finer grind than any temperature-normal lever profile. Empirically observed to pull ~3–4 grinder steps finer than base D-Flow on the same bean and grinder — placing it finer than Cremina/LRv3 territory, not between them and D-Flow. |
+| ~1.0 | D-Flow / Q (Damian's Q) | 6-bar approach + 84°C fill. The lower pressure wants a coarser grind than base D-Flow (~0.5 UGS coarser); the low fill temp pulls slightly back finer. Net: noticeably coarser than base D-Flow — do NOT transfer a base-D-Flow grind anchor 1:1. |
+| ~0 | Damian's LRv2, Damian's LRv3 | Pure Londinium-R lever sims — same fine grind as Londinium/LRv3 (UGS 0), finer than base D-Flow. LRv2 trends slightly coarser than LRv3. |
+| ~0.5 | Damian's LM Leva | La Marzocco Leva recreation, ~8-bar peak — same grind window as base D-Flow. |
 | ~1.25 | Classic Italian / Gentler 8.4 Bar / Italian Australian | Constant-pressure family, behaves like Flat 9 Bar. |
 | ~5–7 | Hendon Turbo, TurboBloom, Nu Skool, Pour Over Basket | High-flow turbo/filter territory. |
 
@@ -69,28 +71,50 @@ When the user changes the **roast** of their bean while staying on the same prof
 2. **When the user transitions between roasts on the same profile**, state the direction the roast change implies, then ground it in their actual shot history by calling `shots_list` filtered by `profileName`. The user's own past pulls on similar roast levels are a stronger anchor than this ordering.
 3. **Concrete grinder numbers come from shot history, not from this table.** When recommending magnitude, either cite a specific reference shot from `shots_list` ("you pulled this profile at grinder setting 7 on a similar bean") or stay qualitative ("a touch coarser", "noticeably coarser"). Never recommend "X UGS coarser" as a grinder-click instruction.
 
+**Same named family ≠ same grind when the pressure target differs.** Profiles that share a family name are NOT grind-equivalent if their pressure targets differ. Never transfer a grinder setting 1:1 across a pressure-target change. Concretely: base D-Flow peaks ~9 bar (UGS 0.5) but D-Flow/Q uses a 6 bar approach (UGS ~1.0) — switching base D-Flow → D-Flow/Q needs a *coarser* grind even though both are "D-Flow"; Damian's LRv2/LRv3 are *finer* (UGS 0) than base D-Flow. Surface the direction; do not treat the family as one position.
+
 Source: Universal Grind Setting calculator and chart (Mark Renowden, https://videoblurb.com/UGS/) — see GitHub issue #500. Profiles not in the chart are inferred from the qualitative relationships in the per-profile sections below.
 
 ## D-Flow
-UGS: 0.5 (Damian's LRv2/LRv3 variants sit at 0 like Londinium; base D-Flow and Damian's Q at 0.5)
-Also matches: "D-Flow / default", "D-Flow / Q", "D-Flow / La Pavoni", "Damian's Q", "Damian's LRv2", "Damian's LRv3", "Damian's LM Leva", "Damian's D-Flow"
+UGS: 0.5
+Also matches: "D-Flow / default", "D-Flow / La Pavoni", "Damian's D-Flow", "Damian's LM Leva"
 AnalysisFlags: flow_trend_ok
 Category: Lever/Flow hybrid (Londinium family)
 Family: lever-decline
-How it works: All D-Flow variants and Damian's profiles share the same core: pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks then gradually declines — this is intentional lever-style behavior. Can heal uneven puck prep.
-Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian's Q") is optimized for medium-light beans with a 6 bar approach. "D-Flow / La Pavoni" emulates a La Pavoni lever — created by Damian running D-Flow and a real La Pavoni side by side; uses 18g VST basket; tuned for milk drinks. "Damian's LM Leva" is a pressure-profile recreation of a real La Marzocco Leva recording. "Damian's LRv2" and "Damian's LRv3" (also "Londonium") are pure lever-style Londinium R simulations.
-Expected curves: Pressure peaks between 6 and 9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
+How it works: Pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks (~8–9 bar) then gradually declines — intentional lever-style behavior. Can heal uneven puck prep. This is the shared core of the whole D-Flow / Damian family; the pressure-target and fill-temperature differences that change the grind a variant wants are split into the separate "D-Flow Q variant" and "Damian's LRv2 / LRv3" sections.
+Variants in this section: "D-Flow / default" is the starter profile. "D-Flow / La Pavoni" emulates a La Pavoni lever — created by Damian running D-Flow and a real La Pavoni side by side; uses 18g VST basket; tuned for milk drinks. "Damian's LM Leva" is a pressure-profile recreation of a real La Marzocco Leva recording.
+Expected curves: Pressure peaks ~8–9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
 Damian's LM Leva: Created by recording a real La Marzocco Leva machine shot on a Smart Espresso Profiler and reverse-engineering it. Low 2.2 bar pre-infusion then rise to 8 bar then decline. Temperature 88–89°C. Dose 18g → 42g (1:2.3). Flavor: creamy body, smooth balance, highlights flavors in a gentle way — best as a straight shot. Less suited to milk drinks (flavors can get lost). Portafilter must be fully preheated — cold portafilter causes temperature crash and loss of mouthfeel.
-Damian's LRv2: Londinium R simulation with several tweaks for coarser grind and faster pour. If puck erodes too fast during extraction, switches from pressure to flow control at 2.5 ml/s (prevents gushing). Temperature 89°C. Dose 18g → 36g (1:2). Flavor: "milkshake with extra syrup," rich body, thick, chocolatey — great for milk drinks and dark roasts.
-Damian's LRv3 / Londonium: Pure lever decline with an added 9 bar hold step after pressure rise — waits until flow exceeds 1.9 ml/s before starting the decline. More sustained peak pressure phase gives richer body vs LRv2. Temperature 90°C. Does NOT switch to flow control — preferred when dialed in well. Dose 18g → 36g.
-Damian's Q: D-Flow variant with 84°C fill temperature and 6 bar pressure approach, optimized for medium-light beans. Produces brightness in milk (contrast with LRv2's thick chocolate). Dose 18–19g → 34g. The 84°C fill temperature is INTENTIONAL — low fill temp controls bitterness during saturation.
-Damian's LRv2/LRv3 temperatures: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than standard D-Flow variants due to different fill/soak behavior.
-Temperature: Fill temperature varies by variant — D-Flow/default uses 88°C, while D-Flow/Q and Damian's Q use 84°C fill with 94°C rise target. The low fill temperature is INTENTIONAL — hotter fill water produces dark spots in the crema and more bitter taste. The coffee never actually reaches 94°C; the high setpoint makes the heater pump hot water that gradually raises basket temperature to ~86–90°C. DO NOT flag the large gap between temperature target (94°C) and actual (~86-90°C) as a problem — it is by design.
+Temperature: D-Flow / default uses an 88°C fill. (D-Flow/Q and Damian's Q use a lower 84°C fill with a 94°C rise setpoint — see the "D-Flow Q variant" section.) DO NOT flag a large gap between a high temperature setpoint and a lower actual basket temperature as a problem — the high setpoint just drives the heater pump; the coffee never reaches it. It is by design.
 Flow calibration: If actual flow is consistently below target (e.g. 1.8 target but only 1.5 actual), the flow sensor may be over-reading by ~20%. Reducing the calibration value will show more pressure for the same grind.
 Grind: Medium-fine. Grind determines curve shape: finer grinds produce constant-pressure extraction, coarser grinds produce declining pressure (lever-like). Both are valid.
 Roast: All roasts. Excellent for medium (floral/fruity + chocolate). Good for light and dark.
-DO NOT flag declining pressure, the flow safety step switching to flow control (LRv2), or the 9-bar hold (LRv3) as problems — all are intentional profile behaviors.
-DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across all Damian variants.
+DO NOT flag declining pressure as a problem — it is intentional lever-style behavior.
+DO NOT flag slow 0–0.4 ml/s flow in the first 20s as a problem — this is the pressurized soak phase and is intentional across all D-Flow / Damian variants.
+
+## D-Flow Q variant
+UGS: ~1.0 (inferred — 6 bar approach pulls coarser than base D-Flow; 84°C fill pulls slightly back finer; not on the UGS chart)
+Also matches: "D-Flow / Q", "Damian's Q"
+AnalysisFlags: flow_trend_ok
+Category: Lever/Flow hybrid (Londinium family)
+Family: lever-decline
+How it works: A D-Flow variant with an 84°C fill temperature and a 6 bar pressure approach, optimized for medium-light beans. Shares the D-Flow core (pressurized soak → flow-controlled pour, declining pressure) — see the "D-Flow" section for the shared behavior and the DO NOT flag list, all of which apply here too.
+Why the grind differs from base D-Flow: the lower 6 bar target wants a coarser grind than base D-Flow's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser than base D-Flow — do NOT transfer a base-D-Flow grinder setting 1:1 to this variant.
+Damian's Q: Produces brightness in milk (contrast with LRv2's thick chocolate). Dose 18–19g → 34g. The 84°C fill temperature is INTENTIONAL — low fill temp controls bitterness during saturation.
+Expected curves: Pressure approaches ~6 bar (not ~9). Declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL and INTENTIONAL.
+DO NOT flag the large gap between the 94°C rise setpoint and the ~86–90°C actual basket temperature as a problem — the coffee never reaches 94°C; the high setpoint just drives the heater pump. It is by design.
+
+## Damian's LRv2 / LRv3
+UGS: 0 (Londinium / LRv3 chart position; LRv2 trends slightly coarser than LRv3)
+AnalysisFlags: flow_trend_ok
+Category: Lever/Flow hybrid (Londinium family)
+Family: lever-decline
+How it works: Pure lever-style Londinium R simulations. Share the D-Flow core (pressurized soak → flow-controlled pour) — see the "D-Flow" section for the shared behavior and the DO NOT flag list, all of which apply here too. Finer grind requirement than base D-Flow: these sit at the same fine grind as Londinium / Cremina (UGS 0), not at base D-Flow's 0.5.
+Damian's LRv2: Londinium R simulation with several tweaks for coarser grind and faster pour. If the puck erodes too fast during extraction, switches from pressure to flow control at 2.5 ml/s (prevents gushing). Temperature 89°C. Dose 18g → 36g (1:2). Flavor: "milkshake with extra syrup," rich body, thick, chocolatey — great for milk drinks and dark roasts.
+Damian's LRv3: Pure lever decline with an added 9 bar hold step after pressure rise — waits until flow exceeds 1.9 ml/s before starting the decline. More sustained peak pressure phase gives richer body vs LRv2. Temperature 90°C. Does NOT switch to flow control — preferred when dialed in well. Dose 18g → 36g. (Damian informally calls LRv3 "Londonium"; the standalone Londinium profile has its own section.)
+Temperature: Frame temperatures are 89°C (LRv2) and 90°C (LRv3) — higher than standard D-Flow variants due to different fill/soak behavior.
+Expected curves: Pressure rises then declines (lever decline); LRv3 holds ~9 bar before starting the decline. Flow stays near target. Declining pressure is NORMAL and INTENTIONAL.
+DO NOT flag the flow safety step switching to flow control (LRv2) or the 9-bar hold (LRv3) as problems — both are intentional profile behaviors.
 
 ## A-Flow
 UGS: 1.5
