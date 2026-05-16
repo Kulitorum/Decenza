@@ -38,6 +38,6 @@
 
 ## 7. PR and archive
 
-- [ ] 7.1 Run `/review` on the branch before opening the PR.
+- [x] 7.1 Run `/review` on the branch before opening the PR. (Run on PR #1169; 3 findings, all fixed in commit eb6f9398.)
 - [x] 7.2 Open the PR with `gh pr create` targeting `main`. Reference #1160 and #1147 with plain links (NOT `Closes #`), cc @fredphoesh; note it is a #1147 sub-issue awaiting reporter confirmation, and that it is the lean correctness fix (the broader `Expected*:` exploration lives in the separate `split-ugs-pressure-variants` proposal, deliberately not applied).
-- [ ] 7.3 After merge (squash + delete branch per project standard), archive this OpenSpec change with `openspec archive correct-dflow-variant-ugs`.
+- [x] 7.3 After merge (squash + delete branch per project standard), archive this OpenSpec change with `openspec archive correct-dflow-variant-ugs`. (#1169 merged as 871de574.)
