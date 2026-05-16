@@ -1,0 +1,29 @@
+## Why
+
+The Shot Summary already flags problems deterministically, with no AI: five badge/observation detectors (pour truncated, channeling, grind issue, temperature unstable, skip-first-frame) in `ShotAnalysis::analyzeShot`. Every one of them is profile-*agnostic* — they catch generic mechanical faults but cannot tell that a mechanically-clean shot violated *its profile's* intent (the canonical case: a D-Flow pulled at ~10 bar — clean curves, no channeling, but off-guideline and not good). Users who don't use the AI advisor (no API key, privacy, offline, cost) have no way to learn this. Once `capture-dialin-coaching-guidance` lands the structured per-profile `ProfileExpectation` (two-sided `GrindTooCoarse:`/`GrindTooFine:` arms, `PressureShape:`, preinfusion-dripping bounds, and the per-profile `Suppress:` catalogue), a deterministic detector can finally surface a profile-aware problem flag in the Shot Summary for everyone — no LLM in the loop. This is the deferred code consumer that `capture-dialin-coaching-guidance` (non-goals) anticipates. (`split-ugs-pressure-variants`, which originally deferred it, was superseded and archived; `capture-dialin-coaching-guidance` now owns the `ProfileExpectation` seam.)
+
+## What Changes
+
+- **Add one profile-aware deterministic detector** to the single `ShotAnalysis::analyzeShot` cascade: it compares the resolved shot's observed pressure/flow/time/preinfusion-dripping against the profile's parsed `ProfileExpectation` and, on a confident match to a `GrindTooCoarse:` / `GrindTooFine:` signature or a clear departure from the `PressureShape:` qualifier, produces a result the pipeline can surface.
+- **Surface it as a soft advisory `summaryLines` entry only** — `[observation]` / `[caution]` severity, taste-deferring wording ("ran outside this profile's intended pressure shape — judge by taste" / "matches the too-coarse signature for this profile — consider grinding finer"). **No new boolean badge column, no red verdict chip.** It joins the prose list the Shot Summary dialog already renders.
+- **AND-gate hard, bias to false negatives.** The detector SHALL stay silent unless: a `ProfileExpectation` exists for the resolved profile (absent → silent, never fabricate), the match is unambiguous, and none of these explain the observation — the cascade already fired pour-truncated/channeling, the profile's `Suppress:` catalogue covers the behavior, the profile is grind-tolerant-by-design, or bean freshness is unknown/very fresh. Taste always outranks; the line never asserts a verdict.
+- **Plumb `ProfileExpectation` into `analyzeShot`** as an optional parameter (same backwards-compatible precedent as `expectedFrameCount`): absent/unknown → the detector no-ops, every existing caller and legacy/imported shot behaves exactly as today.
+- **Honor the recompute-on-load contract.** The detector runs inside the one-place cascade, so save-time, recompute-on-load, and detail-load all produce it consistently; legacy shots without a resolvable profile expectation simply don't get the line.
+- **Shadow-validate before it surfaces.** A dry-run mode computes the line against the `tests/data/shots/` regression corpus via the `shot_eval` harness without rendering it, so the false-positive rate on known-good shots is measured and tuned conservative before the line is shown to users.
+
+## Capabilities
+
+### New Capabilities
+- None. This adds a detector to the existing analysis pipeline; no new user-facing capability surface.
+
+### Modified Capabilities
+- `shot-analysis-pipeline`: a new profile-aware detector is added to the single `ShotAnalysis::analyzeShot` cascade, consuming an optional `ProfileExpectation` input and emitting at most one soft, suppression-gated, taste-deferring `summaryLines` entry. The cascade-lives-in-one-place, recompute-on-load, render-from-`summaryLines`, and four-boolean-badge-projection requirements are preserved unchanged; this detector adds no badge column and never overrides taste or a fired mechanical detector.
+
+## Impact
+
+- **Depends on**: `capture-dialin-coaching-guidance` (owns the full `ProfileExpectation` seam — struct + parser + the structured two-sided arms + per-profile `Suppress:` set). Hard prerequisite — without the diagnostic arms + suppression catalogue the detector has nothing safe to consume. (No dependency on `split-ugs-pressure-variants`: superseded, archived.)
+- **Code**: `src/ai/shotanalysis.{h,cpp}` — new detector function inside the existing cascade; `analyzeShot` gains an optional `ProfileExpectation` parameter (defaults to absent). Save/load/detail callers (`ShotHistoryStorage::saveShot`, `loadShotRecordStatic`, `convertShotRecord`) resolve and pass the shot profile's expectation. No change to the four-badge projection (`decenza::deriveBadgesFromAnalysis`) — this detector contributes a prose line, not a badge.
+- **Surfaces**: the in-app Shot Summary dialog (`ShotAnalysisDialog.qml`) renders the new line via the existing `summaryLines` path — **no AI, no plumbing change, no network**. The AI advisor incidentally sees the same line in `summaryLines` (consistent, not a separate copy), but the detector requires no advisor.
+- **Tests / validation**: `tests/tst_shotanalysis*` (gating/suppression/absent-expectation no-op/recompute-on-load consistency) plus a `shot_eval`-harness shadow run over `tests/data/shots/` reporting the false-positive rate on known-good shots, used to tune the firing threshold conservative before the line is enabled.
+- **No** DB migration, no schema/storage change, no new badge column, no Visualizer write, no synthesized score, nothing persisted beyond the existing recompute-on-load badge/line contract.
+- **Related**: #1147 (parent), #1159 (a separate later consumer of the same `ProfileExpectation` for history trust-gating — not built here). Tracked under #1147; plain references, no auto-close until the reporter confirms.

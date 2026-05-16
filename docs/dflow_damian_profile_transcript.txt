@@ -1,0 +1,296 @@
+Source: "Damian's D-Flow Profile" — Decent Espresso YouTube livestream
+Speakers: Damian (D-Flow author), John Buckman (Decent founder), Luca, Paul
+Published: 2021-08-29 | Duration ~35:46 | https://www.youtube.com/watch?v=3Ib63xBNrzw
+Captions: YouTube auto-generated (en), de-duplicated to plain text. Verbatim auto-caption — minor ASR errors (e.g. "londinium"→"londonium", "Allongé"→"Alan Jay").
+
+the advanced top wizard what I've done is just created the wizard for this particular profile and
+I've I've got some information icons here what we can do is tap those icons and they can give you
+some information what those settings will do so for instance here a higher temperature can help
+extract more soluble compounds however it can also increase the harshness taste of the coffee so my
+idea here is I've simplified this is the best profile but I've simplified the steps did I feel make
+a difference for this profile like the user would adjust to make a difference so temperature is one
+variable you adjust and you can I think we can all agree that um you can reduce temperature to
+reduce the harshness in the coffee taste I think that's pretty common so a lot of coffee that might
+have some bitterness or stringency if you reduce the temperature you can often reduce that harshness
+and stringency um now just on that point my my opinion there might be different to somebody else's
+but we can come to um a consensus of opinion and use that for the um so we can adjust that
+information later the same for the next step here so basically I'll just explain this profile
+quickly it's a three stage profile a true step Advanced profile we've got a field which just fills
+as rapidly as it can it's just a um just a pressure step and then we've got a blooming stage or a
+soaking stage it's like a printfusion stage and I just hold that at three bar and then I've got the
+poor stage now the pull stage is what you guys have been talking about with the limit so this is a
+flow step play profile and it's just got a an eight and a half bar limit and by having that step
+with a flag profile and a limit um whatever happens doesn't matter if you grind to final two course
+your pressure is not going to go over that maximum limit and your flow's not going to go over that
+maximum step so it's really easy to control particularly for somebody new because you can um start
+with a fine grind on a course Grime and you'll still get a decent shot you'll have the same
+extraction yield because we're using flow so the extraction yield is going to be the same regardless
+of whether you choke it or not um and and if you're too close it's just going to put be a really
+short time um but you're still going to get the same same shot and you'll find that um I haven't
+found a shop that I wouldn't drink um you know you can go and then get a nice shot really good shot
+but it's sort of that way shots so get back to here um the explanation here for the improved Fusion
+type now um John this is where you put the uh Advanced at White in the profile step um and I use
+that for this profile um so what I found with moving on at weights is you can set the first drops we
+can set a move on a way that say 0.5 or 0.3 of a gram and that's basically the first few jobs that
+go in the cup will trigger um they're low weight and we can move on or we can still not extend that
+to a larger weight in the cup so I've got four grand here and that gives you more of that um
+londinium type thickness to the coffee whereas if I've moved on that say um at the very first drops
+you get more of that um more wine like it let's less thickness but you get more clarity um and the
+same thing applies when you go past four grand not so much foreground but when you get up to about
+uh 10 12 Grand depending on the ratio you shot of course um you start going back the other way as
+well um and what I've found is um with some of the particularly with light roast um sometimes it's
+advantageous to go on the longer side so you hold that three Bar for a long time and you get a big
+percentage of your shot in three bar then you spike up and then and your pressure will drop off
+really quickly and you can get um but I like to describe as a high TDS taste like it tastes like a
+high consistency if you don't have that um more with the with the shorter time you get high
+consistency but it's more chocolatey thick syrupy whereas the other consistency I think it's because
+more so because you've got a higher percentage of low pressure you get more of a like a full wine
+type consistency so anyway I try to explain some of that stuff in um in these queues here so the
+beginner can have a look here and read what this part of the profile is going to do um and same with
+here with the with the poor limits it explains what what I've just tried to explain here with how
+those limits work and also with the um extraction ratio so for me extraction ratio is a big part of
+moving from um a shop that's sour into uh better and through and on that path you go through
+sweetness so like I said generally um more sour they're more acidic and that gives them a sour
+sensation and if you extract longer you can start moving from South to towards sweet then of course
+you go too far and it starts becoming bitter and that's an easy adjustment you can do with um with
+the extraction ratio and of course the what what you do here with your profile can alter that as
+well so um if I extract the fast flow um I might I might wonder a different extraction ratio might
+be ideal for a different flame rate but um anyway but the points I'm trying to get at here is we
+could some of those things we can all agree on or we can come to a consensus of simple things that
+can help people learn how to adjust their profile um so um you know for a beginner that comes in
+that can make you pull in the shot and they can look at it and they go well that was a bit sour um
+what can I do to improve that soundness and they can look in they go well we could extract that
+longer they might have been they might have done a one to 1.8 extraction ratio and it could try
+going a bit longer or they could look at this but the temperature does um so the shop would taste a
+bit better it was harsh or maybe they can they can try reducing the temperature um from here we can
+also start giving them cue points so um we could look at this graph when we've pulled the shot we
+could look at their last graphic and put up their last graph here and go okay well your temperature
+is quite high and we can say um bushes we could ask what's the shot dinner was a shot um it takes
+week and give suggestions on on that so they'd be like a flow chart and we can base those questions
+on what their graph was like so if the graph didn't reach pressure here we could say was she did
+shot taste then did it taste watery um and we could say then maybe grind a bit finer to get that
+pressure up um or did it was that did the shot not have Clarity was it a battle muddy type taste
+thing we might reduce the pressure down to a six bar lever type shot so I think we've got scope here
+that there's certain variables that we can all agree on it doesn't have to be um a taste preference
+it could be more what the person's tasting and the direction they want to go and we can we can cure
+a suggestion towards that direction um so anyway let's let's just my thoughts there uh thanks Damian
+while you're while you're here uh Luca I'm not sure if you saw his comments so he basically said we
+need to actually do the pressure versus flow investigation with some structured blind tastings and
+then later said I agree but my goal is not to get that chocolate and light Rose if users can
+understand this and make their own informed Choice it's great yeah for sure so liquor and I we we
+like our espresso different um so if I was to pull a shot for uh Luca with using this profile um I
+would go to say my pressure limits here and I would introduce myself to say Seven bar um and I would
+increase my flow maybe two and a half mils maybe three mil and I'd use a light beam and um that
+would give me a shot without interpret that Luca would like um for a shot that I would like and most
+of my shots go into milk so I chase things a little bit different I generally like to get up to nine
+bar pressure the reason I said eight and a half here is because of the flow limit the fly limit
+setting I use uh sorry the pressure limit setting I use is uh 0.2 bar um and if I've got this limit
+set at 8.5 that means um the shop Mark out to 8.7 but it might even go up to um like 8.8 8.9 um but
+it keeps it below nine bar I think nine bar above my bar starts to get a bit uh it gives a bit harsh
+you start losing um some of the fruity notes when you get above that um and you put out a bit of
+harshness so I like this sit around there but um I I haven't really seen much of Lucas grass but I
+wouldn't mind betting there's a lot of his shots are um maybe sub Seven bar type shots um would that
+be right liquor would you and you'd probably decline a lot you don't feel so much uh constant
+pressure would that be correct or not I mean sorry hi guys sorry uh I've I've just uh I've just been
+coming back into my apartment from uh getting some groceries whilst I've been listening um yeah
+Damien I'm I'm actually um using a profile at the moment that um I think it starts off at about um
+after pre-infusion it's sort of it's a pressure profile it starts at about uh eight and a half nine
+bar and then it sort of declines down to about six or seven but often the extraction will flow
+quickly and be done um before it gets down there so I'm I'm going um a little bit higher um I
+suppose that um but but I I agree with your approach utterly about you know tweaking all of the
+variables and understanding what does what and the difference is perhaps that um as like I mean as
+you know I use I'm using some light roasts that are very very light and it is very hard to get much
+harshness out of them at all no matter how hard your extraction conditions are because they are very
+very light so that might might be some of the difference and maybe if you had something that was a
+notch a little bit darker then maybe you would you would need to go a little bit lower in pressure
+yeah for sure if if you've got any roast defects lowering the pressure helps reduce them if you get
+a really good beam and it's been rated well um you can extract it as 11 bar and you won't get any of
+that harshness it's um things got a lot to do with it and I appreciate what you're saying there with
+your lighter roasts and the Good Bean um you know my Bar's okay but one of the things you did
+mention there was the higher flow rate and I think that's pretty consistent with um people that are
+extracting lighter beans generally use a faster flow a simple test that you could anyone can do at
+home is just set up a profile like this and um change the setting here to 1.6 mil and then pull
+another shot say two mil or 2.2 mil and taste the difference and you'll find that 1.7 is that thick
+chocolatey taste the two mil will taste um with lower in body but it'll be uh more clarity in the
+[Music] um in the fruity Taste of the beans like the origin Taste of the beans and that's just one
+little simple setting you can change um it when you when you go fast it's going to affect the
+pressure so when you set this flow rate to 2.2 mil you're going to be pretty well stuck on the
+pressure limit as opposed to the slow rate you might not reach the pressure there so um with the
+style right you could grind a bit finer if you want to maintain the pressure but it's a good
+experiment to do and you just um that's basically what I do is I try and buy bones that other guys
+are buying and try and understand what they're liking um and then I just vary one variable at a time
+like that flow step here um where I might leave that the same and change this extraction ratio and
+just see what it does and you have a look at what graphs other people are putting up um and the type
+of thing they like and try and pick up Trends and I think we can I think we've been going out long
+enough now that there's certain things that we we can say that the consistence regardless of the
+topic shot that you like um and we can guide people to to certain settings or certain shift to
+certain ranges of settings and stuff uh Damian I just wanted to give you some of my thoughts on this
+I mean first of all this is a really great expression I don't know if you got this idea on your own
+or from discussions I had mentioned a while ago that I wanted to see in the future recipes that had
+their own user interface controls that were that with a user interface was specific to that recipe
+and and this is a brilliant version of that and you know and you've coded and I haven't so fantastic
+well done there um the thing I would myself had added I have added to this that what I had in my
+mind was a light dark Rose slider that affected a number of things so basically it was like a wizard
+that changed number of things uh you can go back to uh you don't have to Spotlight me Muhammad I'm
+fine spotlighting this user interface because I'm going to talk about it um and so with a light
+roast generally looking at this this is really simplified things which I love with a light roast I
+would increase the temperatures of the shot up to 94 Celsius and with a dark roast I'd come down to
+88. um with a light roast I would increase the time I call it the dripping stage but it's the second
+half of your infusion okay I would so dark roasts will tend to have a very short dripping stage like
+just five seconds and then ultralight is going to look more like blooming so it might be out all the
+way out to 30 seconds of dripping the other thing I would do is with the dripping stage is that
+light beans if you hold three bar tend to after like 10 seconds start to drip really considerably um
+and with londinium you hold pressure with blooming uh rayo's shot hits typically five bars and then
+doesn't add any more water and I think that what blooming is doing works really well with very light
+beams because then it we don't get that really intense dripping has the pre-infusion lasts a long
+time so as they went ultra light I would make the end of the dripping stage have a sharp pressure
+decrease so starting at three bar ending all the way down to Zero Bar at the end of the dripping
+stage and then finally uh the flow rate is going to increase actually it's not finally yet the flow
+rate is going to increase as you go lighter and it's going to decrease as you go darker with
+something around three three and a half mils per second being Not Unusual for ultralight you're
+going into Alan Jay land um and then finally the extraction ratio changing so an uh an ultra dark
+roast being typically one to two and very thick shot and then more like one to two point eight one
+two three with an ultralight so to summarize all that a dark Bean is going to be a lower temperature
+with less dripping time lower flow rate and a lower extraction a light beam is going to be higher
+temperature longer dripping with the dripping pressure decreasing um probably a bit more tolerant on
+the weight exit on the dripping so going all the way to 10 grams instead of 4 grams um and a flow
+aiming for something like three mils per second and a longer extraction ratio the goal there for me
+was so that someone doesn't have to master all those parameters as they move between roast levels we
+make the suggestions and and then they tweak then then they they start to mess with the flow rate
+and such um and then there's one last thing which um just changing that flow right is not going to
+actually necessarily hit it they're gonna have to go coarser as well so as they increase that flow
+rate if they don't change the grind they won't necessarily get the effect they want so that's just
+my my thought on that yeah that's true um actually increasing the flow rate you need to go coarser
+um because you're going to hit that pressure a lot quicker easier um also extending this weight
+stage here or this blooming time that you're talking about um saying you're getting 10 grams or so
+with with uh with the with your blooming step um the more white you add here um the less pressure
+you're gonna you're gonna reach um so your Puck becomes less resistant the longer you bloom for well
+what happens with the lights is that I mean blooming has the finest grind um and um I mean I I've
+the blooming dripping has always been how I knew that I was dialed in and eight grams was like the
+ideal so if I got eight grams of dripping at the end of 30 seconds of blooming I I hit a good shot
+um and you have to grind ultra fine to have a 30 second Bloom with only eight grams which then
+compensates for the fact that you're right that you then have more trouble hitting pressure um I I
+like and there's a whole bunch of things I like here I like how you are graphing both pressure and
+flow at all times which I don't do and now that we have the limiter I think that makes sense um
+you're essentially bounding yeah the the shot at each at each point yeah so with this Scrappy this
+is not fixed um because I'm not changing those those two steps um so I'll treat it a bit there but
+you can see the duration it's worked out um so you can change the extraction ratio I'll tell you
+exactly how long it's gonna go but um and those those lines will vary but um you've given me an idea
+there that we could have faster presets here so we could have like really like being uh medium bean
+and Doctor example yeah exactly yeah and then they then they tweak um the the other thing and I I
+kind of laughed about it on diaspora but um it does seem like um the grinder being bimodal or
+unimodal it has a massive impact on that poor stage uh and especially I mean the basic thing is that
+those unimodal Grinders tend to have pressure crashes during poor and need to be managed differently
+whereas lot more fines tends to keep the pressure up um and I I've I've wondered whether I should
+actually have a little check box that's I the way I actually put it is my grinder more than a
+thousand us or less than a thousand US Dollars um and or or you can just put 3000 us it's the same
+thing um and and we know that all the Grinders over three thousand US dollars are unimodal huge
+Burrs and pretty much all the Grinders under are gonna be 64 mil flats or conical um and and bimodal
+uh so that those are the two variables and the thing I like about that is they were not really
+coffee questions it's like how much do you spend on your grinder and how dark is your bean and then
+it takes the best guess yeah uh you wouldn't have to have obviously you know a little bimodal here
+on this screen because the grinder doesn't change um that can just be something they set far far
+away um I mean this is really clean you've obviously spent quite a lot of time on this uh and um
+there's there's so much goodness here but I'll stop talking yeah it looks it looks really great um
+look if I could just weigh in with with one point John just on on your idea about um the slider from
+dark to light and the you know the the idea about Grinders and all of that that that's all that's
+all great but that has baked into it the idea that your goals and your taste preferences for those
+different roasts are what the end user wants to achieve and I think there's there's nothing wrong
+with going ahead and programming that but what I I really like about Damien's interface here is that
+it explains what the what the goals are so that the user can work out what they want to do so for
+example if you had a user that um was ordinarily bought darker beans and was gifted a um a roast
+that like quite a light roast they might nonetheless want to get more of that sort of chocolate out
+into it that um Damien mentioned before and so they might not want to use a preset higher initial
+flow rate light roast setting that's geared towards getting less chocolate and and more Aroma in it
+um and I think that you know if if we've got Damien's explanations in there then you can sort of
+have the best of of Both Worlds I'm going on the Assumption I mean you're right though I don't I
+don't know how common a case that is um just I'm working off the assumption that people who are dark
+roast people um like chocolate and mouse feel um and and people who are light Rose tend to want
+Clarity fruit and origin um and and less mouse feel than is how you accomplish that I think by and
+large that that's the that's the camp um and the slightly complicating things is milk or no milk um
+on the medium to Dark World uh because ah I mean my own feeling is that when people milk a medium
+light to dark roast they don't like much acidity because the city doesn't taste great milk but if
+they aren't milking those beans they tend to want some acidity because otherwise it's kind of not
+interesting it's a boring shot so I tend to if I'm making an espresso to drink neat and it's medium
+light to dark I tend to go faster flow decrease that body get the TDS down try and get some whiny
+flavors out of it um whereas I wouldn't do that if I'm milking it if I'm milking it I'm going for a
+thicker low acid simple chocolate and then that that and that ends up you know like Damian I don't
+know how many check boxes you want you know is this being milked yes or no um would also affect that
+but I love the idea of having some um flavor describers like milk or no um and darkness of your
+being and it's Clarity versus mouth feel and that's at the preset and then we absolutely keep this
+this Bottom bar but the nice thing about a slider versus presets is as you slide it that Char is
+gonna morph right it's gonna it's gonna be like a Terminator effect you're gonna see all these lines
+move uh and that's going to teach them by sliding it what variables are relevant as you adapt to a
+rose level it's my two cents on this I I love the the way the interface is designed amen as well I
+think I think it's very clear on on what you are changing and the addition of the descriptions is
+fantastic and it kind of reminds me of when you know when I used to work as a barista and I was
+introducing lighter roasts when they were they were just uh used to drinking dark Rose and without
+going into all the sensory side where you know you'd end up boring the guess half the time or
+they've not got the time to uh to listen and really sort of understand what you're trying to say um
+you would really simplify it in terms of you know do you like nuts or do you like fruit and then
+from there it's it's a process of okay you like nuts so it's more on the darker side and and
+understanding their taste that way and and I I feel like that's kind of what Damian has done he's
+identified you know what what are the the darker rotors looking for in terms of you know their drink
+you know uh obviously the heavier chocolaty flavors and and I think with what John is saying in in
+morphing the the two graphs together as long as we have those um simplifying sort of flow questions
+where we're trying to see where they're leading to dark or light I think it would work and they
+would naturally learn about the parameters um with the definitions like as Damian has done by the
+side because through my experience a lot of people will change the taste of things to how they want
+it anyway and it's it's a case of finding the key components with which they find useful to change
+the profile within so I think it's it's it's a very useful learning tool but the slider just gives
+it that extra quickness that a lot of users may not want to invest the time in learning learning
+everything it is but it's more sort of clear-cut okay if you want it like this the slider will go
+here and this is what this profile has changed so I think we're along the right lines and definitely
+the design and the descriptions is is key to uh getting to where the the user would like um but it's
+the sense of how simplified do we want to be on the the terminology and descriptions to uh how much
+they're willing to learn that's probably one I'd put ourselves up should be aiming for is for new
+users somebody walking plug in their machine um they pull a shot if they get a nice coffee within
+two or three goes they're going to love the machine if it takes two weeks to get something nice out
+of it it's uh it's very off-putting and that's that's the type of mentality I try and think of when
+I'm doing this and one of the ideas that John suggested there was um that I know with our local
+cafes we did a survey and um I think it was 82 percent of people drink espresso with milk um in
+those cafes so I think it's it's safe to say that most people that are coming to um decent um but
+it's going to be a high percentage if you're going to drink milk and maybe a preset um like the very
+first step is uh um there's a shop for milk is it a milk drink is it espresso drink um or is it a
+long black and you select those and they can be they can set up your presets um and you still have
+the descriptions that um said and see I've got a loud default button here and that just sets that
+back to this default um and you would do the same thing with the buttons so it just said defaults
+give you give people a starting point for those drinks um and then you just have a simple guide that
+um if they want to move towards a certain Preference they have it describes a setting to move
+towards that sort of area fantastic a lot of a lot of discussions okay through this all the four of
+us here have been describing the same thing so if we look at the the underlying things there John's
+talking about faster flow rate now I think we're all agreeing the faster flow rate for lighter beans
+is what people are generating to so we can check that later as a as a guide that's not something
+that's going to change regardless of your preference I I'm actually using a lot of light beads and
+roasting some super light and my preference is for right on the on the mark of light to medium I'm
+on medium life like sort of range it's where I'd like to race but um even with the light rays I'm
+still extracting pretty slow um and I was just showing some graphs there um you can see here this
+this is a really light beam this is one of the facsimile beans and I grind it of course something I
+was only hip the full bar and I'm drinking those shots in milk I'm trying them as espresso so I get
+to learn what they're like but ultimately I wanted the milk now that shot was quite good in milk and
+that's a slight fly right and I'm starting to feel flow rate is more important that is a more
+important parameter than than the pressure itself when you're profiling um anything that I want to
+give some um to the whole presence in milk I generally go for a slower flow rate was if if I'm going
+to drink this espresso you go for the faster flow rate and I'm I'm starting to find I'm not fully
+convinced I'm starting to find that that's the case even with super lightness right just just treat
+this infusion stage a bit different to what you want to do anyway I think there's still a lot of
+experimenting there I haven't changed my profile much for years since I made the profile it's the
+same as the one denim I've had the same initial stage here and I just vary as far as sometimes I'll
+change the pressure but I pretty will stick to three bar um drinks your pre-infusion may be a
+slightly higher than than for blacks or straight uh espresso shots yeah so I don't drink black
+coffee so I don't it's hard for me to say that's nice I know when a coffee tastes crap um with if I
+drink espresso shot um and then five minutes later I can taste in the roof of my mouth this this
+astringent and this crap I don't like it and most of the time it's been it's not how I pull the shot
+um and a lot of it a lot of it comes from the bean with how a Polish shot a lot of it comes down to
+extraction ratio um even if I pull a shot that's going to look like this where it's constant flow
+constant pressure um and it's a light beam it's not going to be horrible um regardless of whether I
+did a six bar or nine bar if it's good it's not going to be horrible it's going to taste slightly
+different it's going to your mind get more clarity with with that faster flow and lower pressure
+yeah but it's not going to be horrible but if you've got a bean that wasn't it could be to start
+with it's got a string to see that's when you you've got to you've got to try and hide that
+astrology and that's where the profiling comes in fascinating uh Damien this is awesome that was uh
+that was very informative and I I think everyone got to learn a whole lot uh John actually had just
+to run I think for yeah just uh left and thanks everyone I think our time if anyone wants to uh or
+have a question we're still happy to take a question otherwise we can just wrap it up and catch up
+next week yeah cool all right it's been a fun one thanks guys thanks a lot thanks Damian and Luca
+and everyone thanks Paul as usual and uh John thanks guys and see you next week yeah cheers
