@@ -171,6 +171,11 @@
           "type": "string",
           "minLength": 1,
           "description": "The citation/validation audit (the former kBands C++ comment, verbatim). JSON has no comments; this is its home."
+        },
+        "proseRestatesBand": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional reviewed acknowledgment that this entry's prose intentionally states a value coinciding with a band bound because it narrates the profile's OWN setpoint / cited dial-in (the Adaptive-v2 case, design D9). A non-empty string silences the validator's best-effort D9 lint for this entry and records WHY it is profile commentary, not a band copy. A stale ack (prose no longer restates any bound) is itself surfaced as a non-fatal warning so the suppression set cannot rot; a present-but-malformed value hard-fails the build and does NOT suppress (a broken silencer never silences)."
         }
       },
       "anyOf": [

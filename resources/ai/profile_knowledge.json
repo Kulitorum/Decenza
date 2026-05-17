@@ -31,6 +31,7 @@
         "provenance": "author-stated",
         "src": "profile-notes",
         "confidence": "high",
+        "proseRestatesBand": "Reviewed: ~6 bar is this profile's own pressure approach and ~9 is the cross-profile contrast with D-Flow/default's peak — profile commentary, distinct from the 6–9 expert band.",
         "rationale": "D-Flow / Q ≡ Damian's Q both alias `## D-Flow Q variant`, so both resolve to this one canonical entry (structural zero-dup). Profile-notes verbatim: \"grind for a pressure peak between 6 and 9 bar\". Editor pressure limit 10.0 > 9 → both sides unconfounded."
       },
       "prose": "Covers \"D-Flow / Q\" (created with the D-Flow editor) and \"Damian's Q\" (a related profile by the same author, Damian Brakel — based on / similar to D-Flow / Q but built with the Advanced editor, not D-Flow; its title is not \"D-Flow/\"-prefixed). Both use an 84°C fill temperature and a 6 bar pressure approach, optimized for medium-light beans, producing the lever-decline shape (pressurized soak → flow-controlled pour, declining pressure); the shared D-Flow lever behavior and its DO-NOT-flag list apply here too. Why the grind differs from D-Flow / default: the lower 6 bar target wants a coarser grind than default's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser than D-Flow / default — do NOT transfer a default grinder setting 1:1. Damian's Q produces brightness in milk (contrast with LRv2's thick chocolate); dose 18–19g → 34g; the 84°C fill is INTENTIONAL (controls bitterness during saturation). Expected curves: pressure approaches ~6 bar (not ~9); declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL. DO NOT flag the large gap between the 94°C rise setpoint and the ~86–90°C actual basket temperature — the coffee never reaches 94°C; the high setpoint just drives the heater pump."
@@ -39,7 +40,7 @@
       "id": "d-flow-la-pavoni-variant",
       "displayName": "D-Flow La Pavoni variant",
       "alsoMatches": ["D-Flow / La Pavoni"],
-      "ugs": { "value": 1.0, "inferred": true, "note": "La Pavoni's 6–9 bar pressure target + 84°C fill pull coarser than D-Flow / default's ~9 bar/88°C; not on the UGS chart." },
+      "ugs": { "value": 1.0, "inferred": true, "note": "La Pavoni's lower pressure target + 84°C fill pull coarser than D-Flow / default's higher peak / 88°C; not on the UGS chart." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "lever-decline",
       "expertBand": {
@@ -51,7 +52,7 @@
         "confidence": "high",
         "rationale": "D-Flow / La Pavoni — its own `## D-Flow La Pavoni variant` section (split out by #1175). Profile-notes verbatim: \"The goal is to grind for a pressure peak between 6 and 9 bar.\" (Editor limit 9.0 == band ceiling is the firmware limiter, only ever a corroborating clause — D1 — never the band.)"
       },
-      "prose": "Covers \"D-Flow / La Pavoni\" (created with the D-Flow editor). Damian created it to simulate the results from his La Pavoni lever machine, profiled side by side with a Slayer V3 for the same taste in cup. It uses an 84°C fill temperature and a lower pressure target than D-Flow / default, producing the lever-decline shape (pressurized soak → flow-controlled pour, declining pressure); the shared D-Flow lever behavior and its DO-NOT-flag list apply here too.\n\nStated dial-in target (profile notes, verbatim): \"The goal is to grind for a pressure peak between 6 and 9 bar.\"\n\nWhy the grind differs from D-Flow / default: the lower 6–9 bar target wants a coarser grind than default's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser — do NOT transfer a default grinder setting 1:1. Setup: 18g VST basket, tuned for milk drinks; de1app stock parameters: fill 1.2 bar, 84°C fill, pour flow 2.4 ml/s, pour pressure limit 9.0 bar, weight 46 g. Declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL. DO NOT flag the large gap between a high rise setpoint and the lower actual basket temperature — the coffee never reaches the setpoint; the high setpoint just drives the heater pump."
+      "prose": "Covers \"D-Flow / La Pavoni\" (created with the D-Flow editor). Damian created it to simulate the results from his La Pavoni lever machine, profiled side by side with a Slayer V3 for the same taste in cup. It uses an 84°C fill temperature and a lower pressure target than D-Flow / default, producing the lever-decline shape (pressurized soak → flow-controlled pour, declining pressure); the shared D-Flow lever behavior and its DO-NOT-flag list apply here too.\n\nWhy the grind differs from D-Flow / default: the lower pressure target wants a coarser grind than default's higher peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser — do NOT transfer a default grinder setting 1:1. Setup: 18g VST basket, tuned for milk drinks; de1app stock parameters: fill 1.2 bar, 84°C fill, pour flow 2.4 ml/s, pour pressure limit 9.0 bar, weight 46 g. Declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL. DO NOT flag the large gap between a high rise setpoint and the lower actual basket temperature — the coffee never reaches the setpoint; the high setpoint just drives the heater pump."
     },
     {
       "id": "damians-lr-v2-v3",
@@ -92,6 +93,7 @@
         "provenance": "cited",
         "src": "https://decentespresso.com/first_decent_espresso",
         "confidence": "medium",
+        "proseRestatesBand": "Reviewed: ~9 bar ramp / 8.8 bar exit / 9.5 bar limiter describe the profile's actual behavior, intentionally distinct from the 6–9 envelope (the design's named D9 disproof case).",
         "rationale": "Phase C — Adaptive v2 (canonical `## Adaptive v2`; the separate `## Gagné Adaptive` section has its own key, no collision). Decent authored the shipped DE1 profile (adaptive_v2.json `author: Decent`), so `[SRC:decent-guide]` is the profile-author authority for the cited band bounds. Gagné's Coffee ad Astra (`[SRC:adaptive-adastra]`) describes the adaptive technique this profile implements — supplementary context, not authoritative for the bounds. decent-guide dial-in: peak 8–9 bar, \"too coarse → peak below 7\". The profile is intentionally grind-tolerant (adapts ~6.8 coarse → ~9 fine) but is *best* in Decent's recommended envelope — so the band is 6–9 (NOT 8–9): it CONTAINS the by-design adaptive range, stays silent across it, and only a peak well below 6 (too coarse) or above 9 (too fine / pegging the 9.5-bar limiter) trips the observational \"outside the band Decent recommends — judge by taste\" line. (Like every row, the EXPERT_BAND_PRESSURE_MARGIN_BAR=0.3 slack means the effective trip is ~5.7 / ~9.3 — deliberately conservative; the 6–9 here is the cited band, not the post-margin threshold.) Per the band's posture (D2/D3) this is \"could be better\", not a fault."
       },
       "prose": "Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists; switches to stable flow after the pressure peak. Extraction flow limiter at 9.5 bar. The Low Pressure Infusion variant (Trevor Rainey + Jonathan Gagné) modifies this with a high-flow fill (8 ml/s), 3 bar soak pressure, and 8 bar rise targeting ~30s total (canonical LPI: 15g dose, ~33g out in ~30s, ~4g drip-through during bloom, ~1.5 ml/s at pressurize). Expected curves: pressure peaks near 9 bar then gradually declines; flow settles 2.0–2.7 ml/s; variable curves are expected — the profile adapts to grind size. With large flat burrs the extraction phase may be very short. Dial-in target: 18g in, 36g out, ~25s, peak 8–9 bar, ~4g dripping during pre-infusion. Too coarse: peak below 7 bar, sharp acidity. Too fine: extended duration, decreased acidity, bitterness. Lots of dripping is fine with flat-burr grinders; ratio best 1:1.8–2.3 for light roasts. LPI extraction step has a 60s safety timeout — stop manually ~30s. Roast: good for light (v2 updated for light), excellent medium-light, not for dark. DO NOT flag variable pressure curves, steep pre-infusion pressure drop, or a slight flow jump at peak pressure — all by design."
@@ -107,7 +109,6 @@
     {
       "id": "blooming-allonge",
       "displayName": "Blooming Allonge",
-      "alsoMatches": ["Blooming Allongé"],
       "ugs": { "value": -0.5, "inferred": false, "note": "Original at -0.5; an ultralight hybrid variant sits near UGS 7." },
       "analysisFlags": ["flow_trend_ok", "grind_check_skip", "channeling_expected"],
       "family": "blooming",
@@ -116,7 +117,7 @@
     {
       "id": "allonge",
       "displayName": "Allonge",
-      "alsoMatches": ["Allongé", "Rao Allongé"],
+      "alsoMatches": ["Rao Allongé"],
       "ugs": { "value": 8.0, "inferred": false, "note": "Rao Allongé — the coarse anchor of the UGS chart." },
       "analysisFlags": ["channeling_expected", "grind_check_skip"],
       "family": "allonge",
@@ -127,6 +128,7 @@
         "src": "https://decentespresso.com/blog/5_espresso_profiles_for_light_roasted_coffee_beans",
         "srcArchive": "docs/kb_sources/light_roast_profiles_transcript.txt",
         "confidence": "medium",
+        "proseRestatesBand": "Reviewed: ~4.5 ml/s is the profile's defining constant-flow setpoint; the one-sided 4.5 ml/s floor coincides because the profile commands that flow, so describing it is mandatory, not a band copy.",
         "rationale": "Phase C — Rao/Blooming Allongé. Cited rail [SRC:light-video]/[SRC:eaf-profiling]: a constant ~4.5 ml/s flow profile — \"if pressure hits max, flow adjusts down: grind too fine\". One-sided FLOOR (reach ~4.5, no ceiling). flowFloor fires only when the SUSTAINED (median) extraction flow drops below ~4.5 (the limiter choked it = too fine); the peak measure is structurally blind here (the pump touches the 4.5 setpoint every shot), so the ExtractionFlow axis uses the windowed median, an independent absolute-flow measure, which makes this rail real. AnalysisFlags channeling_expected keeps channelingFired==false so the band is not masked by Allongé's by-design needle-stream channeling. grind_check_skip is present but the expert-band block deliberately does NOT gate on it (it gates only on pour-truncated/channeling): grind_check_skip suppresses the confounded grind-DELTA arms, whereas this band is a separate cited observational \"judge by taste\" note whose floor the primary source states explicitly. The band fires and is advisory (\"could be better\"), not a grind verdict."
       },
       "prose": "Constant high flow at ~4.5 ml/s with low pressure (~4–6 bar). The coarsest grind of all espresso profiles. Expected curves: flow held near 4.5 ml/s, pressure 4–6 bar; some channeling (a visible needle stream) is NORMAL at this flow rate. Duration ~30s; ratio 1:4–1:5 (the high ratio is intentional). Temperature runs high — produces the hottest coffee of any profile because the fast flow gives the puck little time to cool the water. Best for ultralight/light roasts; excellent with natural/fermented/fruity beans, less impressive with clean washed coffees. DO NOT flag the high ratio, low pressure, or minor channeling — all are expected."
@@ -153,6 +155,7 @@
         "provenance": "cited",
         "src": "https://decentespresso.com/first_decent_espresso",
         "confidence": "medium",
+        "proseRestatesBand": "Reviewed: the 9 bar declining curve (9→8 bar) and the cited Decent dial-in ('too fine: pressure over 9 bar') describe physical and cited behavior, not the 8–9 expert band. The lo=8 D9 hit also fires on '...flow exceeds 2.8 ml/s' — the regex word boundary matches the '8' in '2.8 ml/s' — but that phrase is the profile's max-flow safety threshold, likewise profile behavior and not a band copy.",
         "rationale": "Phase C — Londinium (the standalone `## Londinium` section). Damian's LRv2/LRv3 never pick up this band because they resolve to their OWN canonical KB section (`Damian's LRv2 / LRv3`) which has no kBands row — NOT because of the `## Londinium` Note (that Note is LLM-only prose, inert for C++ key resolution). Guarded by tst_dialing_blocks::expertBand_londinium_resolvesAndDoesNotCatchDamianLR. Cited band: the official Decent dial-in guide — \"9 bar peak with gradual decline; too fine: pressure over 9 bar; too coarse: pressure crash\" [SRC:decent-guide]. Non-adaptive (unlike Adaptive v2, which was gate-failed and left absent — its KB section forbids flagging its by-design variable pressure). The 3-bar soak is intentional pre-infusion; the pour-window peak measure excludes it (the peak is the ~9-bar extraction). Gate: 20-shot / 5-user community population clusters at the cited target (extraction-peak median 9.0, mode 9) and band [8,9] partitions verbatim onto the guide — SILENT 8–9 (on target), FIRE >9 (cited \"too fine: pressure over 9 bar\"), FIRE <8 (cited \"too coarse: pressure crash\"). Confidence `medium` (Phase-C contextual tail; same rung as A-Flow's editor guidance)."
       },
       "prose": "The standalone Londinium profile. (Damian's LRv2/LRv3 are separate standalone profiles with different fill/infuse behavior and higher frame temperatures — LRv2 89°C, LRv3 90°C vs 88–89°C here — covered in their own section.) Fast fill at 2 bar, then a spring-lever soak at ~3 bar until dripping appears, then 9 bar declining pressure; if the puck erodes too fast (flow exceeds 2.8 ml/s) it switches to flow control at 2.5 ml/s to prevent gushing. Expected curves: 3 bar hold during the soak/dripping phase, then a 9 bar peak with gradual decline; pressure stays high (9→8 bar) because flow is held constant; flow relatively constant throughout. Temperature 88–89°C. Grind fine (same as Cremina, finer than E61/80s). Highest extraction of the dark-roast profiles — most full-bodied cup; dark chocolate, smooth, rich and bold. Roast: excellent dark, good medium-dark, struggles with light. Dial-in target: 30–35s, 9 bar peak with gradual decline, consistent flow. Too coarse: pressure crash, max-flow safety step triggers. Too fine: pressure over 9 bar, reduced flow, longer shots. DO NOT flag the 3 bar soak phase as \"low pressure\" — it's intentional pre-infusion."
@@ -190,7 +193,6 @@
     {
       "id": "gentle-and-sweet",
       "displayName": "Gentle & Sweet",
-      "alsoMatches": ["Gentle and sweet"],
       "ugs": { "value": 2.0, "inferred": false, "note": "Constant 6 bar, 2–3 ml/s flow." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "flat-pressure",
