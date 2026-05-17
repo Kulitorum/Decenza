@@ -1238,7 +1238,7 @@ void DataMigrationClient::onDiscoveryDatagram()
             device["appVersion"] = obj["appVersion"].toString();
             device["serverUrl"] = serverUrl;
             device["port"] = obj["port"].toInt();
-            device["ipAddress"] = senderAddress.toString();
+            device["ipAddress"] = senderIp;
 
             m_discoveredDevices.append(device);
             emit discoveredDevicesChanged();
