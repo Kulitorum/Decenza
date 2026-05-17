@@ -1066,17 +1066,32 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 axisLabel = QStringLiteral("peak pressure");
                 unit = QStringLiteral("bar");
             } else if (band.axis == ExpertBand::Axis::ExtractionFlow) {
-                // Peak flow across the pour window. No extraction-flow band
-                // is seeded in Phase A — reachable only once a flow band
-                // ships in a later phase; defined here so the per-axis
-                // contract is complete.
-                double pf = 0.0;
+                // SUSTAINED (median) flow across the pour window — NOT peak.
+                // A flow band asks "what flow did this shot actually run
+                // at" (a floor: did it sustain ≥X; a ceiling: did it run
+                // ≤X). Peak is wrong for that: a flow-controlled profile
+                // commands a setpoint, so the pump momentarily touches it
+                // on every shot — peak ≈ commanded flow even when the
+                // pressure limiter has choked the real flow far below it
+                // (e.g. Rao Allongé too-fine: mean ~2–3 ml/s, peak still
+                // ~4.5). Median over the pour window is the honest "flow
+                // this shot ran at", robust to the brief setpoint touch and
+                // to transient dips. This realigns with A2.2's stated
+                // intent (extraction-flow reads the windowed flow-vs-goal
+                // quantity, not a raw peak). Empty window → observed stays
+                // NaN → strict no-op (never fire a floor on absent data).
+                std::vector<double> fv;
                 for (const auto& fp : flow) {
                     if (fp.x() < pourStart) continue;
                     if (fp.x() > pourEnd) break;
-                    if (fp.y() > pf) pf = fp.y();
+                    fv.push_back(fp.y());
                 }
-                observed = pf;
+                if (!fv.empty()) {
+                    std::sort(fv.begin(), fv.end());
+                    const size_t n = fv.size();
+                    observed = (n % 2) ? fv[n / 2]
+                                       : 0.5 * (fv[n / 2 - 1] + fv[n / 2]);
+                }
                 axisLabel = QStringLiteral("extraction flow");
                 unit = QStringLiteral("ml/s");
             }

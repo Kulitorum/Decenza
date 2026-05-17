@@ -479,6 +479,38 @@ ShotSummarizer::expertBandForKbId(const QString& kbId)
         { QStringLiteral("Londinium"),
           ExpertBand::pressureBand(8.0, 9.0,
             QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
+        // Phase C — Adaptive v2 (canonical `## Adaptive v2`; the separate
+        // `## Gagné Adaptive` section has its own key, no collision).
+        // Decent AUTHORED this profile, so `[SRC:decent-guide]` is the
+        // profile-author authority (Coffee ad Astra's "grind-tolerant"
+        // commentary is third-party, not the author). decent-guide
+        // dial-in: peak 8–9 bar, "too coarse → peak below 7". The profile
+        // is intentionally grind-tolerant (adapts ~6.8 coarse → ~9 fine)
+        // but is *best* in Decent's recommended envelope — so the band is
+        // 6–9 (NOT 8–9): it CONTAINS the by-design adaptive range, stays
+        // silent across it, and only an out-of-envelope peak (<6 too
+        // coarse, >9 too fine / pegging the 9.5-bar limiter) trips the
+        // observational "outside the band Decent recommends — judge by
+        // taste" line. Per the band's posture (D2/D3) this is "could be
+        // better", not a fault on the shot.
+        { QStringLiteral("Adaptive v2"),
+          ExpertBand::pressureBand(6.0, 9.0,
+            QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
+        // Phase C — Rao/Blooming Allongé (canonical `## Allonge`;
+        // `Also matches: "Allongé", "Rao Allongé"`). Cited rail
+        // [SRC:light-video]/[SRC:eaf-profiling]: a constant ~4.5 ml/s flow
+        // profile — "if pressure hits max, flow adjusts down: grind too
+        // fine". One-sided FLOOR (reach ~4.5, no ceiling). `flowFloor`
+        // fires only when the SUSTAINED (median) extraction flow drops
+        // below ~4.5 (the limiter choked it = too fine) — the peak measure
+        // was structurally blind here (pump touches the 4.5 setpoint on
+        // every shot); the ExtractionFlow axis now uses the windowed
+        // median (A2.2-aligned), which makes this rail real. AnalysisFlags
+        // `channeling_expected` keeps `channelingFired==false`, so the band
+        // is not masked by Allongé's by-design needle-stream channeling.
+        { QStringLiteral("Allonge"),
+          ExpertBand::flowFloor(4.5,
+            QStringLiteral("[SRC:light-video]"), QStringLiteral("medium")) },
     };
     if (kbId.isEmpty()) return std::nullopt;
     loadProfileKnowledge();
