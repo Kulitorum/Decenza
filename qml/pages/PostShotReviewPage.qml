@@ -25,19 +25,26 @@ Page {
         }
     }
 
-    // Disconnect refractometer when leaving to save battery (requires physical wake to reconnect)
+    // Disconnect refractometer when the page is torn down. NOTE: we do NOT
+    // autosave() here — calling Qt.inputMethod.commit() / a DB write / singleton
+    // writes during QML object destruction is unsafe (events delivered to a
+    // being-destroyed TextEdit, nulled context). StackView.onDeactivating below
+    // already flushes on every normal navigation exit, and handleBack() flushes
+    // on the explicit back path, so the destruction flush was redundant.
     Component.onDestruction: {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
     }
 
+    // Flush whenever the page loses the foreground (back, a child page pushed
+    // on top, app backgrounded) so a deferred/in-progress edit is persisted.
+    StackView.onDeactivating: autosave()
+
     function handleBack() {
-        Qt.inputMethod.commit()
-        if (hasUnsavedChanges) {
-            unsavedChangesDialog.open()
-            return
-        }
+        // Every committed edit is already persisted; just flush a possible
+        // in-progress text field and leave — no confirmation prompt needed.
+        autosave()
         root.goBack()
     }
 
@@ -81,10 +88,8 @@ Page {
                  && postShotReviewPage.autoCloseTimeout < 31
                  && postShotReviewPage.StackView.status === StackView.Active
         onTriggered: {
-            // Auto-close: save silently and exit (user isn't here to answer a prompt)
-            if (postShotReviewPage.hasUnsavedChanges) {
-                postShotReviewPage.saveEditedShot()
-            }
+            // Auto-close: flush any pending edit and exit
+            postShotReviewPage.autosave()
             root.goBack()
         }
     }
@@ -146,6 +151,13 @@ Page {
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
                 calculateEy()
+                // Establish the autosave baseline now that every edit field
+                // mirrors the loaded record. _editLoaded gates autosave so a
+                // pre-load flush can't write empty metadata over the shot
+                // (hasUnsavedChanges is transiently true before this point —
+                // empty baseline vs. dose defaulted from Settings).
+                _committedState = captureEditState()
+                _editLoaded = true
                 // Quality badges already arrived recomputed in `shot` via
                 // loadShotRecordStatic, which also persists drift to the DB
                 // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
@@ -163,16 +175,19 @@ Page {
         }
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
-            if (success)
-                loadShotForEditing()
-            else
+            // Success needs no reload: saveEditedShot() already advanced the
+            // in-memory baseline optimistically. Reloading here would race an
+            // autosave from another field and clobber an in-progress edit.
+            if (!success)
                 console.warn("PostShotReviewPage: Failed to save metadata for shot", shotId)
         }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
-            if (success)
-                loadShotForEditing()
-            else
+            // No reload: a full loadShotForEditing() here would re-run
+            // onShotReady, clobber an in-progress edit, and orphan the undo
+            // stack (same race the metadata path avoids). The visualizer id is
+            // refreshed in place by onUploadSuccess / onUpdateSuccess below.
+            if (!success)
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
         }
         function onDistinctCacheReady() {
@@ -181,7 +196,12 @@ Page {
                 var types = MainController.shotHistory.getDistinctBeanTypesForBrand(_pendingBeanAutoFill)
                 if (types.length > 0) {
                     _pendingBeanAutoFill = ""
-                    if (types.length === 1) editBeanType = types[0]
+                    if (types.length === 1) {
+                        editBeanType = types[0]
+                        // Async auto-fill (cache resolved after the roaster was
+                        // picked) — persist like any other committed value.
+                        postShotReviewPage.autosave("beanType", true)
+                    }
                 }
             }
         }
@@ -239,6 +259,11 @@ Page {
             }
             editDrinkTds = tds
             calculateEy()
+            // An R2 measurement is a committed value just like a user-entered
+            // one — persist it the moment it lands (finalize: a discrete async
+            // commit, not a coalesced gesture). Without this it relied on a
+            // later manual Save and was frequently lost on navigate-away.
+            postShotReviewPage.autosave("r2", true)
         }
     }
 
@@ -271,6 +296,132 @@ Page {
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso")
     )
+
+    // ---- Autosave + undo ---------------------------------------------------
+    // There is no manual Save button: every committed edit is persisted right
+    // away and the prior committed state is pushed onto an undo stack, so the
+    // last change (repeatable) can be reverted. The baseline (editShotData) is
+    // advanced optimistically inside saveEditedShot() so hasUnsavedChanges
+    // clears without a DB round-trip — reloading on save would clobber an edit
+    // the user has already started in another field.
+    readonly property int kMaxUndoDepth: 50
+    property var _undoStack: []
+    // INVARIANT: _undoDepth must be reassigned to _undoStack.length after every
+    // push/pop/splice — in-place array mutation does not emit a QML change
+    // signal, so this integer mirror is the only thing undoButton.visible can
+    // bind to. Never mutate _undoStack without updating _undoDepth.
+    property int _undoDepth: 0
+    property var _committedState: ({})  // last persisted edit-field values
+    property bool _editLoaded: false    // true once onShotReady has populated fields
+    // Undo coalescing: a continuous interaction with one control (slider drag,
+    // a burst of +/- stepper clicks, typing into one field) is ONE undoable
+    // change. A new undo frame opens only when the edit key differs from the
+    // previous one; coalescing ends (via finalizeEdit) when the control loses
+    // focus or a discrete/terminal commit fires, so dragging the rating slider
+    // 75→85 is a single Undo back to 75, while editing dose, leaving it, and
+    // editing it again are two separate Undo frames.
+    property string _lastEditKey: ""
+
+    function captureEditState() {
+        return {
+            beanBrand: editBeanBrand, beanType: editBeanType,
+            roastDate: editRoastDate, roastLevel: editRoastLevel,
+            grinderBrand: editGrinderBrand, grinderModel: editGrinderModel,
+            grinderBurrs: editGrinderBurrs, grinderSetting: editGrinderSetting,
+            barista: editBarista, doseWeight: editDoseWeight,
+            drinkWeight: editDrinkWeight, drinkTds: editDrinkTds,
+            drinkEy: editDrinkEy, enjoyment: editEnjoyment,
+            notes: editNotes, beverageType: editBeverageType
+        }
+    }
+
+    function applyEditState(s) {
+        editBeanBrand = s.beanBrand; editBeanType = s.beanType
+        editRoastDate = s.roastDate; editRoastLevel = s.roastLevel
+        editGrinderBrand = s.grinderBrand; editGrinderModel = s.grinderModel
+        editGrinderBurrs = s.grinderBurrs; editGrinderSetting = s.grinderSetting
+        editBarista = s.barista; editDoseWeight = s.doseWeight
+        editDrinkWeight = s.drinkWeight; editDrinkTds = s.drinkTds
+        editDrinkEy = s.drinkEy; editEnjoyment = s.enjoyment
+        editNotes = s.notes; editBeverageType = s.beverageType
+        // RatingInput (internal `root.value = …`) and the dose/out ValueInputs
+        // (handlers do `xInput.value = …`) imperatively assign their own
+        // `value` during interaction, which severs the `value: editX` binding.
+        // Re-establish the binding (not a bare assignment, which would sever it
+        // permanently) so Undo restores the UI and future edits keep tracking
+        // editX. The TDS/EY onValueModified handlers in THIS file (unlike
+        // dose/out) do not self-assign tdsInput.value/eyInput.value, so their
+        // `value: editDrinkTds`/`editDrinkEy` bindings stay live and must NOT
+        // be touched here — re-asserting them would sever the binding and
+        // break later R2 / calculateEy() updates. (If a future edit adds a
+        // self-assign to those handlers, re-bind them here too.)
+        ratingInput.value = Qt.binding(function() { return editEnjoyment })
+        doseInput.value = Qt.binding(function() { return editDoseWeight })
+        outInput.value = Qt.binding(function() { return editDrinkWeight })
+    }
+
+    // Persist current edits if dirty.
+    //
+    // `key`      — identifies the control being edited. A new undo frame opens
+    //              when it differs from `_lastEditKey` (coalescing). Absent/""
+    //              means a lifecycle flush (handleBack / deactivate / upload).
+    // `finalize` — true for terminal/discrete/async commits (blur, suggestion
+    //              pick, combo/date change, R2 reading) and focus-loss; ends
+    //              coalescing so the next edit (even same control) is a new
+    //              frame.
+    //
+    // DB-write coalescing: a same-control continuous tick (slider drag, held
+    // stepper) neither opens a frame nor writes to the DB — it defers. The
+    // value is persisted when the gesture boundary is reached (frame open on
+    // first tick, finalize on focus-loss, or a lifecycle flush). This keeps
+    // one drag to ~2 DB writes instead of one per emission.
+    function autosave(key, finalize) {
+        Qt.inputMethod.commit()
+        var lifecycle = (key === undefined || key === "")
+        if (!_editLoaded || !hasUnsavedChanges) {
+            if (finalize || lifecycle) _lastEditKey = ""
+            return
+        }
+        // Open a frame on a control change, or on a lifecycle flush that is
+        // NOT mid-gesture (a gesture already opened its frame on first tick).
+        var newFrame = (!lifecycle && key !== _lastEditKey)
+                       || (lifecycle && _lastEditKey === "")
+        if (newFrame) {
+            _undoStack.push(_committedState)
+            // Cap depth but never drop index 0 — that is the loaded-record
+            // baseline that makes Undo "repeatable down to the loaded record".
+            if (_undoStack.length > kMaxUndoDepth) _undoStack.splice(1, 1)
+            _undoDepth = _undoStack.length
+            if (!lifecycle) _lastEditKey = key
+        }
+        // Persist only on a boundary: a freshly opened frame, an explicit
+        // finalize, or a lifecycle flush. Coalesced continuous ticks defer.
+        if (newFrame || finalize || lifecycle) {
+            saveEditedShot()
+            _committedState = captureEditState()
+        }
+        if (finalize || lifecycle) _lastEditKey = ""
+    }
+
+    // End an in-progress coalesced gesture: persist the deferred final value
+    // and reset coalescing. Wired to focus-loss of the slider/steppers.
+    function finalizeEdit() {
+        autosave(_lastEditKey, true)
+    }
+
+    // Revert the most recent committed change. Repeatable down to the loaded
+    // record; the reverted state is itself persisted.
+    function undoLastChange() {
+        if (_undoStack.length === 0) return
+        Qt.inputMethod.commit()
+        applyEditState(_undoStack.pop())
+        _undoDepth = _undoStack.length
+        // Force the next edit (even to the same control) to open a fresh
+        // undo frame relative to this restored state.
+        _lastEditKey = ""
+        saveEditedShot()
+        _committedState = captureEditState()
+    }
 
     // Save edited shot back to history
     function saveEditedShot() {
@@ -311,7 +462,29 @@ Page {
         Settings.dye.dyeBarista = editBarista
         if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
         if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
-        // Note: reload deferred to onShotMetadataUpdated to avoid race with async write
+
+        // Advance the in-memory baseline so hasUnsavedChanges clears at once.
+        // We deliberately do NOT reload from the DB on save success — an async
+        // reload would overwrite an edit the user has already started in
+        // another field (autosave fires on every commit point).
+        var nb = Object.assign({}, editShotData)
+        nb.beanBrand = editBeanBrand
+        nb.beanType = editBeanType
+        nb.roastDate = editRoastDate
+        nb.roastLevel = editRoastLevel
+        nb.grinderBrand = editGrinderBrand
+        nb.grinderModel = editGrinderModel
+        nb.grinderBurrs = editGrinderBurrs
+        nb.grinderSetting = editGrinderSetting
+        nb.barista = editBarista
+        nb.doseWeightG = editDoseWeight
+        nb.finalWeightG = editDrinkWeight
+        nb.drinkTdsPct = editDrinkTds
+        nb.drinkEyPct = editDrinkEy
+        nb.enjoyment0to100 = editEnjoyment
+        nb.espressoNotes = editNotes
+        nb.beverageType = editBeverageType
+        editShotData = nb
     }
 
     // Handle upload status changes
@@ -332,17 +505,22 @@ Page {
         function onUploadSuccess(shotId, url) {
             // Persistence of the Visualizer id is owned by MainController
             // (VisualizerUploader::uploadSucceededForShot →
-            // requestUpdateVisualizerInfo), independent of this page. The
-            // page only clears any prior error; the row reload still
-            // arrives via onVisualizerInfoUpdated.
+            // requestUpdateVisualizerInfo), independent of this page. Refresh
+            // the id/url in place (so the button flips to "Re-Upload") instead
+            // of a full reload that would clobber edits / orphan undo.
             uploadError = ""
+            if (shotId === postShotReviewPage.editShotId && url) {
+                var vid = ("" + url).split("/").pop()
+                editShotData = Object.assign({}, editShotData,
+                    { visualizerId: vid, visualizerUrl: url })
+            }
         }
         function onUpdateSuccess(visualizerId) {
             uploadError = ""
-            // Reload shot data to refresh the UI after metadata update
-            if (editShotId > 0) {
-                loadShotForEditing()
-            }
+            // Refresh the id in place — no reload (see onVisualizerInfoUpdated).
+            if (visualizerId)
+                editShotData = Object.assign({}, editShotData,
+                    { visualizerId: visualizerId })
         }
         function onUploadFailed(error) {
             uploadError = error
@@ -705,7 +883,7 @@ Page {
                 visible: postShotReviewPage.isEditMode && editEnjoyment === 0
                 onRateClicked: function(score) {
                     editEnjoyment = score
-                    postShotReviewPage.saveEditedShot()
+                    postShotReviewPage.autosave("rating", true)
                 }
             }
 
@@ -744,7 +922,9 @@ Page {
                         accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                         onValueModified: function(newValue) {
                             editEnjoyment = newValue
+                            postShotReviewPage.autosave("rating")
                         }
+                        onActiveFocusChanged: if (!activeFocus) postShotReviewPage.finalizeEdit()
                     }
                 }
             }
@@ -771,6 +951,7 @@ Page {
                     accessibleName: TranslationManager.translate("postshotreview.label.notes", "Notes")
                     textFont: Theme.bodyFont
                     onTextChanged: editNotes = text
+                    onEditingFinished: postShotReviewPage.autosave("notes", true)
                 }
             }
 
@@ -825,8 +1006,19 @@ Page {
                                 doseInput.value = newValue
                                 editDoseWeight = newValue
                                 calculateEy()
+                                postShotReviewPage.autosave("dose")
                             }
-                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                            // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                         }
                     }
 
@@ -857,8 +1049,19 @@ Page {
                                 outInput.value = newValue
                                 editDrinkWeight = newValue
                                 calculateEy()
+                                postShotReviewPage.autosave("out")
                             }
-                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                            // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                         }
                     }
 
@@ -908,8 +1111,19 @@ Page {
                                 onValueModified: function(newValue) {
                                     editDrinkTds = newValue
                                     calculateEy()
+                                    postShotReviewPage.autosave("tds")
                                 }
-                                onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                             }
                         }
                     }
@@ -940,8 +1154,19 @@ Page {
                             accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                             onValueModified: function(newValue) {
                                 editDrinkEy = newValue
+                                postShotReviewPage.autosave("ey")
                             }
-                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                            // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                         }
                     }
                 }
@@ -966,12 +1191,14 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editBeanBrand = t }
+                    onInputBlurred: postShotReviewPage.autosave("beanBrand", true)
                     onSuggestionSelected: function(t) {
                         editBeanType = ""
                         editRoastDate = ""
                         var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
                         if (types.length === 1) editBeanType = types[0]
                         else if (types.length === 0) _pendingBeanAutoFill = t
+                        postShotReviewPage.autosave("beanBrand", true)
                     }
                 }
 
@@ -986,7 +1213,8 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editBeanType = t }
-                    onSuggestionSelected: function(t) { editRoastDate = "" }
+                    onInputBlurred: postShotReviewPage.autosave("beanType", true)
+                    onSuggestionSelected: function(t) { editRoastDate = ""; postShotReviewPage.autosave("beanType", true) }
                 }
 
                 Item {
@@ -1003,6 +1231,7 @@ Page {
                         inputHints: Qt.ImhDate
                         inputMask: "9999-99-99"
                         onTextEdited: function(t) { editRoastDate = t }
+                        onEditingFinished: postShotReviewPage.autosave("roastDate", true)
                     }
 
                     AccessibleButton {
@@ -1023,7 +1252,7 @@ Page {
 
                     DatePickerDialog {
                         id: reviewDatePicker
-                        onDateSelected: function(dateString) { editRoastDate = dateString }
+                        onDateSelected: function(dateString) { editRoastDate = dateString; postShotReviewPage.autosave("roastDate", true) }
                     }
                 }
 
@@ -1038,7 +1267,7 @@ Page {
                         TranslationManager.translate("postshotreview.roastlevel.mediumdark", "Medium-Dark"),
                         TranslationManager.translate("postshotreview.roastlevel.dark", "Dark")]
                     currentValue: editRoastLevel
-                    onValueChanged: function(v) { editRoastLevel = v }
+                    onValueChanged: function(v) { editRoastLevel = v; postShotReviewPage.autosave("roastLevel", true) }
                 }
 
                 SuggestionField {
@@ -1056,6 +1285,7 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderBrand = t }
+                    onInputBlurred: postShotReviewPage.autosave("grinderBrand", true)
                     onSuggestionSelected: function(t) {
                         editGrinderModel = ""
                         editGrinderBurrs = ""
@@ -1065,6 +1295,7 @@ Page {
                             var burrs = Settings.dye.suggestedBurrs(t, models[0])
                             if (burrs.length === 1) editGrinderBurrs = burrs[0]
                         }
+                        postShotReviewPage.autosave("grinderBrand", true)
                     }
                 }
 
@@ -1083,9 +1314,11 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderModel = t }
+                    onInputBlurred: postShotReviewPage.autosave("grinderModel", true)
                     onSuggestionSelected: function(t) {
                         var burrs = Settings.dye.suggestedBurrs(editGrinderBrand, t)
                         if (burrs.length === 1) editGrinderBurrs = burrs[0]
+                        postShotReviewPage.autosave("grinderModel", true)
                     }
                 }
 
@@ -1105,6 +1338,7 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderBurrs = t }
+                    onInputBlurred: postShotReviewPage.autosave("grinderBurrs", true)
                 }
 
                 SuggestionField {
@@ -1118,6 +1352,7 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editGrinderSetting = t }
+                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
                 }
 
                 // === ROW 4: Beverage type, Barista, Preset, Shot Date ===
@@ -1126,7 +1361,7 @@ Page {
                     label: TranslationManager.translate("postshotreview.label.beveragetype", "Beverage type")
                     model: ["espresso", "filter", "pourover", "tea_portafilter", "tea", "calibrate", "cleaning", "descale", "manual"]
                     currentValue: editBeverageType
-                    onValueChanged: function(v) { editBeverageType = v }
+                    onValueChanged: function(v) { editBeverageType = v; postShotReviewPage.autosave("beverageType", true) }
                 }
 
                 SuggestionField {
@@ -1140,6 +1375,7 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editBarista = t }
+                    onInputBlurred: postShotReviewPage.autosave("barista", true)
                 }
 
                 // Preset (read-only display)
@@ -1271,27 +1507,24 @@ Page {
             }
         }
 
-        // Save button - only visible when there are unsaved changes
-        Rectangle {
-            id: saveButton
-            visible: hasUnsavedChanges
-            Layout.preferredWidth: saveButtonContent.width + 40
+        // Undo button — edits autosave on every commit point; this reverts the
+        // most recent committed change (repeatable). Visible only when there is
+        // something on the undo stack.
+        AccessibleButton {
+            id: undoButton
+            visible: postShotReviewPage._undoDepth > 0
+            Layout.preferredWidth: undoButtonContent.implicitWidth + Theme.scaled(40)
             Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: saveArea.pressed ? Qt.darker("#2E7D32", 1.2) : "#2E7D32"  // Dark green
+            text: TranslationManager.translate("postshotreview.button.undo", "Undo")
+            accessibleName: TranslationManager.translate("postshotreview.accessible.undo", "Undo last change")
+            onClicked: postShotReviewPage.undoLastChange()
 
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("postshotreview.button.save", "Save Changes")
-            Accessible.focusable: true
-            Accessible.onPressAction: saveArea.clicked(null)
-
-            Row {
-                id: saveButtonContent
-                anchors.centerIn: parent
+            contentItem: Row {
+                id: undoButtonContent
                 spacing: Theme.scaled(6)
 
                 Image {
-                    source: "qrc:/icons/tick.svg"
+                    source: "qrc:/icons/history.svg"
                     sourceSize.width: Theme.scaled(16)
                     sourceSize.height: Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
@@ -1299,19 +1532,13 @@ Page {
                 }
 
                 Tr {
-                    key: "postshotreview.button.save"
-                    fallback: "Save Changes"
-                    color: Theme.primaryContrastColor
+                    key: "postshotreview.button.undo"
+                    fallback: "Undo"
+                    color: Theme.textColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }
-            }
-
-            MouseArea {
-                id: saveArea
-                anchors.fill: parent
-                onClicked: saveEditedShot()
             }
         }
 
@@ -1362,10 +1589,8 @@ Page {
                 id: uploadArea
                 anchors.fill: parent
                 onClicked: {
-                    // Auto-save any unsaved changes before uploading
-                    if (hasUnsavedChanges) {
-                        saveEditedShot()
-                    }
+                    // Flush any pending edit before uploading
+                    autosave()
 
                     uploadError = ""
                     if (editShotData.visualizerId) {
@@ -1646,6 +1871,7 @@ Page {
         property string inputMask: ""
         property alias textField: fieldInput  // Expose for KeyboardAwareContainer registration
         signal textEdited(string text)
+        signal editingFinished()
 
         implicitHeight: fieldLabel.height + fieldInput.height + 2
 
@@ -1677,6 +1903,8 @@ Page {
                         let announcement = parent.label + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
                         AccessibilityManager.announce(announcement)
                     }
+                } else {
+                    parent.editingFinished()
                 }
             }
 
@@ -1878,130 +2106,4 @@ Page {
         overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
     }
 
-    // Unsaved changes confirmation dialog (shown when user taps back / Escape with edits)
-    Dialog {
-        id: unsavedChangesDialog
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        width: Theme.scaled(380)
-        modal: true
-        padding: 0
-        closePolicy: Dialog.CloseOnEscape
-
-        onAboutToShow: {
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                AccessibilityManager.announce(TranslationManager.translate(
-                    "postshotreview.unsaved.announcement",
-                    "Unsaved Changes. Save, discard, or cancel?"))
-            }
-        }
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Text {
-                text: TranslationManager.translate("postshotreview.unsaved.title", "Unsaved Changes")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                Layout.bottomMargin: 0
-            }
-
-            Text {
-                text: TranslationManager.translate("postshotreview.unsaved.message", "Save changes to this shot before leaving?")
-                font: Theme.bodyFont
-                color: Theme.textColor
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("postshotreview.unsaved.discard", "Discard")
-                    accessibleName: TranslationManager.translate("postshotreview.unsaved.discardAccessible", "Discard changes and go back")
-                    onClicked: {
-                        unsavedChangesDialog.close()
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.warningColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.warningColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Accessible.ignored: true
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("postshotreview.unsaved.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("postshotreview.unsaved.cancelAccessible", "Stay on shot review")
-                    onClicked: unsavedChangesDialog.close()
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Accessible.ignored: true
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
-                    text: TranslationManager.translate("postshotreview.unsaved.save", "Save")
-                    accessibleName: TranslationManager.translate("postshotreview.unsaved.saveAccessible", "Save changes and go back")
-                    onClicked: {
-                        unsavedChangesDialog.close()
-                        saveEditedShot()
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryContrastColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Accessible.ignored: true
-                    }
-                }
-            }
-        }
-    }
 }
