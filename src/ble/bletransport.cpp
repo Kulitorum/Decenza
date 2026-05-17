@@ -496,7 +496,12 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                             m_writeRetryCount++;
                             log(QString("CharacteristicWriteError, retrying %1/%2 (uuid=%3)")
                                 .arg(m_writeRetryCount).arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
-                            emit de1LinkFault(QStringLiteral("write-retry"));
+                            // Intentionally NOT a de1LinkFault: a single transient
+                            // retry that then succeeds is normal even on capable
+                            // hardware. Only write-failed (retries exhausted) and
+                            // connection-teardown errors count toward the dual-HIGH
+                            // signature (matches design D1) — counting every retry
+                            // produced false positives on healthy devices.
                             QTimer::singleShot(WRITE_RETRY_DELAY_MS, this, [this]() {
                                 if (m_lastCommand) {
                                     m_lastCommand();

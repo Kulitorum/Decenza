@@ -31,17 +31,33 @@ private slots:
         QVERIFY(!d.onScaleStall());
     }
 
-    void de1FaultsAfterWindowDoNotTrigger() {
+    void isolatedFaultsFarApartNeverTrigger() {
+        // Faults spaced further apart than the window each re-anchor a fresh
+        // window (count resets to 1) and never accumulate to the threshold.
         BlePriorityDetector d;
         d.armWindow(0);
-        // First fault arrives after the window has elapsed → ignored, disarmed.
-        QVERIFY(!d.onDe1Fault(BlePriorityDetector::kDe1FaultWindowMs + 1));
-        QVERIFY(!d.armed());
-        QVERIFY(!d.backoffTriggered());
-        // Subsequent faults stay inert (window closed, device looks capable).
-        for (int i = 0; i < 5; ++i)
-            QVERIFY(!d.onDe1Fault(BlePriorityDetector::kDe1FaultWindowMs + 100));
+        const int64_t w = BlePriorityDetector::kDe1FaultWindowMs;
+        for (int i = 0; i < 6; ++i) {
+            QVERIFY(!d.onDe1Fault(i * (w + 1)));  // each > window past the last
+            QVERIFY(!d.backoffTriggered());
+        }
+        QVERIFY(d.armed());  // still watching — a real cluster could still trip
+        QCOMPARE(d.de1FaultCount(), 1);
         QVERIFY(!d.skipHighPriority());
+    }
+
+    void accumulatesAcrossReconnectsAntiStarvation() {
+        // Regression: a flapping weak link (fault, reconnect, fault) must
+        // accumulate across reconnects. armWindow() on reconnect must NOT
+        // reset the cluster, or the threshold is starved on exactly the
+        // hardware this targets.
+        BlePriorityDetector d;
+        d.armWindow(0);                     // connect
+        QVERIFY(!d.onDe1Fault(100));        // fault 1 (windowStart=100)
+        d.armWindow(0);                     // reconnect — must not reset count
+        QVERIFY(d.onDe1Fault(5000));        // fault 2, within window → fires
+        QVERIFY(d.backoffTriggered());
+        QVERIFY(d.skipHighPriority());
     }
 
     void scaleStallBackstopTriggers() {

@@ -256,14 +256,6 @@ void QtScaleBleTransport::onControllerConnected() {
 
     // Connection-priority for the scale link (dual-HIGH BLE contention,
     // #1093/#1176). The DE1 always requests HIGH; the scale also requests
-    // HIGH UNLESS detection has tripped the session skip-HIGH flag, in which
-    // case the link stays at the platform-default BALANCED — exactly the
-    // proven #1097 behaviour, just decided by observed runtime behaviour
-    // instead of the (retired) Android SDK<30 gate. Requesting HIGH opens an
-    // internal watch window; a cluster of DE1-link faults inside it (or an
-    // in-shot scale-feed stall) means this device cannot sustain dual-HIGH.
-    // Connection-priority for the scale link (dual-HIGH BLE contention,
-    // #1093/#1176). The DE1 always requests HIGH; the scale also requests
     // HIGH UNLESS the detector has latched skip-HIGH from an earlier backoff
     // this session, in which case the link stays at the platform-default
     // BALANCED — exactly the proven #1097 behaviour, decided by observed
@@ -289,8 +281,8 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
     if (m_priority.onDe1Fault(nowMs())) {
         triggerScaleBackoff(qPrintable(QStringLiteral(
-            "DE1-link fault cluster (%1×, last=%2) within scale-HIGH window")
-            .arg(m_priority.de1FaultCount()).arg(kind)));
+            "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
+            .arg(kind)));
     }
 }
 
@@ -308,10 +300,16 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason) {
     QT_TRANSPORT_LOG(QString("Scale connection-priority backoff: %1 — "
                              "skipping HIGH and reconnecting at BALANCED")
                          .arg(QString::fromUtf8(reason)));
-    // Existing scale auto-reconnect (main.cpp connectedChanged handler) brings
-    // the same transport object back; onControllerConnected() then sees the
-    // latched skip-HIGH and stays at BALANCED.
+    // Tear down the link, then emit disconnected() explicitly. disconnectFromDevice()
+    // severs the controller's signals and (for a fully-discovered scale, which is in
+    // DiscoveredState) skips the controller disconnectFromDevice(), so it never routes
+    // through onControllerDisconnected() — i.e. it does NOT emit disconnected() on this
+    // path. We must emit it ourselves (honouring the ScaleBleTransport contract) so the
+    // scale driver reaches setConnected(false) → ScaleDevice::connectedChanged, which is
+    // what the existing scale auto-reconnect (main.cpp) is gated on. Without this the
+    // backoff would be a permanent scale drop instead of a reconnect-at-BALANCED.
     disconnectFromDevice();
+    emit disconnected();
 }
 
 void QtScaleBleTransport::onControllerDisconnected() {

@@ -1368,16 +1368,22 @@ int main(int argc, char *argv[])
 
         // Connection-priority backoff (#1093/#1176): feed the scale-agnostic
         // transport its two detection inputs. de1Device re-emits de1LinkFault
-        // (stable across DE1 transport swaps); WeightProcessor::scaleFeedStalled
-        // is cross-thread (worker → main) so Qt auto-uses QueuedConnection with
-        // the transport as context. Both auto-disconnect when this transport is
-        // destroyed on a scale-type change. No-op for transports that keep the
-        // base virtual no-ops (e.g. CoreBluetooth / iOS-macOS).
+        // (stable across DE1 transport swaps; same thread as the transport).
+        // WeightProcessor lives on the weight worker thread, so its
+        // scaleFeedStalled → transport slot is cross-thread: pin it
+        // Qt::QueuedConnection explicitly (it must run on the transport's main
+        // thread, where it touches the QLowEnergyController) rather than rely
+        // on AutoConnection resolving correctly — a future moveToThread reorder
+        // must not silently turn this into a direct cross-thread call. Both
+        // connections use the transport as context, so they auto-disconnect
+        // when it is destroyed on a scale-type change. No-op for transports
+        // that keep the base virtual no-ops (e.g. CoreBluetooth / iOS-macOS).
         if (ScaleBleTransport* scaleTransport = physicalScale->bleTransport()) {
             QObject::connect(&de1Device, &DE1Device::de1LinkFault,
                              scaleTransport, &ScaleBleTransport::onDe1LinkFault);
             QObject::connect(&weightProcessor, &WeightProcessor::scaleFeedStalled,
-                             scaleTransport, &ScaleBleTransport::onScaleFeedStalled);
+                             scaleTransport, &ScaleBleTransport::onScaleFeedStalled,
+                             Qt::QueuedConnection);
         }
 
         // When physical scale connects/disconnects, switch between physical and FlowScale

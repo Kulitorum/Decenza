@@ -9,10 +9,13 @@
 //
 // Lifecycle within one transport object (which persists across the
 // backoff-induced reconnect):
-//   armWindow()  — scale connected and requested HIGH; start watching.
-//   disarm()     — scale started at BALANCED, or backed off; not watching.
+//   armWindow()  — scale connected and requested HIGH; start watching
+//                   (does NOT reset the cluster — faults accumulate across
+//                   reconnects so a flapping weak link is not starved).
+//   disarm()     — scale started at BALANCED, or backed off; not watching;
+//                   clears the accumulated cluster.
 //   onDe1Fault() — primary signal; ≥ kDe1FaultThreshold within
-//                   kDe1FaultWindowMs of arming ⇒ trigger backoff.
+//                   kDe1FaultWindowMs of the first fault (sliding) ⇒ trigger.
 //   onScaleStall() — backstop; any in-shot stall while armed ⇒ trigger.
 // fire() latches skip-HIGH + backed-off so it triggers at most once per
 // session and never re-arms (no reconnect loop).
@@ -21,24 +24,35 @@ public:
     static constexpr int kDe1FaultThreshold = 2;         // ≥2 DE1 faults in-window (#1176 ConnectionError pattern)
     static constexpr int64_t kDe1FaultWindowMs = 20000;  // covers #1093 ~13s and #1176 ~0.8–15s post scale-HIGH
 
-    // Scale connected and requested HIGH: arm the watch window. No-op (stays
+    // Scale connected and requested HIGH: start watching. No-op (stays
     // disarmed) if a prior backoff already latched skip-HIGH this session.
-    void armWindow(int64_t nowMs) {
+    // Deliberately does NOT reset the fault count / window: a weak link that
+    // flaps (connect → fault → reconnect → fault → …) must accumulate its
+    // faults across reconnects, otherwise the per-connect reset starves the
+    // ≥threshold-in-window condition exactly on the hardware this targets.
+    // The window is anchored to the first fault and slides (see onDe1Fault),
+    // so isolated faults far apart never accumulate; only a genuine cluster
+    // does. Full reset happens in disarm() (BALANCED start / backed off).
+    void armWindow(int64_t /*nowMs*/) {
         if (m_skipHighPriority) { m_armed = false; return; }
         m_armed = true;
-        m_windowStartMs = nowMs;
-        m_de1FaultCount = 0;
     }
 
     // Scale started at BALANCED (skip flag set) or backed off — not watching.
-    void disarm() { m_armed = false; m_de1FaultCount = 0; }
+    // Clears the accumulated cluster so a later session starts clean.
+    void disarm() { m_armed = false; m_de1FaultCount = 0; m_windowStartMs = 0; }
 
-    // Primary signal. Returns true exactly once, when the fault count crosses
-    // the threshold inside the window — the caller should then back off.
+    // Primary signal. Returns true exactly once, when ≥ kDe1FaultThreshold
+    // faults occur within kDe1FaultWindowMs of the first fault. A fault that
+    // arrives after the window elapsed starts a fresh window from itself
+    // (sliding) rather than disarming — so a flapping weak device whose
+    // faults straddle reconnects still trips, while genuinely isolated faults
+    // never reach the threshold.
     bool onDe1Fault(int64_t nowMs) {
         if (!m_armed || m_backoffTriggered) return false;
-        if (nowMs - m_windowStartMs > kDe1FaultWindowMs) {
-            m_armed = false;  // window elapsed cleanly — device looks capable
+        if (m_de1FaultCount == 0 || nowMs - m_windowStartMs > kDe1FaultWindowMs) {
+            m_windowStartMs = nowMs;  // anchor / re-anchor the window
+            m_de1FaultCount = 1;
             return false;
         }
         if (++m_de1FaultCount < kDe1FaultThreshold) return false;
