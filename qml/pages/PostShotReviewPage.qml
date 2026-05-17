@@ -25,18 +25,20 @@ Page {
         }
     }
 
-    // Flush any pending edit and disconnect refractometer when the page is torn
-    // down. The destruction flush is the safety net that makes edits durable on
-    // *any* navigation path — not just the explicit back button.
+    // Disconnect refractometer when the page is torn down. NOTE: we do NOT
+    // autosave() here — calling Qt.inputMethod.commit() / a DB write / singleton
+    // writes during QML object destruction is unsafe (events delivered to a
+    // being-destroyed TextEdit, nulled context). StackView.onDeactivating below
+    // already flushes on every normal navigation exit, and handleBack() flushes
+    // on the explicit back path, so the destruction flush was redundant.
     Component.onDestruction: {
-        autosave()
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
     }
 
-    // Also flush whenever the page loses the foreground (a child page pushed on
-    // top, app backgrounded, etc.) so an in-progress text edit can't be lost.
+    // Flush whenever the page loses the foreground (back, a child page pushed
+    // on top, app backgrounded) so a deferred/in-progress edit is persisted.
     StackView.onDeactivating: autosave()
 
     function handleBack() {
@@ -181,9 +183,11 @@ Page {
         }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
-            if (success)
-                loadShotForEditing()
-            else
+            // No reload: a full loadShotForEditing() here would re-run
+            // onShotReady, clobber an in-progress edit, and orphan the undo
+            // stack (same race the metadata path avoids). The visualizer id is
+            // refreshed in place by onUploadSuccess / onUpdateSuccess below.
+            if (!success)
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
         }
         function onDistinctCacheReady() {
@@ -196,7 +200,7 @@ Page {
                         editBeanType = types[0]
                         // Async auto-fill (cache resolved after the roaster was
                         // picked) — persist like any other committed value.
-                        postShotReviewPage.autosave("beanType")
+                        postShotReviewPage.autosave("beanType", true)
                     }
                 }
             }
@@ -301,14 +305,20 @@ Page {
     // the user has already started in another field.
     readonly property int kMaxUndoDepth: 50
     property var _undoStack: []
-    property int _undoDepth: 0          // notify-able mirror of _undoStack.length
+    // INVARIANT: _undoDepth must be reassigned to _undoStack.length after every
+    // push/pop/splice — in-place array mutation does not emit a QML change
+    // signal, so this integer mirror is the only thing undoButton.visible can
+    // bind to. Never mutate _undoStack without updating _undoDepth.
+    property int _undoDepth: 0
     property var _committedState: ({})  // last persisted edit-field values
     property bool _editLoaded: false    // true once onShotReady has populated fields
     // Undo coalescing: a continuous interaction with one control (slider drag,
     // a burst of +/- stepper clicks, typing into one field) is ONE undoable
-    // change. We only push a new undo frame when the edit moves to a different
-    // control than the last one, so dragging the rating slider 75→85 is a
-    // single Undo back to 75 rather than ~10 one-point frames.
+    // change. A new undo frame opens only when the edit key differs from the
+    // previous one; coalescing ends (via finalizeEdit) when the control loses
+    // focus or a discrete/terminal commit fires, so dragging the rating slider
+    // 75→85 is a single Undo back to 75, while editing dose, leaving it, and
+    // editing it again are two separate Undo frames.
     property string _lastEditKey: ""
 
     function captureEditState() {
@@ -333,32 +343,67 @@ Page {
         editDrinkWeight = s.drinkWeight; editDrinkTds = s.drinkTds
         editDrinkEy = s.drinkEy; editEnjoyment = s.enjoyment
         editNotes = s.notes; editBeverageType = s.beverageType
-        // RatingInput and the dose/out ValueInputs imperatively assign their
-        // own `value` during user interaction, which severs the `value: editX`
-        // binding. Re-assert them explicitly so Undo visibly restores the UI,
-        // not just the underlying edit values.
-        ratingInput.value = s.enjoyment
-        doseInput.value = s.doseWeight
-        outInput.value = s.drinkWeight
-        tdsInput.value = s.drinkTds
-        eyInput.value = s.drinkEy
+        // RatingInput (internal `root.value = …`) and the dose/out ValueInputs
+        // (handlers do `xInput.value = …`) imperatively assign their own
+        // `value` during interaction, which severs the `value: editX` binding.
+        // Re-establish the binding (not a bare assignment, which would sever it
+        // permanently) so Undo restores the UI and future edits keep tracking
+        // editX. TDS/EY are never self-assigned (ValueInput doesn't write
+        // `value`; their handlers only set editDrinkTds/editDrinkEy), so their
+        // `value:` bindings stay live and must NOT be touched here — doing so
+        // would break later R2 / calculateEy() updates.
+        ratingInput.value = Qt.binding(function() { return editEnjoyment })
+        doseInput.value = Qt.binding(function() { return editDoseWeight })
+        outInput.value = Qt.binding(function() { return editDrinkWeight })
     }
 
-    // Persist current edits if dirty. `key` identifies the control being
-    // edited; a new undo frame is recorded only when the control differs from
-    // the previous edit (coalescing), so a continuous gesture is one Undo.
-    // A blank/absent key (lifecycle flush) always starts a fresh frame.
-    function autosave(key) {
+    // Persist current edits if dirty.
+    //
+    // `key`      — identifies the control being edited. A new undo frame opens
+    //              when it differs from `_lastEditKey` (coalescing). Absent/""
+    //              means a lifecycle flush (handleBack / deactivate / upload).
+    // `finalize` — true for terminal/discrete/async commits (blur, suggestion
+    //              pick, combo/date change, R2 reading) and focus-loss; ends
+    //              coalescing so the next edit (even same control) is a new
+    //              frame.
+    //
+    // DB-write coalescing: a same-control continuous tick (slider drag, held
+    // stepper) neither opens a frame nor writes to the DB — it defers. The
+    // value is persisted when the gesture boundary is reached (frame open on
+    // first tick, finalize on focus-loss, or a lifecycle flush). This keeps
+    // one drag to ~2 DB writes instead of one per emission.
+    function autosave(key, finalize) {
         Qt.inputMethod.commit()
-        if (!_editLoaded || !hasUnsavedChanges) return
-        if (key === undefined || key === "" || key !== _lastEditKey) {
-            _undoStack.push(_committedState)
-            if (_undoStack.length > kMaxUndoDepth) _undoStack.shift()
-            _undoDepth = _undoStack.length
-            _lastEditKey = (key === undefined) ? "" : key
+        var lifecycle = (key === undefined || key === "")
+        if (!_editLoaded || !hasUnsavedChanges) {
+            if (finalize || lifecycle) _lastEditKey = ""
+            return
         }
-        saveEditedShot()
-        _committedState = captureEditState()
+        // Open a frame on a control change, or on a lifecycle flush that is
+        // NOT mid-gesture (a gesture already opened its frame on first tick).
+        var newFrame = (!lifecycle && key !== _lastEditKey)
+                       || (lifecycle && _lastEditKey === "")
+        if (newFrame) {
+            _undoStack.push(_committedState)
+            // Cap depth but never drop index 0 — that is the loaded-record
+            // baseline that makes Undo "repeatable down to the loaded record".
+            if (_undoStack.length > kMaxUndoDepth) _undoStack.splice(1, 1)
+            _undoDepth = _undoStack.length
+            if (!lifecycle) _lastEditKey = key
+        }
+        // Persist only on a boundary: a freshly opened frame, an explicit
+        // finalize, or a lifecycle flush. Coalesced continuous ticks defer.
+        if (newFrame || finalize || lifecycle) {
+            saveEditedShot()
+            _committedState = captureEditState()
+        }
+        if (finalize || lifecycle) _lastEditKey = ""
+    }
+
+    // End an in-progress coalesced gesture: persist the deferred final value
+    // and reset coalescing. Wired to focus-loss of the slider/steppers.
+    function finalizeEdit() {
+        autosave(_lastEditKey, true)
     }
 
     // Revert the most recent committed change. Repeatable down to the loaded
@@ -457,17 +502,22 @@ Page {
         function onUploadSuccess(shotId, url) {
             // Persistence of the Visualizer id is owned by MainController
             // (VisualizerUploader::uploadSucceededForShot →
-            // requestUpdateVisualizerInfo), independent of this page. The
-            // page only clears any prior error; the row reload still
-            // arrives via onVisualizerInfoUpdated.
+            // requestUpdateVisualizerInfo), independent of this page. Refresh
+            // the id/url in place (so the button flips to "Re-Upload") instead
+            // of a full reload that would clobber edits / orphan undo.
             uploadError = ""
+            if (shotId === postShotReviewPage.editShotId && url) {
+                var vid = ("" + url).split("/").pop()
+                editShotData = Object.assign({}, editShotData,
+                    { visualizerId: vid, visualizerUrl: url })
+            }
         }
         function onUpdateSuccess(visualizerId) {
             uploadError = ""
-            // Reload shot data to refresh the UI after metadata update
-            if (editShotId > 0) {
-                loadShotForEditing()
-            }
+            // Refresh the id in place — no reload (see onVisualizerInfoUpdated).
+            if (visualizerId)
+                editShotData = Object.assign({}, editShotData,
+                    { visualizerId: visualizerId })
         }
         function onUploadFailed(error) {
             uploadError = error
@@ -830,7 +880,7 @@ Page {
                 visible: postShotReviewPage.isEditMode && editEnjoyment === 0
                 onRateClicked: function(score) {
                     editEnjoyment = score
-                    postShotReviewPage.autosave("rating")
+                    postShotReviewPage.autosave("rating", true)
                 }
             }
 
@@ -871,6 +921,7 @@ Page {
                             editEnjoyment = newValue
                             postShotReviewPage.autosave("rating")
                         }
+                        onActiveFocusChanged: if (!activeFocus) postShotReviewPage.finalizeEdit()
                     }
                 }
             }
@@ -897,7 +948,7 @@ Page {
                     accessibleName: TranslationManager.translate("postshotreview.label.notes", "Notes")
                     textFont: Theme.bodyFont
                     onTextChanged: editNotes = text
-                    onEditingFinished: postShotReviewPage.autosave("notes")
+                    onEditingFinished: postShotReviewPage.autosave("notes", true)
                 }
             }
 
@@ -954,7 +1005,10 @@ Page {
                                 calculateEy()
                                 postShotReviewPage.autosave("dose")
                             }
-                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                         }
                     }
 
@@ -987,7 +1041,10 @@ Page {
                                 calculateEy()
                                 postShotReviewPage.autosave("out")
                             }
-                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                         }
                     }
 
@@ -1039,7 +1096,10 @@ Page {
                                     calculateEy()
                                     postShotReviewPage.autosave("tds")
                                 }
-                                onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                             }
                         }
                     }
@@ -1072,7 +1132,10 @@ Page {
                                 editDrinkEy = newValue
                                 postShotReviewPage.autosave("ey")
                             }
-                            onActiveFocusChanged: if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                            onActiveFocusChanged: {
+                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                else postShotReviewPage.finalizeEdit()
+                            }
                         }
                     }
                 }
@@ -1097,14 +1160,14 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editBeanBrand = t }
-                    onInputBlurred: postShotReviewPage.autosave("beanBrand")
+                    onInputBlurred: postShotReviewPage.autosave("beanBrand", true)
                     onSuggestionSelected: function(t) {
                         editBeanType = ""
                         editRoastDate = ""
                         var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
                         if (types.length === 1) editBeanType = types[0]
                         else if (types.length === 0) _pendingBeanAutoFill = t
-                        postShotReviewPage.autosave("beanBrand")
+                        postShotReviewPage.autosave("beanBrand", true)
                     }
                 }
 
@@ -1119,8 +1182,8 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editBeanType = t }
-                    onInputBlurred: postShotReviewPage.autosave("beanType")
-                    onSuggestionSelected: function(t) { editRoastDate = ""; postShotReviewPage.autosave("beanType") }
+                    onInputBlurred: postShotReviewPage.autosave("beanType", true)
+                    onSuggestionSelected: function(t) { editRoastDate = ""; postShotReviewPage.autosave("beanType", true) }
                 }
 
                 Item {
@@ -1137,7 +1200,7 @@ Page {
                         inputHints: Qt.ImhDate
                         inputMask: "9999-99-99"
                         onTextEdited: function(t) { editRoastDate = t }
-                        onEditingFinished: postShotReviewPage.autosave("roastDate")
+                        onEditingFinished: postShotReviewPage.autosave("roastDate", true)
                     }
 
                     AccessibleButton {
@@ -1158,7 +1221,7 @@ Page {
 
                     DatePickerDialog {
                         id: reviewDatePicker
-                        onDateSelected: function(dateString) { editRoastDate = dateString; postShotReviewPage.autosave("roastDate") }
+                        onDateSelected: function(dateString) { editRoastDate = dateString; postShotReviewPage.autosave("roastDate", true) }
                     }
                 }
 
@@ -1173,7 +1236,7 @@ Page {
                         TranslationManager.translate("postshotreview.roastlevel.mediumdark", "Medium-Dark"),
                         TranslationManager.translate("postshotreview.roastlevel.dark", "Dark")]
                     currentValue: editRoastLevel
-                    onValueChanged: function(v) { editRoastLevel = v; postShotReviewPage.autosave("roastLevel") }
+                    onValueChanged: function(v) { editRoastLevel = v; postShotReviewPage.autosave("roastLevel", true) }
                 }
 
                 SuggestionField {
@@ -1191,7 +1254,7 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderBrand = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderBrand")
+                    onInputBlurred: postShotReviewPage.autosave("grinderBrand", true)
                     onSuggestionSelected: function(t) {
                         editGrinderModel = ""
                         editGrinderBurrs = ""
@@ -1201,7 +1264,7 @@ Page {
                             var burrs = Settings.dye.suggestedBurrs(t, models[0])
                             if (burrs.length === 1) editGrinderBurrs = burrs[0]
                         }
-                        postShotReviewPage.autosave("grinderBrand")
+                        postShotReviewPage.autosave("grinderBrand", true)
                     }
                 }
 
@@ -1220,11 +1283,11 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderModel = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderModel")
+                    onInputBlurred: postShotReviewPage.autosave("grinderModel", true)
                     onSuggestionSelected: function(t) {
                         var burrs = Settings.dye.suggestedBurrs(editGrinderBrand, t)
                         if (burrs.length === 1) editGrinderBurrs = burrs[0]
-                        postShotReviewPage.autosave("grinderModel")
+                        postShotReviewPage.autosave("grinderModel", true)
                     }
                 }
 
@@ -1244,7 +1307,7 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderBurrs = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderBurrs")
+                    onInputBlurred: postShotReviewPage.autosave("grinderBurrs", true)
                 }
 
                 SuggestionField {
@@ -1258,7 +1321,7 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editGrinderSetting = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderSetting")
+                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
                 }
 
                 // === ROW 4: Beverage type, Barista, Preset, Shot Date ===
@@ -1267,7 +1330,7 @@ Page {
                     label: TranslationManager.translate("postshotreview.label.beveragetype", "Beverage type")
                     model: ["espresso", "filter", "pourover", "tea_portafilter", "tea", "calibrate", "cleaning", "descale", "manual"]
                     currentValue: editBeverageType
-                    onValueChanged: function(v) { editBeverageType = v; postShotReviewPage.autosave("beverageType") }
+                    onValueChanged: function(v) { editBeverageType = v; postShotReviewPage.autosave("beverageType", true) }
                 }
 
                 SuggestionField {
@@ -1281,7 +1344,7 @@ Page {
                         return list
                     }
                     onTextEdited: function(t) { editBarista = t }
-                    onInputBlurred: postShotReviewPage.autosave("barista")
+                    onInputBlurred: postShotReviewPage.autosave("barista", true)
                 }
 
                 // Preset (read-only display)
@@ -1416,24 +1479,17 @@ Page {
         // Undo button — edits autosave on every commit point; this reverts the
         // most recent committed change (repeatable). Visible only when there is
         // something on the undo stack.
-        Rectangle {
+        AccessibleButton {
             id: undoButton
             visible: postShotReviewPage._undoDepth > 0
-            Layout.preferredWidth: undoButtonContent.width + 40
+            Layout.preferredWidth: undoButtonContent.implicitWidth + Theme.scaled(40)
             Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: undoArea.pressed ? Theme.backgroundColor : Theme.surfaceColor
-            border.width: 1
-            border.color: Theme.textSecondaryColor
+            text: TranslationManager.translate("postshotreview.button.undo", "Undo")
+            accessibleName: TranslationManager.translate("postshotreview.accessible.undo", "Undo last change")
+            onClicked: postShotReviewPage.undoLastChange()
 
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("postshotreview.accessible.undo", "Undo last change")
-            Accessible.focusable: true
-            Accessible.onPressAction: undoArea.clicked(null)
-
-            Row {
+            contentItem: Row {
                 id: undoButtonContent
-                anchors.centerIn: parent
                 spacing: Theme.scaled(6)
 
                 Image {
@@ -1452,12 +1508,6 @@ Page {
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }
-            }
-
-            MouseArea {
-                id: undoArea
-                anchors.fill: parent
-                onClicked: postShotReviewPage.undoLastChange()
             }
         }
 
