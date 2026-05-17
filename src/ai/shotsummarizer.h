@@ -271,9 +271,10 @@ public:
 
     // Resolve the cited expert-recommended operating band for a profile
     // by its normalized KB key (the value call sites already pass to
-    // getAnalysisFlags/ugsForKbId). Returns `ShotAnalysis::ExpertBand`
-    // (the input type is owned by the lower ShotAnalysis layer so
-    // analyzeShot can consume it without depending on ShotSummarizer; D14).
+    // getAnalysisFlags/ugsForKbId). Returns
+    // `std::optional<ShotAnalysis::ExpertBand>` (the input type is owned
+    // by the lower ShotAnalysis layer so analyzeShot can consume it
+    // without depending on ShotSummarizer; D14).
     //
     // A small static citation-bound table maps a profile's *canonical
     // KB-section identity* (canonicalNameForKbId — the dedup-by-name
@@ -293,8 +294,9 @@ public:
     // (grading authoritative in capture-dialin-coaching-guidance design
     // D9/D10/D10b). No cited band → absent (check no-ops). Absence is
     // intentional and never completed with a fabricated band. Empty key
-    // or no cited band → an absent band (isPresent()==false).
-    static ShotAnalysis::ExpertBand expertBandForKbId(const QString& kbId);
+    // or no cited band → std::nullopt.
+    static std::optional<ShotAnalysis::ExpertBand>
+    expertBandForKbId(const QString& kbId);
 
 private:
     // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting

@@ -1528,8 +1528,9 @@ private slots:
 
     static ShotAnalysis::ExpertBand goldBand()
     {
-        return { ShotAnalysis::ExpertBand::Axis::PressurePeak, 6.0, 9.0,
-                 QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") };
+        return ShotAnalysis::ExpertBand::pressureBand(
+            6.0, 9.0, QStringLiteral("[SRC:profile-notes]"),
+            QStringLiteral("high"));
     }
 
     static const QVariantMap* findKind(const QVariantList& lines,
@@ -1619,7 +1620,7 @@ private slots:
     }
 
     // A5.2 + A5.7: absent band → strict no-op. Omitting the param and
-    // passing an absent ExpertBand{} both produce results byte-identical to
+    // passing std::nullopt both produce results byte-identical to
     // each other AND identical four-boolean badge projection / verdict.
     void expertBand_absent_strictNoOp()
     {
@@ -1631,7 +1632,7 @@ private slots:
             -1.0, 36.0, 36.0);
         const auto absentBand = ShotAnalysis::analyzeShot(
             pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
-            -1.0, 36.0, 36.0, -1, ShotAnalysis::ExpertBand{});
+            -1.0, 36.0, 36.0, -1, std::nullopt);
 
         QVariantMap line;
         QVERIFY(!findKind(noParam.lines, QStringLiteral("expert_band_deviation"), line));
@@ -1709,9 +1710,9 @@ private slots:
         // Observed peak extraction flow (~1.8 ml/s) is well below a cited
         // 4.0–6.0 ml/s band → fires on the FLOW axis: observation, ml/s
         // wording, no grind direction, expertBandDeviation verdict.
-        const EB outBand{ EB::Axis::ExtractionFlow, 4.0, 6.0,
+        const EB outBand = EB::flowBand(4.0, 6.0,
                           QStringLiteral("[SRC:light-video]"),
-                          QStringLiteral("high") };
+                          QStringLiteral("high"));
         const auto fired = ShotAnalysis::analyzeShot(
             pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
             -1.0, 36.0, 36.0, -1, outBand);
@@ -1728,14 +1729,60 @@ private slots:
         QCOMPARE(fired.detectors.verdictCategory, QStringLiteral("expertBandDeviation"));
 
         // Same shot, a band that contains ~1.8 ml/s → silent.
-        const EB inBand{ EB::Axis::ExtractionFlow, 1.0, 3.0,
+        const EB inBand = EB::flowBand(1.0, 3.0,
                          QStringLiteral("[SRC:light-video]"),
-                         QStringLiteral("high") };
+                         QStringLiteral("high"));
         const auto silent = ShotAnalysis::analyzeShot(
             pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
             -1.0, 36.0, 36.0, -1, inBand);
         QVERIFY2(!findKind(silent.lines, QStringLiteral("expert_band_deviation"), line),
                  "flow within the cited band must stay silent");
+        QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+    }
+
+    // The ExpertBand reshape exists to make a ONE-SIDED flow floor
+    // expressible (Allongé's cited "reach ~4.5 ml/s, no ceiling"). That
+    // path — flowFloor() + the `belowFloor` branch with hi==nullopt + the
+    // "below the ~X" prose arm — had no test; the flow-axis test above
+    // uses two-sided flowBand(). Pin it: observed peak flow below the
+    // floor (by > margin) fires a one-sided observation that names only
+    // the floor (no fabricated ceiling), no grind direction,
+    // expertBandDeviation verdict; at/above the floor stays silent.
+    void expertBand_flowFloor_firesAndSilent()
+    {
+        using EB = ShotAnalysis::ExpertBand;
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/8.0, phases, pr, fl, wt, dc, pg, fg);  // flow flat ~1.8
+
+        // ~1.8 ml/s observed, floor 4.5 → below by > margin → fires.
+        const EB floor = EB::flowFloor(4.5, QStringLiteral("[SRC:light-video]"),
+                                       QStringLiteral("medium"));
+        const auto fired = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, floor);
+        QVariantMap line;
+        QVERIFY2(findKind(fired.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flow ~1.8 ml/s vs a 4.5 floor must fire");
+        QCOMPARE(line["type"].toString(), QStringLiteral("observation"));
+        const QString t = line["text"].toString();
+        QVERIFY2(t.contains("below the ~") && t.contains("ml/s"),
+                 qPrintable("floor-only line names only the floor: " + t));
+        QVERIFY2(!t.contains("–") && !t.contains("outside the"),
+                 qPrintable("one-sided line must NOT render a two-sided band: " + t));
+        for (const QString& d : { QStringLiteral("grind"), QStringLiteral("finer"),
+                                  QStringLiteral("coarser") })
+            QVERIFY2(!t.contains(d, Qt::CaseInsensitive),
+                     qPrintable("floor line must not state a grind direction: " + t));
+        QCOMPARE(fired.detectors.verdictCategory, QStringLiteral("expertBandDeviation"));
+
+        // Floor below the observed flow → at/above the floor → silent.
+        const EB lowFloor = EB::flowFloor(1.0, QStringLiteral("[SRC:light-video]"),
+                                          QStringLiteral("medium"));
+        const auto silent = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, lowFloor);
+        QVERIFY2(!findKind(silent.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flow at/above the floor must stay silent");
         QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
     }
 
@@ -1751,9 +1798,9 @@ private slots:
     void expertBand_aflow_pegged10Fires_onTarget7Silent()
     {
         using EB = ShotAnalysis::ExpertBand;
-        const EB aflow{ EB::Axis::PressurePeak, 6.0, 9.0,
+        const EB aflow = EB::pressureBand(6.0, 9.0,
                         QStringLiteral("[SRC:aflow-repo]"),
-                        QStringLiteral("medium") };
+                        QStringLiteral("medium"));
 
         // ~10.2 bar peak = too fine / limiter-pegged = the bad regime → fire.
         {

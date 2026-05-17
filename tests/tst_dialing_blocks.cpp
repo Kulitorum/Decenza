@@ -1881,9 +1881,9 @@ private slots:
 
         // The stale stored value the buggy path used → no band (this is
         // exactly why shot 819 wrongly read "Clean shot").
-        const ExpertBand stale =
+        const auto stale =
             ShotSummarizer::expertBandForKbId(QStringLiteral("d-flow / default"));
-        QVERIFY2(!stale.isPresent(),
+        QVERIFY2(!stale.has_value(),
                  "stale 'd-flow / default' kbId resolves to the band-less "
                  "base section — keying off it loses the band (the bug)");
 
@@ -1891,27 +1891,27 @@ private slots:
         // current KB → the gold band.
         const QString freshKb = ShotSummarizer::computeProfileKbId(
             QStringLiteral("D-Flow / Q"), QStringLiteral("dflow"));
-        const ExpertBand fresh = ShotSummarizer::expertBandForKbId(freshKb);
-        QVERIFY2(fresh.isPresent(),
+        const auto fresh = ShotSummarizer::expertBandForKbId(freshKb);
+        QVERIFY2(fresh.has_value(),
                  "fresh title resolution must recover the D-Flow/Q band");
-        QCOMPARE(fresh.axis, ExpertBand::Axis::PressurePeak);
-        QCOMPARE(fresh.lo, 6.0);
-        QCOMPARE(fresh.hi, 9.0);
+        QCOMPARE(fresh->axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(*fresh->lo, 6.0);
+        QCOMPARE(*fresh->hi, 9.0);
 
         // Twin collapses to the same canonical entry.
-        const ExpertBand twin = ShotSummarizer::expertBandForKbId(
+        const auto twin = ShotSummarizer::expertBandForKbId(
             ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's Q"),
                                                QStringLiteral("dflow")));
-        QVERIFY(twin.isPresent());
-        QCOMPARE(twin.lo, fresh.lo);
-        QCOMPARE(twin.hi, fresh.hi);
+        QVERIFY(twin.has_value());
+        QCOMPARE(*twin->lo, *fresh->lo);
+        QCOMPARE(*twin->hi, *fresh->hi);
 
         // Inverse: a genuinely band-less profile stays absent — the fresh
         // resolution governs in both directions, never fabricates a band.
-        const ExpertBand none = ShotSummarizer::expertBandForKbId(
+        const auto none = ShotSummarizer::expertBandForKbId(
             ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / default"),
                                                QStringLiteral("dflow")));
-        QVERIFY2(!none.isPresent(),
+        QVERIFY2(!none.has_value(),
                  "D-Flow / default has no cited band — absent by fresh "
                  "resolution too");
     }
@@ -1927,15 +1927,15 @@ private slots:
 
         const QString kb = ShotSummarizer::computeProfileKbId(
             QStringLiteral("A-Flow / default-medium"), QStringLiteral("aflow"));
-        const ExpertBand band = ShotSummarizer::expertBandForKbId(kb);
-        QVERIFY2(band.isPresent(),
+        const auto band = ShotSummarizer::expertBandForKbId(kb);
+        QVERIFY2(band.has_value(),
                  "A-Flow / default-medium must resolve to the cited band "
                  "via the production KB path");
-        QCOMPARE(band.axis, ExpertBand::Axis::PressurePeak);
-        QCOMPARE(band.lo, 6.0);
-        QCOMPARE(band.hi, 9.0);
-        QCOMPARE(band.src, QStringLiteral("[SRC:aflow-repo]"));
-        QCOMPARE(band.confidence, QStringLiteral("medium"));
+        QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(*band->lo, 6.0);
+        QCOMPARE(*band->hi, 9.0);
+        QCOMPARE(band->src, QStringLiteral("[SRC:aflow-repo]"));
+        QCOMPARE(band->confidence, QStringLiteral("medium"));
 
         // All shipped A-Flow variants canonical-key to the one `## A-Flow`
         // section → identical band (structural dedup, like the gold pair).
@@ -1943,12 +1943,12 @@ private slots:
                                       QStringLiteral("A-Flow / default-dark"),
                                       QStringLiteral("A-Flow / default-very-dark"),
                                       QStringLiteral("A-Flow / default-like-dflow") }) {
-            const ExpertBand v = ShotSummarizer::expertBandForKbId(
+            const auto v = ShotSummarizer::expertBandForKbId(
                 ShotSummarizer::computeProfileKbId(title, QStringLiteral("aflow")));
-            QVERIFY2(v.isPresent(), qPrintable(title + " must resolve to the A-Flow band"));
-            QCOMPARE(v.lo, band.lo);
-            QCOMPARE(v.hi, band.hi);
-            QCOMPARE(v.src, band.src);
+            QVERIFY2(v.has_value(), qPrintable(title + " must resolve to the A-Flow band"));
+            QCOMPARE(*v->lo, *band->lo);
+            QCOMPARE(*v->hi, *band->hi);
+            QCOMPARE(v->src, band->src);
         }
     }
 
@@ -1963,24 +1963,24 @@ private slots:
     {
         using ExpertBand = ShotAnalysis::ExpertBand;
 
-        const ExpertBand band = ShotSummarizer::expertBandForKbId(
+        const auto band = ShotSummarizer::expertBandForKbId(
             ShotSummarizer::computeProfileKbId(QStringLiteral("Londinium"),
                                                QStringLiteral("advanced")));
-        QVERIFY2(band.isPresent(),
+        QVERIFY2(band.has_value(),
                  "Londinium must resolve to the decent-guide band");
-        QCOMPARE(band.axis, ExpertBand::Axis::PressurePeak);
-        QCOMPARE(band.lo, 8.0);
-        QCOMPARE(band.hi, 9.0);
-        QCOMPARE(band.src, QStringLiteral("[SRC:decent-guide]"));
-        QCOMPARE(band.confidence, QStringLiteral("medium"));
+        QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(*band->lo, 8.0);
+        QCOMPARE(*band->hi, 9.0);
+        QCOMPARE(band->src, QStringLiteral("[SRC:decent-guide]"));
+        QCOMPARE(band->confidence, QStringLiteral("medium"));
 
         // Damian's LRv2/LRv3 are D-Flow-family variants, NOT the standalone
         // Londinium — they must not pick up this band.
         for (const QString& lr : { QStringLiteral("Damian's LRv2"),
                                     QStringLiteral("Damian's LRv3") }) {
-            const ExpertBand v = ShotSummarizer::expertBandForKbId(
+            const auto v = ShotSummarizer::expertBandForKbId(
                 ShotSummarizer::computeProfileKbId(lr, QStringLiteral("dflow")));
-            QVERIFY2(v.src != QStringLiteral("[SRC:decent-guide]"),
+            QVERIFY2(!v.has_value() || v->src != QStringLiteral("[SRC:decent-guide]"),
                      qPrintable(lr + " must NOT resolve to the standalone "
                                      "Londinium band"));
         }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <QVector>
 #include <QPointF>
 #include <QString>
@@ -13,21 +14,62 @@ struct HistoryPhaseMarker;
 // ShotAnalysis layer (the lower layer) so analyzeShot can consume it
 // without depending on ShotSummarizer; the citation-bound table +
 // canonical-identity resolver live in ShotSummarizer::expertBandForKbId,
-// which returns this type. Resolved fresh by callers every analyzeShot
-// call (recompute-on-load: nothing band-related is persisted on the
-// shot). Absent (axis==None) → the expert-band check is a strict no-op
-// and the AnalysisResult is byte-identical to pre-change. Defined at
-// file scope (not nested in ShotAnalysis) so a `= {}` default argument
-// on analyzeShot/generateSummary is well-formed; ShotAnalysis exposes a
-// `using ExpertBand = ::ExpertBand;` alias for existing call sites.
+// which returns std::optional<ExpertBand>. Resolved fresh by callers
+// every analyzeShot call (recompute-on-load: nothing band-related is
+// persisted on the shot).
+//
+// Absence is the OUTER std::optional (std::nullopt → strict no-op,
+// byte-identical to pre-change), never an in-band sentinel: a
+// constructed ExpertBand is always a valid, cited band. `lo`/`hi` are
+// each std::optional so a one-sided rail is first-class — a floor
+// (e.g. Allongé "reach ~4.5 ml/s": lo set, hi unset) or a ceiling
+// (lo unset, hi set) — without fabricating the missing bound.
+//
+// Construct via the factories below: they Q_ASSERT the invariants
+// (lo<hi, positive bound, non-empty src) — in DEBUG builds only
+// (Q_ASSERT is a no-op under QT_NO_DEBUG). The struct stays an
+// aggregate, so direct aggregate-init is technically still possible;
+// the "factories only" rule is convention + debug-checked, NOT
+// type-enforced. Accepted because the sole construction sites are the
+// compile-time-constant kBands table + tests — a bad row trips the
+// debug assert in the test suite before it can ship. If ExpertBand
+// ever takes runtime/untrusted input, harden it: a class with a
+// private ctor, or factories returning std::optional.
+//
+// Still file scope (a type shared by ShotAnalysis + ShotSummarizer, two
+// headers) with a `using ExpertBand = ::ExpertBand;` alias in
+// ShotAnalysis for existing call sites — kept deliberately, not as the
+// old NSDMI workaround (the default arg is now `= std::nullopt`).
 struct ExpertBand {
-    enum class Axis { None, PressurePeak, ExtractionFlow };
-    Axis    axis = Axis::None;   // None == absent
-    double  lo = 0.0;            // inclusive band: bar (PressurePeak) / ml/s (ExtractionFlow)
-    double  hi = 0.0;
+    enum class Axis { PressurePeak, ExtractionFlow };
+    Axis    axis;
+    std::optional<double> lo;    // unset → no floor (ceiling-only rail)
+    std::optional<double> hi;    // unset → no ceiling (floor-only rail)
     QString src;                 // verbatim provenance, e.g. "[SRC:profile-notes]"
     QString confidence;          // e.g. "high"
-    bool isPresent() const { return axis != Axis::None; }
+
+    // Intended construction path — Q_ASSERT the invariants (debug only;
+    // see the type comment for why this is convention, not enforced).
+    static ExpertBand pressureBand(double lo, double hi,
+                                   QString src, QString confidence) {
+        Q_ASSERT(lo < hi && lo > 0.0 && !src.isEmpty());
+        return ExpertBand{ Axis::PressurePeak, lo, hi,
+                           std::move(src), std::move(confidence) };
+    }
+    static ExpertBand flowBand(double lo, double hi,
+                               QString src, QString confidence) {
+        Q_ASSERT(lo < hi && lo >= 0.0 && !src.isEmpty());
+        return ExpertBand{ Axis::ExtractionFlow, lo, hi,
+                           std::move(src), std::move(confidence) };
+    }
+    // One-sided extraction-flow floor (the cited rail says "reach ~X
+    // ml/s" with no upper limit): fires only when observed is below it.
+    static ExpertBand flowFloor(double min,
+                                QString src, QString confidence) {
+        Q_ASSERT(min > 0.0 && !src.isEmpty());
+        return ExpertBand{ Axis::ExtractionFlow, min, std::nullopt,
+                           std::move(src), std::move(confidence) };
+    }
 };
 
 // Shared shot quality analysis helpers.
@@ -549,10 +591,10 @@ public:
     // (see DetectorResults). Sharing one return value guarantees both
     // outputs describe the same evaluation — no chance for them to
     // drift across consumers.
-    // ExpertBand lives at file scope (above) — it must not be a member of
-    // this class, because a `= {}` default argument that aggregate-inits
-    // its NSDMIs cannot appear within the enclosing class definition. This
-    // alias keeps every existing `ShotAnalysis::ExpertBand` reference valid.
+    // ExpertBand lives at file scope (above) — it is shared by
+    // ShotSummarizer too (two headers). This alias keeps every existing
+    // `ShotAnalysis::ExpertBand` reference valid; absence now travels as
+    // std::optional<ExpertBand>, so the default arg is `= std::nullopt`.
     using ExpertBand = ::ExpertBand;
 
     struct AnalysisResult {
@@ -580,7 +622,7 @@ public:
                                        double targetWeightG = 0.0,
                                        double finalWeightG = 0.0,
                                        int expectedFrameCount = -1,
-                                       const ExpertBand& expertBand = {});
+                                       const std::optional<ExpertBand>& expertBand = std::nullopt);
 
     // Backwards-compatible thin wrapper — equivalent to
     // analyzeShot(...).lines. Existing callers (in-app dialog, AI advisor
@@ -599,5 +641,5 @@ public:
                                          double targetWeightG = 0.0,
                                          double finalWeightG = 0.0,
                                          int expectedFrameCount = -1,
-                                         const ExpertBand& expertBand = {});
+                                         const std::optional<ExpertBand>& expertBand = std::nullopt);
 };
