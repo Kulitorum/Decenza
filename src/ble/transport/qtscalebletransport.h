@@ -61,6 +61,7 @@ private slots:
 
 private:
     void log(const QString& message);
+    void warn(const QString& message);  // qWarning() + logMessage — for significant events
     QLowEnergyService* getOrCreateService(const QBluetoothUuid& serviceUuid);
     void connectServiceSignals(QLowEnergyService* service);
     // Disconnect; existing scale auto-reconnect brings this same transport

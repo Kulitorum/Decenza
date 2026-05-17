@@ -29,6 +29,15 @@ void QtScaleBleTransport::log(const QString& message) {
     emit logMessage(msg);
 }
 
+void QtScaleBleTransport::warn(const QString& message) {
+    // Significant connection-priority events: WARN so they stand out in the
+    // user-attached debug.log (this feature is validated by reading those),
+    // and still flow to the scale log view via logMessage.
+    QString msg = QString("[BLE QtTransport] ") + message;
+    qWarning().noquote() << msg;
+    emit logMessage(msg);
+}
+
 QtScaleBleTransport::~QtScaleBleTransport() {
     disconnectFromDevice();
 }
@@ -306,14 +315,18 @@ void QtScaleBleTransport::onScaleFeedStalled() {
 void QtScaleBleTransport::triggerScaleBackoff(const char* reason) {
     // The detector has already latched skip-HIGH + backed-off and returned
     // true exactly once, so this runs at most once per session (no loop).
-    QT_TRANSPORT_LOG(QString("Scale connection-priority backoff: %1 — "
-                             "skipping HIGH and reconnecting at BALANCED")
-                         .arg(QString::fromUtf8(reason)));
+    // WARN-level: this is the headline event for log-based field validation.
+    warn(QString("Scale connection-priority BACKOFF triggered: %1 — skipping "
+                 "HIGH and reconnecting the scale at BALANCED")
+             .arg(QString::fromUtf8(reason)));
     // Latch the decision app-run-wide so every scale (incl. one connected
     // after a scale-type change, which builds a fresh transport+detector)
     // skips HIGH for the rest of this run. In-memory only; cleared on restart.
-    if (auto* mgr = BLEManager::instance())
+    if (auto* mgr = BLEManager::instance()) {
         mgr->setScaleSkipHighPriority(true);
+        warn("Scale connection-priority: app-run skip-HIGH latch SET — all "
+             "scales will run at BALANCED until app restart");
+    }
     // Tear down the link, then emit disconnected() explicitly. disconnectFromDevice()
     // severs the controller's signals and (for a fully-discovered scale, which is in
     // DiscoveredState) skips the controller disconnectFromDevice(), so it never routes
