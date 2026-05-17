@@ -107,7 +107,6 @@
     {
       "id": "blooming-allonge",
       "displayName": "Blooming Allonge",
-      "alsoMatches": ["Blooming Allongé"],
       "ugs": { "value": -0.5, "inferred": false, "note": "Original at -0.5; an ultralight hybrid variant sits near UGS 7." },
       "analysisFlags": ["flow_trend_ok", "grind_check_skip", "channeling_expected"],
       "family": "blooming",
@@ -116,7 +115,7 @@
     {
       "id": "allonge",
       "displayName": "Allonge",
-      "alsoMatches": ["Allongé", "Rao Allongé"],
+      "alsoMatches": ["Rao Allongé"],
       "ugs": { "value": 8.0, "inferred": false, "note": "Rao Allongé — the coarse anchor of the UGS chart." },
       "analysisFlags": ["channeling_expected", "grind_check_skip"],
       "family": "allonge",
@@ -190,7 +189,6 @@
     {
       "id": "gentle-and-sweet",
       "displayName": "Gentle & Sweet",
-      "alsoMatches": ["Gentle and sweet"],
       "ugs": { "value": 2.0, "inferred": false, "note": "Constant 6 bar, 2–3 ml/s flow." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "flat-pressure",
