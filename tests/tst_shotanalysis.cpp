@@ -1825,6 +1825,45 @@ private slots:
                  "sustained ~4.6 ml/s reaches the floor — must stay silent");
     }
 
+    // Phase D (D1) / A5.7: the extraction-flow band coexists with
+    // analyzeFlowVsGoal without interference. Even when the flowFloor
+    // FIRES, the four-boolean badge projection and the
+    // analyzeFlowVsGoal-derived grindIssue must be byte-identical to the
+    // std::nullopt run — the band only adds a summaryLine + sets
+    // verdictCategory, it never perturbs the mechanical detectors.
+    void expertBand_flowFloor_isStrictNoOpOnDetectors()
+    {
+        using EB = ShotAnalysis::ExpertBand;
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/8.0, phases, pr, fl, wt, dc, pg, fg);  // flow flat ~1.8
+        const EB floor = EB::flowFloor(4.5, QStringLiteral("[SRC:light-video]"),
+                                       QStringLiteral("medium"));
+
+        const auto without = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, std::nullopt);
+        const auto with = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, floor);
+
+        QVariantMap line;
+        QVERIFY2(!findKind(without.lines, QStringLiteral("expert_band_deviation"), line),
+                 "no band → no line");
+        QVERIFY2(findKind(with.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flowFloor fires on ~1.8 ml/s vs 4.5 — the firing case is what we lock");
+
+        // Mechanical detectors must be byte-identical despite the fire.
+        const auto b0 = decenza::deriveBadgesFromAnalysis(without.detectors);
+        const auto b1 = decenza::deriveBadgesFromAnalysis(with.detectors);
+        QCOMPARE(b1.pourTruncatedDetected, b0.pourTruncatedDetected);
+        QCOMPARE(b1.channelingDetected,    b0.channelingDetected);
+        QCOMPARE(b1.grindIssueDetected,    b0.grindIssueDetected);  // analyzeFlowVsGoal arm
+        QCOMPARE(b1.skipFirstFrameDetected,b0.skipFirstFrameDetected);
+        // Only the band's own outputs may differ.
+        QVERIFY(with.detectors.verdictCategory == QStringLiteral("expertBandDeviation"));
+        QVERIFY(without.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+    }
+
     // Phase B: the A-Flow rail. Same pressure-axis 6–9 shape as the gold
     // pair but `[SRC:aflow-repo]` / medium confidence (Janek's editor
     // dial-in guidance "pressure peak 6–9 bar at extraction"). Pin the
