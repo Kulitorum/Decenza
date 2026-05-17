@@ -701,7 +701,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     double targetWeightG,
     double finalWeightG,
     int expectedFrameCount,
-    const ExpertBand& expertBand)
+    const std::optional<ExpertBand>& expertBand)
 {
     AnalysisResult result;
     QVariantList& lines = result.lines;
@@ -1044,14 +1044,15 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     // D3/#1155). Touches no badge (D11); a dedicated verdictCategory
     // (`expertBandDeviation`) is set in the verdict cascade below.
     bool expertBandFired = false;
-    if (expertBand.isPresent() && !pourTruncated) {
+    if (expertBand && !pourTruncated) {
+        const ExpertBand& band = *expertBand;
         const bool channelingFired =
             d.channelingChecked
             && d.channelingSeverity != QStringLiteral("none");
         if (!channelingFired) {
             double observed = std::numeric_limits<double>::quiet_NaN();
             QString axisLabel, unit;
-            if (expertBand.axis == ExpertBand::Axis::PressurePeak) {
+            if (band.axis == ExpertBand::Axis::PressurePeak) {
                 // Peak pressure across the pour window (the pour-truncated
                 // path only populates peakPressureBar when it fires, so
                 // compute it here independently over the same window).
@@ -1064,7 +1065,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 observed = pk;
                 axisLabel = QStringLiteral("peak pressure");
                 unit = QStringLiteral("bar");
-            } else if (expertBand.axis == ExpertBand::Axis::ExtractionFlow) {
+            } else if (band.axis == ExpertBand::Axis::ExtractionFlow) {
                 // Peak flow across the pour window. No extraction-flow band
                 // is seeded in Phase A — reachable only once a flow band
                 // ships in a later phase; defined here so the per-axis
@@ -1080,25 +1081,41 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 unit = QStringLiteral("ml/s");
             }
             const double margin =
-                (expertBand.axis == ExpertBand::Axis::PressurePeak)
+                (band.axis == ExpertBand::Axis::PressurePeak)
                     ? EXPERT_BAND_PRESSURE_MARGIN_BAR
                     : EXPERT_BAND_FLOW_MARGIN_MLPS;
+            const bool belowFloor =
+                band.lo && observed < *band.lo - margin;
+            const bool aboveCeiling =
+                band.hi && observed > *band.hi + margin;
             const bool outside =
-                !std::isnan(observed)
-                && (observed < expertBand.lo - margin
-                    || observed > expertBand.hi + margin);
+                !std::isnan(observed) && (belowFloor || aboveCeiling);
             if (outside) {
                 expertBandFired = true;
+                // Band-shape-aware phrasing. Two-sided keeps the exact
+                // pre-reshape wording ("outside the LO–HI band"); a
+                // one-sided cited rail (floor/ceiling — e.g. Allongé
+                // "reach ~X ml/s") names only the bound it actually has,
+                // never a fabricated opposite edge.
+                QString bandClause;
+                if (band.lo && band.hi)
+                    bandClause = QStringLiteral("outside the %1–%2 band")
+                        .arg(*band.lo, 0, 'f', 1).arg(*band.hi, 0, 'f', 1);
+                else if (band.lo)
+                    bandClause = QStringLiteral("below the ~%1 %2")
+                        .arg(*band.lo, 0, 'f', 1).arg(unit);
+                else
+                    bandClause = QStringLiteral("above the ~%1 %2")
+                        .arg(*band.hi, 0, 'f', 1).arg(unit);
                 QVariantMap line;
                 line["text"] = QStringLiteral(
-                    "This shot's %1 was %2 %3, outside the %4–%5 band "
-                    "experts recommend for this profile %6 — judge by taste")
+                    "This shot's %1 was %2 %3, %4 experts recommend for "
+                    "this profile %5 — judge by taste")
                     .arg(axisLabel)
                     .arg(observed, 0, 'f', 1)
                     .arg(unit)
-                    .arg(expertBand.lo, 0, 'f', 1)
-                    .arg(expertBand.hi, 0, 'f', 1)
-                    .arg(expertBand.src);
+                    .arg(bandClause)
+                    .arg(band.src);
                 line["type"] = QStringLiteral("observation");
                 line["kind"] = QStringLiteral("expert_band_deviation");
                 lines.append(line);
@@ -1236,7 +1253,7 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              double targetWeightG,
                                              double finalWeightG,
                                              int expectedFrameCount,
-                                             const ExpertBand& expertBand)
+                                             const std::optional<ExpertBand>& expertBand)
 {
     return analyzeShot(pressure, flow, weight,
                        conductanceDerivative, phases, beverageType, duration,

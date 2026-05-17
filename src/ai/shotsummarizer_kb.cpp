@@ -404,10 +404,10 @@ QString ShotSummarizer::canonicalNameForKbId(const QString& kbId)
     return s_profileKnowledge.value(kbId).name;
 }
 
-ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
+std::optional<ShotAnalysis::ExpertBand>
+ShotSummarizer::expertBandForKbId(const QString& kbId)
 {
     using ExpertBand = ShotAnalysis::ExpertBand;
-    using Axis = ExpertBand::Axis;
     // Citation-bound table keyed by *canonical KB-section identity*
     // (pk.name), seeded ONLY where capture-dialin-coaching-guidance design
     // D9/D10/D10b grades a cited band. Phase A (change: flag-off-expert-
@@ -420,15 +420,15 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         // Profile-notes verbatim: "grind for a pressure peak between 6 and
         // 9 bar". Editor pressure limit 10.0 > 9 → both sides unconfounded.
         { QStringLiteral("D-Flow Q variant"),
-          { Axis::PressurePeak, 6.0, 9.0,
-            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") } },
+          ExpertBand::pressureBand(6.0, 9.0,
+            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high")) },
         // D-Flow / La Pavoni — its own `## D-Flow La Pavoni variant`
         // section (split out by #1175). Same profile-notes verbatim 6–9
         // bar goal. (Editor limit 9.0 == band ceiling is the firmware
         // limiter, only ever a corroborating clause — D1 — never the band.)
         { QStringLiteral("D-Flow La Pavoni variant"),
-          { Axis::PressurePeak, 6.0, 9.0,
-            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") } },
+          ExpertBand::pressureBand(6.0, 9.0,
+            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high")) },
         // Phase B — A-Flow family. All shipped A-Flow-editor profiles
         // canonical-key to the single `## A-Flow` KB section, so one row
         // covers them (same structural dedup as the gold pair). Cited band
@@ -452,8 +452,8 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         // trusting one lenient rater's scores to call limiter-pegged
         // shots good; corrected here.
         { QStringLiteral("A-Flow"),
-          { Axis::PressurePeak, 6.0, 9.0,
-            QStringLiteral("[SRC:aflow-repo]"), QStringLiteral("medium") } },
+          ExpertBand::pressureBand(6.0, 9.0,
+            QStringLiteral("[SRC:aflow-repo]"), QStringLiteral("medium")) },
         // Phase C — Londinium (the standalone `## Londinium` section).
         // Damian's LRv2/LRv3 never pick up this band because they resolve
         // to their OWN canonical KB section (`Damian's LRv2 / LRv3`) which
@@ -477,14 +477,16 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         // "too coarse: pressure crash"). Confidence `medium` (Phase-C
         // contextual tail; same rung as A-Flow's editor guidance).
         { QStringLiteral("Londinium"),
-          { Axis::PressurePeak, 8.0, 9.0,
-            QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium") } },
+          ExpertBand::pressureBand(8.0, 9.0,
+            QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
     };
-    if (kbId.isEmpty()) return {};
+    if (kbId.isEmpty()) return std::nullopt;
     loadProfileKnowledge();
     const QString canonical = s_profileKnowledge.value(kbId).name;
-    if (canonical.isEmpty()) return {};
-    return kBands.value(canonical);  // default-constructed (absent) when uncited
+    if (canonical.isEmpty()) return std::nullopt;
+    const auto it = kBands.constFind(canonical);
+    return it == kBands.constEnd() ? std::nullopt
+                                   : std::optional<ExpertBand>(*it);
 }
 
 QList<ShotSummarizer::KbUgsEntry> ShotSummarizer::allKbUgsEntries()

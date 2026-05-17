@@ -669,7 +669,7 @@ EvaluatedShot evaluate(const LoadedShot& s)
     const QString kbId =
         ShotSummarizer::computeProfileKbId(s.profileTitle, QString());
     const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(kbId);
-    const ShotAnalysis::ExpertBand expertBand =
+    const std::optional<ShotAnalysis::ExpertBand> expertBand =
         ShotSummarizer::expertBandForKbId(kbId);
 
     const ShotAnalysis::AnalysisResult R = ShotAnalysis::analyzeShot(

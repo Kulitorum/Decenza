@@ -43,7 +43,7 @@ struct AnalysisInputs {
     QStringList analysisFlags;
     double firstFrameSeconds = -1.0;
     int frameCount = -1;
-    ShotAnalysis::ExpertBand expertBand;  // cited per-profile band (D14); absent → no-op
+    std::optional<ShotAnalysis::ExpertBand> expertBand;  // cited per-profile band (D14); nullopt → no-op
 };
 
 AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,
