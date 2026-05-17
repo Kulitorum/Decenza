@@ -429,6 +429,27 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         { QStringLiteral("D-Flow La Pavoni variant"),
           { Axis::PressurePeak, 6.0, 9.0,
             QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") } },
+        // Phase B — A-Flow family. All shipped A-Flow-editor profiles
+        // canonical-key to the single `## A-Flow` KB section, so one row
+        // covers them (same structural dedup as the gold pair). Cited band
+        // is the A-Flow repo's editor-level dial-in guidance step 1,
+        // verbatim: "grind fine enough to reach a pressure peak between 6
+        // and 9 bar at extraction" [SRC:aflow-repo]
+        // (PROFILE_KNOWLEDGE_BASE.md). Confidence `medium`: editor-level
+        // guidance spanning all roasts (vs the gold pair's profile-notes
+        // `high`). Validated against the real community A-Flow /
+        // default-medium population (20 shots, 4 users): the band
+        // partitions cleanly — SILENT 6–9 (on Janek's target, off the
+        // limiter), FIRE >9 (grind too fine → pegs the profile's own
+        // 10-bar Flow-Extraction pressure limiter, the bad regime), FIRE
+        // <6 (too coarse). The limiter peg is not a rival rail; it is the
+        // mechanism that corroborates why >9 is bad — exactly D1 (limiter
+        // corroborates, band is primary). Earlier "STOP" rested on
+        // trusting one lenient rater's scores to call limiter-pegged
+        // shots good; corrected here.
+        { QStringLiteral("A-Flow"),
+          { Axis::PressurePeak, 6.0, 9.0,
+            QStringLiteral("[SRC:aflow-repo]"), QStringLiteral("medium") } },
     };
     if (kbId.isEmpty()) return {};
     loadProfileKnowledge();

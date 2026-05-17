@@ -60,10 +60,18 @@ Four review agents: code-reviewer **approve / 0 issues** (verdict ordering, `arg
 - [ ] **Follow-up — `prepareAnalysisInputs` integration test.** The D14a fix's ternary (`!freshKbId.isEmpty() ? freshKbId : profileKbId`) is covered at the building-block level (`tst_dialing_blocks::expertBand_staleKbId_…`) but not by a direct `prepareAnalysisInputs` call (its closure needs the `ai.qrc` + `profile.cpp`→Qt-Bluetooth chain in a test target — the same closure tension that put the regression in `tst_dialing_blocks`). Recorded as a known gap; add when a storage test target gains the KB resource, or accept the building-block coverage.
 - Considered & **kept as-is**: `loadProfileKnowledge` `qWarning` (not `qCritical`) on resource-open failure — test binaries deliberately lack the qrc (per the in-code comment); upgrading severity would spray criticals through every such suite and break the strict no-noise test discipline. The in-app path cannot fail (qrc linked).
 
-## Phase B — A-Flow family (only if A6 passed)
+## Phase B — A-Flow family (A6 passed → evaluated → ADDED, band validated)
 
-- [ ] B1 Add the A-Flow variants (all 5) as cited rows — pressure 6–9, `[SRC:aflow-repo]` (band-only, no ceiling; softer signal). No code change beyond the table rows.
-- [ ] B2 Extend slice tests to an A-Flow fixture; re-run the A6 shadow gate over A-Flow shots. Flat/noisy → do not add A-Flow rows; Phase A result stands. Record before/after.
+A6.3 GO unblocked Phase B. The A-Flow band is **valid and shipped**. An earlier pass STOPped it; that STOP is **withdrawn** — it rested on (1) framing the gate around user enjoyment ratings (not the criterion — validity is qualified Decent/author guidance + faithful measurement) and (2) trusting one lenient community rater's 72–83 scores to label limiter-pegged shots "good," which made a correctly-behaved band look like it false-fired. Corrected against the real multi-user community population below.
+
+- [x] B1 **A-Flow row added.** Single canonical `A-Flow` row (PressurePeak 6–9, `[SRC:aflow-repo]`, confidence `medium`) — all shipped A-Flow profiles canonical-key to the one `## A-Flow` KB section (same structural dedup as the gold pair). Cited verbatim from the A-Flow repo editor dial-in guidance step 1: *"grind fine enough to reach a pressure peak between 6 and 9 bar at extraction"* (PROFILE_KNOWLEDGE_BASE.md:240) — qualified profile-author guidance. No code change beyond the table row.
+- [x] B2 **GATE: validated against the real community population (rating-independent).** The visualizer.coffee `A-Flow / default-medium` community search "rated 68–100" set was a single lenient rater (Greg K, all 8); the true population is the unfiltered set: **20 shots, 4 users (Mark Paulson, David Watson, Cris Cable, dniprodd), 0 rated**. The built-in `A-Flow / default-medium` Flow-Extraction frame carries a **10.0 bar pressure limiter**; the band partitions this population cleanly by the production peak measure:
+  - **SILENT 6–9 (on Janek's target, off the limiter): 7/20** — peaks 6.2–7.3 bar, correctly left alone.
+  - **FIRE >9 (grind too fine → pegged the 10-bar Flow-Extraction limiter = the bad regime): 11/20** — peaks 9.6–10.5; 9/11 confirmed limiter-pegged (pressure pinned ≥9.5 while commanded ~4 ml/s flow choked to ~2). These are the "10-bar shots are normally terrible" cases the band *should* fire on.
+  - **FIRE <6 (too coarse): 2/20** — 3.1, 4.6 bar; legitimate dial-in miss.
+  - The limiter peg is the **mechanism that corroborates** why >9 is bad — exactly D1 (limiter corroborates, band primary), not a rival rail. Measurement-window is moot: pegged reads ~10 either way → correctly fires; on-target reads ~6–7 → correctly silent. Zero cross-profile leakage; corpus 17/17 with the row present.
+  - Slice test added (`tst_shotanalysis`): an A-Flow-shaped `[SRC:aflow-repo]` band fires above the band / stays silent on-target, observation type, no grind direction, `expertBandDeviation` verdict — same contract as the gold-pair tests.
+  - Note: Jeff's own 53-shot library A-Flow batch is pre-fix/stale (predates #808/#1173) and was **not** used as the basis; the multi-user community population is the evidence of record.
 
 ## Phase C — Confounded/contextual tail (only if B passed; per-arm, each independently droppable)
 
