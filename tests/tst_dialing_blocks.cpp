@@ -1916,6 +1916,42 @@ private slots:
                  "resolution too");
     }
 
+    // Phase B end-to-end: the kBands["A-Flow"] row must be reachable via
+    // the real KB-resolution path (computeProfileKbId → expertBandForKbId),
+    // not just constructed inline in a slice test. This is the guard that
+    // catches a key typo / `## A-Flow` heading rename — either would make
+    // every A-Flow shot silently lose its band in production.
+    void expertBand_aflow_resolvesFromTitle()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+
+        const QString kb = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("A-Flow / default-medium"), QStringLiteral("aflow"));
+        const ExpertBand band = ShotSummarizer::expertBandForKbId(kb);
+        QVERIFY2(band.isPresent(),
+                 "A-Flow / default-medium must resolve to the cited band "
+                 "via the production KB path");
+        QCOMPARE(band.axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(band.lo, 6.0);
+        QCOMPARE(band.hi, 9.0);
+        QCOMPARE(band.src, QStringLiteral("[SRC:aflow-repo]"));
+        QCOMPARE(band.confidence, QStringLiteral("medium"));
+
+        // All shipped A-Flow variants canonical-key to the one `## A-Flow`
+        // section → identical band (structural dedup, like the gold pair).
+        for (const QString& title : { QStringLiteral("A-Flow / default-light"),
+                                      QStringLiteral("A-Flow / default-dark"),
+                                      QStringLiteral("A-Flow / default-very-dark"),
+                                      QStringLiteral("A-Flow / default-like-dflow") }) {
+            const ExpertBand v = ShotSummarizer::expertBandForKbId(
+                ShotSummarizer::computeProfileKbId(title, QStringLiteral("aflow")));
+            QVERIFY2(v.isPresent(), qPrintable(title + " must resolve to the A-Flow band"));
+            QCOMPARE(v.lo, band.lo);
+            QCOMPARE(v.hi, band.hi);
+            QCOMPARE(v.src, band.src);
+        }
+    }
+
     // -------------------------------------------------------------------
     // correct-dflow-aflow-editor-profile-docs: regression guard for the
     // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good

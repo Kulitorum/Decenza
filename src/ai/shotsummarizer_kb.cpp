@@ -435,14 +435,18 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         // is the A-Flow repo's editor-level dial-in guidance step 1,
         // verbatim: "grind fine enough to reach a pressure peak between 6
         // and 9 bar at extraction" [SRC:aflow-repo]
-        // (PROFILE_KNOWLEDGE_BASE.md). Confidence `medium`: editor-level
-        // guidance spanning all roasts (vs the gold pair's profile-notes
-        // `high`). Validated against the real community A-Flow /
-        // default-medium population (20 shots, 4 users): the band
-        // partitions cleanly — SILENT 6–9 (on Janek's target, off the
-        // limiter), FIRE >9 (grind too fine → pegs the profile's own
-        // 10-bar Flow-Extraction pressure limiter, the bad regime), FIRE
-        // <6 (too coarse). The limiter peg is not a rival rail; it is the
+        // (docs/PROFILE_KNOWLEDGE_BASE.md:240 — the design doc; the runtime
+        // qrc resource is the lower-case profile_knowledge.md, which only
+        // carries the summary). Confidence `medium`: editor-level guidance
+        // spanning all roasts (vs the gold pair's profile-notes `high`).
+        // Validated against the real community A-Flow / default-medium
+        // population (20 shots, 4 users): the band partitions cleanly —
+        // SILENT 6–9 (on Janek's target, off the limiter), FIRE >9 (grind
+        // too fine → on default-medium that pegs its 10-bar Flow-Extraction
+        // limiter; other shipped A-Flow variants' limiters range 9.0–10.0
+        // bar, but the band fires on the peak regardless of each profile's
+        // limiter value — the bad regime), FIRE <6 (too coarse). The
+        // limiter peg (default-medium) is not a rival rail; it is the
         // mechanism that corroborates why >9 is bad — exactly D1 (limiter
         // corroborates, band is primary). Earlier "STOP" rested on
         // trusting one lenient rater's scores to call limiter-pegged

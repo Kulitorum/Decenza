@@ -1742,11 +1742,12 @@ private slots:
     // Phase B: the A-Flow rail. Same pressure-axis 6–9 shape as the gold
     // pair but `[SRC:aflow-repo]` / medium confidence (Janek's editor
     // dial-in guidance "pressure peak 6–9 bar at extraction"). Pin the
-    // partition validated against the real community A-Flow population: a
-    // ~10 bar peak (grind too fine → pegs the built-in's 10-bar
-    // Flow-Extraction limiter, "10-bar A-Flow is normally terrible") MUST
-    // fire above-band; an on-target ~7 bar peak MUST stay silent. Guards
-    // against the withdrawn rating-led STOP regressing back in.
+    // partition validated against the real community A-Flow / default-medium
+    // population (20 shots, 4 users — see tasks.md B2): a ~10 bar peak
+    // (grind too fine → pegs default-medium's 10-bar Flow-Extraction
+    // limiter, "10-bar A-Flow is normally terrible") MUST fire above-band;
+    // an on-target ~7 bar peak MUST stay silent. Guards against the
+    // withdrawn rating-led STOP regressing back in.
     void expertBand_aflow_pegged10Fires_onTarget7Silent()
     {
         using EB = ShotAnalysis::ExpertBand;
