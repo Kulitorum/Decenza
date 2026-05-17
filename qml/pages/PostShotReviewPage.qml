@@ -431,6 +431,8 @@ Page {
                             grindIssueDetected: editShotData.grindIssueDetected ?? false
                             skipFirstFrameDetected: editShotData.skipFirstFrameDetected ?? false
                             pourTruncatedDetected: editShotData.pourTruncatedDetected ?? false
+                            verdictCategory: (editShotData && editShotData.detectorResults)
+                                ? (editShotData.detectorResults.verdictCategory ?? "") : ""
                             onSummaryRequested: reviewAnalysisDialog.open()
                         }
 

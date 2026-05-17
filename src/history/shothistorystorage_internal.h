@@ -8,6 +8,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "../ai/shotanalysis.h"  // ShotAnalysis::ExpertBand
+
 namespace decenza::storage::detail {
 
 // Parsed metadata about the configured frames in a profile JSON blob.
@@ -18,6 +20,11 @@ namespace decenza::storage::detail {
 struct ProfileFrameInfo {
     int frameCount = -1;
     double firstFrameSeconds = -1.0;
+    // For a *fresh* expert-band kbId re-resolution against the current KB
+    // (the persisted profileKbId can be stale for shots saved before a KB
+    // reorganization — #1160/#1175). Same parse as frameCount.
+    QString profileTitle;
+    QString editorType;
 };
 
 ProfileFrameInfo profileFrameInfoFromJson(const QString& profileJson);
@@ -36,6 +43,7 @@ struct AnalysisInputs {
     QStringList analysisFlags;
     double firstFrameSeconds = -1.0;
     int frameCount = -1;
+    ShotAnalysis::ExpertBand expertBand;  // cited per-profile band (D14); absent → no-op
 };
 
 AnalysisInputs prepareAnalysisInputs(const QString& profileKbId,

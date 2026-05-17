@@ -10,6 +10,7 @@
 #include <limits>
 
 #include "../history/shotprojection.h"
+#include "shotanalysis.h"  // ShotAnalysis::ExpertBand — expertBandForKbId return type (D14)
 
 class ShotDataModel;
 class Profile;
@@ -267,6 +268,33 @@ public:
         bool ugsInferred = false;
     };
     static QList<KbUgsEntry> allKbUgsEntries();
+
+    // Resolve the cited expert-recommended operating band for a profile
+    // by its normalized KB key (the value call sites already pass to
+    // getAnalysisFlags/ugsForKbId). Returns `ShotAnalysis::ExpertBand`
+    // (the input type is owned by the lower ShotAnalysis layer so
+    // analyzeShot can consume it without depending on ShotSummarizer; D14).
+    //
+    // A small static citation-bound table maps a profile's *canonical
+    // KB-section identity* (canonicalNameForKbId — the dedup-by-name
+    // precedent as allKbUgsEntries/ugsForKbId) to the band an expert
+    // source recommends, on the axis the source states. NOT parsed from
+    // profile_knowledge.md (deliberately seam-free — no Expected*:
+    // grammar); the table is shipped code, resolved fresh every call so
+    // corrections retroactively apply (recompute-on-load contract).
+    // Canonical keying collapses alias twins that share a KB section
+    // (D-Flow / Q ≡ Damian's Q → "D-Flow Q variant") to one entry while
+    // distinctly-sectioned profiles (D-Flow / La Pavoni → "D-Flow La
+    // Pavoni variant", its own section post-#1175; D-Flow / default →
+    // "D-Flow", no entry) stay distinct, zero special-case logic.
+    //
+    // Self-classifying rule: a profile gets a band iff a cited source
+    // states a recommended pressure-peak OR extraction-flow band for it
+    // (grading authoritative in capture-dialin-coaching-guidance design
+    // D9/D10/D10b). No cited band → absent (check no-ops). Absence is
+    // intentional and never completed with a fabricated band. Empty key
+    // or no cited band → an absent band (isPresent()==false).
+    static ShotAnalysis::ExpertBand expertBandForKbId(const QString& kbId);
 
 private:
     // Render the prose body (## Shot Summary, ## Phase Data, ## Tasting

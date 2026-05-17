@@ -205,6 +205,7 @@ qt_add_resources(TST_SHOTSUMMARIZER_AI_RESOURCES
 add_decenza_test(tst_shotsummarizer
     tst_shotsummarizer.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
@@ -235,6 +236,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiconversation.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
@@ -359,6 +361,7 @@ set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/profilestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
@@ -382,6 +385,7 @@ set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp

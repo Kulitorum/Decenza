@@ -22,6 +22,20 @@ Item {
     // shot would render the wrong all-clear.
     required property bool pourTruncatedDetected
 
+    // Recomputed verdict severity (change: flag-off-expert-band-in-shot-
+    // summary, D12). Read from the already-serialized
+    // shotData.detectorResults.verdictCategory — no new field. Optional
+    // (default "") so other instantiations and legacy/no-analysis shots
+    // are byte-identical. The Shot Summary affordance gets a single calm
+    // tint whenever the verdict is anything other than "clean" — a quiet
+    // "worth opening" cue, deliberately NOT severity-graded into an alarm
+    // (an intentionally-pulled non-clean shot must not look broken; D1).
+    // Empty string == no analysis data → treated as nothing-to-say (no
+    // tint), distinct from a real non-clean verdict.
+    property string verdictCategory: ""
+    readonly property bool worthOpening:
+        verdictCategory !== "" && verdictCategory !== "clean"
+
     signal summaryRequested()
 
     Layout.fillWidth: true
@@ -208,13 +222,18 @@ Item {
             }
         }
 
-        // "Shot Summary" button
+        // "Shot Summary" button — the affordance that opens the dialog.
+        // Calm primaryColor tint when worthOpening (D12); never error/
+        // warning/severity-graded. Mirrors the chip tint pattern above.
         Rectangle {
             width: summaryRow.width + Theme.spacingMedium * 2
             height: Theme.scaled(28)
             radius: Theme.scaled(14)
-            color: Theme.surfaceColor
-            border.color: Theme.borderColor
+            color: root.worthOpening
+                ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g,
+                          Theme.primaryColor.b, 0.15)
+                : Theme.surfaceColor
+            border.color: root.worthOpening ? Theme.primaryColor : Theme.borderColor
             border.width: Theme.scaled(1)
 
             Accessible.role: Accessible.Button
@@ -235,14 +254,16 @@ Item {
                     layer.smooth: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: Theme.textSecondaryColor
+                        colorizationColor: root.worthOpening
+                            ? Theme.primaryColor : Theme.textSecondaryColor
                     }
                 }
                 Text {
                     id: summaryLabel
                     text: TranslationManager.translate("badges.shotSummary", "Shot Summary")
                     font: Theme.captionFont
-                    color: Theme.textSecondaryColor
+                    color: root.worthOpening
+                        ? Theme.primaryColor : Theme.textSecondaryColor
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }

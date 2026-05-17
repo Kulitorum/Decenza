@@ -1127,7 +1127,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             shotData->pressureGoalData(), shotData->flowGoalData(),
             inputs.analysisFlags, inputs.firstFrameSeconds,
             data.targetWeight, data.finalWeight,
-            inputs.frameCount);
+            inputs.frameCount, inputs.expertBand);
         decenza::applyBadgesToTarget(data, analysis.detectors);
     }
 
@@ -1841,7 +1841,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.pressureGoal, record.flowGoal,
             inputs.analysisFlags, inputs.firstFrameSeconds,
             record.targetWeight, record.summary.finalWeight,
-            inputs.frameCount);
+            inputs.frameCount, inputs.expertBand);
         decenza::applyBadgesToTarget(record, analysis.detectors);
         // Cache the AnalysisResult on the ShotRecord so convertShotRecord
         // (called next in the requestShot path) doesn't have to re-run
