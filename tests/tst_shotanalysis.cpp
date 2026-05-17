@@ -1740,6 +1740,52 @@ private slots:
         QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
     }
 
+    // The ExpertBand reshape exists to make a ONE-SIDED flow floor
+    // expressible (Allongé's cited "reach ~4.5 ml/s, no ceiling"). That
+    // path — flowFloor() + the `belowFloor` branch with hi==nullopt + the
+    // "below the ~X" prose arm — had no test; the flow-axis test above
+    // uses two-sided flowBand(). Pin it: observed peak flow below the
+    // floor (by > margin) fires a one-sided observation that names only
+    // the floor (no fabricated ceiling), no grind direction,
+    // expertBandDeviation verdict; at/above the floor stays silent.
+    void expertBand_flowFloor_firesAndSilent()
+    {
+        using EB = ShotAnalysis::ExpertBand;
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/8.0, phases, pr, fl, wt, dc, pg, fg);  // flow flat ~1.8
+
+        // ~1.8 ml/s observed, floor 4.5 → below by > margin → fires.
+        const EB floor = EB::flowFloor(4.5, QStringLiteral("[SRC:light-video]"),
+                                       QStringLiteral("medium"));
+        const auto fired = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, floor);
+        QVariantMap line;
+        QVERIFY2(findKind(fired.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flow ~1.8 ml/s vs a 4.5 floor must fire");
+        QCOMPARE(line["type"].toString(), QStringLiteral("observation"));
+        const QString t = line["text"].toString();
+        QVERIFY2(t.contains("below the ~") && t.contains("ml/s"),
+                 qPrintable("floor-only line names only the floor: " + t));
+        QVERIFY2(!t.contains("–") && !t.contains("outside the"),
+                 qPrintable("one-sided line must NOT render a two-sided band: " + t));
+        for (const QString& d : { QStringLiteral("grind"), QStringLiteral("finer"),
+                                  QStringLiteral("coarser") })
+            QVERIFY2(!t.contains(d, Qt::CaseInsensitive),
+                     qPrintable("floor line must not state a grind direction: " + t));
+        QCOMPARE(fired.detectors.verdictCategory, QStringLiteral("expertBandDeviation"));
+
+        // Floor below the observed flow → at/above the floor → silent.
+        const EB lowFloor = EB::flowFloor(1.0, QStringLiteral("[SRC:light-video]"),
+                                          QStringLiteral("medium"));
+        const auto silent = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, lowFloor);
+        QVERIFY2(!findKind(silent.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flow at/above the floor must stay silent");
+        QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+    }
+
     // Phase B: the A-Flow rail. Same pressure-axis 6–9 shape as the gold
     // pair but `[SRC:aflow-repo]` / medium confidence (Janek's editor
     // dial-in guidance "pressure peak 6–9 bar at extraction"). Pin the

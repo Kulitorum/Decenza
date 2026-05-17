@@ -23,9 +23,18 @@ struct HistoryPhaseMarker;
 // constructed ExpertBand is always a valid, cited band. `lo`/`hi` are
 // each std::optional so a one-sided rail is first-class — a floor
 // (e.g. Allongé "reach ~4.5 ml/s": lo set, hi unset) or a ceiling
-// (lo unset, hi set) — without fabricating the missing bound. Construct
-// ONLY via the validating factories; the aggregate form is the
-// factories' own implementation detail.
+// (lo unset, hi set) — without fabricating the missing bound.
+//
+// Construct via the factories below: they Q_ASSERT the invariants
+// (lo<hi, positive bound, non-empty src) — in DEBUG builds only
+// (Q_ASSERT is a no-op under QT_NO_DEBUG). The struct stays an
+// aggregate, so direct aggregate-init is technically still possible;
+// the "factories only" rule is convention + debug-checked, NOT
+// type-enforced. Accepted because the sole construction sites are the
+// compile-time-constant kBands table + tests — a bad row trips the
+// debug assert in the test suite before it can ship. If ExpertBand
+// ever takes runtime/untrusted input, harden it: a class with a
+// private ctor, or factories returning std::optional.
 //
 // Still file scope (a type shared by ShotAnalysis + ShotSummarizer, two
 // headers) with a `using ExpertBand = ::ExpertBand;` alias in
@@ -39,7 +48,8 @@ struct ExpertBand {
     QString src;                 // verbatim provenance, e.g. "[SRC:profile-notes]"
     QString confidence;          // e.g. "high"
 
-    // Validating factories — the only supported construction path.
+    // Intended construction path — Q_ASSERT the invariants (debug only;
+    // see the type comment for why this is convention, not enforced).
     static ExpertBand pressureBand(double lo, double hi,
                                    QString src, QString confidence) {
         Q_ASSERT(lo < hi && lo > 0.0 && !src.isEmpty());
