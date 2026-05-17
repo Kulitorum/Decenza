@@ -260,9 +260,10 @@ Page {
             editDrinkTds = tds
             calculateEy()
             // An R2 measurement is a committed value just like a user-entered
-            // one — persist it the moment it lands. Without this it relied on a
+            // one — persist it the moment it lands (finalize: a discrete async
+            // commit, not a coalesced gesture). Without this it relied on a
             // later manual Save and was frequently lost on navigate-away.
-            postShotReviewPage.autosave("r2")
+            postShotReviewPage.autosave("r2", true)
         }
     }
 
@@ -348,10 +349,12 @@ Page {
         // `value` during interaction, which severs the `value: editX` binding.
         // Re-establish the binding (not a bare assignment, which would sever it
         // permanently) so Undo restores the UI and future edits keep tracking
-        // editX. TDS/EY are never self-assigned (ValueInput doesn't write
-        // `value`; their handlers only set editDrinkTds/editDrinkEy), so their
-        // `value:` bindings stay live and must NOT be touched here — doing so
-        // would break later R2 / calculateEy() updates.
+        // editX. The TDS/EY onValueModified handlers in THIS file (unlike
+        // dose/out) do not self-assign tdsInput.value/eyInput.value, so their
+        // `value: editDrinkTds`/`editDrinkEy` bindings stay live and must NOT
+        // be touched here — re-asserting them would sever the binding and
+        // break later R2 / calculateEy() updates. (If a future edit adds a
+        // self-assign to those handlers, re-bind them here too.)
         ratingInput.value = Qt.binding(function() { return editEnjoyment })
         doseInput.value = Qt.binding(function() { return editDoseWeight })
         outInput.value = Qt.binding(function() { return editDrinkWeight })
@@ -1005,6 +1008,13 @@ Page {
                                 calculateEy()
                                 postShotReviewPage.autosave("dose")
                             }
+                            // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
                                 if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                                 else postShotReviewPage.finalizeEdit()
@@ -1041,6 +1051,13 @@ Page {
                                 calculateEy()
                                 postShotReviewPage.autosave("out")
                             }
+                            // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
                                 if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                                 else postShotReviewPage.finalizeEdit()
@@ -1096,7 +1113,14 @@ Page {
                                     calculateEy()
                                     postShotReviewPage.autosave("tds")
                                 }
-                                onActiveFocusChanged: {
+                                // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
+                            onActiveFocusChanged: {
                                 if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
@@ -1132,6 +1156,13 @@ Page {
                                 editDrinkEy = newValue
                                 postShotReviewPage.autosave("ey")
                             }
+                            // valueCommitted is ValueInput's real end-of-
+                            // interaction signal (drag release / +/- release /
+                            // typed commit) — touch interactions never change
+                            // active focus, so this is what flushes the
+                            // deferred coalesced value. The focus-loss branch
+                            // covers the keyboard/tab path.
+                            onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
                                 if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
                                 else postShotReviewPage.finalizeEdit()
