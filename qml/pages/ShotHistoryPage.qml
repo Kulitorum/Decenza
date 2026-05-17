@@ -107,6 +107,11 @@ Page {
         isLoadingMore = false
         currentOffset = 0
         hasMoreShots = true
+        // Explicit reset-to-top entry point (filter/sort/search change, clear
+        // filter, batch delete): discard any pending scroll-restore from a
+        // superseded reloadPreservingScroll() so it can't be applied to this
+        // refreshed result set once its own in-flight request is dropped.
+        _pendingRestoreContentY = -1
         shotListView.contentY = 0
         var filter = buildFilter()
         MainController.shotHistory.requestShotsFiltered(filter, 0, pageSize)
@@ -154,7 +159,7 @@ Page {
                 hasMoreShots = results.length >= pageSize
                 isLoadingMore = false
             } else {
-                // loadShots result (full refresh)
+                // Full refresh (loadShots or reloadPreservingScroll)
                 var j
                 for (j = 0; j < results.length; j++) {
                     if (j < shotListModel.count) {
