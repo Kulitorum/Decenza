@@ -29,6 +29,17 @@ namespace {
         return new QtScaleBleTransport();
 #endif
     }
+
+    // Single scale-agnostic chokepoint: create the transport, the driver, and
+    // register the transport on the ScaleDevice base so connection-priority
+    // detection (wired in main.cpp) can reach it without per-driver code.
+    template <typename ScaleT>
+    std::unique_ptr<ScaleDevice> makeScale(QObject* parent) {
+        ScaleBleTransport* transport = createTransportForPlatform();
+        std::unique_ptr<ScaleT> scale(new ScaleT(transport, parent));
+        scale->setBleTransport(transport);
+        return scale;
+    }
 }
 
 ScaleType ScaleFactory::detectScaleType(const QBluetoothDeviceInfo& device) {
@@ -58,33 +69,33 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
 
     switch (type) {
         case ScaleType::DecentScale:
-            return std::make_unique<DecentScale>(createTransportForPlatform(), parent);
+            return makeScale<DecentScale>(parent);
         case ScaleType::Acaia:
         case ScaleType::AcaiaPyxis:
             // Unified AcaiaScale auto-detects IPS vs Pyxis protocol
-            return std::make_unique<AcaiaScale>(createTransportForPlatform(), parent);
+            return makeScale<AcaiaScale>(parent);
         case ScaleType::Felicita:
-            return std::make_unique<FelicitaScale>(createTransportForPlatform(), parent);
+            return makeScale<FelicitaScale>(parent);
         case ScaleType::Skale:
-            return std::make_unique<SkaleScale>(createTransportForPlatform(), parent);
+            return makeScale<SkaleScale>(parent);
         case ScaleType::HiroiaJimmy:
-            return std::make_unique<HiroiaScale>(createTransportForPlatform(), parent);
+            return makeScale<HiroiaScale>(parent);
         case ScaleType::Bookoo:
-            return std::make_unique<BookooScale>(createTransportForPlatform(), parent);
+            return makeScale<BookooScale>(parent);
         case ScaleType::SmartChef:
-            return std::make_unique<SmartChefScale>(createTransportForPlatform(), parent);
+            return makeScale<SmartChefScale>(parent);
         case ScaleType::Difluid:
-            return std::make_unique<DifluidScale>(createTransportForPlatform(), parent);
+            return makeScale<DifluidScale>(parent);
         case ScaleType::EurekaPrecisa:
-            return std::make_unique<EurekaPrecisaScale>(createTransportForPlatform(), parent);
+            return makeScale<EurekaPrecisaScale>(parent);
         case ScaleType::SoloBarista:
-            return std::make_unique<SoloBaristaScale>(createTransportForPlatform(), parent);
+            return makeScale<SoloBaristaScale>(parent);
         case ScaleType::AtomheartEclair:
-            return std::make_unique<AtomheartEclairScale>(createTransportForPlatform(), parent);
+            return makeScale<AtomheartEclairScale>(parent);
         case ScaleType::VariaAku:
-            return std::make_unique<VariaAkuScale>(createTransportForPlatform(), parent);
+            return makeScale<VariaAkuScale>(parent);
         case ScaleType::Timemore:
-            return std::make_unique<TimemoreScale>(createTransportForPlatform(), parent);
+            return makeScale<TimemoreScale>(parent);
         default:
             return nullptr;
     }
@@ -130,33 +141,33 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
 
     switch (type) {
         case ScaleType::DecentScale:
-            return std::make_unique<DecentScale>(createTransportForPlatform(), parent);
+            return makeScale<DecentScale>(parent);
         case ScaleType::Acaia:
         case ScaleType::AcaiaPyxis:
             // Unified AcaiaScale auto-detects IPS vs Pyxis protocol
-            return std::make_unique<AcaiaScale>(createTransportForPlatform(), parent);
+            return makeScale<AcaiaScale>(parent);
         case ScaleType::Felicita:
-            return std::make_unique<FelicitaScale>(createTransportForPlatform(), parent);
+            return makeScale<FelicitaScale>(parent);
         case ScaleType::Skale:
-            return std::make_unique<SkaleScale>(createTransportForPlatform(), parent);
+            return makeScale<SkaleScale>(parent);
         case ScaleType::HiroiaJimmy:
-            return std::make_unique<HiroiaScale>(createTransportForPlatform(), parent);
+            return makeScale<HiroiaScale>(parent);
         case ScaleType::Bookoo:
-            return std::make_unique<BookooScale>(createTransportForPlatform(), parent);
+            return makeScale<BookooScale>(parent);
         case ScaleType::SmartChef:
-            return std::make_unique<SmartChefScale>(createTransportForPlatform(), parent);
+            return makeScale<SmartChefScale>(parent);
         case ScaleType::Difluid:
-            return std::make_unique<DifluidScale>(createTransportForPlatform(), parent);
+            return makeScale<DifluidScale>(parent);
         case ScaleType::EurekaPrecisa:
-            return std::make_unique<EurekaPrecisaScale>(createTransportForPlatform(), parent);
+            return makeScale<EurekaPrecisaScale>(parent);
         case ScaleType::SoloBarista:
-            return std::make_unique<SoloBaristaScale>(createTransportForPlatform(), parent);
+            return makeScale<SoloBaristaScale>(parent);
         case ScaleType::AtomheartEclair:
-            return std::make_unique<AtomheartEclairScale>(createTransportForPlatform(), parent);
+            return makeScale<AtomheartEclairScale>(parent);
         case ScaleType::VariaAku:
-            return std::make_unique<VariaAkuScale>(createTransportForPlatform(), parent);
+            return makeScale<VariaAkuScale>(parent);
         case ScaleType::Timemore:
-            return std::make_unique<TimemoreScale>(createTransportForPlatform(), parent);
+            return makeScale<TimemoreScale>(parent);
         default:
             return nullptr;
     }

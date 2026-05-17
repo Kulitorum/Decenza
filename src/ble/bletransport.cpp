@@ -113,6 +113,7 @@ BleTransport::BleTransport(QObject* parent)
                 warn(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
                     .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
                 emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
+                emit de1LinkFault(QStringLiteral("write-failed"));
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
                 processCommandQueue();  // Move on to next command
@@ -405,6 +406,17 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     warn(QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName));
     emit errorOccurred(userMessage);
 
+    // Connection-teardown family is the dual-HIGH BLE-contention signature
+    // (#1093 AuthorizationError, #1176 ConnectionError). Surface it to the
+    // connection-priority coordinator. Scale-agnostic: this layer does not
+    // know a scale exists; the coordinator only acts on it after a scale
+    // has requested HIGH priority.
+    if (error == QLowEnergyController::ConnectionError ||
+        error == QLowEnergyController::RemoteHostClosedError ||
+        error == QLowEnergyController::AuthorizationError) {
+        emit de1LinkFault(QStringLiteral("controller-error"));
+    }
+
     // Dump a one-shot Linux BT diagnostics block into the debug log the
     // first time any transport error fires. The issue template attaches
     // the debug log to every bug report, so this flows to maintainers
@@ -484,6 +496,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                             m_writeRetryCount++;
                             log(QString("CharacteristicWriteError, retrying %1/%2 (uuid=%3)")
                                 .arg(m_writeRetryCount).arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
+                            emit de1LinkFault(QStringLiteral("write-retry"));
                             QTimer::singleShot(WRITE_RETRY_DELAY_MS, this, [this]() {
                                 if (m_lastCommand) {
                                     m_lastCommand();
@@ -493,6 +506,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                             warn(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2)")
                                 .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
                             emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
+                            emit de1LinkFault(QStringLiteral("write-failed"));
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;
                             processCommandQueue();

@@ -65,6 +65,11 @@ void WeightProcessor::processWeight(double weight)
     qint64 sinceLast = m_lastWallClockMs > 0 ? (wallClock - m_lastWallClockMs) : -1;
     m_lastWallClockMs = wallClock;
 
+    // Scale-feed liveness: a genuine (non-spike) sample arrived, so the feed
+    // is alive again — clear the stall flag so a later stall in this shot can
+    // be re-detected. (No "resumed" signal: backoff confirmation is structural.)
+    m_scaleFeedStale = false;
+
     qint64 sampleTs;
     if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
         // First call or non-batched: use wall-clock as ground truth.
@@ -290,6 +295,22 @@ void WeightProcessor::setTargetWeight(double weight)
 void WeightProcessor::setCurrentFrame(int frameNumber)
 {
     m_currentFrame = frameNumber;
+
+    // In-shot scale-feed liveness backstop. setCurrentFrame() is driven by the
+    // DE1 shot-sample stream (~5Hz), which keeps ticking even when the scale is
+    // silent — so this detects an ongoing stall that processWeight() cannot
+    // (processWeight only runs when a sample arrives). Gate: extraction active,
+    // tare complete (weight should be flowing), and we have seen at least one
+    // sample this shot (m_lastWallClockMs > 0 — avoids firing before the scale
+    // naturally starts, and when no scale/idle since m_active is false then).
+    // Scale-agnostic: depends only on processed-weight timing, not any driver.
+    if (m_active && m_tareComplete && m_lastWallClockMs > 0 && !m_scaleFeedStale
+        && (m_wallClock() - m_lastWallClockMs) > kScaleStaleMs) {
+        m_scaleFeedStale = true;
+        qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
+                   << "ms during active extraction (frame" << frameNumber << ")";
+        emit scaleFeedStalled();
+    }
 }
 
 void WeightProcessor::setTareComplete(bool complete)
@@ -326,6 +347,7 @@ void WeightProcessor::startExtraction()
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
+    m_scaleFeedStale = false;
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 

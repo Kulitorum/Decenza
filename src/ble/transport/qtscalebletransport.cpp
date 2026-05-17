@@ -16,6 +16,11 @@
 QtScaleBleTransport::QtScaleBleTransport(QObject* parent)
     : ScaleBleTransport(parent)
 {
+    m_clock.start();  // monotonic source for the connection-priority window
+}
+
+int64_t QtScaleBleTransport::nowMs() {
+    return m_clock.isValid() ? m_clock.elapsed() : 0;
 }
 
 void QtScaleBleTransport::log(const QString& message) {
@@ -249,42 +254,64 @@ void QtScaleBleTransport::onControllerConnected() {
     QT_TRANSPORT_LOG("Controller connected!");
     m_connected = true;
 
-    // Request CONNECTION_PRIORITY_HIGH on the scale link (7.5-15ms intervals)
-    // — see bletransport.cpp for the general rationale. The DE1 always asks
-    // for HIGH unconditionally; the scale only asks on Android 11+.
-    //
-    // On older Android (< 11) with weaker BT chipsets — notably the Decent
-    // P80X tablet (Android 9) — running both DE1 and a notify-heavy scale
-    // simultaneously at HIGH priority appears to starve DE1 GATT writes
-    // (single-write CharacteristicWriteError → AuthorizationError disconnect,
-    // #1087/#1091/#1093). Falling the scale back to BALANCED (~30-50ms) costs
-    // a bit of weight-update latency but avoids the radio contention. Newer
-    // Android stacks handle dual-HIGH cleanly so we keep the low-latency
-    // behaviour for users on capable hardware.
-    if (m_controller) {
-#ifdef Q_OS_ANDROID
-        const jint sdkInt = QJniObject::getStaticField<jint>(
-            "android/os/Build$VERSION", "SDK_INT");
-        constexpr jint kMinSdkForScaleHighPriority = 30;  // Android 11
-        if (sdkInt < kMinSdkForScaleHighPriority) {
-            QT_TRANSPORT_LOG(QString(
-                "Skipping CONNECTION_PRIORITY_HIGH on scale "
-                "(Android SDK %1 < %2) — see #1093")
-                .arg(sdkInt).arg(kMinSdkForScaleHighPriority));
-        } else {
-            QT_TRANSPORT_LOG(QString(
-                "Requesting CONNECTION_PRIORITY_HIGH on scale (Android SDK %1)")
-                .arg(sdkInt));
-            QLowEnergyConnectionParameters params;
-            m_controller->requestConnectionUpdate(params);
-        }
-#else
+    // Connection-priority for the scale link (dual-HIGH BLE contention,
+    // #1093/#1176). The DE1 always requests HIGH; the scale also requests
+    // HIGH UNLESS detection has tripped the session skip-HIGH flag, in which
+    // case the link stays at the platform-default BALANCED — exactly the
+    // proven #1097 behaviour, just decided by observed runtime behaviour
+    // instead of the (retired) Android SDK<30 gate. Requesting HIGH opens an
+    // internal watch window; a cluster of DE1-link faults inside it (or an
+    // in-shot scale-feed stall) means this device cannot sustain dual-HIGH.
+    // Connection-priority for the scale link (dual-HIGH BLE contention,
+    // #1093/#1176). The DE1 always requests HIGH; the scale also requests
+    // HIGH UNLESS the detector has latched skip-HIGH from an earlier backoff
+    // this session, in which case the link stays at the platform-default
+    // BALANCED — exactly the proven #1097 behaviour, decided by observed
+    // runtime behaviour instead of the (retired) Android SDK<30 gate.
+    if (m_priority.skipHighPriority()) {
+        QT_TRANSPORT_LOG("Scale connection-priority: skipping HIGH "
+                         "(backoff active this session) — link stays at BALANCED");
+        m_priority.disarm();
+    } else if (m_controller) {
+        QT_TRANSPORT_LOG("Requesting CONNECTION_PRIORITY_HIGH on scale");
         QLowEnergyConnectionParameters params;
         m_controller->requestConnectionUpdate(params);
-#endif
+        m_priority.armWindow(nowMs());  // arm DE1-fault / scale-stall detection
+    } else {
+        m_priority.disarm();
     }
 
     emit connected();
+}
+
+void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
+    // Primary signal: a DE1-link fault clustered shortly after the scale
+    // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
+    if (m_priority.onDe1Fault(nowMs())) {
+        triggerScaleBackoff(qPrintable(QStringLiteral(
+            "DE1-link fault cluster (%1×, last=%2) within scale-HIGH window")
+            .arg(m_priority.de1FaultCount()).arg(kind)));
+    }
+}
+
+void QtScaleBleTransport::onScaleFeedStalled() {
+    // Backstop: covers sessions where the DE1 cluster never appears early and
+    // the scale silently stalls mid-shot (the actual #1176 shot-1151 case).
+    if (m_priority.onScaleStall()) {
+        triggerScaleBackoff("scale weight feed stalled mid-extraction while at HIGH");
+    }
+}
+
+void QtScaleBleTransport::triggerScaleBackoff(const char* reason) {
+    // The detector has already latched skip-HIGH + backed-off and returned
+    // true exactly once, so this runs at most once per session (no loop).
+    QT_TRANSPORT_LOG(QString("Scale connection-priority backoff: %1 — "
+                             "skipping HIGH and reconnecting at BALANCED")
+                         .arg(QString::fromUtf8(reason)));
+    // Existing scale auto-reconnect (main.cpp connectedChanged handler) brings
+    // the same transport object back; onControllerConnected() then sees the
+    // latched skip-HIGH and stays at BALANCED.
+    disconnectFromDevice();
 }
 
 void QtScaleBleTransport::onControllerDisconnected() {

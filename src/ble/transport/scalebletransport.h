@@ -99,6 +99,25 @@ public:
      */
     virtual bool isConnected() const = 0;
 
+    /**
+     * Connection-priority backoff (dual-HIGH BLE contention, #1093/#1176).
+     * When set, the transport must NOT request CONNECTION_PRIORITY_HIGH on
+     * (re)connect, leaving the link at the platform-default BALANCED interval.
+     * Session-scoped, in-memory only. Default no-op (only QtScaleBleTransport
+     * — Android — implements it; CoreBluetooth is unaffected).
+     */
+    virtual void setSkipHighPriority(bool skip) { Q_UNUSED(skip); }
+
+public slots:
+    /**
+     * Detection inputs wired in main.cpp from the (stable) DE1Device and the
+     * WeightProcessor. Default no-op; QtScaleBleTransport correlates them
+     * against its own HIGH-request window and triggers the skip-HIGH +
+     * self-reconnect backoff. Scale-agnostic — no driver code involved.
+     */
+    virtual void onDe1LinkFault(const QString& kind) { Q_UNUSED(kind); }
+    virtual void onScaleFeedStalled() {}
+
 signals:
     /**
      * Emitted when BLE connection is established.
@@ -160,6 +179,7 @@ signals:
      * Emitted on any BLE error.
      */
     void error(const QString& message);
+
 
     /**
      * Emitted for debug logging (shown in UI and written to log file).

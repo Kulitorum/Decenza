@@ -316,6 +316,10 @@ signals:
     void profileUploaded(bool success, const QString& reason = QString());
     void initialSettingsComplete();
     void errorOccurred(const QString& error);
+    // Forwarded from the DE1 transport: a DE1-link fault (write retry /
+    // write-failed / connection-teardown). Re-emitted here so consumers bind
+    // once to the stable DE1Device and survive transport swaps.
+    void de1LinkFault(const QString& kind);
     void simulationModeChanged();
     void guiEnabledChanged();
     void usbChargerOnChanged();

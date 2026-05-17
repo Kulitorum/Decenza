@@ -127,6 +127,16 @@ signals:
     void queueDrained();
 
     /**
+     * Emitted on a DE1-link transport fault: a characteristic-write retry,
+     * a write that failed after all retries, or a connection-class
+     * controller error. `kind` is a short stable tag ("write-retry",
+     * "write-failed", "controller-error"). Scale-agnostic — the BLE
+     * connection-priority coordinator correlates these against the scale's
+     * HIGH-priority request timing; this layer has no scale knowledge.
+     */
+    void de1LinkFault(const QString& kind);
+
+    /**
      * Emitted for debug/diagnostic logging.
      * @param message Log text to be captured by ShotDebugLogger.
      */
