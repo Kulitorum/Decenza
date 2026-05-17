@@ -1695,6 +1695,50 @@ private slots:
         QCOMPARE(b1.skipFirstFrameDetected,b0.skipFirstFrameDetected);
     }
 
+    // PR-review (pr-test-analyzer): the extraction-flow axis is implemented
+    // in analyzeShot but Phase A seeds only pressure bands, so the flow
+    // branch shipped unexercised. Pin it with a synthetic ExpertBand so a
+    // bug in the flow peak-scan / EXPERT_BAND_FLOW_MARGIN_MLPS gate can't
+    // rot uncaught until a later phase ships a real flow band.
+    void expertBand_flowAxis_firesAndSilent_perBand()
+    {
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/8.0, phases, pr, fl, wt, dc, pg, fg);  // clean pressure; flow flat 1.8
+        using EB = ShotAnalysis::ExpertBand;
+
+        // Observed peak extraction flow (~1.8 ml/s) is well below a cited
+        // 4.0–6.0 ml/s band → fires on the FLOW axis: observation, ml/s
+        // wording, no grind direction, expertBandDeviation verdict.
+        const EB outBand{ EB::Axis::ExtractionFlow, 4.0, 6.0,
+                          QStringLiteral("[SRC:light-video]"),
+                          QStringLiteral("high") };
+        const auto fired = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, outBand);
+        QVariantMap line;
+        QVERIFY2(findKind(fired.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flow ~1.8 ml/s vs 4.0–6.0 band must fire on the flow axis");
+        QCOMPARE(line["type"].toString(), QStringLiteral("observation"));
+        const QString t = line["text"].toString();
+        QVERIFY2(t.contains("ml/s"), qPrintable("flow-axis line names ml/s: " + t));
+        for (const QString& d : { QStringLiteral("grind"), QStringLiteral("finer"),
+                                  QStringLiteral("coarser") })
+            QVERIFY2(!t.contains(d, Qt::CaseInsensitive),
+                     qPrintable("flow band line must not state a grind direction: " + t));
+        QCOMPARE(fired.detectors.verdictCategory, QStringLiteral("expertBandDeviation"));
+
+        // Same shot, a band that contains ~1.8 ml/s → silent.
+        const EB inBand{ EB::Axis::ExtractionFlow, 1.0, 3.0,
+                         QStringLiteral("[SRC:light-video]"),
+                         QStringLiteral("high") };
+        const auto silent = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, inBand);
+        QVERIFY2(!findKind(silent.lines, QStringLiteral("expert_band_deviation"), line),
+                 "flow within the cited band must stay silent");
+        QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+    }
+
     // Grind coverage signal — verified clean: a healthy pressurized pour
     // with no choke / no overshoot / on-target flow must set
     // grindVerifiedClean=true, emit `grindCoverage="verified"`, and append

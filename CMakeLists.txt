@@ -1051,12 +1051,13 @@ if(NOT ANDROID AND NOT IOS)
         src/ai/conductance.cpp
         # Lean KB-resolution cluster (split out of the monolith). shot_eval
         # resolves analysisFlags + expertBand via the SAME ShotSummarizer
-        # functions prepareAnalysisInputs itself calls — producing
-        # bit-identical inputs for the corpus (which carries no profile
-        # JSON, so prepareAnalysisInputs's Profile/frameInfo path is moot)
+        # functions prepareAnalysisInputs calls — identical inputs FOR THE
+        # CURRENT CORPUS (title-matches a KB key directly, no profile JSON)
         # WITHOUT dragging Profile (→ Qt Bluetooth via profileframe) into a
-        # curve-eval CLI. Equivalence to the real production path is
-        # asserted by the corpus parity guard, not by welding the app in.
+        # curve-eval CLI. NOT a general app-parity guarantee: editorType is
+        # empty here vs the app's real value, so the editor-type fallback
+        # path is not exercised — see the scoped note in main.cpp's
+        # "App parity (scoped)" block.
         src/ai/shotsummarizer_kb.cpp
         ${SHOT_EVAL_AI_RES}
     )

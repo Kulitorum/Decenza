@@ -549,23 +549,27 @@ EvaluatedShot evaluate(const LoadedShot& s)
         ev.maskPct = 100.0 * maskSec / pourSpan;
     }
 
-    // --- App parity ---
-    // Resolve the SAME inputs the app's storage path resolves
-    // (analysisFlags + expertBand + frameInfo, via the shared
-    // prepareAnalysisInputs — which itself re-resolves the band fresh by
-    // title, D14a), then run the ONE production analyzeShot and read
-    // detectors / lines / badges from it. shot_eval previously called the
-    // detectors with empty analysisFlags and no expertBand, so it silently
-    // diverged from the app on flow_trend_ok suppression and the
-    // expert-band line. Routing through the same pipeline makes the tool's
-    // verdict + badges match the app *by construction*.
-    // Same resolution prepareAnalysisInputs performs internally: a fresh
-    // kbId from the profile title (the D14a recompute-correct path), then
-    // analysisFlags + expertBand off it. The corpus carries no profile
-    // JSON, so prepareAnalysisInputs's Profile/frameInfo arm is moot here
-    // (it would yield frameCount/firstFrameSeconds = -1, exactly what we
-    // pass) — these inputs are therefore bit-identical to the production
-    // path; the corpus parity guard asserts that.
+    // --- App parity (scoped — read this) ---
+    // Route through the ONE production analyzeShot with the SAME inputs the
+    // app resolves (analysisFlags + expertBand), instead of the old
+    // empty-flags reimpl that silently diverged on flow_trend_ok
+    // suppression + the expert-band line.
+    //
+    // SCOPE / NOT a general guarantee: this resolves kbId from the title
+    // with an EMPTY editorType, whereas the app's prepareAnalysisInputs
+    // passes the profile's real editorType. matchProfileKey's editor-type
+    // fallback (dflow→d-flow/default, aflow→a-flow) is the resolution path
+    // for *custom-titled* D-Flow/A-Flow profiles that don't title-match a
+    // KB key. For the current tests/data/shots/ corpus this is moot — every
+    // fixture title-matches a KB key directly and carries no profile JSON
+    // (so frameCount/firstFrameSeconds are -1 on BOTH sides) — so for the
+    // corpus the inputs are identical. It is NOT identical for
+    // custom-titled editor profiles (band-fire counts would under-report
+    // vs the app there), and TstShotCorpus validates shot_eval against its
+    // own manifest baseline, NOT against the live app — it cannot, and does
+    // not, assert app↔tool equality. Treat the parity as "corpus-scoped,
+    // title-match path only." (To make it general: carry editorType in
+    // fixtures and thread it here.)
     const QString kbId =
         ShotSummarizer::computeProfileKbId(s.profileTitle, QString());
     const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(kbId);
