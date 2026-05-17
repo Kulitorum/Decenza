@@ -1042,9 +1042,17 @@ if(NOT ANDROID AND NOT IOS)
     # match live-shot behavior exactly. Usage:
     #   curl https://visualizer.coffee/api/shots/<uuid>/download > shot.json
     #   ./shot_eval shot.json [more.json ...]
-    # Embed the AI KB resource (:/ai/profile_knowledge.md) so the tool's
-    # band/flags resolution matches the app (loadProfileKnowledge reads it).
-    qt_add_resources(SHOT_EVAL_AI_RES resources/ai.qrc)
+    # The AI KB resource (:/ai/profile_knowledge.md) is embedded below via the
+    # target-scoped qt_add_resources signature (NOT the classic variable form
+    # over resources/ai.qrc). Both forms map the files to the same :/ai/...
+    # paths loadProfileKnowledge reads, but the classic form would derive the
+    # generated source name from the .qrc basename — colliding with the
+    # Decenza target's own qrc_ai.cpp (same directory scope). One custom
+    # command attached to two unrelated targets is rejected by the macOS CI
+    # Xcode "new build system" generator; the local/Linux/Windows/iOS/Android
+    # Ninja generator did not flag it. The target-scoped form emits a
+    # uniquely-named source bound to shot_eval only, so there is no shared
+    # custom command.
     add_executable(shot_eval
         tools/shot_eval/main.cpp
         src/ai/shotanalysis.cpp
@@ -1059,13 +1067,28 @@ if(NOT ANDROID AND NOT IOS)
         # path is not exercised — see the scoped note in main.cpp's
         # "App parity (scoped)" block.
         src/ai/shotsummarizer_kb.cpp
-        ${SHOT_EVAL_AI_RES}
     )
     # Qt6::Sql is linked for the QSqlDatabase include pulled in via
     # history/shothistorystorage.h (where HistoryPhaseMarker lives). The
     # tool itself doesn't open any databases.
     target_link_libraries(shot_eval PRIVATE Qt6::Core Qt6::Sql)
     target_include_directories(shot_eval PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # Target-scoped resource: BASE=resources keeps the files at :/ai/<name>
+    # (identical to resources/ai.qrc's prefix="/" mapping), and the unique
+    # resource name "shot_eval_ai" produces a shot_eval-only generated source
+    # instead of the shared qrc_ai.cpp. NOTE: this list is maintained
+    # independently of resources/ai.qrc (still consumed by the Decenza target
+    # above) — there is no enforced coupling, so adding a KB file requires
+    # editing BOTH this list and resources/ai.qrc or shot_eval silently lacks
+    # the new resource.
+    qt_add_resources(shot_eval "shot_eval_ai"
+        PREFIX "/"
+        BASE "${CMAKE_SOURCE_DIR}/resources"
+        FILES
+            "${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.md"
+            "${CMAKE_SOURCE_DIR}/resources/ai/espresso_dial_in_reference.md"
+            "${CMAKE_SOURCE_DIR}/resources/ai/claude_agent.md"
+    )
 
     # saw_replay: Phase 0 simulator for SAW prediction model proposals.
     # Replays a corpus of historical shots through OLD (weighted-avg) and
