@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Kulitorum/Decenza/resources/ai/profile_knowledge.schema.json",
+  "title": "Decenza Profile Knowledge Base",
+  "description": "Single authored source for app-specific per-profile knowledge. Parsed by QJsonDocument at load; validated at build time (change: restructure-kb-as-validated-json). The portable profile JSON is NOT described here and is never mirrored into the KB (design D7).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profiles"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Bump on any breaking schema change so the loader/validator can reject an unexpected shape loudly."
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/profileEntry" }
+    }
+  },
+  "$defs": {
+    "profileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One KB section. `id` is the ONLY identity key; aliases resolve to an `id` (design D4). `displayName` is a human label, NOT a key — renaming it never breaks identity. `category` and `roast` are intentionally NOT fields (design D3) — folded into `summary`/`prose`.",
+      "required": ["id", "displayName", "prose"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Stable kebab-case canonical identity — the sole key for resolution, cross-references, and consumer APIs. MUST be unique (validator-enforced). Never derived from prose; chosen once and stable under any displayName change."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable label (e.g. \"D-Flow Q variant\"). Presentational prose, NOT a key — nothing resolves or cross-references by this."
+        },
+        "alsoMatches": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Exact match-input titles (profile/section names users present) that resolve to this entry's `id`. Every alias MUST resolve to exactly one entry; no duplicate or orphaned alias (design D4/D5)."
+        },
+        "defaultForEditorType": {
+          "type": ["string", "null"],
+          "enum": ["dflow", "aflow", null],
+          "default": null,
+          "description": "If set, this entry is the resolver fallback for that editor type. At most one entry per editor type (validator-enforced)."
+        },
+        "ugs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "inferred"],
+          "properties": {
+            "value": { "type": "number" },
+            "inferred": {
+              "type": "boolean",
+              "description": "true when the position is a reasoned estimate (the leading '~' in the old markdown), not from the UGS chart."
+            },
+            "note": { "type": "string" }
+          },
+          "description": "Universal Grind Setting position. Optional — reference/skip-catalog sections and non-espresso entries omit it."
+        },
+        "analysisFlags": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Profile-agnostic suppression flags consumed by analyzeShot() (e.g. flow_trend_ok, channeling_expected, grind_check_skip). The flag->behavior semantics stay in C++ (design D2); only the per-profile assignment is data here."
+        },
+        "skipCatalog": {
+          "type": "boolean",
+          "default": false,
+          "description": "true marks cross-cutting reference material (not a profile) — excluded from buildProfileCatalog, surfaced via crossProfileReferenceContent."
+        },
+        "family": {
+          "type": "string",
+          "description": "Closed-vocabulary cluster tag. The advisor prompt builds switching-recommendation logic on family membership (design D3). Optional only for skipCatalog reference sections; required for real profiles (validator-enforced).",
+          "enum": [
+            "allonge",
+            "blooming",
+            "filter",
+            "flat-pressure",
+            "flow-adaptive",
+            "gentle-long-preinfusion",
+            "lever-decline",
+            "maintenance",
+            "manual",
+            "pressure-ramp-flow",
+            "tea",
+            "turbo",
+            "volume-based"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short human descriptor for the profile-catalog line ('<name> — <summary> [family: <family>]'). Replaces the old fragile Category:/Roast: prose-scrape. Optional only for skipCatalog sections."
+        },
+        "expertBand": {
+          "$ref": "#/$defs/expertBand",
+          "description": "Optional. Absent => expertBandForKbId returns std::nullopt (strict no-op, design D6). Never fabricate a band to 'complete' a profile."
+        },
+        "prose": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One opaque string: the verbatim section body minus the parsed lines, '\\n'-joined. Nothing parses inside it (design D3). Numbers here are commentary, never injected (design D9). MUST NOT restate the expertBand as the band (validator best-effort lint)."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "skipCatalog": { "const": true } } },
+          "else": { "required": ["canonicalName", "prose", "family", "summary"] }
+        }
+      ]
+    },
+    "expertBand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["axis", "confidence", "provenance", "rationale"],
+      "properties": {
+        "axis": {
+          "type": "string",
+          "enum": ["pressurePeak", "extractionFlow"],
+          "description": "The stated axis. Never an axis a source did not state (design D2)."
+        },
+        "provenance": {
+          "type": "string",
+          "enum": ["cited", "author-stated", "inferred"],
+          "description": "Honest epistemic status (design D10): `cited` = backed by an external/archived real doc; `author-stated` = stated in the profile's own shipped notes; `inferred` = reasoned, no source — `rationale` MUST justify why we believe it. `src` is required for `cited`, forbidden for `inferred` (validator-enforced)."
+        },
+        "lo": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Lower bound. Optional => no floor (ceiling-only rail). If both lo and hi are present, lo < hi (validator-enforced)."
+        },
+        "hi": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Upper bound. Optional => no ceiling (floor-only rail, e.g. Allongé flow floor)."
+        },
+        "src": {
+          "description": "Citation: a followable http/https URL whenever an external source exists, else a closed intrinsic-source token. Resolved from the existing source attributions during migration — never fabricated (design D3).",
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^https?://"
+            },
+            {
+              "type": "string",
+              "enum": ["profile-notes"]
+            }
+          ]
+        },
+        "srcArchive": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional repo-relative path to a durable local copy under docs/kb_sources/ (link-rot insurance). If set, the validator hard-fails when the file is absent. Intrinsic profile-notes sources need none."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The citation/validation audit (the former kBands C++ comment, verbatim). JSON has no comments; this is its home."
+        }
+      },
+      "anyOf": [
+        { "required": ["lo"] },
+        { "required": ["hi"] }
+      ]
+    }
+  }
+}
