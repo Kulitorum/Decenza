@@ -249,6 +249,52 @@ QList<HistoryPhaseMarker> phasesFromStateChange(
     return markers;
 }
 
+// Native-export variant of phasesFromStateChange. Decenza's `state_change`
+// encodes the machine SUBSTATE boundary (preinfusion vs pour), not one
+// flip per profile frame: consecutive same-substate frames (e.g.
+// Filling+Infusing) collapse into a single segment, so the number of
+// sign-flip segments is typically <= the profile step count. The
+// visualizer head-aligns segment k -> pumpModes[k]; doing that here would
+// leave the final flow-controlled pour step unreached whenever
+// preinfusion frames collapsed (the segment count fell short), silently
+// marking the whole pour pressure-mode and killing the flow-vs-goal grind
+// arm (regressed malabar_grind_too_fine). Tail-align instead: the LAST
+// segment is always the pour and maps to the LAST profile step's pump
+// mode, the previous segment to the previous step, etc. The grind
+// detector only needs the pour segment's mode correct; tail-alignment
+// guarantees exactly that and is identity when segments == steps.
+QList<HistoryPhaseMarker> phasesFromNativeStateChange(
+    const QVector<QPointF>& pressure,
+    const QJsonArray& stateChange,
+    const QStringList& pumpModes)
+{
+    QList<HistoryPhaseMarker> markers;
+    if (pumpModes.isEmpty() || stateChange.size() != pressure.size()) return markers;
+
+    QList<qsizetype> boundaries;       // sample index where each segment starts
+    boundaries.append(0);
+    bool prevPositive = toDouble(stateChange[0]) > 0;
+    for (qsizetype i = 1; i < stateChange.size(); ++i) {
+        const bool curPositive = toDouble(stateChange[i]) > 0;
+        if (curPositive != prevPositive) boundaries.append(i);
+        prevPositive = curPositive;
+    }
+    const int segCount = static_cast<int>(boundaries.size());
+    const int stepCount = static_cast<int>(pumpModes.size());
+    const int offset = stepCount - segCount;  // >=0 when frames collapsed
+    for (int seg = 0; seg < segCount; ++seg) {
+        const int stepIdx = std::clamp(seg + offset, 0, stepCount - 1);
+        HistoryPhaseMarker m;
+        m.time = pressure[boundaries[seg]].x();
+        m.frameNumber = stepIdx;
+        m.isFlowMode =
+            pumpModes[stepIdx].compare(QStringLiteral("flow"), Qt::CaseInsensitive) == 0;
+        m.label = QStringLiteral("frame%1_%2").arg(stepIdx).arg(pumpModes[stepIdx]);
+        markers.append(m);
+    }
+    return markers;
+}
+
 // Pour-start proxy for visualizer shots which don't expose Decenza's phase
 // markers directly. Scans for the first sample where P > 2.0 bar and
 // F > 0.2 ml/s — the same heuristic ShotSummarizer falls back to.
@@ -350,14 +396,33 @@ bool loadDecenzaFormat(const QJsonObject& root, LoadedShot& out, QString* errOut
         return false;
     }
 
-    // Decenza's profile.steps carries the canonical control mode ("pump":
-    // "pressure" or "flow"). Walk steps into phase markers by mapping each
-    // step to its time boundary — we locate boundaries by scanning goal
-    // curves for discontinuities, then assign the pre-computed isFlowMode
-    // per step. When the step count doesn't match boundaries we fall back
-    // to goal-curve inference (same path as visualizer format).
     const QJsonArray steps = profile.value("steps").toArray();
-    if (!steps.isEmpty()) {
+
+    // Authoritative path: Decenza native exports carry a per-sample
+    // `state_change` array (de1app convention: one entry per pressure
+    // sample, sign flips at each frame transition) — the SAME data the app
+    // persists and the visualizer loader already prefers via
+    // phasesFromStateChange. Pair it with the embedded profile.steps[].pump
+    // modes for the real per-frame isFlowMode. This makes the native
+    // loader's pour window frame-faithful to the app instead of inferring
+    // boundaries from goal-curve jumps — the goal heuristic silently emits
+    // NO pour marker for D-Flow/Q-style profiles whose pressure goal ramps
+    // to 0, collapsing the band/pour-truncated peak scan to 0.0 bar and
+    // spuriously firing the expert band. Falls back to the goal heuristic
+    // only when state_change is absent or length-mismatched.
+    const QJsonArray stateChange = root.value("state_change").toArray();
+    QStringList pumpModes;
+    pumpModes.reserve(steps.size());
+    for (const auto& s : steps)
+        pumpModes << s.toObject().value("pump").toString();
+    if (!stateChange.isEmpty() && !pumpModes.isEmpty())
+        out.phases = phasesFromNativeStateChange(out.pressure, stateChange, pumpModes);
+
+    // Fallback: profile.steps carries the canonical control mode but no
+    // explicit boundaries, so locate them by scanning goal curves for
+    // discontinuities and assign isFlowMode per step. Used only when the
+    // authoritative state_change path above produced nothing.
+    if (out.phases.isEmpty() && !steps.isEmpty()) {
         QList<HistoryPhaseMarker> markers;
         // Heuristic boundary detection: step into a new frame when the
         // PRIMARY goal for the active mode jumps by >0.5 units, OR when the
