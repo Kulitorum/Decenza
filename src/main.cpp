@@ -1378,6 +1378,14 @@ int main(int argc, char *argv[])
         // connections use the transport as context, so they auto-disconnect
         // when it is destroyed on a scale-type change. No-op for transports
         // that keep the base virtual no-ops (e.g. CoreBluetooth / iOS-macOS).
+        //
+        // de1LinkFault is intentionally left AutoConnection (NOT pinned): it
+        // is same-thread today (DirectConnection), and if the DE1 layer is
+        // ever moved to a worker thread, AutoConnection self-corrects to
+        // Queued — pinning DirectConnection here would instead make that a
+        // silent unsafe cross-thread call. The asymmetry with the pinned
+        // scaleFeedStalled below is deliberate (that one is genuinely
+        // cross-thread and must be Queued).
         if (ScaleBleTransport* scaleTransport = physicalScale->bleTransport()) {
             QObject::connect(&de1Device, &DE1Device::de1LinkFault,
                              scaleTransport, &ScaleBleTransport::onDe1LinkFault);

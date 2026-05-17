@@ -7,6 +7,13 @@
 // which forwards detection inputs and supplies a monotonic millisecond clock
 // (the detector holds no clock, so it is fully deterministic under test).
 //
+// This detector instance is per-transport (per scale connection lifetime).
+// The AUTHORITATIVE, app-run-wide skip-HIGH decision lives on the BLEManager
+// singleton (QtScaleBleTransport seeds this detector from it on connect and
+// sets it on backoff), so once any scale backs off, every scale this app run
+// skips HIGH. This detector's own fire-once guarantee is the per-transport
+// half of that; the BLEManager latch is what makes it app-run-scoped.
+//
 // Lifecycle within one transport object (which persists across the
 // backoff-induced reconnect):
 //   armWindow()  — scale connected and requested HIGH; start watching
@@ -18,14 +25,20 @@
 //                   kDe1FaultWindowMs of the first fault (sliding) ⇒ trigger.
 //   onScaleStall() — backstop; any in-shot stall while armed ⇒ trigger.
 // fire() latches skip-HIGH + backed-off so it triggers at most once per
-// session and never re-arms (no reconnect loop).
+// transport lifetime and never re-arms (no reconnect loop); combined with
+// the BLEManager latch this is at most once per app run across all scales.
 class BlePriorityDetector {
 public:
     static constexpr int kDe1FaultThreshold = 2;         // ≥2 DE1 faults in-window (#1176 ConnectionError pattern)
     static constexpr int64_t kDe1FaultWindowMs = 20000;  // covers #1093 ~13s and #1176 ~0.8–15s post scale-HIGH
 
     // Scale connected and requested HIGH: start watching. No-op (stays
-    // disarmed) if a prior backoff already latched skip-HIGH this session.
+    // disarmed) if a prior backoff already latched skip-HIGH (per-transport,
+    // or seeded from the app-run BLEManager latch on a fresh transport).
+    // `nowMs` is accepted but unused: the window anchors to the FIRST fault
+    // (in onDe1Fault), not the connect instant, so there is nothing to do
+    // with the clock here; the parameter is kept so callers need not change
+    // if anchor-at-arm semantics are ever added.
     // Deliberately does NOT reset the fault count / window: a weak link that
     // flaps (connect → fault → reconnect → fault → …) must accumulate its
     // faults across reconnects, otherwise the per-connect reset starves the
