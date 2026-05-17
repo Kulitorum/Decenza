@@ -239,62 +239,59 @@ public:
     // in profile_knowledge.md and control which checks analyzeShot() suppresses.
     static QStringList getAnalysisFlags(const QString& kbId);
 
-    // Cross-cutting reference content (sections marked Skip-Catalog: true) —
-    // injected into the espresso system prompt and per-profile MCP payloads
-    // (filter/pour-over beverage types excluded), since they apply across
-    // profiles rather than to any one. Currently surfaces the
-    // "Cross-Profile Grind Ordering" section from profile_knowledge.md.
+    // Cross-cutting reference content (entries with skipCatalog:true in
+    // profile_knowledge.json) — injected into the espresso system prompt
+    // and per-profile MCP payloads (filter/pour-over beverage types
+    // excluded), since they apply across profiles rather than to any one.
+    // Assembles each skipCatalog entry's `prose` from the structured KB.
     static QString crossProfileReferenceContent();
 
     // UGS lookup and enumeration — used by DialingBlocks::buildGrinderCalibrationBlock.
     //
-    // `ugsForKbId` returns the parsed UGS double for the given normalized KB key;
-    // returns NaN when the key is absent or the entry has no UGS line.
-    // `ugsInferredForKbId` returns true when the entry's UGS was marked with a
-    // leading `~` in profile_knowledge.md (inferred, not directly measured).
-    // `canonicalNameForKbId` returns pk.name for the given key; empty when absent.
+    // `kbId` is any value resolveKbInput accepts (a current `id` or a legacy
+    // normalized title). `ugsForKbId` returns the resolved entry's UGS;
+    // NaN when unresolved or the entry has no `ugs`. `ugsInferredForKbId`
+    // returns the entry's `ugs.inferred` JSON flag (estimated, not from a
+    // two-anchor calibration). `canonicalNameForKbId` returns the resolved
+    // entry's `displayName`; empty when unresolved.
     //
-    // `KbUgsEntry` / `allKbUgsEntries` enumerate every KB profile with a non-NaN
-    // UGS, deduplicated by canonical name (pk.name), for building the cross-profile
-    // RGS array. Skip-Catalog sections have no UGS and are never returned.
+    // `KbUgsEntry` / `allKbUgsEntries` enumerate every KB entry with a
+    // non-NaN UGS for the cross-profile RGS array. s_profileKnowledge is
+    // keyed by `id` (one entry per identity) so iteration is already
+    // de-duplicated — no by-name pass. skipCatalog entries have no UGS.
     static double ugsForKbId(const QString& kbId);
     static bool ugsInferredForKbId(const QString& kbId);
     static QString canonicalNameForKbId(const QString& kbId);
 
     struct KbUgsEntry {
-        QString kbId;               // a normalized key mapping to this canonical name
-        QString name;               // canonical display name (pk.name)
+        QString kbId;               // the canonical `id`
+        QString name;               // displayName
         double ugs       = std::numeric_limits<double>::quiet_NaN();
         bool ugsInferred = false;
     };
     static QList<KbUgsEntry> allKbUgsEntries();
 
-    // Resolve the cited expert-recommended operating band for a profile
-    // by its normalized KB key (the value call sites already pass to
-    // getAnalysisFlags/ugsForKbId). Returns
-    // `std::optional<ShotAnalysis::ExpertBand>` (the input type is owned
-    // by the lower ShotAnalysis layer so analyzeShot can consume it
-    // without depending on ShotSummarizer; D14).
+    // Resolve the cited expert-recommended operating band for a profile.
+    // `kbId` is any value resolveKbInput accepts. Returns
+    // `std::optional<ShotAnalysis::ExpertBand>` (the type is owned by the
+    // lower ShotAnalysis layer so analyzeShot can consume it without
+    // depending on ShotSummarizer).
     //
-    // A small static citation-bound table maps a profile's *canonical
-    // KB-section identity* (canonicalNameForKbId — the dedup-by-name
-    // precedent as allKbUgsEntries/ugsForKbId) to the band an expert
-    // source recommends, on the axis the source states. NOT parsed from
-    // profile_knowledge.md (deliberately seam-free — no Expected*:
-    // grammar); the table is shipped code, resolved fresh every call so
-    // corrections retroactively apply (recompute-on-load contract).
-    // Canonical keying collapses alias twins that share a KB section
-    // (D-Flow / Q ≡ Damian's Q → "D-Flow Q variant") to one entry while
-    // distinctly-sectioned profiles (D-Flow / La Pavoni → "D-Flow La
-    // Pavoni variant", its own section post-#1175; D-Flow / default →
-    // "D-Flow", no entry) stay distinct, zero special-case logic.
+    // The band is the `expertBand` object of the resolved
+    // profile_knowledge.json entry (validated by tools/validate_kb.py),
+    // re-read fresh from the qrc resource every call so a correction
+    // retroactively applies (recompute-on-load contract). The former
+    // hardcoded C++ kBands table is removed — the JSON is the single
+    // source of truth; expertBandFromJson degrades a malformed shape to
+    // std::nullopt (never a wrong band). Alias twins that share an entry
+    // (D-Flow / Q ≡ Damian's Q → one `id`) collapse via the alias→id map;
+    // distinctly-keyed profiles (D-Flow / La Pavoni; D-Flow / default,
+    // which has no expertBand) stay distinct — zero special-case logic.
     //
-    // Self-classifying rule: a profile gets a band iff a cited source
-    // states a recommended pressure-peak OR extraction-flow band for it
-    // (grading authoritative in capture-dialin-coaching-guidance design
-    // D9/D10/D10b). No cited band → absent (check no-ops). Absence is
-    // intentional and never completed with a fabricated band. Empty key
-    // or no cited band → std::nullopt.
+    // Self-classifying: a profile has a band iff a cited source states a
+    // pressure-peak OR extraction-flow band for it. No cited band →
+    // absent (check no-ops); absence is intentional, never fabricated.
+    // Unresolved key or no band → std::nullopt.
     static std::optional<ShotAnalysis::ExpertBand>
     expertBandForKbId(const QString& kbId);
 
@@ -375,31 +372,39 @@ private:
     static QString sharedForbiddenSimplifications();
     static QString sharedResponseGuidelines();
 
-    // Profile knowledge base
+    // Profile knowledge base (change: restructure-kb-as-validated-json).
+    // Parsed from the validated resources/ai/profile_knowledge.json.
+    // Consumer-facing field names (name/content/analysisFlags/skipCatalog/
+    // ugs/ugsInferred) are kept stable so the 14 KB consumer APIs and the
+    // existing test contract are byte-unchanged; `id`/`family`/`expertBand`
+    // are added for the structured model.
     struct ProfileKnowledge {
-        QString name;       // Display name (e.g. "D-Flow")
-        QString content;    // Full markdown section for this profile
-        // Structured flags parsed from "AnalysisFlags: flag1, flag2" lines.
-        // Used by analyzeShot() to suppress false positives for profiles
-        // where specific behaviors are intentional. Current flags:
-        //   flow_trend_ok       — don't flag declining/rising flow as a caution
-        //   channeling_expected — minor channeling is normal for this profile
-        QStringList analysisFlags;
-        // True when "Skip-Catalog: true" appears in the section. Marks the
-        // section as cross-cutting reference material rather than a profile —
-        // excluded from buildProfileCatalog().
-        bool skipCatalog = false;
-        // Universal Grind Setting from "UGS: <value>" lines. NaN when absent.
-        // ugsInferred is true when the value was prefixed with `~` in the KB
-        // (estimated, not directly measured from a two-anchor calibration).
+        QString id;         // Stable kebab-case identity — the ONLY key.
+        QString name;       // displayName (human label; never a key).
+        QString content;    // Assembled LLM blob (re-authored prose + the
+                            // struct-rendered cited band sentence, D9).
+        QStringList analysisFlags;     // suppression flags (analyzeShot)
+        bool skipCatalog = false;      // cross-cutting reference, not a profile
+        QString family;                // validated-enum cluster tag ("" if skipCatalog)
         double ugs = std::numeric_limits<double>::quiet_NaN();
         bool ugsInferred = false;
+        // Cited expert band (absent → std::nullopt → strict no-op, D6).
+        std::optional<ShotAnalysis::ExpertBand> expertBand;
     };
+    // Keyed by `id` — exactly one entry per canonical identity.
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
+    // Normalized alias → id (displayName + alsoMatches + editor-type
+    // defaults). The resolver's sole lookup; exact-match-or-unresolved
+    // (the order-dependent greedy startsWith/contains scan is deleted).
+    static QMap<QString, QString> s_aliasToId;
     static bool s_knowledgeLoaded;
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
+    // Resolve any caller kbId (a current `id` OR a legacy normalized
+    // title/alias persisted on old shot records, D14a) to a canonical
+    // `id`; "" when unresolved. Exact-match-or-unresolved, never fuzzy.
+    static QString resolveKbInput(const QString& kbId);
 
     // Profile catalog (compact one-liner per KB profile for cross-profile awareness)
     static QString s_profileCatalog;

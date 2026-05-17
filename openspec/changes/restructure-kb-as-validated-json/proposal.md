@@ -1,0 +1,31 @@
+## Why
+
+Per-profile facts that the running app needs are scattered across three places that drift independently: prose in `resources/ai/profile_knowledge.md` (hand-scraped by `loadProfileKnowledge` via typo-fragile `line.startsWith()` parsing), a hardcoded C++ `kBands` table in `src/ai/shotsummarizer_kb.cpp`, and a second hand-maintained `docs/PROFILE_KNOWLEDGE_BASE.md` (1170 lines) that drifts from the 707-line runtime md. The markdown grammar silently drops a field on any key typo, and the profile→KB resolver's greedy `startsWith`/`contains` fallback has **silently mis-resolved real profiles to the wrong knowledge section more than once** (e.g. `"D-Flow / Q - Jeff"`, shot 819 → resolved to the band-less `## D-Flow` default instead of the D-Flow Q variant), shipping wrong analysis with no failure signal. `flag-off-expert-band-in-shot-summary` is shipped, so the `kBands` table is live debt this change pays down.
+
+## What Changes
+
+- The knowledge base becomes a **single structured JSON source**, parsed by `QJsonDocument`, replacing the hand-scraped markdown grammar. The runtime continues to read JSON into the existing in-memory map (recompute-on-load preserved).
+- A **build-time validator** fails the build on any schema violation, typo'd/unknown key, out-of-range value, or resolver-integrity violation. **Test/build failures are the intended outcome; silently shipping a wrong lookup is the failure being eliminated.**
+- The profile→KB **resolver becomes exact-match-or-explicitly-unresolved**. **BREAKING (internal):** the greedy `startsWith`/`contains` fallback in `matchProfileKey` is **deleted, not ported**. A corpus resolution test — every real profile title in `tests/data/shots/` + shipped starter profiles + D-Flow/A-Flow editor outputs resolving to exactly one canonical entry — is a hard gate.
+- The loud/silent rule splits **by expectation**: a profile that *should* resolve but doesn't → loud build/test failure; a genuinely unknown profile at runtime (new community/custom title) → silent no-op, preserving the shipped absence-intentional behavior.
+- The KB becomes the **single source of truth for app-specific per-profile facts**, keyed by a stable `id` (with `displayName` as a non-key human label): expert bands (axis/bounds + `provenance` + citation `rationale`), UGS + inferred flag, aliases, analysisFlags, skipCatalog, `family` (a validated enum), and the re-authored opaque `prose`. `category`/`roast`/`summary` are not fields; the catalog line becomes `displayName [family]`. The `kBands` C++ table is **removed** and the band is read from the KB. (The `shotsummarizer.cpp:1290/1302` prompt text is *not* a stranded fact — `:1290` is a teaching example, `:1302` an anti-hallucination guardrail — and is retained verbatim; the underlying facts are KB-canonical.) C++ retains only logic (detector algorithms, analysisFlag→suppression semantics, resolver normalization) — **zero facts**.
+- The `docs/PROFILE_KNOWLEDGE_BASE.md` (1170 lines) / `resources/ai/profile_knowledge.md` (707 lines) parallel-maintained drift **collapses to one authored source**; any human-readable rollup is generated, not hand-maintained.
+- The KB stays **separate from the portable profile JSON** (profiles round-trip between apps; KB is Decenza-unique) and **never mirrors portable profile parameters** (frames/limits/setpoints, incl. the limiter value, stay read from the profile at analyze time).
+
+Scoped fallback (not implemented unless triggered): if identity/alias integrity cannot be expressed as a simple enumerate-and-assert and needs hand-rolled relational-integrity checks complex enough to be under-specified, the authored JSON is instead compiled to a build-time-generated read-only SQLite resource with engine-enforced `UNIQUE`/FK. The decision point is validator design.
+
+## Capabilities
+
+### New Capabilities
+- `profile-knowledge-base`: The structured-JSON knowledge-base format, its build-time schema/integrity validator, the exact-match-or-explicitly-unresolved profile→KB resolver with its corpus test, the single-source-of-truth contract (all per-profile facts live in the KB; C++ holds zero facts), and the KB↔portable-profile separation boundary.
+
+### Modified Capabilities
+<!-- None. shot-analysis-pipeline's stated requirements (recompute-on-load, single-helper input prep, badge projection) are unchanged: the C++ consumer API surface (expertBandForKbId, getAnalysisFlags, ugsForKbId, canonicalNameForKbId, computeProfileKbId) is preserved; only the data source and resolver internals change, captured in the new capability. -->
+
+## Impact
+
+- **Removed:** `resources/ai/profile_knowledge.md` (markdown) and its `loadProfileKnowledge` string-scraper; the `kBands` static table in `src/ai/shotsummarizer_kb.cpp`; the greedy `startsWith`/`contains` fallback in `matchProfileKey`. (The `shotsummarizer.cpp:1290/1302` prompt instructional/guardrail text is explicitly **retained** — verified not stranded facts.)
+- **Added:** an authored `profile_knowledge.json` (qrc resource); a build-time validator (CMake step, fails the build); a `tst_kb_schema`/`tst_kb_resolution` corpus gate; a `docs/kb_sources/` subfolder holding durable local copies of cited sources (link-rot insurance, referenced by `expertBand.srcArchive`), seeded by relocating the existing saved transcripts + UGS doc already in `docs/`.
+- **Modified internals (no API change):** `loadProfileKnowledge` parses JSON; `expertBandForKbId`, `getAnalysisFlags`, `ugsForKbId`, `ugsInferredForKbId`, `canonicalNameForKbId`, `buildProfileCatalog`, `crossProfileReferenceContent`, `allKbUgsEntries`, `matchProfileKey`/`computeProfileKbId` read the structured KB. The shot-analysis prompt's instructional text is unchanged (it never held stranded facts) and SHALL be verified equivalent-or-better at the end.
+- **Preserved:** recompute-on-load contract; the `ExpertBand` type and all C++ consumer signatures; the LLM still receives an assembled prose blob; no DB schema / persistence / Visualizer / badge / QML change.
+- **Out of scope:** the duplicated editor-membership rule (`title.startsWith("D-Flow"/"A-Flow")` across `profile.cpp`/`profilemanager.cpp`/etc.) — that is logic, a separate shared-helper dedupe; factory default profile names; the MCP A-Flow editor-param schema descriptions (different domain).

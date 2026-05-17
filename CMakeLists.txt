@@ -881,6 +881,35 @@ add_dependencies(Decenza apply_version_code)
 target_sources(Decenza PRIVATE ${VERSION_CODE_CPP})
 set_source_files_properties(${VERSION_CODE_CPP} PROPERTIES GENERATED TRUE)
 
+# Build-time KB validator (change: restructure-kb-as-validated-json, D5/2.4).
+# HARD GATE: a schema / typo'd-key / out-of-range / provenance↔src /
+# alias-integrity violation in resources/ai/profile_knowledge.json fails the
+# build. Pass/fail check ONLY — no generated artifact enters the build graph,
+# and the target is standalone (not a custom command shared between targets),
+# deliberately avoiding the cross-platform-codegen failure class (2b6e0965).
+# validate_kb.py is stdlib-only Python 3. A missing interpreter is a HARD
+# FAILURE, not a soft skip: nothing else actually performs schema validation
+# (no test runs validate_kb.py; CI builds on tag, not PR), so degrading to a
+# warning would let malformed/typo'd/colliding KB data ship behind an unread
+# build log. Python 3 is a de-facto build dependency on all supported
+# platforms; if it is genuinely unavailable, fail loudly so it gets installed.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(NOT Python3_Interpreter_FOUND)
+    message(FATAL_ERROR
+        "Python3 not found — required for the build-time KB validator gate "
+        "(tools/validate_kb.py). It is the ONLY schema/integrity check for "
+        "resources/ai/profile_knowledge.json; skipping it would let invalid "
+        "KB data ship. Install Python 3.")
+endif()
+add_custom_target(validate_kb ALL
+    COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/tools/validate_kb.py
+        ${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json
+    COMMENT "Validating profile_knowledge.json (schema + integrity)..."
+    VERBATIM
+)
+add_dependencies(Decenza validate_kb)
+
 # Force QML resource rebuild when source files change
 # NOTE: Disabled - defeats QML caching which slows page loads
 # Re-enable temporarily if QML changes aren't being picked up
@@ -1042,7 +1071,7 @@ if(NOT ANDROID AND NOT IOS)
     # match live-shot behavior exactly. Usage:
     #   curl https://visualizer.coffee/api/shots/<uuid>/download > shot.json
     #   ./shot_eval shot.json [more.json ...]
-    # The AI KB resource (:/ai/profile_knowledge.md) is embedded below via the
+    # The AI KB resource (:/ai/profile_knowledge.json) is embedded below via the
     # target-scoped qt_add_resources signature (NOT the classic variable form
     # over resources/ai.qrc). Both forms map the files to the same :/ai/...
     # paths loadProfileKnowledge reads, but the classic form would derive the
@@ -1085,7 +1114,7 @@ if(NOT ANDROID AND NOT IOS)
         PREFIX "/"
         BASE "${CMAKE_SOURCE_DIR}/resources"
         FILES
-            "${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.md"
+            "${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json"
             "${CMAKE_SOURCE_DIR}/resources/ai/espresso_dial_in_reference.md"
             "${CMAKE_SOURCE_DIR}/resources/ai/claude_agent.md"
     )

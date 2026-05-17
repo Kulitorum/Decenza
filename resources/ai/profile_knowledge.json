@@ -1,0 +1,410 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "id": "cross-profile-grind-ordering",
+      "displayName": "Cross-Profile Grind Ordering",
+      "skipCatalog": true,
+      "prose": "Reference for relative grind requirements across profiles, used when the user transitions between profiles or roast levels. This is not a profile — it is cross-cutting reference material.\n\nThe Universal Grind Setting (UGS) chart places mainstream DE1 profiles on a relative grind axis. Cremina anchors UGS 0 (finest); Rao Allongé anchors UGS 8 (coarsest). The same physical grinder setting produces very different shots across this range, so when a user switches profiles, expect — and surface — a directional change in their grind.\n\nUGS is a RELATIVE scale, not a unit of grinder adjustment. Treat UGS distance as directional information (\"D-Flow is finer than Adaptive v2\"). Never translate a UGS distance into a grinder-click count or absolute setting — concrete grinder numbers come from shots_list history, never from UGS arithmetic. Only direction translates reliably across different grinders.\n\nRoast-level transitions on the same profile: dark → medium roast means grind COARSER (dark roasts are more porous, generate more fines, extract faster); light → medium roast means grind FINER (light roasts are dense and hard to extract). Same roast, different origin: small adjustments, defer to the user's historical settings.\n\nWhen recommending magnitude, cite a specific reference shot from shots_list or stay qualitative (\"a touch coarser\"). Profiles sharing an editor type or family name are NOT grind-equivalent if their pressure targets differ — never transfer a grinder setting 1:1 across a pressure-target change."
+    },
+    {
+      "id": "d-flow",
+      "displayName": "D-Flow",
+      "alsoMatches": ["D-Flow / default", "Damian's D-Flow", "Damian's LM Leva"],
+      "defaultForEditorType": "dflow",
+      "ugs": { "value": 0.5, "inferred": false, "note": "Grind center for \"D-Flow / default\"; D-Flow is the editor, not a profile. D-Flow / Q and D-Flow / La Pavoni split to their own sections (~1.0); Damian's LRv2/LRv3 to theirs (0)." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "D-Flow is a Recipe Editor type, not a profile — only a profile whose title starts with \"D-Flow/\" was created with the D-Flow editor (the profile is the name past the \"/\"). Pressurized pre-infusion with soak, then flow-controlled pour (default ~1.7 ml/s). Pressure peaks ~8–9 bar then gradually declines — intentional lever-style behavior that can heal uneven puck prep. \"D-Flow / default\" is the starter/example profile (88°C fill). \"Damian's LM Leva\" (aliased here) is a standalone profile by Damian — a La Marzocco Leva recreation: low ~2.2 bar pre-infusion then rise to 8 bar then decline, 88–89°C, 18g→42g, creamy smooth body best as a straight shot; portafilter must be fully preheated. Expected curves: pressure peaks ~8–9 bar early then declines as the puck erodes; flow stays near target (1.7–2.7 ml/s). Grind determines curve shape — finer → constant pressure, coarser → declining pressure; both valid. DO NOT flag declining pressure, or a large gap between a high temperature setpoint and a lower actual basket temperature (the setpoint just drives the heater pump; the coffee never reaches it) — both are by design. Flow-calibration note: if actual flow runs consistently below target the flow sensor may over-read ~20%; reducing the calibration value shows more pressure for the same grind."
+    },
+    {
+      "id": "d-flow-q-variant",
+      "displayName": "D-Flow Q variant",
+      "alsoMatches": ["D-Flow / Q", "Damian's Q"],
+      "ugs": { "value": 1.0, "inferred": true, "note": "6 bar approach pulls coarser than D-Flow / default; 84°C fill pulls slightly back finer; not on the UGS chart." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "expertBand": {
+        "axis": "pressurePeak",
+        "lo": 6.0,
+        "hi": 9.0,
+        "provenance": "author-stated",
+        "src": "profile-notes",
+        "confidence": "high",
+        "rationale": "D-Flow / Q ≡ Damian's Q both alias `## D-Flow Q variant`, so both resolve to this one canonical entry (structural zero-dup). Profile-notes verbatim: \"grind for a pressure peak between 6 and 9 bar\". Editor pressure limit 10.0 > 9 → both sides unconfounded."
+      },
+      "prose": "Covers \"D-Flow / Q\" (created with the D-Flow editor) and \"Damian's Q\" (a related profile by the same author, Damian Brakel — based on / similar to D-Flow / Q but built with the Advanced editor, not D-Flow; its title is not \"D-Flow/\"-prefixed). Both use an 84°C fill temperature and a 6 bar pressure approach, optimized for medium-light beans, producing the lever-decline shape (pressurized soak → flow-controlled pour, declining pressure); the shared D-Flow lever behavior and its DO-NOT-flag list apply here too. Why the grind differs from D-Flow / default: the lower 6 bar target wants a coarser grind than default's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser than D-Flow / default — do NOT transfer a default grinder setting 1:1. Damian's Q produces brightness in milk (contrast with LRv2's thick chocolate); dose 18–19g → 34g; the 84°C fill is INTENTIONAL (controls bitterness during saturation). Expected curves: pressure approaches ~6 bar (not ~9); declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL. DO NOT flag the large gap between the 94°C rise setpoint and the ~86–90°C actual basket temperature — the coffee never reaches 94°C; the high setpoint just drives the heater pump."
+    },
+    {
+      "id": "d-flow-la-pavoni-variant",
+      "displayName": "D-Flow La Pavoni variant",
+      "alsoMatches": ["D-Flow / La Pavoni"],
+      "ugs": { "value": 1.0, "inferred": true, "note": "La Pavoni's 6–9 bar pressure target + 84°C fill pull coarser than D-Flow / default's ~9 bar/88°C; not on the UGS chart." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "expertBand": {
+        "axis": "pressurePeak",
+        "lo": 6.0,
+        "hi": 9.0,
+        "provenance": "author-stated",
+        "src": "profile-notes",
+        "confidence": "high",
+        "rationale": "D-Flow / La Pavoni — its own `## D-Flow La Pavoni variant` section (split out by #1175). Profile-notes verbatim: \"The goal is to grind for a pressure peak between 6 and 9 bar.\" (Editor limit 9.0 == band ceiling is the firmware limiter, only ever a corroborating clause — D1 — never the band.)"
+      },
+      "prose": "Covers \"D-Flow / La Pavoni\" (created with the D-Flow editor). Damian created it to simulate the results from his La Pavoni lever machine, profiled side by side with a Slayer V3 for the same taste in cup. It uses an 84°C fill temperature and a lower pressure target than D-Flow / default, producing the lever-decline shape (pressurized soak → flow-controlled pour, declining pressure); the shared D-Flow lever behavior and its DO-NOT-flag list apply here too.\n\nStated dial-in target (profile notes, verbatim): \"The goal is to grind for a pressure peak between 6 and 9 bar.\"\n\nWhy the grind differs from D-Flow / default: the lower 6–9 bar target wants a coarser grind than default's ~9 bar peak; the low 84°C fill reduces solubility and pulls slightly back finer. Net: noticeably coarser — do NOT transfer a default grinder setting 1:1. Setup: 18g VST basket, tuned for milk drinks; de1app stock parameters: fill 1.2 bar, 84°C fill, pour flow 2.4 ml/s, pour pressure limit 9.0 bar, weight 46 g. Declining pressure and slow 0–0.4 ml/s flow during the early soak are NORMAL. DO NOT flag the large gap between a high rise setpoint and the lower actual basket temperature — the coffee never reaches the setpoint; the high setpoint just drives the heater pump."
+    },
+    {
+      "id": "damians-lr-v2-v3",
+      "displayName": "Damian's LRv2 / LRv3",
+      "alsoMatches": ["Damian's LRv2", "Damian's LRv3"],
+      "ugs": { "value": 0.0, "inferred": false, "note": "Londinium / LRv3 chart position; LRv2 trends slightly coarser than LRv3." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Standalone lever-style Londinium R simulations by Damian Brakel. NOT created with the D-Flow editor (titles do not start with \"D-Flow/\"), and distinct profiles from each other (LRv2 ≠ LRv3). They independently produce the same lever-decline shape as D-Flow-titled profiles, so the D-Flow DO-NOT-flag list applies behaviorally. Finer grind requirement than D-Flow / default: these sit at the same fine grind as Londinium / Cremina (UGS 0), not at default's 0.5. LRv2: Londinium R simulation tweaked for coarser grind and faster pour; if the puck erodes too fast it switches from pressure to flow control at 2.5 ml/s (prevents gushing); 89°C; 18g→36g (1:2); \"milkshake with extra syrup,\" rich thick chocolatey — great for milk and dark roasts. LRv3: pure lever decline with an added 9 bar hold step after the pressure rise (waits until flow exceeds 1.9 ml/s before declining); more sustained peak gives richer body vs LRv2; 90°C; does NOT switch to flow control; 18g→36g. DO NOT flag the LRv2 flow-control safety step or the LRv3 9-bar hold, or declining pressure — all are intentional."
+    },
+    {
+      "id": "a-flow",
+      "displayName": "A-Flow",
+      "defaultForEditorType": "aflow",
+      "ugs": { "value": 1.5, "inferred": false, "note": "Long soak heals a slightly coarser, faster-flowing puck." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "pressure-ramp-flow",
+      "expertBand": {
+        "axis": "pressurePeak",
+        "lo": 6.0,
+        "hi": 9.0,
+        "provenance": "cited",
+        "src": "https://github.com/Jan3kJ/A_Flow",
+        "confidence": "medium",
+        "rationale": "Phase B — A-Flow family. All shipped A-Flow-editor profiles canonical-key to the single `## A-Flow` KB section, so one row covers them (same structural dedup as the gold pair). Cited band is the A-Flow repo's editor-level dial-in guidance step 1, verbatim: \"grind fine enough to reach a pressure peak between 6 and 9 bar at extraction\" [SRC:aflow-repo]. Confidence `medium`: editor-level guidance spanning all roasts (vs the gold pair's profile-notes `high`). Validated against the real community A-Flow / default-medium population (20 shots, 4 users): the band partitions cleanly — SILENT 6–9 (on Janek's target, off the limiter), FIRE >9 (grind too fine → on default-medium that pegs its 10-bar Flow-Extraction limiter; other shipped A-Flow variants' limiters range 9.0–10.0 bar, but the band fires on the peak regardless of each profile's limiter value — the bad regime), FIRE <6 (too coarse). The limiter peg (default-medium) is not a rival rail; it is the mechanism that corroborates why >9 is bad — exactly D1 (limiter corroborates, band is primary). Earlier \"STOP\" rested on trusting one lenient rater's scores to call limiter-pegged shots good; corrected here."
+      },
+      "prose": "A-Flow is a Recipe Editor type, not a profile — only a profile whose title starts with \"A-Flow/\" was created with the A-Flow editor (e.g. \"A-Flow / default-medium\"). Created by Janek (Jan-Erling Johnsen) as a mix of the D-Flow and Adaptive editors. Fill and optional infuse/soak, then pressure ramps UP to target (typically 9–10 bar), optional pressure decline, then switches to flow-controlled extraction with a pressure limiter. The key difference from D-Flow: pressure intentionally RISES before extraction rather than starting high and declining. Shipped profiles are distinct roast-targeted profiles, not variants: default-medium (starting point), default-light, default-dark, default-very-dark (uses ramp-down), default-like-dflow (long infuse, resembles D-Flow). Options: rampDownEnabled splits ramp time into up+decline; flowExtractionUp ramps extraction flow upward; secondFillEnabled adds an extra fill before the ramp. Flavor dial-in: longer pour time → more chocolatey body; shorter → more caramel/brighter. Grind medium-fine, all grinder types incl. conical; all roasts. DO NOT flag the pressure ramp-up to 9–10 bar as overpressure — that intentional rise before flow extraction is how the A-Flow editor works."
+    },
+    {
+      "id": "adaptive-v2",
+      "displayName": "Adaptive v2",
+      "ugs": { "value": 1.25, "inferred": false, "note": "Slightly coarser to favor flow-driven clarity." },
+      "family": "flow-adaptive",
+      "expertBand": {
+        "axis": "pressurePeak",
+        "lo": 6.0,
+        "hi": 9.0,
+        "provenance": "cited",
+        "src": "https://decentespresso.com/first_decent_espresso",
+        "confidence": "medium",
+        "rationale": "Phase C — Adaptive v2 (canonical `## Adaptive v2`; the separate `## Gagné Adaptive` section has its own key, no collision). Decent authored the shipped DE1 profile (adaptive_v2.json `author: Decent`), so `[SRC:decent-guide]` is the profile-author authority for the cited band bounds. Gagné's Coffee ad Astra (`[SRC:adaptive-adastra]`) describes the adaptive technique this profile implements — supplementary context, not authoritative for the bounds. decent-guide dial-in: peak 8–9 bar, \"too coarse → peak below 7\". The profile is intentionally grind-tolerant (adapts ~6.8 coarse → ~9 fine) but is *best* in Decent's recommended envelope — so the band is 6–9 (NOT 8–9): it CONTAINS the by-design adaptive range, stays silent across it, and only a peak well below 6 (too coarse) or above 9 (too fine / pegging the 9.5-bar limiter) trips the observational \"outside the band Decent recommends — judge by taste\" line. (Like every row, the EXPERT_BAND_PRESSURE_MARGIN_BAR=0.3 slack means the effective trip is ~5.7 / ~9.3 — deliberately conservative; the 6–9 here is the cited band, not the post-margin threshold.) Per the band's posture (D2/D3) this is \"could be better\", not a fault."
+      },
+      "prose": "Ramps pressure toward ~9 bar (exits at 8.8 bar) for ~6 seconds, then adapts to grind coarseness by locking in whatever flow rate exists; switches to stable flow after the pressure peak. Extraction flow limiter at 9.5 bar. The Low Pressure Infusion variant (Trevor Rainey + Jonathan Gagné) modifies this with a high-flow fill (8 ml/s), 3 bar soak pressure, and 8 bar rise targeting ~30s total (canonical LPI: 15g dose, ~33g out in ~30s, ~4g drip-through during bloom, ~1.5 ml/s at pressurize). Expected curves: pressure peaks near 9 bar then gradually declines; flow settles 2.0–2.7 ml/s; variable curves are expected — the profile adapts to grind size. With large flat burrs the extraction phase may be very short. Dial-in target: 18g in, 36g out, ~25s, peak 8–9 bar, ~4g dripping during pre-infusion. Too coarse: peak below 7 bar, sharp acidity. Too fine: extended duration, decreased acidity, bitterness. Lots of dripping is fine with flat-burr grinders; ratio best 1:1.8–2.3 for light roasts. LPI extraction step has a 60s safety timeout — stop manually ~30s. Roast: good for light (v2 updated for light), excellent medium-light, not for dark. DO NOT flag variable pressure curves, steep pre-infusion pressure drop, or a slight flow jump at peak pressure — all by design."
+    },
+    {
+      "id": "blooming-espresso",
+      "displayName": "Blooming Espresso",
+      "ugs": { "value": -0.5, "inferred": false, "note": "Finer than Cremina — survives the 30s soak without premature gushing." },
+      "analysisFlags": ["flow_trend_ok", "channeling_expected"],
+      "family": "blooming",
+      "prose": "Fill at ~4 ml/s until pressure peaks, close the valve for a 30s bloom, then ramp to ~2.2 ml/s flow-controlled extraction with an 8.6 bar limiter. The 30-second zero-flow pause is INTENTIONAL. Expected curves: initial pressure spike during fill, then 30s of declining/zero pressure (bloom), then pressure rise to 6–9 bar for extraction; flow near zero during bloom is by design. Temperature: 97.5°C preinfusion/fill, drops to 90°C during bloom, 92°C extraction (the high preinfusion temp and the drop during bloom are intentional). Dialing in: water should appear on the bottom of the puck almost immediately after fill; aim for 6–8g dripping before pressure rise; extraction pressure should be 6–9 bar and NEVER hit maximum (if it does, grind is too fine). Grind very fine; a paper filter under the puck can prevent pressure crash. ~70s total; extraction 23–26% (among the highest); ratio up to 1:3. Roast: excellent for light (hardest to dial in, most rewarding), good medium, not ideal dark. The hardest profile to dial in. DO NOT flag the 30s bloom pause. DO NOT flag channeling in dC/dt — the zero-flow bloom followed by ramp to extraction flow always produces large conductance-derivative spikes; dC/dt is unreliable for any profile with a zero-flow phase before extraction."
+    },
+    {
+      "id": "blooming-allonge",
+      "displayName": "Blooming Allonge",
+      "alsoMatches": ["Blooming Allongé"],
+      "ugs": { "value": -0.5, "inferred": false, "note": "Original at -0.5; an ultralight hybrid variant sits near UGS 7." },
+      "analysisFlags": ["flow_trend_ok", "grind_check_skip", "channeling_expected"],
+      "family": "blooming",
+      "prose": "Fast fill at 4.5 ml/s until pressure peaks, ramp down to 2.0 ml/s, then bloom (zero flow, pressure decays), then ramp up to ~3.5 ml/s percolation with an 8.6 bar pressure limiter. Expected curves: pressure spike, bloom decay, then low pressure (<6 bar) during percolation at 3.5 ml/s. Temperature 91–95°C declining across phases. Grind ultra-fine or Turkish. Pressure should not exceed 6 bar during percolation — if it does, the grind is too fine, coarsen. Flavor: filter-like texture, high clarity. Roast: best for ultra-light, Nordic filter roasts. DO NOT flag zero flow during bloom or low pressure during percolation."
+    },
+    {
+      "id": "allonge",
+      "displayName": "Allonge",
+      "alsoMatches": ["Allongé", "Rao Allongé"],
+      "ugs": { "value": 8.0, "inferred": false, "note": "Rao Allongé — the coarse anchor of the UGS chart." },
+      "analysisFlags": ["channeling_expected", "grind_check_skip"],
+      "family": "allonge",
+      "expertBand": {
+        "axis": "extractionFlow",
+        "lo": 4.5,
+        "provenance": "cited",
+        "src": "https://decentespresso.com/blog/5_espresso_profiles_for_light_roasted_coffee_beans",
+        "srcArchive": "docs/kb_sources/light_roast_profiles_transcript.txt",
+        "confidence": "medium",
+        "rationale": "Phase C — Rao/Blooming Allongé. Cited rail [SRC:light-video]/[SRC:eaf-profiling]: a constant ~4.5 ml/s flow profile — \"if pressure hits max, flow adjusts down: grind too fine\". One-sided FLOOR (reach ~4.5, no ceiling). flowFloor fires only when the SUSTAINED (median) extraction flow drops below ~4.5 (the limiter choked it = too fine); the peak measure is structurally blind here (the pump touches the 4.5 setpoint every shot), so the ExtractionFlow axis uses the windowed median, an independent absolute-flow measure, which makes this rail real. AnalysisFlags channeling_expected keeps channelingFired==false so the band is not masked by Allongé's by-design needle-stream channeling. grind_check_skip is present but the expert-band block deliberately does NOT gate on it (it gates only on pour-truncated/channeling): grind_check_skip suppresses the confounded grind-DELTA arms, whereas this band is a separate cited observational \"judge by taste\" note whose floor the primary source states explicitly. The band fires and is advisory (\"could be better\"), not a grind verdict."
+      },
+      "prose": "Constant high flow at ~4.5 ml/s with low pressure (~4–6 bar). The coarsest grind of all espresso profiles. Expected curves: flow held near 4.5 ml/s, pressure 4–6 bar; some channeling (a visible needle stream) is NORMAL at this flow rate. Duration ~30s; ratio 1:4–1:5 (the high ratio is intentional). Temperature runs high — produces the hottest coffee of any profile because the fast flow gives the puck little time to cool the water. Best for ultralight/light roasts; excellent with natural/fermented/fruity beans, less impressive with clean washed coffees. DO NOT flag the high ratio, low pressure, or minor channeling — all are expected."
+    },
+    {
+      "id": "default",
+      "displayName": "Default",
+      "ugs": { "value": 0.75, "inferred": false, "note": "Standard espresso starting point." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Classic lever-style declining pressure, 8.6 to 6 bar. Fast fill, immediate pressure rise, then decline. Expected curves: pressure peaks at 8.6 bar and declines to ~6 bar; flow stays relatively constant as the declining pressure compensates for puck erosion. Temperature 90°C stepping down to 88°C during extraction. Grind versatile — mimics 8.5 bar for fine grinds, Londinium for optimal grinds, limits flow for coarse grinds. Flavor emphasizes chocolate intensity. Roast: excellent for medium, good dark, not recommended light. DO NOT flag declining pressure — it defines lever-style profiles."
+    },
+    {
+      "id": "londinium",
+      "displayName": "Londinium",
+      "alsoMatches": ["Londonium", "Londinium / LRv3"],
+      "ugs": { "value": 0.0, "inferred": false, "note": "Londinium / LRv3 — same fine grind as Cremina." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "expertBand": {
+        "axis": "pressurePeak",
+        "lo": 8.0,
+        "hi": 9.0,
+        "provenance": "cited",
+        "src": "https://decentespresso.com/first_decent_espresso",
+        "confidence": "medium",
+        "rationale": "Phase C — Londinium (the standalone `## Londinium` section). Damian's LRv2/LRv3 never pick up this band because they resolve to their OWN canonical KB section (`Damian's LRv2 / LRv3`) which has no kBands row — NOT because of the `## Londinium` Note (that Note is LLM-only prose, inert for C++ key resolution). Guarded by tst_dialing_blocks::expertBand_londinium_resolvesAndDoesNotCatchDamianLR. Cited band: the official Decent dial-in guide — \"9 bar peak with gradual decline; too fine: pressure over 9 bar; too coarse: pressure crash\" [SRC:decent-guide]. Non-adaptive (unlike Adaptive v2, which was gate-failed and left absent — its KB section forbids flagging its by-design variable pressure). The 3-bar soak is intentional pre-infusion; the pour-window peak measure excludes it (the peak is the ~9-bar extraction). Gate: 20-shot / 5-user community population clusters at the cited target (extraction-peak median 9.0, mode 9) and band [8,9] partitions verbatim onto the guide — SILENT 8–9 (on target), FIRE >9 (cited \"too fine: pressure over 9 bar\"), FIRE <8 (cited \"too coarse: pressure crash\"). Confidence `medium` (Phase-C contextual tail; same rung as A-Flow's editor guidance)."
+      },
+      "prose": "The standalone Londinium profile. (Damian's LRv2/LRv3 are separate standalone profiles with different fill/infuse behavior and higher frame temperatures — LRv2 89°C, LRv3 90°C vs 88–89°C here — covered in their own section.) Fast fill at 2 bar, then a spring-lever soak at ~3 bar until dripping appears, then 9 bar declining pressure; if the puck erodes too fast (flow exceeds 2.8 ml/s) it switches to flow control at 2.5 ml/s to prevent gushing. Expected curves: 3 bar hold during the soak/dripping phase, then a 9 bar peak with gradual decline; pressure stays high (9→8 bar) because flow is held constant; flow relatively constant throughout. Temperature 88–89°C. Grind fine (same as Cremina, finer than E61/80s). Highest extraction of the dark-roast profiles — most full-bodied cup; dark chocolate, smooth, rich and bold. Roast: excellent dark, good medium-dark, struggles with light. Dial-in target: 30–35s, 9 bar peak with gradual decline, consistent flow. Too coarse: pressure crash, max-flow safety step triggers. Too fine: pressure over 9 bar, reduced flow, longer shots. DO NOT flag the 3 bar soak phase as \"low pressure\" — it's intentional pre-infusion."
+    },
+    {
+      "id": "turbo-shot",
+      "displayName": "Turbo Shot",
+      "alsoMatches": ["Hendon Turbo", "Hendon Turbo 6b Pressure Decline", "Hendon Turbo Bloom", "Hendon Turbo Flow"],
+      "ugs": { "value": 5.0, "inferred": false, "note": "The \"clarity jump\" — ~15s with a 6-bar ceiling." },
+      "analysisFlags": ["grind_check_skip"],
+      "family": "turbo",
+      "prose": "Inspired by the Hendon/Cameron 2020 paper: coarser grinds with fast flow reduce channeling and can match or exceed fine-grind extraction yield with more clarity. Preinfusion at 8 ml/s until ~6 bar, then extraction at ~4.5 ml/s with a 6 bar pressure limiter; very short total extraction. Jan's original Hendon variants use declining pressure (6b Pressure Decline) or flat flow (Hendon Turbo Flow); the Bloom variant adds a very short ~5s bloom. Expected curves: fast pressure rise to ~6 bar, then high flow 3–4.5 ml/s; finishes in 20–25s. Dose 15–18g (smaller than traditional); ratio 1:2.5–1:3. Temperature 90–97°C — higher to compensate for the short contact time (Jan uses 95–97°C for PI). Grind coarse, much coarser than traditional espresso; best with large flat burrs (SSP HU, EK-style, EG1, MAX, Ultra); conical has less margin. Flavor extremely clean, high clarity/aroma, acidity and fruited sweetness; less suited to dark. Roast light/medium primarily. DO NOT flag short shot time, high flow, high temperature, or high ratio — all are defining Turbo features."
+    },
+    {
+      "id": "filter-2-0",
+      "displayName": "Filter 2.0",
+      "alsoMatches": ["Filter 2.1"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "filter",
+      "prose": "Bloom phase then flow-controlled extraction at ~3 ml/s with <3 bar pressure. Temperature 92°C preinfusion, 85°C percolation (Filter 2.1 uses 98°C preinfusion declining to 84°C). Dose 20–22g in a 24g basket; ~5:1 extraction then dilute with 225–250g water; flow 3 ml/s is essential; 3 bar pressure safeguard. Grind finer than filter, not quite espresso. Setup: two micron 55mm paper filters in the bottom, metal mesh on top. Extraction yield 23–26% at 1.4–1.5% strength. Use a lower temperature for darker or defective roasts. DO NOT flag low pressure or high ratio — this is filter-style brewing."
+    },
+    {
+      "id": "filter3",
+      "displayName": "Filter3",
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "filter",
+      "prose": "By Scott Rao (profile and basket design). No-bypass filter coffee using the Filter3 basket: prewet at 5 ml/s for 15s, 30s bloom (zero flow), then slow percolation at ~1.1 ml/s through four extraction steps at three declining temperature levels (92→92→90→88°C water temp), ending with a 10s drawdown at zero flow. Uses the water temperature sensor (not coffee). All water passes through the bed — no bypass. Expected curves: very low pressure throughout (well under the 5 bar prewet limiter, near zero during percolation); flat ~1.1 ml/s during extraction; temperature steps down across phases (intentional — compensates for rising extraction efficiency). Dose 22g; grind as coarse as the grinder allows, ~660–720 µm (slightly coarser than V60) — most people grind too fine; water from the top holes means too fine. Setup needs the Filter3 basket and appropriate paper (Decent precut, hand-cut Chemex, or Pulsar); remove the portafilter spring; set water refill ≥500 ml. Flow calibration: run without portafilter, target ~75g after Prewet and ~360 ml total, adjust per-step flow (not global calibration). Dial-in at ~100s: 2–4 cm standing water above grounds = correct; <2 cm grind finer, >4 cm coarser; drawdown should be <60s (ideally ~30s). Output 300–330g; use stop-at-weight ~30g below target. EY 22–23%, TDS 1.4–1.5%; ~275s total. Roast good for light/medium. DO NOT flag low pressure, long brew time, very coarse grind, or declining temperature — this is no-bypass filter brewing, not espresso."
+    },
+    {
+      "id": "sprover",
+      "displayName": "Sprover",
+      "family": "filter",
+      "prose": "Pour-over simulation through the espresso machine. Intentionally under-dose the basket (e.g. ~15g in a 20g basket), coarse grind, low pressure. Grind coarser than Allongé; flow 1.5–4.5 ml/s; keep pressure below 1.5 bar during fill; ratio 1:10–1:14 (ultra-high, intentional); ~100s. Starting point 15g:195g, ~2 ml/s, ~100s. DO NOT flag the ultra-high ratio or ultra-low pressure — this is filter simulation."
+    },
+    {
+      "id": "gentle-and-sweet",
+      "displayName": "Gentle & Sweet",
+      "alsoMatches": ["Gentle and sweet"],
+      "ugs": { "value": 2.0, "inferred": false, "note": "Constant 6 bar, 2–3 ml/s flow." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "flat-pressure",
+      "prose": "6 bar constant pressure, no pre-infusion. Water fills the headspace and immediately goes to pressure; as the puck erodes, flow increases from ~2 ml/s to 3+ ml/s. Expected curves: flat 6 bar; flow starts ~2 ml/s and increases steadily — NORMAL for constant-pressure profiles. Temperature 88°C — the moderate temperature is intentional for this profile's gentle, sweet character. Fast shot (~25s), not a long shot. Grind does not need to be as fine as Blooming or Adaptive — good for beginner grinders. Extraction ~18–19% (lowest of light-roast profiles). Roast: beginner-friendly entry for light roasts; lower pressure means less channeling risk. DO NOT flag the increasing flow rate — it is the natural result of constant pressure with puck erosion. DO NOT recommend increasing temperature — the moderate 88°C is by design; higher temperatures shift toward bitterness and undermine the profile's purpose."
+    },
+    {
+      "id": "extractamundo-dos",
+      "displayName": "Extractamundo Dos",
+      "alsoMatches": ["Extractamundo Dos!"],
+      "ugs": { "value": 1.5, "inferred": false, "note": "6-bar low pressure allows a coarser, \"juicier\" window." },
+      "analysisFlags": ["flow_trend_ok", "channeling_expected"],
+      "family": "blooming",
+      "prose": "Fill at high pressure, then a dynamic bloom (flow drops to zero, pressure decays to ~2.2 bar), then rise to 6 bar for extraction. Expected curves: pressure spike during fill, decay during bloom (zero flow, declining pressure), then 6 bar target with flow increasing over time (may not quite reach 6 bar at the same grind as G&S because the bloom reduces puck resistance). Temperature 83.5°C fill, 67.5°C bloom, 74.5°C extraction — the low and varying temperatures are intentional and control extraction character. ~35–50s total (preinfusion ~5s, adaptive bloom ~15–25s, extraction ~15–20s). Grind slightly finer than G&S to reach the same pressure; slightly more extraction than G&S due to the pre-infusion/bloom. Flavor more acidic/sharp, fruitier, juicier and more concentrated than G&S. Roast good for light; a community favorite for consistent light-roast espresso and beans with slight off-flavors. DO NOT flag the zero-flow bloom or low/varying temperatures. DO NOT flag channeling in dC/dt — the zero-flow bloom followed by the extraction ramp always produces large conductance-derivative spikes regardless of puck quality."
+    },
+    {
+      "id": "flow-profile",
+      "displayName": "Flow Profile",
+      "alsoMatches": ["Flow profile for straight espresso", "Flow profile for milky drinks"],
+      "family": "flow-adaptive",
+      "prose": "Maintains a constant flow rate throughout extraction; pressure adapts to puck resistance. The straight-espresso variant uses 2.0 ml/s; the milky-drinks variant 1.2 ml/s. Expected curves: flat flow at the target rate; pressure varies with grind and puck condition (normal for flow-controlled profiles); pressure limiter caps at 8.6 bar. Temperature 92°C (straight) / 88°C (milky). Grind medium-fine, similar to pressure profiles — adjust grind to keep pressure in the 6–8.6 bar range during extraction. Flavor fruitier and more nuanced than Default; the milky variant gives a sweeter, less acidic base for milk. Roast good for medium and milky drinks. DO NOT flag varying pressure — the machine controls flow, not pressure. DO NOT flag pressure fluctuations as channeling — pressure naturally moves as puck resistance changes under constant flow."
+    },
+    {
+      "id": "cremina-lever-machine",
+      "displayName": "Cremina lever machine",
+      "alsoMatches": ["Cremina"],
+      "ugs": { "value": 0.0, "inferred": false, "note": "Cremina — the fine anchor of the UGS chart." },
+      "analysisFlags": ["flow_trend_ok", "channeling_expected"],
+      "family": "lever-decline",
+      "prose": "Lever machine emulation. Fast fill, brief soak, then a steep pressure decline; flow rate DROPS as the shot progresses (opposite of constant-pressure profiles), producing maximum mouthfeel. Expected curves: pressure peaks at 9 bar then steeply declines (much more than Londinium); flow starts moderate and decreases — this declining flow is the key feature, keeping coffee concentrated as the puck erodes. Temperature 91.5–92°C (rises slightly during ramp-down). ~45s (longer than other lever profiles). Grind fine (same as Londinium). Flavor: maximum mouthfeel, thick syrupy espresso, baker's chocolate, very thick crema — \"king of chocolate.\" Roast excellent for dark (highest temperature of dark profiles = most extraction). DO NOT flag steeply declining pressure or declining flow — this IS the Cremina style. DO NOT flag channeling in dC/dt — the soak→ramp transition (flow jumps ~0→2.5 ml/s as pressure ramps 1→9 bar) always produces large conductance-derivative spikes; dC/dt is only diagnostic on flat-pressure or constant-flow profiles."
+    },
+    {
+      "id": "idans-strega-plus",
+      "displayName": "Idan's Strega Plus",
+      "alsoMatches": ["Strega Plus", "Strega Plus medium", "Strega Plus dark", "Idan Strega"],
+      "analysisFlags": ["flow_trend_ok", "channeling_expected"],
+      "family": "lever-decline",
+      "prose": "Simulates a Bezzera Strega lever machine using a technique Idan developed over years of lever manipulation. Gradual water filling combined with a blooming phase saturates the puck evenly before extraction; after the bloom, extraction proceeds at low flow (1–1.5 ml/s) with sustained pressure — passive lever resistance rather than active pump push. Two variants: medium (1:1–1:2) and dark (1:2–1:2.5). Expected curves: slow fill, extended bloom (pressure rises then decays), then low-flow extraction; flow of 1–1.5 ml/s throughout is NORMAL — do not flag as too slow. Tested with medium to medium-light roasts on a Niche Zero; temperature/trigger pressures/peak may need adjustment for other grinders or roasts. ~50–70s (lever style). Flavor: high texture, strong flavor, rich body — optimized for milk drinks (especially dry cappuccino); NOT designed for clarity or flavor separation. Roast medium to medium-light; dark variant for slightly darker beans. DO NOT flag slow flow (1–1.5 ml/s), long duration, or low ratio. DO NOT flag channeling in dC/dt — the blooming phase (near-zero flow) followed by extraction onset produces spikes unrelated to puck quality."
+    },
+    {
+      "id": "80s-espresso",
+      "displayName": "80's Espresso",
+      "ugs": { "value": -0.5, "inferred": true, "note": "Extreme low-temp regime requires a much finer grind than any temperature-normal lever profile; empirically ~3–4 steps finer than D-Flow on the same grinder." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Lever profile at a very low temperature (82→72°C declining). Fast preinfusion fill at 7.5 ml/s, then 7.8 bar declining to 5 bar. Intentionally under-extracts to minimize tar/burnt flavors from dark beans. Expected curves: lever-style declining pressure (7.8→5 bar); temperature starts at 82°C and declines toward 72°C; flow should be SLOW (ideally 1–1.2 ml/s) — if it peaks at 1.9+ ml/s the shot will be dusty/thin, slower is better. 35–45s is ideal (lever timing); 25s is too short. Grind very fine — finer than Cremina/LRv3 territory; switching FROM 80's to LRv3 needs grind coarser by ~1.5–2 steps on a Niche-Zero-scale grinder. Flavor: bread fruit, raisins, baker's chocolate without burn; minimizes tar. Best with a 12g waisted basket for maximum mouthfeel and minimal channeling; 1:1 (Italian style) also works. Roast: dark only — designed to get fruitiness from dark beans via low temperature. DO NOT flag the low temperature — it is the entire point of this profile."
+    },
+    {
+      "id": "best-overall",
+      "displayName": "Best Overall",
+      "alsoMatches": ["Best overall pressure profile"],
+      "ugs": { "value": 0.75, "inferred": false, "note": "Rise to ~8.6 bar, declining to ~6 bar." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Three-step: fast fill → 8.4 bar peak → declining pressure to ~6 bar. No long soak (unlike Londinium); a traditional pressure-controlled shot. Expected curves: fast fill in ~5s, pressure rises to 8.4 bar then gradually declines to ~6 bar; flow stays relatively constant as declining pressure compensates for puck erosion. Temperature 88°C. Grind: can use the same fine grind as Londinium/Cremina for a longer ~45s shot, or coarser for a faster shot. Flavor: less extracted than Londinium/Cremina, smooth easy drinker, not much acidity, less crema than Cremina. Best for milk drinks (flat whites, lattes); from Scott Rao's espresso-book appendix. Roast good for dark and medium."
+    },
+    {
+      "id": "e61",
+      "displayName": "E61",
+      "alsoMatches": ["E61 espresso machine", "E61 classic gently up to 10 bar", "E61 rocketing up to 10 bar", "E61 with fast preinfusion to 9 bar"],
+      "ugs": { "value": 1.25, "inferred": false, "note": "Constant 9 bar, no pre-infusion (classic variant)." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "flat-pressure",
+      "prose": "Flat 9 bar constant pressure with optional short preinfusion (4–10s at 4 bar). Flow INCREASES as the puck erodes — the characteristic E61 behavior. The \"rocketing\" variant ramps to 10 bar; the \"fast preinfusion\" variant uses a 6s fill; all variants share the same extraction character. Expected curves: 9 bar constant throughout; flow starts moderate and increases steadily, causing characteristic sourness/acidity in longer shots. 22–25s (shorter than lever profiles); longer shots get increasingly sour. Grind coarsest of all dark-roast profiles (coarser than 80s, which is coarser than Londinium/Cremina). Temperature 92°C (historically very variable on real E61 machines). Flavor: some balanced acidity (can be pleasant), baker's chocolate, less smooth than lever profiles. Roast good for dark. Adjustable via the 3-step editor — add pre-infusion or a 4–6 bar declining endpoint for pleasing acidity balance; avoid declining below 4 bar (too steep mutes flavors). DO NOT flag increasing flow — it is characteristic of flat 9 bar profiles."
+    },
+    {
+      "id": "classic-italian-traditional-flat-pressure",
+      "displayName": "Classic Italian / Traditional Flat Pressure",
+      "alsoMatches": ["Classic Italian espresso", "Gentler but still traditional 8.4 bar", "Italian Australian espresso"],
+      "ugs": { "value": 1.25, "inferred": true, "note": "Constant-pressure family, behaves like Flat 9 Bar." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "flat-pressure",
+      "prose": "By Luca Frangella (Classic Italian Espresso). Short preinfusion (4–8s at 4 bar) then flat pressure extraction — 9 bar for Classic Italian, 8.4 bar for the gentler variant, 8.7 bar for Italian Australian (the gentler 8.4 bar is the most forgiving of puck prep; Italian Australian uses 88°C to prevent overextraction of dark beans). All variants produce increasing flow as the puck erodes. Expected curves: pressure holds flat; flow starts moderate and increases (normal for flat-pressure). Temperature 94°C (Classic Italian), 89.5°C (Gentler 8.4), 88°C (Italian Australian). ~25–30s (intentionally short, classic Italian style). Ratio ~1:1.8. Grind medium-fine. Preinfusion fill 8 ml/s (fast — creator-confirmed). Basket: IMS Big Bang 14–16g or Decent waisted 14g; a 7g basket blows the puck away, use 12g/14g. Headspace critical — dry puck within 1–2mm of the shower screen (\"coin test\"). Bean selection medium to dark, washed preferred. 9 bar limit is deliberate — higher pressure is unpleasingly bitter for this style. Roast medium to dark. DO NOT flag increasing flow, or a ~25s extraction as under-extracted — this is intentionally a short, concentrated shot."
+    },
+    {
+      "id": "traditional-spring-lever-machine",
+      "displayName": "Traditional / Spring Lever Machine",
+      "alsoMatches": ["Traditional lever machine", "Low pressure lever machine at 6 bar", "Two spring lever machine to 9 bar"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Spring-lever machine emulations. Fill at 4 bar to saturate the puck, then pressure peaks and gradually declines over ~27s as the spring decompresses. Traditional lever: 9 bar peak. Low pressure 6 bar: 6 bar peak, sweeter and gentler. Two spring: 9 bar peak held longer (a second spring maintains pressure before declining). Expected curves: ~20s preinfusion at 4 bar (drip-fill), then peak pressure with gradual decline; declining pressure is INTENTIONAL (spring decompression); flow stays moderate. Temperature 92–94°C; ~35s total extraction. Grind medium (coarser than Londinium, finer than E61). Flavor sweet and smooth; the 6 bar variant is the sweetest/gentlest; Two spring keeps more concentrated flavor from sustained peak pressure. Roast medium to dark; 6 bar suited for medium-sweet beans. DO NOT flag declining pressure — spring decompression is exactly how lever machines work."
+    },
+    {
+      "id": "advanced-spring-lever",
+      "displayName": "Advanced Spring Lever",
+      "alsoMatches": ["Weiss advanced spring lever"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "By John Weiss (JW). Spring-lever emulation with an added flow-limit safety valve: fill → rise to 9 bar → declining pressure → if the puck erodes too fast (flow exceeds the limiter) it switches to 1.5 ml/s flow-controlled extraction to prevent gushing. The Weiss variant uses 90°C (vs 88°C) and is tuned slightly differently; JW updated this to ASL2 with refined step transitions. Expected curves: 9 bar peak then gradual decline; flow stays moderate; if a flow-control step kicks in (pressure drop then stabilization) that is the safety valve working — not a problem. A pressure notch/dip at a consistent point during extraction is a SIGN OF PROPER DIAL-IN, not a flaw (JW: \"I actually aim for that result\"). Temperature 88°C (Advanced), 90°C (Weiss); ~35–45s; 18g→32g. All roasts — the flow-recovery step makes these tolerant of grind variation; good when unsure if the puck will channel. Use \"Advanced spring lever\" (not \"Weiss advanced spring lever\") — the Weiss variant has a known skip-first-step bug. DO NOT flag the flow-control recovery step, or a pressure notch/dip during extraction — the former is the designed choke-rescue, the latter signals correct dial-in."
+    },
+    {
+      "id": "best-practice-light-roast",
+      "displayName": "Best Practice Light Roast",
+      "alsoMatches": ["Best practice (light roast)"],
+      "analysisFlags": ["flow_trend_ok", "channeling_expected"],
+      "family": "blooming",
+      "prose": "By John Buckman (Decent founder), synthesized from Brakel's preinfusion technique, Scott Rao's Blooming, and Jonathan Gagné's Adaptive flow-locking — the distillation of what the Decent community learned was optimal for light roasts; it subsequently evolved into the \"Adaptive\" profile. Preinfusion at low pressure (3 bar) until dripping, then a 1.5 bar gentle soak to fully saturate the puck, then pressure ramps to ~9–10.5 bar, then flow-controlled extraction at ~2.5 ml/s with a 10.5 bar limiter. Canonical recipe: 18g in, 50g out, ~60s. Expected curves: very low pressure during fill/soak (~1.5–3 bar), then a rise to ~9–10 bar, then pressure-limited flow extraction; pressure may not reach the limiter if the grind is coarse; variable curves expected (adapts to grind). Temperature 92°C preinfusion, 90°C extraction. ~50–70s total. Grind coarse for light roasts (target ~2.5 ml/s extraction flow); grind fine enough to maintain dripping during preinfusion — if dripping stops, too coarse. Roast light primarily; can adapt to medium with temperature adjustment. DO NOT flag the long low-pressure soak. DO NOT flag channeling in dC/dt — the extended low-flow soak followed by the pressure ramp produces large conductance-derivative spikes regardless of puck quality."
+    },
+    {
+      "id": "easy-blooming-active-pressure-decline",
+      "displayName": "Easy Blooming Active Pressure Decline",
+      "alsoMatches": ["Easy blooming - active pressure decline"],
+      "analysisFlags": ["flow_trend_ok", "channeling_expected"],
+      "family": "blooming",
+      "prose": "By Stéphane, an accessible evolution of Rao Blooming. The key innovation is a pressure-threshold bloom exit: rather than a fixed timer, the bloom ends when pressure declines to a threshold, so bloom duration self-adjusts to grind coarseness (finer grinds hold pressure longer = longer bloom; coarser depressurize quickly = shorter). This removes the need to retune bloom time when changing grind. After bloom, active pressure decline reduces pressure from 7 bar toward a lower endpoint to prevent over-extraction and manage rising flow. Expected curves: ~4 bar during fill, declining pressure during bloom (zero flow, 4→~2 bar), then 6–7 bar extraction with gradual decline; zero flow during bloom is INTENTIONAL; variable bloom duration is NORMAL (the adaptive feature working). Temperature 88°C default (84–90°C for different roasts). ~25–45s. Dose 20g → 40–50g (1:2–2.5). Grind: flat burrs preferred; conical compatible at +2°C. Roast light preferred; dark works at 84–86°C. DO NOT flag variable bloom duration or zero flow during bloom. DO NOT flag channeling in dC/dt — the zero-flow bloom followed by the extraction ramp produces large spikes regardless of puck quality."
+    },
+    {
+      "id": "gagne-adaptive",
+      "displayName": "Gagné Adaptive",
+      "alsoMatches": ["Gagné/Adaptive Shot 92C v1.0", "Gagné/Adaptive Allongé 94C v1.0", "Gagne Adaptive Shot", "Gagne Adaptive Allonge"],
+      "ugs": { "value": 1.25, "inferred": true, "note": "Adaptive/flow family; behaves near the Adaptive v2 grind window." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "flow-adaptive",
+      "prose": "By Jonathan Gagné (Coffee ad Astra). An evolution of Rao Blooming that adapts to grind — preinfusion at 3.5–4 ml/s until 4 bar, then pressure rises to 8.6 bar, then \"scan\" frames detect the current flow at peak pressure and lock it in for the rest of the shot. You dial in by targeting a flow rate with your grind, not by chasing a pressure curve: finer → lower flow (~2.2 ml/s standard espresso); coarser → higher flow (~4 ml/s Allongé). The Allongé variant at 94°C targets longer shots (1:4+) with a coarser grind. Expected curves: pressure rises to 8.6 bar then stabilizes ~6 bar as flow control takes over; flow adapts to grind; variable curves EXPECTED. Temperature 92°C (Shot) / 94°C (Allongé). ~25–45s (Shot), longer for Allongé. Dose 20g → 40–50g (Shot). Grind: flat burrs preferred; dial grind to the flow rate you want. Flavor: light roasts bright/layered/fruited; Allongé ratios filter-like clarity; standard ratios concentrated/structured. Roast light primarily (Shot); Allongé all roasts; dark → 84–86°C. DO NOT flag variable pressure curves or multi-step scan frames — the profile is actively detecting and adapting to grind resistance."
+    },
+    {
+      "id": "i-got-your-back",
+      "displayName": "I Got Your Back",
+      "analysisFlags": ["channeling_expected"],
+      "family": "flow-adaptive",
+      "prose": "By Shin. The goal is to never fail to produce an acceptable espresso at any grinder setting. During preinfusion the profile detects puck resistance via pressure: if resistance is LOW (coarse grind — pressure stays low) it routes immediately to a flat 2.2 ml/s flow extraction; if resistance is HIGH (fine grind — pressure peaks) it triggers a bloom pause, then ramps pressure and transitions to flat flow. Both paths converge to stable flow-controlled extraction. Expected curves: variable by design — the path depends on grind resistance; either curve shape is correct. Temperature 90°C; ~25–40s; grind any. Flavor: reliable baseline at any grind — the coarse path is cleaner/brighter, the fine (bloom) path adds body and complexity; both drinkable. All roasts. DO NOT flag variable curves or path-switching — the adaptive branching is the entire purpose. DO NOT flag channeling in dC/dt — the bloom path produces a zero-flow pause followed by an extraction ramp, always creating large conductance-derivative spikes."
+    },
+    {
+      "id": "turbobloom",
+      "displayName": "TurboBloom",
+      "ugs": { "value": 5.5, "inferred": true, "note": "High-flow turbo territory; companion to TurboTurbo." },
+      "analysisFlags": ["flow_trend_ok", "grind_check_skip", "channeling_expected"],
+      "family": "turbo",
+      "prose": "By Collin, a companion to TurboTurbo. Dynamic bloom into high-flow pressure extraction, targeting high-extraction flat-burr grinders. Fast fill at 8 ml/s, dynamic bloom until pressure drops to 2.2 bar (~5s — very short by design), then ramps to 6 bar extraction with a 4.5 ml/s flow limiter. The short fast bloom is intentional: the fast fill saturates the puck quickly so the bloom can be brief while still even, permitting a higher flow rate. Expected curves: fill spike, bloom decay (zero flow, declining pressure), then 6 bar extraction with high flow (3–4.5 ml/s); zero flow during bloom INTENTIONAL; high extraction flow EXPECTED. Temperature 86°C fill, drops to 70°C during bloom (intentional, reduces harshness), ramps to 80°C extraction. ~25–35s; 15g → 45g (1:3, like TurboTurbo). Grind coarse (high-extraction burrs, ~3–4.5 ml/s final flow). Flavor like TurboTurbo but cleaner, less astringency (the bloom reduces harshness). All roasts, optimized for high-extraction grinders. DO NOT flag zero flow during bloom, low bloom temperature, high extraction flow, or the short bloom duration — all are intentional."
+    },
+    {
+      "id": "turboturbo",
+      "displayName": "TurboTurbo",
+      "ugs": { "value": 6.0, "inferred": false, "note": "Even less resistance; leans toward Allongé flow rate." },
+      "analysisFlags": ["flow_trend_ok", "grind_check_skip"],
+      "family": "turbo",
+      "prose": "By Collin and Jan. High-extraction turbo shot without a bloom phase. Rapid fill/preinfusion at 96°C to saturate the puck, then 6 bar extraction at 93°C with a 4.5 ml/s flow limiter. Companion to TurboBloom for when bloom-style is not wanted. (Original used 97°C/8 ml/s preinfusion, refined to 96°C/4 ml/s for consistency.) The high temperature is justified by the coarse grind — coarser grounds have more exposed surface area and less thermal mass, so higher water temperature is needed for the same extraction temperature at the puck. Expected curves: fast preinfusion pressure rise, then 6 bar with high flow (3–4.5 ml/s); fast and high-flow by design. Temperature 96°C preinfusion, 93°C extraction. ~20–30s; 15g → 45g (1:3). Grind coarse (high-extraction burrs, much coarser than traditional espresso). Flavor high clarity, bright, clean — like a concentrated filter coffee, less body than lever profiles. All roasts. DO NOT flag high flow, fast duration, high temperatures, or high ratio — all intentional for high-extraction coarse-grind setups."
+    },
+    {
+      "id": "nu-skool",
+      "displayName": "Nu Skool",
+      "alsoMatches": ["Nu Skool 14g", "Nu Skool 18g", "Nu Skool 20g", "Nu Skool large basket"],
+      "ugs": { "value": 6.0, "inferred": true, "note": "High-flow new-wave light-roast territory, similar to Turbo-style." },
+      "family": "flow-adaptive",
+      "prose": "By Dan Calabro. A family of 3 flow-curve profiles (one per standard basket size) for maximally prepped light roast (or any roast). Philosophy: maximize extractability during prep (quality flat-burr grinders, precise technique) so you can brew with lower pressure, lower temperature, and a coarser grind while still achieving very high extraction with sweetness and clarity. Dial-in via three flow parameters: flow floor (minimum flow), flow plateau (target level), and flow spectrum (spread). Reading Dan's user guide is essential before dialing in. Expected curves: low-pressure preinfusion then moderate flow-controlled extraction; no dramatic pressure spikes; pressure stays moderate and gradually declines; calm and controlled. Temperature 82–89°C — substantially lower than standard; the very low temperature is INTENTIONAL and only works with optimized prep. ~25–40s. Grind coarser than most espresso, similar to Turbo range; flat burrs strongly preferred (SSP HU, EK-style, MAX, EG-1). Flavor: high clarity, sweetness, vibrancy, flavor definition; showcases light-roast terroir. Roast primarily light, works with any; prep quality has a greater-than-normal impact. DO NOT flag the very low temperature (82–89°C) or coarser grind — they are central to the Nu Skool philosophy and require dialed-in preparation."
+    },
+    {
+      "id": "gentle-flat-long-preinfusion-family",
+      "displayName": "Gentle Flat / Long Preinfusion Family",
+      "alsoMatches": ["Gentle flat 2.5 ml per second", "Gentle preinfusion flow profile", "Hybrid pour over espresso", "Innovative long preinfusion"],
+      "family": "gentle-long-preinfusion",
+      "prose": "A family of Seattle-style gentle profiles documenting John Weiss's technique, sharing a very long preinfusion soak (10–37s) before extraction to fully saturate light-roast pucks for even, channeling-free extraction (also called \"Slayer-style\"; \"Innovative Long Preinfusion\" is the closest equivalent to the classic Slayer shot). Exact variants: Gentle flat 2.5 — 2.5 ml/s for 10s preinfusion then 2.5 ml/s for 45s at 6 bar flat; Gentle preinfusion flow — 3.5 ml/s for 30s then 2.2 ml/s for 21s at 9 bar; Hybrid pour over espresso — 2.0 ml/s for 25s to 1.5 bar then 2.2 ml/s for 20s at 9 bar; Innovative long preinfusion — 1.5 ml/s for 37s to 2.0 bar then 2.5 ml/s for 25s at 9 bar. Expected curves: very long low-pressure preinfusion (near-zero flow during soak), then pressure rise to extraction (6 or 9 bar by variant); the long minimal-flow preinfusion is INTENTIONAL. Temperature 92°C (most), 98°C (Innovative long preinfusion — very high is intentional for light roasts). ~50–65s total. Grind: dial to target flow during extraction. Roast light to very-light aromatic roasts that resist extraction. Known issues (Innovative long preinfusion): may skip preinfusion (~25s short shots) — exit condition \"move on if pressure > X\" defaults to 1.0 bar but premium German pressure sensors read higher baseline; fix: raise threshold to <2.0 bar. Early stop at low yield → grind coarser (the 25s step times out if flow never reaches 2.5 ml/s). DO NOT flag the long preinfusion, low flow during soak, or temperature extremes — defining features of this family."
+    },
+    {
+      "id": "preinfuse-then-45ml-of-water",
+      "displayName": "Preinfuse Then 45ml of Water",
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "volume-based",
+      "prose": "Matt Perger's technique: 25s preinfusion at 4 bar to fully saturate the puck, then extraction at 9 bar until a fixed 45ml of water has been delivered (not time- or weight-based) — no scale required; the fixed water volume produces consistent results by bypassing scale dependency. Expected curves: preinfusion at 4 bar (low flow), then 9 bar flat extraction; the shot ends by volume, not weight or time. Temperature 90°C; ~40–50s; grind medium-fine; output ratio ~1:2–2.5 for 18–20g doses with 45ml water. All roasts. DO NOT flag the volume-based stop condition as unusual — fixed water volume without a scale is the entire purpose."
+    },
+    {
+      "id": "7g-basket",
+      "displayName": "7g Basket",
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Optimized for the Decent 7g mini-basket. Reduced flow rate and lower pressure (7.5 bar) protect the small, thin puck from channeling and blowthrough; short overall duration. Expected curves: low flow during preinfusion (~2.4 ml/s at 4.5 bar), then 7.5 bar declining to ~4.5 bar; the lower pressure is INTENTIONAL for small-puck integrity. Temperature 90°C (some find ~87–88°C reduces bitterness in small doses). ~16–20s; 7g → 18–28g out. Grind fine (small basket rewards fine grind). Puck prep: sub-14g shots are significantly harder to dial in — use a dosing funnel, a paper filter on top of the puck, level carefully; Extractamundo Dos and Gentle & Sweet are forgiving starting profiles for small shots. A 7g basket blows the puck away with Classic Italian-style profiles — use a 12g (11g dose) or 14g waisted basket for Italian single shots. All roasts. DO NOT flag the lower peak pressure (7.5 bar) or short duration — the small basket requires gentler parameters."
+    },
+    {
+      "id": "espresso-forge",
+      "displayName": "Espresso Forge",
+      "alsoMatches": ["Espresso Forge Dark", "Espresso Forge Light"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "lever-decline",
+      "prose": "Emulates the Espresso Forge piston-pump manual machine. Dark variant uses lower temperatures for fruit flavors from medium-dark beans; Light variant uses very high temperature (96°C) and a long pre-brew soak for light roasts. Dark: preinfusion at 6 ml/s to 3 bar, 7.5 bar peak, then 30s gradual decline to 3 bar; 84°C→81°C→78°C (intentional drop). Light: long 25s pre-brew soak at 1 bar, high-pressure ramp to 10 bar over 20s, then 50s gradual decline to 6 bar; 96°C→92.5°C declining (high temp intentional for light-roast extraction). Expected curves (both): rising pressure then a long gradual decline (30–50s, INTENTIONAL — emulates the forge); flow moderate to low during decline. ~35–40s (Dark), ~60–70s (Light); ~42g out. Roast medium to dark (Dark), medium to light (Light). DO NOT flag gradual pressure decline, long extraction duration, or temperature changes — all core to the Espresso Forge emulation."
+    },
+    {
+      "id": "pour-over-basket",
+      "displayName": "Pour Over Basket",
+      "alsoMatches": ["Pour over basket/Decent pour over", "Pour over basket/Kalita 20g in, 340ml out", "Pour over basket/V60 15g in, 250g out", "Pour over basket/V60 20g in, 340g out", "Pour over basket/V60 22g in, 375g out", "Pour over basket/Cold brew 22g in, 375ml out"],
+      "ugs": { "value": 7.5, "inferred": true, "note": "High-flow filter/pour-over territory." },
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "filter",
+      "prose": "Produces filter coffee using a pour-over basket or filter cone under the group head. Multi-pulse brewing with a prewet, bloom pause, and several water pulses; water temperature near 100°C. Not espresso — pressure stays very low (near 0 bar) throughout. Variants: V60 uses 8 ml/s high-turbulence flow; Kalita uses lower flow (6 ml/s) to prevent choking; Cold brew uses very low flow (2–2.5 ml/s) at 20°C water; larger doses (22g) take longer. Expected curves: very low to zero pressure (gravity-fed); flow pulses between ~0 and target ml/s; zero flow during bloom and pauses INTENTIONAL. Temperature ~99–100°C (standard), ~20°C (cold brew, intentional). ~70–105s (standard), ~180s (cold brew). Dose 15–22g; output 250–375g (filter ratio). Grind coarser than espresso — must be coarser than a manual V60 because the basket creates much higher turbulence; coarsen further if choking; Ethiopian/decaf may need Kalita (lower flow). Default V60 profiles pour ~344ml even for a 250g target (gravity retains water). Preheat the reservoir ~2 min. V60 02 dripper is tall — may need the drip tray removed/machine rotated. Roast all; filter brewing especially good for light/medium. DO NOT flag near-zero pressure, high water:coffee ratio, long duration, or cold water (cold brew) — this is filter brewing, not espresso."
+    },
+    {
+      "id": "trendy-6-bar-low-pressure",
+      "displayName": "Trendy 6 Bar Low Pressure",
+      "alsoMatches": ["Trendy 6 bar low pressure shot"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "flat-pressure",
+      "prose": "Long 20s preinfusion at 4 bar then flat 6 bar extraction. The lower pressure reduces channeling risk and produces a sweeter, less astringent cup from beans that resist extraction at 9 bar — designed for sophisticated light roasts that smell great but resist being well extracted at standard pressure. Expected curves: 4 bar during preinfusion, then flat 6 bar; flow increases over time as the puck erodes (normal for constant-pressure). Temperature 92°C; ~35–55s extraction after preinfusion. Grind coarser than traditional (lower pressure needs a slightly coarser grind to maintain flow). Flavor sweet, rounded, less astringent than 9 bar profiles. Roast light specifically — try when a light roast smells great but tastes off at normal pressure. DO NOT flag the 6 bar pressure as underpressure — the reduced extraction pressure is the point."
+    },
+    {
+      "id": "ghc-manual-control",
+      "displayName": "GHC Manual Control",
+      "alsoMatches": ["GHC/manual flow control", "GHC/manual pressure control", "GHC / manual flow control", "GHC / manual pressure control"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "manual",
+      "prose": "For machines with a Group Head Controller (GHC) — the user manually controls flow or pressure in real time by holding/releasing the GHC control. Not an automated profile. Used by baristas who want hands-on espresso control while still logging the shot. Expected curves: entirely user-defined — whatever the operator produces; no automated targets; any pattern of pressure or flow is valid. Temperature 88–96°C (configurable presets). DO NOT flag any pressure or flow pattern — these profiles record whatever the human operator does; there is no \"expected\" curve to compare against."
+    },
+    {
+      "id": "tea",
+      "displayName": "Tea",
+      "alsoMatches": ["Tea/in a basket", "Tea portafilter/black tea", "Tea portafilter/Japanese green", "Tea portafilter/Chinese green", "Tea portafilter/Sencha", "Tea portafilter/white tea", "Tea portafilter/tisane", "Tea portafilter/oolong", "Tea portafilter/oolong dark", "Tea portafilter/Pressurized tea", "Tea portafilter/no pressure", "Tea portafilter/Blue Willow: Tsuyuhikari Sensha", "Tea portafilter/Bug Bite Oolong", "Tea portafilter/Oolong 1st extraction", "Tea portafilter/Oolong 2nd extraction", "Tea portafilter/Yunnan green"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "tea",
+      "prose": "Brews loose-leaf tea using the portafilter basket or a dedicated tea portafilter. Water temperature and pressure are tuned per tea type — green teas use lower temperatures (~70–80°C) and near-zero pressure; black teas use higher temperatures (~90–95°C); oolongs fall in between. These are tea beverages, not espresso. DO NOT analyze tea profiles for espresso grind advice, extraction yield, or shot technique — tea brewing has completely different parameters and goals."
+    },
+    {
+      "id": "cleaning-and-maintenance",
+      "displayName": "Cleaning and Maintenance",
+      "alsoMatches": ["Cleaning/Forward flush", "Cleaning/Forward Flush x5", "Cleaning/Weber Spring Clean", "Cleaning/Descale Wizard", "Steam only", "Test/Flow calibration", "Test/pressure calibration", "Test/temperature calibration", "Test/temperature accuracy", "Test/for a small leak", "Test/low pressure leak", "Test/leakage stress test", "Test/profile_editor_demo"],
+      "analysisFlags": ["flow_trend_ok"],
+      "family": "maintenance",
+      "prose": "These profiles perform machine cleaning, descaling, steam sterilization, and diagnostic tests. They are not beverage extractions. DO NOT analyze these profiles for grind advice, extraction quality, or beverage technique — they are maintenance or calibration routines."
+    }
+  ]
+}

@@ -434,6 +434,10 @@ add_decenza_test(tst_dialing_blocks
 )
 target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
+# Built-in profile corpus, for the KB-coverage gate (every shipped profile
+# must resolve to a KB entry — restructure-kb-as-validated-json, task 5.2/6.6).
+target_compile_definitions(tst_dialing_blocks PRIVATE
+    PROFILES_DIR="${CMAKE_SOURCE_DIR}/resources/profiles")
 
 # --- tst_shotrecord_cache: ShotRecord::cachedAnalysis dedup + fallback ---
 add_decenza_test(tst_shotrecord_cache
