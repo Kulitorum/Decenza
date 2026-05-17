@@ -263,6 +263,10 @@ QList<HistoryPhaseMarker> phasesFromStateChange(
 // mode, the previous segment to the previous step, etc. The grind
 // detector only needs the pour segment's mode correct; tail-alignment
 // guarantees exactly that and is identity when segments == steps.
+// Returns empty (→ caller falls back) when the inputs can't yield a real
+// segmentation: empty pumpModes, a length-mismatched state_change, or a
+// degenerate no-flip state_change on a multi-step profile (a bailed-out
+// shot with no recorded substate transition — see the guard below).
 QList<HistoryPhaseMarker> phasesFromNativeStateChange(
     const QVector<QPointF>& pressure,
     const QJsonArray& stateChange,
@@ -281,6 +285,20 @@ QList<HistoryPhaseMarker> phasesFromNativeStateChange(
     }
     const int segCount = static_cast<int>(boundaries.size());
     const int stepCount = static_cast<int>(pumpModes.size());
+
+    // A state_change with no sign flips (one segment) but a multi-step
+    // profile is degenerate: the machine never recorded a substate
+    // transition (e.g. a bailed-out short shot), so there is no real
+    // preinfusion/pour boundary to recover. Tail-aligning would emit ONE
+    // marker for the whole shot — non-empty, so it would BLOCK the
+    // fallback chain while being structurally wrong (the multi-frame
+    // profile flattened to a single tail-step frame at t=0). Return empty
+    // instead so the goal-jump / inferPhasesFromGoals fallbacks engage —
+    // the same recover path an absent state_change takes. A genuinely
+    // single-step profile (stepCount == 1) is not degenerate and is left
+    // to the normal path below.
+    if (segCount == 1 && stepCount > 1) return markers;
+
     const int offset = stepCount - segCount;  // >=0 when frames collapsed
     for (int seg = 0; seg < segCount; ++seg) {
         const int stepIdx = std::clamp(seg + offset, 0, stepCount - 1);
@@ -405,18 +423,31 @@ bool loadDecenzaFormat(const QJsonObject& root, LoadedShot& out, QString* errOut
     // phasesFromStateChange. Pair it with the embedded profile.steps[].pump
     // modes for the real per-frame isFlowMode. This makes the native
     // loader's pour window frame-faithful to the app instead of inferring
-    // boundaries from goal-curve jumps — the goal heuristic silently emits
-    // NO pour marker for D-Flow/Q-style profiles whose pressure goal ramps
-    // to 0, collapsing the band/pour-truncated peak scan to 0.0 bar and
-    // spuriously firing the expert band. Falls back to the goal heuristic
-    // only when state_change is absent or length-mismatched.
+    // boundaries from goal-curve jumps. The goal-jump heuristic mis-places
+    // frame boundaries on D-Flow/Q-style profiles whose pressure goal ramps
+    // to 0 during a flow-controlled pour; empirically that drove the
+    // production pour-window peak to 0.0 bar and spuriously fired the
+    // expert band (observed on shot 782: real peak ~7.7 bar, in-band,
+    // reported 0.0). Falls back to the goal heuristic only when
+    // state_change is absent, length-mismatched, or degenerate (no flips).
     const QJsonArray stateChange = root.value("state_change").toArray();
     QStringList pumpModes;
     pumpModes.reserve(steps.size());
     for (const auto& s : steps)
         pumpModes << s.toObject().value("pump").toString();
-    if (!stateChange.isEmpty() && !pumpModes.isEmpty())
+    if (!stateChange.isEmpty() && !pumpModes.isEmpty()) {
         out.phases = phasesFromNativeStateChange(out.pressure, stateChange, pumpModes);
+        // Provenance: this tool is a feature-gate instrument; a silent
+        // drop from the authoritative path to the goal heuristic is
+        // exactly the degradation that previously hid 22 spurious fires.
+        // Surface it on stderr, matching the loader's "skip <file>: <err>"
+        // convention, so an auditor can see which shots did NOT use the
+        // app-faithful path.
+        if (out.phases.isEmpty())
+            QTextStream(stderr) << "note " << out.path
+                << ": native state_change present but unusable "
+                   "(degenerate/length-mismatch) — using goal-jump fallback\n";
+    }
 
     // Fallback: profile.steps carries the canonical control mode but no
     // explicit boundaries, so locate them by scanning goal curves for
