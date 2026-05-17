@@ -8,8 +8,14 @@ cross-platform-codegen failure class, commit 2b6e0965, is deliberately avoided).
 
 Exit 0 = valid; exit 1 = a hard violation (build MUST fail). D9 prose/band
 lint findings are best-effort WARNINGS (printed, non-fatal) per the design:
-they are false-positive-prone (the Adaptive v2 band 6-9 vs prose dial-in "8-9"
-is intentionally different), so they inform an author, they do not gate.
+they are false-positive-prone, so they inform an author, they do not gate.
+An entry whose prose legitimately narrates its own setpoints / cited dial-in
+that happen to coincide with a band bound carries a reviewed
+`expertBand.proseRestatesBand` rationale, which silences the D9 lint for that
+entry — Adaptive v2 (band 6-9 vs prose dial-in "8-9", intentionally
+different) is the canonical ack case. A malformed ack (present but not a
+non-empty string) is itself a hard violation (exit 1) and does NOT suppress:
+a broken silencer must never silence.
 
 Usage: validate_kb.py [path/to/profile_knowledge.json]
 """
