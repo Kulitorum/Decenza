@@ -293,8 +293,13 @@ Rectangle {
                     TextArea {
                         id: conversationText
                         width: parent.width
+                        // Substitute emoji with Twemoji SVG <img> (project-wide
+                        // pattern) so a color/sbix glyph never reaches CoreText's
+                        // crashing emoji path. Qt's Markdown importer passes the
+                        // inline <img> through, so markdown formatting AND emoji
+                        // both render. See docs/CLAUDE_MD/EMOJI_SYSTEM.md.
                         text: MainController.aiManager && MainController.aiManager.conversation
-                              ? MainController.aiManager.conversation.getConversationText()
+                              ? Theme.replaceEmojiWithImg(MainController.aiManager.conversation.getConversationText(), Theme.bodyFont.pixelSize)
                               : ""
                         textFormat: Text.MarkdownText
                         wrapMode: TextEdit.WordWrap
@@ -830,7 +835,7 @@ Rectangle {
             // that handler reads _pendingScrollKind, performs the scroll, and
             // wakes the render thread.
             overlay._pendingScrollKind = isResponse ? "preResponse" : "bottom"
-            conversationText.text = MainController.aiManager.conversation.getConversationText()
+            conversationText.text = Theme.replaceEmojiWithImg(MainController.aiManager.conversation.getConversationText(), Theme.bodyFont.pixelSize)
         }
     }
 
