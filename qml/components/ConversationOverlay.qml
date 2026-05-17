@@ -312,7 +312,10 @@ Rectangle {
 
                         Accessible.role: Accessible.EditableText
                         Accessible.name: TranslationManager.translate("conversation.accessible.transcript", "AI conversation transcript")
-                        Accessible.description: Theme.stripMarkdown(text)
+                        // text now carries <img> emoji substitutions; strip the
+                        // HTML tags (toAccessibleText) before stripping Markdown
+                        // so VoiceOver/TalkBack don't read literal "<img src=…>".
+                        Accessible.description: Theme.stripMarkdown(Theme.toAccessibleText(text))
                         Accessible.focusable: true
                         activeFocusOnTab: true
 
