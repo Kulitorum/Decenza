@@ -199,6 +199,7 @@
     {
       "id": "extractamundo-dos",
       "displayName": "Extractamundo Dos",
+      "alsoMatches": ["Extractamundo Dos!"],
       "ugs": { "value": 1.5, "inferred": false, "note": "6-bar low pressure allows a coarser, \"juicier\" window." },
       "analysisFlags": ["flow_trend_ok", "channeling_expected"],
       "family": "blooming",
@@ -239,6 +240,7 @@
     {
       "id": "best-overall",
       "displayName": "Best Overall",
+      "alsoMatches": ["Best overall pressure profile"],
       "ugs": { "value": 0.75, "inferred": false, "note": "Rise to ~8.6 bar, declining to ~6 bar." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "lever-decline",
@@ -247,7 +249,7 @@
     {
       "id": "e61",
       "displayName": "E61",
-      "alsoMatches": ["E61 classic gently up to 10 bar", "E61 rocketing up to 10 bar", "E61 with fast preinfusion to 9 bar"],
+      "alsoMatches": ["E61 espresso machine", "E61 classic gently up to 10 bar", "E61 rocketing up to 10 bar", "E61 with fast preinfusion to 9 bar"],
       "ugs": { "value": 1.25, "inferred": false, "note": "Constant 9 bar, no pre-infusion (classic variant)." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "flat-pressure",
@@ -375,6 +377,7 @@
     {
       "id": "trendy-6-bar-low-pressure",
       "displayName": "Trendy 6 Bar Low Pressure",
+      "alsoMatches": ["Trendy 6 bar low pressure shot"],
       "analysisFlags": ["flow_trend_ok"],
       "family": "flat-pressure",
       "prose": "Long 20s preinfusion at 4 bar then flat 6 bar extraction. The lower pressure reduces channeling risk and produces a sweeter, less astringent cup from beans that resist extraction at 9 bar — designed for sophisticated light roasts that smell great but resist being well extracted at standard pressure. Expected curves: 4 bar during preinfusion, then flat 6 bar; flow increases over time as the puck erodes (normal for constant-pressure). Temperature 92°C; ~35–55s extraction after preinfusion. Grind coarser than traditional (lower pressure needs a slightly coarser grind to maintain flow). Flavor sweet, rounded, less astringent than 9 bar profiles. Roast light specifically — try when a light roast smells great but tastes off at normal pressure. DO NOT flag the 6 bar pressure as underpressure — the reduced extraction pressure is the point."
@@ -390,7 +393,7 @@
     {
       "id": "tea",
       "displayName": "Tea",
-      "alsoMatches": ["Tea/in a basket", "Tea portafilter/black tea", "Tea portafilter/Japanese green", "Tea portafilter/Chinese green", "Tea portafilter/Sencha", "Tea portafilter/white tea", "Tea portafilter/tisane", "Tea portafilter/oolong", "Tea portafilter/oolong dark", "Tea portafilter/Pressurized tea", "Tea portafilter/no pressure"],
+      "alsoMatches": ["Tea/in a basket", "Tea portafilter/black tea", "Tea portafilter/Japanese green", "Tea portafilter/Chinese green", "Tea portafilter/Sencha", "Tea portafilter/white tea", "Tea portafilter/tisane", "Tea portafilter/oolong", "Tea portafilter/oolong dark", "Tea portafilter/Pressurized tea", "Tea portafilter/no pressure", "Tea portafilter/Blue Willow: Tsuyuhikari Sensha", "Tea portafilter/Bug Bite Oolong", "Tea portafilter/Oolong 1st extraction", "Tea portafilter/Oolong 2nd extraction", "Tea portafilter/Yunnan green"],
       "analysisFlags": ["flow_trend_ok"],
       "family": "tea",
       "prose": "Brews loose-leaf tea using the portafilter basket or a dedicated tea portafilter. Water temperature and pressure are tuned per tea type — green teas use lower temperatures (~70–80°C) and near-zero pressure; black teas use higher temperatures (~90–95°C); oolongs fall in between. These are tea beverages, not espresso. DO NOT analyze tea profiles for espresso grind advice, extraction yield, or shot technique — tea brewing has completely different parameters and goals."

@@ -23,6 +23,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDir>
 #include <QRegularExpression>
 #include <QThread>
 #include <QCoreApplication>
@@ -2201,6 +2202,59 @@ private slots:
                      && idLRv2 != idLondinium,
                  "Damian's LRv2 must NOT collapse into the standalone "
                  "Londinium entry");
+    }
+
+    // -------------------------------------------------------------------
+    // restructure-kb-as-validated-json (task 5.2 / 6.6): KB-COVERAGE GATE.
+    // Every shipped built-in profile (resources/profiles/*.json) MUST
+    // resolve to a KB entry via the production resolver. A NEW built-in
+    // added without a matching KB entry FAILS here — forcing the KB to be
+    // extended (an explicit alias or entry). This is the permanent guard
+    // for "when a new built-in profile is added, a matching KB is added
+    // too". Tea converges to the `tea` entry (whose prose tells the AI
+    // "this is tea, do not run espresso analysis") so the advisor never
+    // mis-handles a tea shot. No allowlist: post alias-fixes every one of
+    // the ~94 built-ins resolves; if a genuinely uncoverable profile is
+    // ever shipped, add an explicit commented exception WITH rationale —
+    // never a silent gap.
+    // -------------------------------------------------------------------
+    void kbCoverage_everyBuiltInProfileResolves()
+    {
+        QDir dir(QStringLiteral(PROFILES_DIR));
+        QVERIFY2(dir.exists(),
+                 qPrintable(QStringLiteral("profiles dir not found: ") + dir.path()));
+        const QStringList files = dir.entryList({ QStringLiteral("*.json") },
+                                                QDir::Files);
+        QVERIFY2(files.size() >= 90,
+                 qPrintable(QStringLiteral("expected the full built-in corpus, "
+                     "found %1").arg(files.size())));
+
+        QStringList unresolved;
+        for (const QString& fn : files) {
+            QFile pf(dir.filePath(fn));
+            QVERIFY2(pf.open(QIODevice::ReadOnly),
+                     qPrintable(QStringLiteral("cannot open ") + fn));
+            const QJsonObject po =
+                QJsonDocument::fromJson(pf.readAll()).object();
+            pf.close();
+            const QString title = po.value(QStringLiteral("title")).toString();
+            if (title.isEmpty()) continue;  // not a titled brew profile
+
+            // editorType is derived from the title prefix (the app's rule).
+            QString editor;
+            if (title.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+                editor = QStringLiteral("dflow");
+            else if (title.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+                editor = QStringLiteral("aflow");
+
+            if (ShotSummarizer::computeProfileKbId(title, editor).isEmpty())
+                unresolved << title;
+        }
+        QVERIFY2(unresolved.isEmpty(),
+                 qPrintable(QStringLiteral("built-in profile(s) with NO matching "
+                     "KB entry — add a KB entry or an alsoMatches alias "
+                     "(restructure-kb-as-validated-json):\n  ")
+                     + unresolved.join(QStringLiteral("\n  "))));
     }
 };
 

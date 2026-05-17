@@ -881,6 +881,32 @@ add_dependencies(Decenza apply_version_code)
 target_sources(Decenza PRIVATE ${VERSION_CODE_CPP})
 set_source_files_properties(${VERSION_CODE_CPP} PROPERTIES GENERATED TRUE)
 
+# Build-time KB validator (change: restructure-kb-as-validated-json, D5/2.4).
+# HARD GATE: a schema / typo'd-key / out-of-range / provenance↔src /
+# alias-integrity violation in resources/ai/profile_knowledge.json fails the
+# build. Pass/fail check ONLY — no generated artifact enters the build graph,
+# and the target is standalone (not a custom command shared between targets),
+# deliberately avoiding the cross-platform-codegen failure class (2b6e0965).
+# validate_kb.py is stdlib-only Python 3; if no interpreter is discovered the
+# gate degrades to a loud warning (the test suite still enforces validity)
+# rather than bricking a platform build that lacks Python.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_custom_target(validate_kb ALL
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tools/validate_kb.py
+            ${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json
+        COMMENT "Validating profile_knowledge.json (schema + integrity)..."
+        VERBATIM
+    )
+    add_dependencies(Decenza validate_kb)
+else()
+    message(WARNING
+        "Python3 not found — the build-time KB validator gate is SKIPPED "
+        "(resources/ai/profile_knowledge.json is still validated by the test "
+        "suite). Install Python 3 to enable the build-time hard gate.")
+endif()
+
 # Force QML resource rebuild when source files change
 # NOTE: Disabled - defeats QML caching which slows page loads
 # Re-enable temporarily if QML changes aren't being picked up
@@ -1042,7 +1068,7 @@ if(NOT ANDROID AND NOT IOS)
     # match live-shot behavior exactly. Usage:
     #   curl https://visualizer.coffee/api/shots/<uuid>/download > shot.json
     #   ./shot_eval shot.json [more.json ...]
-    # The AI KB resource (:/ai/profile_knowledge.md) is embedded below via the
+    # The AI KB resource (:/ai/profile_knowledge.json) is embedded below via the
     # target-scoped qt_add_resources signature (NOT the classic variable form
     # over resources/ai.qrc). Both forms map the files to the same :/ai/...
     # paths loadProfileKnowledge reads, but the classic form would derive the
