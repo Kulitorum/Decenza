@@ -1739,6 +1739,57 @@ private slots:
         QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
     }
 
+    // Phase B: the A-Flow rail. Same pressure-axis 6–9 shape as the gold
+    // pair but `[SRC:aflow-repo]` / medium confidence (Janek's editor
+    // dial-in guidance "pressure peak 6–9 bar at extraction"). Pin the
+    // partition validated against the real community A-Flow / default-medium
+    // population (20 shots, 4 users — see tasks.md B2): a ~10 bar peak
+    // (grind too fine → pegs default-medium's 10-bar Flow-Extraction
+    // limiter, "10-bar A-Flow is normally terrible") MUST fire above-band;
+    // an on-target ~7 bar peak MUST stay silent. Guards against the
+    // withdrawn rating-led STOP regressing back in.
+    void expertBand_aflow_pegged10Fires_onTarget7Silent()
+    {
+        using EB = ShotAnalysis::ExpertBand;
+        const EB aflow{ EB::Axis::PressurePeak, 6.0, 9.0,
+                        QStringLiteral("[SRC:aflow-repo]"),
+                        QStringLiteral("medium") };
+
+        // ~10.2 bar peak = too fine / limiter-pegged = the bad regime → fire.
+        {
+            QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+            bandFixture(/*peakBar=*/10.2, phases, pr, fl, wt, dc, pg, fg);
+            const auto r = ShotAnalysis::analyzeShot(
+                pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+                -1.0, 36.0, 36.0, -1, aflow);
+            QVariantMap line;
+            QVERIFY2(findKind(r.lines, QStringLiteral("expert_band_deviation"), line),
+                     "A-Flow ~10.2 bar (limiter-pegged, too fine) must fire above the 6-9 band");
+            QCOMPARE(line["type"].toString(), QStringLiteral("observation"));
+            const QString t = line["text"].toString();
+            QVERIFY2(t.contains("[SRC:aflow-repo]"),
+                     qPrintable("A-Flow line cites the author guidance: " + t));
+            for (const QString& d : { QStringLiteral("grind"), QStringLiteral("finer"),
+                                      QStringLiteral("coarser") })
+                QVERIFY2(!t.contains(d, Qt::CaseInsensitive),
+                         qPrintable("A-Flow band line must not state a grind direction: " + t));
+            QCOMPARE(r.detectors.verdictCategory, QStringLiteral("expertBandDeviation"));
+        }
+
+        // ~7.0 bar peak = on Janek's target, off the limiter → silent.
+        {
+            QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+            bandFixture(/*peakBar=*/7.0, phases, pr, fl, wt, dc, pg, fg);
+            const auto r = ShotAnalysis::analyzeShot(
+                pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+                -1.0, 36.0, 36.0, -1, aflow);
+            QVariantMap line;
+            QVERIFY2(!findKind(r.lines, QStringLiteral("expert_band_deviation"), line),
+                     "A-Flow ~7 bar is on-target (6-9) — must stay silent");
+            QVERIFY(r.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
+        }
+    }
+
     // Grind coverage signal — verified clean: a healthy pressurized pour
     // with no choke / no overshoot / on-target flow must set
     // grindVerifiedClean=true, emit `grindCoverage="verified"`, and append
