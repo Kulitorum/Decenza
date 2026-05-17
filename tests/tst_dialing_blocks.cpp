@@ -1934,7 +1934,9 @@ private slots:
         QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
         QCOMPARE(*band->lo, 6.0);
         QCOMPARE(*band->hi, 9.0);
-        QCOMPARE(band->src, QStringLiteral("[SRC:aflow-repo]"));
+        // Reviewed-correction (restructure-kb-as-validated-json): src is now
+        // a followable real-doc URL, not the old "[SRC:token]" form.
+        QCOMPARE(band->src, QStringLiteral("https://github.com/Jan3kJ/A_Flow"));
         QCOMPARE(band->confidence, QStringLiteral("medium"));
 
         // All shipped A-Flow variants canonical-key to the one `## A-Flow`
@@ -1971,7 +1973,8 @@ private slots:
         QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
         QCOMPARE(*band->lo, 8.0);
         QCOMPARE(*band->hi, 9.0);
-        QCOMPARE(band->src, QStringLiteral("[SRC:decent-guide]"));
+        QCOMPARE(band->src,
+                 QStringLiteral("https://decentespresso.com/first_decent_espresso"));
         QCOMPARE(band->confidence, QStringLiteral("medium"));
 
         // Damian's LRv2/LRv3 are D-Flow-family variants, NOT the standalone
@@ -1980,7 +1983,8 @@ private slots:
                                     QStringLiteral("Damian's LRv3") }) {
             const auto v = ShotSummarizer::expertBandForKbId(
                 ShotSummarizer::computeProfileKbId(lr, QStringLiteral("dflow")));
-            QVERIFY2(!v.has_value() || v->src != QStringLiteral("[SRC:decent-guide]"),
+            QVERIFY2(!v.has_value() ||
+                     v->src != QStringLiteral("https://decentespresso.com/first_decent_espresso"),
                      qPrintable(lr + " must NOT resolve to the standalone "
                                      "Londinium band"));
         }
@@ -2001,12 +2005,14 @@ private slots:
         QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
         QCOMPARE(*band->lo, 6.0);
         QCOMPARE(*band->hi, 9.0);
-        QCOMPARE(band->src, QStringLiteral("[SRC:decent-guide]"));
+        QCOMPARE(band->src,
+                 QStringLiteral("https://decentespresso.com/first_decent_espresso"));
 
         const auto g = ShotSummarizer::expertBandForKbId(
             ShotSummarizer::computeProfileKbId(QStringLiteral("Gagné Adaptive"),
                                                QStringLiteral("advanced")));
-        QVERIFY2(!g.has_value() || g->src != QStringLiteral("[SRC:decent-guide]")
+        QVERIFY2(!g.has_value()
+                     || g->src != QStringLiteral("https://decentespresso.com/first_decent_espresso")
                      || *g->lo != 6.0,
                  "Gagné Adaptive must NOT pick up the Adaptive v2 band");
     }
@@ -2028,7 +2034,8 @@ private slots:
             QCOMPARE(*band->lo, 4.5);
             QVERIFY2(!band->hi.has_value(),
                      "one-sided floor must leave hi unset (no fabricated ceiling)");
-            QCOMPARE(band->src, QStringLiteral("[SRC:light-video]"));
+            QCOMPARE(band->src,
+                     QStringLiteral("https://decentespresso.com/blog/5_espresso_profiles_for_light_roasted_coffee_beans"));
         }
     }
 
@@ -2047,12 +2054,14 @@ private slots:
             double lo; bool hasHi; double hi; QString src; QString conf;
         };
         const QVector<Row> rows = {
-            { "D-Flow / Q",          "dflow",    Axis::PressurePeak,  6.0, true, 9.0, "[SRC:profile-notes]", "high"   },
-            { "D-Flow / La Pavoni",  "dflow",    Axis::PressurePeak,  6.0, true, 9.0, "[SRC:profile-notes]", "high"   },
-            { "A-Flow / default-medium", "aflow", Axis::PressurePeak, 6.0, true, 9.0, "[SRC:aflow-repo]",    "medium" },
-            { "Londinium",           "advanced", Axis::PressurePeak,  8.0, true, 9.0, "[SRC:decent-guide]",  "medium" },
-            { "Adaptive v2",         "advanced", Axis::PressurePeak,  6.0, true, 9.0, "[SRC:decent-guide]",  "medium" },
-            { "Rao Allongé",         "advanced", Axis::ExtractionFlow,4.5, false,0.0, "[SRC:light-video]",   "medium" },
+            // src is now a real-doc URL / intrinsic token (reviewed-correction,
+            // restructure-kb-as-validated-json — was the old "[SRC:token]").
+            { "D-Flow / Q",          "dflow",    Axis::PressurePeak,  6.0, true, 9.0, "profile-notes", "high"   },
+            { "D-Flow / La Pavoni",  "dflow",    Axis::PressurePeak,  6.0, true, 9.0, "profile-notes", "high"   },
+            { "A-Flow / default-medium", "aflow", Axis::PressurePeak, 6.0, true, 9.0, "https://github.com/Jan3kJ/A_Flow", "medium" },
+            { "Londinium",           "advanced", Axis::PressurePeak,  8.0, true, 9.0, "https://decentespresso.com/first_decent_espresso", "medium" },
+            { "Adaptive v2",         "advanced", Axis::PressurePeak,  6.0, true, 9.0, "https://decentespresso.com/first_decent_espresso", "medium" },
+            { "Rao Allongé",         "advanced", Axis::ExtractionFlow,4.5, false,0.0, "https://decentespresso.com/blog/5_espresso_profiles_for_light_roasted_coffee_beans", "medium" },
         };
         for (const Row& r : rows) {
             const auto b = ShotSummarizer::expertBandForKbId(
@@ -2075,25 +2084,45 @@ private slots:
     // four KNOWN stale fictitious A-Flow names, and every real shipped
     // built-in title present (the asserted title set is the authoritative
     // list from resources/profiles/*.json — a brand-new fictitious name
-    // would still pass; that gap is accepted for a doc guard); (b) no
-    // reintroduction of the exact profile-implying "base D-Flow / variant /
-    // family" framings this change removed (paraphrases are not caught —
-    // the guard prevents *this* drift back, it does not prove the prose
-    // teaches the right model); (c) the #1160 load-bearing section headers
-    // + D-Flow Also-matches alias line byte-stable, with exact heading /
-    // alias-line counts (drift-check from decision D1 — these counts gate
-    // profile_kb_id resolution; if a legitimate KB section is added, update
-    // the expected count here AND re-verify #1160 resolution).
+    // would still pass; that gap is accepted for a doc guard) — now checked
+    // by RESOLUTION (each real title → a non-empty canonical id) rather than
+    // md-text presence; (b) no reintroduction of the exact profile-implying
+    // "base D-Flow / variant / family" framings this change removed
+    // (paraphrases are not caught — the guard prevents *this* drift back, it
+    // does not prove the prose teaches the right model); (c) the #1160/#1175
+    // split mechanics as RESOLUTION invariants (D-Flow/Q ≡ Damian's Q same
+    // id; D-Flow/La Pavoni ≠ default; Damian LRv2 ≠ standalone Londinium) +
+    // a "id": entry-count pin — replacing the obsolete md heading/alias-line
+    // byte-count drift-check (the structured format + build-time validator
+    // now enforce alias→exactly-one-id integrity).
     // -------------------------------------------------------------------
     void shippedKb_editorModelAndRealProfileNames_guard()
     {
-        QFile f(QStringLiteral(":/ai/profile_knowledge.md"));
-        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text),
-                 "shipped KB resource :/ai/profile_knowledge.md not found "
+        QFile f(QStringLiteral(":/ai/profile_knowledge.json"));
+        QVERIFY2(f.open(QIODevice::ReadOnly),
+                 "shipped KB resource :/ai/profile_knowledge.json not found "
                  "(ai.qrc must be linked)");
         const QString kb = QString::fromUtf8(f.readAll());
         f.close();
         QVERIFY(!kb.isEmpty());
+        // Structural-stability pin (restructure-kb-as-validated-json): one
+        // "id": key per entry. Replaces the old '## ' heading count of 43 —
+        // same invariant, now JSON entries. If a KB entry is intentionally
+        // added/removed, update this count AND re-verify #1160 resolution.
+        QCOMPARE(kb.count(QStringLiteral("\"id\":")), 43);
+
+        // LLM-facing scope: the (a)/(c) framing checks target what the model
+        // ingests — `prose` + identity. `rationale` (and `src`) are
+        // human/validator audit metadata: never read by the loader, never
+        // assembled into the prompt. The verbatim kBands audit text legally
+        // contains loose phrasing ("other shipped A-Flow variants' limiters
+        // …"); excluding `"rationale":` lines scopes the guard to its true
+        // intent without weakening it (prose/displayName/alsoMatches stay).
+        QStringList llmLines;
+        for (const QString& ln : kb.split(QLatin1Char('\n')))
+            if (!ln.contains(QStringLiteral("\"rationale\":")))
+                llmLines << ln;
+        const QString llmText = llmLines.join(QLatin1Char('\n'));
 
         // (a) Stale, fictitious A-Flow names must be gone. None of these is
         // a substring of a real built-in title (e.g. "A-Flow / dark" is NOT
@@ -2104,25 +2133,29 @@ private slots:
                  QStringLiteral("A-Flow / dark"),
                  QStringLiteral("A-Flow / very dark"),
                  QStringLiteral("A-Flow / like D-Flow") }) {
-            QVERIFY2(!kb.contains(stale),
+            QVERIFY2(!llmText.contains(stale),
                      qPrintable(QStringLiteral("shipped KB still references "
                          "stale non-existent A-Flow profile name: ") + stale));
         }
 
-        // (b) Every real shipped built-in D-Flow/A-Flow title must be
-        // present (the authoritative set from resources/profiles/*.json).
-        for (const QString& real : {
-                 QStringLiteral("D-Flow / default"),
-                 QStringLiteral("D-Flow / La Pavoni"),
-                 QStringLiteral("D-Flow / Q"),
-                 QStringLiteral("A-Flow / default-light"),
-                 QStringLiteral("A-Flow / default-medium"),
-                 QStringLiteral("A-Flow / default-dark"),
-                 QStringLiteral("A-Flow / default-very-dark"),
-                 QStringLiteral("A-Flow / default-like-dflow") }) {
-            QVERIFY2(kb.contains(real),
-                     qPrintable(QStringLiteral("shipped KB is missing real "
-                         "built-in profile title: ") + real));
+        // (b) Every real shipped built-in D-Flow/A-Flow title must RESOLVE
+        // (stronger than the old md-text presence check): each maps to a
+        // non-empty canonical id via the production resolver — D-Flow/* by
+        // explicit alias, A-Flow/* via the editor-type default fallback.
+        const QVector<QPair<QString, QString>> reals = {
+            { QStringLiteral("D-Flow / default"),          QStringLiteral("dflow") },
+            { QStringLiteral("D-Flow / La Pavoni"),         QStringLiteral("dflow") },
+            { QStringLiteral("D-Flow / Q"),                 QStringLiteral("dflow") },
+            { QStringLiteral("A-Flow / default-light"),     QStringLiteral("aflow") },
+            { QStringLiteral("A-Flow / default-medium"),    QStringLiteral("aflow") },
+            { QStringLiteral("A-Flow / default-dark"),      QStringLiteral("aflow") },
+            { QStringLiteral("A-Flow / default-very-dark"), QStringLiteral("aflow") },
+            { QStringLiteral("A-Flow / default-like-dflow"),QStringLiteral("aflow") },
+        };
+        for (const auto& rp : reals) {
+            QVERIFY2(!ShotSummarizer::computeProfileKbId(rp.first, rp.second).isEmpty(),
+                     qPrintable(QStringLiteral("real built-in profile no longer "
+                         "resolves to a KB id: ") + rp.first));
         }
 
         // (c) Profile-implying wrong-model phrasing must not return. These
@@ -2135,55 +2168,39 @@ private slots:
                  QStringLiteral("D-Flow variant"),
                  QStringLiteral("A-Flow variant"),
                  QStringLiteral("standard D-Flow variant") }) {
-            QVERIFY2(!kb.contains(bad, Qt::CaseInsensitive),
+            QVERIFY2(!llmText.contains(bad, Qt::CaseInsensitive),
                      qPrintable(QStringLiteral("shipped KB reintroduced "
                          "profile-implying D-Flow/A-Flow framing: ") + bad));
         }
 
-        // (d) Drift-check (decision D1): the #1160 split mechanics depend on
-        // these exact headers + the D-Flow Also-matches alias line. Counts
-        // and the load-bearing lines must be byte-stable.
-        const QStringList lines = kb.split(QLatin1Char('\n'));
-        int headingCount = 0;
-        int alsoMatchesCount = 0;
-        for (const QString& ln : lines) {
-            if (ln.startsWith(QStringLiteral("## "))) ++headingCount;
-            if (ln.startsWith(QStringLiteral("Also matches:"))) ++alsoMatchesCount;
-        }
-        QVERIFY2(headingCount == 43,
-                 qPrintable(QStringLiteral("KB '## ' heading count is %1, "
-                     "expected 43 — these counts are load-bearing for #1160 "
-                     "profile_kb_id resolution. If a KB section was "
-                     "added/removed intentionally, update this expected "
-                     "count AND re-verify #1160 grind-equivalence.")
-                     .arg(headingCount)));
-        QVERIFY2(alsoMatchesCount == 28,
-                 qPrintable(QStringLiteral("KB 'Also matches:' line count is "
-                     "%1, expected 28 — alias lines drive profile_kb_id "
-                     "resolution (decision D1). If changed intentionally, "
-                     "update this count AND re-verify #1160 resolution.")
-                     .arg(alsoMatchesCount)));
-        for (const QString& header : {
-                 QStringLiteral("\n## D-Flow\n"),
-                 QStringLiteral("\n## D-Flow Q variant\n"),
-                 QStringLiteral("\n## D-Flow La Pavoni variant\n"),
-                 QStringLiteral("\n## Damian's LRv2 / LRv3\n"),
-                 QStringLiteral("\n## A-Flow\n") }) {
-            QVERIFY2(kb.contains(header),
-                     qPrintable(QStringLiteral("load-bearing KB header "
-                         "changed/missing: ") + header.trimmed()));
-        }
-        QVERIFY2(kb.contains(QStringLiteral(
-                     "Also matches: \"D-Flow / default\", "
-                     "\"Damian's D-Flow\", \"Damian's LM Leva\"")),
-                 "D-Flow Also-matches alias line changed (breaks #1160 "
-                 "profile_kb_id resolution)");
-        // split-dflow-la-pavoni-kb-section: La Pavoni resolves via its own
-        // section's alias line, not the base ## D-Flow section.
-        QVERIFY2(kb.contains(QStringLiteral(
-                     "Also matches: \"D-Flow / La Pavoni\"")),
-                 "D-Flow La Pavoni variant Also-matches alias line "
-                 "changed/missing (breaks La Pavoni profile_kb_id resolution)");
+        // (d) #1160 / #1175 split mechanics — now expressed as RESOLUTION
+        // invariants on the structured KB (stronger and more direct than
+        // the old md heading/alias-line byte-count drift-check, which the
+        // JSON format obsoletes; the validator additionally enforces unique
+        // id + alias→exactly-one-id integrity at build time).
+        const QString idQ        = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("D-Flow / Q"), QStringLiteral("dflow"));
+        const QString idDamianQ  = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("Damian's Q"), QStringLiteral("advanced"));
+        const QString idDefault  = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("D-Flow / default"), QStringLiteral("dflow"));
+        const QString idLaPavoni = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("D-Flow / La Pavoni"), QStringLiteral("dflow"));
+        const QString idLondinium = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("Londinium"), QStringLiteral("advanced"));
+        const QString idLRv2 = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("Damian's LRv2"), QStringLiteral("dflow"));
+
+        QVERIFY2(!idQ.isEmpty() && idQ == idDamianQ,
+                 "#1160 twin: D-Flow / Q and Damian's Q must collapse to the "
+                 "same canonical id");
+        QVERIFY2(!idLaPavoni.isEmpty() && idLaPavoni != idDefault,
+                 "#1175 split: D-Flow / La Pavoni must resolve to its OWN id, "
+                 "distinct from D-Flow / default");
+        QVERIFY2(!idLondinium.isEmpty() && !idLRv2.isEmpty()
+                     && idLRv2 != idLondinium,
+                 "Damian's LRv2 must NOT collapse into the standalone "
+                 "Londinium entry");
     }
 };
 

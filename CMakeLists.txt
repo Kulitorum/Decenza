@@ -1085,7 +1085,7 @@ if(NOT ANDROID AND NOT IOS)
         PREFIX "/"
         BASE "${CMAKE_SOURCE_DIR}/resources"
         FILES
-            "${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.md"
+            "${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json"
             "${CMAKE_SOURCE_DIR}/resources/ai/espresso_dial_in_reference.md"
             "${CMAKE_SOURCE_DIR}/resources/ai/claude_agent.md"
     )

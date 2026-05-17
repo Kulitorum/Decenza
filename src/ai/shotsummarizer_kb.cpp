@@ -1,38 +1,42 @@
-// Profile-knowledge resolution cluster — extracted verbatim from
-// shotsummarizer.cpp (change: flag-off-expert-band-in-shot-summary).
+// Profile-knowledge resolution cluster (change: restructure-kb-as-validated-json).
 //
 // WHY A SEPARATE TU: these `ShotSummarizer::` statics (loadProfileKnowledge,
 // matchProfileKey, computeProfileKbId, getAnalysisFlags, ugs*, canonical
 // NameForKbId, expertBandForKbId, allKbUgsEntries, buildProfileCatalog,
 // crossProfileReferenceContent, …) form a cohesive KB-data layer that
-// depends only on the `:/ai/*.md` resources + QString — NOT on the
-// prompt/summary/dialing machinery the rest of shotsummarizer.cpp pulls
-// (shotdatamodel, visualizeruploader [Qt Network], dialing_blocks). Keeping
-// them in the monolith forced any offline consumer (the `shot_eval` tool,
-// `tst_shotrecord_cache`) to drag the whole app in. Split out so those
-// consumers link a lean closure ({this TU} + ai.qrc) and the tool can route
-// through the SAME prepareAnalysisInputs → analyzeShot → deriveBadges path
-// as the app (parity by construction). Declarations stay in
-// shotsummarizer.h as `ShotSummarizer::` statics — zero API/caller change;
-// the class-static definitions (s_profileKnowledge et al.) live here, one
-// definition, referenced by both TUs.
+// depends only on the `:/ai/*` resources + QString — NOT on the
+// prompt/summary/dialing machinery the rest of shotsummarizer.cpp pulls.
+// Keeping them separate lets offline consumers (the `shot_eval` tool,
+// tst_shotrecord_cache) link a lean closure ({this TU} + ai.qrc).
+//
+// DATA SOURCE: resources/ai/profile_knowledge.json — a validated structured
+// document (schema: resources/ai/profile_knowledge.schema.json; build-time
+// gate: tools/validate_kb.py). Replaces the former line.startsWith() markdown
+// scraper + the hardcoded C++ kBands table. Identity is a stable kebab `id`;
+// resolution is exact-match-or-explicitly-unresolved over an alias→id map
+// (the order-dependent greedy startsWith/contains fallback is DELETED).
 #include "shotsummarizer.h"
 #include "shotanalysis.h"  // ShotAnalysis::ExpertBand (expertBandForKbId return)
 
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <QFile>
 #include <QTextStream>
 #include <QStringList>
 #include <QSet>
 #include <QMap>
-#include <QRegularExpression>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonValue>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QDebug>
 
 // Static members for profile knowledge cache
 QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
+QMap<QString, QString> ShotSummarizer::s_aliasToId;
 bool ShotSummarizer::s_knowledgeLoaded = false;
 
 // Static cache for profile catalog (compact one-liner per KB profile)
@@ -42,22 +46,58 @@ QString ShotSummarizer::s_profileCatalog;
 QString ShotSummarizer::s_dialInReference;
 bool ShotSummarizer::s_dialInReferenceLoaded = false;
 
-// Static cache for cross-profile reference content (Skip-Catalog sections)
+// Static cache for cross-profile reference content (skipCatalog sections)
 QString ShotSummarizer::s_crossProfileReference;
 bool ShotSummarizer::s_crossProfileReferenceLoaded = false;
 
-// Normalize a profile key: lowercase, strip diacritics, normalize punctuation
+// Normalize a profile key: lowercase, strip diacritics, normalize punctuation.
+// This is logic (retained from the markdown era) — the resolver still
+// normalizes before the exact alias→id lookup so "D-Flow / Q - Jeff"
+// case/accents are handled, but there is NO fuzzy fallback after a miss.
 static QString normalizeProfileKey(const QString& key)
 {
     QString normalized = key.toLower().trimmed();
-    // Normalize common diacritics (é→e, è→e, ê→e, ë→e, etc.)
     normalized.replace(QChar(0x00E9), 'e');  // é
     normalized.replace(QChar(0x00E8), 'e');  // è
     normalized.replace(QChar(0x00EA), 'e');  // ê
     normalized.replace(QChar(0x00EB), 'e');  // ë
-    // Normalize & ↔ and
     normalized.replace(QStringLiteral(" & "), QStringLiteral(" and "));
     return normalized;
+}
+
+// Build a ShotAnalysis::ExpertBand from a JSON expertBand object, or
+// std::nullopt when absent/ill-formed. The validator (tools/validate_kb.py)
+// guarantees shape at build time; this stays defensive (a malformed runtime
+// resource degrades to "no band" — strict no-op, D6 — never a crash).
+static std::optional<ShotAnalysis::ExpertBand>
+expertBandFromJson(const QJsonObject& eb)
+{
+    using EB = ShotAnalysis::ExpertBand;
+    if (eb.isEmpty()) return std::nullopt;
+
+    const QString axis = eb.value(QStringLiteral("axis")).toString();
+    const QString conf = eb.value(QStringLiteral("confidence")).toString();
+    QString src = eb.value(QStringLiteral("src")).toString();
+    // provenance=inferred carries no src; the factories require a non-empty
+    // provenance string. Keep it honest rather than fabricated.
+    if (src.isEmpty())
+        src = eb.value(QStringLiteral("provenance")).toString(QStringLiteral("inferred"));
+
+    const bool hasLo = eb.contains(QStringLiteral("lo"));
+    const bool hasHi = eb.contains(QStringLiteral("hi"));
+    const double lo = eb.value(QStringLiteral("lo")).toDouble();
+    const double hi = eb.value(QStringLiteral("hi")).toDouble();
+
+    if (axis == QStringLiteral("pressurePeak")) {
+        if (hasLo && hasHi) return EB::pressureBand(lo, hi, src, conf);
+        return std::nullopt;  // no one-sided pressure rail in the corpus
+    }
+    if (axis == QStringLiteral("extractionFlow")) {
+        if (hasLo && hasHi) return EB::flowBand(lo, hi, src, conf);
+        if (hasLo)          return EB::flowFloor(lo, src, conf);
+        return std::nullopt;  // flow ceiling-only: none in the corpus
+    }
+    return std::nullopt;
 }
 
 void ShotSummarizer::loadProfileKnowledge()
@@ -67,167 +107,102 @@ void ShotSummarizer::loadProfileKnowledge()
     QMutexLocker locker(&mutex);
     if (s_knowledgeLoaded) return;  // re-check after acquiring lock
 
-    QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    QFile file(QStringLiteral(":/ai/profile_knowledge.json"));
+    if (!file.open(QIODevice::ReadOnly)) {
         qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
-        // Latch the loaded flag even on failure so subsequent calls
-        // don't re-warn — the resource won't reappear inside one
-        // process's lifetime, and a per-call retry in test binaries
-        // (which don't link the qrc) creates noise without value.
+        // Latch even on failure: the resource won't reappear within a
+        // process lifetime; a per-call retry in test binaries (which may
+        // not link the qrc) is noise. Empty KB → every consumer no-ops.
         s_knowledgeLoaded = true;
         return;
     }
-
-    QString content = QTextStream(&file).readAll();
+    const QByteArray raw = file.readAll();
     file.close();
 
-    // Parse markdown sections: each "## Title" starts a new profile
-    // Build a map from lowercase key → ProfileKnowledge
-    const QStringList lines = content.split('\n');
-    QString currentTitle;
-    QString currentContent;
-
-    auto commitSection = [&]() {
-        if (currentTitle.isEmpty() || currentContent.isEmpty()) return;
-
-        ProfileKnowledge pk;
-        pk.name = currentTitle;
-
-        // Strip parser-directive lines that are not useful to the AI
-        {
-            QStringList filtered;
-            for (const QString& l : currentContent.split('\n')) {
-                if (!l.startsWith(QStringLiteral("Skip-Catalog:")) &&
-                    !l.startsWith(QStringLiteral("Purpose:")))
-                    filtered << l;
-            }
-            pk.content = filtered.join('\n').trimmed();
-        }
-
-        // Extract the main name and any aliases from "Also matches:" line
-        QStringList keys;
-
-        // Primary title may have " / " separators (e.g. "D-Flow / Damian's D-Flow / D-Flow/Q")
-        const QStringList titleParts = currentTitle.split(QStringLiteral(" / "));
-        for (const QString& part : titleParts) {
-            keys << part.trimmed().toLower();
-        }
-
-        // Check for "Also matches:" and "AnalysisFlags:" lines in content
-        for (const QString& line : currentContent.split('\n')) {
-            if (line.startsWith(QStringLiteral("Also matches:"))) {
-                QString aliases = line.mid(14).trimmed();
-                // Remove surrounding quotes and split by comma
-                const QStringList aliasParts = aliases.split(',');
-                for (const QString& alias : aliasParts) {
-                    QString clean = alias.trimmed();
-                    clean.remove('"');
-                    if (!clean.isEmpty()) {
-                        keys << clean.toLower();
-                    }
-                }
-            } else if (line.startsWith(QStringLiteral("AnalysisFlags:"))) {
-                const QString flagStr = line.mid(14).trimmed();
-                for (const QString& f : flagStr.split(',')) {
-                    const QString flag = f.trimmed();
-                    if (!flag.isEmpty()) pk.analysisFlags << flag;
-                }
-            } else if (line.startsWith(QStringLiteral("Skip-Catalog:"))) {
-                pk.skipCatalog = (line.mid(13).trimmed().toLower() == QStringLiteral("true"));
-            } else if (line.startsWith(QStringLiteral("UGS:"))) {
-                QString val = line.mid(4).trimmed();
-                bool inferredMarker = false;
-                if (val.startsWith('~')) {
-                    inferredMarker = true;
-                    val = val.mid(1);
-                }
-                // Strip parenthetical annotation and everything after it
-                const int parenIdx = val.indexOf('(');
-                if (parenIdx >= 0)
-                    val = val.left(parenIdx);
-                val = val.trimmed();
-                bool ok = false;
-                const double parsed = val.toDouble(&ok);
-                if (ok) {
-                    pk.ugs = parsed;
-                    pk.ugsInferred = inferredMarker;
-                } else if (!val.isEmpty()) {
-                    qWarning() << "ShotSummarizer: UGS parse failed for profile"
-                               << pk.name << "— value:" << val;
-                }
-                // On failure: leave ugs=NaN, ugsInferred=false — identical to missing line.
-            }
-        }
-
-        // Register all keys (normalized for accent/punctuation matching)
-        for (const QString& key : keys) {
-            s_profileKnowledge.insert(normalizeProfileKey(key), pk);
-        }
-    };
-
-    for (const QString& line : lines) {
-        if (line.startsWith(QStringLiteral("## ")) && !line.startsWith(QStringLiteral("### "))) {
-            // Commit previous section
-            commitSection();
-            currentTitle = line.mid(3).trimmed();
-            currentContent.clear();
-        } else if (!currentTitle.isEmpty()) {
-            currentContent += line + '\n';
-        }
+    QJsonParseError perr {};
+    const QJsonDocument doc = QJsonDocument::fromJson(raw, &perr);
+    if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "ShotSummarizer: profile_knowledge.json parse error:"
+                   << perr.errorString();
+        s_knowledgeLoaded = true;
+        return;
     }
-    // Commit last section
-    commitSection();
+    const QJsonArray profiles = doc.object().value(QStringLiteral("profiles")).toArray();
+
+    for (const QJsonValue& pv : profiles) {
+        const QJsonObject po = pv.toObject();
+        ProfileKnowledge pk;
+        pk.id          = po.value(QStringLiteral("id")).toString();
+        pk.name        = po.value(QStringLiteral("displayName")).toString();
+        pk.content     = po.value(QStringLiteral("prose")).toString();
+        pk.skipCatalog = po.value(QStringLiteral("skipCatalog")).toBool(false);
+        pk.family      = po.value(QStringLiteral("family")).toString();
+
+        for (const QJsonValue& f : po.value(QStringLiteral("analysisFlags")).toArray()) {
+            const QString flag = f.toString().trimmed();
+            if (!flag.isEmpty()) pk.analysisFlags << flag;
+        }
+
+        const QJsonValue ugsv = po.value(QStringLiteral("ugs"));
+        if (ugsv.isObject()) {
+            const QJsonObject u = ugsv.toObject();
+            pk.ugs = u.value(QStringLiteral("value")).toDouble(
+                         std::numeric_limits<double>::quiet_NaN());
+            pk.ugsInferred = u.value(QStringLiteral("inferred")).toBool(false);
+        }
+
+        pk.expertBand = expertBandFromJson(
+            po.value(QStringLiteral("expertBand")).toObject());
+
+        if (pk.id.isEmpty()) {
+            qWarning() << "ShotSummarizer: KB entry with empty id — skipped";
+            continue;
+        }
+        s_profileKnowledge.insert(pk.id, pk);
+
+        // Alias map: displayName + every alsoMatches entry → id. Exact
+        // (normalized) keys only; a miss is unresolved, never a guess.
+        s_aliasToId.insert(normalizeProfileKey(pk.name), pk.id);
+        for (const QJsonValue& a : po.value(QStringLiteral("alsoMatches")).toArray()) {
+            const QString alias = a.toString().trimmed();
+            if (!alias.isEmpty())
+                s_aliasToId.insert(normalizeProfileKey(alias), pk.id);
+        }
+        // Editor-type default: the entry the resolver falls back to for a
+        // fully-custom-titled D-Flow/A-Flow profile (was the hardcoded
+        // editorTypeToKey map; now KB data). Registered under a synthetic
+        // key matched by matchProfileKey's editor-type fallback.
+        const QString edt = po.value(QStringLiteral("defaultForEditorType")).toString();
+        if (edt == QStringLiteral("dflow") || edt == QStringLiteral("aflow"))
+            s_aliasToId.insert(
+                normalizeProfileKey(QStringLiteral("__editor_default__:") + edt),
+                pk.id);
+    }
 
     qDebug() << "ShotSummarizer: Loaded" << s_profileKnowledge.size()
-             << "profile knowledge entries";
+             << "profile knowledge entries (" << s_aliasToId.size()
+             << "alias keys )";
 
     buildProfileCatalog();
-
-    // Mark loaded only after parse + catalog build complete. The
-    // double-checked-locking pattern at the top of this function depends
-    // on the flag indicating "data ready to read", not "we got far enough
-    // to open the file". Setting it earlier let a second thread that won
-    // the outer race read an empty s_profileKnowledge.
     s_knowledgeLoaded = true;
 }
 
 void ShotSummarizer::buildProfileCatalog()
 {
-    // Build compact one-liner per unique KB profile for cross-profile awareness.
-    // Extracts Category and Roast lines from each profile's content.
-    QSet<QString> seen;
+    // One compact line per KB profile for cross-profile awareness:
+    //   "<displayName> [family: <family>]"
+    // (Replaces the former Category:/Roast: prose-scrape — those are no
+    // longer fields; `family` is the load-bearing cluster tag the advisor
+    // builds switching-recommendation logic on.)
     QStringList lines;
-
     for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
         const ProfileKnowledge& pk = it.value();
         if (pk.skipCatalog) continue;  // cross-cutting reference, not a profile
-        if (seen.contains(pk.name)) continue;
-        seen.insert(pk.name);
-
-        QString category;
-        QString family;
-        QString roast;
-        for (const QString& line : pk.content.split('\n')) {
-            if (line.startsWith(QStringLiteral("Category:")) && category.isEmpty()) {
-                category = line.mid(9).trimmed();
-            } else if (line.startsWith(QStringLiteral("Family:")) && family.isEmpty()) {
-                family = line.mid(7).trimmed();
-            } else if (line.startsWith(QStringLiteral("Roast:")) && roast.isEmpty()) {
-                roast = line.mid(6).trimmed();
-            }
-        }
-
-        QString entry = pk.name + QStringLiteral(" — ") + category;
-        if (!family.isEmpty()) {
-            entry += QStringLiteral(" [family: ") + family + QStringLiteral("]");
-        }
-        if (!roast.isEmpty()) {
-            entry += QStringLiteral(". ") + roast;
-        }
+        QString entry = pk.name;
+        if (!pk.family.isEmpty())
+            entry += QStringLiteral(" [family: ") + pk.family + QStringLiteral("]");
         lines << entry;
     }
-
-    // Sort alphabetically for consistent ordering
     lines.sort(Qt::CaseInsensitive);
     s_profileCatalog = lines.join('\n');
 
@@ -240,13 +215,10 @@ QString ShotSummarizer::crossProfileReferenceContent()
 
     loadProfileKnowledge();
 
-    QSet<QString> seen;
     QStringList sections;
     for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
         const ProfileKnowledge& pk = it.value();
         if (!pk.skipCatalog) continue;
-        if (seen.contains(pk.name)) continue;
-        seen.insert(pk.name);
         sections << QStringLiteral("## ") + pk.name + QStringLiteral("\n\n") + pk.content;
     }
     s_crossProfileReference = sections.join(QStringLiteral("\n\n"));
@@ -269,117 +241,91 @@ void ShotSummarizer::loadDialInReference()
     QString content = QTextStream(&file).readAll();
     file.close();
 
-    // Strip the preamble (title, source attribution, description) — already introduced
-    // by the section header in shotAnalysisSystemPrompt(). Seek to the first HR separator.
     qsizetype pos = content.indexOf(QStringLiteral("\n---\n"));
     if (pos > 0)
-        content = content.mid(pos + 5).trimmed();  // skip past "\n---\n"
+        content = content.mid(pos + 5).trimmed();
 
     s_dialInReference = content;
     qDebug() << "ShotSummarizer: Loaded dial-in reference tables ("
              << s_dialInReference.size() << "chars)";
 }
 
-// Shared matching logic: returns the matched key in s_profileKnowledge, or empty string.
-// profileTitle: the profile's display name (e.g. "D-Flow / my recipe")
-// editorTypeHint: either the raw editorType string ("dflow", "aflow") or the
-//   profileType description string ("D-Flow (lever-style...)") — both are handled.
-QString ShotSummarizer::matchProfileKey(const QMap<QString, ShotSummarizer::ProfileKnowledge>& knowledge,
+// Resolve any caller-supplied kbId to a canonical `id`. Accepts BOTH a
+// current `id` AND a legacy normalized title/alias (shot records persist
+// the old normalized-title kbId; D14a). Exact-match-or-unresolved: an
+// unknown value returns "" (→ every consumer no-ops; never a fuzzy guess).
+// Member (not a free function) — touches the private s_* statics.
+QString ShotSummarizer::resolveKbInput(const QString& kbId)
+{
+    if (kbId.isEmpty()) return QString();
+    if (s_profileKnowledge.contains(kbId)) return kbId;          // already an id
+    return s_aliasToId.value(normalizeProfileKey(kbId));         // legacy title → id, or ""
+}
+
+// Shared matching logic: returns the resolved `id`, or empty string.
+// profileTitle: the profile's display name (e.g. "D-Flow / my recipe").
+// editorTypeHint: raw editorType ("dflow"/"aflow") or the profileType
+//   description string ("D-Flow (lever-style...)") — both handled.
+QString ShotSummarizer::matchProfileKey(const QMap<QString, ShotSummarizer::ProfileKnowledge>& /*knowledge*/,
                                         const QString& profileTitle, const QString& editorTypeHint)
 {
-    if (knowledge.isEmpty()) return QString();
-
-    // Try title-based matching first
+    // Title path: normalize → EXACT alias→id lookup. No prefix/contains
+    // scan (that order-dependent fallback silently mis-resolved real
+    // profiles — deleted, never reintroduced).
     if (!profileTitle.isEmpty()) {
-        QString key = normalizeProfileKey(profileTitle);
-
-        // Direct match
-        if (knowledge.contains(key)) {
-            return key;
-        }
-
-        // Try without version suffixes (e.g., "Adaptive v2.1" → "adaptive v2")
-        // Try progressively shorter prefixes
-        for (const auto& knownKey : knowledge.keys()) {
-            if (key.startsWith(knownKey) || knownKey.startsWith(key)) {
-                return knownKey;
-            }
-        }
-
-        // Fuzzy: check if any known key is contained within the profile title
-        for (const auto& knownKey : knowledge.keys()) {
-            if (knownKey.length() >= 4 && key.contains(knownKey)) {
-                return knownKey;
-            }
-        }
+        const QString id = s_aliasToId.value(normalizeProfileKey(profileTitle));
+        if (!id.isEmpty()) return id;
     }
 
-    // Fallback: match by editor type
-    // This handles user-created profiles from the D-Flow/A-Flow editors
-    // that may have completely custom titles
+    // Fallback: editor-type default (user-created D-Flow/A-Flow profiles
+    // with fully custom titles). Resolves to the entry whose
+    // defaultForEditorType matches — kept as data, not a hardcoded map.
     if (!editorTypeHint.isEmpty()) {
-        // Map raw editorType strings and description prefixes to knowledge base keys
-        static const QMap<QString, QString> editorTypeToKey = {
-            { QStringLiteral("dflow"),  QStringLiteral("d-flow / default") },
-            { QStringLiteral("aflow"),  QStringLiteral("a-flow") },
-            { QStringLiteral("D-Flow"), QStringLiteral("d-flow / default") },
-            { QStringLiteral("A-Flow"), QStringLiteral("a-flow") },
-        };
-
-        // Try exact match first (raw editorType like "dflow")
-        if (editorTypeToKey.contains(editorTypeHint)) {
-            const QString& mapped = editorTypeToKey.value(editorTypeHint);
-            if (knowledge.contains(mapped)) return mapped;
-        }
-
-        // Try prefix match (description string like "D-Flow (lever-style...)")
-        for (auto it = editorTypeToKey.constBegin(); it != editorTypeToKey.constEnd(); ++it) {
-            if (editorTypeHint.startsWith(it.key())) {
-                if (knowledge.contains(it.value())) {
-                    return it.value();
-                }
-            }
+        QString et;
+        if (editorTypeHint.startsWith(QStringLiteral("dflow"), Qt::CaseInsensitive) ||
+            editorTypeHint.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+            et = QStringLiteral("dflow");
+        else if (editorTypeHint.startsWith(QStringLiteral("aflow"), Qt::CaseInsensitive) ||
+                 editorTypeHint.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+            et = QStringLiteral("aflow");
+        if (!et.isEmpty()) {
+            const QString synthetic = normalizeProfileKey(
+                QStringLiteral("__editor_default__:") + et);
+            const QString id = s_aliasToId.value(synthetic);
+            if (!id.isEmpty()) return id;
         }
     }
-
     return QString();
 }
 
 QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QString& profileType)
 {
     if (profileTitle.isEmpty() && profileType.isEmpty()) return QString();
-
     loadProfileKnowledge();
-
-    QString key = matchProfileKey(s_profileKnowledge, profileTitle, profileType);
-    if (!key.isEmpty()) {
-        return s_profileKnowledge.value(key).content;
-    }
-    return QString();
+    const QString id = matchProfileKey(s_profileKnowledge, profileTitle, profileType);
+    return id.isEmpty() ? QString() : s_profileKnowledge.value(id).content;
 }
 
 QString ShotSummarizer::profileKnowledgeForKbId(const QString& profileKbId)
 {
     if (profileKbId.isEmpty()) return QString();
     loadProfileKnowledge();
-    if (s_profileKnowledge.contains(profileKbId))
-        return s_profileKnowledge.value(profileKbId).content;
-    return QString();
+    const QString id = resolveKbInput(profileKbId);
+    return id.isEmpty() ? QString() : s_profileKnowledge.value(id).content;
 }
 
 QStringList ShotSummarizer::getAnalysisFlags(const QString& kbId)
 {
     if (kbId.isEmpty()) return {};
     loadProfileKnowledge();
-    return s_profileKnowledge.value(kbId).analysisFlags;
+    const QString id = resolveKbInput(kbId);
+    return id.isEmpty() ? QStringList() : s_profileKnowledge.value(id).analysisFlags;
 }
 
 QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QString& editorType)
 {
     if (profileTitle.isEmpty() && editorType.isEmpty()) return QString();
-
     loadProfileKnowledge();
-
     return matchProfileKey(s_profileKnowledge, profileTitle, editorType);
 }
 
@@ -387,173 +333,58 @@ double ShotSummarizer::ugsForKbId(const QString& kbId)
 {
     if (kbId.isEmpty()) return std::numeric_limits<double>::quiet_NaN();
     loadProfileKnowledge();
-    return s_profileKnowledge.value(kbId).ugs;
+    const QString id = resolveKbInput(kbId);
+    return id.isEmpty() ? std::numeric_limits<double>::quiet_NaN()
+                        : s_profileKnowledge.value(id).ugs;
 }
 
 bool ShotSummarizer::ugsInferredForKbId(const QString& kbId)
 {
     if (kbId.isEmpty()) return false;
     loadProfileKnowledge();
-    return s_profileKnowledge.value(kbId).ugsInferred;
+    const QString id = resolveKbInput(kbId);
+    return id.isEmpty() ? false : s_profileKnowledge.value(id).ugsInferred;
 }
 
 QString ShotSummarizer::canonicalNameForKbId(const QString& kbId)
 {
     if (kbId.isEmpty()) return QString();
     loadProfileKnowledge();
-    return s_profileKnowledge.value(kbId).name;
+    const QString id = resolveKbInput(kbId);
+    return id.isEmpty() ? QString() : s_profileKnowledge.value(id).name;
 }
 
 std::optional<ShotAnalysis::ExpertBand>
 ShotSummarizer::expertBandForKbId(const QString& kbId)
 {
-    using ExpertBand = ShotAnalysis::ExpertBand;
-    // Citation-bound table keyed by *canonical KB-section identity*
-    // (pk.name), seeded ONLY where capture-dialin-coaching-guidance design
-    // D9/D10/D10b grades a cited band. Phase A (change: flag-off-expert-
-    // band-in-shot-summary) seeds only the gold pair; Phases B/C add rows.
-    // A canonical name with no row → absent (the check no-ops). Never
-    // fabricate a row to "complete" a profile — absence is intentional.
-    static const QHash<QString, ExpertBand> kBands = {
-        // D-Flow / Q ≡ Damian's Q both alias `## D-Flow Q variant`, so
-        // both resolve to this one canonical entry (structural zero-dup).
-        // Profile-notes verbatim: "grind for a pressure peak between 6 and
-        // 9 bar". Editor pressure limit 10.0 > 9 → both sides unconfounded.
-        { QStringLiteral("D-Flow Q variant"),
-          ExpertBand::pressureBand(6.0, 9.0,
-            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high")) },
-        // D-Flow / La Pavoni — its own `## D-Flow La Pavoni variant`
-        // section (split out by #1175). Same profile-notes verbatim 6–9
-        // bar goal. (Editor limit 9.0 == band ceiling is the firmware
-        // limiter, only ever a corroborating clause — D1 — never the band.)
-        { QStringLiteral("D-Flow La Pavoni variant"),
-          ExpertBand::pressureBand(6.0, 9.0,
-            QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high")) },
-        // Phase B — A-Flow family. All shipped A-Flow-editor profiles
-        // canonical-key to the single `## A-Flow` KB section, so one row
-        // covers them (same structural dedup as the gold pair). Cited band
-        // is the A-Flow repo's editor-level dial-in guidance step 1,
-        // verbatim: "grind fine enough to reach a pressure peak between 6
-        // and 9 bar at extraction" [SRC:aflow-repo]
-        // (docs/PROFILE_KNOWLEDGE_BASE.md:240 — the design doc; the runtime
-        // qrc resource is the lower-case profile_knowledge.md, which only
-        // carries the summary). Confidence `medium`: editor-level guidance
-        // spanning all roasts (vs the gold pair's profile-notes `high`).
-        // Validated against the real community A-Flow / default-medium
-        // population (20 shots, 4 users): the band partitions cleanly —
-        // SILENT 6–9 (on Janek's target, off the limiter), FIRE >9 (grind
-        // too fine → on default-medium that pegs its 10-bar Flow-Extraction
-        // limiter; other shipped A-Flow variants' limiters range 9.0–10.0
-        // bar, but the band fires on the peak regardless of each profile's
-        // limiter value — the bad regime), FIRE <6 (too coarse). The
-        // limiter peg (default-medium) is not a rival rail; it is the
-        // mechanism that corroborates why >9 is bad — exactly D1 (limiter
-        // corroborates, band is primary). Earlier "STOP" rested on
-        // trusting one lenient rater's scores to call limiter-pegged
-        // shots good; corrected here.
-        { QStringLiteral("A-Flow"),
-          ExpertBand::pressureBand(6.0, 9.0,
-            QStringLiteral("[SRC:aflow-repo]"), QStringLiteral("medium")) },
-        // Phase C — Londinium (the standalone `## Londinium` section).
-        // Damian's LRv2/LRv3 never pick up this band because they resolve
-        // to their OWN canonical KB section (`Damian's LRv2 / LRv3`) which
-        // has no kBands row — NOT because of the `## Londinium` Note (that
-        // Note is LLM-only prose, inert for C++ key resolution). Guarded by
-        // tst_dialing_blocks::expertBand_londinium_resolvesAndDoesNotCatchDamianLR.
-        // Cited band: the official Decent dial-in guide —
-        // "9 bar peak with gradual decline; too fine: pressure over 9 bar;
-        // too coarse: pressure crash" [SRC:decent-guide]
-        // (docs/PROFILE_KNOWLEDGE_BASE.md:361 — the design doc; the runtime
-        // qrc resource is the lower-case profile_knowledge.md, which only
-        // carries the summary). Non-adaptive (unlike
-        // Adaptive v2, which was gate-failed and left absent — its KB
-        // section forbids flagging its by-design variable pressure). The
-        // 3-bar soak is intentional pre-infusion; the pour-window peak
-        // measure excludes it (the peak is the ~9-bar extraction). Gate:
-        // 20-shot / 5-user community population clusters at the cited
-        // target (extraction-peak median 9.0, mode 9) and band [8,9]
-        // partitions verbatim onto the guide — SILENT 8–9 (on target),
-        // FIRE >9 (cited "too fine: pressure over 9 bar"), FIRE <8 (cited
-        // "too coarse: pressure crash"). Confidence `medium` (Phase-C
-        // contextual tail; same rung as A-Flow's editor guidance).
-        { QStringLiteral("Londinium"),
-          ExpertBand::pressureBand(8.0, 9.0,
-            QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
-        // Phase C — Adaptive v2 (canonical `## Adaptive v2`; the separate
-        // `## Gagné Adaptive` section has its own key, no collision).
-        // Decent authored the shipped DE1 profile (adaptive_v2.json
-        // `author: Decent`), so `[SRC:decent-guide]` is the profile-author
-        // authority for the cited band bounds. Gagné's Coffee ad Astra
-        // (`[SRC:adaptive-adastra]`) describes the adaptive technique this
-        // profile implements — supplementary context, not authoritative
-        // for the bounds. decent-guide dial-in: peak 8–9 bar, "too coarse
-        // → peak below 7". The profile is intentionally grind-tolerant
-        // (adapts ~6.8 coarse → ~9 fine) but is *best* in Decent's
-        // recommended envelope — so the band is 6–9 (NOT 8–9): it CONTAINS
-        // the by-design adaptive range, stays silent across it, and only a
-        // peak well below 6 (too coarse) or above 9 (too fine / pegging
-        // the 9.5-bar limiter) trips the observational "outside the band
-        // Decent recommends — judge by taste" line. (Like every row, the
-        // EXPERT_BAND_PRESSURE_MARGIN_BAR=0.3 slack means the effective
-        // trip is ~5.7 / ~9.3 — deliberately conservative; the 6–9 here
-        // is the cited band, not the post-margin threshold.) Per the
-        // band's posture (D2/D3) this is "could be better", not a fault.
-        { QStringLiteral("Adaptive v2"),
-          ExpertBand::pressureBand(6.0, 9.0,
-            QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
-        // Phase C — Rao/Blooming Allongé (canonical `## Allonge`;
-        // `Also matches: "Allongé", "Rao Allongé"`). Cited rail
-        // [SRC:light-video]/[SRC:eaf-profiling]: a constant ~4.5 ml/s flow
-        // profile — "if pressure hits max, flow adjusts down: grind too
-        // fine". One-sided FLOOR (reach ~4.5, no ceiling). `flowFloor`
-        // fires only when the SUSTAINED (median) extraction flow drops
-        // below ~4.5 (the limiter choked it = too fine) — the peak measure
-        // was structurally blind here (pump touches the 4.5 setpoint on
-        // every shot); the ExtractionFlow axis now uses the windowed
-        // median (an independent absolute-flow measure — see the detector
-        // comment), which makes this rail real. AnalysisFlags
-        // `channeling_expected` keeps `channelingFired==false`, so the band
-        // is not masked by Allongé's by-design needle-stream channeling.
-        // NOTE: Allongé also carries `grind_check_skip`, and the
-        // expert-band block does NOT gate on it (it gates only on
-        // pour-truncated/channeling, by A2.3 design). That is intentional:
-        // `grind_check_skip` suppresses the confounded grind-DELTA arms
-        // (analyzeFlowVsGoal) that mis-read coarse-by-design profiles; this
-        // band is a separate, cited, observational "judge by taste" note
-        // whose floor the primary source ([SRC:light-video]) states
-        // explicitly. Suppressing a cited authoritative rail on a KB
-        // AnalysisFlag would discard real guidance — so the band fires,
-        // and it is advisory ("could be better"), not a grind verdict.
-        { QStringLiteral("Allonge"),
-          ExpertBand::flowFloor(4.5,
-            QStringLiteral("[SRC:light-video]"), QStringLiteral("medium")) },
-    };
+    // Band lives in the KB entry (the hardcoded C++ kBands table is gone —
+    // single source of truth). Resolved fresh every call from the qrc
+    // resource shipped with the binary (recompute-on-load contract).
+    // Absence → std::nullopt → strict no-op, byte-identical to the
+    // shipped absence-intentional behavior (D6).
     if (kbId.isEmpty()) return std::nullopt;
     loadProfileKnowledge();
-    const QString canonical = s_profileKnowledge.value(kbId).name;
-    if (canonical.isEmpty()) return std::nullopt;
-    const auto it = kBands.constFind(canonical);
-    return it == kBands.constEnd() ? std::nullopt
-                                   : std::optional<ExpertBand>(*it);
+    const QString id = resolveKbInput(kbId);
+    if (id.isEmpty()) return std::nullopt;
+    return s_profileKnowledge.value(id).expertBand;
 }
 
 QList<ShotSummarizer::KbUgsEntry> ShotSummarizer::allKbUgsEntries()
 {
     loadProfileKnowledge();
 
-    // Deduplicate by canonical name (pk.name) — multiple aliases map to the
-    // same ProfileKnowledge; emit one entry per canonical name.
-    QMap<QString, KbUgsEntry> byName;
+    // s_profileKnowledge is keyed by `id` (one entry per canonical
+    // identity), so iteration is already deduplicated — no by-name pass.
+    QList<KbUgsEntry> out;
     for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
         const ProfileKnowledge& pk = it.value();
         if (std::isnan(pk.ugs)) continue;
-        if (byName.contains(pk.name)) continue;
         KbUgsEntry e;
-        e.kbId = it.key();
+        e.kbId = pk.id;
         e.name = pk.name;
         e.ugs = pk.ugs;
         e.ugsInferred = pk.ugsInferred;
-        byName.insert(pk.name, e);
+        out << e;
     }
-    return byName.values();
+    return out;
 }

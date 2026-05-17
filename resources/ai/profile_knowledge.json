@@ -11,6 +11,7 @@
       "id": "d-flow",
       "displayName": "D-Flow",
       "alsoMatches": ["D-Flow / default", "Damian's D-Flow", "Damian's LM Leva"],
+      "defaultForEditorType": "dflow",
       "ugs": { "value": 0.5, "inferred": false, "note": "Grind center for \"D-Flow / default\"; D-Flow is the editor, not a profile. D-Flow / Q and D-Flow / La Pavoni split to their own sections (~1.0); Damian's LRv2/LRv3 to theirs (0)." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "lever-decline",
@@ -64,6 +65,7 @@
     {
       "id": "a-flow",
       "displayName": "A-Flow",
+      "defaultForEditorType": "aflow",
       "ugs": { "value": 1.5, "inferred": false, "note": "Long soak heals a slightly coarser, faster-flowing puck." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "pressure-ramp-flow",
