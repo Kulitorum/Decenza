@@ -40,7 +40,7 @@
       "id": "d-flow-la-pavoni-variant",
       "displayName": "D-Flow La Pavoni variant",
       "alsoMatches": ["D-Flow / La Pavoni"],
-      "ugs": { "value": 1.0, "inferred": true, "note": "La Pavoni's 6–9 bar pressure target + 84°C fill pull coarser than D-Flow / default's ~9 bar/88°C; not on the UGS chart." },
+      "ugs": { "value": 1.0, "inferred": true, "note": "La Pavoni's lower pressure target + 84°C fill pull coarser than D-Flow / default's higher peak / 88°C; not on the UGS chart." },
       "analysisFlags": ["flow_trend_ok"],
       "family": "lever-decline",
       "expertBand": {
