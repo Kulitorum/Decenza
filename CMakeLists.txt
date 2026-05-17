@@ -293,6 +293,7 @@ set(SOURCES
     src/ai/conductance.cpp
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
+    src/ai/shotsummarizer_kb.cpp
     src/history/shothistorystorage.cpp
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp
