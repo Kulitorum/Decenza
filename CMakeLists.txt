@@ -1042,10 +1042,23 @@ if(NOT ANDROID AND NOT IOS)
     # match live-shot behavior exactly. Usage:
     #   curl https://visualizer.coffee/api/shots/<uuid>/download > shot.json
     #   ./shot_eval shot.json [more.json ...]
+    # Embed the AI KB resource (:/ai/profile_knowledge.md) so the tool's
+    # band/flags resolution matches the app (loadProfileKnowledge reads it).
+    qt_add_resources(SHOT_EVAL_AI_RES resources/ai.qrc)
     add_executable(shot_eval
         tools/shot_eval/main.cpp
         src/ai/shotanalysis.cpp
         src/ai/conductance.cpp
+        # Lean KB-resolution cluster (split out of the monolith). shot_eval
+        # resolves analysisFlags + expertBand via the SAME ShotSummarizer
+        # functions prepareAnalysisInputs itself calls — producing
+        # bit-identical inputs for the corpus (which carries no profile
+        # JSON, so prepareAnalysisInputs's Profile/frameInfo path is moot)
+        # WITHOUT dragging Profile (→ Qt Bluetooth via profileframe) into a
+        # curve-eval CLI. Equivalence to the real production path is
+        # asserted by the corpus parity guard, not by welding the app in.
+        src/ai/shotsummarizer_kb.cpp
+        ${SHOT_EVAL_AI_RES}
     )
     # Qt6::Sql is linked for the QSqlDatabase include pulled in via
     # history/shothistorystorage.h (where HistoryPhaseMarker lives). The

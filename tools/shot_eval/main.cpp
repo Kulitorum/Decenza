@@ -22,7 +22,9 @@
 
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
+#include "ai/shotsummarizer.h"                  // KB-cluster: flags + expert band
 #include "history/shothistorystorage.h"  // HistoryPhaseMarker
+#include "history/shotbadgeprojection.h"         // deriveBadgesFromAnalysis
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -463,7 +465,10 @@ struct EvaluatedShot {
     bool skippedInProd = false;  // production-path short-circuit (cleaning/filter/etc)
     bool pourTruncated = false;  // peak pressure never reached PRESSURE_FLOOR_BAR
     QString verdict;             // channeling-severity label for the table view (NOT the user-facing verdict)
-    QString summaryVerdict;      // user-facing verdict text from ShotAnalysis::generateSummary; populated lazily for --validate
+    QString summaryVerdict;      // user-facing verdict text from the production analyzeShot path
+    QString verdictCategory;     // DetectorResults::verdictCategory (drives the app's tint)
+    bool expertBandFired = false;
+    QString expertBandText;      // the expert_band_deviation observation line, if any
 };
 
 // Count elevated samples + find max spike in a dC/dt series across a time
@@ -544,49 +549,56 @@ EvaluatedShot evaluate(const LoadedShot& s)
         ev.maskPct = 100.0 * maskSec / pourSpan;
     }
 
-    // Grind direction — mode-aware. Passing pressure enables the choked-puck
-    // fallback for pressure-mode pours with no flow-mode window. Passing
-    // target/yield enables the yield-ratio arm of the same check (off when
-    // target_weight isn't carried in the fixture).
-    const auto grind = ShotAnalysis::analyzeFlowVsGoal(
-        s.flow, s.flowGoal, s.phases, s.pourStart, s.pourEnd, s.beverageType,
-        /*analysisFlags=*/{}, s.pressure,
-        s.targetWeightG, s.yieldG);
-    ev.grindDelta = grind.delta;
-    ev.grindSamples = grind.sampleCount;
-    ev.grindHasData = grind.hasData;
-    ev.grindSkipped = grind.skipped;
-    ev.grindIssue = grind.hasData
-        && (grind.chokedPuck
-            || grind.yieldOvershoot
-            || std::abs(grind.delta) > ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
+    // --- App parity ---
+    // Resolve the SAME inputs the app's storage path resolves
+    // (analysisFlags + expertBand + frameInfo, via the shared
+    // prepareAnalysisInputs — which itself re-resolves the band fresh by
+    // title, D14a), then run the ONE production analyzeShot and read
+    // detectors / lines / badges from it. shot_eval previously called the
+    // detectors with empty analysisFlags and no expertBand, so it silently
+    // diverged from the app on flow_trend_ok suppression and the
+    // expert-band line. Routing through the same pipeline makes the tool's
+    // verdict + badges match the app *by construction*.
+    // Same resolution prepareAnalysisInputs performs internally: a fresh
+    // kbId from the profile title (the D14a recompute-correct path), then
+    // analysisFlags + expertBand off it. The corpus carries no profile
+    // JSON, so prepareAnalysisInputs's Profile/frameInfo arm is moot here
+    // (it would yield frameCount/firstFrameSeconds = -1, exactly what we
+    // pass) — these inputs are therefore bit-identical to the production
+    // path; the corpus parity guard asserts that.
+    const QString kbId =
+        ShotSummarizer::computeProfileKbId(s.profileTitle, QString());
+    const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(kbId);
+    const ShotAnalysis::ExpertBand expertBand =
+        ShotSummarizer::expertBandForKbId(kbId);
 
-    // Pour-truncated: catches shots the dC/dt + grind detectors miss
-    // because the puck never built pressure at all.
-    ev.pourTruncated = ShotAnalysis::detectPourTruncated(
-        s.pressure, s.pourStart, s.pourEnd, s.beverageType);
+    const ShotAnalysis::AnalysisResult R = ShotAnalysis::analyzeShot(
+        s.pressure, s.flow, /*weight=*/{}, s.conductanceDerivative, s.phases,
+        s.beverageType, s.durationSec, s.pressureGoal, s.flowGoal,
+        analysisFlags, /*firstFrameConfiguredSeconds=*/-1.0,
+        s.targetWeightG, s.yieldG, /*expectedFrameCount=*/-1, expertBand);
 
-    // User-facing verdict text. Calls into the same generateSummary() that the
-    // Shot Summary popup uses, so the manifest can lock in the verdict-cascade
-    // wording and catch regressions to the suppression rules (e.g. PR #922's
-    // pourTruncated → "Don't tune off this shot" verdict). Pass an empty
-    // weight vector — the function tolerates the missing curve and skips the
-    // preinfusion-drip observation; the verdict cascade still picks the right
-    // branch from pressure / flow / dC/dt and the phase markers, which is what
-    // the manifest gates check.
-    {
-        const QVariantList lines = ShotAnalysis::generateSummary(
-            s.pressure, s.flow, /*weight=*/{},
-            s.conductanceDerivative, s.phases,
-            s.beverageType, s.durationSec, s.pressureGoal, s.flowGoal,
-            /*analysisFlags=*/{}, /*firstFrameConfiguredSeconds=*/-1.0,
-            s.targetWeightG, s.yieldG);
-        for (const QVariant& v : lines) {
-            const QVariantMap m = v.toMap();
-            if (m.value(QStringLiteral("type")).toString() == QStringLiteral("verdict")) {
-                ev.summaryVerdict = m.value(QStringLiteral("text")).toString();
-                break;
-            }
+    const decenza::BadgeFlags badges =
+        decenza::deriveBadgesFromAnalysis(R.detectors);
+
+    // Grind diagnostic columns + the two grind/pour badges — all from the
+    // single analyzeShot result (no separate empty-flags call).
+    ev.grindDelta   = R.detectors.grindFlowDeltaMlPerSec;
+    ev.grindSamples = R.detectors.grindSampleCount;
+    ev.grindHasData = R.detectors.grindHasData;
+    ev.grindSkipped = !R.detectors.grindChecked;
+    ev.grindIssue    = badges.grindIssueDetected;     // the app's badge
+    ev.pourTruncated = badges.pourTruncatedDetected;   // the app's badge
+    ev.verdictCategory = R.detectors.verdictCategory;
+
+    for (const QVariant& v : R.lines) {
+        const QVariantMap m = v.toMap();
+        if (m.value(QStringLiteral("type")).toString() == QStringLiteral("verdict"))
+            ev.summaryVerdict = m.value(QStringLiteral("text")).toString();
+        if (m.value(QStringLiteral("kind")).toString()
+                == QStringLiteral("expert_band_deviation")) {
+            ev.expertBandFired = true;
+            ev.expertBandText = m.value(QStringLiteral("text")).toString();
         }
     }
 
@@ -712,6 +724,17 @@ QJsonObject toJsonRow(const EvaluatedShot& ev)
     grind["sampleCount"] = ev.grindSamples;
     grind["issue"] = ev.grindIssue;
     o["grind"] = grind;
+
+    // verdictCategory (drives the app's tint) + the expert-band fire
+    // decision per shot — the A6.1/A6.2 instrument. `summaryVerdict` is the
+    // user-facing verdict line from the production analyzeShot.
+    o["verdictCategory"] = ev.verdictCategory;
+    o["summaryVerdict"] = ev.summaryVerdict;
+    QJsonObject expertBand;
+    expertBand["fired"] = ev.expertBandFired;
+    if (ev.expertBandFired)
+        expertBand["text"] = ev.expertBandText;
+    o["expertBand"] = expertBand;
 
     return o;
 }
