@@ -454,6 +454,25 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         { QStringLiteral("A-Flow"),
           { Axis::PressurePeak, 6.0, 9.0,
             QStringLiteral("[SRC:aflow-repo]"), QStringLiteral("medium") } },
+        // Phase C — Londinium (standalone `## Londinium`; the KB Note keeps
+        // Damian's LRv2/LRv3 in the D-Flow family, so this key never
+        // catches those). Cited band: the official Decent dial-in guide —
+        // "9 bar peak with gradual decline; too fine: pressure over 9 bar;
+        // too coarse: pressure crash" [SRC:decent-guide]
+        // (docs/PROFILE_KNOWLEDGE_BASE.md:361). Non-adaptive (unlike
+        // Adaptive v2, which was gate-failed and left absent — its KB
+        // section forbids flagging its by-design variable pressure). The
+        // 3-bar soak is intentional pre-infusion; the pour-window peak
+        // measure excludes it (the peak is the ~9-bar extraction). Gate:
+        // 20-shot / 5-user community population clusters at the cited
+        // target (extraction-peak median 9.0, mode 9) and band [8,9]
+        // partitions verbatim onto the guide — SILENT 8–9 (on target),
+        // FIRE >9 (cited "too fine: pressure over 9 bar"), FIRE <8 (cited
+        // "too coarse: pressure crash"). Confidence `medium` (Phase-C
+        // contextual tail; same rung as A-Flow's editor guidance).
+        { QStringLiteral("Londinium"),
+          { Axis::PressurePeak, 8.0, 9.0,
+            QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium") } },
     };
     if (kbId.isEmpty()) return {};
     loadProfileKnowledge();
