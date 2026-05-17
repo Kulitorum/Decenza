@@ -481,18 +481,23 @@ ShotSummarizer::expertBandForKbId(const QString& kbId)
             QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
         // Phase C — Adaptive v2 (canonical `## Adaptive v2`; the separate
         // `## Gagné Adaptive` section has its own key, no collision).
-        // Decent AUTHORED this profile, so `[SRC:decent-guide]` is the
-        // profile-author authority (Coffee ad Astra's "grind-tolerant"
-        // commentary is third-party, not the author). decent-guide
-        // dial-in: peak 8–9 bar, "too coarse → peak below 7". The profile
-        // is intentionally grind-tolerant (adapts ~6.8 coarse → ~9 fine)
-        // but is *best* in Decent's recommended envelope — so the band is
-        // 6–9 (NOT 8–9): it CONTAINS the by-design adaptive range, stays
-        // silent across it, and only an out-of-envelope peak (<6 too
-        // coarse, >9 too fine / pegging the 9.5-bar limiter) trips the
-        // observational "outside the band Decent recommends — judge by
-        // taste" line. Per the band's posture (D2/D3) this is "could be
-        // better", not a fault on the shot.
+        // Decent authored the shipped DE1 profile (adaptive_v2.json
+        // `author: Decent`), so `[SRC:decent-guide]` is the profile-author
+        // authority for the cited band bounds. Gagné's Coffee ad Astra
+        // (`[SRC:adaptive-adastra]`) describes the adaptive technique this
+        // profile implements — supplementary context, not authoritative
+        // for the bounds. decent-guide dial-in: peak 8–9 bar, "too coarse
+        // → peak below 7". The profile is intentionally grind-tolerant
+        // (adapts ~6.8 coarse → ~9 fine) but is *best* in Decent's
+        // recommended envelope — so the band is 6–9 (NOT 8–9): it CONTAINS
+        // the by-design adaptive range, stays silent across it, and only a
+        // peak well below 6 (too coarse) or above 9 (too fine / pegging
+        // the 9.5-bar limiter) trips the observational "outside the band
+        // Decent recommends — judge by taste" line. (Like every row, the
+        // EXPERT_BAND_PRESSURE_MARGIN_BAR=0.3 slack means the effective
+        // trip is ~5.7 / ~9.3 — deliberately conservative; the 6–9 here
+        // is the cited band, not the post-margin threshold.) Per the
+        // band's posture (D2/D3) this is "could be better", not a fault.
         { QStringLiteral("Adaptive v2"),
           ExpertBand::pressureBand(6.0, 9.0,
             QStringLiteral("[SRC:decent-guide]"), QStringLiteral("medium")) },
@@ -505,9 +510,20 @@ ShotSummarizer::expertBandForKbId(const QString& kbId)
         // below ~4.5 (the limiter choked it = too fine) — the peak measure
         // was structurally blind here (pump touches the 4.5 setpoint on
         // every shot); the ExtractionFlow axis now uses the windowed
-        // median (A2.2-aligned), which makes this rail real. AnalysisFlags
+        // median (an independent absolute-flow measure — see the detector
+        // comment), which makes this rail real. AnalysisFlags
         // `channeling_expected` keeps `channelingFired==false`, so the band
         // is not masked by Allongé's by-design needle-stream channeling.
+        // NOTE: Allongé also carries `grind_check_skip`, and the
+        // expert-band block does NOT gate on it (it gates only on
+        // pour-truncated/channeling, by A2.3 design). That is intentional:
+        // `grind_check_skip` suppresses the confounded grind-DELTA arms
+        // (analyzeFlowVsGoal) that mis-read coarse-by-design profiles; this
+        // band is a separate, cited, observational "judge by taste" note
+        // whose floor the primary source ([SRC:light-video]) states
+        // explicitly. Suppressing a cited authoritative rail on a KB
+        // AnalysisFlag would discard real guidance — so the band fires,
+        // and it is advisory ("could be better"), not a grind verdict.
         { QStringLiteral("Allonge"),
           ExpertBand::flowFloor(4.5,
             QStringLiteral("[SRC:light-video]"), QStringLiteral("medium")) },

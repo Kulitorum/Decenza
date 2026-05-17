@@ -150,7 +150,7 @@
     },
     {
       "file": "adaptive_v2_in_envelope_clean.json",
-      "description": "Phase C expert-band lock — real community Adaptive v2 shot whose peak pressure sits inside Decent's recommended 6–9 bar envelope. Decent authored the Adaptive profile, so `[SRC:decent-guide]` is the profile-author authority; the band is 6–9 (it CONTAINS the by-design adaptive 6.8→9 range, so a well-placed shot stays silent). expertBandFired must be false and verdictCategory clean. If the Adaptive v2 row is dropped, mis-keyed, or the band is narrowed back toward 8–9, this shot would wrongly fire — caught here.",
+      "description": "Phase C expert-band lock — real community Adaptive v2 shot whose peak pressure sits inside Decent's recommended 6–9 bar envelope. Decent authored the shipped profile (adaptive_v2.json author field), so `[SRC:decent-guide]` is the profile-author authority; the band is 6–9 (it CONTAINS the by-design adaptive 6.8→9 range, so a well-placed shot stays silent). expertBandFired must be false and verdictCategory clean. If the Adaptive v2 row is dropped, mis-keyed, or the band is narrowed back toward 8–9, this shot would wrongly fire — caught here.",
       "expect": {
         "expertBandFired": false,
         "verdictCategory": "clean"
@@ -174,7 +174,7 @@
     },
     {
       "file": "rao_allonge_too_fine_medianflow.json",
-      "description": "Phase C expert-band lock AND the median-vs-peak detector-fix regression guard. Real community Rao Allongé shot whose grind was too fine — the pressure limiter choked extraction flow to a SUSTAINED ~2.4 ml/s, but the pump still momentarily touched the commanded ~4.5 ml/s setpoint, so PEAK flow ≈ 4.5. Under the OLD peak-flow measure flowFloor(4.5) was silent here (the structural blindness that earlier got this arm wrongly failed). The ExtractionFlow axis now uses the windowed MEDIAN flow (A2.2-aligned), so the floor correctly fires (`expertBandFired` true, verdictCategory expertBandDeviation). If anyone reverts the median measure back to peak, this fixture flips to silent and fails — exactly the guard we want.",
+      "description": "Phase C expert-band lock AND the median-vs-peak detector-fix regression guard. Real community Rao Allongé shot whose grind was too fine. Flow holds the commanded ~4.5 ml/s for the first ~10 s, then the pressure limiter chokes it for the remaining ~38 s — so the full-shot/pour-window MEDIAN is ~2.4 ml/s while PEAK is still ~4.5. Under the OLD peak-flow measure flowFloor(4.5) was silent here (the structural blindness that earlier got this arm wrongly failed). The ExtractionFlow axis now uses the windowed MEDIAN (an independent absolute-flow measure — see the detector comment), so the floor correctly fires (`expertBandFired` true, verdictCategory expertBandDeviation). This is the real-shot complement to the synthetic unit test `expertBand_flowFloor_usesSustainedNotPeak` (which models the brief-spike variant). If anyone reverts the median measure back to peak, this fixture flips to silent and fails — exactly the guard we want.",
       "expect": {
         "expertBandFired": true,
         "verdictCategory": "expertBandDeviation"

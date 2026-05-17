@@ -1076,10 +1076,17 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                 // (e.g. Rao Allongé too-fine: mean ~2–3 ml/s, peak still
                 // ~4.5). Median over the pour window is the honest "flow
                 // this shot ran at", robust to the brief setpoint touch and
-                // to transient dips. This realigns with A2.2's stated
-                // intent (extraction-flow reads the windowed flow-vs-goal
-                // quantity, not a raw peak). Empty window → observed stays
-                // NaN → strict no-op (never fire a floor on absent data).
+                // to transient dips. NOTE: this is an INDEPENDENT absolute-
+                // flow median, not the `analyzeFlowVsGoal` result A2.2's
+                // wording referenced — that computes a goal-relative DELTA
+                // (gated to flow-mode/stationary/min-goal windows), which is
+                // the wrong quantity to compare against an absolute floor.
+                // The median is unfiltered over the pour window: correct
+                // for the only shipped flow row (Allongé commands a ~constant
+                // 4.5 ml/s for the whole pour), but a future flow profile
+                // whose pour mixes fill/extraction at different flow rates
+                // would need a flow-mode-scoped window here. Empty window →
+                // observed stays NaN → strict no-op (never fire on absent data).
                 std::vector<double> fv;
                 for (const auto& fp : flow) {
                     if (fp.x() < pourStart) continue;
