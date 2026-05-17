@@ -36,7 +36,7 @@ ENTRY_KEYS = {
     "analysisFlags", "skipCatalog", "family", "expertBand", "prose",
 }
 BAND_KEYS = {"axis", "lo", "hi", "src", "srcArchive", "provenance",
-             "confidence", "rationale"}
+             "confidence", "rationale", "proseRestatesBand"}
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 URL_RE = re.compile(r"^https?://")
 
@@ -206,15 +206,41 @@ def _validate_band(pid, eb, prose, kb_path, errors, warnings):
 
     # D9 best-effort lint (WARNING, non-fatal): a prose line restating the
     # band bounds verbatim is the third-copy regression D9 guards against.
+    # An entry whose prose legitimately narrates the profile's OWN
+    # setpoints / cited dial-in (which may coincide with a bound — the
+    # Adaptive-v2 case) carries an explicit reviewed
+    # `expertBand.proseRestatesBand` rationale; the lint is then silenced
+    # for that entry. A stale ack (prose no longer restates any bound) is
+    # still surfaced so the suppression list cannot rot and silently mask a
+    # future real regression on that entry. A malformed ack is a hard error
+    # and does NOT suppress (a broken silencer must never silence).
+    ack = eb.get("proseRestatesBand")
+    if ack is not None and not (isinstance(ack, str) and ack.strip()):
+        errors.append(
+            f"{pid}: expertBand.proseRestatesBand must be a non-empty "
+            f"string — the reviewer rationale for why the prose number is "
+            f"profile commentary, not a band copy")
+        ack = None
+    any_fired = False
     for bound in (lo, hi):
         if bound is None:
             continue
         b = f"{bound:g}"
         if re.search(rf"\b{re.escape(b)}\s*(bar|ml/s|ml per second)", prose, re.I):
-            warnings.append(
-                f"{pid}: D9 lint — prose appears to restate band bound "
-                f"{b!r}; verify it is profile commentary, not a copy of the "
-                f"struct band (Adaptive-v2-style intentional difference is OK)")
+            any_fired = True
+            if not ack:
+                warnings.append(
+                    f"{pid}: D9 lint — prose appears to restate band bound "
+                    f"{b!r}; verify it is profile commentary, not a copy of "
+                    f"the struct band. If it is the profile's own "
+                    f"setpoint/dial-in (Adaptive-v2-style intentional "
+                    f"difference), add a reviewed "
+                    f"expertBand.proseRestatesBand rationale to silence it")
+    if ack and not any_fired:
+        warnings.append(
+            f"{pid}: stale expertBand.proseRestatesBand — prose no longer "
+            f"restates any band bound; remove the now-unneeded ack so the "
+            f"D9 lint can catch a future real regression on this entry")
 
 
 def main():
