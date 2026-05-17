@@ -81,6 +81,16 @@ public:
     // almost certainly a stale BlueZ cache or similar host-side state).
     void requestBluezCacheHint();
 
+    // App-run-scoped dual-HIGH backoff latch (#1093/#1176). The contention is
+    // a property of this device's BT radio + the DE1 link, not of any one
+    // scale — so once any scale's transport detects it, EVERY scale this run
+    // (including one connected after a scale-type change, which builds a fresh
+    // transport) must skip CONNECTION_PRIORITY_HIGH. Lives on the BLEManager
+    // singleton so it outlives per-scale transport objects. In-memory only:
+    // cleared by an app restart, never written to disk.
+    bool scaleSkipHighPriority() const { return m_scaleSkipHighPriority; }
+    void setScaleSkipHighPriority(bool skip) { m_scaleSkipHighPriority = skip; }
+
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
     Q_INVOKABLE void connectToScale(const QString& address);  // Manual scale selection
@@ -195,6 +205,9 @@ private:
 
     // Prevents showing "No Scale Found" dialog more than once per session
     bool m_flowScaleFallbackEmitted = false;
+
+    // App-run dual-HIGH backoff latch (see scaleSkipHighPriority()).
+    bool m_scaleSkipHighPriority = false;
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;

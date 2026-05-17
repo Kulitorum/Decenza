@@ -256,10 +256,19 @@ void QtScaleBleTransport::onControllerConnected() {
 
     // Connection-priority for the scale link (dual-HIGH BLE contention,
     // #1093/#1176). The DE1 always requests HIGH; the scale also requests
-    // HIGH UNLESS the detector has latched skip-HIGH from an earlier backoff
-    // this session, in which case the link stays at the platform-default
-    // BALANCED — exactly the proven #1097 behaviour, decided by observed
-    // runtime behaviour instead of the (retired) Android SDK<30 gate.
+    // HIGH UNLESS a backoff was triggered earlier this app run, in which case
+    // the link stays at the platform-default BALANCED — exactly the proven
+    // #1097 behaviour, decided by observed runtime behaviour instead of the
+    // (retired) Android SDK<30 gate.
+    //
+    // The backoff decision is app-run-scoped and shared across ALL scales via
+    // the BLEManager singleton: the contention is a property of this device's
+    // radio + the DE1 link, not of any one scale, so a fresh transport built
+    // for a different scale (after a scale-type change) must inherit it rather
+    // than re-pay the detection window.
+    if (auto* mgr = BLEManager::instance(); mgr && mgr->scaleSkipHighPriority())
+        m_priority.setSkipHighPriority(true);
+
     if (m_priority.skipHighPriority()) {
         QT_TRANSPORT_LOG("Scale connection-priority: skipping HIGH "
                          "(backoff active this session) — link stays at BALANCED");
@@ -300,6 +309,11 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason) {
     QT_TRANSPORT_LOG(QString("Scale connection-priority backoff: %1 — "
                              "skipping HIGH and reconnecting at BALANCED")
                          .arg(QString::fromUtf8(reason)));
+    // Latch the decision app-run-wide so every scale (incl. one connected
+    // after a scale-type change, which builds a fresh transport+detector)
+    // skips HIGH for the rest of this run. In-memory only; cleared on restart.
+    if (auto* mgr = BLEManager::instance())
+        mgr->setScaleSkipHighPriority(true);
     // Tear down the link, then emit disconnected() explicitly. disconnectFromDevice()
     // severs the controller's signals and (for a fully-discovered scale, which is in
     // DiscoveredState) skips the controller disconnectFromDevice(), so it never routes
