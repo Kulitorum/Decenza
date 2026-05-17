@@ -454,12 +454,18 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         { QStringLiteral("A-Flow"),
           { Axis::PressurePeak, 6.0, 9.0,
             QStringLiteral("[SRC:aflow-repo]"), QStringLiteral("medium") } },
-        // Phase C — Londinium (standalone `## Londinium`; the KB Note keeps
-        // Damian's LRv2/LRv3 in the D-Flow family, so this key never
-        // catches those). Cited band: the official Decent dial-in guide —
+        // Phase C — Londinium (the standalone `## Londinium` section).
+        // Damian's LRv2/LRv3 never pick up this band because they resolve
+        // to their OWN canonical KB section (`Damian's LRv2 / LRv3`) which
+        // has no kBands row — NOT because of the `## Londinium` Note (that
+        // Note is LLM-only prose, inert for C++ key resolution). Guarded by
+        // tst_dialing_blocks::expertBand_londinium_resolvesAndDoesNotCatchDamianLR.
+        // Cited band: the official Decent dial-in guide —
         // "9 bar peak with gradual decline; too fine: pressure over 9 bar;
         // too coarse: pressure crash" [SRC:decent-guide]
-        // (docs/PROFILE_KNOWLEDGE_BASE.md:361). Non-adaptive (unlike
+        // (docs/PROFILE_KNOWLEDGE_BASE.md:361 — the design doc; the runtime
+        // qrc resource is the lower-case profile_knowledge.md, which only
+        // carries the summary). Non-adaptive (unlike
         // Adaptive v2, which was gate-failed and left absent — its KB
         // section forbids flagging its by-design variable pressure). The
         // 3-bar soak is intentional pre-infusion; the pour-window peak

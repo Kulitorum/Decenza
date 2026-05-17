@@ -1954,9 +1954,11 @@ private slots:
 
     // Phase C end-to-end: the kBands["Londinium"] row resolves via the
     // production KB path, and — critically — the standalone Londinium key
-    // does NOT collide with Damian's LRv2/LRv3 (the KB Note keeps those in
-    // the D-Flow family). Guards a key typo / `## Londinium` rename and the
-    // Damian-LR separation in one shot.
+    // does NOT collide with Damian's LRv2/LRv3. They stay separate because
+    // those titles resolve to their own canonical section
+    // (`Damian's LRv2 / LRv3`) absent from kBands — NOT because of the
+    // `## Londinium` Note (inert LLM prose). Guards a key typo /
+    // `## Londinium` rename and the Damian-LR separation in one shot.
     void expertBand_londinium_resolvesAndDoesNotCatchDamianLR()
     {
         using ExpertBand = ShotAnalysis::ExpertBand;
