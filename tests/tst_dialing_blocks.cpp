@@ -1952,6 +1952,40 @@ private slots:
         }
     }
 
+    // Phase C end-to-end: the kBands["Londinium"] row resolves via the
+    // production KB path, and — critically — the standalone Londinium key
+    // does NOT collide with Damian's LRv2/LRv3. They stay separate because
+    // those titles resolve to their own canonical section
+    // (`Damian's LRv2 / LRv3`) absent from kBands — NOT because of the
+    // `## Londinium` Note (inert LLM prose). Guards a key typo /
+    // `## Londinium` rename and the Damian-LR separation in one shot.
+    void expertBand_londinium_resolvesAndDoesNotCatchDamianLR()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+
+        const ExpertBand band = ShotSummarizer::expertBandForKbId(
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Londinium"),
+                                               QStringLiteral("advanced")));
+        QVERIFY2(band.isPresent(),
+                 "Londinium must resolve to the decent-guide band");
+        QCOMPARE(band.axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(band.lo, 8.0);
+        QCOMPARE(band.hi, 9.0);
+        QCOMPARE(band.src, QStringLiteral("[SRC:decent-guide]"));
+        QCOMPARE(band.confidence, QStringLiteral("medium"));
+
+        // Damian's LRv2/LRv3 are D-Flow-family variants, NOT the standalone
+        // Londinium — they must not pick up this band.
+        for (const QString& lr : { QStringLiteral("Damian's LRv2"),
+                                    QStringLiteral("Damian's LRv3") }) {
+            const ExpertBand v = ShotSummarizer::expertBandForKbId(
+                ShotSummarizer::computeProfileKbId(lr, QStringLiteral("dflow")));
+            QVERIFY2(v.src != QStringLiteral("[SRC:decent-guide]"),
+                     qPrintable(lr + " must NOT resolve to the standalone "
+                                     "Londinium band"));
+        }
+    }
+
     // -------------------------------------------------------------------
     // correct-dflow-aflow-editor-profile-docs: regression guard for the
     // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
