@@ -944,6 +944,24 @@ int main(int argc, char** argv)
                     mismatches << QStringLiteral("summaryVerdictContains: want=%1 got=%2")
                                       .arg(want, ev.summaryVerdict);
             }
+            // Expert-band regression lock (Phase B/C): fixtures assert
+            // whether the cited band line fired and, optionally, the
+            // verdictCategory the band drives. This is the corpus guard
+            // that keeps Adaptive v2 / Allongé / the median-flow measure
+            // working — without it, band-eligible fixtures are inert.
+            if (expect.contains("expertBandFired")) {
+                const bool want = expect.value("expertBandFired").toBool();
+                if (want != ev.expertBandFired)
+                    mismatches << QStringLiteral("expertBandFired: want=%1 got=%2")
+                                      .arg(want ? "true" : "false",
+                                           ev.expertBandFired ? "true" : "false");
+            }
+            if (expect.contains("verdictCategory")) {
+                const QString want = expect.value("verdictCategory").toString();
+                if (want != ev.verdictCategory)
+                    mismatches << QStringLiteral("verdictCategory: want=%1 got=%2")
+                                      .arg(want, ev.verdictCategory);
+            }
 
             if (mismatches.isEmpty()) {
                 out << "PASS  " << relFile << "\n";

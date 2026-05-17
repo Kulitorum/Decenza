@@ -1786,6 +1786,45 @@ private slots:
         QVERIFY(silent.detectors.verdictCategory != QStringLiteral("expertBandDeviation"));
     }
 
+    // Regression lock for the sustained (median) vs peak fix. A
+    // flow-controlled profile (Rao Allongé) momentarily touches its
+    // commanded ~4.5 ml/s setpoint even when the pressure limiter has
+    // choked the SUSTAINED flow far below it. The OLD peak measure read
+    // ~4.6 and stayed silent on these genuinely-too-fine shots; the
+    // median measure reads the real sustained flow and fires. Pin both.
+    void expertBand_flowFloor_usesSustainedNotPeak()
+    {
+        using EB = ShotAnalysis::ExpertBand;
+        QList<HistoryPhaseMarker> phases; QVector<QPointF> pr, fl, wt, dc, pg, fg;
+        bandFixture(/*peakBar=*/5.0, phases, pr, fl, wt, dc, pg, fg);
+        const EB floor = EB::flowFloor(4.5, QStringLiteral("[SRC:light-video]"),
+                                       QStringLiteral("medium"));
+
+        // Sustained ~2.5 ml/s with a brief ~1 s spike that touches 4.6
+        // (the commanded setpoint). Peak = 4.6 (>= 4.2 → old code SILENT,
+        // the bug). Median ≈ 2.5 (< 4.2 → fires, correct).
+        fl = concat(concat(flatSeries(0.0, 14.0, 2.5),
+                           flatSeries(14.1, 15.0, 4.6)),
+                    flatSeries(15.1, 30.0, 2.5));
+        const auto fired = ShotAnalysis::analyzeShot(
+            pr, fl, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, floor);
+        QVariantMap line;
+        QVERIFY2(findKind(fired.lines, QStringLiteral("expert_band_deviation"), line),
+                 "sustained ~2.5 ml/s (brief 4.6 spike) must fire — median, not peak");
+        const QString t = line["text"].toString();
+        QVERIFY2(t.contains("below the ~") && t.contains("ml/s"),
+                 qPrintable("text: " + t));
+
+        // Genuinely sustained at the setpoint → median ~4.6 ≥ floor → silent.
+        QVector<QPointF> fl2 = flatSeries(0.0, 30.0, 4.6);
+        const auto silent = ShotAnalysis::analyzeShot(
+            pr, fl2, wt, dc, phases, "espresso", 30.0, pg, fg, {},
+            -1.0, 36.0, 36.0, -1, floor);
+        QVERIFY2(!findKind(silent.lines, QStringLiteral("expert_band_deviation"), line),
+                 "sustained ~4.6 ml/s reaches the floor — must stay silent");
+    }
+
     // Phase B: the A-Flow rail. Same pressure-axis 6–9 shape as the gold
     // pair but `[SRC:aflow-repo]` / medium confidence (Janek's editor
     // dial-in guidance "pressure peak 6–9 bar at extraction"). Pin the

@@ -1986,6 +1986,52 @@ private slots:
         }
     }
 
+    // Phase C — Adaptive v2: Decent authored the profile, so decent-guide
+    // is the author authority. Band is 6–9 (contains the by-design
+    // adaptive envelope; observational "could be better" outside it).
+    // `## Gagné Adaptive` is a separate canonical section and must not
+    // pick up this band.
+    void expertBand_adaptiveV2_resolvesAndDoesNotCatchGagne()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+        const auto band = ShotSummarizer::expertBandForKbId(
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Adaptive v2"),
+                                               QStringLiteral("advanced")));
+        QVERIFY2(band.has_value(), "Adaptive v2 must resolve to the band");
+        QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
+        QCOMPARE(*band->lo, 6.0);
+        QCOMPARE(*band->hi, 9.0);
+        QCOMPARE(band->src, QStringLiteral("[SRC:decent-guide]"));
+
+        const auto g = ShotSummarizer::expertBandForKbId(
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Gagné Adaptive"),
+                                               QStringLiteral("advanced")));
+        QVERIFY2(!g.has_value() || g->src != QStringLiteral("[SRC:decent-guide]")
+                     || *g->lo != 6.0,
+                 "Gagné Adaptive must NOT pick up the Adaptive v2 band");
+    }
+
+    // Phase C — Allongé: a ONE-SIDED flow floor (lo set, hi unset). All
+    // its aliases resolve to the single `## Allonge` section.
+    void expertBand_allonge_resolvesAsOneSidedFlowFloor()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+        for (const QString& title : { QStringLiteral("Rao Allongé"),
+                                      QStringLiteral("Allongé"),
+                                      QStringLiteral("Allonge") }) {
+            const auto band = ShotSummarizer::expertBandForKbId(
+                ShotSummarizer::computeProfileKbId(title, QStringLiteral("advanced")));
+            QVERIFY2(band.has_value(),
+                     qPrintable(title + " must resolve to the Allongé flow floor"));
+            QCOMPARE(band->axis, ExpertBand::Axis::ExtractionFlow);
+            QVERIFY2(band->lo.has_value(), "floor must set lo");
+            QCOMPARE(*band->lo, 4.5);
+            QVERIFY2(!band->hi.has_value(),
+                     "one-sided floor must leave hi unset (no fabricated ceiling)");
+            QCOMPARE(band->src, QStringLiteral("[SRC:light-video]"));
+        }
+    }
+
     // -------------------------------------------------------------------
     // correct-dflow-aflow-editor-profile-docs: regression guard for the
     // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
