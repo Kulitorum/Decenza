@@ -2032,6 +2032,42 @@ private slots:
         }
     }
 
+    // Phase D (D1): complete seed-coverage — every shipped kBands row
+    // resolves to its EXACT cited band via the production KB path. One
+    // table locks the whole expert-band surface: a dropped/mis-keyed row,
+    // a changed bound, a wrong [SRC] tag, or a confidence drift all fail
+    // here. (Per-row tests above also assert non-collision; this is the
+    // single completeness pin across all five canonical entries.)
+    void expertBand_allShippedRows_seedCoverage()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+        using Axis = ExpertBand::Axis;
+        struct Row {
+            QString title; QString editor; Axis axis;
+            double lo; bool hasHi; double hi; QString src; QString conf;
+        };
+        const QVector<Row> rows = {
+            { "D-Flow / Q",          "dflow",    Axis::PressurePeak,  6.0, true, 9.0, "[SRC:profile-notes]", "high"   },
+            { "D-Flow / La Pavoni",  "dflow",    Axis::PressurePeak,  6.0, true, 9.0, "[SRC:profile-notes]", "high"   },
+            { "A-Flow / default-medium", "aflow", Axis::PressurePeak, 6.0, true, 9.0, "[SRC:aflow-repo]",    "medium" },
+            { "Londinium",           "advanced", Axis::PressurePeak,  8.0, true, 9.0, "[SRC:decent-guide]",  "medium" },
+            { "Adaptive v2",         "advanced", Axis::PressurePeak,  6.0, true, 9.0, "[SRC:decent-guide]",  "medium" },
+            { "Rao Allongé",         "advanced", Axis::ExtractionFlow,4.5, false,0.0, "[SRC:light-video]",   "medium" },
+        };
+        for (const Row& r : rows) {
+            const auto b = ShotSummarizer::expertBandForKbId(
+                ShotSummarizer::computeProfileKbId(r.title, r.editor));
+            QVERIFY2(b.has_value(), qPrintable(r.title + " must resolve to a band"));
+            QCOMPARE(b->axis, r.axis);
+            QVERIFY2(b->lo.has_value(), qPrintable(r.title + " lo must be set"));
+            QCOMPARE(*b->lo, r.lo);
+            QCOMPARE(b->hi.has_value(), r.hasHi);
+            if (r.hasHi) QCOMPARE(*b->hi, r.hi);
+            QCOMPARE(b->src, r.src);
+            QCOMPARE(b->confidence, r.conf);
+        }
+    }
+
     // -------------------------------------------------------------------
     // correct-dflow-aflow-editor-profile-docs: regression guard for the
     // shipped KB the LLM ingests. It is a *known-bad blocklist + known-good
