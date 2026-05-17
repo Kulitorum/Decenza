@@ -763,9 +763,11 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // declared-equivalent title — displayName + all alsoMatches, e.g.
     // "D-Flow / Q" ≡ "Damian's Q" ≡ "D-Flow Q variant" — into ONE group,
     // regardless of which legacy kb-id string each shot persisted (D14a).
-    // Custom/bean-specific recipes that resolve to no id (e.g.
-    // "D-Flow / Q - Jeff") key off the profile title and are excluded from
-    // anchoring downstream by the empty-id check.
+    // A renamed variant of a documented recipe (e.g. "D-Flow / Q - Jeff")
+    // now resolves to its parent id via the recipe-prefix step (#1198) and
+    // collapses into that group. Only a fully-custom title with no recipe
+    // prefix (e.g. "My Morning Pull") resolves to no id, keys off the
+    // profile title, and is excluded from anchoring by the empty-id check.
     struct ProfileGroup {
         QString kbId;           // resolved canonical id ("" if unresolved)
         QString canonicalName;  // displayName (resolved) or raw title — logs only
@@ -840,10 +842,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         if (std::isnan(med)) continue;
 
         // g.kbId is the resolved canonical id; empty only when neither the
-        // stored kb-id nor the profile title matched any KB entry — i.e. a
-        // custom/bean-specific recipe (e.g. "D-Flow / Q - Jeff"). Those
-        // can't anchor a UGS-referenced calibration, but are still surfaced
-        // as a history row in the cross-profile table below.
+        // stored kb-id, the profile title, nor the recipe-prefix step
+        // matched any KB entry — i.e. a fully-custom title (e.g. "My
+        // Morning Pull"). Those can't anchor a UGS-referenced calibration,
+        // but are still surfaced as a history row in the table below.
         const QString kbId = g.kbId;
         if (kbId.isEmpty()) {
             customMedians.append({ g.canonicalName, med });
@@ -1037,7 +1039,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     // History profiles with no KB UGS entry in the output: resolved ids
     // whose entry has no UGS (e.g. advanced-spring-lever), then unresolved
-    // custom/bean-specific titles (e.g. "D-Flow / Q - Jeff").
+    // fully-custom titles (e.g. "My Morning Pull").
     for (auto it = medianById.constBegin(); it != medianById.constEnd(); ++it) {
         if (coveredIds.contains(it.key())) continue;
         QJsonObject p;

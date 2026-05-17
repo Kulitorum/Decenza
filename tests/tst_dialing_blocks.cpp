@@ -1301,7 +1301,9 @@ private slots:
                     .uuid = QStringLiteral("u-jeff-%1").arg(i),
                     .timestamp = 3000 + i,
                     .profileName = QStringLiteral("D-Flow / Q - Jeff"),
-                    .profileKbId = QString(),  // empty → resolves to no id
+                    // empty stored kb-id → re-resolved from the title, which
+                    // now prefix-resolves to d-flow-q-variant (#1198)
+                    .profileKbId = QString(),
                     .finalWeight = 36.0,
                     .grinderModel = QStringLiteral("Niche Zero"),
                     .grinderBurrs = QStringLiteral("63mm conical"),
@@ -1338,6 +1340,84 @@ private slots:
             }
             QCOMPARE(qVariantHistoryRows, 1);  // variant row, history-sourced
             QCOMPARE(rawJeffRows, 0);           // no stray raw custom row
+        });
+    }
+
+    // #1198 negative control (restores the integration invariant the
+    // inverted test above used to carry): a FULLY-custom title with no
+    // recipe-prefix match and an empty stored kb-id must still resolve to
+    // NO id, surface exactly once via customMedians as a raw history row
+    // labelled with its verbatim title, and must NOT contaminate any KB
+    // group. "My Morning Pull" does not prefix-match any recipe alias, so
+    // it exercises the still-live unresolved path in
+    // buildGrinderCalibrationBlock that the recipe-prefix step bypasses
+    // for documented variants.
+    void calibrationBlock_fullyCustomTitleStillEmittedAsRawHistoryRow_1198()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_custom_unresolved"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("6.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("16.0")
+                });
+            }
+            for (int i = 0; i < 4; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-cust-%1").arg(i),
+                    .timestamp = 3000 + i,
+                    .profileName = QStringLiteral("My Morning Pull"),
+                    .profileKbId = QString(),  // empty AND title has no recipe prefix
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("9.0")
+                });
+            }
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY(!r.isEmpty());
+
+            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
+            int customRows = 0;
+            for (const QJsonValue& pv : profiles) {
+                const QJsonObject p = pv.toObject();
+                const QString name = p.value(QStringLiteral("profileName")).toString();
+                if (name == QStringLiteral("My Morning Pull")) {
+                    ++customRows;
+                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
+                             QStringLiteral("history"));
+                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
+                             QStringLiteral("9"));
+                }
+                // No KB group may be history-sourced from these unresolved
+                // shots: with no history of its own, d-flow-q-variant must
+                // never read "history" (that would be contamination).
+                if (name == QStringLiteral("D-Flow Q variant"))
+                    QVERIFY2(p.value(QStringLiteral("source")).toString()
+                                 != QStringLiteral("history"),
+                             "unresolved custom title must not contaminate a KB group");
+            }
+            QCOMPARE(customRows, 1);  // exactly one raw row, verbatim title
         });
     }
 

@@ -428,7 +428,8 @@ private:
     static QString recipePrefixResolve(const QString& normalizedKey);
     // Resolve any caller kbId (a current `id` OR a legacy normalized
     // title/alias persisted on old shot records, D14a) to a canonical
-    // `id`; "" when unresolved. Exact-match-or-unresolved, never fuzzy.
+    // `id`; "" when unresolved. id-passthrough → exact alias → deterministic
+    // recipe-prefix (#1198); no order-dependent fuzzy scan.
     static QString resolveKbInput(const QString& kbId);
 
     // Profile catalog (compact one-liner per KB profile for cross-profile awareness)

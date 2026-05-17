@@ -13,8 +13,11 @@
 // document (schema: resources/ai/profile_knowledge.schema.json; build-time
 // gate: tools/validate_kb.py). Replaces the former line.startsWith() markdown
 // scraper + the hardcoded C++ kBands table. Identity is a stable kebab `id`;
-// resolution is exact-match-or-explicitly-unresolved over an alias→id map
-// (the order-dependent greedy startsWith/contains fallback is DELETED).
+// resolution is exact-match-first over an alias→id map, then a deterministic
+// recipe-alias longest-boundary-prefix step (#1198), else explicitly
+// unresolved. The order-dependent greedy startsWith/contains fallback stays
+// DELETED — the prefix step is anchored, prefix-only and longest-wins, not
+// a guess.
 #include "shotsummarizer.h"
 #include "shotanalysis.h"  // ShotAnalysis::ExpertBand (expertBandForKbId return)
 
@@ -53,9 +56,11 @@ QString ShotSummarizer::s_crossProfileReference;
 bool ShotSummarizer::s_crossProfileReferenceLoaded = false;
 
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation.
-// This is logic (retained from the markdown era) — the resolver still
-// normalizes before the exact alias→id lookup so "D-Flow / Q - Jeff"
-// case/accents are handled, but there is NO fuzzy fallback after a miss.
+// This is logic (retained from the markdown era) — the resolver normalizes
+// before the exact alias→id lookup and before the deterministic recipe-alias
+// prefix step, so "D-Flow / Q - Jeff" case/accents are handled. There is no
+// order-dependent fuzzy scan after a miss; only the anchored, prefix-only,
+// longest-wins recipe-prefix step (#1198).
 static QString normalizeProfileKey(const QString& key)
 {
     QString normalized = key.toLower().trimmed();
@@ -196,9 +201,10 @@ void ShotSummarizer::loadProfileKnowledge()
         s_profileKnowledge.insert(pk.id, pk);
 
         // Alias map: displayName + every alsoMatches entry + the editor-type
-        // default → id. Exact (normalized) keys only; a miss is unresolved,
-        // never a guess. Same normalization as the resolver (so the build
-        // validator and runtime agree on what "collides").
+        // default → id. Exact (normalized) keys only; an s_aliasToId miss
+        // falls to the deterministic recipe-prefix step, never an
+        // order-dependent guess. Same normalization as the resolver (so the
+        // build validator and runtime agree on what "collides").
         const QString edt = po.value(QStringLiteral("defaultForEditorType")).toString();
         // D2: an editor-default entry's aliases name the editor *namespace*,
         // not a recipe identity — they MUST NOT anchor a prefix (the
@@ -214,8 +220,14 @@ void ShotSummarizer::loadProfileKnowledge()
                 qWarning() << "ShotSummarizer: alias collision —" << raw
                            << "maps to both" << it.value() << "and" << pk.id
                            << "(validator gate should have rejected this)";
+            const bool firstSeen = (it == s_aliasToId.constEnd());
             s_aliasToId.insert(key, pk.id);
-            if (recipeAnchor)
+            // First registration of this normalized key only — mirrors the
+            // validator's recipe_aliases.setdefault (first-wins). Skipping
+            // re-adds keeps s_recipeAliases free of same-id duplicates and,
+            // for a colliding key (warned above), avoids a second
+            // conflicting entry whose tiebreak order is undefined.
+            if (recipeAnchor && firstSeen)
                 s_recipeAliases.append(RecipeAlias{ key, pk.id });
         };
         registerAlias(pk.name, !isEditorDefault);
@@ -311,9 +323,10 @@ void ShotSummarizer::loadDialInReference()
 
 // Resolve any caller-supplied kbId to a canonical `id`. Accepts BOTH a
 // current `id` AND a legacy normalized title/alias (shot records persist
-// the old normalized-title kbId; D14a). Exact-match-or-unresolved: an
-// unknown value returns "" (→ every consumer no-ops; never a fuzzy guess).
-// Member (not a free function) — touches the private s_* statics.
+// the old normalized-title kbId; D14a). Order: id-passthrough → exact
+// alias → deterministic recipe-prefix step (#1198, D6 — heals renamed
+// variant titles) → "" (→ every consumer no-ops; never an order-dependent
+// guess). Member (not a free function) — touches the private s_* statics.
 // Deterministic recipe-alias longest-boundary-prefix resolution (#1198).
 // `normalizedKey` is already normalizeProfileKey'd. A user who keeps a
 // documented recipe's name as the start of a renamed profile
