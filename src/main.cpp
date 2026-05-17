@@ -2362,11 +2362,19 @@ int main(int argc, char *argv[])
 
         bool needBleWait = false;
 
+        // transport() is null in simulation mode (sim uses the simulator, not a
+        // real transport), yet de1Device.isConnected() is unconditionally true
+        // in sim. Gate the drain wait on a real connected transport: otherwise
+        // every sim-mode quit enters the wait with no queueDrained source and
+        // always trips the safety-net timeout with a misleading warning.
+        auto* de1Transport = de1Device.transport();
+        const bool de1TransportConnected = de1Transport && de1Transport->isConnected();
+
         // Put DE1 to sleep if connected (this is more reliable than QML onClosing on mobile)
         if (de1Device.isConnected()) {
             qDebug() << "Sending DE1 to sleep on app exit";
             de1Device.goToSleep();
-            needBleWait = true;
+            needBleWait = de1TransportConnected;
         }
 
         // Put scale to sleep if connected
@@ -2378,14 +2386,13 @@ int main(int argc, char *argv[])
         // Wait for BLE writes to complete before exiting
         if (needBleWait) {
             QEventLoop waitLoop;
-            auto* transport = de1Device.transport();
             bool drained = false;
             int timeoutMs = 1500; // Safety-net timeout
 
-            if (transport && transport->isConnected()) {
-                QObject::connect(transport, &DE1Transport::queueDrained,
+            if (de1TransportConnected) {
+                QObject::connect(de1Transport, &DE1Transport::queueDrained,
                                  &waitLoop, [&]() { drained = true; waitLoop.quit(); });
-                QObject::connect(transport, &DE1Transport::disconnected,
+                QObject::connect(de1Transport, &DE1Transport::disconnected,
                                  &waitLoop, [&]() { waitLoop.quit(); });
                 timeoutMs = 2000;
             }
