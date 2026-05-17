@@ -391,6 +391,13 @@ QString ShotSummarizer::canonicalNameForKbId(const QString& kbId)
     return id.isEmpty() ? QString() : s_profileKnowledge.value(id).name;
 }
 
+QString ShotSummarizer::resolveKbId(const QString& kbIdOrAlias)
+{
+    if (kbIdOrAlias.isEmpty()) return QString();
+    loadProfileKnowledge();
+    return resolveKbInput(kbIdOrAlias);
+}
+
 std::optional<ShotAnalysis::ExpertBand>
 ShotSummarizer::expertBandForKbId(const QString& kbId)
 {

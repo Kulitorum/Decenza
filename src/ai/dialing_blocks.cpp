@@ -757,20 +757,27 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         return QJsonObject();
     }
 
-    // Group numeric settings by canonical KB name.
-    // canonicalKey: pk.name if kbId found in KB, else profile_name.
+    // Group numeric settings by canonical KB *id* (identity), not by the
+    // displayName string. Resolving the stored profile_kb_id (or, for very
+    // old shots with an empty kb-id, the profile title) collapses every
+    // declared-equivalent title — displayName + all alsoMatches, e.g.
+    // "D-Flow / Q" ≡ "Damian's Q" ≡ "D-Flow Q variant" — into ONE group,
+    // regardless of which legacy kb-id string each shot persisted (D14a).
+    // Custom/bean-specific recipes that resolve to no id (e.g.
+    // "D-Flow / Q - Jeff") key off the profile title and are excluded from
+    // anchoring downstream by the empty-id check.
     struct ProfileGroup {
-        QString kbId;           // first non-empty kbId seen for this canonical name
-        QString canonicalName;
+        QString kbId;           // resolved canonical id ("" if unresolved)
+        QString canonicalName;  // displayName (resolved) or raw title — logs only
         QList<double> settings;
     };
-    QMap<QString, ProfileGroup> groups;  // key = canonicalName
+    QMap<QString, ProfileGroup> groups;  // key = canonical id, else profile title
 
     int rowCount = 0;
     int nonNumericCount = 0;
     while (q.next()) {
         ++rowCount;
-        const QString kbId = q.value(0).toString().trimmed();
+        const QString rawKbId = q.value(0).toString().trimmed();
         const QString profileName = q.value(1).toString().trimmed();
         const QString settingStr = q.value(2).toString().trimmed();
 
@@ -778,15 +785,20 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         const double settingVal = settingStr.toDouble(&numericOk);
         if (!numericOk) { ++nonNumericCount; continue; }
 
-        QString canonName = ShotSummarizer::canonicalNameForKbId(kbId);
-        if (canonName.isEmpty())
-            canonName = profileName.isEmpty() ? kbId : profileName;
-        if (canonName.isEmpty()) continue;
+        QString id = ShotSummarizer::resolveKbId(rawKbId);
+        if (id.isEmpty())
+            id = ShotSummarizer::computeProfileKbId(profileName);
 
-        auto& g = groups[canonName];
-        g.canonicalName = canonName;
-        if (g.kbId.isEmpty() && !kbId.isEmpty())
-            g.kbId = kbId;
+        const QString groupKey = !id.isEmpty()
+            ? id
+            : (profileName.isEmpty() ? rawKbId : profileName);
+        if (groupKey.isEmpty()) continue;
+
+        auto& g = groups[groupKey];
+        g.kbId = id;  // stays "" for unresolved (custom) groups
+        g.canonicalName = !id.isEmpty()
+            ? ShotSummarizer::canonicalNameForKbId(id)
+            : groupKey;
         g.settings.append(settingVal);
     }
 
@@ -818,42 +830,41 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     };
     QList<AnchorCandidate> canonicalCandidates;
     QList<AnchorCandidate> inferredCandidates;
-    QMap<QString, double> medianByName;  // canonical name → median
+    QMap<QString, double> medianById;             // canonical id → median
+    QList<QPair<QString, double>> customMedians;  // (title, median) — unresolved
 
     for (auto& g : groups) {
         const double med = computeMedian(g.settings);
         if (std::isnan(med)) continue;
-        medianByName[g.canonicalName] = med;
 
-        // kbId may be empty for shots predating migration 9 — fall back to
-        // computing it from the canonical name via the KB matcher.
-        QString kbId = g.kbId;
-        if (kbId.isEmpty())
-            kbId = ShotSummarizer::computeProfileKbId(g.canonicalName);
-
+        // g.kbId is the resolved canonical id; empty only when neither the
+        // stored kb-id nor the profile title matched any KB entry — i.e. a
+        // custom/bean-specific recipe (e.g. "D-Flow / Q - Jeff"). Those
+        // can't anchor a UGS-referenced calibration, but are still surfaced
+        // as a history row in the cross-profile table below.
+        const QString kbId = g.kbId;
         if (kbId.isEmpty()) {
+            customMedians.append({ g.canonicalName, med });
             qDebug() << "buildGrinderCalibrationBlock: group" << g.canonicalName
-                     << "skipped — no kbId resolvable";
+                     << "skipped — no kbId resolvable (history-only)";
             continue;
         }
+        medianById[kbId] = med;
+
         const double ugs = ShotSummarizer::ugsForKbId(kbId);
         if (std::isnan(ugs)) {
+            // Resolved, but the entry carries no UGS (e.g. advanced-spring-
+            // lever). Not anchor-eligible; emitted as a history row below.
             qDebug() << "buildGrinderCalibrationBlock: group" << g.canonicalName
                      << "kbId=" << kbId << "skipped — NaN UGS";
             continue;
         }
 
-        // Only the canonical KB name qualifies as an anchor. Variant profiles
-        // (e.g. "D-Flow / Q - Jeff") resolve to a kbId via normalization but
-        // their settings are tuned for specific beans — they don't represent the
-        // canonical UGS position and should not anchor the calibration.
-        const QString kbCanonicalName = ShotSummarizer::canonicalNameForKbId(kbId);
-        if (!kbCanonicalName.isEmpty() && g.canonicalName != kbCanonicalName) {
-            qDebug() << "buildGrinderCalibrationBlock: group" << g.canonicalName
-                     << "kbId=" << kbId << "skipped — variant of" << kbCanonicalName;
-            continue;
-        }
-
+        // No display-string "variant" gate: under id grouping a resolved id
+        // IS the canonical entry, and every alsoMatches-equivalent title
+        // (D-Flow / Q ≡ Damian's Q ≡ D-Flow Q variant) already collapsed
+        // into this one group. Non-equivalent custom recipes resolve to no
+        // id and were filtered by the empty-id branch above.
         const bool inferred = ShotSummarizer::ugsInferredForKbId(kbId);
         qDebug() << "buildGrinderCalibrationBlock: anchor candidate" << g.canonicalName
                  << "kbId=" << kbId << "ugs=" << ugs
@@ -971,8 +982,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     // Build the profiles array from all KB entries with a known UGS.
     // Additionally, append any history profiles not in the KB UGS list.
+    // Coverage is tracked by canonical `id` (not displayName): a history
+    // group resolves to an id, and a KB entry IS an id, so the dedup is
+    // identity-exact — an alsoMatches-aliased history group can no longer
+    // split off and get re-emitted as a phantom standalone profile.
     QJsonArray profilesArr;
-    QSet<QString> coveredNames;
+    QSet<QString> coveredIds;
 
     const QList<ShotSummarizer::KbUgsEntry> kbEntries = ShotSummarizer::allKbUgsEntries();
 
@@ -984,9 +999,9 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
               });
 
     for (const ShotSummarizer::KbUgsEntry& e : sortedEntries) {
-        coveredNames.insert(e.name);
+        coveredIds.insert(e.kbId);
 
-        const bool hasHistory = medianByName.contains(e.name);
+        const bool hasHistory = medianById.contains(e.kbId);
         const bool withinRange = !e.ugsInferred
             && e.ugs >= fineAnchor->ugs - 1e-9
             && e.ugs <= coarseAnchor->ugs + 1e-9;
@@ -995,7 +1010,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         QString rgs;
         if (hasHistory) {
             source = QStringLiteral("history");
-            rgs = formatGrinderSetting(medianByName[e.name]);
+            rgs = formatGrinderSetting(medianById[e.kbId]);
         } else if (withinRange) {
             source = QStringLiteral("derived");
             const double computed = fineAnchor->medianSetting
@@ -1016,12 +1031,21 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         profilesArr.append(p);
     }
 
-    // Append history profiles that have no KB UGS entry (custom titles, etc.).
-    for (auto it = medianByName.constBegin(); it != medianByName.constEnd(); ++it) {
-        if (coveredNames.contains(it.key())) continue;
+    // History profiles with no KB UGS entry in the output: resolved ids
+    // whose entry has no UGS (e.g. advanced-spring-lever), then unresolved
+    // custom/bean-specific titles (e.g. "D-Flow / Q - Jeff").
+    for (auto it = medianById.constBegin(); it != medianById.constEnd(); ++it) {
+        if (coveredIds.contains(it.key())) continue;
         QJsonObject p;
-        p["profileName"] = it.key();
+        p["profileName"] = ShotSummarizer::canonicalNameForKbId(it.key());
         p["rgs"] = formatGrinderSetting(it.value());
+        p["source"] = QStringLiteral("history");
+        profilesArr.append(p);
+    }
+    for (const QPair<QString, double>& cm : customMedians) {
+        QJsonObject p;
+        p["profileName"] = cm.first;
+        p["rgs"] = formatGrinderSetting(cm.second);
         p["source"] = QStringLiteral("history");
         profilesArr.append(p);
     }

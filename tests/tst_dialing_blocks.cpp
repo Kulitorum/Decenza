@@ -1095,6 +1095,100 @@ private slots:
         });
     }
 
+    void calibrationBlock_aliasEquivalentTitlesCollapseToOneGroup()
+    {
+        // Regression: shots persisted under the three declared-equivalent
+        // identifiers of the SAME KB entry (`d-flow-q-variant`) — the
+        // current id, the legacy normalized-title kb-id "d-flow / q", and
+        // the alsoMatches title "Damian's Q" (empty stored kb-id → resolved
+        // from the profile title) — must collapse into ONE group.
+        //
+        // Pre-fix: grouping keyed by displayName string split these into
+        // "D-Flow / Q" / "Damian's Q" / "D-Flow Q variant", the canonical
+        // usage was rejected as "variant of D-Flow Q variant", and the
+        // cross-profile dedup re-emitted phantom standalone rows.
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_alias_collapse"), [&](QSqlDatabase& db) {
+            // Clean canonical anchor pair so the block is non-empty:
+            // D-Flow (UGS 0.5) @6 and Allonge (UGS 8.0) @16.
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("6.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("16.0")
+                });
+            }
+            // Same logical profile (d-flow-q-variant), three identifiers,
+            // all at setting 9.0 → pooled median must be 9 across all 6.
+            struct QId { QString title; QString kbid; };
+            const QId qIds[] = {
+                { QStringLiteral("D-Flow Q variant"), QStringLiteral("d-flow-q-variant") }, // current id
+                { QStringLiteral("D-Flow / Q"),       QStringLiteral("d-flow / q") },       // legacy title kb-id
+                { QStringLiteral("Damian's Q"),       QString() },                          // resolved from title
+            };
+            int n = 0;
+            for (const QId& q : qIds) {
+                for (int i = 0; i < 2; ++i, ++n) {
+                    insertShot(db, ShotRow{
+                        .uuid = QStringLiteral("u-q-%1").arg(n),
+                        .timestamp = 3000 + n,
+                        .profileName = q.title,
+                        .profileKbId = q.kbid,
+                        .finalWeight = 36.0,
+                        .grinderModel = QStringLiteral("Niche Zero"),
+                        .grinderBurrs = QStringLiteral("63mm conical"),
+                        .grinderSetting = QStringLiteral("9.0")
+                    });
+                }
+            }
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY(!r.isEmpty());
+
+            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
+            int qRows = 0;
+            QString qName, qSource, qRgs;
+            for (const QJsonValue& pv : profiles) {
+                const QJsonObject p = pv.toObject();
+                const QString name = p.value(QStringLiteral("profileName")).toString();
+                // The alias titles must NOT leak as separate phantom rows.
+                QVERIFY2(name != QStringLiteral("D-Flow / Q"),
+                         "alsoMatches title 'D-Flow / Q' must not appear as its own row");
+                QVERIFY2(name != QStringLiteral("Damian's Q"),
+                         "alsoMatches title \"Damian's Q\" must not appear as its own row");
+                if (name == QStringLiteral("D-Flow Q variant")) {
+                    ++qRows;
+                    qName   = name;
+                    qSource = p.value(QStringLiteral("source")).toString();
+                    qRgs    = p.value(QStringLiteral("rgs")).toString();
+                }
+            }
+            QCOMPARE(qRows, 1);  // collapsed to exactly one row, not three
+            QCOMPARE(qSource, QStringLiteral("history"));
+            // Pooled median of all 6 equivalent shots (all at 9.0) → "9".
+            // A split would median only the 2 same-title shots' subset.
+            QCOMPARE(qRgs, QStringLiteral("9"));
+        });
+    }
+
     void calibrationBlock_badgedShotsExcluded()
     {
         // D-Flow: 2 clean shots at 6.0, 3 grind-issue shots at 15.0.
