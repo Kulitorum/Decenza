@@ -67,13 +67,25 @@ static QString normalizeProfileKey(const QString& key)
 
 // Build a ShotAnalysis::ExpertBand from a JSON expertBand object, or
 // std::nullopt when absent/ill-formed. The validator (tools/validate_kb.py)
-// guarantees shape at build time; this stays defensive (a malformed runtime
-// resource degrades to "no band" — strict no-op, D6 — never a crash).
+// is the build-time gate, but this is the LAST line of defense and does NOT
+// trust it: the ExpertBand factories enforce lo<hi / positivity via Q_ASSERT
+// only, which is compiled out under QT_NO_DEBUG — so a malformed-but-
+// unrejected shape (non-numeric lo/hi → QJsonValue::toDouble()==0.0; hi<=lo;
+// non-positive bound) would otherwise build a *wrong* live band in release
+// rather than no-op. Every invalid shape here degrades to "no band" (strict
+// no-op, D6) and is logged loudly (keeps the loud/silent split honest — a
+// schema-valid-but-unhandled shape is a real authoring issue, not silence).
 static std::optional<ShotAnalysis::ExpertBand>
-expertBandFromJson(const QJsonObject& eb)
+expertBandFromJson(const QString& whoFor, const QJsonObject& eb)
 {
     using EB = ShotAnalysis::ExpertBand;
     if (eb.isEmpty()) return std::nullopt;
+
+    auto reject = [&](const char* why) -> std::optional<EB> {
+        qWarning() << "ShotSummarizer: expertBand dropped for" << whoFor
+                   << "—" << why << "(degraded to no band)";
+        return std::nullopt;
+    };
 
     const QString axis = eb.value(QStringLiteral("axis")).toString();
     const QString conf = eb.value(QStringLiteral("confidence")).toString();
@@ -85,19 +97,31 @@ expertBandFromJson(const QJsonObject& eb)
 
     const bool hasLo = eb.contains(QStringLiteral("lo"));
     const bool hasHi = eb.contains(QStringLiteral("hi"));
+    // toDouble() yields 0.0 for a string/bool/null — only trust real numbers.
+    if (hasLo && !eb.value(QStringLiteral("lo")).isDouble())
+        return reject("lo is not numeric");
+    if (hasHi && !eb.value(QStringLiteral("hi")).isDouble())
+        return reject("hi is not numeric");
     const double lo = eb.value(QStringLiteral("lo")).toDouble();
     const double hi = eb.value(QStringLiteral("hi")).toDouble();
 
     if (axis == QStringLiteral("pressurePeak")) {
-        if (hasLo && hasHi) return EB::pressureBand(lo, hi, src, conf);
-        return std::nullopt;  // no one-sided pressure rail in the corpus
+        if (!(hasLo && hasHi))      return reject("pressurePeak needs lo and hi");
+        if (!(lo > 0.0 && lo < hi)) return reject("pressure band requires 0 < lo < hi");
+        return EB::pressureBand(lo, hi, src, conf);
     }
     if (axis == QStringLiteral("extractionFlow")) {
-        if (hasLo && hasHi) return EB::flowBand(lo, hi, src, conf);
-        if (hasLo)          return EB::flowFloor(lo, src, conf);
-        return std::nullopt;  // flow ceiling-only: none in the corpus
+        if (hasLo && hasHi) {
+            if (!(lo >= 0.0 && lo < hi)) return reject("flow band requires 0 <= lo < hi");
+            return EB::flowBand(lo, hi, src, conf);
+        }
+        if (hasLo) {
+            if (!(lo > 0.0)) return reject("flow floor requires lo > 0");
+            return EB::flowFloor(lo, src, conf);
+        }
+        return reject("extractionFlow needs lo (and optionally hi)");
     }
-    return std::nullopt;
+    return reject("unknown expertBand.axis");
 }
 
 void ShotSummarizer::loadProfileKnowledge()
@@ -151,32 +175,45 @@ void ShotSummarizer::loadProfileKnowledge()
             pk.ugsInferred = u.value(QStringLiteral("inferred")).toBool(false);
         }
 
-        pk.expertBand = expertBandFromJson(
-            po.value(QStringLiteral("expertBand")).toObject());
-
         if (pk.id.isEmpty()) {
             qWarning() << "ShotSummarizer: KB entry with empty id — skipped";
             continue;
         }
+        pk.expertBand = expertBandFromJson(
+            pk.id, po.value(QStringLiteral("expertBand")).toObject());
+
+        // Runtime backstop — self-defending if the build-time validator gate
+        // was skipped (CMake degrades to FATAL_ERROR when Python is absent,
+        // but a hand-run/IDE build could still bypass it): a duplicate id or
+        // an alias re-pointing to a *different* id is loud, never a silent
+        // QMap-overwrite that mis-resolves a real profile.
+        if (s_profileKnowledge.contains(pk.id))
+            qWarning() << "ShotSummarizer: duplicate KB id" << pk.id
+                       << "— later entry overwrites earlier (validator gate"
+                          " should have rejected this)";
         s_profileKnowledge.insert(pk.id, pk);
 
-        // Alias map: displayName + every alsoMatches entry → id. Exact
-        // (normalized) keys only; a miss is unresolved, never a guess.
-        s_aliasToId.insert(normalizeProfileKey(pk.name), pk.id);
+        // Alias map: displayName + every alsoMatches entry + the editor-type
+        // default → id. Exact (normalized) keys only; a miss is unresolved,
+        // never a guess. Same normalization as the resolver (so the build
+        // validator and runtime agree on what "collides").
+        auto registerAlias = [&](const QString& raw) {
+            const QString key = normalizeProfileKey(raw);
+            const auto it = s_aliasToId.constFind(key);
+            if (it != s_aliasToId.constEnd() && it.value() != pk.id)
+                qWarning() << "ShotSummarizer: alias collision —" << raw
+                           << "maps to both" << it.value() << "and" << pk.id
+                           << "(validator gate should have rejected this)";
+            s_aliasToId.insert(key, pk.id);
+        };
+        registerAlias(pk.name);
         for (const QJsonValue& a : po.value(QStringLiteral("alsoMatches")).toArray()) {
             const QString alias = a.toString().trimmed();
-            if (!alias.isEmpty())
-                s_aliasToId.insert(normalizeProfileKey(alias), pk.id);
+            if (!alias.isEmpty()) registerAlias(alias);
         }
-        // Editor-type default: the entry the resolver falls back to for a
-        // fully-custom-titled D-Flow/A-Flow profile (was the hardcoded
-        // editorTypeToKey map; now KB data). Registered under a synthetic
-        // key matched by matchProfileKey's editor-type fallback.
         const QString edt = po.value(QStringLiteral("defaultForEditorType")).toString();
         if (edt == QStringLiteral("dflow") || edt == QStringLiteral("aflow"))
-            s_aliasToId.insert(
-                normalizeProfileKey(QStringLiteral("__editor_default__:") + edt),
-                pk.id);
+            registerAlias(QStringLiteral("__editor_default__:") + edt);
     }
 
     qDebug() << "ShotSummarizer: Loaded" << s_profileKnowledge.size()

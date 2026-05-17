@@ -59,7 +59,14 @@ def validate(kb_path: Path):
     editor_default_count = {}
 
     def norm(s):
-        return s.strip().lower()
+        # MUST match shotsummarizer_kb.cpp normalizeProfileKey EXACTLY, or the
+        # alias-collision check is unsound: two aliases the C++ resolver folds
+        # to one key (silently overwriting in s_aliasToId) but this validator
+        # keeps distinct would pass here yet mis-resolve at runtime.
+        s = s.strip().lower()
+        for ch in "éèêë":
+            s = s.replace(ch, "e")
+        return s.replace(" & ", " and ")
 
     for idx, p in enumerate(profiles):
         where = f"profiles[{idx}]"
@@ -114,11 +121,17 @@ def validate(kb_path: Path):
         if not isinstance(af, list) or any(not isinstance(x, str) or not x for x in af):
             errors.append(f"{pid}: analysisFlags must be a list of non-empty strings")
 
-        # alias integrity: displayName + alsoMatches + defaultForEditorType
+        # alias integrity over the FULL runtime keyspace (must match
+        # shotsummarizer_kb.cpp registerAlias): displayName + alsoMatches +
+        # the synthetic "__editor_default__:<type>" key the resolver registers
+        # for defaultForEditorType. Omitting the synthetic key here would let
+        # a collision the runtime warns about pass the build gate.
         keys = []
         if isinstance(p.get("displayName"), str):
             keys.append(p["displayName"])
         keys += [x for x in am if isinstance(x, str)]
+        if ded in ("dflow", "aflow"):
+            keys.append(f"__editor_default__:{ded}")
         for k in keys:
             nk = norm(k)
             if nk in alias_to_id and alias_to_id[nk] != p.get("id"):

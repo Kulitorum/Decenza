@@ -887,25 +887,28 @@ set_source_files_properties(${VERSION_CODE_CPP} PROPERTIES GENERATED TRUE)
 # build. Pass/fail check ONLY — no generated artifact enters the build graph,
 # and the target is standalone (not a custom command shared between targets),
 # deliberately avoiding the cross-platform-codegen failure class (2b6e0965).
-# validate_kb.py is stdlib-only Python 3; if no interpreter is discovered the
-# gate degrades to a loud warning (the test suite still enforces validity)
-# rather than bricking a platform build that lacks Python.
+# validate_kb.py is stdlib-only Python 3. A missing interpreter is a HARD
+# FAILURE, not a soft skip: nothing else actually performs schema validation
+# (no test runs validate_kb.py; CI builds on tag, not PR), so degrading to a
+# warning would let malformed/typo'd/colliding KB data ship behind an unread
+# build log. Python 3 is a de-facto build dependency on all supported
+# platforms; if it is genuinely unavailable, fail loudly so it gets installed.
 find_package(Python3 COMPONENTS Interpreter QUIET)
-if(Python3_Interpreter_FOUND)
-    add_custom_target(validate_kb ALL
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tools/validate_kb.py
-            ${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json
-        COMMENT "Validating profile_knowledge.json (schema + integrity)..."
-        VERBATIM
-    )
-    add_dependencies(Decenza validate_kb)
-else()
-    message(WARNING
-        "Python3 not found — the build-time KB validator gate is SKIPPED "
-        "(resources/ai/profile_knowledge.json is still validated by the test "
-        "suite). Install Python 3 to enable the build-time hard gate.")
+if(NOT Python3_Interpreter_FOUND)
+    message(FATAL_ERROR
+        "Python3 not found — required for the build-time KB validator gate "
+        "(tools/validate_kb.py). It is the ONLY schema/integrity check for "
+        "resources/ai/profile_knowledge.json; skipping it would let invalid "
+        "KB data ship. Install Python 3.")
 endif()
+add_custom_target(validate_kb ALL
+    COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/tools/validate_kb.py
+        ${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json
+    COMMENT "Validating profile_knowledge.json (schema + integrity)..."
+    VERBATIM
+)
+add_dependencies(Decenza validate_kb)
 
 # Force QML resource rebuild when source files change
 # NOTE: Disabled - defeats QML caching which slows page loads

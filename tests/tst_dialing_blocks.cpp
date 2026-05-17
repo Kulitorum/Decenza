@@ -2106,11 +2106,15 @@ private slots:
         const QString kb = QString::fromUtf8(f.readAll());
         f.close();
         QVERIFY(!kb.isEmpty());
-        // Structural-stability pin (restructure-kb-as-validated-json): one
-        // "id": key per entry. Replaces the old '## ' heading count of 43 —
-        // same invariant, now JSON entries. If a KB entry is intentionally
-        // added/removed, update this count AND re-verify #1160 resolution.
-        QCOMPARE(kb.count(QStringLiteral("\"id\":")), 43);
+        // Structural-stability pin (restructure-kb-as-validated-json): exactly
+        // 43 entries. Parsed (not a raw "id": substring count, which a future
+        // prose/rationale string containing `"id":` would falsely break). If a
+        // KB entry is intentionally added/removed, update this count AND
+        // re-verify #1160 resolution.
+        const QJsonArray kbProfiles =
+            QJsonDocument::fromJson(kb.toUtf8()).object()
+                .value(QStringLiteral("profiles")).toArray();
+        QCOMPARE(kbProfiles.size(), 43);
 
         // LLM-facing scope: the (a)/(c) framing checks target what the model
         // ingests — `prose` + identity. `rationale` (and `src`) are
@@ -2230,6 +2234,7 @@ private slots:
                      "found %1").arg(files.size())));
 
         QStringList unresolved;
+        int resolved = 0;
         for (const QString& fn : files) {
             QFile pf(dir.filePath(fn));
             QVERIFY2(pf.open(QIODevice::ReadOnly),
@@ -2240,21 +2245,55 @@ private slots:
             const QString title = po.value(QStringLiteral("title")).toString();
             if (title.isEmpty()) continue;  // not a titled brew profile
 
-            // editorType is derived from the title prefix (the app's rule).
+            // editorType is derived EXACTLY as Profile::editorType() does:
+            // strip a single leading '*' (unsaved-modified marker) BEFORE the
+            // prefix-test. Omitting the strip would false-green a
+            // "*D-Flow / x" title (resolves via editor-default in the app but
+            // not here). This mirrors the production call site.
+            QString t = title;
+            if (t.startsWith(QLatin1Char('*'))) t = t.mid(1);
             QString editor;
-            if (title.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+            if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
                 editor = QStringLiteral("dflow");
-            else if (title.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+            else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
                 editor = QStringLiteral("aflow");
 
             if (ShotSummarizer::computeProfileKbId(title, editor).isEmpty())
                 unresolved << title;
+            else
+                ++resolved;
         }
         QVERIFY2(unresolved.isEmpty(),
                  qPrintable(QStringLiteral("built-in profile(s) with NO matching "
                      "KB entry — add a KB entry or an alsoMatches alias "
                      "(restructure-kb-as-validated-json):\n  ")
                      + unresolved.join(QStringLiteral("\n  "))));
+        // Floor: a regression that blanked many titles would shrink the
+        // checked set via the isEmpty()-continue above without tripping
+        // `unresolved`. Assert a healthy resolved count too.
+        QVERIFY2(resolved >= 85,
+                 qPrintable(QStringLiteral("only %1 built-ins resolved — "
+                     "expected >= 85 (have titles been blanked?)")
+                     .arg(resolved)));
+    }
+
+    // restructure-kb-as-validated-json: the resolver's CENTRAL safety
+    // property — an UNKNOWN input is a strict no-op across every consumer
+    // (the order-dependent greedy startsWith/contains fallback is deleted
+    // and must stay dead). Success paths are covered above; this is the
+    // only test pinning the negative branch, so a future re-introduced
+    // fuzzy fallback or default-entry leak fails loudly here.
+    void resolver_unknownInput_isStrictNoOpAcrossConsumers()
+    {
+        const QString junk = QStringLiteral("no-such-profile-xyz-9000");
+        const QString editor = QStringLiteral("advanced");  // not dflow/aflow
+        QVERIFY(ShotSummarizer::computeProfileKbId(junk, editor).isEmpty());
+        QVERIFY(ShotSummarizer::getAnalysisFlags(junk).isEmpty());
+        QVERIFY(qIsNaN(ShotSummarizer::ugsForKbId(junk)));
+        QVERIFY(!ShotSummarizer::ugsInferredForKbId(junk));
+        QVERIFY(ShotSummarizer::canonicalNameForKbId(junk).isEmpty());
+        QVERIFY(!ShotSummarizer::expertBandForKbId(junk).has_value());
+        QVERIFY(ShotSummarizer::profileKnowledgeForKbId(junk).isEmpty());
     }
 };
 

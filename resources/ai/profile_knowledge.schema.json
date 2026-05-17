@@ -22,7 +22,7 @@
     "profileEntry": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One KB section. `id` is the ONLY identity key; aliases resolve to an `id` (design D4). `displayName` is a human label, NOT a key — renaming it never breaks identity. `category` and `roast` are intentionally NOT fields (design D3) — folded into `summary`/`prose`.",
+      "description": "One KB section. `id` is the ONLY identity key; aliases resolve to an `id` (design D4). `displayName` is a human label, NOT a key — renaming it never breaks identity. `category`, `roast`, and `summary` are intentionally NOT fields (design D3) — folded into `prose`; additionalProperties:false rejects them if reintroduced.",
       "required": ["id", "displayName", "prose"],
       "properties": {
         "id": {
@@ -111,8 +111,12 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "skipCatalog": { "const": true } } },
-          "else": { "required": ["canonicalName", "prose", "family", "summary"] }
+          "comment": "A real (non-skipCatalog) profile must also carry `family`. The `if` requires skipCatalog PRESENT and true — without `required` it would pass vacuously when skipCatalog is absent (the common case), and the `else` would never apply. `id`/`displayName`/`prose` are already top-level required.",
+          "if": {
+            "required": ["skipCatalog"],
+            "properties": { "skipCatalog": { "const": true } }
+          },
+          "else": { "required": ["family"] }
         }
       ]
     },
