@@ -429,6 +429,17 @@ ShotAnalysis::ExpertBand ShotSummarizer::expertBandForKbId(const QString& kbId)
         { QStringLiteral("D-Flow La Pavoni variant"),
           { Axis::PressurePeak, 6.0, 9.0,
             QStringLiteral("[SRC:profile-notes]"), QStringLiteral("high") } },
+        // Phase B (A-Flow) was evaluated and DELIBERATELY NOT ADDED. The
+        // cited band exists ("pressure peak 6–9 bar at extraction"
+        // [SRC:aflow-repo]), but the B2 shadow gate over 53 real A-Flow
+        // shots failed flat/noisy: 0 of 53 rated (signal unmeasurable),
+        // every one of the 20 fires sat under a pre-existing skipFirstFrame
+        // verdict (zero marginal discoverability — never the lead), and ~6
+        // were the A-Flow editor's intentional 9–12 bar pressure-up ramp
+        // that the KB explicitly says not to flag. Per the Phase-B
+        // fail-safe this row is omitted and Phase A stands — absence here
+        // is the recorded designed outcome, not an unfilled gap. See
+        // tasks.md B1/B2. Do not re-add without a new gate pass.
     };
     if (kbId.isEmpty()) return {};
     loadProfileKnowledge();

@@ -60,10 +60,17 @@ Four review agents: code-reviewer **approve / 0 issues** (verdict ordering, `arg
 - [ ] **Follow-up — `prepareAnalysisInputs` integration test.** The D14a fix's ternary (`!freshKbId.isEmpty() ? freshKbId : profileKbId`) is covered at the building-block level (`tst_dialing_blocks::expertBand_staleKbId_…`) but not by a direct `prepareAnalysisInputs` call (its closure needs the `ai.qrc` + `profile.cpp`→Qt-Bluetooth chain in a test target — the same closure tension that put the regression in `tst_dialing_blocks`). Recorded as a known gap; add when a storage test target gains the KB resource, or accept the building-block coverage.
 - Considered & **kept as-is**: `loadProfileKnowledge` `qWarning` (not `qCritical`) on resource-open failure — test binaries deliberately lack the qrc (per the in-code comment); upgrading severity would spray criticals through every such suite and break the strict no-noise test discipline. The in-app path cannot fail (qrc linked).
 
-## Phase B — A-Flow family (only if A6 passed)
+## Phase B — A-Flow family (evaluated; STOP — row deliberately NOT added)
 
-- [ ] B1 Add the A-Flow variants (all 5) as cited rows — pressure 6–9, `[SRC:aflow-repo]` (band-only, no ceiling; softer signal). No code change beyond the table rows.
-- [ ] B2 Extend slice tests to an A-Flow fixture; re-run the A6 shadow gate over A-Flow shots. Flat/noisy → do not add A-Flow rows; Phase A result stands. Record before/after.
+A6 passed (A6.3 GO), so Phase B was run. The cited band is real — A-Flow repo editor-level dial-in guidance step 1, verbatim: *"grind fine enough to reach a pressure peak between 6 and 9 bar at extraction"* `[SRC:aflow-repo]` (PROFILE_KNOWLEDGE_BASE.md:240). B1's premise was not a fabrication. But the B2 shadow gate failed flat/noisy, so per the Phase-B fail-safe the row is **omitted** and Phase A stands. This is the designed outcome of a flat gate, recorded — not an unfilled gap.
+
+- [x] B1 **Done then reverted (gate-driven).** Added the single canonical `A-Flow` row (PressurePeak 6–9, `[SRC:aflow-repo]`, confidence `medium`; all 5 shipped A-Flow profiles canonical-key to the one `## A-Flow` KB section — same structural dedup as the gold pair), ran B2, then removed it. The KB cpp now carries a recorded-absence comment in its place (do not re-add without a fresh gate pass). Corpus stayed 17/17 with the row present.
+- [x] B2 **GATE: flat/noisy → DO NOT ADD (recorded before/after).** Shadow gate over **all 53 real A-Flow shots** in the 908-shot library, production path:
+  - **Before B1:** 0/53 A-Flow fires (no row). **After B1:** 20/53 fire (38%), zero cross-profile leakage maintained.
+  - **Zero marginal discoverability:** every one of the 20 fires carried verdict `skipFirstFrame` — **0 `expertBandDeviation`-lead**. The band never independently surfaces an A-Flow shot (the tint is already on from the real fault). Gold pair had ~14% band-lead; A-Flow has 0%.
+  - **Signal unmeasurable:** **0 of 53** A-Flow shots are user-rated, so the A6.3 criterion ("measurably more positive than false-flag") cannot be evaluated at all — no evidence the fires track worse shots.
+  - **Structural noise confirmed:** ~6 of 20 fires were peaks at 10–12 bar — the A-Flow editor's *intentional* pressure-up ramp that `profile_knowledge.md` explicitly says "DO NOT flag." The pour-window peak captures the ramp; the row is net-noisy by construction for this family, exactly the pre-registered risk.
+  - **Outcome:** row removed; no A-Flow slice fixture added (moot — no row). Phase A result stands unchanged. Phase C (confounded/contextual tail) inherits the same gate discipline and is **not** auto-started by this result.
 
 ## Phase C — Confounded/contextual tail (only if B passed; per-arm, each independently droppable)
 
