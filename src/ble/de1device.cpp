@@ -64,6 +64,8 @@ void DE1Device::setTransport(DE1Transport* transport) {
                 this, &DE1Device::onTransportWriteComplete);
         connect(m_transport, &DE1Transport::errorOccurred,
                 this, &DE1Device::errorOccurred);
+        connect(m_transport, &DE1Transport::de1LinkFault,
+                this, &DE1Device::de1LinkFault);
         connect(m_transport, &DE1Transport::logMessage,
                 this, &DE1Device::logMessage);
     }

@@ -6,6 +6,8 @@
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothAddress>
 #include <QMap>
+#include <QElapsedTimer>
+#include "bleprioritydetector.h"
 
 /**
  * Qt-based BLE transport implementation.
@@ -34,6 +36,16 @@ public:
                            const QBluetoothUuid& characteristicUuid) override;
     bool isConnected() const override;
 
+    void setSkipHighPriority(bool skip) override { m_priority.setSkipHighPriority(skip); }
+
+public slots:
+    // Connection-priority detection (#1093/#1176). Correlated against the
+    // internal HIGH-request window; ≥ kDe1FaultThreshold faults in-window, or
+    // any in-shot scale-feed stall, triggers the skip-HIGH + self-reconnect
+    // backoff. No-ops once backed off or when starting at BALANCED.
+    void onDe1LinkFault(const QString& kind) override;
+    void onScaleFeedStalled() override;
+
 private slots:
     void onControllerConnected();
     void onControllerDisconnected();
@@ -49,8 +61,14 @@ private slots:
 
 private:
     void log(const QString& message);
+    void warn(const QString& message);  // qWarning() + logMessage — for significant events
     QLowEnergyService* getOrCreateService(const QBluetoothUuid& serviceUuid);
     void connectServiceSignals(QLowEnergyService* service);
+    // Disconnect; existing scale auto-reconnect brings this same transport
+    // object back, and onControllerConnected() then skips HIGH (the detector
+    // has latched skip-HIGH) so the link comes up at BALANCED.
+    void triggerScaleBackoff(const char* reason);
+    int64_t nowMs();  // monotonic ms for the detector window
 
     QLowEnergyController* m_controller = nullptr;
     QMap<QBluetoothUuid, QLowEnergyService*> m_services;
@@ -58,4 +76,11 @@ private:
     QString m_deviceName;
     QString m_deviceId;  // UUID on iOS, address on other platforms - for duplicate detection
     bool m_connected = false;
+
+    // Connection-priority backoff. Pure decision logic in a Qt-free helper
+    // (unit-tested in isolation); it lives on this transport, which persists
+    // across the backoff-induced reconnect, so the latched skip-HIGH state
+    // survives the bounce.
+    BlePriorityDetector m_priority;
+    QElapsedTimer m_clock;  // monotonic source feeding m_priority's window
 };

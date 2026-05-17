@@ -6,6 +6,8 @@
 #include <QLowEnergyService>
 #include <QTimer>
 
+class ScaleBleTransport;
+
 class ScaleDevice : public QObject {
     Q_OBJECT
 
@@ -35,6 +37,14 @@ public:
 
     bool simulationMode() const { return m_simulationMode; }
     void setSimulationMode(bool enabled);
+
+    // The underlying BLE transport, when this scale is BLE-backed (null for
+    // FlowScale / USB / simulated). Set once by ScaleFactory at creation —
+    // the single scale-agnostic chokepoint, so no per-driver code is needed.
+    // Lets the connection-priority detection (wired in main.cpp) reach the
+    // shared transport without exposing each driver's private member.
+    ScaleBleTransport* bleTransport() const { return m_bleTransport; }
+    void setBleTransport(ScaleBleTransport* transport) { m_bleTransport = transport; }
 
 public slots:
     virtual void tare() = 0;
@@ -78,6 +88,7 @@ protected:
     QLowEnergyService* m_service = nullptr;
 
 private:
+    ScaleBleTransport* m_bleTransport = nullptr;  // Not owned (lives inside the concrete driver)
     bool m_connected = false;
     bool m_simulationMode = false;
     double m_weight = 0.0;

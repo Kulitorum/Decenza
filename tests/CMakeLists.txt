@@ -472,6 +472,12 @@ add_decenza_test(tst_weightprocessor
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
 )
 
+# --- tst_scaleblepriority: connection-priority backoff decision logic (#1093/#1176) ---
+# BlePriorityDetector is header-only and Qt-free — no extra sources to link.
+add_decenza_test(tst_scaleblepriority
+    tst_scaleblepriority.cpp
+)
+
 # --- tst_sawprediction: shared SAW expected-drip kernel (σ + Gaussian math) ---
 add_decenza_test(tst_sawprediction
     tst_sawprediction.cpp

@@ -65,6 +65,12 @@ signals:
     void skipFrame(int frameNumber);
     void flowRatesReady(double weight, double flowRate, double flowRateShort);
     void untaredCupDetected();
+    // Scale-agnostic in-shot liveness (BLE connection-priority backstop).
+    // Emitted when, during an active tared extraction, the scale stopped
+    // delivering weight samples for > kScaleStaleMs — evaluated on the DE1
+    // shot-sample cadence (setCurrentFrame) so it fires even while the scale
+    // is silent. Pure observation — no effect on SAW/flow/frame decisions.
+    void scaleFeedStalled();
 
 private:
     double computeLSLR(int windowMs) const;
@@ -83,6 +89,13 @@ private:
     double m_lastRawWeight = 0;
     bool m_hasLastWeight = false;
     int m_consecutiveRejections = 0;
+
+    // Scale-feed liveness (in-shot backstop). Evaluated on the DE1 tick so a
+    // fully-silent scale is still detected. 2000ms mirrors the de-jitter
+    // reconnect-gap value but is a distinct liveness threshold (kept separate
+    // to avoid coupling de-jitter tuning to fault detection).
+    static constexpr qint64 kScaleStaleMs = 2000;
+    bool m_scaleFeedStale = false;
 
     // State
     bool m_active = false;
