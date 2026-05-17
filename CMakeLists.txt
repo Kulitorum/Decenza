@@ -1049,9 +1049,10 @@ if(NOT ANDROID AND NOT IOS)
     # generated source name from the .qrc basename — colliding with the
     # Decenza target's own qrc_ai.cpp (same directory scope). One custom
     # command attached to two unrelated targets is rejected by the macOS CI
-    # Xcode "new build system" generator (Ninja tolerates it). The
-    # target-scoped form emits a uniquely-named source bound to shot_eval
-    # only, so there is no shared custom command.
+    # Xcode "new build system" generator; the local/Linux/Windows/iOS/Android
+    # Ninja generator did not flag it. The target-scoped form emits a
+    # uniquely-named source bound to shot_eval only, so there is no shared
+    # custom command.
     add_executable(shot_eval
         tools/shot_eval/main.cpp
         src/ai/shotanalysis.cpp
@@ -1075,8 +1076,11 @@ if(NOT ANDROID AND NOT IOS)
     # Target-scoped resource: BASE=resources keeps the files at :/ai/<name>
     # (identical to resources/ai.qrc's prefix="/" mapping), and the unique
     # resource name "shot_eval_ai" produces a shot_eval-only generated source
-    # instead of the shared qrc_ai.cpp. Keep this file list in sync with
-    # resources/ai.qrc.
+    # instead of the shared qrc_ai.cpp. NOTE: this list is maintained
+    # independently of resources/ai.qrc (still consumed by the Decenza target
+    # above) — there is no enforced coupling, so adding a KB file requires
+    # editing BOTH this list and resources/ai.qrc or shot_eval silently lacks
+    # the new resource.
     qt_add_resources(shot_eval "shot_eval_ai"
         PREFIX "/"
         BASE "${CMAKE_SOURCE_DIR}/resources"
