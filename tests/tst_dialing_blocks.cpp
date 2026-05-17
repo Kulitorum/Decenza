@@ -1189,6 +1189,154 @@ private slots:
         });
     }
 
+    void calibrationBlock_resolvedNoUgsEmittedAsHistoryRow()
+    {
+        // New branch: a profile whose kb-id resolves but whose KB entry has
+        // no UGS (e.g. "advanced-spring-lever"). It is recorded in
+        // medianById, skipped as an anchor, excluded from the UGS-sorted KB
+        // loop (allKbUgsEntries drops NaN-UGS entries), then emitted exactly
+        // once by the medianById leftover loop as a history row labelled
+        // with the displayName — NOT the raw id, and not duplicated.
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_nan_ugs_history"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("6.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("16.0")
+                });
+            }
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-asl-%1").arg(i),
+                    .timestamp = 3000 + i,
+                    .profileName = QStringLiteral("Advanced Spring Lever"),
+                    .profileKbId = QStringLiteral("advanced-spring-lever"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("8.0")
+                });
+            }
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY(!r.isEmpty());
+
+            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
+            int aslRows = 0;
+            for (const QJsonValue& pv : profiles) {
+                const QJsonObject p = pv.toObject();
+                if (p.value(QStringLiteral("profileName")).toString()
+                        == QStringLiteral("Advanced Spring Lever")) {
+                    ++aslRows;
+                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
+                             QStringLiteral("history"));
+                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
+                             QStringLiteral("8"));
+                    QVERIFY2(!p.contains(QStringLiteral("ugs")),
+                             "NaN-UGS history row must not carry a ugs field");
+                }
+            }
+            QCOMPARE(aslRows, 1);  // emitted exactly once, displayName-labelled
+        });
+    }
+
+    void calibrationBlock_unresolvedCustomTitleEmittedAsRawHistoryRow()
+    {
+        // New branch: a bean-specific custom title that resolves to NO id
+        // ("D-Flow / Q - Jeff", empty stored kb-id, not a declared alias —
+        // computeProfileKbId is called with empty editorType so the
+        // editor-default escape hatch can't fire). It must surface exactly
+        // once via customMedians, labelled with the RAW title, and must NOT
+        // collapse into or contaminate the d-flow-q-variant group.
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_custom_history"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("6.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("16.0")
+                });
+            }
+            for (int i = 0; i < 4; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-jeff-%1").arg(i),
+                    .timestamp = 3000 + i,
+                    .profileName = QStringLiteral("D-Flow / Q - Jeff"),
+                    .profileKbId = QString(),  // empty → resolves to no id
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("7.0")
+                });
+            }
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY(!r.isEmpty());
+
+            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
+            int jeffRows = 0;
+            for (const QJsonValue& pv : profiles) {
+                const QJsonObject p = pv.toObject();
+                const QString name = p.value(QStringLiteral("profileName")).toString();
+                // d-flow-q-variant legitimately appears as a cross-profile KB
+                // UGS row, but with NO history shots in this test it must be
+                // derived/extrapolated — never "history". A "history" source
+                // here would mean the custom "D-Flow / Q - Jeff" shots wrongly
+                // collapsed into it (the contamination this guards against).
+                if (name == QStringLiteral("D-Flow Q variant")) {
+                    QVERIFY2(p.value(QStringLiteral("source")).toString()
+                                 != QStringLiteral("history"),
+                             "unresolved custom title must not contaminate d-flow-q-variant");
+                }
+                if (name == QStringLiteral("D-Flow / Q - Jeff")) {
+                    ++jeffRows;
+                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
+                             QStringLiteral("history"));
+                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
+                             QStringLiteral("7"));
+                }
+            }
+            QCOMPARE(jeffRows, 1);  // exactly one row, raw title verbatim
+        });
+    }
+
     void calibrationBlock_badgedShotsExcluded()
     {
         // D-Flow: 2 clean shots at 6.0, 3 grind-issue shots at 15.0.

@@ -817,10 +817,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         return QJsonObject();
     }
 
-    // Compute medians and collect anchor candidates.
-    // Canonical (non-inferred UGS, exact KB name) are preferred; inferred-UGS
-    // profiles are kept as a fallback pool used only when the canonical-only
-    // selection produces a degenerate pair (setting difference < 0.5).
+    // Compute medians and collect anchor candidates. Eligibility is now
+    // purely id-resolution + non-NaN UGS; the old name-exactness check went
+    // away with the variant gate. Non-inferred-UGS candidates are preferred;
+    // inferred-UGS profiles are kept as a fallback pool used only when the
+    // canonical-only selection produces a degenerate pair (setting
+    // difference < 0.5).
     struct AnchorCandidate {
         QString canonicalName;
         QString kbId;
@@ -982,10 +984,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     // Build the profiles array from all KB entries with a known UGS.
     // Additionally, append any history profiles not in the KB UGS list.
-    // Coverage is tracked by canonical `id` (not displayName): a history
-    // group resolves to an id, and a KB entry IS an id, so the dedup is
-    // identity-exact — an alsoMatches-aliased history group can no longer
+    // Coverage is tracked by canonical `id` (not displayName): a KB-resolved
+    // history group resolves to an id, and a KB entry IS an id, so the dedup
+    // is identity-exact — an alsoMatches-aliased history group can no longer
     // split off and get re-emitted as a phantom standalone profile.
+    // (Unresolved custom groups carry no id and are handled separately via
+    // customMedians below.)
     QJsonArray profilesArr;
     QSet<QString> coveredIds;
 
