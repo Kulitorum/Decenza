@@ -263,6 +263,16 @@ public:
     static bool ugsInferredForKbId(const QString& kbId);
     static QString canonicalNameForKbId(const QString& kbId);
 
+    // Resolve a stored profile_kb_id (a current `id` OR a legacy normalized
+    // title/alias persisted on old shot records, D14a) to the canonical KB
+    // `id`. Returns "" when unresolved. Exact-match-or-unresolved, never
+    // fuzzy. This is the identity primitive consumers should group/dedupe
+    // on — every declared-equivalent title (displayName + all alsoMatches,
+    // e.g. "D-Flow / Q" ≡ "Damian's Q" ≡ "D-Flow Q variant") collapses to
+    // one `id`, whereas canonicalNameForKbId returns only the displayName
+    // string and cannot be used as an identity key.
+    static QString resolveKbId(const QString& kbIdOrAlias);
+
     struct KbUgsEntry {
         QString kbId;               // the canonical `id`
         QString name;               // displayName
