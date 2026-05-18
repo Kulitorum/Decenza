@@ -82,9 +82,17 @@ Item {
                         }
                     }
 
-                    // Easter egg: tap 7 times to enable translation upload
+                    // Easter egg: tap 7 times to enable translation upload.
+                    // Bounds stop at the Manual button's left edge so the two
+                    // accessible elements never overlap — ACCESSIBILITY.md
+                    // forbids nesting accessible elements (TalkBack would
+                    // otherwise expose only one).
                     AccessibleMouseArea {
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.right: manualButton.left
+                        anchors.rightMargin: Theme.scaled(6)
                         accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(AppVersion).arg(AppVersionCode)
                         onAccessibleClicked: {
                             var now = Date.now()
@@ -115,43 +123,20 @@ Item {
                     }
 
                     // Opens the user manual (GitHub wiki) in the default
-                    // browser. Declared after the easter-egg mouse area (and
-                    // z:1) so taps on the button open the manual while taps
-                    // elsewhere on the card still feed the tap counter.
-                    Rectangle {
+                    // browser. AccessibleButton (a Control) gives keyboard
+                    // Tab focus, announce-first screen-reader behavior and
+                    // press feedback for free; its bounds are disjoint from
+                    // the easter-egg area above, which is anchored to stop at
+                    // this button's left edge.
+                    AccessibleButton {
                         id: manualButton
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.rightMargin: Theme.scaled(10)
-                        z: 1
-                        radius: Theme.buttonRadius
-                        color: manualButtonArea.pressed ? Qt.darker(Theme.primaryColor, 1.2)
-                                                        : Theme.primaryColor
-                        implicitWidth: manualButtonLabel.implicitWidth + Theme.scaled(20)
-                        implicitHeight: Theme.scaled(28)
-
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("about.manual", "Manual")
-                        Accessible.description: TranslationManager.translate("about.manualHint", "Open the Decenza user manual in your browser")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: manualButtonArea.clicked(null)
-
-                        Text {
-                            id: manualButtonLabel
-                            anchors.centerIn: parent
-                            text: TranslationManager.translate("about.manual", "Manual")
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: true
-                            color: Theme.primaryContrastColor
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: manualButtonArea
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Qt.openUrlExternally("https://github.com/Kulitorum/Decenza/wiki")
-                        }
+                        primary: true
+                        text: TranslationManager.translate("settings.update.manual", "Manual")
+                        accessibleName: TranslationManager.translate("settings.update.manualAccessible", "Open the Decenza user manual")
+                        onClicked: Qt.openUrlExternally("https://github.com/Kulitorum/Decenza/wiki")
                     }
                 }
 
