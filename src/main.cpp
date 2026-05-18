@@ -80,6 +80,7 @@
 #include "machine/machinestate.h"
 #include "machine/weightprocessor.h"
 #include "models/shotdatamodel.h"
+#include "widget/machinestatussnapshot.h"
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
@@ -519,6 +520,24 @@ int main(int argc, char *argv[])
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
     checkpoint("MainController");
+
+    // Publishes machine phase/temp/last-shot to platform-shared storage for
+    // the iOS/Android Home Screen widget. Reads existing accessors only.
+    MachineStatusSnapshot machineStatusSnapshot(&de1Device, &machineState);
+    // shotSaved(shotId>0) fires once a shot is persisted: post SAW-settling
+    // (finalized), espresso only (steam never saves a shot), and
+    // unconditionally — unlike shotEndedShowMetadata it does not depend on
+    // the post-shot-review setting. shotId<=0 is the save-failure path.
+    QObject::connect(mainController.shotHistory(),
+                     &ShotHistoryStorage::shotSaved,
+                     &machineStatusSnapshot,
+                     [&shotDataModel, &machineStatusSnapshot](qint64 shotId) {
+                         if (shotId <= 0)
+                             return;
+                         machineStatusSnapshot.setLastShot(
+                             shotDataModel.finalWeight(),
+                             shotDataModel.stopTime());
+                     });
 
     // Create and wire ShotTimingController (centralized timing and weight handling)
     ShotTimingController timingController(&de1Device);
@@ -2458,8 +2477,12 @@ int main(int argc, char *argv[])
     });
 
     // Cleanup on exit
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient]() {
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &de1ReconnectTimer, &physicalScale, &engine, &weightThread, &relayClient, &machineStatusSnapshot]() {
         qDebug() << "Application exiting - shutting down devices";
+
+        // Leave an honest "disconnected" snapshot so the Home Screen widget
+        // doesn't keep showing the last live state after the app is gone.
+        machineStatusSnapshot.publishDisconnected();
 
         // Stop relay client and screen capture FIRST — the capture timer grabs
         // frames from the render thread. If it fires during the BLE drain wait

@@ -227,6 +227,7 @@ set(SOURCES
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
     src/core/widgetlibrary.cpp
+    src/widget/machinestatussnapshot.cpp
     src/core/batterymanager.cpp
     src/core/memorymonitor.cpp
     src/core/accessibilitymanager.cpp
@@ -382,9 +383,12 @@ endif()
 # iOS-only: SFSafariViewController bridge for opening URLs without universal-link interception
 if(IOS)
     list(APPEND SOURCES ios/SafariViewHelper.mm)
+    list(APPEND SOURCES ios/MachineStatusWidgetBridge.mm)
 endif()
 
 set(HEADERS
+    src/widget/machinestatussnapshot.h
+    src/widget/widgetsharedkeys.h
     src/core/settings.h
     src/core/settings_mqtt.h
     src/core/settings_autowake.h
@@ -1001,6 +1005,11 @@ if(IOS)
     target_link_libraries(Decenza PRIVATE
         "-framework SafariServices"
     )
+    # NOTE: the app target does NOT link WidgetKit. The widget-snapshot
+    # bridge only writes App Group UserDefaults; WidgetKit (WidgetCenter) is
+    # Swift-only and unreachable from the modules-disabled Obj-C++ build.
+    # The widget extension target links WidgetKit itself (see
+    # ios/inject_widget_extension.rb).
 endif()
 
 # macOS deployment
