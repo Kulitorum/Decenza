@@ -47,8 +47,14 @@ Item {
                     color: Theme.backgroundColor
                     radius: Theme.scaled(8)
 
+                    // Centered within the region left of the Manual button
+                    // (not the whole card) so long platform strings / large
+                    // text scaling can never collide with the button.
                     ColumnLayout {
-                        anchors.centerIn: parent
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.right: manualButton.left
+                        anchors.rightMargin: Theme.scaled(6)
                         spacing: Theme.scaled(1)
 
                         Text {
@@ -74,7 +80,9 @@ Item {
                         }
 
                         Text {
-                            Layout.alignment: Qt.AlignHCenter
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
                             text: DE1Device.simulationMode ? "SIMULATION MODE" : MainController.updateChecker.platformName
                             color: DE1Device.simulationMode ? Theme.primaryColor : Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
@@ -82,9 +90,17 @@ Item {
                         }
                     }
 
-                    // Easter egg: tap 7 times to enable translation upload
+                    // Easter egg: tap 7 times to enable translation upload.
+                    // Bounds stop at the Manual button's left edge so the two
+                    // accessible elements never overlap — ACCESSIBILITY.md
+                    // forbids nesting accessible elements (TalkBack would
+                    // otherwise expose only one).
                     AccessibleMouseArea {
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.right: manualButton.left
+                        anchors.rightMargin: Theme.scaled(6)
                         accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(AppVersion).arg(AppVersionCode)
                         onAccessibleClicked: {
                             var now = Date.now()
@@ -112,6 +128,23 @@ Item {
                                 AccessibilityManager.announce(remaining)
                             }
                         }
+                    }
+
+                    // Opens the user manual (GitHub wiki) in the default
+                    // browser. AccessibleButton (a Control) gives keyboard
+                    // Tab focus, announce-first screen-reader behavior and
+                    // press feedback for free; its bounds are disjoint from
+                    // the easter-egg area above, which is anchored to stop at
+                    // this button's left edge.
+                    AccessibleButton {
+                        id: manualButton
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.rightMargin: Theme.scaled(10)
+                        primary: true
+                        text: TranslationManager.translate("settings.update.manual", "Manual")
+                        accessibleName: TranslationManager.translate("settings.update.manualAccessible", "Open the Decenza user manual")
+                        onClicked: Qt.openUrlExternally("https://github.com/Kulitorum/Decenza/wiki")
                     }
                 }
 
