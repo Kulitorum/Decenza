@@ -49,6 +49,31 @@ find ~/Qt/Tools -name "ninja"
 rm -rf build/Qt_6_11_1_for_iOS && mkdir -p build/Qt_6_11_1_for_iOS && cd build/Qt_6_11_1_for_iOS && /Users/mic/Qt/6.11.1/ios/bin/qt-cmake ../.. -G Xcode
 ```
 
+**Inject the Home Screen widget extension (iOS only, after configure):**
+
+`qt-cmake -G Xcode` emits only the single app target and the generated
+`.xcodeproj` is not checked in, so the WidgetKit app-extension target is added
+by a script that must be re-run after every (re)configure:
+```bash
+gem install xcodeproj   # once
+ruby ios/inject_widget_extension.rb build/Qt_6_11_1_for_iOS/Decenza.xcodeproj "$(git rev-parse --show-toplevel)"
+```
+CI (`.github/workflows/ios-release.yml`) runs this automatically between
+"Configure CMake" and "Build and Archive".
+
+**One-time Apple Developer portal + GitHub secrets prerequisites** (human-only
+— cannot be scripted; the App Store build will fail signing without them):
+
+- Create a second App ID `io.github.kulitorum.decenza.widget`.
+- Enable the **App Groups** capability `group.io.github.kulitorum.decenza` on
+  **both** App IDs (`io.github.kulitorum.decenza` and `…​.widget`).
+- Create a distribution provisioning profile for the widget App ID.
+- Add GitHub Actions secrets:
+  - `WIDGET_PROVISIONING_PROFILE_BASE64` — base64 of that `.mobileprovision`
+  - `WIDGET_PROVISIONING_PROFILE_NAME` — the profile's exact name
+- The existing app profile must also include the App Group entitlement
+  (regenerate it after enabling the capability).
+
 **Configure macOS (generates Xcode project):**
 ```bash
 rm -rf build/Qt_6_11_1_for_macOS && mkdir -p build/Qt_6_11_1_for_macOS && cd build/Qt_6_11_1_for_macOS && /Users/mic/Qt/6.11.1/macos/bin/qt-cmake ../.. -G Xcode

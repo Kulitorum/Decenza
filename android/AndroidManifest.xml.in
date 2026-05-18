@@ -161,6 +161,21 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Machine-status Home Screen widget. exported="true" so the
+             launcher (a separate process) can bind it; it only handles the
+             system APPWIDGET_UPDATE broadcast and reads the app's own
+             SharedPreferences snapshot — no exported control surface. -->
+        <receiver
+            android:name="io.github.kulitorum.decenza_de1.MachineStatusWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/machine_status_widget_info" />
+        </receiver>
     </application>
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />

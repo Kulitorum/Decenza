@@ -160,6 +160,7 @@ jobs:
           P12_CERTIFICATE_BASE64: ${{ secrets.P12_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          WIDGET_PROVISIONING_PROFILE_BASE64: ${{ secrets.WIDGET_PROVISIONING_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           # Create variables
@@ -188,6 +189,15 @@ jobs:
           echo "Installed profile with UUID: $PROFILE_UUID"
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
 
+          # Second profile: the widget app-extension is a separate bundle id
+          # (io.github.kulitorum.decenza.widget) and needs its own
+          # distribution profile, or CodeSignOnCopy of the .appex fails.
+          WIDGET_PROFILE_PATH=$RUNNER_TEMP/widget_profile.mobileprovision
+          echo -n "$WIDGET_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $WIDGET_PROFILE_PATH
+          WIDGET_PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $WIDGET_PROFILE_PATH))
+          cp $WIDGET_PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$WIDGET_PROFILE_UUID.mobileprovision
+          echo "Installed widget profile with UUID: $WIDGET_PROFILE_UUID"
+
       - name: Configure CMake
         run: |
           mkdir -p build/ios
@@ -208,13 +218,31 @@ jobs:
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
             -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi"
 
+      - name: Inject widget extension target
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
+          WIDGET_PROVISIONING_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
+        run: |
+          # qt-cmake -G Xcode only emits the single app target and the
+          # project is regenerated every run, so add the WidgetKit
+          # app-extension target to the freshly-generated project here,
+          # after Configure CMake and before archive.
+          gem install --no-document xcodeproj
+          ruby ios/inject_widget_extension.rb \
+            build/ios/Decenza.xcodeproj \
+            "$GITHUB_WORKSPACE"
+
       - name: Build and Archive
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cd build/ios
 
-          # Build archive
+          # Build archive. No global PROVISIONING_PROFILE_SPECIFIER: a
+          # command-line specifier applies to ALL targets and would clobber
+          # the extension's own profile. Both targets carry their per-target
+          # profile in-project (set by inject_widget_extension.rb).
           xcodebuild archive \
             -project Decenza.xcodeproj \
             -scheme Decenza \
@@ -222,13 +250,13 @@ jobs:
             -archivePath $RUNNER_TEMP/Decenza.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=$TEAM_ID \
-            CODE_SIGN_IDENTITY="iPhone Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ secrets.PROVISIONING_PROFILE_NAME }}"
+            CODE_SIGN_IDENTITY="iPhone Distribution"
 
       - name: Export IPA
         env:
           KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          WIDGET_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
         run: |
           # Unlock keychain for export
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -256,6 +284,8 @@ jobs:
               <dict>
                   <key>io.github.kulitorum.decenza</key>
                   <string>Decenza App Store</string>
+                  <key>io.github.kulitorum.decenza.widget</key>
+                  <string>${WIDGET_PROFILE_NAME}</string>
               </dict>
           </dict>
           </plist>
