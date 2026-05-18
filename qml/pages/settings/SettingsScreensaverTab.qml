@@ -596,7 +596,7 @@ Item {
                                 Layout.preferredWidth: Theme.scaled(80)
                                 Layout.preferredHeight: Theme.scaled(34)
                                 from: 15
-                                to: 480
+                                to: 720
                                 stepSize: 15
                                 decimals: 0
                                 value: Settings.autoWake.autoWakeStayAwakeMinutes
