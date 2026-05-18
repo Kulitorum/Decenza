@@ -231,6 +231,13 @@ Page {
     // Real espresso TDS is 5–22%; below 3.0% is a calibration or empty cuvette.
     readonly property real kMinimumPlausibleTds: 3.0
 
+    // Above the R2's physical measurement range it's a device error sentinel,
+    // not a reading (the R2 emitted raw 0xFFE5 → 655.09% during a failed
+    // measurement and it was autosaved onto a shot). Symmetric with
+    // kMinimumPlausibleTds so the physical R2 Start button and the "Read TDS"
+    // button — both of which arrive via onTdsChanged — are gated identically.
+    readonly property real kMaximumPlausibleTds: 35.0
+
     // Gate by visibility so device-initiated R2 readings between shots don't
     // land on whichever shot happens to be loaded.
     //
@@ -253,6 +260,13 @@ Page {
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
                 console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
+                    "shotId=", editShotId,
+                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
+                return
+            }
+            if (tds > postShotReviewPage.kMaximumPlausibleTds) {
+                console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
+                    "dropped: above threshold", postShotReviewPage.kMaximumPlausibleTds,
                     "shotId=", editShotId,
                     "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
                 return

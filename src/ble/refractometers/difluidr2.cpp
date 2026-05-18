@@ -19,6 +19,14 @@
 static constexpr uint8_t PACKET_HEADER = 0xDF;
 static constexpr int PACKET_MIN_LENGTH = 6;  // header(2) + func(1) + cmd(1) + datalen(1) + checksum(1)
 
+// DiFluid R2 hardware measurement ceiling (TDS %). Real coffee never approaches
+// this. When a measurement fails mid-flight the R2 emits an out-of-range
+// sentinel in the TDS field — observed as raw 0xFFE5 (65509 → 655.09%) one
+// packet before an `R2 error class=0 code=2` storm — which used to flow
+// through as a real reading and get autosaved onto the shot. Anything above
+// this is a failed measurement, not a value.
+static constexpr double MAX_PLAUSIBLE_TDS = 35.0;
+
 DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
     : QObject(parent)
     , m_transport(transport)
@@ -321,31 +329,17 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         case 2: {
             // TDS result: Data1-2 = concentration * 100 (Data3-6 = refractive index, not parsed)
             if (dataLen < 3) return;
-            uint16_t tdsRaw = static_cast<uint16_t>(
+            quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
-            m_tds = tdsRaw / 100.0;
-            R2_LOG(QString("TDS: %1% (raw=%2)").arg(m_tds, 0, 'f', 2).arg(tdsRaw));
-            emit tdsChanged(m_tds);
-            emit measurementComplete();
-            m_measurementTimer.stop();
-            m_measuring = false;
-            emit measuringChanged();
+            emitTdsResult(tdsRaw, /*isAverage=*/false);
             break;
         }
         case 3: {
             // Average result: same format as pack 2
             if (dataLen < 3) return;
-            uint16_t tdsRaw = static_cast<uint16_t>(
+            quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
-            double avgTds = tdsRaw / 100.0;
-            R2_LOG(QString("Average TDS: %1% (raw=%2)").arg(avgTds, 0, 'f', 2).arg(tdsRaw));
-            // Use average as the final TDS
-            m_tds = avgTds;
-            emit tdsChanged(m_tds);
-            emit measurementComplete();
-            m_measurementTimer.stop();
-            m_measuring = false;
-            emit measuringChanged();
+            emitTdsResult(tdsRaw, /*isAverage=*/true);
             break;
         }
         case 4: {
@@ -361,6 +355,36 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         // Non-action responses (device info, settings)
         R2_LOG(QString("Response: Func=%1 Cmd=%2").arg(func).arg(cmd));
     }
+}
+
+void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage) {
+    const double tds = tdsRaw / 100.0;
+    const QString label = isAverage ? QStringLiteral("Average TDS")
+                                     : QStringLiteral("TDS");
+
+    // The R2's failure sentinel lands in the same field as a real reading and
+    // passes the checksum (it's a well-formed packet). The only thing that
+    // distinguishes it is being physically impossible — gate on that. This is
+    // the single chokepoint for every TDS that can reach a consumer: the app's
+    // "Read TDS" button (single test → pack 2), the physical R2 Start button
+    // (streamed pack 2), and the averaged result (pack 3) all arrive here.
+    if (tds > MAX_PLAUSIBLE_TDS) {
+        R2_WARN(QString("%1 out of range: %2% (raw=%3) — ignoring")
+                    .arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw));
+        emit errorOccurred("R2 reported an out-of-range value");
+        m_measurementTimer.stop();
+        m_measuring = false;
+        emit measuringChanged();
+        return;
+    }
+
+    m_tds = tds;
+    R2_LOG(QString("%1: %2% (raw=%3)").arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw));
+    emit tdsChanged(m_tds);
+    emit measurementComplete();
+    m_measurementTimer.stop();
+    m_measuring = false;
+    emit measuringChanged();
 }
 
 bool DiFluidR2::validateChecksum(const QByteArray& packet) const {
