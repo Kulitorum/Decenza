@@ -47,8 +47,14 @@ Item {
                     color: Theme.backgroundColor
                     radius: Theme.scaled(8)
 
+                    // Centered within the region left of the Manual button
+                    // (not the whole card) so long platform strings / large
+                    // text scaling can never collide with the button.
                     ColumnLayout {
-                        anchors.centerIn: parent
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.right: manualButton.left
+                        anchors.rightMargin: Theme.scaled(6)
                         spacing: Theme.scaled(1)
 
                         Text {
@@ -74,7 +80,9 @@ Item {
                         }
 
                         Text {
-                            Layout.alignment: Qt.AlignHCenter
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
                             text: DE1Device.simulationMode ? "SIMULATION MODE" : MainController.updateChecker.platformName
                             color: DE1Device.simulationMode ? Theme.primaryColor : Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
