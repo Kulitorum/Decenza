@@ -1673,9 +1673,18 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Auto-reconnect refractometer on startup
+    // Auto-reconnect refractometer on startup. tryDirectConnect kicks one
+    // scan; also arm the persistent reconnect timer so an R2 that is powered
+    // off at startup (and therefore never produces a connect→disconnect
+    // transition to arm it) is still picked up when it powers on later.
+    // Unlike the scale — whose timer is armed reactively by flowScaleFallback
+    // on a detected connection timeout — the R2 has no failure signal, so we
+    // arm unconditionally here; safe because the timeout lambda self-
+    // terminates once the R2 connects or the address is forgotten.
     if (!settings.savedRefractometerAddress().isEmpty()) {
         bleManager.tryDirectConnectToRefractometer();
+        refractometerReconnectAttempt = 0;
+        refractometerReconnectTimer.start(reconnectDelays[0]);
     }
 
 #ifndef Q_OS_IOS
