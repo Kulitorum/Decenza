@@ -1,5 +1,9 @@
 #import <Foundation/Foundation.h>
-#import <WidgetKit/WidgetKit.h>
+// WidgetCenter is a Swift-first API: it is NOT in the WidgetKit umbrella
+// header, so #import <WidgetKit/WidgetKit.h> leaves it undeclared in
+// Obj-C++. The Clang module import exposes the generated Obj-C interface
+// (Xcode app targets enable modules by default).
+@import WidgetKit;
 
 #include <QByteArray>
 
