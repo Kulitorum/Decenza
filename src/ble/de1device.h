@@ -194,19 +194,6 @@ public slots:
     void goToSleep();
     void wakeUp();
 
-    // Startup connection-priority probe (read-only, #1093/#1176). Enqueues ONE
-    // bounded chunk of read-only DE1 traffic — MMR block reads of safe,
-    // read-only identity/config registers plus reads of the safe readable
-    // characteristics (a001/a00a/a00e/a011) — to provoke dual-HIGH BLE
-    // contention at idle while the scale-feed-liveness detector is armed.
-    // NEVER writes or commands the machine and never touches a write/DANGER
-    // characteristic (a002/a006/a009/a00b/a00f/a010/a012), so there is no
-    // misconfiguration path by construction (no profile re-upload needed).
-    // Enqueued via the normal BLE command queue (50 ms spacing respected).
-    // The caller (ScalePriorityProbe) ticks this for the probe's bounded
-    // duration; a no-op if the transport is not connected.
-    void issueConnectionPriorityProbeReads();
-
     // Profile upload
     void uploadProfile(const Profile& profile);
     void uploadProfileAndStartEspresso(const Profile& profile);  // Upload then start in correct order

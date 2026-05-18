@@ -304,30 +304,23 @@ void WeightProcessor::setCurrentFrame(int frameNumber)
 
 void WeightProcessor::checkScaleFeedStall(int frameNumber)
 {
-    // Scale-agnostic in-shot/idle liveness backstop (BLE connection-priority).
-    // "Weight is expected to stream" in three gated contexts:
-    //   - active extraction or pre-shot EspressoPreheating, with tare complete
-    //     (the shot context — tare proves the scale should be reporting);
-    //   - an active startup probe window (the idle context — m_probeActive is
-    //     only ever set AFTER the scale was confirmed streaming, so it is the
-    //     "should be flowing" proof there; tare never happens at idle).
-    // Requires at least one processed sample since the last extraction reset
-    // (m_lastWallClockMs > 0; reset only in startExtraction()/resetForRetare(),
-    // NOT per-gate) so we never fire before the scale naturally starts. For
-    // the idle probe path this is guaranteed because the probe only starts
-    // after streaming was confirmed. A legitimately idle scale with no shot
-    // and no probe never trips (all gates false).
-    const bool shotContext  = (m_active || m_preheatActive) && m_tareComplete;
-    const bool probeContext = m_probeActive;
-    if (!(shotContext || probeContext)) return;
+    // Scale-agnostic in-shot liveness backstop (BLE connection-priority).
+    // "Weight is expected to stream" when an espresso cycle is in progress —
+    // active extraction OR the pre-shot EspressoPreheating phase — and tare is
+    // complete (tare proves the scale should be reporting). Requires at least
+    // one processed sample since the last extraction reset (m_lastWallClockMs
+    // > 0; reset only in startExtraction()/resetForRetare(), NOT per-gate) so
+    // we never fire before the scale naturally starts. A legitimately idle
+    // scale with no espresso cycle never trips (gate false).
+    const bool shotContext = (m_active || m_preheatActive) && m_tareComplete;
+    if (!shotContext) return;
     if (m_lastWallClockMs <= 0 || m_scaleFeedStale) return;
     if ((m_wallClock() - m_lastWallClockMs) <= kScaleStaleMs) return;
 
     m_scaleFeedStale = true;
     qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
                << "ms while weight expected (frame" << frameNumber
-               << "active=" << m_active << "preheat=" << m_preheatActive
-               << "probe=" << m_probeActive << ")";
+               << "active=" << m_active << "preheat=" << m_preheatActive << ")";
     emit scaleFeedStalled();
 }
 
@@ -336,29 +329,9 @@ void WeightProcessor::setShotCycleActive(bool active)
     if (m_preheatActive == active) return;
     m_preheatActive = active;
     // Leaving the preheat window (idle/sleep/extraction handoff): clear the
-    // stale flag so a later context can re-detect. m_active extraction is
+    // stale flag so a later cycle can re-detect. m_active extraction is
     // unaffected (it owns its own reset in startExtraction()).
     if (!active && !m_active) m_scaleFeedStale = false;
-}
-
-void WeightProcessor::setProbeActive(bool active)
-{
-    if (m_probeActive == active) return;
-    m_probeActive = active;
-    // Probe ending: clear the stale flag so it is not sticky into a later
-    // shot/probe — but only if no other "weight expected" context is active,
-    // so a concurrent extraction/preheat stall isn't swallowed by a racing
-    // probe-end (consistent with setShotCycleActive()). m_active extraction
-    // owns its own reset in startExtraction().
-    if (!active && !m_active && !m_preheatActive) m_scaleFeedStale = false;
-}
-
-void WeightProcessor::pollScaleFeedLiveness()
-{
-    // Driven by the startup probe's own read cadence at idle, where the DE1
-    // shot-sample stream (setCurrentFrame) is silent — the idle equivalent of
-    // the in-shot DE1 tick. Same evaluation, same scaleFeedStalled → backoff.
-    checkScaleFeedStall(m_currentFrame);
 }
 
 void WeightProcessor::setTareComplete(bool complete)

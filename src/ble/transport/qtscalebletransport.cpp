@@ -308,10 +308,10 @@ void QtScaleBleTransport::onScaleFeedStalled() {
     // Backstop: covers sessions where the DE1 cluster never appears early and
     // the scale silently stalls mid-shot (the actual #1176 shot-1151 case).
     if (m_priority.onScaleStall()) {
-        // Covers an in-shot/preheat stall AND a startup-probe-provoked stall —
+        // Covers an in-shot stall AND a pre-shot EspressoPreheating stall —
         // both surface here as the scale-feed-stall trigger kind.
         triggerScaleBackoff("scale weight feed stalled while weight expected "
-                            "(extraction/preheat/probe) at HIGH",
+                            "(extraction/preheat) at HIGH",
                             QStringLiteral("scale-feed-stall"));
     } else {
         // Stall observed but the detector took no action (already latched /

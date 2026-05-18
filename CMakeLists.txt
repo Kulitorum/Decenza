@@ -240,7 +240,6 @@ set(SOURCES
     src/ble/blecapability.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
-    src/ble/scalepriorityprobe.cpp
     src/ble/bletransport.cpp
     src/ble/scaledevice.cpp
     src/ble/scales/scalefactory.cpp

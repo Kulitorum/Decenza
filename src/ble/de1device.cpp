@@ -584,38 +584,6 @@ void DE1Device::requestGHCStatus() {
     m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
 }
 
-void DE1Device::issueConnectionPriorityProbeReads() {
-    if (!m_transport || !m_transport->isConnected()) return;
-
-    // READ-ONLY by construction (D5 safety invariant 2). MMR block reads
-    // (Len=0 ⇒ "read 4 bytes") over known-safe, read-only identity/config
-    // registers — diagnostic values, never machine state. A read cannot
-    // mutate the DE1, so there is no corrupt-state path and no profile
-    // re-upload/verification is required.
-    static constexpr uint32_t kSafeMmr[] = {
-        DE1::MMR::CPU_BOARD_MODEL,    // 0x800008
-        DE1::MMR::MACHINE_MODEL,      // 0x80000C
-        DE1::MMR::FIRMWARE_VERSION,   // 0x800010
-        DE1::MMR::GHC_INFO,           // 0x80381C
-        DE1::MMR::SERIAL_NUMBER,      // 0x803830
-        DE1::MMR::HEATER_VOLTAGE,     // 0x803834
-    };
-    for (uint32_t addr : kSafeMmr) {
-        QByteArray req(20, 0);
-        req[0] = 0x00;                  // Len = 0 ⇒ read 4 bytes (read request)
-        req[1] = (addr >> 16) & 0xFF;
-        req[2] = (addr >> 8) & 0xFF;
-        req[3] = addr & 0xFF;
-        m_transport->write(DE1::Characteristic::READ_FROM_MMR, req);
-    }
-
-    // Safe readable characteristics ONLY (a001/a00a/a00e/a011). Never a
-    // write/DANGER characteristic (a002/a006/a009/a00b/a00f/a010/a012).
-    m_transport->read(DE1::Characteristic::VERSION);       // a001
-    m_transport->read(DE1::Characteristic::TEMPERATURES);  // a00a
-    m_transport->read(DE1::Characteristic::STATE_INFO);    // a00e
-    m_transport->read(DE1::Characteristic::WATER_LEVELS);  // a011
-}
 
 void DE1Device::parseMMRResponse(const QByteArray& data) {
     if (data.size() < 5) return;
