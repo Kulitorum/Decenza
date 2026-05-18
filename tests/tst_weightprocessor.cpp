@@ -563,6 +563,10 @@ private slots:
 
         // Feed dies; the DE1 shot-sample cadence keeps ticking during preheat.
         m_fakeClock += 3000;  // > kScaleStaleMs
+        // The detector emits an intentional diagnostic qWarning (D6); expect
+        // it so Autotest does not flag the (passing) test as "with warnings",
+        // and so the test also asserts the log line fired.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
         wp.setCurrentFrame(0);
 
         QCOMPARE(stallSpy.count(), 1);  // caught DURING preheat, before the pour
@@ -596,6 +600,7 @@ private slots:
         wp.processWeight(0.0);
 
         m_fakeClock += 3000;  // probe starved the feed
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
         wp.pollScaleFeedLiveness();
 
         QCOMPARE(stallSpy.count(), 1);  // existing backoff path, at idle
@@ -623,10 +628,12 @@ private slots:
         installFakeClock(wp);
         QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
 
-        // Probe provokes a stall (1st detection)…
+        // Probe provokes a stall (1st detection)… (one expected diagnostic
+        // qWarning per fire — ignore each so the passing test isn't flagged.)
         wp.setProbeActive(true);
         wp.processWeight(0.0);
         m_fakeClock += 3000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
         wp.pollScaleFeedLiveness();
         QCOMPARE(stallSpy.count(), 1);
 
@@ -637,6 +644,7 @@ private slots:
         wp.setTareComplete(true);
         wp.processWeight(0.0);
         m_fakeClock += 3000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
         wp.setCurrentFrame(0);
         QCOMPARE(stallSpy.count(), 2);
     }
@@ -656,6 +664,7 @@ private slots:
         wp.processWeight(0.0);       // establishes m_lastWallClockMs
 
         m_fakeClock += 3000;         // > kScaleStaleMs, feed dead
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
         wp.setCurrentFrame(0);       // DE1 cadence keeps ticking
 
         QCOMPARE(stallSpy.count(), 1);
@@ -691,6 +700,7 @@ private slots:
         wp.setTareComplete(true);
         wp.processWeight(0.0);
         m_fakeClock += 3000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
         wp.setCurrentFrame(0);
 
         QCOMPARE(stallSpy.count(), 1);
