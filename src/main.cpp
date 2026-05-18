@@ -62,6 +62,7 @@
 #include "ble/blemanager.h"
 #include "ble/de1device.h"
 #include "ble/de1transport.h"
+#include "ble/scalepriorityprobe.h"
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
 #include "usb/usbscalemanager.h"
@@ -739,6 +740,24 @@ int main(int argc, char *argv[])
                          }, Qt::QueuedConnection);
                      });
 
+    // Machine phase → WeightProcessor: extend scale-feed-liveness detection to
+    // the pre-shot EspressoPreheating phase (BLE connection-priority backstop,
+    // #1093/#1176). The feed dies during preheat prep on weak radios, ~6 s
+    // before extraction — detecting it there lets the backoff + reconnect begin
+    // during warm-up. True only while preheating; any other phase
+    // (Idle/Sleep/Preinfusion/.../extraction-end) clears it, so a legitimately
+    // idle scale never trips (m_active covers true extraction separately).
+    // Cross-thread to the worker → explicit Qt::QueuedConnection, consistent
+    // with the WeightProcessor wiring above.
+    QObject::connect(&machineState, &MachineState::phaseChanged,
+                     [&weightProcessor, &machineState]() {
+                         const bool preheating =
+                             machineState.phase() == MachineState::Phase::EspressoPreheating;
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor, preheating]() {
+                             weightProcessor.setShotCycleActive(preheating);
+                         }, Qt::QueuedConnection);
+                     });
+
     // Forward live SAW target changes (e.g. user pressed +10g mid-shot) to the worker.
     // Pre-shot callers (profile activation, recipe save) also fire this signal, but
     // configure() overwrites m_targetWeight at shot start, so any pre-shot forwarding
@@ -862,6 +881,19 @@ int main(int argc, char *argv[])
 #endif
 
     checkpoint("WeightProcessor wiring");
+
+    // Startup connection-priority probe (#1093/#1176, the "early win").
+    // Strictly-additive accelerator of the existing scale-feed-liveness
+    // backoff: once the scale is confirmed streaming at idle it provokes the
+    // dual-HIGH contention with a read-only DE1 burst so a weak device backs
+    // off before any shot. No-op if it provokes nothing; correctness never
+    // depends on it (the preheat/extraction gate is the guaranteed net).
+    // Scale connect/weight/phase signals are wired where the scale object is
+    // (re)created — see the scaleDiscovered/connectedChanged handlers below.
+    ScalePriorityProbe scalePriorityProbe(&de1Device, &machineState,
+                                          &bleManager, &weightProcessor);
+    QObject::connect(&machineState, &MachineState::phaseChanged,
+                     &scalePriorityProbe, &ScalePriorityProbe::onMachinePhaseChanged);
 
     // Create and wire AI Manager
     AIManager aiManager(&sharedNetworkManager, &settings);
@@ -1294,7 +1326,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scalePriorityProbe, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed](const QBluetoothDeviceInfo& device, const QString& type) {
         // Don't connect if we already have a connected scale
         if (physicalScale && physicalScale->isConnected()) {
             return;
@@ -1394,9 +1426,23 @@ int main(int argc, char *argv[])
                              Qt::QueuedConnection);
         }
 
+        // Startup connection-priority probe: feed it the scale's streamed
+        // weight cadence so it can confirm a healthy baseline before probing
+        // (never on bare connect). Same-thread (scale + probe on main); the
+        // probe re-points on a scale-type change because this lambda re-runs
+        // for the fresh scale object (old connection auto-drops with the old
+        // scale). onScaleConnectionChanged is driven from the
+        // connectedChanged handler below.
+        QObject::connect(physicalScale.get(), &ScaleDevice::weightChanged,
+                         &scalePriorityProbe, &ScalePriorityProbe::onScaleWeight);
+
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed]() {
+                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scalePriorityProbe, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed]() {
+            // Startup connection-priority probe: track connect state (resets
+            // its streaming baseline / once-per-connect guard).
+            scalePriorityProbe.onScaleConnectionChanged(
+                physicalScale && physicalScale->isConnected());
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();

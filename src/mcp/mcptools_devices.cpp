@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QMetaObject>
+#include <QDateTime>
 
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device)
 {
@@ -88,7 +89,8 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
     // devices_connection_status
     registry->registerTool(
         "devices_connection_status",
-        "Get connection status of the DE1 machine and scale",
+        "Get connection status of the DE1 machine and scale, including the "
+        "in-memory (app-run) scale connection-priority dual-HIGH backoff state",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, bleManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -97,9 +99,72 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 result["machineAddress"] = device->isConnected() ? "connected" : "disconnected";
             }
             result["bleAvailable"] = bleManager != nullptr;
+
+            // Scale connection-priority (dual-HIGH backoff) state — in-memory,
+            // app-run-scoped only (no persistence; an app restart clears it).
+            QJsonObject sp;
+            const bool latched = bleManager && bleManager->scaleSkipHighPriority();
+            sp["scaleLinkPriority"] = latched ? "balanced" : "high";
+            sp["latchedToBalanced"] = latched;
+            sp["detectionActive"] = !latched;
+            sp["persisted"] = false;  // by design (D2) — app restart re-detects
+            if (latched) {
+                sp["triggerKind"] = bleManager->scaleSkipHighTriggerKind();
+                const QDateTime setT = bleManager->scaleSkipHighSetTime();
+                const QDateTime appStart = bleManager->appStartTime();
+                if (setT.isValid()) {
+                    sp["latchedAtIso8601"] =
+                        setT.toOffsetFromUtc(setT.offsetFromUtc()).toString(Qt::ISODate);
+                }
+                if (setT.isValid() && appStart.isValid()) {
+                    const qint64 s = appStart.secsTo(setT);
+                    sp["elapsedSinceAppStartSec"] = static_cast<double>(s);
+                    sp["elapsedSinceAppStartHuman"] =
+                        QStringLiteral("%1 min %2 s after app start")
+                            .arg(s / 60).arg(s % 60);
+                }
+            }
+            result["scaleConnectionPriority"] = sp;
             return result;
         },
         "read");
+
+    // devices_reset_scale_priority — clears the in-memory dual-HIGH backoff
+    // latch (the only operator path; there is intentionally no UI). Takes
+    // effect on the next scale (re)connect's detection pass: eventually-
+    // consistent, no forced teardown of a live connection.
+    registry->registerTool(
+        "devices_reset_scale_priority",
+        "Reset (clear) the in-memory scale connection-priority dual-HIGH "
+        "backoff latch. After reset, the next scale (re)connect requests HIGH "
+        "and re-enters detection (including the startup probe) as if seen for "
+        "the first time this run. Eventually-consistent: it does NOT tear down "
+        "a currently-connected scale. Use to recover from a false-positive or "
+        "to re-test a device.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"confirmed", QJsonObject{{"type", "boolean"},
+                {"description", "Set to true after the user confirms this action in chat"}}}
+        }}},
+        [bleManager](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            const bool wasLatched = bleManager->scaleSkipHighPriority();
+            QMetaObject::invokeMethod(bleManager, [bleManager]() {
+                bleManager->clearScaleSkipHighPriority();
+            }, Qt::QueuedConnection);
+            result["success"] = true;
+            result["wasLatched"] = wasLatched;
+            result["message"] = wasLatched
+                ? "Scale connection-priority latch cleared. It takes effect on "
+                  "the next scale (re)connect (eventually-consistent — the "
+                  "current connection is not torn down)."
+                : "Scale connection-priority latch was already clear; no change.";
+            return result;
+        },
+        "control");
 
     // devices_connect_de1
     registry->registerTool(

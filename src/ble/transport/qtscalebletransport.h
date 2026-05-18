@@ -67,7 +67,9 @@ private:
     // Disconnect; existing scale auto-reconnect brings this same transport
     // object back, and onControllerConnected() then skips HIGH (the detector
     // has latched skip-HIGH) so the link comes up at BALANCED.
-    void triggerScaleBackoff(const char* reason);
+    // `triggerKind` is the stable MCP/diagnostic tag for the latch metadata
+    // ("de1-fault-cluster" or "scale-feed-stall").
+    void triggerScaleBackoff(const char* reason, const QString& triggerKind);
     int64_t nowMs();  // monotonic ms for the detector window
 
     QLowEnergyController* m_controller = nullptr;

@@ -38,6 +38,7 @@ BLEManager::BLEManager(QObject* parent)
     : QObject(parent)
 {
     s_instance = this;
+    m_appStartTime = QDateTime::currentDateTime();
 
     // Discovery agent is created lazily in ensureDiscoveryAgent() to avoid
     // initializing CoreBluetooth (and triggering TCC privacy checks) when
@@ -126,6 +127,31 @@ BLEManager::~BLEManager() {
         stopScan();
     }
     if (s_instance == this) s_instance = nullptr;
+}
+
+void BLEManager::setScaleSkipHighPriority(bool skip, const QString& triggerKind)
+{
+    m_scaleSkipHighPriority = skip;
+    if (skip) {
+        // Record the trigger kind + wall-clock set time for the MCP read.
+        // In-memory only — never persisted (D2/D4).
+        m_scaleSkipHighTriggerKind =
+            triggerKind.isEmpty() ? QStringLiteral("unknown") : triggerKind;
+        m_scaleSkipHighSetTime = QDateTime::currentDateTime();
+    } else {
+        m_scaleSkipHighTriggerKind.clear();
+        m_scaleSkipHighSetTime = QDateTime();
+    }
+}
+
+void BLEManager::clearScaleSkipHighPriority()
+{
+    if (!m_scaleSkipHighPriority && m_scaleSkipHighTriggerKind.isEmpty()) return;
+    qWarning().noquote()
+        << "[BLE] Scale connection-priority skip-HIGH latch CLEARED via MCP "
+           "reset — next scale (re)connect will request HIGH and re-enter "
+           "detection (incl. the startup probe)";
+    setScaleSkipHighPriority(false);
 }
 
 void BLEManager::requestBluezCacheHint()

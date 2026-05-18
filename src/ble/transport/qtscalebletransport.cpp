@@ -300,7 +300,7 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     if (m_priority.onDe1Fault(nowMs())) {
         triggerScaleBackoff(qPrintable(QStringLiteral(
             "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
-            .arg(kind)));
+            .arg(kind)), QStringLiteral("de1-fault-cluster"));
     }
 }
 
@@ -308,11 +308,16 @@ void QtScaleBleTransport::onScaleFeedStalled() {
     // Backstop: covers sessions where the DE1 cluster never appears early and
     // the scale silently stalls mid-shot (the actual #1176 shot-1151 case).
     if (m_priority.onScaleStall()) {
-        triggerScaleBackoff("scale weight feed stalled mid-extraction while at HIGH");
+        // Covers an in-shot/preheat stall AND a startup-probe-provoked stall —
+        // both surface here as the scale-feed-stall trigger kind.
+        triggerScaleBackoff("scale weight feed stalled while weight expected "
+                            "(extraction/preheat/probe) at HIGH",
+                            QStringLiteral("scale-feed-stall"));
     }
 }
 
-void QtScaleBleTransport::triggerScaleBackoff(const char* reason) {
+void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
+                                              const QString& triggerKind) {
     // The detector returned true exactly once (it latches skip-HIGH +
     // backed-off before returning), and the app-run BLEManager latch then
     // blocks every later connection this run — so this runs at most once per
@@ -325,9 +330,10 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason) {
     // after a scale-type change, which builds a fresh transport+detector)
     // skips HIGH for the rest of this run. In-memory only; cleared on restart.
     if (auto* mgr = BLEManager::instance()) {
-        mgr->setScaleSkipHighPriority(true);
-        warn("Scale connection-priority: app-run skip-HIGH latch SET — all "
-             "scales will run at BALANCED until app restart");
+        mgr->setScaleSkipHighPriority(true, triggerKind);
+        warn(QStringLiteral("Scale connection-priority: app-run skip-HIGH latch "
+             "SET (trigger=%1) — all scales will run at BALANCED until app "
+             "restart or MCP reset").arg(triggerKind));
     }
     // Tear down the link, then emit disconnected() explicitly.
     // disconnectFromDevice() calls m_controller->disconnect(), which severs

@@ -543,6 +543,103 @@ private slots:
 
         QCOMPARE(stopSpy.count(), 0);  // Blocked without tare
     }
+
+    // ==========================================
+    // Scale-feed-liveness gate (BLE connection-priority backstop,
+    // #1093/#1176): preheat + startup-probe windows + idle guard.
+    // kScaleStaleMs = 2000 (private); tests use 3000 (> stale) / 400 (< stale).
+    // ==========================================
+
+    void stallDuringPreheatTriggers() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        // Pre-shot warm-up: cycle active (preheat) + tare complete + the scale
+        // was streaming (one processed sample establishes m_lastWallClockMs).
+        wp.setShotCycleActive(true);
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);
+
+        // Feed dies; the DE1 shot-sample cadence keeps ticking during preheat.
+        m_fakeClock += 3000;  // > kScaleStaleMs
+        wp.setCurrentFrame(0);
+
+        QCOMPARE(stallSpy.count(), 1);  // caught DURING preheat, before the pour
+    }
+
+    void quietIdleScaleNoCycleNoProbeDoesNotTrigger() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        // Connected scale, quiet, but NO espresso cycle and NO probe window:
+        // a legitimately idle scale must never be treated as a fault.
+        wp.processWeight(0.0);
+        m_fakeClock += 30000;  // very stale, but gate is closed
+        wp.setCurrentFrame(0);
+        wp.pollScaleFeedLiveness();
+
+        QCOMPARE(stallSpy.count(), 0);
+    }
+
+    void probeWindowStallTriggersAtIdle() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        // Startup probe active at idle (m_probeActive is only ever set after
+        // streaming was confirmed, so it is the "should be flowing" proof —
+        // tare never happens at idle). The probe ticks pollScaleFeedLiveness()
+        // at its own cadence since the DE1 shot-sample tick is silent here.
+        wp.setProbeActive(true);
+        wp.processWeight(0.0);
+
+        m_fakeClock += 3000;  // probe starved the feed
+        wp.pollScaleFeedLiveness();
+
+        QCOMPARE(stallSpy.count(), 1);  // existing backoff path, at idle
+    }
+
+    void probeOnCapableHardwareDoesNotTrigger() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        // Capable radio sustains the read burst: weight keeps streaming
+        // within cadence throughout the probe window → never trips.
+        wp.setProbeActive(true);
+        for (int i = 0; i < 12; ++i) {
+            wp.processWeight(0.0);
+            m_fakeClock += 400;  // < kScaleStaleMs every tick
+            wp.pollScaleFeedLiveness();
+        }
+
+        QCOMPARE(stallSpy.count(), 0);
+    }
+
+    void probeDeactivationClearsStaleSoLaterShotReDetects() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        // Probe provokes a stall (1st detection)…
+        wp.setProbeActive(true);
+        wp.processWeight(0.0);
+        m_fakeClock += 3000;
+        wp.pollScaleFeedLiveness();
+        QCOMPARE(stallSpy.count(), 1);
+
+        // …probe ends; a later preheat stall must still be detectable
+        // (deactivation clears the sticky stale flag).
+        wp.setProbeActive(false);
+        wp.setShotCycleActive(true);
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);
+        m_fakeClock += 3000;
+        wp.setCurrentFrame(0);
+        QCOMPARE(stallSpy.count(), 2);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_WeightProcessor)

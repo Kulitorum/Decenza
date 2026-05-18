@@ -295,22 +295,64 @@ void WeightProcessor::setTargetWeight(double weight)
 void WeightProcessor::setCurrentFrame(int frameNumber)
 {
     m_currentFrame = frameNumber;
+    // setCurrentFrame() is driven by the DE1 shot-sample stream (~5Hz), which
+    // keeps ticking even when the scale is silent — the cadence that detects an
+    // ongoing stall during a shot / preheat (processWeight only runs when a
+    // sample arrives, so it cannot detect a fully-silent feed).
+    checkScaleFeedStall(frameNumber);
+}
 
-    // In-shot scale-feed liveness backstop. setCurrentFrame() is driven by the
-    // DE1 shot-sample stream (~5Hz), which keeps ticking even when the scale is
-    // silent — so this detects an ongoing stall that processWeight() cannot
-    // (processWeight only runs when a sample arrives). Gate: extraction active,
-    // tare complete (weight should be flowing), and we have seen at least one
-    // sample this shot (m_lastWallClockMs > 0 — avoids firing before the scale
-    // naturally starts, and when no scale/idle since m_active is false then).
-    // Scale-agnostic: depends only on processed-weight timing, not any driver.
-    if (m_active && m_tareComplete && m_lastWallClockMs > 0 && !m_scaleFeedStale
-        && (m_wallClock() - m_lastWallClockMs) > kScaleStaleMs) {
-        m_scaleFeedStale = true;
-        qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
-                   << "ms during active extraction (frame" << frameNumber << ")";
-        emit scaleFeedStalled();
-    }
+void WeightProcessor::checkScaleFeedStall(int frameNumber)
+{
+    // Scale-agnostic in-shot/idle liveness backstop (BLE connection-priority).
+    // "Weight is expected to stream" in three gated contexts:
+    //   - active extraction or pre-shot EspressoPreheating, with tare complete
+    //     (the shot context — tare proves the scale should be reporting);
+    //   - an active startup probe window (the idle context — m_probeActive is
+    //     only ever set AFTER the scale was confirmed streaming, so it is the
+    //     "should be flowing" proof there; tare never happens at idle).
+    // Requires at least one processed sample this context (m_lastWallClockMs >
+    // 0) so we never fire before the scale naturally starts, and a legitimately
+    // idle scale with no shot and no probe never trips (all gates false).
+    const bool shotContext  = (m_active || m_preheatActive) && m_tareComplete;
+    const bool probeContext = m_probeActive;
+    if (!(shotContext || probeContext)) return;
+    if (m_lastWallClockMs <= 0 || m_scaleFeedStale) return;
+    if ((m_wallClock() - m_lastWallClockMs) <= kScaleStaleMs) return;
+
+    m_scaleFeedStale = true;
+    qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
+               << "ms while weight expected (frame" << frameNumber
+               << "active=" << m_active << "preheat=" << m_preheatActive
+               << "probe=" << m_probeActive << ")";
+    emit scaleFeedStalled();
+}
+
+void WeightProcessor::setShotCycleActive(bool active)
+{
+    if (m_preheatActive == active) return;
+    m_preheatActive = active;
+    // Leaving the preheat window (idle/sleep/extraction handoff): clear the
+    // stale flag so a later context can re-detect. m_active extraction is
+    // unaffected (it owns its own reset in startExtraction()).
+    if (!active && !m_active) m_scaleFeedStale = false;
+}
+
+void WeightProcessor::setProbeActive(bool active)
+{
+    if (m_probeActive == active) return;
+    m_probeActive = active;
+    // Probe ending: clear the stale flag so this is not sticky into a later
+    // shot/probe (the app-run latch separately prevents re-probing).
+    if (!active) m_scaleFeedStale = false;
+}
+
+void WeightProcessor::pollScaleFeedLiveness()
+{
+    // Driven by the startup probe's own read cadence at idle, where the DE1
+    // shot-sample stream (setCurrentFrame) is silent — the idle equivalent of
+    // the in-shot DE1 tick. Same evaluation, same scaleFeedStalled → backoff.
+    checkScaleFeedStall(m_currentFrame);
 }
 
 void WeightProcessor::setTareComplete(bool complete)
