@@ -17,8 +17,9 @@ class ScaleBleTransport;
  * Service 0x00FF, characteristic 0xAA01.
  *
  * Emits tdsChanged on every completed measurement, including device-initiated
- * ones (physical button on the R2, idle polls). Consumers must gate by context
- * and validate the value before persisting.
+ * ones (physical button on the R2, idle polls). Physically-impossible readings
+ * (the R2's out-of-range error sentinel) are dropped here so they can never be
+ * persisted; consumers must still gate by context (which shot is loaded).
  */
 class DiFluidR2 : public QObject {
     Q_OBJECT
@@ -67,6 +68,11 @@ private slots:
 
 private:
     void handlePacket(const QByteArray& packet);
+    // Shared TDS result path for pack 2 (single test — used by both the app's
+    // "Read TDS" button and the physical R2 Start button) and pack 3 (average).
+    // Applies the out-of-range sanity gate so every consumer-bound TDS is
+    // validated identically regardless of which path produced it.
+    void emitTdsResult(quint16 tdsRaw, bool isAverage);
     bool validateChecksum(const QByteArray& packet) const;
     void sendCommand(const QByteArray& cmd);
 

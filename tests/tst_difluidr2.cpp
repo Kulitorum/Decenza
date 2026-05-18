@@ -207,6 +207,62 @@ private slots:
         QCOMPARE(completeSpy.count(), 1);
     }
 
+    // === Out-of-range sentinel rejection (regression) ===
+    //
+    // Field incident: a failed R2 measurement put raw 0xFFE5 (65509 → 655.09%)
+    // in the TDS field one packet before an `R2 error class=0 code=2` storm.
+    // The well-formed-but-impossible value passed the checksum, was emitted as
+    // a real reading, and got autosaved onto the shot (EY 1342.9%). It must
+    // never reach a consumer. Pack 2 is shared by the app "Read TDS" button
+    // (single test) and the physical R2 Start button, so one gate covers both.
+
+    void rejectsImplausiblyHighTds() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("TDS out of range.*raw=65509"));
+        r2.handlePacket(buildTdsPacket(655.09));  // raw = 65509 = 0xFFE5
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(completeSpy.count(), 0);
+        QCOMPARE(errorSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+        QCOMPARE(r2.tds(), 0.0);  // m_tds left untouched, no garbage retained
+    }
+
+    void rejectsImplausiblyHighAverageTds() {
+        // Same gate must apply to the averaged result (pack 3).
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Average TDS out of range"));
+        r2.handlePacket(buildAverageTdsPacket(655.09));
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(completeSpy.count(), 0);
+        QCOMPARE(errorSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+    }
+
+    void acceptsTdsAtTopOfDeviceRange() {
+        // 30% is unusually strong but within the R2's physical range — the
+        // guard must not reject real (if rare) readings.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+
+        r2.handlePacket(buildTdsPacket(30.00));
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(tdsSpy.at(0).at(0).toDouble(), 30.00);
+        QCOMPARE(r2.tds(), 30.00);
+    }
+
     // === Temperature packet parsing ===
 
     void parseTemperaturePacket() {
