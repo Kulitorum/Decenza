@@ -3,6 +3,7 @@
 #include <QSettings>
 
 #include "ble/blemanager.h"
+#include "ble/bleepochgate.h"
 #include "core/settings_hardware.h"
 
 // BLEManager::ScaleSkipHighLatch — the in-memory dual-HIGH skip-HIGH latch
@@ -281,6 +282,49 @@ private slots:
         QCOMPARE(out.size(), qsizetype(cap));         // bounded
         QCOMPARE(out.first().durationSec, double(cap + 4));  // newest kept
         QCOMPARE(out.last().durationSec, 5.0);        // 0..4 dropped (oldest)
+    }
+
+    // --- Epoch-gate decision trichotomy (pure logic, no BLEManager TU) ---
+    // Regression-locks the headline backward-compat guarantee + the
+    // corrupt-negative handling at the DECISION level (PR #1220 review
+    // Crit-9/8 + silent-failure #2). decideBleEpochGate() is the exact
+    // function BLEManager::setSettings() dispatches on.
+
+    void epochGate_notLatched_isNoRecord() {
+        QCOMPARE(decideBleEpochGate(false, -1, 1), BleEpochDecision::NoRecord);
+        QCOMPARE(decideBleEpochGate(false, 1, 1),  BleEpochDecision::NoRecord);
+    }
+
+    void epochGate_sameEpoch_rehydrates() {
+        QCOMPARE(decideBleEpochGate(true, 1, 1), BleEpochDecision::Rehydrate);
+        QCOMPARE(decideBleEpochGate(true, 7, 7), BleEpochDecision::Rehydrate);
+        // Build code is irrelevant — only the epoch gates (function has no
+        // build param at all, which is the point of the build→epoch move).
+    }
+
+    void epochGate_legacyMinusOne_migratesForward() {
+        // The ONLY value that means "legacy / no epoch key" → migrate forward
+        // (honor + stamp), ZERO extra detection. This is the upgrade promise.
+        QCOMPARE(decideBleEpochGate(true, -1, 1),
+                 BleEpochDecision::MigrateForward);
+        QCOMPARE(decideBleEpochGate(true, -1, 9),
+                 BleEpochDecision::MigrateForward);
+    }
+
+    void epochGate_deliberateBump_discards() {
+        // A different non-negative epoch = an intentional global reclassify.
+        QCOMPARE(decideBleEpochGate(true, 1, 2), BleEpochDecision::Discard);
+        QCOMPARE(decideBleEpochGate(true, 2, 1), BleEpochDecision::Discard);
+        QCOMPARE(decideBleEpochGate(true, 0, 1), BleEpochDecision::Discard);
+    }
+
+    void epochGate_corruptNegative_discardsNotMigrates() {
+        // Any negative OTHER than -1 is corrupt persisted input — must
+        // re-detect, NOT be silently honored as a clean legacy latch
+        // (silent-failure #2). -1 is the only legacy sentinel.
+        QCOMPARE(decideBleEpochGate(true, -2, 1),   BleEpochDecision::Discard);
+        QCOMPARE(decideBleEpochGate(true, -7, 1),   BleEpochDecision::Discard);
+        QCOMPARE(decideBleEpochGate(true, -999, 5), BleEpochDecision::Discard);
     }
 
     void cleanupTestCase() {

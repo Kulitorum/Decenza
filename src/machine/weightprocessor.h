@@ -102,6 +102,12 @@ private:
     // Scale-agnostic stall evaluation, run on the DE1 shot-sample cadence
     // (setCurrentFrame) during extraction / preheat.
     void checkScaleFeedStall(int frameNumber);
+    // Single chokepoint that clears the three correlated stall fields
+    // together (m_scaleFeedStale / m_scaleStallConfirmed / m_feedStallStartMs).
+    // Every reset path calls this so a half-reset (e.g. confirmed left set
+    // without stale) — which gates the real enforce backoff — is impossible
+    // by construction, mirroring ScaleSkipHighLatch::clear()'s discipline.
+    void resetStallTracking();
 
     // Weight sample buffer (1-second rolling window for LSLR)
     struct WeightSample {

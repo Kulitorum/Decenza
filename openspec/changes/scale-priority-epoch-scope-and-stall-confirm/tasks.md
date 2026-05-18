@@ -48,3 +48,14 @@
 - [x] 8.2 Build via Qt Creator MCP (0 errors / 0 warnings). Full suite green — **46 suites / 2155 passed / 0 failed** (run from the Qt-Creator-built binaries; Qt Creator's Autotest plugin model was stale post-rebase and under-reported, so verified via the binaries directly: new test fns confirmed compiled in via `-functions`, binary newer than source).
 - [ ] 8.3 Maintainer device check (hardware-bound): on an epoch build, confirm an existing latched device migrates with no detection event; confirm a transient preheat blip logs suspected+recovered and does NOT latch; confirm a sustained dead feed confirms and latches; confirm `devices_connection_status` shows the epoch + diagnostic build code.
 - [x] 8.4 Document the epoch-bump procedure (one-line constant change + changelog note) next to `kBleDetectionEpoch` and in the change’s design as the deliberate global-reset lever.
+
+## PR #1220 review (5-agent) — addressed
+
+- [x] **Critical (active bug, 2 agents):** spike-rejection silently defeated CONFIRM. The confirm gap now measures from the frozen `m_feedStallStartMs` (spike-immune), not the spike-advanced `m_lastWallClockMs`; comment corrected. Regression test `confirmSurvivesSpikeRejectionDuringStall` (fails on old code, passes on fix).
+- [x] **Test gap Crit-9/8:** the rehydrate/migrate/discard trichotomy ("zero extra detection on upgrade") was only structurally implied. Extracted the pure `decideBleEpochGate()` (src/ble/bleepochgate.h, BlePriorityDetector-style header-only) and `setSettings()` now dispatches on it; 5 exhaustive `epochGate_*` tests lock the trichotomy + corrupt-negative without linking blemanager.cpp.
+- [x] **silent-failure #2:** only `-1` is the legacy sentinel; any other negative epoch is corrupt → Discard (re-detect) with a distinct warning, not silently honored.
+- [x] **type-design:** extracted `WeightProcessor::resetStallTracking()`; all reset sites call it — illegal `(confirmed && !stale)` now unreachable by construction, not by vigilance.
+- [x] **silent-failure #5:** `classifiedByBuildCode` is always emitted when latched (explicit "unknown (legacy/migrated/pre-buildcode)" string for buildCode 0) — no silent provenance black hole for the migrated population.
+- [x] **silent-failure #3/#4:** symmetric warning when the persisted trigger-kind is salvaged (mirrors the set-time anomaly log); legacy-migration log reworded to not over-claim persistence (states the in-memory latch is live regardless; flags repeat-next-launch if the stamp fails).
+- [~] **pr-test preheat/retare coverage:** added `confirmWorksInPreheatContext`; `resetForRetare` confirmed-reset is now covered-by-construction via the single `resetStallTracking()` chokepoint + existing recovery/re-arm tests.
+- [x] Build via Qt Creator 0/0; full suite **47 suites / 2166 passed / 0 failed** (direct binaries — Qt Creator Autotest model unreliable post-reconfigure, see TESTING note).

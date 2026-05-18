@@ -777,6 +777,65 @@ private slots:
         QCOMPARE(stopSpy.count(), 0);
         QCOMPARE(skipSpy.count(), 0);
     }
+
+    // Regression for the PR #1220 review bug: a rejected SPIKE packet during
+    // a stall advances m_lastWallClockMs. If CONFIRM measured the gap from
+    // m_lastWallClockMs it would be reset to ~0 by the spike and a genuinely
+    // dead feed that emits periodic garbage (#1176/#610 overlap) would never
+    // confirm → never back off. CONFIRM must measure from the frozen
+    // m_feedStallStartMs and therefore stay spike-immune.
+    void confirmSurvivesSpikeRejectionDuringStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy confirm(&wp, &WeightProcessor::scaleFeedStallConfirmed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(1.0);                 // T0, last good sample
+
+        m_fakeClock += 2500;                   // > kScaleStaleMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // SUSPECTED; m_feedStallStartMs := T0
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 3000;                   // T0+5500
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Spike rejected")));
+        wp.processWeight(200.0);               // |200-1|>100 → rejected; advances
+                                               // m_lastWallClockMs to T0+5500,
+                                               // NOT a genuine sample (no recovery)
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 1000;                   // T0+6500: 6500 from frozen start
+                                               // ≥ 6000, but only 1000 from the
+                                               // spike-advanced m_lastWallClockMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);                 // must STILL confirm (spike-immune)
+        QCOMPARE(confirm.count(), 1);
+        QCOMPARE(confirm.first().at(0).toLongLong(), qint64(6500));
+    }
+
+    // Confirmation must work in the pre-shot preheat context too (the spec's
+    // confirmed-stall scenario says "extraction/preheat"; only the suspected
+    // arm had preheat coverage before).
+    void confirmWorksInPreheatContext() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy confirm(&wp, &WeightProcessor::scaleFeedStallConfirmed);
+
+        wp.setShotCycleActive(true);           // EspressoPreheating (not m_active)
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);
+
+        m_fakeClock += 2500;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // SUSPECTED in preheat
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 4000;                   // total 6500 ≥ kScaleStallConfirmMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);
+        QCOMPARE(confirm.count(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_WeightProcessor)

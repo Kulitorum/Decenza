@@ -5,6 +5,7 @@
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
 #include "../core/settings_hardware.h"
+#include "bleepochgate.h"
 #include "version.h"
 #include <QBluetoothLocalDevice>
 #include <QBluetoothUuid>
@@ -155,25 +156,38 @@ void BLEManager::setSettings(SettingsHardware* settings)
     const int storedEpoch = m_settings->cpEpoch();   // -1 ⇒ legacy (no key)
     const int storedBuild = m_settings->cpBuildCode(); // diagnostic only now
 
-    if (storedEpoch >= 0 && storedEpoch != kBleDetectionEpoch) {
-        // A DELIBERATE epoch bump shipped (e.g. a release that changed BLE
-        // handling or intentionally re-classifies everyone). This is now the
-        // ONLY auto-wipe path — it fires only on an intentional epoch change,
-        // NOT on every build. Discard + re-detect from scratch.
+    const BleEpochDecision decision =
+        decideBleEpochGate(true, storedEpoch, kBleDetectionEpoch);
+
+    if (decision == BleEpochDecision::Discard) {
+        // Either a DELIBERATE epoch bump (a release that changed BLE handling
+        // / re-classifies everyone) OR a corrupt persisted epoch. This is the
+        // ONLY auto-wipe path — it fires only on an intentional epoch change
+        // or genuine corruption, NOT on every build. Discard + re-detect.
         m_settings->clearConnectionPriorityLatch();
-        qWarning().noquote()
-            << QStringLiteral("[BLE] Persisted connection-priority "
-                  "classification was set under detection epoch %1 but this "
-                  "build is epoch %2 — discarding and re-detecting from "
-                  "scratch (deliberate epoch reset)")
-                   .arg(storedEpoch).arg(kBleDetectionEpoch);
+        if (storedEpoch >= 0) {
+            qWarning().noquote()
+                << QStringLiteral("[BLE] Persisted connection-priority "
+                      "classification was set under detection epoch %1 but "
+                      "this build is epoch %2 — discarding and re-detecting "
+                      "from scratch (deliberate epoch reset)")
+                       .arg(storedEpoch).arg(kBleDetectionEpoch);
+        } else {
+            // Negative but not the -1 "no key" sentinel ⇒ corrupt record.
+            qWarning().noquote()
+                << QStringLiteral("[BLE] Persisted connection-priority "
+                      "detection epoch is corrupt/unrecognized (stored=%1, "
+                      "expected %2 or absent) — discarding and re-detecting "
+                      "from scratch rather than honoring a damaged record")
+                       .arg(storedEpoch).arg(kBleDetectionEpoch);
+        }
         return;
     }
 
-    // storedEpoch == kBleDetectionEpoch (ordinary same-epoch rehydrate) OR
-    // storedEpoch < 0 (a legacy pre-epoch record → honor + migrate forward,
+    // Rehydrate (storedEpoch == kBleDetectionEpoch) OR MigrateForward (a
+    // legacy pre-epoch record, epoch key absent → honor + stamp forward,
     // ZERO extra detection on the upgrade that introduces epoch scoping).
-    const bool legacy = (storedEpoch < 0);
+    const bool legacy = (decision == BleEpochDecision::MigrateForward);
 
     // rehydrate() preserves the ORIGINAL set-time (unlike set(), which would
     // re-stamp it) and sanitises possibly-corrupt persisted input so the
@@ -182,10 +196,21 @@ void BLEManager::setSettings(SettingsHardware* settings)
     // returns false iff the stored timestamp was invalid and had to be
     // substituted — log that anomaly.
     const QString isoIn = m_settings->cpSetTimeIso();
+    const QString kindIn = m_settings->cpTriggerKind();
     const bool timeOk = m_scaleSkipHigh.rehydrate(
-        m_settings->cpTriggerKind(),
-        QDateTime::fromString(isoIn, Qt::ISODate));
+        kindIn, QDateTime::fromString(isoIn, Qt::ISODate));
     m_scaleSkipHighBuildCode = storedBuild;  // diagnostic ("classified by N")
+    if (kindIn.isEmpty()) {
+        // Symmetric with the !timeOk anomaly below: a missing trigger kind is
+        // also corruption (partial write / manual edit). rehydrate() salvaged
+        // it to "unknown" — surface that so the MCP "unknown"-kind latch isn't
+        // mistaken for a genuine unknown-cause classification with no trail.
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Persisted connection-priority trigger "
+                  "kind was missing/empty — salvaged to \"%1\"; classification "
+                  "kept (it is the load-bearing fact)")
+                   .arg(m_scaleSkipHigh.triggerKind);
+    }
     qWarning().noquote()
         << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
               "classification (epoch %1, build %2 [diagnostic], trigger=%3) — "
@@ -211,10 +236,12 @@ void BLEManager::setSettings(SettingsHardware* settings)
             m_scaleSkipHigh.setTime.toString(Qt::ISODate),
             storedBuild, kBleDetectionEpoch);
         qWarning().noquote()
-            << QStringLiteral("[BLE] Migrated a legacy (pre-epoch) "
-                  "connection-priority record forward to detection epoch %1 — "
-                  "the device was already classified, so NO re-detection is "
-                  "incurred (the old per-build reset is gone)")
+            << QStringLiteral("[BLE] Legacy (pre-epoch) connection-priority "
+                  "record honored; stamping detection epoch %1. NO re-detection "
+                  "is incurred regardless (the in-memory latch is already live "
+                  "— BALANCED this run). If a 'Failed to PERSIST' warning "
+                  "follows, the stamp did not stick and this line will repeat "
+                  "next launch (still no re-detection — cosmetic only)")
                    .arg(kBleDetectionEpoch);
     }
 }

@@ -125,8 +125,17 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 // Diagnostic ONLY — the versionCode that last classified this
                 // device. NOT the rehydrate gate (the epoch is); surfaced so
                 // the "classified by build N" field-triage trail survives.
+                // ALWAYS emitted when latched: a migrated-legacy / pre-build
+                // record has buildCode 0 — exactly the population under triage
+                // right after this ships, so absence-of-provenance must be an
+                // explicit string, never a silently-missing field (the very
+                // "diagnostic black hole" this feature exists to avoid).
                 const int byBuild = bleManager->scaleSkipHighBuildCode();
-                if (byBuild > 0) sp["classifiedByBuildCode"] = byBuild;
+                if (byBuild > 0)
+                    sp["classifiedByBuildCode"] = byBuild;
+                else
+                    sp["classifiedByBuildCode"] =
+                        QStringLiteral("unknown (legacy / migrated / pre-buildcode)");
                 const QDateTime setT = bleManager->scaleSkipHighSetTime();
                 const QDateTime appStart = bleManager->appStartTime();
                 if (setT.isValid()) {

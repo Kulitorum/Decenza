@@ -86,14 +86,13 @@ void WeightProcessor::processWeight(double weight)
                           "stall-start — emitting gap 0 (investigate: a stall "
                           "was flagged without m_feedStallStartMs being set)";
         }
-        m_feedStallStartMs = 0;
         emit scaleFeedResumed(gapMs);
     }
-    m_scaleFeedStale = false;
     // Recovery cancels any pending/active confirmation: a feed that came back
     // never confirms, so enforce never latches on a self-recovering blip. A
-    // later independent stall re-arms suspected→confirmed cleanly.
-    m_scaleStallConfirmed = false;
+    // later independent stall re-arms suspected→confirmed cleanly. Unconditional
+    // + idempotent (clears the no-stall path too).
+    resetStallTracking();
 
     qint64 sampleTs;
     if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
@@ -327,6 +326,15 @@ void WeightProcessor::setCurrentFrame(int frameNumber)
     checkScaleFeedStall(frameNumber);
 }
 
+void WeightProcessor::resetStallTracking()
+{
+    // The three fields move together — never clear a subset (an illegal
+    // "confirmed but not stale" gates the enforce backoff incorrectly).
+    m_scaleFeedStale = false;
+    m_scaleStallConfirmed = false;
+    m_feedStallStartMs = 0;
+}
+
 void WeightProcessor::checkScaleFeedStall(int frameNumber)
 {
     // Scale-agnostic in-shot liveness backstop (BLE connection-priority).
@@ -347,13 +355,19 @@ void WeightProcessor::checkScaleFeedStall(int frameNumber)
         // Not yet stalled. SUSPECTED edge at kScaleStaleMs — unchanged signal
         // (observe logging + diagnostics rely on it). A suspected stall does
         // NOT by itself latch a backoff: enforce acts only on CONFIRMED.
+        // gapMs (from m_lastWallClockMs) is correct here: m_feedStallStartMs
+        // is not yet set, and m_lastWallClockMs IS the last good sample.
         if (gapMs <= kScaleStaleMs) return;
         m_scaleFeedStale = true;
         m_scaleStallConfirmed = false;
-        // Start of the silent gap = the last good sample's wall-clock (NOT
-        // now; now is a DE1-tick evaluation, not a scale sample). Used for
-        // the resume gap and the confirm threshold; robust to a rejected-
-        // spike at resume (the spike path updates m_lastWallClockMs only).
+        // Freeze the silent-gap origin at the last good sample's wall-clock.
+        // BOTH the resume gap (processWeight) AND the CONFIRM threshold below
+        // measure from this frozen value — NOT from m_lastWallClockMs, which
+        // a rejected-spike packet advances (spike path: m_lastWallClockMs =
+        // wallClock; return; — issue #610). Anchoring confirm here makes it
+        // spike-immune: a genuinely dead feed that emits periodic corrupt
+        // spikes (the #1176/#610 overlap) still confirms instead of having
+        // its confirm clock reset to ~0 by every spike.
         m_feedStallStartMs = m_lastWallClockMs;
         qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
                    << "ms while weight expected (frame" << frameNumber
@@ -367,14 +381,16 @@ void WeightProcessor::checkScaleFeedStall(int frameNumber)
     // cleared m_scaleFeedStale in processWeight() and emitted scaleFeedResumed,
     // which is what CANCELS confirmation: a self-recovering blip never reaches
     // here a second time). CONFIRM once the silence persists past the larger
-    // threshold. Event-based on the DE1 tick — no timer.
-    if (!m_scaleStallConfirmed && gapMs >= kScaleStallConfirmMs) {
+    // threshold. Measured from the frozen m_feedStallStartMs (spike-immune),
+    // NOT m_lastWallClockMs. Event-based on the DE1 tick — no timer.
+    const qint64 confirmGapMs = m_wallClock() - m_feedStallStartMs;
+    if (!m_scaleStallConfirmed && confirmGapMs >= kScaleStallConfirmMs) {
         m_scaleStallConfirmed = true;
         qWarning() << "[Weight-Worker] Scale feed stall CONFIRMED — still dead"
-                   << gapMs << "ms (>" << kScaleStallConfirmMs
+                   << confirmGapMs << "ms (>" << kScaleStallConfirmMs
                    << "ms) with no recovery (frame" << frameNumber
                    << "active=" << m_active << "preheat=" << m_preheatActive << ")";
-        emit scaleFeedStallConfirmed(gapMs);
+        emit scaleFeedStallConfirmed(confirmGapMs);
     }
 }
 
@@ -385,11 +401,7 @@ void WeightProcessor::setShotCycleActive(bool active)
     // Leaving the preheat window (idle/sleep/extraction handoff): clear the
     // stale flag so a later cycle can re-detect. m_active extraction is
     // unaffected (it owns its own reset in startExtraction()).
-    if (!active && !m_active) {
-        m_scaleFeedStale = false;
-        m_feedStallStartMs = 0;
-        m_scaleStallConfirmed = false;
-    }
+    if (!active && !m_active) resetStallTracking();
 }
 
 void WeightProcessor::setTareComplete(bool complete)
@@ -426,9 +438,7 @@ void WeightProcessor::startExtraction()
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
-    m_scaleFeedStale = false;
-    m_feedStallStartMs = 0;
-    m_scaleStallConfirmed = false;
+    resetStallTracking();
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 
@@ -471,9 +481,7 @@ void WeightProcessor::resetForRetare()
     m_frameWeightSkipSent.clear();
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
-    m_feedStallStartMs = 0;
-    m_scaleFeedStale = false;
-    m_scaleStallConfirmed = false;
+    resetStallTracking();
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
