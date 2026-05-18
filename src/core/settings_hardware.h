@@ -40,6 +40,21 @@ public:
     int fanThreshold() const;
     void setFanThreshold(int value);
 
+    // --- Connection-priority weak-device classification (D9, #1093/#1176) ---
+    // INTERNAL: deliberately NOT a Q_PROPERTY, no NOTIFY, no QML/Settings-UI
+    // binding (settings-architecture rule — operator access is MCP-only).
+    // Dumb storage: BLEManager owns the build-scoped gating + invariant.
+    // Persisted so a proven dual-HIGH-incapable radio starts BOTH BLE links
+    // at BALANCED across restarts; the stored buildCode lets BLEManager
+    // auto-clear on every new app build (the safety valve). MCP reset clears.
+    bool cpLatched() const;
+    QString cpTriggerKind() const;
+    QString cpSetTimeIso() const;
+    int cpBuildCode() const;
+    void setConnectionPriorityLatch(const QString& triggerKind,
+                                    const QString& setTimeIso, int buildCode);
+    void clearConnectionPriorityLatch();
+
 signals:
     void heaterIdleTempChanged();
     void heaterWarmupFlowChanged();

@@ -87,7 +87,7 @@ Each tool has a `category` that determines the minimum access level required:
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
 | `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority |
 | `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme |
 
 ### Tool → Confirmation Level Mapping
@@ -215,7 +215,8 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `devices_connect_scale` | Connect to a scale by BLE address | control |
 | `devices_connect_de1` | Connect to a DE1 machine by BLE address | control |
 | `devices_disconnect_scale` | Disconnect and forget the current BLE scale | control |
-| `devices_connection_status` | Get connection status of DE1 machine and scale | read |
+| `devices_connection_status` | Get connection status of DE1 machine and scale, incl. in-memory scale connection-priority (dual-HIGH backoff) state | read |
+| `devices_reset_scale_priority` | Clear the in-memory scale connection-priority dual-HIGH backoff latch (re-detects on next scale (re)connect; eventually-consistent) | control |
 | `scale_tare` | Tare (zero) the connected scale | control |
 | `scale_timer_start` | Start the scale's built-in timer | control |
 | `scale_timer_stop` | Stop the scale's built-in timer | control |
@@ -768,7 +769,7 @@ Before adding new tools, consolidate existing ones to reduce tool count and avoi
 | Add `shots_delete` | +1 |
 | **Subtotal at proposal time** | **38** |
 
-After this proposal landed, additional phases added scale tools, device tools, MQTT, theme, debug log, agent file, steam health, and per-profile SAW reset. Authoritative current count: query the MCP server directly (`tools/list`) — at last verification this was **50 tools**.
+After this proposal landed, additional phases added scale tools, device tools, MQTT, theme, debug log, agent file, steam health, and per-profile SAW reset. Authoritative current count: query the MCP server directly (`tools/list`) — at last verification this was **51 tools** (added `devices_reset_scale_priority`).
 
 ## Phase Status
 

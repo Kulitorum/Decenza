@@ -336,13 +336,51 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
 void BleTransport::onControllerConnected() {
     log("Controller connected, starting service discovery");
 
-    // Request CONNECTION_PRIORITY_HIGH to reduce BLE connection interval from the
-    // default ~30-50ms to 7.5-15ms, which reduces how long Android GC pauses delay
-    // BLE notification delivery. See issue #342.
-    // On Android, QLowEnergyConnectionParameters with minimumInterval < 30ms maps to
-    // BluetoothGatt.CONNECTION_PRIORITY_HIGH. Default params have min=7.5ms.
+    // Connection-priority for the DE1 link (#342, #1093/#1176, design D8).
+    // A default-constructed QLowEnergyConnectionParameters has minimumInterval
+    // 7.5 ms, which Qt maps to BluetoothGatt.CONNECTION_PRIORITY_HIGH on
+    // Android (interval < 30 ms ⇒ HIGH) — reducing the BLE connection interval
+    // from the default ~30-50 ms to ~11-15 ms so Android GC pauses delay
+    // notification delivery less.
+    //
+    // EXCEPT when the dual-HIGH-incapable latch is set: a proven-weak radio
+    // cannot sustain TWO HIGH GATT links (scale + DE1) — the scale-only
+    // backoff (#1185) is insufficient because a lone HIGH DE1 still starves
+    // even a BALANCED scale (field log, #1176 shot-2). So the latched device
+    // skips HIGH here too and runs the DE1 at the platform-default BALANCED
+    // interval — both links BALANCED, the known-good config (matches de1app,
+    // which requests no priority at all). The latch is the SAME app-run /
+    // persisted BLEManager latch the scale transport consults (it is a
+    // device-level property, not per-link). Eventually-consistent: a latch
+    // set mid-run takes effect on the DE1's next connect — we do NOT
+    // renegotiate a live link (consistent with the scale path / #1185).
+    // Capable hardware never latches ⇒ DE1 keeps HIGH ⇒ no regression.
+    // Logged in BOTH branches: this is the only DE1-side connection-priority
+    // log line — it closes the long-standing DE1-priority observability gap.
+    // (Android never confirms the negotiated interval: the Qt
+    // connectionUpdated() signal exists but Android's BLE stack does not
+    // reliably fire the underlying onConnectionUpdated callback, so Qt never
+    // emits it in practice — no negotiated-interval feedback is available.)
+#ifndef DECENZA_TESTING
+    if (auto* mgr = BLEManager::instance(); mgr && mgr->scaleSkipHighPriority()) {
+        log(QString("DE1 connection-priority: skipping HIGH "
+                    "(dual-HIGH-incapable latch set, trigger=%1) — DE1 link "
+                    "stays at BALANCED")
+                .arg(mgr->scaleSkipHighTriggerKind()));
+    } else {
+        log("DE1 connection-priority: requesting HIGH");
+        QLowEnergyConnectionParameters params;
+        m_controller->requestConnectionUpdate(params);
+    }
+#else
+    // Test build: blemanager.h is intentionally not included (see the
+    // #ifndef DECENZA_TESTING include guard at the top of this file) and
+    // blemanager.cpp is not linked, so BLEManager::instance() is unavailable
+    // here — keep the original unconditional HIGH request. Production builds
+    // (DECENZA_TESTING never defined) always take the latch-aware branch above.
     QLowEnergyConnectionParameters params;
     m_controller->requestConnectionUpdate(params);
+#endif
 
     m_controller->discoverServices();
 }

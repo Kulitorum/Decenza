@@ -1,6 +1,7 @@
 #include "settings_hardware.h"
 
 #include <QtGlobal>
+#include <QDebug>
 
 SettingsHardware::SettingsHardware(QObject* parent)
     : QObject(parent)
@@ -90,4 +91,53 @@ void SettingsHardware::setFanThreshold(int value) {
         m_settings.setValue("calibration/fanThreshold", value);
         emit fanThresholdChanged();
     }
+}
+
+// --- Connection-priority weak-device classification (D9) ---
+// Dumb persisted storage under the "connectionPriority/" QSettings group;
+// BLEManager owns build-scoped gating + the value invariant. No NOTIFY/QML.
+
+bool SettingsHardware::cpLatched() const {
+    return m_settings.value("connectionPriority/latched", false).toBool();
+}
+
+QString SettingsHardware::cpTriggerKind() const {
+    return m_settings.value("connectionPriority/triggerKind").toString();
+}
+
+QString SettingsHardware::cpSetTimeIso() const {
+    return m_settings.value("connectionPriority/setTimeIso").toString();
+}
+
+int SettingsHardware::cpBuildCode() const {
+    return m_settings.value("connectionPriority/buildCode", 0).toInt();
+}
+
+void SettingsHardware::setConnectionPriorityLatch(const QString& triggerKind,
+                                                  const QString& setTimeIso,
+                                                  int buildCode) {
+    m_settings.setValue("connectionPriority/latched", true);
+    m_settings.setValue("connectionPriority/triggerKind", triggerKind);
+    m_settings.setValue("connectionPriority/setTimeIso", setTimeIso);
+    m_settings.setValue("connectionPriority/buildCode", buildCode);
+    // QSettings::setValue is fire-and-forget (no return, no throw). On
+    // read-only storage / full disk the write silently drops and the
+    // classification degrades to in-memory-only (re-detects next run) — which
+    // would look exactly like "still bad every restart" with NO log trail,
+    // the precise diagnostic black hole this whole feature exists to avoid.
+    // Force a flush and surface a failure so a field debug.log shows it.
+    m_settings.sync();
+    if (m_settings.status() != QSettings::NoError) {
+        qWarning().noquote()
+            << "[BLE] Failed to PERSIST connection-priority classification "
+               "(QSettings status" << static_cast<int>(m_settings.status())
+            << ") — it is in-memory-only this run; the device will re-detect "
+               "on the next restart instead of starting at BALANCED";
+    }
+}
+
+void SettingsHardware::clearConnectionPriorityLatch() {
+    // Remove the whole group so a later cpLatched() defaults to false and no
+    // stale kind/time/build lingers.
+    m_settings.remove("connectionPriority");
 }

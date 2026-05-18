@@ -41,6 +41,18 @@ public slots:
     // on the worker thread via QueuedConnection from main thread, so no extra locking.
     void setTargetWeight(double weight);
     void setCurrentFrame(int frameNumber);
+    // Scale-feed-liveness gate inputs (BLE connection-priority backstop).
+    // setShotCycleActive(true) is set when the espresso cycle enters
+    // EspressoPreheating and cleared on any non-preheat phase (idle/sleep/
+    // extraction-end) — it widens stall detection to the pre-shot warm-up.
+    // setProbeActive(true) is set for the duration of the startup
+    // connection-priority probe (idle, after the scale is confirmed
+    // streaming) so a probe-provoked stall drives the same scaleFeedStalled
+    // path. pollScaleFeedLiveness() lets the probe tick the stall check at
+    // idle, where the DE1 shot-sample cadence (setCurrentFrame) is silent.
+    void setShotCycleActive(bool active);
+    void setProbeActive(bool active);
+    void pollScaleFeedLiveness();
     void setTareComplete(bool complete);
     void startExtraction();
     void markExtractionStart();  // Called when flow starts (idempotent, espresso-only)
@@ -75,6 +87,9 @@ signals:
 private:
     double computeLSLR(int windowMs) const;
     double getExpectedDrip(double currentFlowRate) const;
+    // Scale-agnostic stall evaluation shared by setCurrentFrame() (DE1 cadence,
+    // during a shot) and pollScaleFeedLiveness() (probe cadence, at idle).
+    void checkScaleFeedStall(int frameNumber);
 
     // Weight sample buffer (1-second rolling window for LSLR)
     struct WeightSample {
@@ -99,6 +114,14 @@ private:
 
     // State
     bool m_active = false;
+    // Espresso cycle is in the pre-shot EspressoPreheating phase (set from the
+    // machine phase, distinct from m_active true-extraction). Widens the
+    // liveness gate so a stall during warm-up is caught before the pour.
+    bool m_preheatActive = false;
+    // A startup connection-priority probe window is active (idle, scale
+    // already confirmed streaming). Widens the liveness gate so a
+    // probe-provoked stall trips the existing backoff during idle.
+    bool m_probeActive = false;
     bool m_tareComplete = false;
     bool m_stopTriggered = false;
     int m_currentFrame = -1;

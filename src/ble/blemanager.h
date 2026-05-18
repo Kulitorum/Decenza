@@ -10,11 +10,13 @@
 #include <QTimer>
 #include <QStringList>
 #include <QFile>
+#include <QDateTime>
 
 #include "blecapability.h"
 
 class ScaleDevice;
 class DiFluidR2;
+class SettingsHardware;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
@@ -81,15 +83,85 @@ public:
     // almost certainly a stale BlueZ cache or similar host-side state).
     void requestBluezCacheHint();
 
-    // App-run-scoped dual-HIGH backoff latch (#1093/#1176). The contention is
+    // Build-scoped dual-HIGH backoff latch (#1093/#1176). The contention is
     // a property of this device's BT radio + the DE1 link, not of any one
     // scale — so once any scale's transport detects it, EVERY scale this run
     // (including one connected after a scale-type change, which builds a fresh
     // transport) must skip CONNECTION_PRIORITY_HIGH. Lives on the BLEManager
-    // singleton so it outlives per-scale transport objects. In-memory only:
-    // cleared by an app restart, never written to disk.
-    bool scaleSkipHighPriority() const { return m_scaleSkipHighPriority; }
-    void setScaleSkipHighPriority(bool skip) { m_scaleSkipHighPriority = skip; }
+    // singleton so it outlives per-scale transport objects.
+    //
+    // This struct itself is in-memory only. D9 adds build-scoped PERSISTENCE
+    // externally (BLEManager::setSettings → SettingsHardware): latch/clear
+    // write through to QSettings, and a same-build restart rehydrates the
+    // struct before the first BLE connect (so it skips HIGH with no detection
+    // window). A DIFFERENT build, or an explicit MCP reset, discards the
+    // persisted record and re-detects from scratch (the build-scoped safety
+    // valve). So: not "cleared by every app restart" anymore — cleared by a
+    // build change or an MCP reset.
+    //
+    // The latch carries minimal diagnostic metadata for the MCP read (D3/D4):
+    // the trigger kind ("de1-fault-cluster" / "scale-feed-stall") and the
+    // wall-clock time it was set, from which the MCP derives "elapsed since
+    // app start when latched".
+    //
+    // The three correlated fields are one value type with the enforced
+    // invariant "triggerKind non-empty AND setTime valid IFF latched": they
+    // are mutated ONLY via set()/clear()/rehydrate(), so the correlation
+    // cannot drift (D7) — including across the persistence trust boundary
+    // (rehydrate() sanitizes possibly-malformed persisted input). m_appStartTime
+    // is deliberately NOT part of this — it is a process-lifetime fact.
+    struct ScaleSkipHighLatch {
+        bool      latched = false;
+        QString   triggerKind;   // non-empty iff latched
+        QDateTime setTime;       // valid    iff latched
+        void set(const QString& kind) {
+            latched = true;
+            // Belt-and-suspenders: the public API mandates a kind (no
+            // default), so an empty kind here would be an internal bug.
+            triggerKind = kind.isEmpty() ? QStringLiteral("unknown") : kind;
+            setTime = QDateTime::currentDateTime();
+        }
+        // Rehydrate from a persisted record. UNLIKE set(), preserves the
+        // original set-time (the diagnostic value of "when did this device
+        // first prove weak"). Sanitises possibly-corrupt persisted input so
+        // the "kind non-empty AND time valid IFF latched" invariant holds even
+        // on a partial write / manual edit / format drift: an empty kind
+        // becomes "unknown"; an invalid time falls back to now (the
+        // classification is the load-bearing fact — do NOT discard a valid
+        // same-build latch over a bad diagnostic timestamp). Returns false iff
+        // the time had to be substituted, so the caller can log the anomaly.
+        bool rehydrate(const QString& kind, const QDateTime& time) {
+            latched = true;
+            triggerKind = kind.isEmpty() ? QStringLiteral("unknown") : kind;
+            if (time.isValid()) { setTime = time; return true; }
+            setTime = QDateTime::currentDateTime();
+            return false;
+        }
+        void clear() { latched = false; triggerKind.clear(); setTime = QDateTime(); }
+    };
+
+    bool scaleSkipHighPriority() const { return m_scaleSkipHigh.latched; }
+    // Latch the skip-HIGH decision with a mandatory trigger kind (no default —
+    // "latch without a reason" is a compile error, not a silent "unknown").
+    void latchScaleSkipHighPriority(const QString& triggerKind);
+    // Clear the in-memory latch AND the persisted (build-scoped) record (the
+    // MCP reset escape hatch — the reset is durable: a same-build restart will
+    // NOT rehydrate it). Takes effect on the next scale (re)connect's
+    // detection pass — eventually-consistent, no forced teardown of a live
+    // connection.
+    void clearScaleSkipHighPriority();
+    QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
+    QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
+    QDateTime appStartTime() const { return m_appStartTime; }
+
+    // D9: wire the persisted (build-scoped) classification store. Called once
+    // at startup BEFORE any BLE connect. Loads a prior classification: if it
+    // was set by the CURRENT build it seeds the in-memory latch so the first
+    // connect of the run already skips HIGH on both links (no detection
+    // window); if it was set by a DIFFERENT build it is discarded + wiped
+    // (the build-scoped safety valve — every new build re-detects).
+    // latch/clear then write through to this store.
+    void setSettings(SettingsHardware* settings);
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
@@ -206,8 +278,17 @@ private:
     // Prevents showing "No Scale Found" dialog more than once per session
     bool m_flowScaleFallbackEmitted = false;
 
-    // App-run dual-HIGH backoff latch (see scaleSkipHighPriority()).
-    bool m_scaleSkipHighPriority = false;
+    // App-run dual-HIGH backoff latch + diagnostic metadata (in-memory only;
+    // see scaleSkipHighPriority()). m_appStartTime is captured at construction
+    // (process start) so the MCP read can report "elapsed since app start" —
+    // intentionally separate from the latch value (different lifetime).
+    ScaleSkipHighLatch m_scaleSkipHigh;
+    QDateTime m_appStartTime;
+    // D9: persisted (build-scoped) classification store. Non-owning; the
+    // SettingsHardware domain object outlives BLEManager (main()-scoped).
+    // Null until setSettings() is wired (and on platforms/tests that don't
+    // wire it — then the classification is in-memory-only, as before D9).
+    SettingsHardware* m_settings = nullptr;
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
