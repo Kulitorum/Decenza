@@ -1005,10 +1005,11 @@ if(IOS)
     target_link_libraries(Decenza PRIVATE
         "-framework SafariServices"
     )
-    # WidgetKit: app-side timeline reload after writing the shared snapshot
-    target_link_libraries(Decenza PRIVATE
-        "-framework WidgetKit"
-    )
+    # NOTE: the app target does NOT link WidgetKit. The widget-snapshot
+    # bridge only writes App Group UserDefaults; WidgetKit (WidgetCenter) is
+    # Swift-only and unreachable from the modules-disabled Obj-C++ build.
+    # The widget extension target links WidgetKit itself (see
+    # ios/inject_widget_extension.rb).
 endif()
 
 # macOS deployment

@@ -1,9 +1,4 @@
 #import <Foundation/Foundation.h>
-// WidgetCenter is a Swift-first API: it is NOT in the WidgetKit umbrella
-// header, so #import <WidgetKit/WidgetKit.h> leaves it undeclared in
-// Obj-C++. The Clang module import exposes the generated Obj-C interface
-// (Xcode app targets enable modules by default).
-@import WidgetKit;
 
 #include <QByteArray>
 
@@ -11,8 +6,18 @@
                                        // (src/ is the target's header root)
 
 // Writes the machine-status snapshot to the App Group shared UserDefaults so
-// the WidgetKit extension can read it, then asks WidgetKit to refresh the
-// timeline. reloadAllTimelines is a harmless no-op when no widget is installed.
+// the WidgetKit extension can read it.
+//
+// NOTE: this intentionally does NOT call WidgetCenter.reloadAllTimelines().
+// WidgetCenter is Swift-only — it is absent from the WidgetKit umbrella
+// header, and the Qt iOS build compiles .mm with C++ modules disabled
+// (`-x objective-c++`, no -fmodules) so `@import WidgetKit;` is rejected.
+// There is therefore no Obj-C++ path to it in this build config. The iOS
+// widget instead refreshes on its own WidgetKit timeline policy (see
+// DecenzaWidget.swift getTimeline .after(...)), consistent with the
+// design's "last-known state, not real-time" non-goal; the staleness line
+// keeps it honest. Instant iOS push-refresh, if ever wanted, needs an
+// @objc Swift shim compiled into the app target (follow-up).
 void decenzaWriteWidgetSnapshotIOS(const QByteArray& json) {
     @autoreleasepool {
         NSString* appGroup =
@@ -41,9 +46,5 @@ void decenzaWriteWidgetSnapshotIOS(const QByteArray& json) {
         }
 
         [shared setObject:value forKey:key];
-
-        if (@available(iOS 14.0, *)) {
-            [WidgetCenter.sharedCenter reloadAllTimelines];
-        }
     }
 }
