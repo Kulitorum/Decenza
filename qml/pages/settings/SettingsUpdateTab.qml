@@ -113,6 +113,46 @@ Item {
                             }
                         }
                     }
+
+                    // Opens the user manual (GitHub wiki) in the default
+                    // browser. Declared after the easter-egg mouse area (and
+                    // z:1) so taps on the button open the manual while taps
+                    // elsewhere on the card still feed the tap counter.
+                    Rectangle {
+                        id: manualButton
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.rightMargin: Theme.scaled(10)
+                        z: 1
+                        radius: Theme.buttonRadius
+                        color: manualButtonArea.pressed ? Qt.darker(Theme.primaryColor, 1.2)
+                                                        : Theme.primaryColor
+                        implicitWidth: manualButtonLabel.implicitWidth + Theme.scaled(20)
+                        implicitHeight: Theme.scaled(28)
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("about.manual", "Manual")
+                        Accessible.description: TranslationManager.translate("about.manualHint", "Open the Decenza user manual in your browser")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: manualButtonArea.clicked(null)
+
+                        Text {
+                            id: manualButtonLabel
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("about.manual", "Manual")
+                            font.pixelSize: Theme.scaled(13)
+                            font.bold: true
+                            color: Theme.primaryContrastColor
+                            Accessible.ignored: true
+                        }
+
+                        MouseArea {
+                            id: manualButtonArea
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.openUrlExternally("https://github.com/Kulitorum/Decenza/wiki")
+                        }
+                    }
                 }
 
                 // Auto-check toggle
