@@ -132,6 +132,34 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                             .arg(s / 60).arg(s % 60);
                 }
             }
+            // Backoff policy mode (observe-mode change) + recent observe
+            // events. backoffMode is always reported so the active policy is
+            // never hidden; the event list is empty unless observe has fired.
+            if (bleManager) {
+                sp["backoffMode"] = BLEManager::backoffModeToString(
+                    bleManager->backoffMode());
+                QJsonArray events;
+                const auto recent = bleManager->recentObserveEvents();
+                for (const auto& e : recent) {
+                    QJsonObject ev;
+                    ev["kind"] = e.kind;                 // wouldBackoff | recovered
+                    ev["triggerKind"] = e.triggerKind;   // human-readable
+                    if (e.time.isValid()) {
+                        ev["timeIso8601"] = e.time
+                            .toOffsetFromUtc(e.time.offsetFromUtc())
+                            .toString(Qt::ISODate);
+                    }
+                    // Unit-suffixed per kind (CLAUDE.md MCP conventions):
+                    // a stall that would have backed off vs. a recovered gap.
+                    if (e.kind == QLatin1String("recovered"))
+                        ev["gapSec"] = e.durationSec;
+                    else
+                        ev["stallSec"] = e.durationSec;
+                    events.append(ev);
+                }
+                sp["recentObserveEvents"] = events;  // most-recent-first
+            }
+
             result["scaleConnectionPriority"] = sp;
             return result;
         },
@@ -179,6 +207,83 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                   "assert the clear has executed yet)."
                 : "Scale connection-priority latch was already clear; clear "
                   "still queued as a no-op, nothing will change.";
+            return result;
+        },
+        "control");
+
+    // devices_set_scale_priority_mode — sets the persistent backoff policy
+    // mode (observe-mode change). Mirrors devices_reset_scale_priority's
+    // confirmation + eventually-consistent contract: the mode persists
+    // immediately, but observe's HIGH-forcing applies on the next scale
+    // (re)connect (the current connection is NOT torn down).
+    registry->registerTool(
+        "devices_set_scale_priority_mode",
+        "Set the persistent scale connection-priority backoff policy mode. "
+        "'enforce' (default) is the normal dual-HIGH backoff: on a detected "
+        "stall/fault cluster it latches the scale link to BALANCED and "
+        "reconnects. 'observe' is detect-and-log-only: detection still runs "
+        "but takes NO action — the link is forced to HIGH (overriding, but "
+        "not erasing, any existing BALANCED latch) and would-back-off / "
+        "recovery events are logged and surfaced in devices_connection_status, "
+        "so the backoff's aggressiveness can be evaluated on a production "
+        "build. The mode persists across app restarts AND build upgrades "
+        "until explicitly changed (it is NOT build-scoped, unlike the latch). "
+        "Eventually-consistent: the mode is saved immediately but the "
+        "HIGH-forcing applies on the next scale (re)connect; the current "
+        "connection is not torn down.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"mode", QJsonObject{{"type", "string"},
+                {"enum", QJsonArray{"enforce", "observe"}},
+                {"description", "enforce = normal backoff; observe = "
+                                "detect-and-log-only, link forced HIGH"}}},
+            {"confirmed", QJsonObject{{"type", "boolean"},
+                {"description", "Set to true after the user confirms this action in chat"}}}
+        }}, {"required", QJsonArray{"mode"}}},
+        [bleManager](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            const QString mode = args.value("mode").toString();
+            if (mode != QLatin1String("enforce") &&
+                mode != QLatin1String("observe")) {
+                result["error"] = "Invalid mode: must be \"enforce\" or "
+                                  "\"observe\" (mode unchanged)";
+                return result;
+            }
+            if (!args.value("confirmed").toBool()) {
+                result["error"] = "Confirmation required: re-call with "
+                                  "confirmed=true (mode unchanged)";
+                result["confirmationRequired"] = true;
+                return result;
+            }
+            const QString prev = BLEManager::backoffModeToString(
+                bleManager->backoffMode());
+            const auto target = BLEManager::backoffModeFromString(mode);
+            // Marshalled to the BLEManager thread (like the reset tool); this
+            // handler reports accepted/queued, not verified-applied.
+            QMetaObject::invokeMethod(bleManager, [bleManager, target]() {
+                bleManager->setBackoffMode(target);
+            }, Qt::QueuedConnection);
+            result["accepted"] = true;
+            result["previousMode"] = prev;
+            result["mode"] = mode;
+            result["appliesOnNextReconnect"] = true;
+            result["message"] = QStringLiteral(
+                "Backoff policy mode set to \"%1\" (was \"%2\"). The mode is "
+                "persisted immediately and survives restarts/build upgrades. "
+                "%3 Eventually-consistent: this does NOT tear down the current "
+                "scale connection — force a scale reconnect (toggle the scale "
+                "or restart the app) for it to take effect.")
+                .arg(mode, prev,
+                     mode == QLatin1String("observe")
+                       ? QStringLiteral("On the next scale reconnect the link "
+                           "is forced HIGH and detection logs only (no latch, "
+                           "no disconnect).")
+                       : QStringLiteral("On the next scale reconnect the "
+                           "normal dual-HIGH backoff resumes and any persisted "
+                           "latch is honoured again."));
             return result;
         },
         "control");

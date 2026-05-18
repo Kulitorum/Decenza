@@ -1435,6 +1435,13 @@ int main(int argc, char *argv[])
             QObject::connect(&weightProcessor, &WeightProcessor::scaleFeedStalled,
                              scaleTransport, &ScaleBleTransport::onScaleFeedStalled,
                              Qt::QueuedConnection);
+            // Recovery counterpart (observe-mode change). Same cross-thread
+            // pinning rationale as scaleFeedStalled above (WeightProcessor is
+            // on the weight worker thread; the slot touches the transport's
+            // main-thread state) — must be Queued, not AutoConnection.
+            QObject::connect(&weightProcessor, &WeightProcessor::scaleFeedResumed,
+                             scaleTransport, &ScaleBleTransport::onScaleFeedResumed,
+                             Qt::QueuedConnection);
         }
 
         // When physical scale connects/disconnects, switch between physical and FlowScale

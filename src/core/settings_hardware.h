@@ -55,6 +55,15 @@ public:
                                     const QString& setTimeIso, int buildCode);
     void clearConnectionPriorityLatch();
 
+    // Backoff policy mode (observe-mode change). Distinct from the latch:
+    // deliberately NOT build-scoped — it is an explicit operator choice that
+    // must survive app restarts AND build upgrades, so the build-scoped
+    // rehydrate/safety-valve logic never reads or rewrites it. Stored as a
+    // sibling key under the same group; clearConnectionPriorityLatch() must
+    // NOT remove it. Absent/unrecognized ⇒ caller treats as "enforce".
+    QString cpMode() const;
+    void setCpMode(const QString& mode);
+
 signals:
     void heaterIdleTempChanged();
     void heaterWarmupFlowChanged();

@@ -76,7 +76,17 @@ signals:
     // delivering weight samples for > kScaleStaleMs — evaluated on the DE1
     // shot-sample cadence (setCurrentFrame) so it fires even while the scale
     // is silent. Pure observation — no effect on SAW/flow/frame decisions.
-    void scaleFeedStalled();
+    // `gapMs` is how long the feed had been silent when the stall was
+    // detected (≥ kScaleStaleMs). enforce-mode handlers ignore the arg
+    // (behavior unchanged); observe mode logs it as the stall duration.
+    void scaleFeedStalled(qint64 gapMs);
+    // Recovery counterpart (observe-mode change). Emitted exactly once on the
+    // stall→genuine-sample edge: the feed had been signalled stalled this
+    // cycle and a real sample has now arrived. gapMs is the silent duration
+    // (first post-silence sample wall-clock − last pre-silence sample). Pure
+    // observation — never alters SAW/flow/frame decisions; the transport
+    // decides whether to log it (observe mode).
+    void scaleFeedResumed(qint64 gapMs);
 
 private:
     double computeLSLR(int windowMs) const;
@@ -105,6 +115,10 @@ private:
     // to avoid coupling de-jitter tuning to fault detection).
     static constexpr qint64 kScaleStaleMs = 2000;
     bool m_scaleFeedStale = false;
+    // Wall-clock of the last good sample before the current silent gap (set
+    // when a stall is detected; 0 = no active stall). Drives scaleFeedResumed's
+    // gap. Reset on the resume edge and on every extraction/cycle reset.
+    qint64 m_feedStallStartMs = 0;
 
     // State
     bool m_active = false;

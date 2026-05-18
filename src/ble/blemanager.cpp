@@ -134,7 +134,22 @@ BLEManager::~BLEManager() {
 void BLEManager::setSettings(SettingsHardware* settings)
 {
     m_settings = settings;
-    if (!m_settings || !m_settings->cpLatched()) return;
+    if (!m_settings) return;
+
+    // Backoff policy mode (observe-mode change). Loaded UNCONDITIONALLY and
+    // independent of the latch: it is deliberately NOT build-scoped, so it is
+    // read even when the latch is absent/cleared and is never touched by the
+    // build-change safety valve below. Absent/unrecognized ⇒ Enforce.
+    m_backoffMode = backoffModeFromString(m_settings->cpMode());
+    if (m_backoffMode == BackoffMode::Observe) {
+        qWarning().noquote()
+            << "[BLE] Backoff policy mode = OBSERVE (persisted) — connection-"
+               "priority detection runs but takes NO action and the scale "
+               "link is forced HIGH (any latch is overridden, not erased). "
+               "Set enforce via MCP to restore the dual-HIGH backoff.";
+    }
+
+    if (!m_settings->cpLatched()) return;
 
     const int storedBuild = m_settings->cpBuildCode();
     if (storedBuild == versionCode()) {
@@ -203,6 +218,46 @@ void BLEManager::clearScaleSkipHighPriority()
                "MCP reset — next (re)connect will request HIGH on both links "
                "and re-enter detection from scratch";
     }
+}
+
+void BLEManager::setBackoffMode(BackoffMode mode)
+{
+    const bool changed = (m_backoffMode != mode);
+    m_backoffMode = mode;
+    // Write through to the (non-build-scoped) persisted store so the choice
+    // survives restarts and build upgrades. Deliberately does NOT touch the
+    // latch: observe overrides the latch at the transport, but the latch
+    // value is preserved so switching back to enforce honours it honestly.
+    if (m_settings) m_settings->setCpMode(backoffModeToString(mode));
+    if (changed) {
+        qWarning().noquote()
+            << "[BLE] Backoff policy mode set to" << backoffModeToString(mode).toUpper()
+            << "— applies on the next scale (re)connect (eventually-consistent; "
+               "the current connection is not torn down)";
+    }
+}
+
+void BLEManager::recordObserveEvent(const QString& kind,
+                                    const QString& triggerKind,
+                                    double durationSec)
+{
+    QMutexLocker lock(&m_observeEventsMutex);
+    m_observeEvents.append(ObserveEvent{QDateTime::currentDateTime(),
+                                        triggerKind, kind, durationSec});
+    // Bounded ring: drop the oldest once over capacity (append order; the
+    // MCP read reverses to most-recent-first).
+    while (m_observeEvents.size() > kObserveEventRingCapacity)
+        m_observeEvents.removeFirst();
+}
+
+QList<BLEManager::ObserveEvent> BLEManager::recentObserveEvents() const
+{
+    QMutexLocker lock(&m_observeEventsMutex);
+    QList<ObserveEvent> out;
+    out.reserve(m_observeEvents.size());
+    for (auto it = m_observeEvents.crbegin(); it != m_observeEvents.crend(); ++it)
+        out.append(*it);
+    return out;  // most-recent-first copy
 }
 
 void BLEManager::requestBluezCacheHint()

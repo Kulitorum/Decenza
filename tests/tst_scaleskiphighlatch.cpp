@@ -169,9 +169,44 @@ private slots:
         s.clearConnectionPriorityLatch();
     }
 
+    // --- Backoff policy mode persistence (observe-mode change) ---
+
+    void cpModeDefaultsEmptyAndRoundTrips() {
+        SettingsHardware s;
+        s.clearConnectionPriorityLatch();
+        QVERIFY(s.cpMode().isEmpty());          // absent ⇒ caller treats as enforce
+        s.setCpMode(QStringLiteral("observe"));
+        QCOMPARE(s.cpMode(), QStringLiteral("observe"));
+        SettingsHardware s2;                    // simulated restart
+        QCOMPARE(s2.cpMode(), QStringLiteral("observe"));
+        s.setCpMode(QStringLiteral("enforce"));
+        QCOMPARE(SettingsHardware().cpMode(), QStringLiteral("enforce"));
+    }
+
+    // The critical correctness fix: clearing the latch (MCP reset /
+    // new-build re-detect) must NOT wipe the sibling policyMode key.
+    void cpModeSurvivesLatchClear() {
+        SettingsHardware s;
+        s.setCpMode(QStringLiteral("observe"));
+        s.setConnectionPriorityLatch(QStringLiteral("scale-feed-stall"),
+                                     QDateTime::currentDateTime().toString(Qt::ISODate),
+                                     3388);
+        QVERIFY(s.cpLatched());
+
+        s.clearConnectionPriorityLatch();       // narrowed to the 4 latch keys
+
+        QVERIFY(!s.cpLatched());                // latch gone
+        QCOMPARE(s.cpMode(), QStringLiteral("observe"));  // mode preserved
+        QVERIFY(s.cpTriggerKind().isEmpty());   // no stale latch metadata
+        QVERIFY(s.cpSetTimeIso().isEmpty());
+        QCOMPARE(s.cpBuildCode(), 0);
+        s.setCpMode(QString());                 // tidy for the next test
+    }
+
     void cleanupTestCase() {
         SettingsHardware s;
         s.clearConnectionPriorityLatch();
+        s.setCpMode(QString());
     }
 };
 

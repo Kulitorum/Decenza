@@ -67,7 +67,18 @@ void WeightProcessor::processWeight(double weight)
 
     // Scale-feed liveness: a genuine (non-spike) sample arrived, so the feed
     // is alive again — clear the stall flag so a later stall in this shot can
-    // be re-detected. (No "resumed" signal: backoff confirmation is structural.)
+    // be re-detected. Recovery edge (observe-mode change): if a stall had been
+    // signalled this cycle, emit scaleFeedResumed once on the 1→0 edge with
+    // the silent gap (now − the last good sample before the silence, captured
+    // in m_feedStallStartMs when the stall was detected). Pure sample edge, no
+    // timer. enforce-mode behavior is unaffected — this is observation only;
+    // the transport decides whether to log it.
+    if (m_scaleFeedStale) {
+        const qint64 gapMs = (m_feedStallStartMs > 0)
+                                 ? (wallClock - m_feedStallStartMs) : 0;
+        m_feedStallStartMs = 0;
+        emit scaleFeedResumed(gapMs);
+    }
     m_scaleFeedStale = false;
 
     qint64 sampleTs;
@@ -318,10 +329,16 @@ void WeightProcessor::checkScaleFeedStall(int frameNumber)
     if ((m_wallClock() - m_lastWallClockMs) <= kScaleStaleMs) return;
 
     m_scaleFeedStale = true;
+    // Start of the silent gap = the last good sample's wall-clock (NOT now;
+    // now is a DE1-tick evaluation, not a scale sample). Used to compute the
+    // resume gap on recovery; robust to a rejected-spike packet at resume
+    // (the spike path updates m_lastWallClockMs but not this).
+    m_feedStallStartMs = m_lastWallClockMs;
+    const qint64 gapMs = m_wallClock() - m_lastWallClockMs;  // silence so far
     qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
                << "ms while weight expected (frame" << frameNumber
                << "active=" << m_active << "preheat=" << m_preheatActive << ")";
-    emit scaleFeedStalled();
+    emit scaleFeedStalled(gapMs);
 }
 
 void WeightProcessor::setShotCycleActive(bool active)
@@ -331,7 +348,7 @@ void WeightProcessor::setShotCycleActive(bool active)
     // Leaving the preheat window (idle/sleep/extraction handoff): clear the
     // stale flag so a later cycle can re-detect. m_active extraction is
     // unaffected (it owns its own reset in startExtraction()).
-    if (!active && !m_active) m_scaleFeedStale = false;
+    if (!active && !m_active) { m_scaleFeedStale = false; m_feedStallStartMs = 0; }
 }
 
 void WeightProcessor::setTareComplete(bool complete)
@@ -369,6 +386,7 @@ void WeightProcessor::startExtraction()
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
     m_scaleFeedStale = false;
+    m_feedStallStartMs = 0;
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 
@@ -411,6 +429,7 @@ void WeightProcessor::resetForRetare()
     m_frameWeightSkipSent.clear();
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
+    m_feedStallStartMs = 0;
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
