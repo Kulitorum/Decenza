@@ -341,17 +341,3 @@ jobs:
         if: always()
         run: |
           rm -f $RUNNER_TEMP/keystore.jks || true
-
-      - name: Warm main branch cache for next release
-        if: success() && startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          IS_PRERELEASE=$(gh release view "$TAG" --json isPrerelease --jq '.isPrerelease')
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            echo "Skipping cache warm for pre-release $TAG"
-          else
-            gh workflow run "$GITHUB_WORKFLOW" --ref main || echo "Cache warm dispatch failed (non-fatal)"
-          fi

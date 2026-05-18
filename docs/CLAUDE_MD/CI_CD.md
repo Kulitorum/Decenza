@@ -143,7 +143,7 @@ This triggers all 6 platform builds simultaneously. Each workflow will:
 - Android workflow injects `Build: XXXX` into the release notes
 - iOS workflow uploads to App Store Connect
 
-**Cache warming:** When the tag points to a full release (not a pre-release), each workflow also dispatches a `workflow_dispatch` build on `main` after success. This populates ccache for the next version's pre-release builds. Pre-release tag pushes skip this step.
+**Cache warming:** GitHub Actions cache *restore* is ref-scoped — a tag-push build can only restore caches from its own tag ref or `main`. To seed `main`-scoped Qt + ccache caches so the next release does not build cold, the dedicated `warm-main-cache.yml` workflow listens for the `release: released` event (fired when a pre-release is promoted to a full release, see "Promoting a pre-release to stable" below) and dispatches all 6 build workflows on `--ref main`. Warming happens at **promotion time**, not tag-push time, because promotion is the only moment a `main`-scoped warm build is both wanted and reachable (tag-push builds are tag-ref-scoped; the release is still a pre-release at tag-push time). See issue #1213.
 
 #### Updating an existing pre-release
 To rebuild an existing pre-release at the current HEAD:
@@ -195,7 +195,7 @@ When promoting a pre-release to a full release, you must also set it as "latest"
 ```bash
 gh release edit vX.Y.Z --prerelease=false --latest
 ```
-Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version. Note: promoting does NOT re-trigger builds — the artifacts from the pre-release tag push are already attached.
+Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version. Note: promoting does NOT re-trigger the release builds — the artifacts from the pre-release tag push are already attached. It *does* fire the `release: released` event, which triggers `warm-main-cache.yml` to dispatch all 6 build workflows on `main` (no upload, no version bump) purely to warm `main`-scoped caches for the next release.
 
 ### Notes
 - **Always use tag pushes** — never `workflow_dispatch` — for release builds
