@@ -102,14 +102,15 @@ void MachineStatusSnapshot::setLastShot(double yieldG, double durationSec,
     if (!shot) {
         // This setter is wired to the finalized shotSaved path, so an
         // invalid value here means that contract was violated (e.g. a
-        // ShotDataModel sentinel like stopTime == -1) — surface it once
-        // instead of silently never updating the widget's last-shot line.
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
+        // ShotDataModel sentinel like stopTime == -1). Throttle rather than
+        // latch-once so a later, genuinely different regression still
+        // surfaces (a once-per-process bool would permanently hide it).
+        static std::atomic<int> rejectCount{0};
+        const int n = rejectCount.fetch_add(1);
+        if (n == 0 || n % 100 == 0)
             qWarning() << "[widget] setLastShot rejected non-finalized shot:"
-                       << "yieldG" << yieldG << "durationSec" << durationSec;
-        }
+                       << "yieldG" << yieldG << "durationSec" << durationSec
+                       << "(occurrence" << (n + 1) << ")";
         return;
     }
     m_lastShot = shot;
