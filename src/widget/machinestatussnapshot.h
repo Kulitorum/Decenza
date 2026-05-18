@@ -16,6 +16,14 @@ struct WidgetLastShot {
     double yieldG = 0.0;
     double durationSec = 0.0;
     QString qualityBadge;   // empty → omitted from JSON
+
+    // The validity invariant lives in the type: the only way to get a
+    // WidgetLastShot the writer will publish is through make(), which
+    // rejects non-finite / negative values (returns nullopt). Keeps the
+    // three thin platform readers from having to defend against NaN/Inf.
+    static std::optional<WidgetLastShot> make(double yieldG,
+                                              double durationSec,
+                                              const QString& qualityBadge);
 };
 
 // Value type for the machine-status snapshot. One serializer (toJson) is the

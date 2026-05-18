@@ -47,12 +47,16 @@ the iOS ObjC++ bridge `#include`s the header directly (not a mirror).
 | `lastShot.qualityBadge` | string \| absent | — | present only when non-empty |
 | `capturedAt` | string | ISO-8601 with UTC offset (or `Z`) | `dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate)` |
 
-## Phase labels (authoritative)
+## Phase labels
 
-Consumers map the raw `phase` string to a short widget label so it fits the
-smallest widget size without truncation. This table is authoritative; the iOS
-`WidgetPhase.labels` and Android `MachineStatusWidgetProvider.PHASE_LABELS`
-mirror it — keep all three in sync. Unknown values fall back to the raw string.
+The canonical source of `phase` values is the C++ `MachineState::Phase`
+enum. Consumers map each raw string to a short widget label so it fits the
+smallest widget size without truncation. This table, the iOS
+`WidgetPhase.labels`, and the Android `MachineStatusWidgetProvider.PHASE_LABELS`
+are all hand-maintained mirrors of that enum — when a `Phase` enumerator is
+added/renamed, update all three (and this table). Unknown values fall back to
+the raw string by design, so a missed entry degrades to a longer label, not a
+crash.
 
 | Raw `phase` | Widget label |
 |-------------|--------------|

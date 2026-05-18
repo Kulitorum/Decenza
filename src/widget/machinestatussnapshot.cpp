@@ -3,6 +3,7 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 
+#include <atomic>
 #include <cmath>
 
 #include <QJsonObject>
@@ -22,6 +23,16 @@ extern void decenzaWriteWidgetSnapshotIOS(const QByteArray& json);
 #include <QDir>
 #include <QSaveFile>
 #endif
+
+std::optional<WidgetLastShot> WidgetLastShot::make(double yieldG,
+                                                   double durationSec,
+                                                   const QString& qualityBadge)
+{
+    if (!std::isfinite(yieldG) || !std::isfinite(durationSec)
+        || yieldG < 0.0 || durationSec < 0.0)
+        return std::nullopt;
+    return WidgetLastShot{ yieldG, durationSec, qualityBadge };
+}
 
 // --- WidgetSnapshot: the single serializer -----------------------------------
 
@@ -87,12 +98,21 @@ MachineStatusSnapshot::~MachineStatusSnapshot()
 void MachineStatusSnapshot::setLastShot(double yieldG, double durationSec,
                                         const QString& qualityBadge)
 {
-    // Single writer-side validity guard so all three platform readers can
-    // stay thin (iOS in particular renders NaN/Inf verbatim otherwise).
-    if (!std::isfinite(yieldG) || !std::isfinite(durationSec)
-        || yieldG < 0.0 || durationSec < 0.0)
+    auto shot = WidgetLastShot::make(yieldG, durationSec, qualityBadge);
+    if (!shot) {
+        // This setter is wired to the finalized shotSaved path, so an
+        // invalid value here means that contract was violated (e.g. a
+        // ShotDataModel sentinel like stopTime == -1) — surface it once
+        // instead of silently never updating the widget's last-shot line.
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            qWarning() << "[widget] setLastShot rejected non-finalized shot:"
+                       << "yieldG" << yieldG << "durationSec" << durationSec;
+        }
         return;
-    m_lastShot = WidgetLastShot{ yieldG, durationSec, qualityBadge };
+    }
+    m_lastShot = shot;
     flush();
 }
 
@@ -131,7 +151,10 @@ WidgetSnapshot MachineStatusSnapshot::buildSnapshot() const
     s.connected = m_device && m_device->isConnected();
     if (m_machineState)
         s.phase = m_machineState->phaseString();
-    if (m_device) {
+    // Only carry temperatures when actually connected — readers gate on
+    // `connected` anyway, so emitting them while disconnected would just be
+    // dishonest, self-contradicting JSON.
+    if (s.connected) {
         s.temperatureC = m_device->temperature();
         s.targetTemperatureC = m_device->goalTemperature();
         s.steamTemperatureC = m_device->steamTemperature();
@@ -169,6 +192,13 @@ void MachineStatusSnapshot::publishDisconnected()
     // same aboutToQuit teardown can't spawn a worker that outlives us, then
     // write synchronously (the event loop is going away).
     m_shuttingDown = true;
+    // Join any in-flight workers first so a flush that started just before
+    // shutdown can't commit AFTER this disconnected write and leave a stale
+    // connected=true snapshot on disk.
+    for (QThread* w : std::as_const(m_workers)) {
+        if (w)
+            w->wait();
+    }
     WidgetSnapshot s;          // connected=false, phase="Disconnected"
     platformWrite(s.toJson());
 }
@@ -179,13 +209,16 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     // makes the widget show "Disconnected" while the machine is live, so it
     // must leave one searchable breadcrumb (throttled to avoid flush-rate
     // spam).
-    static int failCount = 0;
+    // platformWrite runs on a fresh worker thread per flush; the throttle
+    // counter must be atomic. Snapshot once via fetch_add so the gate and
+    // the printed occurrence number are consistent.
+    static std::atomic<int> failCount{0};
     auto logFail = [](const char* what) {
-        if (failCount == 0 || failCount % 100 == 0)
+        const int n = failCount.fetch_add(1);
+        if (n == 0 || n % 100 == 0)
             qWarning().noquote()
                 << "[widget] snapshot write failed:" << what
-                << "(occurrence" << (failCount + 1) << ")";
-        ++failCount;
+                << "(occurrence" << (n + 1) << ")";
     };
 
 #if defined(Q_OS_ANDROID)

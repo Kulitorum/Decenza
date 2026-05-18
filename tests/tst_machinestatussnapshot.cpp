@@ -3,6 +3,8 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QDir>
+#include <QFile>
 
 #include "widget/machinestatussnapshot.h"
 #include "widget/widgetsharedkeys.h"
@@ -16,10 +18,23 @@
 class tst_MachineStatusSnapshot : public QObject {
     Q_OBJECT
 
+    QString widgetDir() const {
+        return QStandardPaths::writableLocation(
+                   QStandardPaths::AppDataLocation)
+               + QDir::separator()
+               + QString::fromUtf8(WidgetSharedKeys::kDesktopSubdir);
+    }
+
 private slots:
     void initTestCase() {
-        // Keep snapshot file writes out of the real app data dir.
+        // Keep snapshot writes out of the real app data dir, and guarantee
+        // the desktop platformWrite path is writable so it never emits the
+        // failure qWarning (project no-WARN rule, docs/CLAUDE_MD/TESTING.md).
         QStandardPaths::setTestModeEnabled(true);
+        QVERIFY(QDir().mkpath(widgetDir()));
+        QFileInfo fi(widgetDir());
+        QVERIFY2(fi.isWritable(),
+                 qPrintable("widget dir not writable: " + widgetDir()));
     }
 
     void schema_capturedAt_isoOffset() {
@@ -73,6 +88,16 @@ private slots:
                  QStringLiteral("channeling"));
     }
 
+    void widgetLastShot_makeRejectsInvalid() {
+        QVERIFY(!WidgetLastShot::make(std::nan(""), 28.0, {}).has_value());
+        QVERIFY(!WidgetLastShot::make(36.0, -1.0, {}).has_value());
+        QVERIFY(!WidgetLastShot::make(-2.0, 28.0, {}).has_value());
+        auto ok = WidgetLastShot::make(36.1, 28.4, QStringLiteral("ok"));
+        QVERIFY(ok.has_value());
+        QCOMPARE(ok->yieldG, 36.1);
+        QCOMPARE(ok->qualityBadge, QStringLiteral("ok"));
+    }
+
     void publishDisconnected_isHonest() {
         WidgetSnapshot s;   // defaults are the disconnected payload
         const QJsonObject o = QJsonDocument::fromJson(s.toJson()).object();
@@ -84,8 +109,42 @@ private slots:
                                       Qt::ISODate).isValid());
     }
 
+    void buildSnapshot_reflectsConnectedDevice() {
+        DE1Device device;
+        device.m_simulationMode = true;          // isConnected() → true
+        device.m_headTemp = 92.0;
+        device.m_goalTemperature = 93.0;
+        device.m_steamTemp = 20.0;
+        MachineState state(&device);
+        state.m_phase = MachineState::Phase::Ready;
+
+        MachineStatusSnapshot snap(&device, &state);
+        const WidgetSnapshot s = snap.buildSnapshot();
+
+        QVERIFY(s.connected);
+        QCOMPARE(s.phase, QStringLiteral("Ready"));
+        QVERIFY(s.temperatureC.has_value());
+        QCOMPARE(*s.temperatureC, 92.0);
+        QCOMPARE(*s.targetTemperatureC, 93.0);
+    }
+
+    void disconnectedSnapshot_omitsTemperatures() {
+        DE1Device device;                        // not connected
+        device.m_headTemp = 92.0;
+        MachineState state(&device);
+        MachineStatusSnapshot snap(&device, &state);
+        const WidgetSnapshot s = snap.buildSnapshot();
+        QVERIFY(!s.connected);
+        QVERIFY(!s.temperatureC.has_value());    // honest: no temp when down
+    }
+
     void setLastShot_rejectsNonFiniteAndNegative() {
         MachineStatusSnapshot snap(nullptr, nullptr);
+
+        // The reject path warns exactly once per process by design — assert
+        // it fires (and consume it so it doesn't trip the no-WARN rule).
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            "\\[widget\\] setLastShot rejected non-finalized shot"));
 
         snap.setLastShot(std::nan(""), 28.0);
         QVERIFY(!snap.buildSnapshot().lastShot.has_value());
@@ -131,6 +190,22 @@ private slots:
         snap.onSampleReceived();
         QVERIFY(snap.m_lastTempKeyC.has_value());
         QCOMPARE(*snap.m_lastTempKeyC, 135);
+    }
+
+    void desktopWrite_roundTrips() {
+        MachineStatusSnapshot snap(nullptr, nullptr);
+        snap.publishDisconnected();   // synchronous desktop file write
+
+        const QString path = widgetDir() + QDir::separator()
+            + QString::fromUtf8(WidgetSharedKeys::kDesktopFileName);
+
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::ReadOnly),
+                 qPrintable("snapshot file not written: " + path));
+        const QJsonObject o =
+            QJsonDocument::fromJson(f.readAll()).object();
+        QCOMPARE(o["connected"].toBool(), false);
+        QCOMPARE(o["phase"].toString(), QStringLiteral("Disconnected"));
     }
 };
 
