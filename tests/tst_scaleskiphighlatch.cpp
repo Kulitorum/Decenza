@@ -169,9 +169,89 @@ private slots:
         s.clearConnectionPriorityLatch();
     }
 
+    // --- Backoff policy mode persistence (observe-mode change) ---
+
+    void cpModeDefaultsEmptyAndRoundTrips() {
+        SettingsHardware s;
+        s.clearConnectionPriorityLatch();
+        QVERIFY(s.cpMode().isEmpty());          // absent ⇒ caller treats as enforce
+        s.setCpMode(QStringLiteral("observe"));
+        QCOMPARE(s.cpMode(), QStringLiteral("observe"));
+        SettingsHardware s2;                    // simulated restart
+        QCOMPARE(s2.cpMode(), QStringLiteral("observe"));
+        s.setCpMode(QStringLiteral("enforce"));
+        QCOMPARE(SettingsHardware().cpMode(), QStringLiteral("enforce"));
+    }
+
+    // The critical correctness fix: clearing the latch (MCP reset /
+    // new-build re-detect) must NOT wipe the sibling policyMode key.
+    void cpModeSurvivesLatchClear() {
+        SettingsHardware s;
+        s.setCpMode(QStringLiteral("observe"));
+        s.setConnectionPriorityLatch(QStringLiteral("scale-feed-stall"),
+                                     QDateTime::currentDateTime().toString(Qt::ISODate),
+                                     3388);
+        QVERIFY(s.cpLatched());
+
+        s.clearConnectionPriorityLatch();       // narrowed to the 4 latch keys
+
+        QVERIFY(!s.cpLatched());                // latch gone
+        QCOMPARE(s.cpMode(), QStringLiteral("observe"));  // mode preserved
+        QVERIFY(s.cpTriggerKind().isEmpty());   // no stale latch metadata
+        QVERIFY(s.cpSetTimeIso().isEmpty());
+        QCOMPARE(s.cpBuildCode(), 0);
+        s.setCpMode(QString());                 // tidy for the next test
+    }
+
+    // --- ObserveEvent factories + ObserveEventRing (observe-mode change) ---
+
+    void observeEventFactoriesStampAndClamp() {
+        using OE = BLEManager::ObserveEvent;
+        const OE w = OE::wouldBackoff(QStringLiteral("scale-feed-stall"), 4.2);
+        QCOMPARE(w.kind, QStringLiteral("wouldBackoff"));
+        QCOMPARE(w.triggerKind, QStringLiteral("scale-feed-stall"));
+        QCOMPARE(w.durationSec, 4.2);
+        QVERIFY(w.time.isValid());
+
+        const OE r = OE::recovered(QStringLiteral("scale-feed-stall"), 7.5);
+        QCOMPARE(r.kind, QStringLiteral("recovered"));
+        QCOMPARE(r.durationSec, 7.5);
+
+        // Negative ("n/a", e.g. de1-fault-cluster wouldBackoff) clamps to 0 —
+        // the kind↔duration-meaning correlation cannot be set wrong.
+        const OE n = OE::wouldBackoff(QStringLiteral("de1-fault-cluster"), -1.0);
+        QCOMPARE(n.durationSec, 0.0);
+        QCOMPARE(n.kind, QStringLiteral("wouldBackoff"));
+    }
+
+    void observeRingIsNewestFirst() {
+        BLEManager::ObserveEventRing ring;
+        for (int i = 0; i < 3; ++i)
+            ring.append(BLEManager::ObserveEvent::wouldBackoff(
+                QStringLiteral("scale-feed-stall"), double(i)));
+        const auto out = ring.snapshotNewestFirst();
+        QCOMPARE(out.size(), qsizetype(3));
+        QCOMPARE(out[0].durationSec, 2.0);  // most recent first
+        QCOMPARE(out[1].durationSec, 1.0);
+        QCOMPARE(out[2].durationSec, 0.0);  // oldest last
+    }
+
+    void observeRingBoundsAtCapacityDroppingOldest() {
+        BLEManager::ObserveEventRing ring;
+        const int cap = BLEManager::ObserveEventRing::kCapacity;
+        for (int i = 0; i < cap + 5; ++i)
+            ring.append(BLEManager::ObserveEvent::recovered(
+                QStringLiteral("scale-feed-stall"), double(i)));
+        const auto out = ring.snapshotNewestFirst();
+        QCOMPARE(out.size(), qsizetype(cap));         // bounded
+        QCOMPARE(out.first().durationSec, double(cap + 4));  // newest kept
+        QCOMPARE(out.last().durationSec, 5.0);        // 0..4 dropped (oldest)
+    }
+
     void cleanupTestCase() {
         SettingsHardware s;
         s.clearConnectionPriorityLatch();
+        s.setCpMode(QString());
     }
 };
 

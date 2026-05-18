@@ -44,7 +44,8 @@ public slots:
     // any in-shot scale-feed stall, triggers the skip-HIGH + self-reconnect
     // backoff. No-ops once backed off or when starting at BALANCED.
     void onDe1LinkFault(const QString& kind) override;
-    void onScaleFeedStalled() override;
+    void onScaleFeedStalled(qint64 gapMs) override;
+    void onScaleFeedResumed(qint64 gapMs) override;
 
 private slots:
     void onControllerConnected();
@@ -70,6 +71,12 @@ private:
     // `triggerKind` is the stable MCP/diagnostic tag for the latch metadata
     // ("de1-fault-cluster" or "scale-feed-stall").
     void triggerScaleBackoff(const char* reason, const QString& triggerKind);
+    // Observe-mode counterpart of triggerScaleBackoff(): WARN-logs the
+    // would-have-fired event and records it on the BLEManager observe ring,
+    // but takes NO action (no latch, no disconnect, link stays HIGH).
+    // `stallSec` < 0 means "not applicable" (e.g. DE1-fault-cluster).
+    void logWouldBackoff(const QString& reason, const QString& triggerKind,
+                         double stallSec);
     int64_t nowMs();  // monotonic ms for the detector window
 
     QLowEnergyController* m_controller = nullptr;

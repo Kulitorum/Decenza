@@ -11,6 +11,8 @@
 #include <QStringList>
 #include <QFile>
 #include <QDateTime>
+#include <QMutex>
+#include <atomic>
 
 #include "blecapability.h"
 
@@ -154,6 +156,97 @@ public:
     QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
     QDateTime appStartTime() const { return m_appStartTime; }
 
+    // --- Backoff policy mode (observe-mode change) ---
+    // A persistent, MCP-controlled policy dimension layered on the dual-HIGH
+    // backoff. `Enforce` (default) is byte-identical to the pre-change
+    // behavior. `Observe` makes detection inert-but-observable: the transport
+    // forces HIGH (overriding, but not erasing, any persisted latch) and logs
+    // "would back off" / recovery events instead of acting. The mode is
+    // deliberately NOT build-scoped (unlike the latch) — it survives restarts
+    // and build upgrades until explicitly changed.
+    enum class BackoffMode { Enforce, Observe };
+    static BackoffMode backoffModeFromString(const QString& s) {
+        return s == QLatin1String("observe") ? BackoffMode::Observe
+                                             : BackoffMode::Enforce;
+    }
+    static QString backoffModeToString(BackoffMode m) {
+        return m == BackoffMode::Observe ? QStringLiteral("observe")
+                                         : QStringLiteral("enforce");
+    }
+    // m_backoffMode is written via a queued invoke on the BLEManager thread
+    // (setBackoffMode) and read from the transport + MCP threads, so it is
+    // std::atomic — a lock-free, eventually-consistent read. (The skip-HIGH
+    // latch two members up is read the same way and was historically
+    // unsynchronised; this closes that class of race for the new field.)
+    BackoffMode backoffMode() const {
+        return m_backoffMode.load(std::memory_order_relaxed);
+    }
+    bool observeMode() const { return backoffMode() == BackoffMode::Observe; }
+    // Set + write through to the (non-build-scoped) persisted store. Does NOT
+    // touch the latch (observe overrides it at the transport; the latch value
+    // is preserved so switching back to Enforce honours it honestly).
+    void setBackoffMode(BackoffMode mode);
+
+    // One recent observe-mode event for the MCP read (the durable record is
+    // the debug log). Construction is ONLY via the two named factories
+    // (mirrors ScaleSkipHighLatch's set()/clear() discipline): they stamp the
+    // time and clamp the duration non-negative, so the kind ↔ duration-meaning
+    // correlation (stallSec for wouldBackoff, gapSec for recovered) cannot be
+    // set wrong at a call site.
+    struct ObserveEvent {
+        QDateTime time;
+        QString triggerKind;    // "scale-feed-stall" | "de1-fault-cluster"
+        QString kind;           // "wouldBackoff" | "recovered"
+        double durationSec = 0; // stallSec (wouldBackoff) / gapSec (recovered)
+
+        static ObserveEvent wouldBackoff(const QString& triggerKind,
+                                         double stallSec) {
+            return { QDateTime::currentDateTime(), triggerKind,
+                     QStringLiteral("wouldBackoff"),
+                     stallSec < 0 ? 0.0 : stallSec };
+        }
+        static ObserveEvent recovered(const QString& triggerKind,
+                                      double gapSec) {
+            return { QDateTime::currentDateTime(), triggerKind,
+                     QStringLiteral("recovered"), gapSec < 0 ? 0.0 : gapSec };
+        }
+    };
+
+    // Bounded, thread-safe ring. Header-inline (like ScaleSkipHighLatch) so it
+    // is unit-testable without linking blemanager.cpp. append() runs on the
+    // transport thread, snapshotNewestFirst() on the MCP thread — the mutex
+    // makes the lock contract un-bypassable: the buffer cannot be touched
+    // except through these two methods, and the bound + newest-first reversal
+    // are owned here, not re-implemented per call site.
+    class ObserveEventRing {
+    public:
+        static constexpr int kCapacity = 20;
+        void append(const ObserveEvent& e) {
+            QMutexLocker lock(&m_mutex);
+            m_events.append(e);
+            while (m_events.size() > kCapacity) m_events.removeFirst();
+        }
+        QList<ObserveEvent> snapshotNewestFirst() const {
+            QMutexLocker lock(&m_mutex);
+            QList<ObserveEvent> out;
+            out.reserve(m_events.size());
+            for (auto it = m_events.crbegin(); it != m_events.crend(); ++it)
+                out.append(*it);
+            return out;
+        }
+    private:
+        QList<ObserveEvent> m_events;
+        mutable QMutex m_mutex;
+    };
+
+    void recordObserveEvent(const ObserveEvent& e) {
+        m_observeEvents.append(e);
+    }
+    // Most-recent-first snapshot (copy — safe to read off-thread).
+    QList<ObserveEvent> recentObserveEvents() const {
+        return m_observeEvents.snapshotNewestFirst();
+    }
+
     // D9: wire the persisted (build-scoped) classification store. Called once
     // at startup BEFORE any BLE connect. Loads a prior classification: if it
     // was set by the CURRENT build it seeds the in-memory latch so the first
@@ -284,6 +377,11 @@ private:
     // intentionally separate from the latch value (different lifetime).
     ScaleSkipHighLatch m_scaleSkipHigh;
     QDateTime m_appStartTime;
+    // Backoff policy mode (observe-mode change). Loaded from SettingsHardware
+    // in setSettings() (not build-scoped); default Enforce until then.
+    // Atomic: written on the BLEManager thread, read on transport + MCP threads.
+    std::atomic<BackoffMode> m_backoffMode { BackoffMode::Enforce };
+    ObserveEventRing m_observeEvents;             // self-locking bounded ring
     // D9: persisted (build-scoped) classification store. Non-owning; the
     // SettingsHardware domain object outlives BLEManager (main()-scoped).
     // Null until setSettings() is wired (and on platforms/tests that don't

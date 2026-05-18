@@ -137,7 +137,32 @@ void SettingsHardware::setConnectionPriorityLatch(const QString& triggerKind,
 }
 
 void SettingsHardware::clearConnectionPriorityLatch() {
-    // Remove the whole group so a later cpLatched() defaults to false and no
-    // stale kind/time/build lingers.
-    m_settings.remove("connectionPriority");
+    // Remove ONLY the four latch sub-keys (not the whole "connectionPriority"
+    // group): a sibling key — connectionPriority/policyMode — must survive a
+    // latch clear (MCP reset / new-build re-detect), since the policy mode is
+    // an explicit operator choice with a different (non-build-scoped) lifetime.
+    // Removing the group would silently wipe the mode. Each absent latch key
+    // then defaults correctly (cpLatched() ⇒ false, etc.).
+    m_settings.remove("connectionPriority/latched");
+    m_settings.remove("connectionPriority/triggerKind");
+    m_settings.remove("connectionPriority/setTimeIso");
+    m_settings.remove("connectionPriority/buildCode");
+}
+
+QString SettingsHardware::cpMode() const {
+    return m_settings.value("connectionPriority/policyMode").toString();
+}
+
+void SettingsHardware::setCpMode(const QString& mode) {
+    m_settings.setValue("connectionPriority/policyMode", mode);
+    // Mirror setConnectionPriorityLatch()'s durability discipline: a silently
+    // dropped write here would look like "mode keeps reverting to enforce"
+    // with no trail. Force a flush and surface a persist failure.
+    m_settings.sync();
+    if (m_settings.status() != QSettings::NoError) {
+        qWarning().noquote()
+            << "[BLE] Failed to PERSIST connection-priority policy mode "
+               "(QSettings status" << static_cast<int>(m_settings.status())
+            << ") — mode change is in-memory-only this run";
+    }
 }

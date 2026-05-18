@@ -604,6 +604,9 @@ private slots:
         wp.setCurrentFrame(0);       // DE1 cadence keeps ticking
 
         QCOMPARE(stallSpy.count(), 1);
+        // The gap carried to observe mode must be the real silent duration
+        // (now − last good sample), not anchored to "now". 3000 ms advanced.
+        QCOMPARE(stallSpy.first().at(0).toLongLong(), qint64(3000));
     }
 
     // Safety invariant: preheat active but tare NOT complete must NOT fire —
@@ -620,6 +623,71 @@ private slots:
         wp.setCurrentFrame(0);
 
         QCOMPARE(stallSpy.count(), 0);  // tare gate keeps shotContext closed
+    }
+
+    // --- scaleFeedResumed recovery edge (observe-mode change) ---
+
+    // After a stall, the first genuine sample emits scaleFeedResumed exactly
+    // once, carrying the silent gap; a second sample does NOT re-emit.
+    void feedResumeEmitsOnceWithGapAfterStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+        QSignalSpy resumeSpy(&wp, &WeightProcessor::scaleFeedResumed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);       // last good sample @ start clock
+
+        m_fakeClock += 3000;         // > kScaleStaleMs of silence
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);       // DE1 tick detects the stall
+        QCOMPARE(stallSpy.count(), 1);
+        QCOMPARE(resumeSpy.count(), 0);  // not recovered yet
+
+        wp.processWeight(0.5);       // genuine sample → recovery edge
+        QCOMPARE(resumeSpy.count(), 1);
+        QCOMPARE(resumeSpy.first().at(0).toLongLong(), qint64(3000));
+
+        m_fakeClock += 250;          // non-batched gap (avoids the unrelated
+                                     // de-jitter "batched before calibration"
+                                     // diagnostic — orthogonal to recovery)
+        wp.processWeight(0.6);       // edge already consumed → no re-emit
+        QCOMPARE(resumeSpy.count(), 1);
+    }
+
+    // No stall ⇒ no resume signal (it is strictly a 1→0 edge).
+    void feedResumeNotEmittedWithoutPriorStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy resumeSpy(&wp, &WeightProcessor::scaleFeedResumed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        feedRising(wp, 0.0, 2.0, 10);   // healthy continuous feed
+
+        QCOMPARE(resumeSpy.count(), 0);
+    }
+
+    // Recovery is observation-only: a stall→resume cycle must not spuriously
+    // drive SAW (stopNow) or frame-exit (skipFrame).
+    void resumeDoesNotAlterSawOrFrameExit() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(1.0);
+        m_fakeClock += 3000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);
+        wp.processWeight(1.2);          // recovery edge
+
+        QCOMPARE(stopSpy.count(), 0);   // far below 36 g target — no SAW
+        QCOMPARE(skipSpy.count(), 0);   // no frame-exit weights configured
     }
 };
 

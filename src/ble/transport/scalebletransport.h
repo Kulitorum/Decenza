@@ -116,7 +116,13 @@ public slots:
      * self-reconnect backoff. Scale-agnostic — no driver code involved.
      */
     virtual void onDe1LinkFault(const QString& kind) { Q_UNUSED(kind); }
-    virtual void onScaleFeedStalled() {}
+    // `gapMs`: how long the feed had been silent at detection. enforce-mode
+    // handlers ignore it (behavior unchanged); observe mode logs it.
+    virtual void onScaleFeedStalled(qint64 gapMs) { Q_UNUSED(gapMs); }
+    // Recovery counterpart (observe-mode change): a previously-stalled feed
+    // resumed on its own. `gapMs` is the measured silent duration. Default
+    // no-op; only QtScaleBleTransport logs it (observe mode).
+    virtual void onScaleFeedResumed(qint64 gapMs) { Q_UNUSED(gapMs); }
 
 signals:
     /**
