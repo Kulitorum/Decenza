@@ -1,0 +1,49 @@
+name: Warm main branch cache
+
+# A release published as non-prerelease (typically a pre-release promoted via
+# `gh release edit --prerelease=false`) is not a tag push or workflow_dispatch, so
+# the 6 build workflows never re-run at that moment. This workflow listens for that
+# `release: released` event and dispatches each build on `main`, seeding main-scoped
+# Qt + ccache caches so the next real release can restore them instead of building
+# fully cold. See issue #1213.
+
+on:
+  release:
+    types: [released]
+
+permissions:
+  actions: write
+
+concurrency:
+  group: warm-main-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch build workflows on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          failed=()
+          for wf in \
+            android-release.yml \
+            ios-release.yml \
+            linux-release.yml \
+            linux-arm64-release.yml \
+            macos-release.yml \
+            windows-release.yml; do
+            if gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref main; then
+              echo "- \`$wf\`: dispatched" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::Cache-warm dispatch of $wf failed (non-fatal)"
+              echo "- \`$wf\`: FAILED to dispatch" >> "$GITHUB_STEP_SUMMARY"
+              failed+=("$wf")
+            fi
+          done
+          # Non-fatal by design (worst case: next release builds cold). Stay green,
+          # but make total failure loud — that means the warm mechanism is dead.
+          if [ ${#failed[@]} -eq 6 ]; then
+            echo "::error::All 6 cache-warm dispatches failed — warm mechanism is broken; next release will build cold."
+          fi
