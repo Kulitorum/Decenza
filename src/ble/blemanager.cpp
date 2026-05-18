@@ -139,18 +139,30 @@ void BLEManager::setSettings(SettingsHardware* settings)
     const int storedBuild = m_settings->cpBuildCode();
     if (storedBuild == versionCode()) {
         // Same build → rehydrate the in-memory latch from the persisted
-        // record, preserving the ORIGINAL trigger kind + set-time (do NOT
-        // call ScaleSkipHighLatch::set(), which would re-stamp the time).
-        m_scaleSkipHigh.latched = true;
-        const QString kind = m_settings->cpTriggerKind();
-        m_scaleSkipHigh.triggerKind = kind.isEmpty() ? QStringLiteral("unknown") : kind;
-        m_scaleSkipHigh.setTime =
-            QDateTime::fromString(m_settings->cpSetTimeIso(), Qt::ISODate);
+        // record. rehydrate() preserves the ORIGINAL set-time (unlike set(),
+        // which would re-stamp it) and sanitises possibly-corrupt persisted
+        // input so the ScaleSkipHighLatch invariant ("kind non-empty AND time
+        // valid IFF latched") holds even on a partial write / manual edit /
+        // ISO-format drift. It returns false iff the stored timestamp was
+        // invalid and had to be substituted — log that anomaly (otherwise the
+        // MCP read would silently show a latched device with no set-time and
+        // no debug trail explaining why).
+        const QString isoIn = m_settings->cpSetTimeIso();
+        const bool timeOk = m_scaleSkipHigh.rehydrate(
+            m_settings->cpTriggerKind(),
+            QDateTime::fromString(isoIn, Qt::ISODate));
         qWarning().noquote()
             << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
                   "classification (build %1, trigger=%2) — BOTH BLE links "
                   "will start at BALANCED this run (no detection window)")
                    .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind);
+        if (!timeOk) {
+            qWarning().noquote()
+                << QStringLiteral("[BLE] Persisted connection-priority set-time "
+                      "was invalid/missing (stored=\"%1\") — substituted "
+                      "current time; classification kept (it is the "
+                      "load-bearing fact)").arg(isoIn);
+        }
     } else {
         // Build changed → the build-scoped safety valve: discard + wipe so a
         // (possibly mis-classified) device re-detects from scratch on every

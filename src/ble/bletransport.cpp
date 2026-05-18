@@ -356,9 +356,11 @@ void BleTransport::onControllerConnected() {
     // renegotiate a live link (consistent with the scale path / #1185).
     // Capable hardware never latches ⇒ DE1 keeps HIGH ⇒ no regression.
     // Logged in BOTH branches: this is the only DE1-side connection-priority
-    // log line — it closes the long-standing DE1-priority observability gap
-    // (Android never confirms the negotiated interval; QTBUG: no
-    // connectionUpdated() signal).
+    // log line — it closes the long-standing DE1-priority observability gap.
+    // (Android never confirms the negotiated interval: the Qt
+    // connectionUpdated() signal exists but Android's BLE stack does not
+    // reliably fire the underlying onConnectionUpdated callback, so Qt never
+    // emits it in practice — no negotiated-interval feedback is available.)
 #ifndef DECENZA_TESTING
     if (auto* mgr = BLEManager::instance(); mgr && mgr->scaleSkipHighPriority()) {
         log(QString("DE1 connection-priority: skipping HIGH "
@@ -371,10 +373,11 @@ void BleTransport::onControllerConnected() {
         m_controller->requestConnectionUpdate(params);
     }
 #else
-    // Test build: blemanager.h is intentionally not linked (see the
-    // #ifndef DECENZA_TESTING include guard at the top of this file), so the
-    // latch is unavailable here — keep the original unconditional HIGH
-    // request. Production builds always take the branch above.
+    // Test build: blemanager.h is intentionally not included (see the
+    // #ifndef DECENZA_TESTING include guard at the top of this file) and
+    // blemanager.cpp is not linked, so BLEManager::instance() is unavailable
+    // here — keep the original unconditional HIGH request. Production builds
+    // (DECENZA_TESTING never defined) always take the latch-aware branch above.
     QLowEnergyConnectionParameters params;
     m_controller->requestConnectionUpdate(params);
 #endif

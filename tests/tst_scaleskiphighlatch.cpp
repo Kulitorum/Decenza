@@ -66,6 +66,39 @@ private slots:
         QVERIFY(l.latched);
     }
 
+    // rehydrate(): the persistence trust boundary. Unlike set() it preserves
+    // the original set-time, and it sanitises corrupt persisted input so the
+    // "kind non-empty AND time valid IFF latched" invariant cannot be broken
+    // by a partial write / manual edit / ISO drift (review finding A).
+
+    void rehydrateValidPreservesOriginalTime() {
+        BLEManager::ScaleSkipHighLatch l;
+        const QDateTime original = QDateTime::currentDateTime().addSecs(-3600);
+        QVERIFY(l.rehydrate(QStringLiteral("scale-feed-stall"), original));
+        QVERIFY(l.latched);
+        QCOMPARE(l.triggerKind, QStringLiteral("scale-feed-stall"));
+        QCOMPARE(l.setTime, original);  // preserved, NOT re-stamped (vs set())
+    }
+
+    void rehydrateEmptyKindBecomesUnknown() {
+        BLEManager::ScaleSkipHighLatch l;
+        QVERIFY(l.rehydrate(QString(), QDateTime::currentDateTime()));
+        QVERIFY(l.latched);
+        QCOMPARE(l.triggerKind, QStringLiteral("unknown"));
+    }
+
+    void rehydrateInvalidTimeSanitisedInvariantHolds() {
+        BLEManager::ScaleSkipHighLatch l;
+        // Corrupt/missing persisted timestamp → fromString() yields invalid.
+        const bool timeOk =
+            l.rehydrate(QStringLiteral("de1-fault-cluster"),
+                        QDateTime::fromString(QStringLiteral("garbled"), Qt::ISODate));
+        QVERIFY(!timeOk);                 // signals the anomaly for logging
+        QVERIFY(l.latched);               // classification kept (load-bearing)
+        QCOMPARE(l.triggerKind, QStringLiteral("de1-fault-cluster"));
+        QVERIFY(l.setTime.isValid());     // substituted — invariant intact
+    }
+
     // --- D9: SettingsHardware persisted record (build-scoped store) ---
 
     void initTestCase() {
@@ -112,6 +145,27 @@ private slots:
                                      QStringLiteral("2026-05-18T12:00:00"), 3388);
         QCOMPARE(s.cpBuildCode(), 3388);   // same-build path would seed
         QVERIFY(s.cpBuildCode() != 3389);  // different-build path would wipe
+        s.clearConnectionPriorityLatch();
+    }
+
+    void isoSetTimeRoundTripsToValidDateTime() {
+        // The exact path BLEManager::setSettings() depends on: a timestamp
+        // written via toString(Qt::ISODate) must parse back via
+        // fromString(Qt::ISODate) to a VALID, equivalent QDateTime. If Qt's
+        // ISO write/read ever diverge (platform/locale/tz), setSettings()
+        // would silently seed an invalid set-time (review finding / test gap).
+        SettingsHardware s;
+        const QDateTime before = QDateTime::currentDateTime();
+        s.setConnectionPriorityLatch(QStringLiteral("scale-feed-stall"),
+                                     before.toString(Qt::ISODate), 3388);
+
+        const QDateTime parsed =
+            QDateTime::fromString(s.cpSetTimeIso(), Qt::ISODate);
+        QVERIFY2(parsed.isValid(),
+                 qPrintable(QStringLiteral("ISO round-trip invalid: stored=\"%1\"")
+                                .arg(s.cpSetTimeIso())));
+        // toString(Qt::ISODate) drops sub-second precision → allow 1 s.
+        QVERIFY(qAbs(parsed.secsTo(before)) <= 1);
         s.clearConnectionPriorityLatch();
     }
 

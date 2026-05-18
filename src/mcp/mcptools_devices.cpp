@@ -100,17 +100,22 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             }
             result["bleAvailable"] = bleManager != nullptr;
 
-            // Scale connection-priority (dual-HIGH backoff) state — in-memory,
-            // app-run-scoped only (no persistence; an app restart clears it).
+            // Scale connection-priority (dual-HIGH backoff) state. Persisted,
+            // build-scoped (D9): a same-build restart rehydrates it; a new
+            // build, or this MCP reset, re-detects from scratch.
             QJsonObject sp;
             const bool latched = bleManager && bleManager->scaleSkipHighPriority();
             sp["scaleLinkPriority"] = latched ? "balanced" : "high";
             sp["latchedToBalanced"] = latched;
             // "Not suppressed by the latch" — not a guarantee detection is
             // armed right now (that additionally needs a scale connected at
-            // HIGH; the latch is the dominant, app-run-scoped signal).
+            // HIGH; the latch is the dominant signal).
             sp["detectionActive"] = !latched;
-            sp["persisted"] = false;  // by design (D2) — app restart re-detects
+            // D9: build-scoped QSettings persistence. A same-build restart
+            // keeps this latched (no detection window); a new app build, or
+            // the devices_reset_scale_priority tool, clears it.
+            sp["persisted"] = true;
+            sp["persistenceScope"] = "build";
             if (latched) {
                 sp["triggerKind"] = bleManager->scaleSkipHighTriggerKind();
                 const QDateTime setT = bleManager->scaleSkipHighSetTime();
@@ -132,18 +137,21 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         },
         "read");
 
-    // devices_reset_scale_priority — clears the in-memory dual-HIGH backoff
-    // latch (the only operator path; there is intentionally no UI). Takes
-    // effect on the next scale (re)connect's detection pass: eventually-
-    // consistent, no forced teardown of a live connection.
+    // devices_reset_scale_priority — clears the dual-HIGH backoff latch, both
+    // in-memory AND the persisted (build-scoped) record (the only operator
+    // path; there is intentionally no UI). Takes effect on the next scale
+    // (re)connect's detection pass: eventually-consistent, no forced teardown
+    // of a live connection. Durable: a same-build restart will NOT rehydrate.
     registry->registerTool(
         "devices_reset_scale_priority",
-        "Reset (clear) the in-memory scale connection-priority dual-HIGH "
-        "backoff latch. After reset, the next scale (re)connect requests HIGH "
-        "and re-enters detection (including the startup probe) as if seen for "
-        "the first time this run. Eventually-consistent: it does NOT tear down "
-        "a currently-connected scale. Use to recover from a false-positive or "
-        "to re-test a device.",
+        "Reset (clear) the scale connection-priority dual-HIGH backoff latch — "
+        "both the in-memory latch and the persisted (build-scoped) record. The "
+        "reset is durable: a same-build app restart will NOT re-apply it. After "
+        "reset, the next scale (re)connect requests HIGH and re-enters "
+        "detection (including the startup probe) as if the device were seen "
+        "for the first time. Eventually-consistent: it does NOT tear down a "
+        "currently-connected scale. Use to recover from a false-positive or to "
+        "re-test a device.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"confirmed", QJsonObject{{"type", "boolean"},
                 {"description", "Set to true after the user confirms this action in chat"}}}
