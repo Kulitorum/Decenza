@@ -844,9 +844,6 @@ Page {
         property bool profileIsAutoLoad: false
         property bool viewIsSelectedList: false
 
-        Accessible.role: Accessible.Dialog
-        Accessible.name: TranslationManager.translate("profileselector.dialog.profile_actions_title", "Profile actions") + (profileTitle ? ": " + profileTitle : "")
-
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
@@ -856,6 +853,12 @@ Page {
 
         contentItem: ColumnLayout {
             spacing: Theme.scaled(12)
+
+            // Accessible.* must attach to an Item-derived object; Dialog
+            // (a Popup) is not one, so the dialog semantics live on its
+            // contentItem instead.
+            Accessible.role: Accessible.Dialog
+            Accessible.name: TranslationManager.translate("profileselector.dialog.profile_actions_title", "Profile actions") + (profileActionsDialog.profileTitle ? ": " + profileActionsDialog.profileTitle : "")
 
             Text {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -1315,6 +1318,12 @@ Page {
             implicitHeight: copyProfileColumn.implicitHeight
             implicitWidth: copyProfileColumn.implicitWidth
 
+            // Accessible.* must attach to an Item-derived object; Dialog
+            // (a Popup) is not one, so the dialog semantics live on its
+            // contentItem instead.
+            Accessible.role: Accessible.Dialog
+            Accessible.name: TranslationManager.translate("profileselector.copyProfile.title", "Copy Profile")
+
             ColumnLayout {
                 id: copyProfileColumn
                 anchors.fill: parent
@@ -1396,9 +1405,6 @@ Page {
             radius: Theme.scaled(8)
             border.color: Theme.borderColor
         }
-
-        Accessible.role: Accessible.Dialog
-        Accessible.name: TranslationManager.translate("profileselector.copyProfile.title", "Copy Profile")
     }
 
     // Toast notification
