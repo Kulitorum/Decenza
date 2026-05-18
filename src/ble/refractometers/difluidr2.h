@@ -17,9 +17,11 @@ class ScaleBleTransport;
  * Service 0x00FF, characteristic 0xAA01.
  *
  * Emits tdsChanged on every completed measurement, including device-initiated
- * ones (physical button on the R2, idle polls). Physically-impossible readings
- * (the R2's out-of-range error sentinel) are dropped here so they can never be
- * persisted; consumers must still gate by context (which shot is loaded).
+ * ones (the physical button on the R2). Physically-impossible readings (the
+ * R2's out-of-range error sentinel, above MAX_PLAUSIBLE_TDS) are dropped here
+ * so they can never be persisted. This is the only validation the driver does:
+ * the sub-threshold lower-bound plausibility filter (sub-3%) and context
+ * gating (which shot is loaded) remain the consumer's responsibility.
  */
 class DiFluidR2 : public QObject {
     Q_OBJECT
