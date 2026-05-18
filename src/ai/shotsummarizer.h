@@ -404,16 +404,32 @@ private:
     // Keyed by `id` — exactly one entry per canonical identity.
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
     // Normalized alias → id (displayName + alsoMatches + editor-type
-    // defaults). The resolver's sole lookup; exact-match-or-unresolved
-    // (the order-dependent greedy startsWith/contains scan is deleted).
+    // defaults). The resolver's exact-match lookup; a miss falls to the
+    // deterministic recipe-prefix step, never the deleted greedy scan.
     static QMap<QString, QString> s_aliasToId;
+    // A recipe alias (normalized) → id, for the deterministic
+    // longest-boundary-prefix step (#1198). Holds the aliases of every
+    // documented profile EXCEPT the defaultForEditorType editor entries
+    // (D2: editors are namespaces, not recipe anchors) and the synthetic
+    // __editor_default__ key. Sorted longest-key-first at load so the
+    // first boundary hit is the longest match (D1 longest-wins, D5 no
+    // new ambiguity class).
+    struct RecipeAlias { QString key; QString id; };
+    static QList<RecipeAlias> s_recipeAliases;
     static bool s_knowledgeLoaded;
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
+    // Deterministic recipe-alias longest-boundary-prefix resolution
+    // (#1198, D1–D5). `normalizedKey` is already normalizeProfileKey'd.
+    // Returns the longest recipe alias's id that the key extends across a
+    // separator boundary ( / - space ASCII-digit ), else "". Prefix only,
+    // never substring; editors excluded as anchors.
+    static QString recipePrefixResolve(const QString& normalizedKey);
     // Resolve any caller kbId (a current `id` OR a legacy normalized
     // title/alias persisted on old shot records, D14a) to a canonical
-    // `id`; "" when unresolved. Exact-match-or-unresolved, never fuzzy.
+    // `id`; "" when unresolved. id-passthrough → exact alias → deterministic
+    // recipe-prefix (#1198); no order-dependent fuzzy scan.
     static QString resolveKbInput(const QString& kbId);
 
     // Profile catalog (compact one-liner per KB profile for cross-profile awareness)

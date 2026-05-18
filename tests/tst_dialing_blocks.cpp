@@ -1259,14 +1259,18 @@ private slots:
         });
     }
 
-    void calibrationBlock_unresolvedCustomTitleEmittedAsRawHistoryRow()
+    void calibrationBlock_recipeVariantTitleResolvesToParentGroup_1198()
     {
-        // New branch: a bean-specific custom title that resolves to NO id
-        // ("D-Flow / Q - Jeff", empty stored kb-id, not a declared alias —
-        // computeProfileKbId is called with empty editorType so the
-        // editor-default escape hatch can't fire). It must surface exactly
-        // once via customMedians, labelled with the RAW title, and must NOT
-        // collapse into or contaminate the d-flow-q-variant group.
+        // #1198 (inverts the former pre-#1198 contract): a bean-specific
+        // renamed variant of a documented recipe ("D-Flow / Q - Jeff",
+        // empty stored kb-id) is NO LONGER an unresolved raw row. The
+        // deterministic recipe-alias longest-boundary-prefix step resolves
+        // it to d-flow-q-variant (via the registered recipe alias
+        // "D-Flow / Q"), so its shots correctly AGGREGATE into that
+        // parent group's history — the collapse the issue explicitly
+        // anticipated. Assert (a) the "D-Flow Q variant" row is now
+        // sourced from history with the variant shots' grind setting, and
+        // (b) there is no longer a separate raw "D-Flow / Q - Jeff" row.
         const QString path = freshDbPath();
         initAndClose(path);
         withRawDb(path, QStringLiteral("calib_custom_history"), [&](QSqlDatabase& db) {
@@ -1297,7 +1301,9 @@ private slots:
                     .uuid = QStringLiteral("u-jeff-%1").arg(i),
                     .timestamp = 3000 + i,
                     .profileName = QStringLiteral("D-Flow / Q - Jeff"),
-                    .profileKbId = QString(),  // empty → resolves to no id
+                    // empty stored kb-id → re-resolved from the title, which
+                    // now prefix-resolves to d-flow-q-variant (#1198)
+                    .profileKbId = QString(),
                     .finalWeight = 36.0,
                     .grinderModel = QStringLiteral("Niche Zero"),
                     .grinderBurrs = QStringLiteral("63mm conical"),
@@ -1311,29 +1317,107 @@ private slots:
             QVERIFY(!r.isEmpty());
 
             const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
-            int jeffRows = 0;
+            int qVariantHistoryRows = 0;
+            int rawJeffRows = 0;
             for (const QJsonValue& pv : profiles) {
                 const QJsonObject p = pv.toObject();
                 const QString name = p.value(QStringLiteral("profileName")).toString();
-                // d-flow-q-variant legitimately appears as a cross-profile KB
-                // UGS row, but with NO history shots in this test it must be
-                // derived/extrapolated — never "history". A "history" source
-                // here would mean the custom "D-Flow / Q - Jeff" shots wrongly
-                // collapsed into it (the contamination this guards against).
+                // #1198: the 4 "D-Flow / Q - Jeff" shots (grind 7.0) now
+                // resolve to d-flow-q-variant, so its row is sourced from
+                // THAT history (the correct aggregation the issue wanted),
+                // not derived/extrapolated.
                 if (name == QStringLiteral("D-Flow Q variant")) {
-                    QVERIFY2(p.value(QStringLiteral("source")).toString()
-                                 != QStringLiteral("history"),
-                             "unresolved custom title must not contaminate d-flow-q-variant");
-                }
-                if (name == QStringLiteral("D-Flow / Q - Jeff")) {
-                    ++jeffRows;
+                    ++qVariantHistoryRows;
                     QCOMPARE(p.value(QStringLiteral("source")).toString(),
                              QStringLiteral("history"));
                     QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
                              QStringLiteral("7"));
                 }
+                // The raw title no longer surfaces as its own row — it is
+                // resolved, not unresolved.
+                if (name == QStringLiteral("D-Flow / Q - Jeff"))
+                    ++rawJeffRows;
             }
-            QCOMPARE(jeffRows, 1);  // exactly one row, raw title verbatim
+            QCOMPARE(qVariantHistoryRows, 1);  // variant row, history-sourced
+            QCOMPARE(rawJeffRows, 0);           // no stray raw custom row
+        });
+    }
+
+    // #1198 negative control (restores the integration invariant the
+    // inverted test above used to carry): a FULLY-custom title with no
+    // recipe-prefix match and an empty stored kb-id must still resolve to
+    // NO id, surface exactly once via customMedians as a raw history row
+    // labelled with its verbatim title, and must NOT contaminate any KB
+    // group. "My Morning Pull" does not prefix-match any recipe alias, so
+    // it exercises the still-live unresolved path in
+    // buildGrinderCalibrationBlock that the recipe-prefix step bypasses
+    // for documented variants.
+    void calibrationBlock_fullyCustomTitleStillEmittedAsRawHistoryRow_1198()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_custom_unresolved"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-df-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow"),
+                    .profileKbId = QStringLiteral("d-flow"),
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("6.0")
+                });
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-al-%1").arg(i),
+                    .timestamp = 2000 + i,
+                    .profileName = QStringLiteral("Allonge"),
+                    .profileKbId = QStringLiteral("allonge"),
+                    .finalWeight = 60.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("16.0")
+                });
+            }
+            for (int i = 0; i < 4; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-cust-%1").arg(i),
+                    .timestamp = 3000 + i,
+                    .profileName = QStringLiteral("My Morning Pull"),
+                    .profileKbId = QString(),  // empty AND title has no recipe prefix
+                    .finalWeight = 36.0,
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = QStringLiteral("9.0")
+                });
+            }
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), 0);
+            QVERIFY(!r.isEmpty());
+
+            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
+            int customRows = 0;
+            for (const QJsonValue& pv : profiles) {
+                const QJsonObject p = pv.toObject();
+                const QString name = p.value(QStringLiteral("profileName")).toString();
+                if (name == QStringLiteral("My Morning Pull")) {
+                    ++customRows;
+                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
+                             QStringLiteral("history"));
+                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
+                             QStringLiteral("9"));
+                }
+                // No KB group may be history-sourced from these unresolved
+                // shots: with no history of its own, d-flow-q-variant must
+                // never read "history" (that would be contamination).
+                if (name == QStringLiteral("D-Flow Q variant"))
+                    QVERIFY2(p.value(QStringLiteral("source")).toString()
+                                 != QStringLiteral("history"),
+                             "unresolved custom title must not contaminate a KB group");
+            }
+            QCOMPARE(customRows, 1);  // exactly one raw row, verbatim title
         });
     }
 
@@ -2108,6 +2192,99 @@ private slots:
         // Shared lever-decline behavioral suppression preserved.
         QVERIFY(ShotSummarizer::getAnalysisFlags(kbLP)
                 .contains(QStringLiteral("flow_trend_ok")));
+    }
+
+    // #1198: deterministic recipe-alias longest-boundary-prefix resolution.
+    // A user-renamed/numbered variant of a documented recipe inherits that
+    // recipe's KB entry; built-ins still resolve by exact match; the editor
+    // namespace is never a prefix anchor; matching is profile-general.
+    void recipeVariantPrefixResolution_1198()
+    {
+        const QString kbBase =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / default"),
+                                               QStringLiteral("dflow"));
+        const QString kbQ =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / Q"),
+                                               QStringLiteral("dflow"));
+        const QString kbLP =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / La Pavoni"),
+                                               QStringLiteral("dflow"));
+        QVERIFY(!kbBase.isEmpty());
+        QVERIFY(!kbQ.isEmpty());
+        QVERIFY(!kbLP.isEmpty());
+        QCOMPARE(ShotSummarizer::canonicalNameForKbId(kbQ),
+                 QStringLiteral("D-Flow Q variant"));
+
+        // (3.1a) D-Flow/Q cluster: suffixed, bean-suffixed, numbered, and
+        // hyphen-joined renames all resolve to the Q variant via the
+        // recipe-prefix step (separator ∈ { / - space digit }, D1/D3).
+        for (const QString& t : {
+                 QStringLiteral("D-Flow / Q - Jeff"),
+                 QStringLiteral("D-Flow / Q - Ethiopia Natural"),
+                 QStringLiteral("D-Flow / Q2"),
+                 QStringLiteral("D-Flow / Q3"),
+                 QStringLiteral("D-Flow / Q-Jeff"),
+                 QStringLiteral("Damian's Q - decaf") }) {
+            QCOMPARE(ShotSummarizer::computeProfileKbId(t, QStringLiteral("dflow")), kbQ);
+        }
+        // La Pavoni suffixed → its own variant (longest-prefix wins over the
+        // shorter, excluded "D-Flow" editor anchor), strictly coarser than base.
+        const QString kbLP80 =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / La Pavoni 80s"),
+                                               QStringLiteral("dflow"));
+        QCOMPARE(kbLP80, kbLP);
+        QVERIFY(ShotSummarizer::ugsForKbId(kbLP) > ShotSummarizer::ugsForKbId(kbBase));
+
+        // (3.1b) Generality (D9) — NOT D-Flow-specific. No editor hint, so
+        // resolution is the recipe-prefix step itself, not editor-default.
+        // (normalizeProfileKey folds é→e, so the ASCII form suffices.)
+        const QString kbAdaptive =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Adaptive v2"), QString());
+        const QString kbLond =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Londinium"), QString());
+        const QString kbAllonge =
+            ShotSummarizer::computeProfileKbId(QStringLiteral("Allonge"), QString());
+        QVERIFY(!kbAdaptive.isEmpty());
+        QVERIFY(!kbLond.isEmpty());
+        QVERIFY(!kbAllonge.isEmpty());
+        QCOMPARE(ShotSummarizer::computeProfileKbId(
+                     QStringLiteral("Adaptive v2 - Jeff"), QString()), kbAdaptive);
+        QCOMPARE(ShotSummarizer::computeProfileKbId(
+                     QStringLiteral("Londinium - Jeff"), QString()), kbLond);
+        QCOMPARE(ShotSummarizer::computeProfileKbId(
+                     QStringLiteral("Allonge - decaf"), QString()), kbAllonge);
+
+        // (3.2) Negatives: a following LETTER is not a boundary, so
+        // "D-Flow / Quark" must NOT absorb the "D-Flow / Q" alias, and
+        // "D-FlowX" must NOT absorb "D-Flow". The editor name is not an
+        // anchor (D2): a fully-custom title falls to the editor default
+        // with a hint, and is unresolved without one.
+        QVERIFY(ShotSummarizer::computeProfileKbId(
+                    QStringLiteral("D-Flow / Quark"), QString()).isEmpty());
+        QVERIFY(ShotSummarizer::computeProfileKbId(
+                    QStringLiteral("D-Flow / Quark"), QString()) != kbQ);
+        QCOMPARE(ShotSummarizer::computeProfileKbId(
+                     QStringLiteral("D-FlowX"), QStringLiteral("dflow")), kbBase);
+        QCOMPARE(ShotSummarizer::computeProfileKbId(
+                     QStringLiteral("My Morning Pull"), QStringLiteral("dflow")), kbBase);
+        QVERIFY(ShotSummarizer::computeProfileKbId(
+                    QStringLiteral("My Morning Pull"), QString()).isEmpty());
+
+        // (3.2a / D8) Built-ins resolve by EXACT match and are never
+        // collapsed by the prefix step: the three canonical D-Flow built-ins
+        // stay three distinct entries, exact precedence intact.
+        QVERIFY(kbBase != kbQ);
+        QVERIFY(kbBase != kbLP);
+        QVERIFY(kbQ != kbLP);
+        QCOMPARE(ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / Q"),
+                                                    QStringLiteral("dflow")), kbQ);
+        QCOMPARE(ShotSummarizer::computeProfileKbId(QStringLiteral("Damian's Q"),
+                                                    QStringLiteral("dflow")), kbQ);
+
+        // (3.3 / D6) A legacy persisted normalized-title kbId heals to the
+        // parent recipe id via the SAME shared step (resolveKbId →
+        // resolveKbInput), under the recompute-on-load contract.
+        QCOMPARE(ShotSummarizer::resolveKbId(QStringLiteral("d-flow / q - jeff")), kbQ);
     }
 
     // flag-off-expert-band-in-shot-summary: a shot saved before the
